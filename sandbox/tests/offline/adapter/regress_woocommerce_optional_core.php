@@ -161,9 +161,9 @@ foreach ((array) ($inventory['artifacts'] ?? []) as $version => $sha256) {
     );
 }
 duo_check_same(
-    31,
+    32,
     count((array) ($inventory['source_files'] ?? [])),
-    'the inventory binds all 31 exact optional-core storage writers and registries'
+    'the inventory binds all 32 exact optional-core storage writers, readers, and registries'
 );
 foreach ((array) ($inventory['source_files'] ?? []) as $path => $sha256) {
     duo_check(
@@ -174,8 +174,23 @@ foreach ((array) ($inventory['source_files'] ?? []) as $path => $sha256) {
 }
 duo_check_same(
     [
+        'includes/class-woocommerce.php' => [
+            '11.0.0' => '5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4',
+            '11.0.1' => '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7',
+        ],
+        'src/Internal/OrderReviews/Endpoint.php' => [
+            '11.0.0' => 'dda95b0edb8ac48434477aaf4664f267b477f858ab44da248752557f91bea9c8',
+            '11.0.1' => '326511d748cc282caac2bfaeb22451e5b80f73209dcdbea81c2a4ef32570b6f3',
+        ],
+    ],
+    $inventory['version_specific_source_files'] ?? null,
+    'the optional review-route bootstrap and endpoint behavior bind both exact version-specific artifacts'
+);
+duo_check_same(
+    [
         'block_email_editor',
         'cli_migrator',
+        'customer_review_requests',
         'customer_stock_notifications',
         'email_unsubscribes',
         'fulfillments',
@@ -187,6 +202,36 @@ duo_check_same(
 );
 
 $policy = Policy::load(null, ['woocommerce']);
+
+$reviewFamily = (array) ($inventory['families']['customer_review_requests'] ?? []);
+duo_check_same(
+    ['class' => 'authored', 'ref' => 'post', 'autoload' => 'preserve'],
+    $policy->option_rule('woocommerce_review_order_page_id'),
+    'the customer review host page crosses the portable post identity ledger'
+);
+duo_check_same(
+    'runtime',
+    $policy->option_rule('woocommerce_review_order_flush_rewrite_pending')['class'] ?? null,
+    'the one-request review-route flush marker remains target runtime'
+);
+duo_check_same(
+    [
+        'feature_options' => ['woocommerce_feature_customer_review_request_enabled'],
+        'authored_options' => ['woocommerce_review_order_page_id' => 'post_reference'],
+        'runtime_options' => ['woocommerce_review_order_flush_rewrite_pending'],
+        'derived_options' => ['rewrite_rules'],
+        'native_action' => 'rewrite.flush',
+    ],
+    $reviewFamily,
+    'the optional-core inventory closes the feature, authored page, runtime marker, and derived rewrite split'
+);
+$reviewActions = $policy->actions_for(['option:woocommerce_review_order_page_id']);
+duo_check_same(1, count($reviewActions), 'a review-page identity change selects one bounded native convergence action');
+duo_check_same(
+    ['kind' => 'native', 'action' => 'rewrite.flush', 'args' => []],
+    array_intersect_key((array) ($reviewActions[0] ?? []), array_flip(['kind', 'action', 'args'])),
+    'the review page reuses the hardened fresh-process rewrite action without a manifest-controlled payload'
+);
 
 foreach (['wc_email_sync_backfill_completed_tracked', 'woocommerce_email_template_sync_backfill_complete'] as $name) {
     duo_check_same('runtime', $policy->option_rule($name)['class'] ?? null, "$name is target-local sync state");

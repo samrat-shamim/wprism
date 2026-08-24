@@ -153,6 +153,37 @@ wp_conf1 option update woocommerce_price_num_decimals 6 >/dev/null
 # verify them later through Woo's site-wide native frontend renderer.
 wp_conf1 option update woocommerce_demo_store yes >/dev/null
 wp_conf1 eval "update_option('woocommerce_demo_store_notice', wp_kses_post('<strong>افتتاح المتجر 東京</strong><br>الشحن مجاني'));" >/dev/null
+# Customer Review Request is optional target runtime, but its native host-page
+# selection is merchant-authored content. Resolve the exact 11.0.x service,
+# create the real shortcode page, then give it a non-default Unicode title and
+# stable slug so capture must transport both the page and its option reference.
+SOURCE_REVIEW_PAGE_ID=$(wp_conf1 eval '
+update_option("woocommerce_feature_customer_review_request_enabled", "yes");
+$endpoint = wc_get_container()->get(\Automattic\WooCommerce\Internal\OrderReviews\Endpoint::class);
+$endpoint->maybe_create_host_page();
+$page_id = (int) get_option("woocommerce_review_order_page_id", 0);
+$page = $page_id > 0 ? get_post($page_id) : null;
+if (!$page instanceof WP_Post || "page" !== $page->post_type || false === strpos((string) $page->post_content, "[woocommerce_review_order]")) {
+    throw new RuntimeException("WooCommerce did not create its native Review Order host page");
+}
+$updated = wp_update_post([
+    "ID" => $page_id,
+    "post_title" => "استعراض الطلب 東京",
+    "post_name" => "review-order-source",
+], true);
+if (is_wp_error($updated) || (int) $updated !== $page_id) {
+    throw new RuntimeException("WooCommerce Review Order host-page update failed");
+}
+update_option("woocommerce_review_order_page_id", $page_id);
+update_option("woocommerce_review_order_flush_rewrite_pending", "yes");
+$endpoint->add_rewrite_rule();
+$endpoint->maybe_flush_pending_rewrite();
+if (false !== get_option("woocommerce_review_order_flush_rewrite_pending", false)) {
+    throw new RuntimeException("WooCommerce Review Order rewrite marker survived native flush");
+}
+echo $page_id;
+')
+require_fixture_ids SOURCE_REVIEW_PAGE_ID
 # Exact Woo 11.0.x Customizer-native thumbnail state. The background queue is
 # deliberately not invoked here: checks/woocommerce.sh proves the always-on
 # request path is sufficient when the target starts with stale 300px metadata.
@@ -452,6 +483,7 @@ file_put_contents('/siterepo/.tmp-woocommerce-source.json', wp_json_encode([
   'grouped' => $GROUPED_ID,
   'precision' => $PRECISION_ID,
   'product' => $PID,
+  'review_page' => $SOURCE_REVIEW_PAGE_ID,
   'shipping_class' => $SHIP_CLASS_ID,
   'tag' => $TAG_ID,
   'thumbnail' => $THUMB_ID,
@@ -468,4 +500,4 @@ file_put_contents('/siterepo/.tmp-woocommerce-source.json', wp_json_encode([
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 " >/dev/null
 
-echo "woocommerce seed: category=$CAT_PARENT_ID/$CAT_ID brands=$BRAND_PARENT_ID/$BRAND_CHILD_ID/$BRAND_EXCLUDED_ID tag=$TAG_ID shipping_class=$SHIP_CLASS_ID thumbnail=$THUMB_ID product=$PID precision=$PRECISION_ID external=$EXTERNAL_ID grouped=$GROUPED_ID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID terms=$COLOR_RED_ID,$COLOR_BLUE_ID) zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax_class=$TAX_CLASS_ID tax=$TAX_ID source_runtime_order=$SOURCE_ORDER_ID source_runtime_review=$SOURCE_REVIEW_ID"
+echo "woocommerce seed: category=$CAT_PARENT_ID/$CAT_ID brands=$BRAND_PARENT_ID/$BRAND_CHILD_ID/$BRAND_EXCLUDED_ID tag=$TAG_ID shipping_class=$SHIP_CLASS_ID thumbnail=$THUMB_ID product=$PID precision=$PRECISION_ID external=$EXTERNAL_ID grouped=$GROUPED_ID coupon=$COUPON_ID review_page=$SOURCE_REVIEW_PAGE_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID terms=$COLOR_RED_ID,$COLOR_BLUE_ID) zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax_class=$TAX_CLASS_ID tax=$TAX_ID source_runtime_order=$SOURCE_ORDER_ID source_runtime_review=$SOURCE_REVIEW_ID"

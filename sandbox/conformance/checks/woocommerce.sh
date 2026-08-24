@@ -97,6 +97,27 @@ foreach (is_array($rewriteRules) ? array_keys($rewriteRules) : [] as $rule) {
         $brandRuleCount++;
     }
 }
+$reviewPageId = (int) wc_get_page_id('review_order');
+$reviewPage = $reviewPageId > 0 ? get_post($reviewPageId) : null;
+$reviewPermalink = $reviewPage instanceof WP_Post ? get_permalink($reviewPageId) : false;
+$reviewPath = is_string($reviewPermalink)
+    ? trim((string) wp_make_link_relative($reviewPermalink), '/')
+    : '';
+$reviewRuleKey = '' !== $reviewPath
+    ? '^' . preg_quote($reviewPath, '/') . '/([0-9]+)/?$'
+    : '';
+$reviewRuleExpected = $reviewPageId > 0
+    ? 'index.php?page_id=' . $reviewPageId . '&review-order=$matches[1]'
+    : '';
+$reviewRuleActual = '' !== $reviewRuleKey && is_array($rewriteRules)
+    ? (string) ($rewriteRules[$reviewRuleKey] ?? '')
+    : '';
+$reviewRuleCount = 0;
+foreach (is_array($rewriteRules) ? $rewriteRules : [] as $query) {
+    if (is_string($query) && str_contains($query, '&review-order=$matches[1]')) {
+        $reviewRuleCount++;
+    }
+}
 
 $localAttributes = [];
 foreach ($precision->get_attributes() as $attribute) {
@@ -260,6 +281,7 @@ echo wp_json_encode([
         'grouped' => $groupedId,
         'precision' => $precisionId,
         'product' => $simpleId,
+        'review_page' => $reviewPageId,
         'shipping_class' => $shipping ? (int) $shipping->term_id : 0,
         'tag' => $tag ? (int) $tag->term_id : 0,
         'tax_class' => (int) ($taxClass['tax_rate_class_id'] ?? 0),
@@ -308,6 +330,21 @@ echo wp_json_encode([
         'target_queue' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook='duo_woo_target_runtime_probe'"),
         'target_sessions' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key='duo-target-runtime-session'"),
         'thumbnail_hash' => (string) get_option('woocommerce_maybe_regenerate_images_hash', ''),
+    ],
+    'review_order' => [
+        'content_has_shortcode' => $reviewPage instanceof WP_Post
+            && false !== strpos((string) $reviewPage->post_content, '[woocommerce_review_order]'),
+        'feature' => (string) get_option('woocommerce_feature_customer_review_request_enabled', ''),
+        'id' => $reviewPageId,
+        'marker' => get_option('woocommerce_review_order_flush_rewrite_pending', null),
+        'path' => $reviewPath,
+        'rule_actual' => $reviewRuleActual,
+        'rule_count' => $reviewRuleCount,
+        'rule_expected' => $reviewRuleExpected,
+        'slug' => $reviewPage instanceof WP_Post ? $reviewPage->post_name : '',
+        'status' => $reviewPage instanceof WP_Post ? $reviewPage->post_status : '',
+        'title' => $reviewPage instanceof WP_Post ? $reviewPage->post_title : '',
+        'type' => $reviewPage instanceof WP_Post ? $reviewPage->post_type : '',
     ],
     'shipping' => ['methods' => $zoneMethods, 'tax_class' => $taxClass, 'tax_rate' => $taxRate],
     'simple' => [
@@ -665,6 +702,43 @@ echo "conf2 HPOS runtime check: $ORDER_OUT"
   || fail "HPOS runtime sovereignty failed: source order propagated, target order disappeared, or HPOS is disabled (got: $ORDER_OUT)"
 pass "source-only HPOS order stayed source-only and target-only HPOS order survived apply"
 
+# Drive the exact public helper and routed frontend without ever printing its
+# bearer order key. The route must resolve through the migrated target-local
+# page id and the fresh rewrite projection, not the hostile pre-apply page.
+REVIEW_URL=$($COMPOSE run --rm -T cli2 wp eval '
+$ids = wc_get_orders(["billing_email" => "target-runtime@example.test", "limit" => 2, "return" => "ids"]);
+if (1 !== count($ids)) {
+    throw new RuntimeException("target Review Order fixture is not unique");
+}
+$order = wc_get_order((int) $ids[0]);
+if (!$order instanceof WC_Order) {
+    throw new RuntimeException("target Review Order fixture did not resolve through Woo CRUD");
+}
+$order->set_status("completed");
+$order->save();
+$url = wc_get_review_order_url($order);
+if (!is_string($url) || "" === $url) {
+    throw new RuntimeException("WooCommerce did not generate its native Review Order URL");
+}
+echo $url;
+')
+[ -n "$REVIEW_URL" ] || fail "WooCommerce returned an empty native Review Order URL"
+case "$REVIEW_URL" in
+  "http://localhost:${CONF2_PORT}/review-order-source/"*"/?key="*) ;;
+  *) fail "WooCommerce native Review Order URL did not use the migrated target route" ;;
+esac
+REVIEW_BODY=$(mktemp "${TMPDIR:-/tmp}/duo-woocommerce-review.XXXXXX")
+if ! REVIEW_STATUS=$(curl -sS -o "$REVIEW_BODY" -w '%{http_code}' "$REVIEW_URL"); then
+  rm -f "$REVIEW_BODY"
+  fail "WooCommerce Review Order frontend request failed"
+fi
+if [ "$REVIEW_STATUS" != 200 ] || ! grep -Fq 'استعراض الطلب 東京' "$REVIEW_BODY"; then
+  rm -f "$REVIEW_BODY"
+  fail "WooCommerce Review Order frontend did not render the migrated page with HTTP 200"
+fi
+rm -f "$REVIEW_BODY"
+pass "native Review Order URL resolves the migrated page and fresh rewrite rule without exposing the bearer key"
+
 RUNTIME_OUT=$($COMPOSE run --rm -T cli2 wp eval '
 global $wpdb;
 $source_review = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->comments} WHERE comment_author_email=\"source-review@example.test\"");
@@ -802,6 +876,12 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   .options.store_notice == "<strong>افتتاح المتجر 東京</strong><br>الشحن مجاني" and
   (.options.store_notice_html | contains("<strong>افتتاح المتجر 東京</strong><br>الشحن مجاني")) and
   (.options.store_notice_html | contains("woocommerce-store-notice demo_store")) and
+  .review_order.content_has_shortcode == true and
+  .review_order.feature == "yes" and .review_order.id == .ids.review_page and
+  .review_order.marker == null and .review_order.path == "review-order-source" and
+  .review_order.rule_count == 1 and .review_order.rule_actual == .review_order.rule_expected and
+  .review_order.slug == "review-order-source" and .review_order.status == "publish" and
+  .review_order.title == "استعراض الطلب 東京" and .review_order.type == "page" and
   .simple.title == "Conformance Widget" and
   .precision.title == "Conformance Precision Download 東京 🚀" and
   .precision.regular == "123456789.123456" and .precision.sale == "123456788.654321" and
@@ -869,7 +949,7 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   (.ids | to_entries | all(.value > 2147483647))
 ' <<<"$TARGET" >/dev/null || fail "WooCommerce difficult values/native/runtime state did not converge: $TARGET"
 
-for key in brand_child brand_excluded brand_parent category category_parent color_blue color_red tag shipping_class attribute_color attribute_size tax_class; do
+for key in brand_child brand_excluded brand_parent category category_parent color_blue color_red review_page tag shipping_class attribute_color attribute_size tax_class; do
   SOURCE_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$SOURCE_IDS")
   EXPECTED_TARGET_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$TARGET_IDS")
   OBSERVED_TARGET_ID=$(jq -r --arg key "$key" '.ids[$key]' <<<"$TARGET")
@@ -1082,10 +1162,12 @@ woocommerce_storage_hash() {
       "SELECT option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (" .
       "\"pickup_location_pickup_locations\",\"woocommerce_calc_taxes\"," .
       "\"woocommerce_demo_store\",\"woocommerce_demo_store_notice\"," .
+      "\"woocommerce_feature_customer_review_request_enabled\"," .
       "\"woocommerce_paypal_settings\",\"woocommerce_pickup_location_settings\"," .
       "\"woocommerce_price_num_decimals\",\"woocommerce_thumbnail_cropping\"," .
       "\"woocommerce_thumbnail_cropping_custom_height\",\"woocommerce_thumbnail_cropping_custom_width\"," .
       "\"woocommerce_thumbnail_image_width\",\"woocommerce_maybe_regenerate_images_hash\"," .
+      "\"woocommerce_review_order_flush_rewrite_pending\",\"woocommerce_review_order_page_id\"," .
       "\"duo_target_environment_neighbor\") ORDER BY option_name",
       ARRAY_A
     );

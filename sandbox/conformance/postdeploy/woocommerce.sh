@@ -87,6 +87,50 @@ wp_conf2 option update woocommerce_thumbnail_cropping_custom_height 3 >/dev/null
 wp_conf2 option update woocommerce_thumbnail_image_width 300 >/dev/null
 wp_conf2 option update woocommerce_maybe_regenerate_images_hash 'target-thumbnail-runtime-hash' >/dev/null
 
+# Manufacture two valid Review Order pages. The source-slug page is the
+# identity that apply must adopt, while Woo's option deliberately points at a
+# second valid shortcode page so its init fast path cannot repair the hostile
+# reference before Duo runs. Changing the option must therefore select the
+# fresh-process rewrite action and retire the hostile route.
+TARGET_REVIEW_IDS=$(wp_conf2 eval '
+update_option("woocommerce_feature_customer_review_request_enabled", "yes");
+$endpoint = wc_get_container()->get(\Automattic\WooCommerce\Internal\OrderReviews\Endpoint::class);
+$endpoint->maybe_create_host_page();
+$canonical_id = (int) get_option("woocommerce_review_order_page_id", 0);
+$canonical = $canonical_id > 0 ? get_post($canonical_id) : null;
+if (!$canonical instanceof WP_Post || false === strpos((string) $canonical->post_content, "[woocommerce_review_order]")) {
+    throw new RuntimeException("WooCommerce did not create the target Review Order host page");
+}
+$updated = wp_update_post([
+    "ID" => $canonical_id,
+    "post_title" => "Hostile target canonical review page",
+    "post_name" => "review-order-source",
+], true);
+if (is_wp_error($updated) || (int) $updated !== $canonical_id) {
+    throw new RuntimeException("target Review Order identity preparation failed");
+}
+$hostile_id = wp_insert_post([
+    "post_type" => "page",
+    "post_status" => "publish",
+    "post_title" => "Hostile selected review page",
+    "post_name" => "hostile-review-route",
+    "post_content" => "<!-- wp:shortcode -->[woocommerce_review_order]<!-- /wp:shortcode -->",
+], true);
+if (is_wp_error($hostile_id) || (int) $hostile_id <= 0 || (int) $hostile_id === $canonical_id) {
+    throw new RuntimeException("hostile Review Order page preparation failed");
+}
+update_option("woocommerce_review_order_page_id", (int) $hostile_id);
+update_option("woocommerce_review_order_flush_rewrite_pending", "yes");
+$endpoint->add_rewrite_rule();
+$endpoint->maybe_flush_pending_rewrite();
+if (false !== get_option("woocommerce_review_order_flush_rewrite_pending", false)) {
+    throw new RuntimeException("target Review Order rewrite marker survived native flush");
+}
+echo $canonical_id . "|" . (int) $hostile_id;
+')
+IFS='|' read -r TARGET_REVIEW_PAGE_ID TARGET_HOSTILE_REVIEW_PAGE_ID <<<"$TARGET_REVIEW_IDS"
+require_fixture_ids TARGET_REVIEW_PAGE_ID TARGET_HOSTILE_REVIEW_PAGE_ID
+
 wp_conf2 eval "
 file_put_contents('/siterepo/.tmp-woocommerce-target.json', wp_json_encode([
   'brand_child' => $TARGET_BRAND_CHILD_ID,
@@ -96,6 +140,7 @@ file_put_contents('/siterepo/.tmp-woocommerce-target.json', wp_json_encode([
   'category_parent' => $TARGET_CAT_PARENT_ID,
   'color_blue' => $TARGET_COLOR_BLUE_ID,
   'color_red' => $TARGET_COLOR_RED_ID,
+  'review_page' => $TARGET_REVIEW_PAGE_ID,
   'shipping_class' => $TARGET_SHIP_CLASS_ID,
   'tag' => $TARGET_TAG_ID,
   'attribute_color' => $TARGET_COLOR_ATTR_ID,

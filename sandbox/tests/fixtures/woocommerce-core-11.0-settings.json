@@ -49,6 +49,7 @@
     "includes/queue/class-wc-action-queue.php": "bb0a9a15659fa8cf8ddf7281a214dd12d7ef6c4b8c266711c1bcc24f46e14f10",
     "includes/wc-core-functions.php": "17bf218326de339c872eba8c9f855b73bb1c7874053c36774c35ef222927e684",
     "includes/wc-formatting-functions.php": "c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41",
+    "includes/wc-page-functions.php": "11281d2800a401e7cf8cc167d994bfe2fe9ad436c570deff3ae997c5b32b1338",
     "includes/wc-template-functions.php": "33bab39b8616f42c6ac8f9c1901977f6ea440208817268dad1b7c2f035e82485",
     "packages/action-scheduler/classes/ActionScheduler_ActionFactory.php": "9316e8fc027e7eca88eb53918288d6b6dafbfc50a59db7c31aa2c4ea16dcf776",
     "packages/action-scheduler/classes/ActionScheduler_QueueRunner.php": "0b5bdaf8a7fdb406edc1ac1eb93855dd483478e64278be9302cbfe5284f4e5e1",
@@ -91,6 +92,10 @@
     "includes/class-woocommerce.php": {
       "11.0.0": "5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4",
       "11.0.1": "2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7"
+    },
+    "src/Internal/OrderReviews/Endpoint.php": {
+      "11.0.0": "dda95b0edb8ac48434477aaf4664f267b477f858ab44da248752557f91bea9c8",
+      "11.0.1": "326511d748cc282caac2bfaeb22451e5b80f73209dcdbea81c2a4ef32570b6f3"
     }
   },
   "literal_ids": {
@@ -269,6 +274,8 @@
     "woocommerce_graphql_query_cache_ttl": "authored",
     "woocommerce_pickup_location_settings": "authored",
     "woocommerce_private_link": "env",
+    "woocommerce_review_order_flush_rewrite_pending": "runtime",
+    "woocommerce_review_order_page_id": "authored_post_reference",
     "woocommerce_share_key": "env",
     "woocommerce_shop_page_display": "authored",
     "woocommerce_store_pages_only": "env",

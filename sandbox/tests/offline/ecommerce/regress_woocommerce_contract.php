@@ -74,8 +74,8 @@ woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inve
     'the source-audited settings inventory uses the exact reviewed schema');
 woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 148,
     'the exact 11.0.0/11.0.1 visible-settings union freezes all 148 reviewed source ids');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 81,
-    'the inventory binds all eighty-one byte-identical settings, gateway, email, pickup, scheduler, stock-notification, launch, image-regeneration, and frontend-read sources');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 82,
+    'the inventory binds all eighty-two byte-identical settings, gateway, email, pickup, scheduler, stock-notification, launch, image-regeneration, and frontend-read sources');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''
@@ -105,6 +105,16 @@ woo_ok(
         && ($settingsInventory['source_files']['src/Admin/API/Options.php'] ?? null)
             === '475588425f5657d7d951ffcd33b64521bdae5d0e6fd3cad0d37e0d73b7a14dcb',
     'the store-notice Customizer writer, legacy settings endpoint, and site-wide frontend reader are exact across both artifacts'
+);
+woo_ok(
+    ($settingsInventory['source_files']['includes/wc-page-functions.php'] ?? null)
+        === '11281d2800a401e7cf8cc167d994bfe2fe9ad436c570deff3ae997c5b32b1338'
+        && ($settingsInventory['version_specific_source_files']['src/Internal/OrderReviews/Endpoint.php'] ?? null)
+            === [
+                '11.0.0' => 'dda95b0edb8ac48434477aaf4664f267b477f858ab44da248752557f91bea9c8',
+                '11.0.1' => '326511d748cc282caac2bfaeb22451e5b80f73209dcdbea81c2a4ef32570b6f3',
+            ],
+    'the review-page resolver and both exact route implementations are source-bound despite the 11.0.1 auth hardening'
 );
 $schedulerSources = [
     'includes/queue/class-wc-action-queue.php' => 'bb0a9a15659fa8cf8ddf7281a214dd12d7ef6c4b8c266711c1bcc24f46e14f10',
@@ -194,6 +204,11 @@ foreach ($inventoryClassifications as $name => $classification) {
     if (in_array($classification, ['authored', 'runtime', 'derived', 'env'], true)) {
         woo_ok(($rule['class'] ?? null) === $classification,
             "$name resolves to its source-audited $classification class");
+        continue;
+    }
+    if ($classification === 'authored_post_reference') {
+        woo_ok(($rule['class'] ?? null) === 'authored' && ($rule['ref'] ?? null) === 'post',
+            "$name resolves to its source-audited portable post identity");
         continue;
     }
     woo_ok($rule === null, "$name remains unclassified for its explicit $classification boundary");
@@ -465,6 +480,17 @@ foreach (['wc_brands_show_description', 'woocommerce_brand_permalink', 'woocomme
     woo_ok(($policy->owned_option_rule($name)['class'] ?? '') === 'authored', "$name stays portable merchant-authored state");
 }
 woo_ok(
+    ($settingsInventory['computed_ids']['woocommerce_review_order_page_id'] ?? null) === 'authored_post_reference'
+        && ($policy->option_rule('woocommerce_review_order_page_id') ?? null)
+            === ['class' => 'authored', 'ref' => 'post', 'autoload' => 'preserve'],
+    'the optional Review Order host page is portable authored identity rather than a source-local numeric id'
+);
+woo_ok(
+    ($settingsInventory['computed_ids']['woocommerce_review_order_flush_rewrite_pending'] ?? null) === 'runtime'
+        && ($policy->option_rule('woocommerce_review_order_flush_rewrite_pending')['class'] ?? null) === 'runtime',
+    'the one-request review-route flush marker remains explicit target runtime'
+);
+woo_ok(
     ($policy->option_rule('woocommerce_demo_store_notice')['class'] ?? null) === 'authored'
         && ($settingsInventory['closed_records']['store_notice'] ?? null) === [
             'option' => 'woocommerce_demo_store_notice',
@@ -605,8 +631,9 @@ woo_ok($actionSources === [
     'provider:woocommerce-scheduler-settings/reconcile_analytics_import_schedule',
     'provider:woocommerce-scheduler-settings/reconcile_stock_notification_retention',
     'provider:woocommerce-product-lookups/rebuild_product_lookups',
+    'native:rewrite.flush',
 ], 'manifest owns the bounded attribute-transient, shipping/tax cache, fresh-process hierarchy/brand-route, '
-    . 'read-only fulfillment prerequisite, scheduler projections, and per-product lookup repairs');
+    . 'read-only fulfillment prerequisite, scheduler projections, per-product lookup repairs, and review-page route');
 $productActions = array_values(array_filter(
     $actions,
     static fn(array $row): bool => ($row['provider'] ?? null) === 'woocommerce-product-lookups'
@@ -684,6 +711,7 @@ woo_ok(!in_array('derived.wc_product_attributes_lookup', array_column(
 ), true), 'attribute lookup repair is no longer mislabeled as an unsupported apply surface');
 $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/certify_version_matrix.sh');
 $wooSeedHarness = (string) file_get_contents($root . '/sandbox/conformance/seeds/woocommerce.sh');
+$wooPostdeployHarness = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/woocommerce.sh');
 $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
 foreach ([
     'new WC_Product_External()',
@@ -707,6 +735,22 @@ foreach ([
         "category/brand/visual source fixture pins $termSeedWitness");
 }
 foreach ([
+    'OrderReviews\\Endpoint::class',
+    'woocommerce_review_order_page_id',
+    'review-order-source',
+] as $reviewSeedWitness) {
+    woo_ok(str_contains($wooSeedHarness, $reviewSeedWitness),
+        "customer-review source fixture pins $reviewSeedWitness");
+}
+foreach ([
+    'Hostile selected review page',
+    'TARGET_REVIEW_PAGE_ID',
+    'woocommerce_review_order_flush_rewrite_pending',
+] as $reviewTargetWitness) {
+    woo_ok(str_contains($wooPostdeployHarness, $reviewTargetWitness),
+        "customer-review hostile target fixture pins $reviewTargetWitness");
+}
+foreach ([
     "new WP_REST_Request('GET', '/wc/v3/products/",
     '/wp-json/wc/store/v1/products/',
     '/product/conformance-external-partner/',
@@ -727,6 +771,14 @@ foreach ([
 ] as $termCheckWitness) {
     woo_ok(str_contains($wooCheckHarness, $termCheckWitness),
         "category/brand/visual target fixture pins $termCheckWitness");
+}
+foreach ([
+    'wc_get_review_order_url',
+    '.review_order.rule_actual == .review_order.rule_expected',
+    'native Review Order URL resolves the migrated page',
+] as $reviewCheckWitness) {
+    woo_ok(str_contains($wooCheckHarness, $reviewCheckWitness),
+        "customer-review native route fixture pins $reviewCheckWitness");
 }
 woo_ok(str_contains($matrixHarness, 'update_option("default_category", (int) $category->term_id)'), 'version-matrix resets the core default-category reference before each plugin boundary');
 woo_ok(str_contains($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"'),

@@ -108,6 +108,31 @@ function woo_effect_hook(string $id, string $hook): array {
 }
 
 /** @return list<array<string,mixed>> */
+function woo_effect_rewrite(string $prefix): array {
+    return [
+        woo_effect_db_option($prefix . '-rewrite-rules', 'rewrite_rules'),
+        woo_effect_irreversible(
+            $prefix . '-rewrite-rules-cache',
+            'cache',
+            'provider_resource',
+            'wordpress-option:v1:rewrite_rules'
+        ),
+        woo_effect_hook($prefix . '-permalink-pre-option-filter', 'pre_option_permalink_structure'),
+        woo_effect_hook($prefix . '-permalink-pre-option-generic-filter', 'pre_option'),
+        woo_effect_hook($prefix . '-permalink-option-filter', 'option_permalink_structure'),
+        woo_effect_hook($prefix . '-permalink-default-option-filter', 'default_option_permalink_structure'),
+        woo_effect_hook($prefix . '-rewrite-rules-array-filter', 'rewrite_rules_array'),
+        woo_effect_hook($prefix . '-rewrite-sanitize-filter', 'sanitize_option_rewrite_rules'),
+        woo_effect_hook($prefix . '-rewrite-option-filter', 'option_rewrite_rules'),
+        woo_effect_hook($prefix . '-rewrite-pre-update-filter', 'pre_update_option_rewrite_rules'),
+        woo_effect_hook($prefix . '-rewrite-pre-update-generic-filter', 'pre_update_option'),
+        woo_effect_hook($prefix . '-rewrite-update-option-hook', 'update_option'),
+        woo_effect_hook($prefix . '-rewrite-update-specific-hook', 'update_option_rewrite_rules'),
+        woo_effect_hook($prefix . '-rewrite-updated-option-hook', 'updated_option'),
+    ];
+}
+
+/** @return list<array<string,mixed>> */
 function woo_effect_product_transient_options(string $prefix): array {
     return [
         woo_effect_db_option($prefix . '-onsale-transient', '_transient_wc_products_onsale'),
@@ -656,15 +681,24 @@ foreach (['product', 'product_variation'] as $postType) {
         ];
     }
 }
+$reviewRewriteSource = 'native:rewrite.flush';
+foreach (woo_effect_rewrite('woocommerce-review-order') as $effect) {
+    $expectedWooRows[] = [
+        'manifest' => 'woocommerce',
+        'phase' => 'rebuild',
+        'source' => $reviewRewriteSource,
+        'effect' => $effect,
+    ];
+}
 usort($expectedWooRows, static fn(array $a, array $b): int => strcmp(
     implode("\0", [$a['phase'], $a['manifest'], (string) $a['effect']['id']]),
     implode("\0", [$b['phase'], $b['manifest'], (string) $b['effect']['id']])
 ));
 woo_effect_check($wooRows === $expectedWooRows, 'Woo manifest compiles the exact lifecycle, rebuild, and regenerator inventory');
 woo_effect_check(
-    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 63
-        && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 160
-        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 223,
+    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 64
+        && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 173
+        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 237,
     'Woo inventory exposes exact transient/version, hierarchy/rewrite, bounded sale-action, and Action Scheduler hook boundaries, keeps every unproven boundary irreversible, and uses unique effect IDs'
 );
 $cacheProviderSource = (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/providers/woocommerce-cache.php');
@@ -726,6 +760,7 @@ $fulfillmentKeys = array_keys((array) ($wooManifest['actions'][4] ?? []));
 $analyticsSchedulerKeys = array_keys((array) ($wooManifest['actions'][5] ?? []));
 $retentionSchedulerKeys = array_keys((array) ($wooManifest['actions'][6] ?? []));
 $lookupKeys = array_keys((array) ($wooManifest['actions'][7] ?? []));
+$reviewRewriteKeys = array_keys((array) ($wooManifest['actions'][8] ?? []));
 sort($nativeKeys, SORT_STRING);
 sort($providerKeys, SORT_STRING);
 sort($hierarchyKeys, SORT_STRING);
@@ -734,8 +769,9 @@ sort($fulfillmentKeys, SORT_STRING);
 sort($analyticsSchedulerKeys, SORT_STRING);
 sort($retentionSchedulerKeys, SORT_STRING);
 sort($lookupKeys, SORT_STRING);
+sort($reviewRewriteKeys, SORT_STRING);
 woo_effect_check(
-    count((array) ($wooManifest['actions'] ?? [])) === 8
+    count((array) ($wooManifest['actions'] ?? [])) === 9
         && $nativeKeys === ['action', 'args', 'effects', 'kind', 'triggers']
         && $providerKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $hierarchyKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
@@ -744,6 +780,7 @@ woo_effect_check(
         && $analyticsSchedulerKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $retentionSchedulerKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $lookupKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
+        && $reviewRewriteKeys === ['action', 'args', 'effects', 'kind', 'triggers']
         && ($wooManifest['actions'][1]['triggers'] ?? null) === $cacheTriggers
         && ($wooManifest['actions'][1]['args'] ?? null) === ['groups' => ['woocommerce-attributes', 'shipping_zones', 'taxes']]
         && ($wooManifest['actions'][2]['provider'] ?? null) === 'woocommerce-hierarchy-lookups'
@@ -773,7 +810,7 @@ woo_effect_check(
         && ($wooManifest['actions'][6]['triggers'] ?? null)
             === ['option:woocommerce_customer_stock_notifications_unverified_deletions_days_threshold']
         && ($wooManifest['actions'][6]['effects'] ?? null) === woo_effect_retention_scheduler_action(),
-    'Woo actions keep exact cache, hierarchy, fulfillment, and scheduler effect/trigger shapes'
+    'Woo actions keep exact cache, hierarchy, fulfillment, scheduler, and review-route effect/trigger shapes'
 );
 // DUO-3342: the lookup entry carries NO arguments at all. Every input it
 // receives is engine-assembled (the entity batch and the declared channels),
@@ -786,6 +823,15 @@ woo_effect_check(
         && ($wooManifest['actions'][7]['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the migrated lookup action names the provider capability and stays bounded to the two post types its '
         . 'retired regen_dependency declarations covered'
+);
+woo_effect_check(
+    ($wooManifest['actions'][8]['kind'] ?? null) === 'native'
+        && ($wooManifest['actions'][8]['action'] ?? null) === 'rewrite.flush'
+        && ($wooManifest['actions'][8]['args'] ?? null) === []
+        && ($wooManifest['actions'][8]['triggers'] ?? null) === ['option:woocommerce_review_order_page_id']
+        && ($wooManifest['actions'][8]['effects'] ?? null)
+            === woo_effect_rewrite('woocommerce-review-order'),
+    'the optional customer-review page reuses the exact fresh-process rewrite boundary with no undeclared effects'
 );
 $lookupEffectsById = [];
 foreach ((array) ($wooManifest['actions'][7]['effects'] ?? []) as $effect) {

@@ -5,6 +5,7 @@
     "11.0.1": "da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21"
   },
   "source_files": {
+    "includes/wc-page-functions.php": "11281d2800a401e7cf8cc167d994bfe2fe9ad436c570deff3ae997c5b32b1338",
     "src/Admin/Features/Fulfillments/FulfillmentsController.php": "102878a616b30119fac2e93ac32b74ca267d41c2e33c67bf4311bec3f9498604",
     "src/Admin/Features/Fulfillments/FulfillmentsSettings.php": "efb36ce2fd680e07061a3d4c8ae483ae855a6f9ee6fea2c8dc7ca948ec8e6199",
     "src/Internal/CLI/Migrator/Core/CredentialManager.php": "294f5040b10eaca5eda88ffc006af966dea421ae5b60c66e4cc2501f66a61748",
@@ -37,6 +38,16 @@
     "src/Internal/VariationGallery/Migration.php": "9a649a0a1137756f3104d5654d36e2a982fd3248ccb2d32df2f880b8746418a8",
     "src/Internal/VariationGallery/Package.php": "1539fc42d294d2e6a06761569d370776bc7cde14248eae0e14011741dac2ebb8"
   },
+  "version_specific_source_files": {
+    "includes/class-woocommerce.php": {
+      "11.0.0": "5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4",
+      "11.0.1": "2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7"
+    },
+    "src/Internal/OrderReviews/Endpoint.php": {
+      "11.0.0": "dda95b0edb8ac48434477aaf4664f267b477f858ab44da248752557f91bea9c8",
+      "11.0.1": "326511d748cc282caac2bfaeb22451e5b80f73209dcdbea81c2a4ef32570b6f3"
+    }
+  },
   "families": {
     "block_email_editor": {
       "feature_options": ["woocommerce_feature_block_email_editor_enabled"],
@@ -49,6 +60,13 @@
       "post_types": {"import_session": "runtime"},
       "runtime_options": ["wc_migrator_analytics", "wc_migrator_products_count"],
       "secret_option_patterns": ["wc_migrator_credentials_<filtered-platform>"]
+    },
+    "customer_review_requests": {
+      "feature_options": ["woocommerce_feature_customer_review_request_enabled"],
+      "authored_options": {"woocommerce_review_order_page_id": "post_reference"},
+      "runtime_options": ["woocommerce_review_order_flush_rewrite_pending"],
+      "derived_options": ["rewrite_rules"],
+      "native_action": "rewrite.flush"
     },
     "customer_stock_notifications": {
       "feature_constants": ["WOOCOMMERCE_BIS_ALPHA_ENABLED"],
