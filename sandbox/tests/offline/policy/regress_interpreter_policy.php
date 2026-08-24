@@ -236,10 +236,11 @@ $ownerInterpreter = new class ($ownerState) {
     public function project_materialized_option_sub_keys(
         string $name,
         array $rawAuthored,
-        array $declaredSubKeys
+        array $declaredSubKeys,
+        array $desiredAuthoredKeys
     ) {
         ++$this->state->projection_calls;
-        $this->state->projection_args = [$name, $rawAuthored, $declaredSubKeys];
+        $this->state->projection_args = [$name, $rawAuthored, $declaredSubKeys, $desiredAuthoredKeys];
         return $this->state->projection_mode === 'identity'
             ? $rawAuthored
             : $this->state->projection_value;
@@ -331,13 +332,15 @@ check(
         'native_blob',
         ['portable' => 'native-storage'],
         $nativeRule,
-        'native-owner'
+        'native-owner',
+        ['portable']
     ) === ['portable' => 'canonical']
         && $ownerState->projection_calls === 1
         && $ownerState->projection_args === [
             'native_blob',
             ['portable' => 'native-storage'],
             $nativeSubKeys,
+            ['portable'],
         ],
     'the exact native owner may project only raw authored siblings through the declared sub-key roster'
 );
@@ -365,7 +368,8 @@ check(
         'native_blob',
         ['portable' => 'native-storage'],
         $nativeRule,
-        'native-owner'
+        'native-owner',
+        ['portable']
     ) === ['portable' => 'native-storage'],
     'an exact native owner with no optional projection method uses the identity projection'
 );
@@ -377,8 +381,7 @@ $interpreterInstances->setValue($nativePolicy, [
 foreach ([
     'non-array' => [true, 'object-shaped array'],
     'list' => [['unexpected-list-value'], 'object-shaped array'],
-    'added key' => [['portable' => 'native-storage', 'added' => true], 'preserve the exact authored key set'],
-    'dropped key' => [[], 'preserve the exact authored key set'],
+    'added key' => [['portable' => 'native-storage', 'added' => true], 'must not add an authored key'],
     'non-plain value' => [['portable' => new stdClass()], 'PHP object'],
 ] as $case => [$projection, $message]) {
     $ownerState->projection_value = $projection;
@@ -387,7 +390,47 @@ foreach ([
             'native_blob',
             ['portable' => 'native-storage'],
             $nativeRule,
-            'native-owner'
+            'native-owner',
+            ['portable']
+        ),
+        $message,
+        "native materialization projection refuses a $case"
+    );
+}
+$ownerState->projection_value = [];
+check_throws(
+    fn() => $nativePolicy->project_materialized_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'native-storage'],
+        $nativeRule,
+        'native-owner',
+        ['portable']
+    ),
+    'must retain every desired authored key',
+    'native projection cannot omit a raw carrier while that authored key is desired'
+);
+check(
+    $nativePolicy->project_materialized_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => ['target-owned-residue' => true]],
+        $nativeRule,
+        'native-owner',
+        []
+    ) === [],
+    'native projection may omit a raw carrier when the desired authored key is absent'
+);
+foreach ([
+    'associative roster' => [['portable' => true], 'desired authored-key list'],
+    'duplicate roster' => [['portable', 'portable'], 'malformed/non-authored desired key'],
+    'non-authored roster' => [['runtime'], 'malformed/non-authored desired key'],
+] as $case => [$desiredKeys, $message]) {
+    check_throws(
+        fn() => $nativePolicy->project_materialized_option_sub_keys_via_interpreter(
+            'native_blob',
+            ['portable' => 'native-storage'],
+            $nativeRule,
+            'native-owner',
+            $desiredKeys
         ),
         $message,
         "native materialization projection refuses a $case"

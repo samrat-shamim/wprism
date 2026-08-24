@@ -1047,6 +1047,7 @@ $nativeState = (object) [
     'projection_calls' => 0,
     'projection_input' => null,
     'mutate_target_sibling' => false,
+    'retain_nested_target_carrier' => false,
 ];
 $nativeInterpreter = new class ($nativeState) {
     public function __construct(private object $state) {}
@@ -1082,6 +1083,17 @@ $nativeInterpreter = new class ($nativeState) {
         }
         if ($this->state->write_primary) {
             $storage = $captured;
+            if ($this->state->retain_nested_target_carrier
+                && is_array($targetValue)
+                && is_array($targetValue['portable'] ?? null)
+                && array_key_exists('target_only', $targetValue['portable'])) {
+                $portable = $captured['portable'] ?? [];
+                if (!is_array($portable)) {
+                    throw new RuntimeException('fixture: nested portable carrier must be an array');
+                }
+                $portable['target_only'] = $targetValue['portable']['target_only'];
+                $storage['portable'] = $portable;
+            }
             foreach ($subKeys as $subKey => $subRule) {
                 if (($subRule['class'] ?? null) !== 'authored'
                     && is_array($targetValue)
@@ -1107,10 +1119,11 @@ $nativeInterpreter = new class ($nativeState) {
     public function project_materialized_option_sub_keys(
         string $name,
         array $rawAuthored,
-        array $declaredSubKeys
+        array $declaredSubKeys,
+        array $desiredAuthoredKeys
     ) {
         ++$this->state->projection_calls;
-        $this->state->projection_input = [$name, $rawAuthored, $declaredSubKeys];
+        $this->state->projection_input = [$name, $rawAuthored, $declaredSubKeys, $desiredAuthoredKeys];
         global $wpdb;
         if ($this->state->projection_mode === 'restart-transaction') {
             $wpdb->query('COMMIT');
@@ -1132,6 +1145,18 @@ $nativeInterpreter = new class ($nativeState) {
         }
         if ($this->state->projection_mode === 'mismatch') {
             return array_replace($rawAuthored, ['portable' => 'projection-mismatch']);
+        }
+        if ($this->state->projection_mode === 'drop-desired') {
+            unset($rawAuthored['portable']);
+            return $rawAuthored;
+        }
+        if ($this->state->projection_mode === 'nested-target-carrier'
+            && is_array($rawAuthored['portable'] ?? null)
+            && array_key_exists('target_only', $rawAuthored['portable'])) {
+            unset($rawAuthored['portable']['target_only']);
+            if ($rawAuthored['portable'] === [] && !in_array('portable', $desiredAuthoredKeys, true)) {
+                unset($rawAuthored['portable']);
+            }
         }
         return $rawAuthored;
     }
@@ -1169,7 +1194,7 @@ $nativeMaterializer = new \Duo\OptionsMaterializer(
     $materializerTokens,
     new \Duo\ApplyFieldMaterializer($nativePolicy, $materializerTokens)
 );
-$invokeNative = static function (string $autoload = 'yes') use (
+$invokeNative = static function (string $autoload = 'yes', array $captured = ['portable' => 'desired']) use (
     $applyOptionSubKeys,
     $nativeMaterializer,
     $nativeRule
@@ -1179,7 +1204,7 @@ $invokeNative = static function (string $autoload = 'yes') use (
     try {
         $applyOptionSubKeys->invokeArgs($nativeMaterializer, [
             'native_blob',
-            ['portable' => 'desired'],
+            $captured,
             $nativeRule,
             'native-lock-owner',
             $autoload,
@@ -1275,8 +1300,64 @@ $check(
         && $nativeState->projection_calls === 1
         && ($nativeState->projection_input[1] ?? null) === ['portable' => 'desired']
         && ($nativeState->projection_input[2] ?? null) === $nativeRule['sub_keys']
+        && ($nativeState->projection_input[3] ?? null) === ['portable']
         && $wpdb->optionRows === $projectionMismatchBefore,
     'native projection mismatch refuses and rolls storage back after receiving only finalized authored siblings'
+);
+
+$nestedCarrierRow = [
+    'option_value' => serialize([
+        'portable' => ['target_only' => 'keep'],
+        'runtime' => 'keep',
+    ]),
+    'autoload' => 'yes',
+];
+$wpdb->optionRows['native_blob'] = $nestedCarrierRow;
+$nativeState->retain_nested_target_carrier = true;
+$nativeState->projection_mode = 'nested-target-carrier';
+$nativeState->projection_calls = 0;
+$nativeState->projection_input = null;
+$invokeNative('yes', []);
+$check(
+    $wpdb->optionRows['native_blob'] === $nestedCarrierRow
+        && $nativeState->projection_calls === 1
+        && ($nativeState->projection_input[1] ?? null) === [
+            'portable' => ['target_only' => 'keep'],
+        ]
+        && ($nativeState->projection_input[3] ?? null) === [],
+    'an absent authored key may project away its byte-preserved physical target-only carrier'
+);
+
+$wpdb->optionRows['native_blob'] = $nestedCarrierRow;
+$nativeState->projection_calls = 0;
+$nativeState->projection_input = null;
+$invokeNative('yes', ['portable' => []]);
+$check(
+    $wpdb->optionRows['native_blob'] === $nestedCarrierRow
+        && $nativeState->projection_calls === 1
+        && ($nativeState->projection_input[1] ?? null) === [
+            'portable' => ['target_only' => 'keep'],
+        ]
+        && ($nativeState->projection_input[3] ?? null) === ['portable'],
+    'an explicitly empty authored key remains present while sharing the same physical target-only carrier'
+);
+
+$wpdb->optionRows = $projectionMismatchBefore;
+$nativeState->retain_nested_target_carrier = false;
+$nativeState->projection_mode = 'drop-desired';
+$nativeState->projection_calls = 0;
+try {
+    $invokeNative();
+    $desiredDropRefused = false;
+} catch (Throwable $failure) {
+    $desiredDropRefused = str_contains($failure->getMessage(), 'must retain every desired authored key');
+}
+$nativeState->projection_mode = 'identity';
+$check(
+    $desiredDropRefused
+        && $nativeState->projection_calls === 1
+        && $wpdb->optionRows === $projectionMismatchBefore,
+    'projection cannot hide a physically retained carrier while that authored key is desired'
 );
 
 $nativeState->mutate_target_sibling = true;

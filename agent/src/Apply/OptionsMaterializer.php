@@ -897,7 +897,8 @@ final class OptionsMaterializer {
                 $name,
                 $rawAuthored,
                 $rule,
-                $ruleSource
+                $ruleSource,
+                array_keys($materialized)
             );
             // Projection is digest-bound but still arbitrary plugin PHP. It
             // runs after the first finalized-row read because those raw
@@ -942,7 +943,7 @@ final class OptionsMaterializer {
             foreach ($subKeys as $subKey => $subRule) {
                 if (($subRule['class'] ?? null) === 'authored'
                     && !array_key_exists((string) $subKey, $materialized)
-                    && array_key_exists((string) $subKey, $verifiedValue)) {
+                    && array_key_exists((string) $subKey, $projectedAuthored)) {
                     throw new \RuntimeException(
                         "duo: native option materializer for '$name' retained an absent authored sibling"
                     );

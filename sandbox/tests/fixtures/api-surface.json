@@ -38320,6 +38320,14 @@
                             "name": "effectiveSource",
                             "type": "?string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "desiredAuthoredKeys",
+                            "type": "array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",

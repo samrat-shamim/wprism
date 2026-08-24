@@ -1824,16 +1824,38 @@ final class Policy {
      *
      * The exact native owner is resolved through materialize_option_sub_keys,
      * so an optional projection hook inherits the same digest-bound authority.
-     * It receives no target-owned sibling bytes and may change values only:
-     * presence remains an engine-owned postcondition, and every returned value
-     * stays inside the bounded plain-data grammar.
+     * It receives no target-owned sibling bytes. A plugin-native sparse carrier
+     * may remain physically present solely to preserve nested target-owned
+     * state, so projection may omit a raw authored key only when the desired
+     * authored-key roster says that key is absent. It can never add a key or
+     * see the desired values; exact desired-value comparison remains owned by
+     * OptionsMaterializer. Every returned value stays inside the bounded
+     * plain-data grammar.
      */
     public function project_materialized_option_sub_keys_via_interpreter(
         string $name,
         array $rawAuthored,
         array $effectiveRule,
-        ?string $effectiveSource
+        ?string $effectiveSource,
+        array $desiredAuthoredKeys
     ): array {
+        if (!array_is_list($desiredAuthoredKeys)) {
+            throw new \RuntimeException(
+                "duo: native materialization projection for option '$name' requires a desired authored-key list"
+            );
+        }
+        $desiredSeen = [];
+        foreach ($desiredAuthoredKeys as $position => $desiredKey) {
+            if (!is_string($desiredKey)
+                || isset($desiredSeen[$desiredKey])
+                || (($effectiveRule['sub_keys'][$desiredKey]['class'] ?? null) !== 'authored')) {
+                throw new \RuntimeException(
+                    "duo: native materialization projection for option '$name' received a malformed/"
+                    . "non-authored desired key at position $position"
+                );
+            }
+            $desiredSeen[$desiredKey] = true;
+        }
         $candidate = $this->option_sub_key_interpreter_candidate(
             $name,
             $effectiveRule,
@@ -1848,7 +1870,8 @@ final class Policy {
         $projected = $candidate['interpreter']->project_materialized_option_sub_keys(
             $name,
             $rawAuthored,
-            (array) ($effectiveRule['sub_keys'] ?? [])
+            (array) ($effectiveRule['sub_keys'] ?? []),
+            $desiredAuthoredKeys
         );
         if (!is_array($projected) || ($projected !== [] && array_is_list($projected))) {
             throw new \RuntimeException(
@@ -1857,15 +1880,19 @@ final class Policy {
             );
         }
         PlainData::assert($projected, "interpreter-projected materialized option '$name'");
-        $rawKeys = array_keys($rawAuthored);
-        $projectedKeys = array_keys($projected);
-        sort($rawKeys, SORT_STRING);
-        sort($projectedKeys, SORT_STRING);
-        if ($rawKeys !== $projectedKeys) {
+        if (array_diff_key($projected, $rawAuthored) !== []) {
             throw new \RuntimeException(
                 "duo: interpreter '{$candidate['interpreter_name']}' project_materialized_option_sub_keys() "
-                . "must preserve the exact authored key set for option '$name'"
+                . "must not add an authored key beyond raw finalized storage for option '$name'"
             );
+        }
+        foreach ($desiredAuthoredKeys as $desiredKey) {
+            if (!array_key_exists($desiredKey, $projected)) {
+                throw new \RuntimeException(
+                    "duo: interpreter '{$candidate['interpreter_name']}' project_materialized_option_sub_keys() "
+                    . "must retain every desired authored key for option '$name'"
+                );
+            }
         }
         return $projected;
     }
