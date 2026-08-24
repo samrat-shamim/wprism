@@ -64,8 +64,8 @@ woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inve
     'the source-audited settings inventory uses the exact reviewed schema');
 woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 147,
     'the exact 11.0.0/11.0.1 literal settings scan freezes all 147 source ids');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 73,
-    'the inventory binds all seventy-three exact settings, gateway, email, pickup, scheduler, stock-notification, launch, and image-regeneration sources');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 77,
+    'the inventory binds all seventy-seven exact settings, gateway, email, pickup, scheduler, stock-notification, launch, and image-regeneration sources');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''
@@ -92,6 +92,18 @@ $schedulerSources = [
     'src/Internal/StockNotifications/DataRetentionController.php' => '22873bc914fae710dc9f5464057a67bd784cb7c2986e122fd5b5cfeffc5e0e0f',
 ];
 foreach ($schedulerSources as $sourceFile => $sha256) {
+    woo_ok(($settingsInventory['source_files'][$sourceFile] ?? null) === $sha256,
+        "$sourceFile is exact and byte-identical across official WooCommerce 11.0.0/11.0.1");
+}
+$thumbnailSources = [
+    'includes/class-wc-post-data.php' => '0c4cd2da527f3207083a55a6e941d26faa4962ebcc87c34d63ba2d10c1b889d9',
+    'includes/class-wc-regenerate-images-request.php' => '42488e32d32f611af7a85a46e578b26f604727c8b4458ee7b86c83a621d72fb6',
+    'includes/class-wc-regenerate-images.php' => '8211a8d6771a553b42799691815c2566415e762790de45d8148cb10dfe66dc5e',
+    'includes/customizer/class-wc-shop-customizer.php' => '6ad7b3e724e21bdc0723b2385a4a5aab13b4cf26527f7d9b56a30270309f4e53',
+    'includes/wc-core-functions.php' => '17bf218326de339c872eba8c9f855b73bb1c7874053c36774c35ef222927e684',
+    'src/StoreApi/Schemas/V1/ImageAttachmentSchema.php' => 'ee557f57b75fe8849fb97002a08e5b779be98b721c770a95cad06d6d98979df9',
+];
+foreach ($thumbnailSources as $sourceFile => $sha256) {
     woo_ok(($settingsInventory['source_files'][$sourceFile] ?? null) === $sha256,
         "$sourceFile is exact and byte-identical across official WooCommerce 11.0.0/11.0.1");
 }
@@ -286,19 +298,30 @@ woo_ok(($environmentEffectBoundaries['coming_soon']['new_install_rows'] ?? null)
     'woocommerce_private_link' => 'absent_until_launch_api_initialization',
 ], 'every fresh Woo 11.0.x store remains certifiable with its exact launch-state rows');
 
-$sideEffectBoundaries = (array) ($closedRecords['native_side_effect_options'] ?? []);
-woo_ok(array_keys($sideEffectBoundaries) === ['thumbnail_cropping'],
-    'thumbnail cropping remains one exact merchant-authored native-effect boundary');
-woo_ok(($sideEffectBoundaries['thumbnail_cropping']['reader_defaults'] ?? null) === [
+$derivedConvergence = (array) ($closedRecords['derived_convergence_options'] ?? []);
+woo_ok(array_keys($derivedConvergence) === ['thumbnail_images'],
+    'thumbnail controls use one exact native request-convergence contract');
+woo_ok(($derivedConvergence['thumbnail_images']['reader_defaults'] ?? null) === [
     'woocommerce_thumbnail_cropping' => '1:1',
     'woocommerce_thumbnail_cropping_custom_width' => '4',
     'woocommerce_thumbnail_cropping_custom_height' => '3',
-], 'unstored thumbnail controls retain Woo 11.0.x reader defaults');
-foreach ((array) ($sideEffectBoundaries['thumbnail_cropping']['options'] ?? []) as $optionName) {
-    woo_ok($policy->option_rule((string) $optionName) === null
-        && ($policy->option_namespace((string) $optionName)['owner'] ?? null) === 'woocommerce',
-        "$optionName stays loud until native attachment regeneration is bounded");
+    'woocommerce_thumbnail_image_width' => '300',
+], 'unstored thumbnail controls retain every exact Woo 11.0.x reader default');
+foreach ((array) ($derivedConvergence['thumbnail_images']['authored_options'] ?? []) as $optionName) {
+    woo_ok(($policy->option_rule((string) $optionName)['class'] ?? null) === 'authored',
+        "$optionName is portable merchant-authored thumbnail state");
 }
+woo_ok(($derivedConvergence['thumbnail_images']['native_callbacks'] ?? null) === [
+    'image_get_intermediate_size' => ['WC_Regenerate_Images::filter_image_get_intermediate_size@10/3'],
+    'update_post_metadata' => ['WC_Post_Data::update_post_metadata@10/5'],
+    'wp_generate_attachment_metadata' => ['WC_Regenerate_Images::add_uncropped_metadata@10/1'],
+    'wp_get_attachment_image_src' => ['WC_Regenerate_Images::maybe_resize_image@10/4'],
+], 'the request-time projection binds the exact real Woo hook topology');
+woo_ok(($derivedConvergence['thumbnail_images']['background_state'] ?? null) === [
+    'woocommerce_maybe_regenerate_images_hash',
+    'wp_<blog>_wc_regenerate_images_batch_*',
+] && ($policy->option_rule('woocommerce_maybe_regenerate_images_hash')['class'] ?? null) === 'runtime',
+'the Customizer hash and per-blog queue remain target runtime acceleration');
 
 // DUO-3315: this is a manifest declaration, not an engine convention. The
 // generic engine must obtain Woo's product/variation edge through Policy in

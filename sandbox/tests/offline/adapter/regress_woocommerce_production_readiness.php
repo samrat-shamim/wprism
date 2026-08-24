@@ -1099,6 +1099,11 @@ $validSettings = [
     ],
     'woocommerce_rest_api_enable_cache_headers' => ['state' => 'present', 'value' => 'yes'],
     'woocommerce_shop_page_display' => ['state' => 'present', 'value' => 'subcategories'],
+    'woocommerce_single_image_width' => ['state' => 'present', 'value' => '1600'],
+    'woocommerce_thumbnail_cropping' => ['state' => 'present', 'value' => 'custom'],
+    'woocommerce_thumbnail_cropping_custom_height' => ['state' => 'present', 'value' => '9'],
+    'woocommerce_thumbnail_cropping_custom_width' => ['state' => 'present', 'value' => '16'],
+    'woocommerce_thumbnail_image_width' => ['state' => 'present', 'value' => '500'],
 ];
 duo_check_same(
     [],
@@ -1119,8 +1124,33 @@ duo_check_same(
             'value' => '',
         ],
         'woocommerce_graphql_endpoint_url' => ['state' => 'deleted'],
+        'woocommerce_single_image_width' => ['state' => 'deleted'],
+        'woocommerce_thumbnail_cropping' => ['state' => 'deleted'],
+        'woocommerce_thumbnail_cropping_custom_height' => ['state' => 'deleted'],
+        'woocommerce_thumbnail_cropping_custom_width' => ['state' => 'deleted'],
+        'woocommerce_thumbnail_image_width' => ['state' => 'deleted'],
     ]),
-    'native empty maps/text/enums and option deletion remain portable where the exact writer permits them'
+    'native empty maps/text/enums and option deletion remain portable where the exact writer permits them, including every image control'
+);
+duo_check_same(
+    [],
+    woo_readiness_option_diagnostics($interpreter, [
+        'woocommerce_thumbnail_cropping' => ['state' => 'present', 'value' => '1:1'],
+        'woocommerce_thumbnail_cropping_custom_height' => ['state' => 'present', 'value' => '0'],
+        'woocommerce_thumbnail_cropping_custom_width' => ['state' => 'present', 'value' => '0'],
+        'woocommerce_thumbnail_image_width' => ['state' => 'present', 'value' => '0'],
+    ]),
+    'Customizer-native zero absint values remain portable and Woo applies its exact max-one ratio semantics'
+);
+duo_check_same(
+    [],
+    woo_readiness_option_diagnostics($interpreter, [
+        'woocommerce_thumbnail_cropping' => ['state' => 'present', 'value' => 'uncropped'],
+        'woocommerce_thumbnail_cropping_custom_height' => ['state' => 'absent'],
+        'woocommerce_thumbnail_cropping_custom_width' => ['state' => 'absent'],
+        'woocommerce_thumbnail_image_width' => ['state' => 'absent'],
+    ]),
+    'unstored ratio and width controls retain Woo defaults while uncropped mode remains portable'
 );
 foreach ([
     ['enabled' => 'yes'],
@@ -1234,6 +1264,18 @@ $invalidSettings = [
         'enabled' => true,
     ]], 'HTML-sanitized bytes'],
     ['woocommerce_checkout_terms_and_conditions_checkbox_text', '<script>bad</script>', 'HTML-sanitized bytes'],
+    ['woocommerce_thumbnail_cropping', 'square', 'exact native value set'],
+    ['woocommerce_thumbnail_cropping', true, 'exact native value set'],
+    ['woocommerce_single_image_width', 600, 'canonical native absint string'],
+    ['woocommerce_single_image_width', '-1', 'canonical native absint string'],
+    ['woocommerce_single_image_width', '01', 'canonical native absint string'],
+    ['woocommerce_single_image_width', '1.5', 'canonical native absint string'],
+    ['woocommerce_single_image_width', '1e3', 'canonical native absint string'],
+    ['woocommerce_single_image_width', ' 600', 'canonical native absint string'],
+    ['woocommerce_single_image_width', '32769', 'canonical native absint string'],
+    ['woocommerce_thumbnail_image_width', '9223372036854775808', 'canonical native absint string'],
+    ['woocommerce_thumbnail_cropping_custom_width', '1001', 'canonical native absint string'],
+    ['woocommerce_thumbnail_cropping_custom_height', [], 'canonical native absint string'],
 ];
 foreach ($invalidSettings as [$name, $value, $fragment]) {
     $diagnostics = woo_readiness_option_diagnostics($interpreter, [
@@ -1289,6 +1331,28 @@ duo_check(
     $settingsSecretDiagnostics !== []
         && !str_contains(implode(' | ', woo_readiness_messages($settingsSecretDiagnostics)), $settingsSecret),
     'settings schema refusals identify only the option and shape, never merchant bytes'
+);
+$oversizedThumbnailProjection = woo_readiness_option_diagnostics($interpreter, [
+    'woocommerce_thumbnail_cropping' => ['state' => 'present', 'value' => 'custom'],
+    'woocommerce_thumbnail_cropping_custom_height' => ['state' => 'present', 'value' => '1000'],
+    'woocommerce_thumbnail_cropping_custom_width' => ['state' => 'present', 'value' => '1'],
+    'woocommerce_thumbnail_image_width' => ['state' => 'present', 'value' => '32768'],
+]);
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages($oversizedThumbnailProjection)),
+        'would exceed the 32768-pixel derived image boundary'
+    ),
+    'custom thumbnail settings refuse a repository projection that would exceed the bounded native image dimension'
+);
+$thumbnailSecret = 'thumbnail_secret_marker_DO_NOT_ECHO';
+$thumbnailSecretDiagnostics = woo_readiness_option_diagnostics($interpreter, [
+    'woocommerce_thumbnail_image_width' => ['state' => 'present', 'value' => "500$thumbnailSecret"],
+]);
+duo_check(
+    $thumbnailSecretDiagnostics !== []
+        && !str_contains(implode(' | ', woo_readiness_messages($thumbnailSecretDiagnostics)), $thumbnailSecret),
+    'thumbnail option refusal identifies only the option and bounded grammar, never hostile merchant bytes'
 );
 duo_check(
     $GLOBALS['wooReadinessNativeTextCalls'] !== []

@@ -15,6 +15,8 @@
     "includes/admin/settings/class-wc-settings-products.php": "9adf211140e0acb5d5ae8df71a16cca36fe4e29e28752e42a30678183448aae8",
     "includes/class-wc-emails.php": "b9c4df549a23249c2401a764d80fdb5b93e0923882fd518d3e5e789faf253ccd",
     "includes/class-wc-install.php": "b498f502b9f94204625d4fe8f4c745930c5f37d1af46f4064f561ab2c1b5fbdc",
+    "includes/class-wc-post-data.php": "0c4cd2da527f3207083a55a6e941d26faa4962ebcc87c34d63ba2d10c1b889d9",
+    "includes/class-wc-regenerate-images-request.php": "42488e32d32f611af7a85a46e578b26f604727c8b4458ee7b86c83a621d72fb6",
     "includes/class-wc-regenerate-images.php": "8211a8d6771a553b42799691815c2566415e762790de45d8148cb10dfe66dc5e",
     "includes/class-wc-shipping-rate.php": "4d39531e7e2ed2ffa47868e03f9d2cbac213c508cbd708f5530ade25146238eb",
     "includes/customizer/class-wc-shop-customizer.php": "6ad7b3e724e21bdc0723b2385a4a5aab13b4cf26527f7d9b56a30270309f4e53",
@@ -45,6 +47,7 @@
     "includes/gateways/cheque/class-wc-gateway-cheque.php": "038ce57304d769e4c45144177d0b86197748378a9e3f7d14e541342450ed0fcb",
     "includes/gateways/cod/class-wc-gateway-cod.php": "5664e8b5489b4ec58e9840d4c93c10937778c0f150f197f78e765c15b95acd37",
     "includes/queue/class-wc-action-queue.php": "bb0a9a15659fa8cf8ddf7281a214dd12d7ef6c4b8c266711c1bcc24f46e14f10",
+    "includes/wc-core-functions.php": "17bf218326de339c872eba8c9f855b73bb1c7874053c36774c35ef222927e684",
     "includes/wc-formatting-functions.php": "c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41",
     "packages/action-scheduler/classes/ActionScheduler_ActionFactory.php": "9316e8fc027e7eca88eb53918288d6b6dafbfc50a59db7c31aa2c4ea16dcf776",
     "packages/action-scheduler/classes/ActionScheduler_QueueRunner.php": "0b5bdaf8a7fdb406edc1ac1eb93855dd483478e64278be9302cbfe5284f4e5e1",
@@ -77,6 +80,7 @@
     "src/Internal/StockNotifications/Emails/CustomerStockNotificationVerifiedEmail.php": "e5c562f4fc54b2ed62dadd631b953a7f36080f8db83e5db86e6e07eed029b6db",
     "src/Internal/StockNotifications/Emails/CustomerStockNotificationVerifyEmail.php": "e6828bddbd43456a104bf1c1367ad980fd93183e5a3bd6aee2b43b1db32cf0bf",
     "src/Internal/StockNotifications/Emails/EmailManager.php": "e0af8812884aafac662aaa06e8c363585af73440f57c5479ee10ddfcb710a463",
+    "src/StoreApi/Schemas/V1/ImageAttachmentSchema.php": "ee557f57b75fe8849fb97002a08e5b779be98b721c770a95cad06d6d98979df9",
     "src/StoreApi/Utilities/LocalPickupUtils.php": "5c7057ed826e3aa79993f117d3b969ef7a6a78e57826e521f148bd451a86a81a"
   },
   "literal_ids": {
@@ -257,9 +261,9 @@
     "woocommerce_share_key": "env",
     "woocommerce_shop_page_display": "authored",
     "woocommerce_store_pages_only": "env",
-    "woocommerce_thumbnail_cropping": "fail_closed_unbounded_native_side_effect",
-    "woocommerce_thumbnail_cropping_custom_height": "fail_closed_unbounded_native_side_effect",
-    "woocommerce_thumbnail_cropping_custom_width": "fail_closed_unbounded_native_side_effect"
+    "woocommerce_thumbnail_cropping": "authored",
+    "woocommerce_thumbnail_cropping_custom_height": "authored",
+    "woocommerce_thumbnail_cropping_custom_width": "authored"
   },
   "dynamic_families": {
     "wc_stock_notifications_cycle_state_<product-id>": "runtime",
@@ -349,11 +353,20 @@
         "boundary": "target_environment_global_cache_and_cart_edge_state"
       }
     },
-    "native_side_effect_options": {
-      "thumbnail_cropping": {
-        "options": ["woocommerce_thumbnail_cropping", "woocommerce_thumbnail_cropping_custom_width", "woocommerce_thumbnail_cropping_custom_height"],
-        "reader_defaults": {"woocommerce_thumbnail_cropping": "1:1", "woocommerce_thumbnail_cropping_custom_width": "4", "woocommerce_thumbnail_cropping_custom_height": "3"},
-        "boundary": "fail_closed_without_bounded_attachment_queue_regeneration"
+    "derived_convergence_options": {
+      "thumbnail_images": {
+        "authored_options": ["woocommerce_thumbnail_cropping", "woocommerce_thumbnail_cropping_custom_width", "woocommerce_thumbnail_cropping_custom_height", "woocommerce_thumbnail_image_width"],
+        "reader_defaults": {"woocommerce_thumbnail_cropping": "1:1", "woocommerce_thumbnail_cropping_custom_width": "4", "woocommerce_thumbnail_cropping_custom_height": "3", "woocommerce_thumbnail_image_width": "300"},
+        "native_callbacks": {
+          "image_get_intermediate_size": ["WC_Regenerate_Images::filter_image_get_intermediate_size@10/3"],
+          "update_post_metadata": ["WC_Post_Data::update_post_metadata@10/5"],
+          "wp_generate_attachment_metadata": ["WC_Regenerate_Images::add_uncropped_metadata@10/1"],
+          "wp_get_attachment_image_src": ["WC_Regenerate_Images::maybe_resize_image@10/4"]
+        },
+        "product_paths": ["frontend-product-image", "rest-v3-product-thumbnail", "rest-v4-product-thumbnail", "store-api-image-schema"],
+        "background_state": ["woocommerce_maybe_regenerate_images_hash", "wp_<blog>_wc_regenerate_images_batch_*"],
+        "boundary": "authored_options_with_native_request_lazy_convergence_and_target_runtime_background_acceleration",
+        "external_processors": "target_environment_owned"
       }
     }
   },

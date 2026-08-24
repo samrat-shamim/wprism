@@ -44,6 +44,11 @@ require_fixture_ids TARGET_TAX_CLASS_ID
 wp_conf2 option update woocommerce_paypal_settings --format=json \
   '{"enabled":"yes","email":"target-paypal@example.test","identity_token":"target-secret-token-preserved"}' >/dev/null
 wp_conf2 option update duo_target_environment_neighbor 'target-neighbor-preserved' >/dev/null
+wp_conf2 option update woocommerce_thumbnail_cropping '1:1' >/dev/null
+wp_conf2 option update woocommerce_thumbnail_cropping_custom_width 4 >/dev/null
+wp_conf2 option update woocommerce_thumbnail_cropping_custom_height 3 >/dev/null
+wp_conf2 option update woocommerce_thumbnail_image_width 300 >/dev/null
+wp_conf2 option update woocommerce_maybe_regenerate_images_hash 'target-thumbnail-runtime-hash' >/dev/null
 
 wp_conf2 eval "
 file_put_contents('/siterepo/.tmp-woocommerce-target.json', wp_json_encode([

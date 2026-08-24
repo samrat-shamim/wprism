@@ -2398,6 +2398,9 @@ regress-woocommerce-fulfillment-prerequisites:
 regress-woocommerce-scheduler-settings:
 	php sandbox/tests/offline/ecommerce/regress_woocommerce_scheduler_settings.php
 
+regress-woocommerce-thumbnail-images:
+	php sandbox/tests/offline/ecommerce/regress_woocommerce_thumbnail_images.php
+
 regress-woocommerce-optional-core:
 	php sandbox/tests/offline/adapter/regress_woocommerce_optional_core.php
 

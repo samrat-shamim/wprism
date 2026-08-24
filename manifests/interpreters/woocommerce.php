@@ -88,7 +88,17 @@ final class Woocommerce {
             'price-desc',
         ],
         'woocommerce_shop_page_display' => ['', 'subcategories', 'both'],
+        'woocommerce_thumbnail_cropping' => ['1:1', 'custom', 'uncropped'],
     ];
+
+    private const IMAGE_DIMENSION_OPTIONS = [
+        'woocommerce_single_image_width' => 32768,
+        'woocommerce_thumbnail_cropping_custom_height' => 1000,
+        'woocommerce_thumbnail_cropping_custom_width' => 1000,
+        'woocommerce_thumbnail_image_width' => 32768,
+    ];
+
+    private const MAX_IMAGE_DIMENSION = 32768;
 
     private const ORDER_STATUS_OPTIONS = [
         'woocommerce_actionable_order_statuses',
@@ -802,6 +812,16 @@ final class Woocommerce {
                 }
                 continue;
             }
+            if (array_key_exists($name, self::IMAGE_DIMENSION_OPTIONS)) {
+                $out = array_merge($out, $this->bounded_absint_diagnostics(
+                    $path,
+                    $locator,
+                    $value,
+                    $name,
+                    self::IMAGE_DIMENSION_OPTIONS[$name]
+                ));
+                continue;
+            }
             if (in_array($name, self::POSITIVE_INTEGER_OPTIONS, true)) {
                 $out = array_merge($out, $this->positive_integer_diagnostics($path, $locator, $value, $name));
                 continue;
@@ -845,7 +865,95 @@ final class Woocommerce {
                 ));
             }
         }
+        $out = array_merge($out, $this->thumbnail_projection_diagnostics($path, $records));
         return $out;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function bounded_absint_diagnostics(
+        string $path,
+        string $locator,
+        mixed $value,
+        string $name,
+        int $max
+    ): array {
+        if (!is_string($value)
+            || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1
+            || strlen($value) > 19
+            || (string) (int) $value !== $value
+            || (int) $value > $max) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                "WooCommerce option $name must be a canonical native absint string from 0 through $max"
+            )];
+        }
+        return [];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function thumbnail_projection_diagnostics(string $path, array $records): array {
+        $mode = $this->present_option_string($records, 'woocommerce_thumbnail_cropping') ?? '1:1';
+        if ($mode !== 'custom') {
+            return [];
+        }
+
+        $thumbnailWidth = $this->canonical_present_absint(
+            $records,
+            'woocommerce_thumbnail_image_width',
+            300,
+            self::IMAGE_DIMENSION_OPTIONS['woocommerce_thumbnail_image_width']
+        );
+        $ratioWidth = $this->canonical_present_absint(
+            $records,
+            'woocommerce_thumbnail_cropping_custom_width',
+            4,
+            self::IMAGE_DIMENSION_OPTIONS['woocommerce_thumbnail_cropping_custom_width']
+        );
+        $ratioHeight = $this->canonical_present_absint(
+            $records,
+            'woocommerce_thumbnail_cropping_custom_height',
+            3,
+            self::IMAGE_DIMENSION_OPTIONS['woocommerce_thumbnail_cropping_custom_height']
+        );
+        if ($thumbnailWidth === null || $ratioWidth === null || $ratioHeight === null) {
+            return [];
+        }
+
+        $projectedHeight = (int) round(
+            ($thumbnailWidth / max(1, $ratioWidth)) * max(1, $ratioHeight)
+        );
+        if ($projectedHeight <= self::MAX_IMAGE_DIMENSION) {
+            return [];
+        }
+        return [$this->diagnostic(
+            $path,
+            'records.woocommerce_thumbnail_cropping_custom_height.value',
+            'WooCommerce custom thumbnail ratio would exceed the 32768-pixel derived image boundary'
+        )];
+    }
+
+    private function present_option_string(array $records, string $name): ?string {
+        $record = $records[$name] ?? null;
+        return is_array($record)
+            && ($record['state'] ?? null) === 'present'
+            && is_string($record['value'] ?? null)
+                ? $record['value']
+                : null;
+    }
+
+    private function canonical_present_absint(array $records, string $name, int $default, int $max): ?int {
+        $value = $this->present_option_string($records, $name);
+        if ($value === null) {
+            return $default;
+        }
+        if (preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1
+            || strlen($value) > 19
+            || (string) (int) $value !== $value
+            || (int) $value > $max) {
+            return null;
+        }
+        return (int) $value;
     }
 
     /** @return list<array<string,mixed>> */

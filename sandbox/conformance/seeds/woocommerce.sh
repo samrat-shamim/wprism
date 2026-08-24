@@ -63,8 +63,8 @@ for side in conf1 conf2; do
 done
 cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-make-woo-category-image.php <<'EOF'
 <?php
-$im = imagecreatetruecolor(48, 48);
-imagefilledrectangle($im, 0, 0, 47, 47, imagecolorallocate($im, 115, 70, 175));
+$im = imagecreatetruecolor(800, 800);
+imagefilledrectangle($im, 0, 0, 799, 799, imagecolorallocate($im, 115, 70, 175));
 imagepng($im, '/tmp/conf-woo-category.png');
 EOF
 THUMB_ID=$($COMPOSE run --rm -T cli1 bash -c \
@@ -85,6 +85,12 @@ PID=$(wp_conf1 wc product create --name='Conformance Widget' --type=simple \
   --tax_status=taxable --backorders=no --sold_individually=false \
   --status=publish --user=admin --porcelain)
 require_fixture_ids PID
+wp_conf1 eval "
+\$product = wc_get_product($PID);
+if (!\$product) { throw new RuntimeException('missing seeded simple product'); }
+\$product->set_image_id($THUMB_ID);
+\$product->save();
+" >/dev/null
 
 wp_conf1 post term add "$PID" product_cat conformance-widgets --by=slug
 wp_conf1 post term add "$PID" product_tag portable-tokyo --by=slug
@@ -95,6 +101,13 @@ wp_conf1 post term add "$PID" product_shipping_class oversize-portable --by=slug
 # deliberately names conf1 so the target assertion can prove recursive
 # `{{home}}` rebinding rather than byte-identical source-host leakage.
 wp_conf1 option update woocommerce_price_num_decimals 6 >/dev/null
+# Exact Woo 11.0.x Customizer-native thumbnail state. The background queue is
+# deliberately not invoked here: checks/woocommerce.sh proves the always-on
+# request path is sufficient when the target starts with stale 300px metadata.
+wp_conf1 option update woocommerce_thumbnail_cropping custom >/dev/null
+wp_conf1 option update woocommerce_thumbnail_cropping_custom_width 1 >/dev/null
+wp_conf1 option update woocommerce_thumbnail_cropping_custom_height 1 >/dev/null
+wp_conf1 option update woocommerce_thumbnail_image_width 500 >/dev/null
 PRECISION_ID=$(wp_conf1 wc product create --name='Conformance Precision Download 東京 🚀' \
   --slug=conformance-precision-download --type=simple \
   --regular_price=123456789.123456 --sale_price=123456788.654321 \

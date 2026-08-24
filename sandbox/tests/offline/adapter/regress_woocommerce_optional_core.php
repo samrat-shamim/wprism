@@ -201,7 +201,6 @@ duo_check_same('capture', $unsupported['options.woocommerce_email_templates_*_po
 foreach ([
     'options.woocommerce_bacs_accounts|woocommerce_bacs_settings|woocommerce_cheque_settings|woocommerce_cod_settings',
     'options.woocommerce_<core-email-id>_settings',
-    'options.woocommerce_thumbnail_cropping|woocommerce_thumbnail_cropping_custom_width|woocommerce_thumbnail_cropping_custom_height',
 ] as $surface) {
     duo_check_same('capture', $unsupported[$surface] ?? null,
         "$surface is a reviewed populated-source fail-closed boundary");
@@ -266,6 +265,12 @@ $credentialMarker = 'migration_api_secret_DO_NOT_ECHO';
 $gatewayMarker = 'gateway_boundary_payload_DO_NOT_ECHO';
 $emailMarker = 'email_boundary_payload_DO_NOT_ECHO';
 $sideEffectMarker = 'side_effect_payload_DO_NOT_ECHO';
+$thumbnailOptions = [
+    'woocommerce_thumbnail_cropping' => 'custom',
+    'woocommerce_thumbnail_cropping_custom_height' => '3',
+    'woocommerce_thumbnail_cropping_custom_width' => '4',
+    'woocommerce_thumbnail_image_width' => '500',
+];
 $optionRows = [
     ['option_id' => 1, 'option_name' => 'woocommerce_email_templates_new_order_post_id', 'option_value' => $mappingMarker, 'autoload' => 'yes'],
     ['option_id' => 2, 'option_name' => 'woocommerce_email_templates_addon_gateway_post_id', 'option_value' => '999', 'autoload' => 'yes'],
@@ -332,17 +337,13 @@ foreach ((array) ($settingsInventory['closed_records']['target_environment_side_
         ];
     }
 }
-$sideEffectOptions = [];
-foreach ((array) ($settingsInventory['closed_records']['native_side_effect_options'] ?? []) as $record) {
-    foreach ((array) ($record['options'] ?? []) as $optionName) {
-        $sideEffectOptions[] = $optionName;
-        $optionRows[] = [
-            'option_id' => $nextOptionId++,
-            'option_name' => $optionName,
-            'option_value' => $optionName === 'woocommerce_thumbnail_cropping' ? 'custom' : $sideEffectMarker,
-            'autoload' => 'yes',
-        ];
-    }
+foreach ($thumbnailOptions as $optionName => $optionValue) {
+    $optionRows[] = [
+        'option_id' => $nextOptionId++,
+        'option_name' => $optionName,
+        'option_value' => $optionValue,
+        'autoload' => 'yes',
+    ];
 }
 $wpdb->seedTable('wp_options', $optionRows);
 
@@ -365,8 +366,7 @@ $expectedPendingNames = array_merge(
     ['wc_migrator_credentials_bad/slash', 'wc_stock_notifications_cycle_state_01', 'woocommerce_email_templates_addon_gateway_post_id', 'woocommerce_email_templates_new_order_post_id'],
     array_keys($gatewayRecords),
     array_keys($emailRecords),
-    [$addonEmailOption],
-    $sideEffectOptions
+    [$addonEmailOption]
 );
 sort($expectedPendingNames, SORT_STRING);
 $expectedPending = array_map(
@@ -374,7 +374,7 @@ $expectedPending = array_map(
     $expectedPendingNames
 );
 duo_check_same($expectedPending, $pending,
-    'real option capture atomically refuses every exact mixed/secret/reference/native-effect record and addon near-miss while deployment-local launch state remains clean');
+    'real option capture atomically refuses every exact mixed/secret/reference record and addon near-miss while deployment-local launch state remains clean');
 duo_check_same(0, WooOptionalWakeupCanary::$wakeups,
     'fail-closed option discovery never decodes object, trailing, reference-shaped, or over-deep record bytes');
 $captureEvidence = json_encode($captureResult, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -387,13 +387,27 @@ duo_check(
         && !str_contains($captureEvidence, $sideEffectMarker),
     'capture refusal and repository output never echo mapping, credential, bank, email, or side-effect values'
 );
-duo_check_same([], $secretCalls,
-    'runtime, environment-secret, and fail-closed optional state never enters the authored secret/capture callback');
+duo_check_same(
+    array_map(
+        static fn(string $name, string $value): array => ['options', $name, $value, 'authored'],
+        array_keys($thumbnailOptions),
+        array_values($thumbnailOptions)
+    ),
+    $secretCalls,
+    'only portable thumbnail values enter the authored guard while runtime, environment-secret, and fail-closed optional state never does'
+);
 foreach ($targetEnvironmentOptions as $optionName) {
     duo_check_same('env', $policy->option_rule((string) $optionName)['class'] ?? null,
         "$optionName is explicitly deployment-local and never enters repository state");
-    duo_check(!array_key_exists((string) $optionName, (array) ($captureResult['document']['options'] ?? [])),
+    duo_check(!array_key_exists((string) $optionName, (array) ($captureResult['document']['records'] ?? [])),
         "$optionName remains absent from the captured options document");
+}
+foreach ($thumbnailOptions as $optionName => $optionValue) {
+    duo_check_same(
+        ['state' => 'present', 'autoload' => 'yes', 'value' => $optionValue],
+        $captureResult['document']['records'][$optionName] ?? null,
+        "$optionName crosses real option capture as exact merchant-authored thumbnail state"
+    );
 }
 
 duo_check_summary('WooCommerce optional-core inventory');

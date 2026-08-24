@@ -93,11 +93,6 @@
         },
         {
             "operation": "capture",
-            "reason": "Thumbnail-cropping is ordinary merchant-authored storefront design, but its native Customizer path can kill and rebuild an attachment background queue whose target-wide file and attachment effects are not yet bounded by this adapter. Populated settings fail closed until that native regeneration contract is durable; unstored 1:1/4/3 reader defaults remain clean.",
-            "surface": "options.woocommerce_thumbnail_cropping|woocommerce_thumbnail_cropping_custom_width|woocommerce_thumbnail_cropping_custom_height"
-        },
-        {
-            "operation": "capture",
             "reason": "Block Email Editor posts contain merchant-authored block content and versioned merge metadata for which no portable update/rebase contract is certified; populated rows fail closed with count-only scope evidence.",
             "surface": "post_types.woo_email"
         },

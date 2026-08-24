@@ -157,6 +157,12 @@ echo wp_json_encode([
         'neighbor' => get_option('duo_target_environment_neighbor', null),
         'paypal' => get_option('woocommerce_paypal_settings', null),
         'precision' => (string) get_option('woocommerce_price_num_decimals', ''),
+        'thumbnail' => [
+            'cropping' => (string) get_option('woocommerce_thumbnail_cropping', ''),
+            'custom_height' => (string) get_option('woocommerce_thumbnail_cropping_custom_height', ''),
+            'custom_width' => (string) get_option('woocommerce_thumbnail_cropping_custom_width', ''),
+            'width' => (string) get_option('woocommerce_thumbnail_image_width', ''),
+        ],
     ],
     'precision' => [
         'description_bytes' => strlen($precision->get_description('edit')),
@@ -178,10 +184,12 @@ echo wp_json_encode([
         'target_orders' => count($targetOrders),
         'target_queue' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook='duo_woo_target_runtime_probe'"),
         'target_sessions' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key='duo-target-runtime-session'"),
+        'thumbnail_hash' => (string) get_option('woocommerce_maybe_regenerate_images_hash', ''),
     ],
     'shipping' => ['methods' => $zoneMethods, 'tax_class' => $taxClass, 'tax_rate' => $taxRate],
     'simple' => [
         'cross_sells' => array_values($simple->get_cross_sell_ids('edit')),
+        'image' => wp_get_attachment_image_src($simple->get_image_id(), 'woocommerce_thumbnail'),
         'shipping_class' => $simple->get_shipping_class(),
         'tags' => $termSlugs($simpleId, 'product_tag'),
         'title' => $simple->get_name('edit'),
@@ -244,6 +252,180 @@ echo "conf2 product-category thumbnail check: $TERM_META_OUT"
 grep -qE '^term\|[1-9][0-9]*\|attachment\|file$' <<<"$TERM_META_OUT" \
   || fail "conf2 product_cat thumbnail_id did not resolve to a local attachment with a real media file (got: $TERM_META_OUT)"
 pass "conf2 product_cat thumbnail_id resolves through termmeta to its own local attachment and media file"
+
+THUMBNAIL_LAZY_OUT=$($COMPOSE run --rm -T cli2 wp eval '
+require_once ABSPATH . "wp-admin/includes/image.php";
+
+$has_callback = static function (string $hook, string $class, string $method, int $priority, int $accepted_args): bool {
+    global $wp_filter;
+    $callbacks = $wp_filter[$hook]->callbacks[$priority] ?? [];
+    foreach ($callbacks as $entry) {
+        $callback = $entry["function"] ?? null;
+        if (is_array($callback) && $callback[0] === $class && $callback[1] === $method
+            && (int) ($entry["accepted_args"] ?? -1) === $accepted_args) {
+            return true;
+        }
+    }
+    return false;
+};
+$set_thumbnail_options = static function (string $mode, int $width, int $ratio_width, int $ratio_height): void {
+    update_option("woocommerce_thumbnail_cropping", $mode);
+    update_option("woocommerce_thumbnail_cropping_custom_width", (string) $ratio_width);
+    update_option("woocommerce_thumbnail_cropping_custom_height", (string) $ratio_height);
+    update_option("woocommerce_thumbnail_image_width", (string) $width);
+    wp_cache_delete("size-thumbnail", "woocommerce");
+};
+$create_image = static function (int $width, int $height, string $label): int {
+    $uploads = wp_upload_dir();
+    $name = "duo-woo-lazy-" . $label . "-" . wp_generate_uuid4() . ".png";
+    $file = trailingslashit($uploads["path"]) . $name;
+    wp_mkdir_p(dirname($file));
+    $image = imagecreatetruecolor($width, $height);
+    imagefilledrectangle($image, 0, 0, $width - 1, $height - 1, imagecolorallocate($image, 40, 120, 180));
+    imagepng($image, $file);
+    imagedestroy($image);
+    $id = wp_insert_attachment([
+        "post_mime_type" => "image/png",
+        "post_title" => "Duo Woo lazy image " . $label,
+        "post_status" => "inherit",
+    ], $file);
+    if (is_wp_error($id)) {
+        throw new RuntimeException($id->get_error_message());
+    }
+    $metadata = wp_generate_attachment_metadata((int) $id, $file);
+    if (!is_array($metadata) || !$metadata || !wp_update_attachment_metadata((int) $id, $metadata)) {
+        throw new RuntimeException("failed to seed native attachment metadata");
+    }
+    return (int) $id;
+};
+$metadata_hash = static function (int $id): string {
+    return hash("sha256", wp_json_encode(wp_get_attachment_metadata($id), JSON_UNESCAPED_SLASHES));
+};
+$dims = static function ($image): array {
+    return is_array($image) ? [(int) $image[1], (int) $image[2]] : [0, 0];
+};
+
+$callbacks = [
+    "intermediate" => $has_callback("image_get_intermediate_size", "WC_Regenerate_Images", "filter_image_get_intermediate_size", 10, 3),
+    "metadata" => $has_callback("wp_generate_attachment_metadata", "WC_Regenerate_Images", "add_uncropped_metadata", 10, 1),
+    "source" => $has_callback("wp_get_attachment_image_src", "WC_Regenerate_Images", "maybe_resize_image", 10, 4),
+    "product_meta" => $has_callback("update_post_metadata", "WC_Post_Data", "update_post_metadata", 10, 5),
+];
+$product = wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
+if (!$product || !$product->get_image_id()) {
+    throw new RuntimeException("missing product image for lazy-regeneration product path");
+}
+$product_image_id = (int) $product->get_image_id();
+$runtime_hash = (string) get_option("woocommerce_maybe_regenerate_images_hash", "");
+$temporary_ids = [];
+try {
+    $set_thumbnail_options("1:1", 300, 1, 1);
+    $product_file = get_attached_file($product_image_id);
+    $product_metadata = wp_generate_attachment_metadata($product_image_id, $product_file);
+    if (!is_array($product_metadata)) {
+        throw new RuntimeException("failed to manufacture stale 300px product metadata");
+    }
+    wp_update_attachment_metadata($product_image_id, $product_metadata);
+    $stored_product_metadata = wp_get_attachment_metadata($product_image_id);
+    if ((int) ($stored_product_metadata["sizes"]["woocommerce_thumbnail"]["width"] ?? 0) !== 300) {
+        throw new RuntimeException("native stale product metadata did not retain the 300px preimage");
+    }
+    $same_before = $metadata_hash($product_image_id);
+    $set_thumbnail_options("custom", 500, 1, 1);
+    $same_aspect = wp_get_attachment_image_src($product_image_id, "woocommerce_thumbnail");
+    $same_after = $metadata_hash($product_image_id);
+
+    $set_thumbnail_options("1:1", 300, 1, 1);
+    $failure_id = $create_image(800, 600, "failure");
+    $temporary_ids[] = $failure_id;
+    $set_thumbnail_options("custom", 500, 1, 1);
+    $failure_before = $metadata_hash($failure_id);
+    $missing_editor = static fn(array $editors): array => ["Duo_Woo_Missing_Image_Editor"];
+    add_filter("wp_image_editors", $missing_editor, PHP_INT_MAX);
+    try {
+        $failed = wp_get_attachment_image_src($failure_id, "woocommerce_thumbnail");
+    } finally {
+        remove_filter("wp_image_editors", $missing_editor, PHP_INT_MAX);
+    }
+    $failure_after = $metadata_hash($failure_id);
+    $retry = wp_get_attachment_image_src($failure_id, "woocommerce_thumbnail");
+    $retry_hash = $metadata_hash($failure_id);
+    $retry_metadata = wp_get_attachment_metadata($failure_id);
+    $third = wp_get_attachment_image_src($failure_id, "woocommerce_thumbnail");
+    $third_hash = $metadata_hash($failure_id);
+
+    $set_thumbnail_options("1:1", 300, 1, 1);
+    $small_id = $create_image(240, 180, "small");
+    $temporary_ids[] = $small_id;
+    $set_thumbnail_options("custom", 500, 1, 1);
+    $small_before = $metadata_hash($small_id);
+    $small = wp_get_attachment_image_src($small_id, "woocommerce_thumbnail");
+    $small_after = $metadata_hash($small_id);
+
+    $set_thumbnail_options("uncropped", 500, 1, 1);
+    $uncropped = wp_get_attachment_image_src($failure_id, "woocommerce_thumbnail");
+    $set_thumbnail_options("custom", 500, 4, 3);
+    $custom = wp_get_attachment_image_src($failure_id, "woocommerce_thumbnail");
+    $set_thumbnail_options("custom", 500, 1, 1);
+
+    echo wp_json_encode([
+        "callbacks" => $callbacks,
+        "same_aspect" => [
+            "dims" => $dims($same_aspect),
+            "metadata_unchanged" => hash_equals($same_before, $same_after),
+        ],
+        "failure_retry" => [
+            "failed_dims" => $dims($failed),
+            "failed_metadata_unchanged" => hash_equals($failure_before, $failure_after),
+            "retry_dims" => $dims($retry),
+            "stored_dims" => [
+                (int) ($retry_metadata["sizes"]["woocommerce_thumbnail"]["width"] ?? 0),
+                (int) ($retry_metadata["sizes"]["woocommerce_thumbnail"]["height"] ?? 0),
+            ],
+            "third_dims" => $dims($third),
+            "third_metadata_unchanged" => hash_equals($retry_hash, $third_hash),
+        ],
+        "smaller" => [
+            "dims" => $dims($small),
+            "metadata_unchanged" => hash_equals($small_before, $small_after),
+        ],
+        "transitions" => [
+            "uncropped" => $dims($uncropped),
+            "custom_4_3" => $dims($custom),
+        ],
+        "runtime_hash_preserved" => get_option("woocommerce_maybe_regenerate_images_hash", "") === $runtime_hash,
+        "final_options" => [
+            (string) get_option("woocommerce_thumbnail_cropping", ""),
+            (string) get_option("woocommerce_thumbnail_cropping_custom_width", ""),
+            (string) get_option("woocommerce_thumbnail_cropping_custom_height", ""),
+            (string) get_option("woocommerce_thumbnail_image_width", ""),
+        ],
+    ], JSON_UNESCAPED_SLASHES);
+} finally {
+    $set_thumbnail_options("custom", 500, 1, 1);
+    foreach ($temporary_ids as $temporary_id) {
+        wp_delete_attachment($temporary_id, true);
+    }
+}
+' 2>&1 | tail -1)
+require_observed_nonempty "conf2 WooCommerce thumbnail lazy-convergence observation" "$THUMBNAIL_LAZY_OUT"
+echo "conf2 thumbnail lazy-convergence check: $THUMBNAIL_LAZY_OUT"
+jq -e '
+  .callbacks == {"intermediate":true,"metadata":true,"source":true,"product_meta":true} and
+  .same_aspect == {"dims":[500,500],"metadata_unchanged":true} and
+  .failure_retry.failed_dims == [500,375] and
+  .failure_retry.failed_metadata_unchanged == true and
+  .failure_retry.retry_dims == [500,500] and
+  .failure_retry.stored_dims == [500,500] and
+  .failure_retry.third_dims == [500,500] and
+  .failure_retry.third_metadata_unchanged == true and
+  .smaller == {"dims":[240,180],"metadata_unchanged":true} and
+  .transitions == {"uncropped":[500,375],"custom_4_3":[500,375]} and
+  .runtime_hash_preserved == true and
+  .final_options == ["custom","1","1","500"]
+' <<<"$THUMBNAIL_LAZY_OUT" >/dev/null \
+  || fail "Woo request-time thumbnail convergence failed: $THUMBNAIL_LAZY_OUT"
+pass "real wp_get_attachment_image_src converges same-aspect, failure/retry, smaller-original, uncropped, and custom product paths without a background queue"
 
 SHIPPING_OUT=$($COMPOSE run --rm -T cli2 wp eval '
 $parts = [];
@@ -439,6 +621,21 @@ jq -e 'length >= 1 and any(.[]; .name == "Conformance Variable Widget" and .is_p
   || fail "Store API filtering/catalog visibility did not return the purchasable variable product"
 pass "Store API attribute filtering returns the visible, purchasable variable catalog product"
 
+PRODUCT_IMAGE_API=$(curl -fsSG "http://localhost:${CONF2_PORT}/wp-json/wc/store/v1/products" \
+  --data-urlencode 'sku=CONF-WIDGET-1') \
+  || fail "conf2 Store API product-image request failed"
+require_observed_nonempty "conf2 WooCommerce Store API product-image response" "$PRODUCT_IMAGE_API"
+jq -e --arg target "http://localhost:${CONF2_PORT}" --arg source "http://localhost:${CONF1_PORT}" '
+  length == 1 and
+  (.[0].images | length) >= 1 and
+  (.[0].images[0].src | startswith($target + "/wp-content/uploads/")) and
+  (.[0].images[0].thumbnail | startswith($target + "/wp-content/uploads/")) and
+  (.[0].images[0].src | contains($source) | not) and
+  (.[0].images[0].thumbnail | contains($source) | not)
+' <<<"$PRODUCT_IMAGE_API" >/dev/null \
+  || fail "Store API image schema did not resolve the target-local converged product image: $PRODUCT_IMAGE_API"
+pass "Store API image schema reads the target-local product thumbnail through Woo's real image callback"
+
 # The current fixture predates the hostile category/brand hierarchy matrix.
 # Automatic repair is shipped by woocommerce-hierarchy-lookups; readiness
 # stays unready until this live check observes its checked rows/options on the
@@ -472,6 +669,7 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   .precision.title == "Conformance Precision Download 東京 🚀" and
   .precision.regular == "123456789.123456" and .precision.sale == "123456788.654321" and
   .precision.price == "123456788.654321" and .options.precision == "6" and
+  .options.thumbnail == {"cropping":"custom","custom_height":"1","custom_width":"1","width":"500"} and
   .precision.description_bytes > 15000 and .precision.purchase_note_bytes > 5000 and
   .precision.local_attributes == [{
     "name":"Material 東京","options":["Cotton","Wool","麻","literal delimiter"],
@@ -485,6 +683,7 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   (.precision.downloads[0].file | contains($source) | not) and
   .precision.tags == ["portable-tokyo"] and .precision.shipping_class == "oversize-portable" and
   .simple.tags == ["portable-tokyo"] and .simple.shipping_class == "oversize-portable" and
+  .simple.image[1] == 500 and .simple.image[2] == 500 and
   .simple.upsells == [.ids.precision] and .simple.cross_sells == [.ids.grouped] and
   .grouped.children == [.ids.product,.ids.precision] and
   .coupon.status == "publish" and .coupon.type == "percent" and .coupon.amount == "10" and
@@ -500,7 +699,7 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   .options.paypal.receiver_email == "target-paypal@example.test" and
   .options.paypal.identity_token == "target-secret-token-preserved" and
   .options.neighbor == "target-neighbor-preserved" and
-  .runtime == {"hpos":true,"source_orders":0,"source_queue":0,"source_sessions":0,"target_orders":1,"target_queue":1,"target_sessions":1} and
+  .runtime == {"hpos":true,"source_orders":0,"source_queue":0,"source_sessions":0,"target_orders":1,"target_queue":1,"target_sessions":1,"thumbnail_hash":"target-thumbnail-runtime-hash"} and
   (.ids | to_entries | all(.value > 2147483647))
 ' <<<"$TARGET" >/dev/null || fail "WooCommerce difficult values/native/runtime state did not converge: $TARGET"
 
@@ -633,7 +832,10 @@ woocommerce_storage_hash() {
       "SELECT option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (" .
       "\"pickup_location_pickup_locations\",\"woocommerce_calc_taxes\"," .
       "\"woocommerce_paypal_settings\",\"woocommerce_pickup_location_settings\"," .
-      "\"woocommerce_price_num_decimals\",\"duo_target_environment_neighbor\") ORDER BY option_name",
+      "\"woocommerce_price_num_decimals\",\"woocommerce_thumbnail_cropping\"," .
+      "\"woocommerce_thumbnail_cropping_custom_height\",\"woocommerce_thumbnail_cropping_custom_width\"," .
+      "\"woocommerce_thumbnail_image_width\",\"woocommerce_maybe_regenerate_images_hash\"," .
+      "\"duo_target_environment_neighbor\") ORDER BY option_name",
       ARRAY_A
     );
     foreach ([
