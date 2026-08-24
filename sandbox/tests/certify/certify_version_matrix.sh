@@ -1477,21 +1477,11 @@ rm -rf "siterepo/${PAIR}2/.tmp-final"
 pass "Yoast Duplicate Post $YDP_VERSION deploys, rewrites provenance, reconciles role state, behaves natively, and recaptures byte-identically"
 fi
 
-# The Events Calendar's window admitted exactly one release (>=6.17.2
-# <6.17.3) until 6.17.3 shipped on 2026-08-20 — the ONLY one of this file's
-# patch-bounded manifests with a newer upstream release to widen to
-# (api.wordpress.org, checked 2026-08-24: classic-editor 1.7.0,
-# tinymce-advanced 5.9.2, code-snippets 3.9.6, wps-hide-login 1.9.19 and
-# duplicate-post 4.7 are each already their slug's current stable, so their
-# cells above stay single-release on evidence, not on inertia).
-#
-# This cell is the evidence the widening depends on, so it only passes once
-# manifests/the-events-calendar.json declares max 6.17.4 and
-# manifests/dispositions.json adds exact-artifact-version-matrix to this
-# manifest's evidence.tests — sandbox/tmp/VERSION_WINDOW_EDITS.md carries
-# both edits verbatim. Run red-first if you want the proof that today's
-# <6.17.3 max really refuses 6.17.3; the range moves WITH this log, never
-# ahead of it.
+# The exact supported window is >=6.17.2 <6.17.4: both official artifacts
+# execute below, followed by a populated 6.17.2-to-6.17.3 upgrade and the
+# official 6.17.1 adjacent refusal. This run must be candidate-bound; the
+# historical widening decision or an earlier pair cannot certify new shipped
+# manifest/interpreter/provider/regenerator bytes.
 #
 # The measured justification for pairing the two edges rather than
 # re-certifying 6.17.3 from scratch (the same argument code-snippets'
@@ -2489,7 +2479,7 @@ grep -q '6.17.1' <<<"$TEC_REFUSAL_OUT" \
 wp1 plugin is-active the-events-calendar >/dev/null 2>&1 \
   && fail "outside-range TEC 6.17.1 was activated before deploy refused"
 printf '%s\n' "$TEC_REFUSAL_OUT"
-pass "official TEC 6.17.1 is loudly refused and remains inactive below >=6.17.2 <6.17.3.1"
+pass "official TEC 6.17.1 is loudly refused and remains inactive outside >=6.17.2 <6.17.4"
 fi
 
 if [ "$VMATRIX_MANIFEST" = polylang ]; then
