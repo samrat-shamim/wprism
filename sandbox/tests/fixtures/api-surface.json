@@ -1,5 +1,5 @@
 {
-    "class_count": 354,
+    "class_count": 356,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -22049,6 +22049,14 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "lastResponse": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "perform": {
                     "abstract": false,
                     "final": false,
@@ -23461,6 +23469,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "providerCheck": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "reap": {
                     "abstract": false,
                     "final": false,
@@ -24263,6 +24288,272 @@
                     "parameters": [],
                     "return_type": "array",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\EnvironmentProviderCheckCommand": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-branch-environment-provider-check/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetName",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "options",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "envsFileOverride",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\EnvironmentProviderProtocol": {
+            "abstract": false,
+            "constants": {
+                "TYPE_BASE_URL": {
+                    "value_repr": "base-url"
+                },
+                "TYPE_CAPABILITY_LIST": {
+                    "value_repr": "capability-list"
+                },
+                "TYPE_ENUM_PREFIX": {
+                    "value_repr": "enum:"
+                },
+                "TYPE_ENV_NAME": {
+                    "value_repr": "environment-name"
+                },
+                "TYPE_GIT_OID": {
+                    "value_repr": "git-oid"
+                },
+                "TYPE_GIT_REF": {
+                    "value_repr": "git-ref"
+                },
+                "TYPE_IDENTIFIER": {
+                    "value_repr": "identifier"
+                },
+                "TYPE_PATH": {
+                    "value_repr": "absolute-path"
+                },
+                "TYPE_POSITIVE_INT": {
+                    "value_repr": "positive-int"
+                },
+                "TYPE_SHA256": {
+                    "value_repr": "sha256"
+                },
+                "TYPE_TRUE": {
+                    "value_repr": "true"
+                },
+                "TYPE_UTC_SECOND": {
+                    "value_repr": "utc-second"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "actions": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "capabilityFor": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "describeType": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "type",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "diagnose": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "result",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "matchesType": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "type",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "observed": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "requestInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "requirementSets": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "resultFields": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "resultKeys": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
                     "visibility": "public"
                 }
             },

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Environment/Registry.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Environment/EnvironmentLifecycle.php';
 require_once __DIR__ . '/EnvironmentCommandOptions.php';
+require_once __DIR__ . '/EnvironmentProviderCheckCommand.php';
 require_once __DIR__ . '/../Transport/Transport.php';
 require_once __DIR__ . '/../Transport/LocalTransport.php';
 require_once __DIR__ . '/../Transport/DockerTransport.php';
@@ -28,14 +29,28 @@ final class EnvironmentCommand {
      */
     public static function run(array $args, ?string $envsFileOverride, callable $promote): int {
         if (count($args) < 2) {
-            fwrite(STDERR, "duo: env requires materialize|reap and a target <env>\n");
+            fwrite(STDERR, "duo: env requires materialize|reap|provider-check and a target <env>\n");
             return 1;
         }
         $action = array_shift($args);
         $targetName = array_shift($args);
-        if (!in_array($action, ['materialize', 'reap'], true)) {
-            fwrite(STDERR, "duo: env: unknown action '$action' (expected materialize or reap)\n");
+        if (!in_array($action, ['materialize', 'reap', 'provider-check'], true)) {
+            fwrite(STDERR, "duo: env: unknown action '$action' (expected materialize, reap or provider-check)\n");
             return 1;
+        }
+        // provider-check owns no journal, no promotion handoff and (in its
+        // default tier) no mutation. It is deliberately dispatched before the
+        // registry/provider/journal construction below, so an operator whose
+        // provider config is the thing that is broken still gets a diagnosis
+        // instead of the refusal that config produces everywhere else.
+        if ($action === 'provider-check') {
+            try {
+                $options = EnvironmentCommandOptions::providerCheck($args);
+            } catch (\Throwable $e) {
+                fwrite(STDERR, "duo: env provider-check: {$e->getMessage()}\n");
+                return 1;
+            }
+            return EnvironmentProviderCheckCommand::run($targetName, $options, $envsFileOverride);
         }
         try {
             // Parse the complete public intent before registry/provider/journal

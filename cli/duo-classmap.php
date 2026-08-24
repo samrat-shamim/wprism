@@ -59,6 +59,8 @@ return [
     'Duo\\Orchestrator\\EnvironmentMaterializer' => 'src/Environment/EnvironmentLifecycle.php',
     'Duo\\Orchestrator\\EnvironmentProviderCapability' => 'src/Environment/EnvironmentLifecycle.php',
     'Duo\\Orchestrator\\EnvironmentProviderCapabilityReport' => 'src/Environment/EnvironmentLifecycle.php',
+    'Duo\\Orchestrator\\EnvironmentProviderCheckCommand' => 'src/Command/EnvironmentProviderCheckCommand.php',
+    'Duo\\Orchestrator\\EnvironmentProviderProtocol' => 'src/Environment/EnvironmentProviderProtocol.php',
     'Duo\\Orchestrator\\GapActions' => 'src/Assess/GapActions.php',
     'Duo\\Orchestrator\\ImportedArchives' => 'src/Code/ImportedArchives.php',
     'Duo\\Orchestrator\\Init' => 'src/Onboarding/Init.php',

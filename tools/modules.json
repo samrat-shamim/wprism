@@ -1321,9 +1321,10 @@
           "Transport"
         ],
         "exceptions": [],
-        "file_count": 2,
+        "file_count": 3,
         "files": [
           "EnvironmentLifecycle.php",
+          "EnvironmentProviderProtocol.php",
           "Registry.php"
         ]
       },
@@ -1468,7 +1469,7 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 28,
+        "file_count": 29,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
@@ -1486,6 +1487,7 @@
           "EnvironmentCommandOptions.php",
           "EnvironmentCommandPreflight.php",
           "EnvironmentListCommand.php",
+          "EnvironmentProviderCheckCommand.php",
           "InitCommand.php",
           "PassthroughCommand.php",
           "PendingCommand.php",
