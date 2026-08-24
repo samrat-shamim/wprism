@@ -384,12 +384,13 @@ regress-site-adapter-certification:
 # Product release gate: every generated artifact must still agree with the
 # source it was generated from -- the public capability prose with the
 # manifest dispositions it describes, the published branch-environment
-# provider protocol with the boundary that enforces it, and the classmap with
-# agent/src.
+# provider protocol with the boundary that enforces it, the classmap with
+# agent/src, and the offline corpus include with the suite files on disk.
 release-gate:
 	php tools/capability-doc.php --check
 	php tools/provider-protocol-doc.php --check
 	php tools/classmap-generate.php --check
+	php tools/offline-corpus.php --check
 
 regress-multisite-refusal:
 	bash sandbox/tests/live/regress_multisite_refusal.sh
@@ -2240,62 +2241,32 @@ regress-user-meta:
 # DUO-3285: one target bundling every offline (no-docker) regress suite --
 # cheap enough to run at every local close-gate. Hosted CI is intentionally
 # disabled for this repository, so this local bundle plus independent review
-# is the merge gate. 94 suites: code-half-unit's prerequisites folded in once,
-# plus the direct offline prerequisites below, including the SSH rollback,
-# adoption rollback, WooCommerce adapter/lookup/deletion/effect, post-field classification, and
-# ecommerce static contracts. regress-bundle-coverage independently computes
-# this transitive count and rejects a stale number in the status line.
-# Plain prerequisite list, same idiom
-# as code-half-unit itself -- make's default (non -j) prerequisite order
-# is the listed order, and it stops at the first failure, exactly the
-# fail-fast behavior a local close-gate wants (no point burning minutes
-# on suite 21 when suite 3 already broke). Live suites are deliberately
-# NOT here -- see regress-live-list.
+# is the merge gate. Live suites are deliberately NOT here -- see
+# regress-live-list. make's default (non -j) prerequisite order is the listed
+# order and it stops at the first failure, exactly the fail-fast behaviour a
+# local close-gate wants (no point burning minutes on suite 21 when suite 3
+# already broke).
 #
 # DUO-3285 fast-follow and recovery closure: regress-coverage-offline
-# (DUO-3290's own suite,
-# asub's PR #82) had a real Makefile target the whole time but landed after
-# this bundle's own survey was authored, so it slipped in unbundled exactly
-# the way this target exists to prevent -- team-lead caught it by
-# inspection. Re-running this issue's own survey logic (not just adding the
-# one flagged name) turned up a second orphan of the same shape:
-# regress-woo-attribute-deletion.sh (DUO-3288) had a real target too but no
-# bundle/live-list entry either -- it's LIVE (docker/pair.sh body scan, own
-# pair "wooattrdel"), so it's added to regress-live-list instead, not here
-# (see that target's own comment). regress-bundle-coverage (new, below) is
-# what makes this class of drift impossible to reintroduce silently going
-# forward: it runs this exact survey and fails loud the moment a
-# regress_*.{sh,php} file exists with neither a bundle nor a live-list
-# entry, so a suite must declare itself at birth or CI goes red.
-# DUO-3293/3294/3295/3296/3297/3298 add the external authority, exclusion executor,
-# encrypted checkpoint, immutable atomic code-release, and upload/media bundle
-# suites, followed by lifecycle/rebuild effect contracts and DUO-3299's
-# closed signed SSH crash-matrix evidence verifier.
-regress-offline-all:
-	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 294 offline suites green"
-
-regress-offline-corpus: code-half-unit \
-	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-ecosystem-adapter-batch regress-code-snippets-state-provider regress-yoast-duplicate-post-role-provider regress-yoast-index-provider regress-elementor-css-provider regress-adapter-production-readiness regress-manifest-dispositions regress-platform-compatibility regress-topology-gate regress-interpreter-policy regress-proof-legacy-pair \
-	regress-acf-meta-interpreter regress-acf-production-readiness regress-contact-form-7-production-readiness regress-paid-memberships-pro-production-readiness regress-ninja-forms-production-readiness regress-ninja-forms-form-cache-provider regress-fatal-mutations-unit regress-capture-secret-scan regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-reference-scope-classifier regress-capture-safety-gates regress-capture-gate-scanner regress-capture-refactor-boundaries \
-	regress-order-preserving regress-canonical-json-parity regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-attestation regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept regress-contract-multi-env regress-authorization-plan regress-release-containment-gate regress-recover-claim regress-verify-oracles regress-rehearse-provider regress-release-next-action regress-release-condition-gate regress-release-ref-binding regress-recover-ordering regress-mup-leak-audit regress-adapter-certify \
-	regress-block-refs regress-identity-token-codec regress-text-tokenizer regress-structured-reference-codec regress-url-query-reference-codec regress-lint-primitives regress-block-reference-scanner regress-menu-reference-scanner regress-serialized-term-description-scanner regress-shortcode-reference-scanner regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-command regress-environment-materializer regress-env-provider-conformance regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion regress-docker-exec-mode regress-pending-queue-ownership \
-	regress-dynamic-options-policy regress-option-name-reference-resolver regress-deletion-capability-resolver regress-taxonomy-pattern-resolver regress-taxonomy-keyspace-resolver regress-taxonomy-description-reference-resolver regress-taxonomy-object-type-option-resolver regress-widget-type-resolver regress-table-declaration-resolver regress-content-attribute-rule-resolver regress-policy-rule-resolver regress-exact-option-resolver regress-option-namespace-resolver regress-taxonomy-object-keyspace regress-env-options-policy regress-export-manifest-roundtrip regress-policy-writer regress-manifest-validator regress-site-policy-validator regress-policy-load-finalizer regress-artifact-policy-identity regress-compiled-artifact-reader regress-repository-media-catalog regress-repository-schema-validator regress-repository-deletion-parser regress-repository-entity-parser regress-repository-identity-registry regress-repository-reference-graph-validator regress-repository-portable-shape-validator regress-repository-menu-location-validator regress-repository-state-file-catalog regress-post-type-relation-resolver regress-shipped-option-declarations \
-	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
-	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
-	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch regress-refresh-orchestration regress-refresh-compile-refs regress-refresh-rebase regress-refresh-field-diff regress-merge-check \
-	regress-coverage-offline regress-bundle-coverage regress-suite-wiring regress-fixture-makers regress-rollback-authority regress-recovery-transport regress-local-verified-rollback \
-	regress-recovery-executor regress-checkpoint-bundle regress-deploy-checkpoint regress-code-release regress-upload-bundle \
-	regress-effect-bundle regress-woocommerce-effect-contract regress-woocommerce-product-lookups \
-	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
-	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-core-rewrite-native-action regress-pair-budget-lock regress-pair-compose-unit regress-pair-db-engine regress-pair-bootstrap-unit regress-pair-candidate-source \
-	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
-	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-drift-convergence regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-lifecycle-planner regress-capture-code-baseline regress-state-handoff-verifier regress-lifecycle-executor regress-cli-json-refusals regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-pending-command regress-classify-command regress-capture-command regress-status-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
-	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-scope-command regress-refresh-command regress-rebase-command regress-adopt-command regress-init-command \
-	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-delete-guard-value-codec regress-delete-guard-evaluator regress-scope-discovery regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-offline-diagnostics regress-promotion-abort-reason regress-delete-authorization-receipt \
-	regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve regress-code-resolve-push \
-	regress-code-import regress-checkpoint-prune
-	@echo "regress-offline-corpus: 293 offline suites green"
+# (DUO-3290's own suite, asub's PR #82) had a real Makefile target the whole
+# time but landed after this bundle's own survey was authored, so it slipped
+# in unbundled exactly the way this target exists to prevent -- team-lead
+# caught it by inspection. Re-running that survey the same day turned up two
+# more orphans of the same shape. regress-bundle-coverage made that class of
+# drift DETECTABLE; deriving the list makes it IMPOSSIBLE.
+#
+# So the prerequisite list and both status counts are no longer written here.
+# tools/offline-corpus.php derives them from the tree -- every suite file
+# under sandbox/tests/offline/ that no other suite runs, mapped to the target
+# whose recipe runs it -- and emits tools/offline-corpus.mk, which
+# `make release-gate` byte-compares exactly the way it already byte-compares
+# agent/duo-classmap.php and the capability document. The two integers that
+# used to live on the two echo lines had drifted apart (294 against 293,
+# though both were 207 when they were introduced together in 1ef9577c) --
+# which is what a number nothing computes eventually does. Adding a suite is
+# now its file, its own leaf target in this Makefile, and
+# `php tools/offline-corpus.php`.
+include tools/offline-corpus.mk
 
 regress-offline-diagnostics:
 	bash sandbox/tests/offline/guards/regress_offline_diagnostics.sh

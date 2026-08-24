@@ -151,12 +151,18 @@ harness must too. The corpus root holds no suites — pick the `offline/` domain
 whose subject matches yours (`tools/suite-layout.review.md` says what each one
 means) and put the file there.
 
-Two `Makefile` edits go with it, and `regress_bundle_coverage.sh` fails the
-gate if either is missing: wire the new leaf into `regress-offline-corpus`, and
-bump the `regress-offline-all: N offline suites green` line. That suite expands
+One `Makefile` edit goes with it — the suite's own leaf target — and then
+`php tools/offline-corpus.php`. Neither the corpus list nor the count is typed
+by hand any more: that generator reads the suite files under the five
+execution-class directories, maps each to the target whose recipe runs it, and
+writes `regress-offline-corpus`'s prerequisite list plus the
+`regress-offline-all: N offline suites green` line into
+`tools/offline-corpus.mk`, which the `Makefile` `include`s and
+`make release-gate` byte-compares. `regress_bundle_coverage.sh` still expands
 the whole prerequisite graph and compares its size against the declared number
-(`:201-213`), so an unwired suite and a stale count are separate refusals — each
-with its own self-test inside the suite, so neither can rot unnoticed.
+(`:201-213`), so an unwired suite, a stale count and an attempted exclusion are
+three separate refusals — each with its own self-test inside the suite, so none
+can rot unnoticed.
 
 Tooling self-tests are different: they go in `tests/` as PHPUnit 11
 (`Duo\Tests\…`, PSR-4) and need no Makefile wiring at all.

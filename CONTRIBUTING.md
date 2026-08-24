@@ -31,11 +31,15 @@ gate. Stock macOS ships GNU Make 3.81 (no `--output-sync`), so prefer
 
 ## Where a test goes
 
-- **A new offline product suite** → `sandbox/tests/offline/<domain>/`, wired into
-  `regress-offline-corpus`, and the `Makefile`'s own
-  `regress-offline-all: N offline suites green` line bumped. That line is the
-  count of record; `regress_bundle_coverage.sh` fails on an unwired suite *and*
-  on a stale count. `tools/suite-layout.review.md` says what each domain means.
+- **A new offline product suite** → `sandbox/tests/offline/<domain>/`, plus its
+  own `Makefile` leaf target, then `php tools/offline-corpus.php`. That
+  generator derives `regress-offline-corpus`'s prerequisite list and the
+  `regress-offline-all: N offline suites green` count of record from the suite
+  files on disk into `tools/offline-corpus.mk`, which `make release-gate`
+  byte-compares — so neither the list nor the count is ever typed by hand, and
+  a suite cannot be left out. `regress_bundle_coverage.sh` fails on an unwired
+  suite, on a stale count *and* on an attempted exclusion.
+  `tools/suite-layout.review.md` says what each domain means.
 - **A tooling self-test** (anything under `tools/`) → `tests/`, PHPUnit 11.
 - **Live, grind, certify, spike** → the matching directory under
   `sandbox/tests/`. Which gate runs a suite is its directory, not its name
