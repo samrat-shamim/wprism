@@ -272,8 +272,12 @@ say "cycle — nothing retained: no live session, no immutable set, pair still u
   }
   if (($state["snapshots"] ?? []) !== []) { fwrite(STDERR, "an immutable snapshot set was retained\n"); exit(1); }
 ' "$PROVIDER_STATE" || fail "the cycle retained provider state it promised to abort"
-bash "$SANDBOX/bin/pair.sh" list 2>&1 | pair_list_has_exact "$PAIR" \
-  || fail "the cycle destroyed the pair it only attached to"
+# Capture the listing rather than piping it straight into the matcher: the
+# first execution of this suite failed here, and the evidence the check had
+# just judged was gone with the pipe.
+PAIR_LIST_AFTER_CYCLE="$(bash "$SANDBOX/bin/pair.sh" list 2>&1)"
+printf '%s\n' "$PAIR_LIST_AFTER_CYCLE" | pair_list_has_exact "$PAIR" \
+  || { printf '%s\n' "$PAIR_LIST_AFTER_CYCLE" >&2; fail "the cycle destroyed the pair it only attached to"; }
 docker inspect "duo-${PAIR}-wp2-1" >/dev/null 2>&1 \
   || fail "the cycle removed the target container an attach/detach must leave alone"
 pass "snapshot aborted, no set retained, and the attached pair side survives its own detach"
