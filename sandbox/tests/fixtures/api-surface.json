@@ -1,5 +1,5 @@
 {
-    "class_count": 365,
+    "class_count": 368,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -10903,6 +10903,23 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "guess_prefix": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "report": {
                     "abstract": false,
                     "final": false,
@@ -21534,6 +21551,35 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\CensusCommand": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\CheckpointCatalog": {
             "abstract": false,
             "constants": {
@@ -26111,6 +26157,190 @@
             },
             "parent": null,
             "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\FleetCensus": {
+            "abstract": false,
+            "constants": {
+                "EXIT_OK": {
+                    "value_repr": 0
+                },
+                "EXIT_REFUSED": {
+                    "value_repr": 1
+                },
+                "EXIT_USAGE": {
+                    "value_repr": 2
+                },
+                "FORMAT": {
+                    "value_repr": "duo-fleet-census/v1"
+                },
+                "FUNNEL_STAGES": {
+                    "value_repr": [
+                        "no_adapter",
+                        "adapter_unreviewed",
+                        "adapter_unpinned",
+                        "adapter_pinned"
+                    ]
+                },
+                "INVENTORY_FORMAT": {
+                    "value_repr": "duo-assess-inventory/v1"
+                },
+                "LABEL_PATTERN": {
+                    "value_repr": "/^[a-z0-9][a-z0-9_-]{0,31}$/D"
+                },
+                "SAMPLE_NARROW_MAX": {
+                    "value_repr": 5
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "library": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "dir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "project": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "submissions",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "library",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "options",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\FleetCensusRefusal": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "kind": "class",
+            "methods": {
+                "__construct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "reasonCode",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "message",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "remediation",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "diagnostic",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "previous",
+                            "type": "?Throwable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": "RuntimeException",
+            "properties": {
+                "diagnostic": {
+                    "readonly": false,
+                    "static": false,
+                    "type": "?string",
+                    "visibility": "public"
+                },
+                "reasonCode": {
+                    "readonly": false,
+                    "static": false,
+                    "type": "string",
+                    "visibility": "public"
+                },
+                "remediation": {
+                    "readonly": false,
+                    "static": false,
+                    "type": "string",
+                    "visibility": "public"
+                }
+            },
             "readonly": false
         },
         "Duo\\Orchestrator\\GapActions": {

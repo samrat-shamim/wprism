@@ -97,6 +97,12 @@ require __DIR__ . '/src/Assess/SurfaceCatalog.php';
 require __DIR__ . '/src/Assess/AssessReport.php';
 require __DIR__ . '/src/Assess/AssessRenderer.php';
 require __DIR__ . '/src/Command/AssessCommand.php';
+// `require_once`, and both files use it: CensusCommand.php require_once's
+// FleetCensus.php and CommandOutput.php by path, and CommandOutput.php is
+// already in this block (:19), so a plain `require` here would redeclare it
+// (the rule :80-84 states).
+require_once __DIR__ . '/src/Assess/FleetCensus.php';
+require_once __DIR__ . '/src/Command/CensusCommand.php';
 // After AssessCommand and AdapterCatalog above: this shell loads with plain
 // `require`, and CodeClassifyCommand require_once's AssessCommand for the
 // local site-repo resolution every from-inside-the-repo verb shares. Loading
@@ -214,6 +220,7 @@ use Duo\Orchestrator\CodeResolveCommand;
 use Duo\Orchestrator\CodeImportCommand;
 use Duo\Orchestrator\StatusCommand;
 use Duo\Orchestrator\AssessCommand;
+use Duo\Orchestrator\CensusCommand;
 use Duo\Orchestrator\ContractCommand;
 use Duo\Orchestrator\ReleaseCommand;
 use Duo\Orchestrator\VerifyCommand;
@@ -314,6 +321,8 @@ Usage:
   duo rebase <production-env> --production-ref=<ref> --new-branch=<name> [--scope-contract=<local-path>] [--field-resolution=<local-path>|--interactive]
   duo rebase <production-env> --abort=<run-id>
   duo merge-check [--ref=<ref>] [--against=<ref>] [--base=<ref>] [--format=json]
+  duo census --site=<label>=<inventory.json> [--site=...] [--dir=<dir>]
+             [--manifests=<dir>] [--limit=<1..200>] [--format=json]
   duo -h | --help
 
 Verbs:
@@ -1065,6 +1074,30 @@ Verbs:
   rebase <production-env> --abort=<run-id>
                           Removes only the retained candidate worktree named
                           by an interrupted run journal.
+  census                  Fold N `duo-assess-inventory/v1` documents into one
+    --site=<label>=<f>    `duo-fleet-census/v1`: a demand rank (plugins by
+    [--dir=<dir>]         sites installed x surface no reviewed adapter
+    [--manifests=<dir>]   covers), a coverage ratio per site and for the
+    [--limit=<1..200>]    fleet with the residual NAMED, and the adoption
+    [--format=json]       funnel — an adapter exists, it covers your plugin,
+                          your site pins it. No environment, no target, no
+                          WordPress: the inputs are documents `duo assess`
+                          already produced locally, and the coverage oracle is
+                          this checkout's manifest library (--manifests to
+                          point elsewhere).
+                          Every submission needs an OPAQUE label: up to 32
+                          lowercase letters, digits, hyphens or underscores,
+                          and no dot, slash, colon or @, so a label cannot be a
+                          hostname. --dir labels each *.json by its stem
+                          through the same grammar, so a file saved under a
+                          site's domain name is refused rather than pooled.
+                          Only names and counts leave a submission — no option
+                          value, no site URL and no review-queue row is read at
+                          all. A multisite submission is EXCLUDED (the platform
+                          claims single-site) and the excluded population is
+                          published beside the eligible denominator rather than
+                          dropped, and `basis.sample_class` says whether the
+                          rank rests on one estate or a fleet.
 
 Global flags:
   --envs-file=<path>      Explicitly trust and load the machine-local overlay
@@ -1201,6 +1234,17 @@ function main(array $argv): int {
     // never drive `rebase` (Refresh::assertAuthorizingPlan()).
     if ($verb === 'merge-check') {
         return MergeCheckCommand::run($rest);
+    }
+
+    // Same shape, same reason, one step further out: `census` has no target at
+    // all. It folds N `duo-assess-inventory/v1` documents an operator already
+    // produced locally against this checkout's own manifest library and emits
+    // `duo-fleet-census/v1` — no WordPress, no database, no environment, no
+    // registry. The question it answers ("which adapter is worth building
+    // next, and which existing one is simply unpinned") is a question about a
+    // FLEET, so binding it to any single <env> would be a category error.
+    if ($verb === 'census') {
+        return CensusCommand::run($rest);
     }
 
     if (!EnvironmentCommandPreflight::requiresEnvironment($verb)) {
