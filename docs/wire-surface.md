@@ -197,6 +197,14 @@ and its cost are written down.
 
 **Reserved.** The envelope signature proves the document was assembled WHOLE by a holder of a key it carries — nobody else can append a key, widen a scope list, move a window or flip a status in it. It is deliberately NOT a chain to an off-document root: delegation is its own signed statement type with its own domain (spec/repo-format.md § v3.8), never a member or an arm inside this one.
 
+### R-27 — The reserved `<vendor>-` form, and the closed grandfather list under it
+
+**Shipped now.** At `spec_version 3` an out-of-tree adapter name is `<vendor>-<name>` and every `providers[].id` it declares sits in that same vendor namespace (`IdentityNamespaces::assert_out_of_tree_identity()`, reached from `AdapterSources::assert_out_of_tree_contract()`, the one boundary all four out-of-tree entry points share). Below that version the rule returns before reading a member, so at `DUO_SPEC_VERSION 2` it refuses nothing. The unprefixed space is reserved to the shipped library as a CLOSED ENUMERATION of 16 adapter names (`acf`, `advanced-editor-tools`, `classic-editor`, `code-snippets`, `contact-form-7`, `core`, `duo-agency-cpt`, `elementor`, `ninja-forms`, `paid-memberships-pro`, `polylang`, `the-events-calendar`, `woocommerce`, `wps-hide-login`, `yoast`, `yoast-duplicate-post`) and 18 `id_kind`s (`attr_taxonomy`, `code_snippet`, `nf3_action`, `nf3_field`, `nf3_form`, `pmpro_category_restrict`, `pmpro_discount`, `pmpro_discount_level`, `pmpro_group`, `pmpro_level`, `pmpro_level_group`, `pmpro_restrict`, `wc_tax_class`, `wc_tax_loc`, `wc_tax_rate`, `wc_zone`, `wc_zone_loc`, `wc_zone_method`), living in `agent/src` and never under `manifests/`. Gate 7 below asserts both halves. Ownership of a namespace is the authority record's, not this list's: `adapter_names: ["<vendor>-*"]` (R-20) is what decides which names a key may certify.
+
+**Why it cannot change.** The separator forecloses every other scheme: `<vendor>-<name>` cannot later become `<vendor>/<name>` or `<vendor>.<name>` without re-spelling every out-of-tree identity already authored, and an adapter name is inside the manifest bytes `ArtifactPolicyIdentity::manifest_rows()` folds into that adapter's digest — so a re-spelling invalidates every pin and certificate that named it (the same door R-19 reaches). The ENUMERATION cannot be replaced by a shape test afterwards either: 10 of the 16 shipped names are hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not vendor `the`), so a shape test admits precisely the rows a reviewer would want to see. And the list can never simply grow: each addition hands one more unprefixed identity to the shipped library permanently, which is why the release gate refuses any membership but equality with the library itself.
+
+**Reserved.** This row deliberately reserves NOTHING for `tables.<t>.id_kind`. R-17 rules the prefix RULE out permanently — captured state and `duo_map` rows embed the bare kind — so the 18 shipped kinds are recorded here as a permanent floor and a CONVENTION for authors, never as a break list. A future scheme for that space is a new `id_kind`-carrying wire, not an edit of this one.
+
 ## 3. The grammars, as the shipped validators answer them
 
 ### 3.1 Key ids, three roots
@@ -280,7 +288,7 @@ regenerates this document and, in doing so, reads the change.
 
 ## 5. What the checker proves, and what it does not
 
-`php tools/wire-surface.php --check` proves six things and refuses the run rather than
+`php tools/wire-surface.php --check` proves eight things and refuses the run rather than
 printing a register it cannot stand behind:
 
 1. **Every value above is the shipped value.** The document is rebuilt from the code and
@@ -298,11 +306,16 @@ printing a register it cannot stand behind:
 6. **The spec-version window has not accumulated.** The shipped validator is probed over
    N-3 … N+2 and must accept exactly {N-1, N} — floor `DUO_SPEC_VERSION - 1`, never deeper (R-18).
 
-6. **The shipped platform trust root is one of its two legal states.** It is the empty
+7. **The shipped platform trust root is one of its two legal states.** It is the empty
    `duo-adapter-authorities/v1` registry byte for byte, or a
    `duo-adapter-authorities/v2` document that VERIFIES through the
    shipped reader — envelope signature, fingerprint-bound ids, windows and namespaces all
    checked by the code a site runs (R-08, R-18).
+8. **The § v3.9 grandfather list is in its place and is still closed.** Its constants are
+   declared under `agent/src` — never under `manifests/`, where AGENTS.md rule 2 would fold
+   them into every adapter digest — and their membership equals the shipped library exactly: 16 adapter
+   names and 18 `id_kind`s, in both directions, so a seventeenth unprefixed name is a reviewed
+   edit rather than a file appearing in a directory (R-27).
 
 What it does not prove: that the decisions are *right*, that any artifact in the field was
 signed under these exact rules, or that a holder's verifier implements them. The rationale

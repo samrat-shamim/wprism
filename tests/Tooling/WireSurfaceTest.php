@@ -253,6 +253,60 @@ final class WireSurfaceTest extends TestCase
     }
 
     /**
+     * Gate 7 (WP-4.10, spec § v3.9), membership half. The grandfather list is
+     * CLOSED, which means nothing about it unless a library the list does not
+     * match is refused: a seventeenth shipped adapter must not be able to
+     * arrive by dropping a file in `manifests/`, because each unprefixed name
+     * admitted is one more identity handed to the shipped library permanently.
+     */
+    public function testASeventeenthShippedAdapterNameFailsTheGrandfatherListGate(): void
+    {
+        $path = (string) self::$fixture . '/manifests/zeta.json';
+        $source = (string) file_get_contents((string) self::$fixture . '/manifests/duo-agency-cpt.json');
+        $decoded = json_decode($source, true);
+        self::assertIsArray($decoded, 'the fixture manifest did not decode');
+        $decoded['name'] = 'zeta';
+        file_put_contents($path, json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        try {
+            $result = self::invoke(['--check', '--root=' . self::$fixture]);
+        } finally {
+            unlink($path);
+        }
+        self::assertSame(1, $result['status'], 'an unlisted shipped adapter name must fail the register check');
+        self::assertStringContainsString('unlisted [zeta]', $result['stderr']);
+        self::assertStringContainsString('the list is CLOSED (row R-27)', $result['stderr']);
+    }
+
+    /**
+     * Gate 7, location half. AGENTS.md rule 2 is the whole reason the list is
+     * agent code: under `manifests/` it would be folded into every adapter's
+     * digest, so admitting the seventeenth adapter would invalidate the other
+     * sixteen's pins and certificates. The realistic way that regresses is a
+     * hoist plus a loader left behind, which is exactly what this mutates.
+     */
+    public function testHoistingTheGrandfatherListOutOfAgentSrcFailsTheGate(): void
+    {
+        $fixture = (string) self::$fixture;
+        $relative = 'agent/src/Adapter/IdentityNamespaces.php';
+        $hoisted = $fixture . '/manifests/IdentityNamespaces.php';
+        $original = (string) file_get_contents($fixture . '/' . $relative);
+        file_put_contents($hoisted, $original);
+        file_put_contents(
+            $fixture . '/' . $relative,
+            "<?php\ndeclare(strict_types=1);\nrequire_once __DIR__ . '/../../../manifests/IdentityNamespaces.php';\n"
+        );
+        try {
+            $result = self::invoke(['--check', '--root=' . $fixture]);
+        } finally {
+            file_put_contents($fixture . '/' . $relative, $original);
+            unlink($hoisted);
+        }
+        self::assertSame(1, $result['status'], 'a list declared outside agent/src must fail the register check');
+        self::assertStringContainsString('outside agent/src', $result['stderr']);
+        self::assertStringContainsString('row R-27', $result['stderr']);
+    }
+
+    /**
      * The wiring itself, because a checker nothing runs is a checker that has
      * already failed: `make release-gate` is where this one earns its keep.
      */

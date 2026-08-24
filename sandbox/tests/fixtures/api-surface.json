@@ -1,5 +1,5 @@
 {
-    "class_count": 384,
+    "class_count": 385,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -732,6 +732,9 @@
                 "REFUSAL_RESERVED_NAME": {
                     "value_repr": "reserved_name"
                 },
+                "REFUSAL_RESERVED_NAMESPACE": {
+                    "value_repr": "reserved_namespace"
+                },
                 "REFUSAL_SHADOWS_SHIPPED": {
                     "value_repr": "shadows_shipped"
                 },
@@ -749,6 +752,9 @@
                 },
                 "REFUSAL_SYMLINK_SOURCE": {
                     "value_repr": "symlink_source"
+                },
+                "RESERVED_NAMESPACE_REMEDY": {
+                    "value_repr": "rename the adapter, and every provider id it declares, into a <vendor>- namespace an authority you hold is scoped to"
                 },
                 "SCOPE_ADAPTER": {
                     "value_repr": "adapter"
@@ -15129,6 +15135,156 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\IdentityNamespaces": {
+            "abstract": false,
+            "constants": {
+                "GRANDFATHERED_ADAPTER_NAMES": {
+                    "value_repr": [
+                        "acf",
+                        "advanced-editor-tools",
+                        "classic-editor",
+                        "code-snippets",
+                        "contact-form-7",
+                        "core",
+                        "duo-agency-cpt",
+                        "elementor",
+                        "ninja-forms",
+                        "paid-memberships-pro",
+                        "polylang",
+                        "the-events-calendar",
+                        "woocommerce",
+                        "wps-hide-login",
+                        "yoast",
+                        "yoast-duplicate-post"
+                    ]
+                },
+                "GRANDFATHERED_ID_KINDS": {
+                    "value_repr": [
+                        "attr_taxonomy",
+                        "code_snippet",
+                        "nf3_action",
+                        "nf3_field",
+                        "nf3_form",
+                        "pmpro_category_restrict",
+                        "pmpro_discount",
+                        "pmpro_discount_level",
+                        "pmpro_group",
+                        "pmpro_level",
+                        "pmpro_level_group",
+                        "pmpro_restrict",
+                        "wc_tax_class",
+                        "wc_tax_loc",
+                        "wc_tax_rate",
+                        "wc_zone",
+                        "wc_zone_loc",
+                        "wc_zone_method"
+                    ]
+                },
+                "NAMESPACED_SINCE": {
+                    "value_repr": 3
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_out_of_tree_identity": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "shown",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "is_grandfathered_id_kind": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "kind",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "is_grandfathered_name": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "vendor": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "identity",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
                     "static": true,
                     "visibility": "public"
                 }

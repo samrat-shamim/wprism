@@ -795,7 +795,7 @@ evidence before this line changes.
 | v3.6 | certificates bind exercised axes; in-statement version; domain `/v2` | WP-4.7 | no — whole-`platform.json` byte equality |
 | v3.7 | authority record v2, and the platform root's identity-only binding | WP-4.8 | YES — v2 records enforce; v1 unchanged; both roots bind identity |
 | v3.8 | depth-1 delegation and typed revocation | WP-4.9 | no — no chain, one `status` word per key |
-| v3.9 | namespace grammar and the closed grandfather list | WP-4.10 | no — one flat identity grammar |
+| v3.9 | namespace grammar and the closed grandfather list | WP-4.10 | names and provider ids: yes at `spec_version: 3`, inert at v2; `id_kind`: convention only (R-17) |
 | v3.10 | reserved-but-refusing slots | WP-4.11 | partly — the graduated verdict already shipped |
 | v3.11 | the executable lane's evidence contract (gate G5) | WP-7.1 (shut) | n/a — the lane is shut and the reservations refuse |
 
@@ -1194,22 +1194,53 @@ stating the distinction.
 
 ### v3.9 The namespace grammar, and the closed grandfather list
 
-**Rider: WP-4.10. Enforced today: no.** One shared identity grammar (`AdapterSources::assert_name()`,
-`agent/src/Adapter/AdapterSources.php:3155`) governs adapter names, authority key ids, pins, ratification
-maps and frozen records, and `id_kind` uniqueness across pinned manifests is load-bearing for correctness
-because `duo_map` is keyed by `(id_kind, local_id)`
-(`agent/src/Policy/CrossManifestGuards.php:429-453`) — with prose advice as its entire remediation.
+**Rider: WP-4.10. Enforced today: for names and provider ids, yes at `spec_version: 3`; inert at v2. For
+`id_kind`, never — see the last paragraph.** One shared identity grammar
+(`AdapterSources::assert_name()`, `agent/src/Adapter/AdapterSources.php`) governs adapter names, authority
+key ids, pins, ratification maps and frozen records, and it decides SHAPE, never ownership. `id_kind`
+uniqueness across pinned manifests is load-bearing for correctness because `duo_map` is keyed by
+`(id_kind, local_id)` (`agent/src/Policy/CrossManifestGuards.php:429-453`) — with prose advice as its
+entire remediation.
 
 At v3, `<vendor>-<name>` is a RESERVED form in the three flat identity spaces — adapter names,
 `tables.<t>.id_kind` and `providers[].id` — and a prefixed identity is bound to the certifying authority's
 namespace scope. An authority scoped to `acme-*` cannot certify `zeta-foo`. Squatting therefore requires
 holding a key rather than being first, which is the same property fingerprint-derived key ids give
-(§ v3.7); the two decisions reinforce each other.
+(§ v3.7); the two decisions reinforce each other. That scope half is the one WP-4.8 already shipped
+(`AdapterCertification::assertScopeEntry()` / `scopeCoversName()`); what this rider adds is the other end
+of the same binding — the requirement that an out-of-tree identity be inside a vendor namespace at all, so
+there is something for a scope to bind to.
 
-**Unprefixed names stay legal, and the reserved set is a CLOSED ENUMERATED LIST living in `agent/src`** —
-never under `manifests/`, where it would become a rule-2 identity input folded into every adapter row.
-A release-gate check pins the list's location and membership; a seventeenth unprefixed adapter name cannot
-be added without editing it in review.
+**What is enforced, exactly.** `IdentityNamespaces::assert_out_of_tree_identity()` runs inside
+`AdapterSources::assert_out_of_tree_contract()` — the one boundary the site scan, the plugin scan,
+Policy's post-load re-check and frozen reconstruction all pass through — and refuses two things on a
+manifest declaring `spec_version: 3`:
+
+- an adapter NAME that is neither `<vendor>-<name>` nor on the closed grandfather list, naming the list and
+  the authority scope that would grant a namespace;
+- a `providers[].id` outside the DECLARING ADAPTER's own vendor namespace, naming the index. Without this
+  second half the binding would be decorative: an adapter certified under an authority scoped `acme-*`
+  could still mint provider id `zeta-thing` and squat a space no key of its holder's covers. Binding
+  provider ids to the declaring adapter's vendor makes the whole identity set one adapter contributes
+  transitively bound to the one scope its certificate was checked against.
+
+The rule returns before reading a member on any manifest below `spec_version: 3`, which is every manifest
+that exists while `DUO_SPEC_VERSION` is 2 — the same gate § v3.5's environment narrowing uses, and for the
+same reason: a v3-only rule that fired at v2 would be refusing a manifest the acceptance window (§ v3.1)
+has not judged yet. A refused row carries its own code, `reserved_namespace`, rather than
+`out_of_tree_privilege`, because the two remediations are opposites — "install this adapter into the
+agent's own manifest library" is exactly the wrong instruction for an adapter whose only fault is the name
+it answers to.
+
+**Unprefixed names stay legal, and the reserved set is a CLOSED ENUMERATED LIST living in `agent/src`**
+(`agent/src/Adapter/IdentityNamespaces.php`) — never under `manifests/`, where it would become a rule-2
+identity input folded into every adapter row, so that admitting the seventeenth adapter would invalidate
+the other sixteen's pins and certificates. `php tools/wire-surface.php --check`, a `make release-gate`
+step, pins the list's LOCATION (by reflection over the class, not by a path literal) and its MEMBERSHIP
+(equality with the shipped library, in both directions), and records the decision as register row R-27; a
+seventeenth unprefixed adapter name cannot be added without editing the list in review. Out of tree, a
+grandfathered name is reachable only as the reviewed `{name, source: "site"}` override of a shipped
+adapter, which is the case the list exists to keep loading.
 
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
@@ -1231,6 +1262,8 @@ later would have to rewrite every token in every branch of every site — the on
 cannot perform, because the branches are the customer's data. The register reserves the CONVENTION and
 refuses the RULE. So the 18 shipped kinds are a permanent floor, not a break list, and v3's contribution
 in that space is a reserved form bound to an authority scope plus the unchanged uniqueness refusal.
+Nothing in the shipped engine refuses an unprefixed `id_kind`, at any `spec_version`, and a later rider
+adding one would be overruling the register rather than implementing this section.
 
 ### v3.10 Reserved-but-refusing slots
 

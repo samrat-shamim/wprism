@@ -622,6 +622,62 @@ duo_check(
     'and R-17 is still the register row it defers to (a renamed row would leave this rule resting on nothing)'
 );
 
+// v3.9 — ENFORCED for names and provider ids (WP-4.10), and NEVER for
+// `id_kind`. The subsection makes three claims with shipped consequences, and
+// each is asserted against the engine rather than read back out of the prose.
+require_once $repo . '/agent/src/Adapter/IdentityNamespaces.php';
+duo_check(
+    str_contains($nsBody, 'Enforced today: for names and provider ids, yes at `spec_version: 3`; inert at v2.')
+        && str_contains($nsBody, 'For `id_kind`, never'),
+    'v3.9\'s Enforced-today line states the split its rider actually landed: a rule for two of the three '
+    . 'spaces and none for the third'
+);
+$nsVerdict = static function (array $manifest, string $name): ?string {
+    try {
+        \Duo\IdentityNamespaces::assert_out_of_tree_identity($manifest, $name, 'site adapter', "'adapters/$name.json'");
+        return null;
+    } catch (\Throwable $e) {
+        return $e->getMessage();
+    }
+};
+$nsFixture = static fn(string $name, ?int $spec, array $extra = []): array => $extra + array_filter([
+    'name' => $name,
+    'spec_version' => $spec,
+], static fn($v): bool => $v !== null);
+duo_check(
+    $nsVerdict($nsFixture('cache', $specVersion), 'cache') === null
+        && is_string($nsVerdict($nsFixture('cache', 3), 'cache')),
+    'and the engine agrees on both halves of that line: an unprefixed out-of-tree name is inert at '
+    . "spec_version $specVersion and refuses at 3, so this rule rode ahead of the flip without moving it"
+);
+duo_check(
+    $nsVerdict($nsFixture('acme-cache', 3, [
+        'tables' => ['acme_widget' => ['class' => 'authored_snapshot', 'id_kind' => 'acme_widget']],
+    ]), 'acme-cache') === null,
+    'while an unprefixed `id_kind` inside a v3 manifest is still accepted — R-17 reserves the convention and '
+    . 'refuses the rule, and this is the assertion that fails if a later rider quietly overrules it'
+);
+$nsListed = \Duo\IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES;
+duo_check_same(
+    $names,
+    $nsListed,
+    'the closed grandfather list § v3.9 describes carries exactly the ' . count($names)
+    . ' shipped adapter names — the enumeration the census above says a shape test cannot replace'
+);
+duo_check(
+    str_starts_with(
+        (string) realpath((string) (new ReflectionClass(\Duo\IdentityNamespaces::class))->getFileName()),
+        (string) realpath($repo . '/agent/src')
+    ),
+    'and it lives in agent/src as the subsection requires, not under manifests/ where rule 2 would fold it '
+    . 'into every adapter digest'
+);
+duo_check(
+    str_contains($register, '### R-27 — The reserved `<vendor>-` form, and the closed grandfather list under it'),
+    'R-27 is the register row that records the decision, so the closed list is reviewable beside the other '
+    . 'irreversible ones rather than only in code'
+);
+
 // ---------------------------------------------------------------------------
 // v3.10 — the reserved slots. Each refusal text is pinned HERE and must not
 // yet exist as shipped code: a reservation that quietly became behaviour would

@@ -52,7 +52,7 @@ declare(strict_types=1);
  *
  * The prose halves of each row (why a decision cannot change, what it
  * reserves) are this file's own bytes, because a rationale lives nowhere in
- * the engine. Everything factual beside them is projected, and four
+ * the engine. Everything factual beside them is projected, and seven
  * completeness gates below refuse the whole run rather than emit a register
  * that has gone quiet about a surface:
  *
@@ -66,7 +66,12 @@ declare(strict_types=1);
  *      (row R-15);
  *   5. the shipped `spec_version` acceptance window is exactly {N-1, N} — the
  *      floor is `DUO_SPEC_VERSION - 1` and never deeper (row R-18), measured
- *      by probing the shipped validator rather than by reading its condition.
+ *      by probing the shipped validator rather than by reading its condition;
+ *   6. the shipped platform trust root is the empty v1 registry byte for byte,
+ *      or a v2 document that verifies through the shipped reader (row R-08);
+ *   7. the § v3.9 grandfather list is declared under `agent/src` — never under
+ *      `manifests/`, where rule 2 would make it an adapter-digest input — and
+ *      its membership equals the shipped library exactly (row R-27).
  *
  * A new signed surface therefore cannot be added quietly: it fails gate 1 or 2
  * until it is registered, and any moved constant fails the byte-compare with
@@ -96,6 +101,7 @@ foreach (array_slice($wsArgv, 1) as $wsArg) {
 $repo = $wsRoot !== null && $wsRoot !== '' ? $wsRoot : dirname(__DIR__);
 
 require_once $repo . '/agent/src/Adapter/AdapterCertification.php';
+require_once $repo . '/agent/src/Adapter/IdentityNamespaces.php';
 require_once $repo . '/agent/src/Kernel/ReferenceKindGrammar.php';
 require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
 require_once $repo . '/cli/src/Contract/ContractAttestation.php';
@@ -120,6 +126,7 @@ use Duo\AdapterCertification;
 use Duo\AdapterContractGrammar;
 use Duo\AdapterSources;
 use Duo\Canon;
+use Duo\IdentityNamespaces;
 use Duo\Orchestrator\ApplicationContract;
 use Duo\Orchestrator\ContractAttestation;
 use Duo\Recovery\CanonicalJson;
@@ -551,6 +558,104 @@ function ws_assert_shipped_authorities(string $repo): void {
         ws_fail(
             "$relative does not verify through the shipped reader: " . $e->getMessage()
             . ' — an unsigned or tampered platform trust root never ships'
+        );
+    }
+}
+
+/**
+ * The shipped library's own identities, read off `manifests/*.json`.
+ *
+ * `dispositions.json` is the reviewed claim source, not an adapter, and the
+ * `capabilities/` documents live one directory down, so the flat glob is
+ * already exactly the adapter set. The declared `name` is preferred over the
+ * basename only to say out loud that they are the same value —
+ * `AdapterSources::assert_declared_name()` refuses a manifest where they
+ * disagree, so a disagreement here would be an engine bug, not a data one.
+ *
+ * @return array{names:list<string>, id_kinds:list<string>}
+ */
+function ws_shipped_identities(string $repo): array {
+    $names = [];
+    $kinds = [];
+    foreach (glob($repo . '/manifests/*.json') ?: [] as $file) {
+        $base = basename($file, '.json');
+        if ($base === 'dispositions') {
+            continue;
+        }
+        $decoded = json_decode((string) file_get_contents($file), true);
+        if (!is_array($decoded)) {
+            ws_fail("manifests/$base.json does not decode as an object; row R-27 enumerates it");
+        }
+        $names[] = is_string($decoded['name'] ?? null) ? (string) $decoded['name'] : $base;
+        foreach ((array) ($decoded['tables'] ?? []) as $table) {
+            if (is_array($table) && is_string($table['id_kind'] ?? null)) {
+                $kinds[$table['id_kind']] = true;
+            }
+        }
+    }
+    $kinds = array_map('strval', array_keys($kinds));
+    sort($names, SORT_STRING);
+    sort($kinds, SORT_STRING);
+
+    return ['names' => array_values(array_unique($names)), 'id_kinds' => $kinds];
+}
+
+/**
+ * Gate 7 (WP-4.10, spec § v3.9): the closed grandfather list, in its place and
+ * with its exact membership.
+ *
+ * Two halves, and the LOCATION half is the one that is easy to lose. A
+ * reserved-name list under `manifests/` would be folded into every adapter's
+ * `digest` by `ArtifactPolicyIdentity::manifest_rows()` (AGENTS.md rule 2), so
+ * adding the seventeenth shipped adapter would invalidate every pin and every
+ * certificate in the fleet for the other sixteen. In `agent/src` it moves no
+ * digest at all. The check is reflection over the class rather than a path
+ * literal, because a path literal is a claim about where a file was, not about
+ * where the constants a refusal reads actually live.
+ *
+ * The MEMBERSHIP half is what makes the list CLOSED rather than merely
+ * present: it must equal the shipped library exactly, in both directions. A
+ * seventeenth adapter name — prefixed or not — therefore cannot enter the
+ * library without a reviewed edit to the enumerated list, which is the whole
+ * property § v3.9 claims and the reason the list enumerates instead of testing
+ * shape (`the-events-calendar` is hyphen-shaped and is not vendor `the`).
+ */
+function ws_assert_grandfather_list(string $repo): void {
+    // Both sides through realpath(): `--root=` accepts a relative directory
+    // (tests/Tooling/WireSurfaceTest.php passes an absolute one, the offline
+    // suite a repo-relative one), and reflection always answers absolute, so a
+    // raw prefix compare would report "outside agent/src" for a tree that is
+    // inside it.
+    $file = (new ReflectionClass(IdentityNamespaces::class))->getFileName();
+    $file = is_string($file) ? (realpath($file) ?: $file) : null;
+    $agentSrc = realpath(rtrim($repo, '/') . '/agent/src');
+    $agentSrc = $agentSrc === false ? rtrim($repo, '/') . '/agent/src' : $agentSrc;
+    if (!is_string($file) || !str_starts_with($file, $agentSrc . '/')) {
+        ws_fail(
+            'the § v3.9 grandfather list is declared in ' . var_export($file, true) . ', outside agent/src — '
+            . 'row R-27 records that it lives in agent code precisely so it is not a manifest byte, which '
+            . 'AGENTS.md rule 2 would fold into every adapter digest'
+        );
+    }
+    $shipped = ws_shipped_identities($repo);
+    $pairs = [
+        'adapter names' => [IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES, $shipped['names']],
+        'id_kinds' => [IdentityNamespaces::GRANDFATHERED_ID_KINDS, $shipped['id_kinds']],
+    ];
+    foreach ($pairs as $space => [$listed, $actual]) {
+        if ($listed === $actual) {
+            continue;
+        }
+        $added = array_values(array_diff($actual, $listed));
+        $dropped = array_values(array_diff($listed, $actual));
+        ws_fail(
+            "the § v3.9 grandfather list of $space disagrees with the shipped library: "
+            . ($added === [] ? 'nothing unlisted' : 'unlisted [' . implode(', ', $added) . ']')
+            . ', ' . ($dropped === [] ? 'nothing stale' : 'stale [' . implode(', ', $dropped) . ']')
+            . ($added === [] && $dropped === [] ? ', and the two are only out of sort order' : '')
+            . ' — the list is CLOSED (row R-27): edit '
+            . 'agent/src/Adapter/IdentityNamespaces.php in review, which is the reviewed act that admitting a '
+            . 'new unprefixed identity is meant to be'
         );
     }
 }
@@ -1111,6 +1216,44 @@ function ws_rows(): array {
             . 'own signed statement type with its own domain (spec/repo-format.md § v3.8), never a member '
             . 'or an arm inside this one.',
     ];
+    // WP-4.10's row. R-21 … R-26 are held by the sibling riders of this
+    // tranche; ids are ordinal bookkeeping and nothing on disk or in a
+    // certificate embeds one, so a renumber at integration moves no identity
+    // (the note above R-20 records the last time that happened).
+    $rows[] = [
+        'id' => 'R-27',
+        'title' => 'The reserved `<vendor>-` form, and the closed grandfather list under it',
+        'now' => 'At `spec_version ' . (string) ws_const(IdentityNamespaces::class, 'NAMESPACED_SINCE')
+            . '` an out-of-tree adapter name is `<vendor>-<name>` and every `providers[].id` it declares '
+            . 'sits in that same vendor namespace (`IdentityNamespaces::assert_out_of_tree_identity()`, '
+            . 'reached from `AdapterSources::assert_out_of_tree_contract()`, the one boundary all four '
+            . 'out-of-tree entry points share). Below that version the rule returns before reading a member, '
+            . 'so at `DUO_SPEC_VERSION ' . (string) DUO_SPEC_VERSION . '` it refuses nothing. The unprefixed '
+            . 'space is reserved to the shipped library as a CLOSED ENUMERATION of '
+            . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . ' adapter names (`'
+            . implode('`, `', IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . '`) and '
+            . count(IdentityNamespaces::GRANDFATHERED_ID_KINDS) . ' `id_kind`s (`'
+            . implode('`, `', IdentityNamespaces::GRANDFATHERED_ID_KINDS) . '`), living in `agent/src` and '
+            . 'never under `manifests/`. Gate 7 below asserts both halves. Ownership of a namespace is the '
+            . "authority record's, not this list's: `adapter_names: [\"<vendor>-*\"]` (R-20) is what decides "
+            . 'which names a key may certify.',
+        'permanent' => 'The separator forecloses every other scheme: `<vendor>-<name>` cannot later become '
+            . '`<vendor>/<name>` or `<vendor>.<name>` without re-spelling every out-of-tree identity already '
+            . 'authored, and an adapter name is inside the manifest bytes '
+            . '`ArtifactPolicyIdentity::manifest_rows()` folds into that adapter\'s digest — so a re-spelling '
+            . 'invalidates every pin and certificate that named it (the same door R-19 reaches). The '
+            . 'ENUMERATION cannot be replaced by a shape test afterwards either: 10 of the '
+            . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . ' shipped names are hyphen-shaped '
+            . 'without being vendor-prefixed (`the-events-calendar` is not vendor `the`), so a shape test '
+            . 'admits precisely the rows a reviewer would want to see. And the list can never simply grow: '
+            . 'each addition hands one more unprefixed identity to the shipped library permanently, which is '
+            . 'why the release gate refuses any membership but equality with the library itself.',
+        'reserved' => 'This row deliberately reserves NOTHING for `tables.<t>.id_kind`. R-17 rules the prefix '
+            . 'RULE out permanently — captured state and `duo_map` rows embed the bare kind — so the '
+            . (string) count(IdentityNamespaces::GRANDFATHERED_ID_KINDS) . ' shipped kinds are recorded here '
+            . 'as a permanent floor and a CONVENTION for authors, never as a break list. A future scheme for '
+            . 'that space is a new `id_kind`-carrying wire, not an edit of this one.',
+    ];
 
     return $rows;
 }
@@ -1190,6 +1333,7 @@ function ws_build(string $repo): string {
     ws_assert_rollback_is_domain_free();
     ws_assert_spec_window();
     ws_assert_shipped_authorities($repo);
+    ws_assert_grandfather_list($repo);
     $domains = [
         (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN'),
         (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_AUTHORITIES'),
@@ -1281,7 +1425,7 @@ function ws_build(string $repo): string {
     }
 
     $out .= "\n## 5. What the checker proves, and what it does not\n\n";
-    $out .= "`php tools/wire-surface.php --check` proves six things and refuses the run rather than\n";
+    $out .= "`php tools/wire-surface.php --check` proves eight things and refuses the run rather than\n";
     $out .= "printing a register it cannot stand behind:\n\n";
     $out .= "1. **Every value above is the shipped value.** The document is rebuilt from the code and\n";
     $out .= "   byte-compared; a moved constant, a renamed key, a widened grammar or a reworded refusal\n";
@@ -1299,11 +1443,18 @@ function ws_build(string $repo): string {
     $out .= "6. **The spec-version window has not accumulated.** The shipped validator is probed over\n";
     $out .= '   N-3 … N+2 and must accept exactly {N-1, N} — floor `DUO_SPEC_VERSION - 1`, never deeper'
         . " (R-18).\n\n";
-    $out .= "6. **The shipped platform trust root is one of its two legal states.** It is the empty\n";
+    $out .= "7. **The shipped platform trust root is one of its two legal states.** It is the empty\n";
     $out .= '   `' . AdapterCertification::AUTHORITIES_FORMAT . "` registry byte for byte, or a\n";
     $out .= '   `' . AdapterCertification::AUTHORITIES_FORMAT_V2 . "` document that VERIFIES through the\n";
     $out .= "   shipped reader — envelope signature, fingerprint-bound ids, windows and namespaces all\n";
-    $out .= "   checked by the code a site runs (R-08, R-18).\n\n";
+    $out .= "   checked by the code a site runs (R-08, R-18).\n";
+    $out .= "8. **The § v3.9 grandfather list is in its place and is still closed.** Its constants are\n";
+    $out .= "   declared under `agent/src` — never under `manifests/`, where AGENTS.md rule 2 would fold\n";
+    $out .= '   them into every adapter digest — and their membership equals the shipped library exactly: '
+        . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . " adapter\n";
+    $out .= '   names and ' . count(IdentityNamespaces::GRANDFATHERED_ID_KINDS)
+        . " `id_kind`s, in both directions, so a seventeenth unprefixed name is a reviewed\n";
+    $out .= "   edit rather than a file appearing in a directory (R-27).\n\n";
     $out .= "What it does not prove: that the decisions are *right*, that any artifact in the field was\n";
     $out .= "signed under these exact rules, or that a holder's verifier implements them. The rationale\n";
     $out .= "halves of §2 are prose, reviewed by a human, and the register is only as good as the review\n";
