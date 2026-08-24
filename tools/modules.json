@@ -1172,6 +1172,7 @@
           "AdapterObservation.php",
           "AdapterProbe.php",
           "AdapterRegistry.php",
+          "AdapterScan.php",
           "AdapterSources.php",
           "DeletionFeasibility.php",
           "ProviderActionBatchBuilder.php",

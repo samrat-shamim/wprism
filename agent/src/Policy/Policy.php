@@ -369,7 +369,91 @@ final class Policy {
         bool $allowUnsupportedSiteForReadOnlyCapabilities = false,
         ?string $adapterRepo = null
     ): self {
-        if (!$allowUnsupportedSiteForReadOnlyCapabilities) {
+        return self::load_with(
+            null,
+            $repo,
+            $manifestNames,
+            $allowUnsupportedSiteForReadOnlyCapabilities,
+            $adapterRepo
+        );
+    }
+
+    /**
+     * Everything a load resolves about the LIBRARY rather than about a pin,
+     * resolved once, for a reader that will load many pins against it.
+     *
+     * The only caller is `AdapterScan` (WP-1.3), which holds the result behind
+     * a file-set witness and hands it back through load_from_scan() below;
+     * `AdapterSources::survey()` was re-running all three of these once per
+     * surveyed adapter, which is O(library) work repeated O(library) times.
+     *
+     * The ORDER is load()'s own and is load-bearing, which is why this is
+     * three statements and not one array literal: the two asserts refuse
+     * before any repository or library read (that is the whole point of
+     * assert_supported_platform() sitting where it does), and `discover()`
+     * refuses an ambiguous installation before the reviewed registry is even
+     * opened. A survey against a multisite target with a broken library still
+     * reports the multisite refusal, because that is the one that fires first
+     * here exactly as it fires first there.
+     *
+     * `manifests_dir()` is returned rather than re-derived by the consumer:
+     * `DUO_MANIFESTS_DIR` can move under a process, and a resolution used
+     * against a different library than the one it was taken from is precisely
+     * the staleness the witness exists to refuse.
+     *
+     * @return array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources}
+     */
+    public static function resolve_library(?string $repo): array {
+        self::assert_single_site();
+        self::assert_supported_platform();
+        $dir = self::manifests_dir();
+        $sources = AdapterSources::discover($dir, $repo);
+        $dispositions = class_exists(ManifestDispositions::class)
+            ? ManifestDispositions::load($dir)
+            : null;
+        return ['dir' => $dir, 'dispositions' => $dispositions, 'sources' => $sources];
+    }
+
+    /**
+     * One pin, loaded against a library resolution the CALLER has proved is
+     * still current.
+     *
+     * READ-ONLY BY CONSTRUCTION, and that is the risk control rather than a
+     * naming convention: no mutation entry point calls this — every one of
+     * them enters through load(), which resolves its own sources — and the
+     * only caller in the shipped tree is `AdapterScan::load()`, which re-
+     * derives its witness before every single call and refuses instead of
+     * serving a resolution the disk no longer matches.
+     * `sandbox/tests/offline/adapter/regress_adapter_survey_scale.php` asserts
+     * that call-site set against the tree.
+     *
+     * @param array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources} $library
+     * @param list<string>|list<array<string,mixed>> $manifestNames
+     */
+    public static function load_from_scan(array $library, ?string $repo, array $manifestNames): self {
+        return self::load_with($library, $repo, $manifestNames, false, null);
+    }
+
+    /**
+     * load()'s one body. `$library === null` is the ordinary load, which
+     * resolves each piece exactly where it always did; a supplied library
+     * substitutes those pieces and changes nothing else, including the order
+     * every other refusal fires in.
+     *
+     * @param ?array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources} $library
+     */
+    private static function load_with(
+        ?array $library,
+        ?string $repo,
+        ?array $manifestNames,
+        bool $allowUnsupportedSiteForReadOnlyCapabilities,
+        ?string $adapterRepo
+    ): self {
+        // A supplied library has already been through resolve_library(), which
+        // runs both asserts FIRST, before it reads anything; running them
+        // again per pin would re-read capabilities/platform.json once per
+        // surveyed adapter to re-answer a question about the process.
+        if ($library === null && !$allowUnsupportedSiteForReadOnlyCapabilities) {
             self::assert_single_site();
             self::assert_supported_platform();
         }
@@ -391,23 +475,47 @@ final class Policy {
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $pins = PinResolver::normalize_manifest_pins($rawPins);
         $dir = self::manifests_dir();
+        // A supplied library was resolved against the directory this process
+        // saw then; a `DUO_MANIFESTS_DIR` that moved since would silently
+        // resolve pins against one library and report them against another.
+        // Unreachable through AdapterScan, whose shape witness carries the
+        // same fact — kept because this is the entry point, and an invariant
+        // that only the caller enforces is one nobody enforces.
+        if ($library !== null && $library['dir'] !== $dir) {
+            throw new \RuntimeException(
+                'duo: a resolved adapter library was offered for a different manifest directory than the one this '
+                . 'process now loads from'
+            );
+        }
         // DUO-3314: every installed source is scanned, and ambiguous identity or
         // shadowing refused, before the first pin resolves — a broken adapter
         // installation must not wait for a pin to reveal itself.
         // Init needs source-aware validation before site.duo.json exists. Its
         // fourth argument supplies only the repository-owned adapter source;
         // ordinary loads continue to derive both config and source from $repo.
-        $p->adapterSources = AdapterSources::discover($dir, $adapterRepo ?? $repo);
+        //
+        // CLONED, never shared: the finalizer binds THIS load's pins onto the
+        // instance (PolicyLoadFinalizer.php:51, bind_explicit_pins), so a
+        // shared one would carry row 1's explicit pins into row 2's
+        // certification elevation. Every property of AdapterSources is a
+        // string or an array, so the shallow copy is a value copy.
+        $p->adapterSources = $library === null
+            ? AdapterSources::discover($dir, $adapterRepo ?? $repo)
+            : clone $library['sources'];
         PinResolver::validate_manifest_sources($pins, $p->adapterSources);
-        // The registry DOCUMENT is read here, ahead of the pin loop, so a
+        // The registry DOCUMENT is read here — or carried in by a resolved
+        // library, which read it after its own discover() and before any pin,
+        // so the order the refusals fire in is the same one, and the object is
+        // immutable after construction so every pin sees the same bytes.
+        // Either way it is ahead of the pin loop, so a
         // malformed root or profile still refuses before any manifest is
         // validated — the order it always refused in. What it no longer does is
         // decode the whole directory: coverage is proved against the PINNED
         // shipped subset after the loop, where the manifests are already in
         // hand (ManifestDispositions::assert_covers()).
-        $p->manifestDispositions = class_exists(ManifestDispositions::class)
-            ? ManifestDispositions::load($dir)
-            : null;
+        $p->manifestDispositions = $library === null
+            ? (class_exists(ManifestDispositions::class) ? ManifestDispositions::load($dir) : null)
+            : $library['dispositions'];
         foreach ($pins as $pin) {
             $name = $pin['name'];
             // normalize_manifest_pins() has already proved this exact identity

@@ -1789,5 +1789,120 @@ check(
 );
 putenv("DUO_MANIFESTS_DIR=$shippedDir");
 
+// ======================================================================
+echo "\n== WP-1.3: one resolved library per survey, and the same verdicts as a load per row ==\n";
+// ======================================================================
+// survey() no longer re-runs discover() and the reviewed-registry read for
+// every row; it resolves the library once behind AdapterScan and threads that
+// handle into grammar_verdict(). The claim that matters is not the saving but
+// the SAMENESS: every row's verdict must be exactly what an unmemoized
+// Policy::load() of that one adapter produces, message included. That is what
+// this group compares, over the REAL shipped library plus a site adapter, one
+// row at a time.
+require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterScan.php';
+$scanRepo = fresh_site(['core'], ['acme-widget' => site_adapter('acme-widget')]);
+$scanSurvey = AdapterSources::survey($scanRepo);
+$verdictMismatches = [];
+foreach ($scanSurvey['adapters'] as $surveyed) {
+    // The unmemoized verdict, taken exactly as grammar_verdict() took it
+    // before WP-1.3: this repository, this one pin, the real loader.
+    try {
+        Policy::load($scanRepo, [(string) $surveyed['name']]);
+        $unmemoized = ['message' => null, 'status' => AdapterSources::GRAMMAR_OK];
+    } catch (\Throwable $t) {
+        $unmemoized = ['message' => $t->getMessage(), 'status' => AdapterSources::GRAMMAR_ERROR];
+    }
+    if ($surveyed['grammar'] !== $unmemoized) {
+        $verdictMismatches[] = (string) $surveyed['name'] . ': surveyed '
+            . json_encode($surveyed['grammar']) . ' vs fresh ' . json_encode($unmemoized);
+    }
+}
+check(
+    $verdictMismatches === [] && count($scanSurvey['adapters']) > 10,
+    'every one of the ' . count($scanSurvey['adapters']) . ' surveyed rows carries byte-identical grammar to a '
+    . 'fresh per-row Policy::load() — the memo changed what the survey COSTS and nothing about what it says'
+    . ($verdictMismatches === [] ? '' : ' (mismatches: ' . implode('; ', $verdictMismatches) . ')')
+);
+
+// Two loads through one handle are two INDEPENDENT policies. The finalizer
+// binds each load's pins onto its own AdapterSources instance
+// (PolicyLoadFinalizer.php:51), so a shared instance would carry row 1's
+// explicit pins into row 2's certification elevation — which is why the
+// resolved sources are cloned per load rather than handed out.
+$handleDir = library_variant(function (string $dir): void {});
+putenv("DUO_MANIFESTS_DIR=$handleDir");
+$handle = \Duo\AdapterScan::open(null);
+$firstLoad = $handle->load('core');
+$secondLoad = $handle->load('classic-editor');
+check(
+    $firstLoad instanceof Policy
+    && $secondLoad instanceof Policy
+    && $firstLoad->adapter_sources() !== $secondLoad->adapter_sources()
+    && array_column($firstLoad->manifests, 'name') === ['core']
+    && array_column($secondLoad->manifests, 'name') === ['classic-editor'],
+    'two pins loaded through one handle get two independent policies over two independent source instances — '
+    . 'the memo is the SCAN, never the loaded policy'
+);
+
+// The file SET moves: a manifest appears beside the ones already resolved.
+// The next reuse refuses rather than answering from a scan taken before it
+// existed, and refuses TYPED so `--format=json` can name it.
+file_put_contents(
+    "$handleDir/zz-late-arrival.json",
+    Canon::encode(['name' => 'zz-late-arrival', 'spec_version' => DUO_SPEC_VERSION])
+);
+$movedRefusal = null;
+try {
+    $handle->load('core');
+} catch (\Duo\CommandRefusalException $refusal) {
+    $movedRefusal = $refusal;
+}
+check(
+    $movedRefusal instanceof \Duo\CommandRefusalException
+    && $movedRefusal->reasonCode === \Duo\AdapterScan::REFUSAL_MOVED
+    && $movedRefusal->payload()['error'] === \Duo\AdapterScan::REFUSAL_MOVED
+    && $movedRefusal->detailsRedacted === false
+    && str_contains($movedRefusal->getMessage(), 'moved mid-survey'),
+    'a manifest that appears under an open handle REFUSES the reuse — typed, publishable, and named '
+    . '(reason: ' . var_export($movedRefusal?->reasonCode, true) . ')'
+);
+
+// The other half. An in-place rewrite churns no directory entry, so the
+// per-row shape witness cannot see it — the handle keeps answering, which is
+// correct: each row re-reads its OWN manifest, so no row is answered from
+// stale bytes. What must not happen is the SURVEY finishing as though it had
+// read one library, and settle() is where that is refused.
+$settleDir = library_variant(function (string $dir): void {});
+putenv("DUO_MANIFESTS_DIR=$settleDir");
+$settleHandle = \Duo\AdapterScan::open(null);
+$settleHandle->load('core');
+$rewritten = "$settleDir/classic-editor.json";
+$rewrittenBefore = (string) file_get_contents($rewritten);
+file_put_contents($rewritten, str_replace('classic-editor', 'classic-editoR', $rewrittenBefore));
+$survivedShape = false;
+try {
+    $settleHandle->load('core');
+    $survivedShape = true;
+} catch (\Throwable $t) {
+    $survivedShape = false;
+}
+$settleRefusal = null;
+try {
+    $settleHandle->settle();
+} catch (\Duo\CommandRefusalException $refusal) {
+    $settleRefusal = $refusal;
+}
+check(
+    $survivedShape
+    && $settleRefusal instanceof \Duo\CommandRefusalException
+    && $settleRefusal->reasonCode === \Duo\AdapterScan::REFUSAL_MOVED
+    && str_contains($settleRefusal->getMessage(), 'file content change'),
+    'a manifest rewritten IN PLACE passes the per-row directory witness and is caught by the content witness at '
+    . 'settle() — the survey refuses instead of publishing rows taken across two libraries '
+    . '(shape survived: ' . var_export($survivedShape, true) . ', settle refused: '
+    . var_export($settleRefusal?->reasonCode, true) . ')'
+);
+putenv("DUO_MANIFESTS_DIR=$shippedDir");
+
 echo $failures === 0 ? "\nALL PASSED\n" : "\nFAIL: $failures check(s) failed\n";
 exit($failures === 0 ? 0 : 1);

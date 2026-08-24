@@ -1,5 +1,5 @@
 {
-    "class_count": 377,
+    "class_count": 378,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -556,6 +556,64 @@
                     ],
                     "return_type": "array",
                     "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\AdapterScan": {
+            "abstract": false,
+            "constants": {
+                "REFUSAL_MOVED": {
+                    "value_repr": "adapter_library_moved"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "load": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\Policy",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "open": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\AdapterScan",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "settle": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
                     "visibility": "public"
                 }
             },
@@ -1144,6 +1202,56 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "scan_anchors": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifestDir",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "scan_dependencies": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifestDir",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },
@@ -39721,6 +39829,39 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "load_from_scan": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "library",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifestNames",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\Policy",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "manifest_disposition": {
                     "abstract": false,
                     "final": false,
@@ -40670,6 +40811,23 @@
                     ],
                     "return_type": "?array",
                     "static": false,
+                    "visibility": "public"
+                },
+                "resolve_library": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
                     "visibility": "public"
                 },
                 "set_rule": {

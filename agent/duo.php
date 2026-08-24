@@ -37,6 +37,9 @@ require_once __DIR__ . '/src/Kernel/ReferenceRules.php';
 require_once __DIR__ . '/src/Policy/ManifestGrammar.php';
 require_once __DIR__ . '/src/Adapter/AdapterRegistry.php';
 require_once __DIR__ . '/src/Policy/Policy.php';
+// After Policy, which it loads pins through: the survey's scan handle holds
+// one resolved library for a whole read-only survey (WP-1.3).
+require_once __DIR__ . '/src/Adapter/AdapterScan.php';
 require_once __DIR__ . '/src/Adapter/Providers.php';
 require_once __DIR__ . '/src/Repository/Ledger.php';
 require_once __DIR__ . '/src/Promotion/PromotionLease.php';

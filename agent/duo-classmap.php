@@ -16,6 +16,7 @@ return [
     'Duo\\AdapterObservation' => 'src/Adapter/AdapterObservation.php',
     'Duo\\AdapterProbe' => 'src/Adapter/AdapterProbe.php',
     'Duo\\AdapterRegistry' => 'src/Adapter/AdapterRegistry.php',
+    'Duo\\AdapterScan' => 'src/Adapter/AdapterScan.php',
     'Duo\\AdapterSources' => 'src/Adapter/AdapterSources.php',
     'Duo\\Apply' => 'src/Apply/Apply.php',
     'Duo\\ApplyFieldMaterializer' => 'src/Apply/ApplyFieldMaterializer.php',

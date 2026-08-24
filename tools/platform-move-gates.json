@@ -331,13 +331,13 @@
    "note": "ANCHOR. Frozen-snapshot rehydration re-validates: each manifest against its site pin by name and order, provenance through AdapterSources::from_snapshot(), then the reviewed dispositions against the shipped subset. duo-policy-snapshot/v4 is refused BY NAME because its source record granted shipped authority without proving bytes."
   },
   {
-   "site": "agent/src/Policy/Policy.php::load",
+   "site": "agent/src/Policy/Policy.php::load_with",
    "axes": [
     "platform",
     "manifest"
    ],
    "verdict": "gate",
-   "note": "every ordinary command enters here: assert_supported_platform() before the first repository read, then AdapterSources::discover() refusing ambiguous or shadowing adapter identity before a single pin resolves."
+   "note": "the body every ordinary command reaches through load(): assert_supported_platform() before the first repository read, then AdapterSources::discover() refusing ambiguous or shadowing adapter identity before a single pin resolves. WP-1.3 moved the body here so a read-only survey can supply one already-resolved library (load_from_scan) instead of re-discovering per surveyed adapter; the gate, its order and its sentences are unchanged, and a supplied library is refused outright when it names a different manifest directory."
   },
   {
    "site": "agent/src/Policy/ScopeContract.php::assert_associated",
