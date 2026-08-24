@@ -152,6 +152,15 @@ final class Woocommerce {
     private const MAX_MIXED_OPTION_BYTES = 1048576;
     private const MAX_MIXED_TEXT_BYTES = 262144;
     private const MAX_COD_METHODS = 256;
+    private const MAX_PERMALINK_BYTES = 2048;
+
+    private const PERMALINK_OPTION_FIELDS = [
+        'product_base' => 'permalink',
+        'category_base' => 'permalink',
+        'tag_base' => 'permalink',
+        'attribute_base' => 'permalink',
+        'use_verbose_page_rules' => 'permalink_bool',
+    ];
 
     private const GATEWAY_OPTION_FIELDS = [
         'woocommerce_bacs_settings' => [
@@ -285,6 +294,7 @@ final class Woocommerce {
             );
         }
         $this->assert_mixed_record_keys($name, $decoded, $fields, 'source');
+        $this->assert_permalink_record_complete($name, $decoded, $fields, 'source');
 
         $rawAuthored = [];
         foreach ($decoded as $key => $value) {
@@ -311,6 +321,7 @@ final class Woocommerce {
             );
         }
 
+        $this->assert_mixed_validation_topology($fields, $rawAuthored);
         $api = $this->native_settings_api();
         foreach ($rawAuthored as $key => $value) {
             if ($fields[$key] === 'cod_methods') {
@@ -352,7 +363,9 @@ final class Woocommerce {
         }
         $this->assert_mixed_sub_key_contract($name, $fields, $subKeys);
         $this->assert_mixed_record_keys($name, $captured, $fields, 'repository');
+        $this->assert_permalink_record_complete($name, $captured, $fields, 'repository');
 
+        $this->assert_mixed_validation_topology($fields, $captured);
         $api = $this->native_settings_api();
         $nativeAuthored = [];
         foreach ($captured as $key => $value) {
@@ -370,6 +383,7 @@ final class Woocommerce {
             $nativeAuthored[(string) $key] = $value;
         }
 
+        $targetWasPresent = $targetValue !== null;
         $targetValue ??= [];
         $this->assert_mixed_record_keys($name, $targetValue, $fields, 'target');
         $next = [];
@@ -398,11 +412,31 @@ final class Woocommerce {
             throw new \RuntimeException("duo: WooCommerce mixed option '$name' exceeds its native storage bound");
         }
 
+        // OptionsMaterializer deliberately owns the SQL/cache transaction and
+        // therefore does not call update_option(). Refuse any callback that
+        // native WordPress would have crossed unless exact 11.0.x source proves
+        // it is a no-op for this closed option family or its normalization is
+        // reproduced above. This proof is immediately adjacent to the write so
+        // no plugin code can alter the in-process topology between them.
+        $this->assert_mixed_option_mutation_hooks($name, $targetWasPresent);
+
         $registerRuntimeRestore(static function (): void {
             // WC_Settings_API validation is stateless; the engine owns and
             // restores storage/cache state if the enclosing transaction fails.
         });
         $writeStorage($next);
+        if ($name === 'woocommerce_cod_settings' && array_key_exists('enable_for_methods', $captured)) {
+            $confirmedMethods = $this->native_cod_methods(
+                $captured['enable_for_methods'] ?? null,
+                'target immediate recheck'
+            );
+            if ($confirmedMethods !== ($nativeAuthored['enable_for_methods'] ?? null)) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce COD target shipping-method witness changed during native storage; '
+                    . 'recovery_required'
+                );
+            }
+        }
         $row = $finalizeStorage();
         if (!is_array($row)
             || array_keys($row) !== ['option_name', 'option_value', 'autoload']
@@ -418,6 +452,9 @@ final class Woocommerce {
             $row['option_value'],
             "WooCommerce mixed option '$name' finalized storage"
         );
+        if (is_array($stored)) {
+            $this->assert_permalink_record_complete($name, $stored, $fields, 'finalized storage');
+        }
         if ($stored !== $next) {
             throw new \RuntimeException(
                 "duo: WooCommerce mixed option '$name' finalized storage disagrees with its native projection"
@@ -461,6 +498,7 @@ final class Woocommerce {
             }
             $desired[$key] = true;
         }
+        $this->assert_mixed_validation_topology($fields, $rawAuthored);
         $api = $this->native_settings_api();
         $projected = [];
         foreach ($rawAuthored as $key => $value) {
@@ -500,6 +538,9 @@ final class Woocommerce {
 
     /** @return ?array<string,string> */
     private function mixed_option_fields(string $name): ?array {
+        if ($name === 'woocommerce_permalinks') {
+            return self::PERMALINK_OPTION_FIELDS;
+        }
         if (isset(self::GATEWAY_OPTION_FIELDS[$name])) {
             return self::GATEWAY_OPTION_FIELDS[$name];
         }
@@ -559,6 +600,202 @@ final class Woocommerce {
         }
     }
 
+    private function assert_permalink_record_complete(
+        string $name,
+        array $value,
+        array $fields,
+        string $where
+    ): void {
+        if ($name !== 'woocommerce_permalinks') {
+            return;
+        }
+        $actualKeys = array_keys($value);
+        $expectedKeys = array_keys($fields);
+        if ($where === 'repository') {
+            sort($actualKeys, SORT_STRING);
+            $sortedExpected = $expectedKeys;
+            sort($sortedExpected, SORT_STRING);
+            $expectedKeys = $sortedExpected;
+        }
+        if ($actualKeys !== $expectedKeys) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name' $where is not the exact native five-field record"
+            );
+        }
+    }
+
+    private function assert_mixed_option_mutation_hooks(string $name, bool $targetWasPresent): void {
+        foreach ([
+            "sanitize_option_$name",
+            "pre_option_$name",
+            'pre_option',
+            'pre_wp_load_alloptions',
+            'pre_cache_alloptions',
+            'alloptions',
+            "default_option_$name",
+            'wp_autoload_values_to_autoload',
+            'wp_max_autoloaded_option_size',
+        ] as $hook) {
+            $this->assert_closed_mixed_option_hook($hook, []);
+        }
+        $this->assert_closed_mixed_option_hook('wp_default_autoload_value', [[
+            'wp_filter_default_autoload_value_via_option_size', '', 5, 4, 'wordpress_function',
+        ]]);
+
+        if ($targetWasPresent) {
+            $this->assert_closed_mixed_option_hook("option_$name", []);
+            $this->assert_closed_mixed_option_hook("pre_update_option_$name", $name === 'woocommerce_permalinks'
+                ? [['WC_Brands_Admin', 'validate_product_base', 10, 1, 'brands_global']]
+                : []);
+            $this->assert_closed_mixed_option_hook('pre_update_option', [
+                ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController', 'process_pre_update_option', 999, 3, 'container'],
+            ]);
+            $this->assert_closed_mixed_option_hook('update_option', []);
+            $this->assert_closed_mixed_option_hook("update_option_$name", []);
+            $this->assert_closed_mixed_option_hook('updated_option', [
+                ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer', 'process_updated_option', 999, 3, 'container'],
+                ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController', 'process_updated_option', 999, 3, 'container'],
+                ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController', 'process_updated_option_fts_index', 999, 3, 'container'],
+                ['Automattic\\WooCommerce\\Internal\\Features\\FeaturesController', 'process_updated_option', 999, 3, 'container'],
+            ]);
+            return;
+        }
+
+        $this->assert_closed_mixed_option_hook('add_option', []);
+        $this->assert_closed_mixed_option_hook("add_option_$name", []);
+        $this->assert_closed_mixed_option_hook('added_option', [
+            ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer', 'process_added_option', 999, 2, 'container'],
+            ['Automattic\\WooCommerce\\Internal\\Features\\FeaturesController', 'process_added_option', 999, 3, 'container'],
+        ]);
+    }
+
+    /** @param array<string,string> $fields @param array<string,mixed> $value */
+    private function assert_mixed_validation_topology(array $fields, array $value): void {
+        $types = [];
+        foreach ($value as $key => $_fieldValue) {
+            if (isset($fields[(string) $key])) {
+                $types[$fields[(string) $key]] = true;
+            }
+        }
+        if (isset($types['text']) || isset($types['textarea']) || isset($types['delay_days'])) {
+            $this->assert_closed_mixed_option_hook('pre_kses', []);
+            $this->assert_closed_mixed_option_hook('wp_kses_allowed_html', []);
+        }
+        if (isset($types['safe_text'])) {
+            $this->assert_closed_mixed_option_hook('pre_kses', []);
+            $this->native_container_service(
+                'Automattic\\WooCommerce\\Internal\\Utilities\\HtmlSanitizer'
+            );
+        }
+        if (isset($types['email_type'])) {
+            $this->assert_closed_mixed_option_hook('sanitize_text_field', []);
+        }
+        if (isset($types['permalink'])) {
+            $this->assert_closed_mixed_option_hook('clean_url', []);
+        }
+    }
+
+    /**
+     * @param list<array{0:string,1:string,2:int,3:int,4:'brands_global'|'container'|'wordpress_function'}> $allowed
+     */
+    private function assert_closed_mixed_option_hook(string $hook, array $allowed): void {
+        global $wp_filter;
+        if (isset($wp_filter) && !is_array($wp_filter)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option mutation hook registry is unreadable'
+            );
+        }
+        $registered = $wp_filter[$hook] ?? null;
+        if ($registered === null) {
+            return;
+        }
+        if (!$registered instanceof \WP_Hook || !is_array($registered->callbacks ?? null)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option mutation hook topology is unreadable or extension-owned'
+            );
+        }
+        $seen = [];
+        foreach ($registered->callbacks as $priority => $callbacks) {
+            if (!is_int($priority) || !is_array($callbacks)) {
+                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology is malformed');
+            }
+            foreach ($callbacks as $callback) {
+                if (!is_array($callback)
+                    || array_keys($callback) !== ['function', 'accepted_args']
+                    || !is_int($callback['accepted_args'])) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce mixed option mutation hook topology has an extension callback'
+                    );
+                }
+                $matched = false;
+                foreach ($allowed as $index => [$class, $method, $expectedPriority, $acceptedArgs, $owner]) {
+                    if (isset($seen[$index])
+                        || $priority !== $expectedPriority
+                        || $callback['accepted_args'] !== $acceptedArgs) {
+                        continue;
+                    }
+                    if ($owner === 'wordpress_function') {
+                        if ($callback['function'] !== $class
+                            || !function_exists($class)) {
+                            continue;
+                        }
+                        $seen[$index] = true;
+                        $matched = true;
+                        break;
+                    }
+                    if (!is_array($callback['function'])
+                        || count($callback['function']) !== 2
+                        || !is_object($callback['function'][0])
+                        || $callback['function'][1] !== $method
+                        || get_class($callback['function'][0]) !== $class) {
+                        continue;
+                    }
+                    $expected = $owner === 'brands_global'
+                        ? $this->native_brands_admin()
+                        : $this->native_container_service($class);
+                    if ($callback['function'][0] !== $expected) {
+                        throw new \RuntimeException(
+                            'duo: WooCommerce mixed option mutation hook callback is not the exact native service'
+                        );
+                    }
+                    $seen[$index] = true;
+                    $matched = true;
+                    break;
+                }
+                if (!$matched) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce mixed option mutation hook topology has an extension callback'
+                    );
+                }
+            }
+        }
+    }
+
+    private function native_brands_admin(): object {
+        $service = $GLOBALS['WC_Brands_Admin'] ?? null;
+        if (!is_object($service) || get_class($service) !== 'WC_Brands_Admin') {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option native Brands permalink validator is unavailable'
+            );
+        }
+        return $service;
+    }
+
+    private function native_container_service(string $class): object {
+        if (!function_exists('wc_get_container')) {
+            throw new \RuntimeException('duo: WooCommerce mixed option native service container is unavailable');
+        }
+        $container = wc_get_container();
+        if (!is_object($container) || !is_callable([$container, 'get'])) {
+            throw new \RuntimeException('duo: WooCommerce mixed option native service container is malformed');
+        }
+        $service = $container->get($class);
+        if (!is_object($service) || get_class($service) !== $class) {
+            throw new \RuntimeException('duo: WooCommerce mixed option native hook service is unavailable');
+        }
+        return $service;
+    }
+
     private function native_settings_api(): object {
         if (!class_exists('WC_Settings_API', false)) {
             throw new \RuntimeException('duo: WooCommerce mixed option validation requires WC_Settings_API');
@@ -596,7 +833,37 @@ final class Woocommerce {
         mixed $value,
         string $where
     ): void {
+        if ($type === 'permalink_bool') {
+            if (!is_bool($value)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name.$key' $where is not exact native boolean state"
+                );
+            }
+            return;
+        }
         $this->assert_bounded_mixed_text($name, $key, $value, $where);
+        if ($type === 'permalink') {
+            if (strlen($value) > self::MAX_PERMALINK_BYTES
+                || ($key !== 'attribute_base' && $value === '')
+                || !function_exists('wc_sanitize_permalink')) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name.$key' $where is outside the bounded native permalink state"
+                );
+            }
+            $canonical = wc_sanitize_permalink($value);
+            if (!is_string($canonical) || !hash_equals($value, $canonical)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name.$key' $where is not canonical native permalink storage"
+                );
+            }
+            if ($key === 'product_base'
+                && rtrim($value, "/\\") . '/' === '/%product_brand%/') {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name.$key' $where bypasses the native Brands product-base guard"
+                );
+            }
+            return;
+        }
         if ($type === 'checkbox') {
             if (!in_array($value, ['yes', 'no'], true)
                 || $api->validate_checkbox_field($key, $value === 'yes' ? '1' : null) !== $value) {
@@ -711,7 +978,7 @@ final class Woocommerce {
                         "duo: WooCommerce COD $where shipping restriction has a noncanonical instance identity"
                     );
                 }
-                $this->assert_native_shipping_method($instanceId, $match[1], $where);
+                $this->assert_raw_shipping_method_witness($instanceId, $match[1], $where);
                 // Canon sorts object keys; return that same order so the
                 // post-write projection can be compared strictly to the
                 // token codec's materialized repository object.
@@ -764,7 +1031,7 @@ final class Woocommerce {
                         "duo: WooCommerce COD $where repository restriction has malformed instance identity"
                     );
                 }
-                $this->assert_native_shipping_method($instanceId, $row['method_id'], $where);
+                $this->assert_raw_shipping_method_witness($instanceId, $row['method_id'], $where);
                 $native .= ':' . $instanceId;
             }
             if (isset($seen[$native])) {
@@ -792,23 +1059,87 @@ final class Woocommerce {
         ];
     }
 
-    private function assert_native_shipping_method(int $instanceId, string $methodId, string $where): void {
-        if (!class_exists('WC_Shipping_Zones', false)
-            || !is_callable(['WC_Shipping_Zones', 'get_shipping_method'])) {
-            throw new \RuntimeException('duo: WooCommerce COD validation requires WC_Shipping_Zones');
-        }
-        $method = \WC_Shipping_Zones::get_shipping_method($instanceId);
-        $expectedClass = $this->core_shipping_method_classes()[$methodId] ?? null;
-        if (!is_object($method)
-            || $expectedClass === null
-            || get_class($method) !== $expectedClass
-            || ($method->id ?? null) !== $methodId
-            || !is_callable([$method, 'get_instance_id'])
-            || $method->get_instance_id() !== $instanceId) {
+    /**
+     * Prove an instance reference against the one raw Woo table row instead
+     * of WC_Shipping_Zones::get_shipping_method(). That public resolver can
+     * construct arbitrary shipping services and cross their filters/actions;
+     * direct bounded SQL is the only side-effect-free identity witness for
+     * this already-ledger-resolved id. The method is called before storage,
+     * immediately after the engine-owned write, and again from finalized
+     * projection, so a concurrent row replacement cannot be blessed.
+     */
+    private function assert_raw_shipping_method_witness(int $instanceId, string $methodId, string $where): void {
+        global $wpdb;
+        $table = $this->shipping_zone_methods_table();
+        try {
+            $wpdb->last_error = '';
+            $rows = $wpdb->get_results($wpdb->prepare(
+                'SELECT instance_id, zone_id, method_id, method_order, is_enabled '
+                . "FROM $table WHERE instance_id = %d ORDER BY instance_id ASC LIMIT 2",
+                $instanceId
+            ), ARRAY_A);
+        } catch (\Throwable $exception) {
             throw new \RuntimeException(
-                "duo: WooCommerce COD $where instance does not resolve to its exact core shipping method"
+                "duo: WooCommerce COD $where shipping-method raw witness query failed",
+                0,
+                $exception
             );
         }
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException(
+                "duo: WooCommerce COD $where shipping-method raw witness query failed"
+            );
+        }
+        if (count($rows) !== 1
+            || !is_array($rows[0])
+            || array_keys($rows[0]) !== [
+                'instance_id', 'zone_id', 'method_id', 'method_order', 'is_enabled',
+            ]) {
+            throw new \RuntimeException(
+                "duo: WooCommerce COD $where shipping-method raw witness is missing or duplicated"
+            );
+        }
+        $row = $rows[0];
+        if ($this->strict_raw_shipping_uint($row['instance_id'] ?? null, false) !== $instanceId
+            || $this->strict_raw_shipping_uint($row['zone_id'] ?? null, true) === null
+            || $this->strict_raw_shipping_uint($row['method_order'] ?? null, true) === null
+            || !in_array($row['is_enabled'] ?? null, ['0', '1'], true)
+            || !is_string($row['method_id'] ?? null)
+            || !hash_equals($methodId, $row['method_id'])) {
+            throw new \RuntimeException(
+                "duo: WooCommerce COD $where shipping-method raw witness does not match its exact core method identity"
+            );
+        }
+    }
+
+    private function shipping_zone_methods_table(): string {
+        global $wpdb;
+        if (!is_object($wpdb)
+            || !isset($wpdb->prefix)
+            || !is_string($wpdb->prefix)
+            || !is_callable([$wpdb, 'prepare'])
+            || !is_callable([$wpdb, 'get_results'])) {
+            throw new \RuntimeException('duo: WooCommerce COD raw shipping-method witness is unavailable');
+        }
+        $table = $wpdb->prefix . 'woocommerce_shipping_zone_methods';
+        if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1) {
+            throw new \RuntimeException('duo: WooCommerce COD raw shipping-method table identity is invalid');
+        }
+        return $table;
+    }
+
+    private function strict_raw_shipping_uint(mixed $value, bool $allowZero): ?int {
+        if (!is_string($value)
+            || preg_match($allowZero ? '/^(?:0|[1-9][0-9]*)$/D' : '/^[1-9][0-9]*$/D', $value) !== 1) {
+            return null;
+        }
+        $number = (int) $value;
+        if ($number < ($allowZero ? 0 : 1) || (string) $number !== $value) {
+            return null;
+        }
+        return $number;
     }
 
     public function post_meta_rule(string $key, array $allMeta): ?array {

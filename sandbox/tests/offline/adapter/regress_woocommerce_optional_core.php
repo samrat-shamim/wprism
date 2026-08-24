@@ -64,30 +64,16 @@ if (!class_exists('WC_Settings_API', false)) {
     }
 }
 
-if (!class_exists('WooOptionalShippingMethod', false)) {
-    class WooOptionalShippingMethod {
-        public function __construct(public string $id, private readonly int $instanceId) {}
-
-        public function get_instance_id(): int {
-            return $this->instanceId;
-        }
-    }
-
-    class WC_Shipping_Flat_Rate extends WooOptionalShippingMethod {}
-    class WC_Shipping_Free_Shipping extends WooOptionalShippingMethod {}
-    class WC_Shipping_Local_Pickup extends WooOptionalShippingMethod {}
-    class WC_Shipping_Legacy_Flat_Rate extends WooOptionalShippingMethod {}
-    class WC_Shipping_Legacy_Free_Shipping extends WooOptionalShippingMethod {}
-    class WC_Shipping_Legacy_International_Delivery extends WooOptionalShippingMethod {}
-    class WC_Shipping_Legacy_Local_Delivery extends WooOptionalShippingMethod {}
-    class WC_Shipping_Legacy_Local_Pickup extends WooOptionalShippingMethod {}
-
+if (!class_exists('WC_Shipping_Zones', false)) {
+    // The COD interpreter must not call this resolver. Woo constructs a
+    // shipping method through it, which is extension/hook-capable rather than
+    // an inert identity lookup. The raw-table witness below is its replacement.
     class WC_Shipping_Zones {
-        /** @var array<int,object> */
-        public static array $methods = [];
+        public static int $resolverCalls = 0;
 
         public static function get_shipping_method(int $instanceId): object|false {
-            return self::$methods[$instanceId] ?? false;
+            ++self::$resolverCalls;
+            throw new RuntimeException('effectful Woo shipping resolver must stay unused');
         }
     }
 }
@@ -95,6 +81,7 @@ if (!class_exists('WooOptionalShippingMethod', false)) {
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
+require_once __DIR__ . '/../../support/woocommerce_mixed_option_hooks.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ScopeDiscovery.php';
@@ -107,6 +94,33 @@ use Duo\ScopeDiscovery;
 use Duo\Tokens;
 use DuoTest\FakeWpdb;
 use DuoTest\WpStore;
+
+if (!function_exists('wc_sanitize_permalink')) {
+    function wc_sanitize_permalink(mixed $value): string {
+        return untrailingslashit(str_replace('http://', '', trim((string) $value)));
+    }
+}
+
+$GLOBALS['wp_filter'] = [];
+$GLOBALS['WC_Brands_Admin'] = new WC_Brands_Admin();
+$GLOBALS['wooMixedOptionContainer'] = new WooMixedOptionContainer();
+
+/** @param list<array{0:object|string,1:string,2:int,3:int}> $rows */
+function woo_optional_install_hook(string $name, array $rows): void {
+    global $wp_filter;
+    $hook = new WP_Hook();
+    foreach ($rows as $index => [$object, $method, $priority, $acceptedArgs]) {
+        $hook->callbacks[$priority]['callback-' . $index] = [
+            'function' => is_string($object) ? $object : [$object, $method],
+            'accepted_args' => $acceptedArgs,
+        ];
+    }
+    $wp_filter[$name] = $hook;
+}
+
+function woo_optional_clear_hooks(): void {
+    $GLOBALS['wp_filter'] = [];
+}
 
 final class WooOptionalWakeupCanary {
     public static int $wakeups = 0;
@@ -491,6 +505,196 @@ $materializeMixed = static function (
     ];
 };
 
+$permalinkRules = [
+    'product_base' => ['class' => 'authored'],
+    'category_base' => ['class' => 'authored'],
+    'tag_base' => ['class' => 'authored'],
+    'attribute_base' => ['class' => 'authored'],
+    'use_verbose_page_rules' => ['class' => 'authored'],
+];
+$permalinkRule = $policy->option_rule('woocommerce_permalinks');
+duo_check(
+    ($permalinkRule['class'] ?? null) === 'derived'
+        && ($permalinkRule['required'] ?? null) === false
+        && ($permalinkRule['autoload'] ?? null) === 'preserve'
+        && !array_key_exists('absent_autoload', $permalinkRule)
+        && ($permalinkRule['closed_sub_keys'] ?? null) === true
+        && ($permalinkRule['sub_keys'] ?? null) === $permalinkRules,
+    'the merchant product permalink record has one closed five-field native contract without inventing absent storage'
+);
+$permalinkSource = [
+    'product_base' => 'shop/%product_cat%',
+    'category_base' => 'catalog',
+    'tag_base' => 'labels',
+    'attribute_base' => 'features',
+    'use_verbose_page_rules' => true,
+];
+$permalinkCaptured = $permalinkSource;
+ksort($permalinkCaptured, SORT_STRING);
+$permalinkNormalized = $woocommerceInterpreter->normalize_captured_option_sub_keys(
+    'woocommerce_permalinks',
+    $permalinkCaptured,
+    $permalinkRules,
+    ['woocommerce_permalinks' => serialize($permalinkSource)]
+);
+duo_check_same($permalinkCaptured, $permalinkNormalized,
+    'exact native-order Woo permalink storage normalizes to canonical repository key order');
+duo_check_same(
+    [],
+    $woocommerceInterpreter->normalize_captured_option_sub_keys(
+        'woocommerce_permalinks',
+        [],
+        $permalinkRules,
+        []
+    ),
+    'a never-materialized clean-install permalink row stays absent instead of synthesizing translated defaults'
+);
+$sparsePermalink = $permalinkSource;
+unset($sparsePermalink['use_verbose_page_rules']);
+duo_check_throws(
+    static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
+        'woocommerce_permalinks',
+        array_intersect_key($permalinkCaptured, $sparsePermalink),
+        $permalinkRules,
+        ['woocommerce_permalinks' => serialize($sparsePermalink)]
+    ),
+    RuntimeException::class,
+    'sparse raw permalink storage refuses unless Woo native loading first completes the exact five-field row',
+    'exact native five-field record'
+);
+$soleBrandBase = $permalinkSource;
+$soleBrandBase['product_base'] = '/%product_brand%';
+$soleBrandCaptured = $soleBrandBase;
+ksort($soleBrandCaptured, SORT_STRING);
+duo_check_throws(
+    static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
+        'woocommerce_permalinks',
+        $soleBrandCaptured,
+        $permalinkRules,
+        ['woocommerce_permalinks' => serialize($soleBrandBase)]
+    ),
+    RuntimeException::class,
+    'repository capture cannot bypass the exact Woo Brands product-base validator',
+    'native Brands product-base guard'
+);
+duo_check_same(
+    '/product/%product_brand%',
+    $GLOBALS['WC_Brands_Admin']->validate_product_base($soleBrandBase)['product_base'] ?? null,
+    'the pinned native Brands validator prefixes the otherwise-invalid sole brand placeholder'
+);
+
+$container = $GLOBALS['wooMixedOptionContainer'];
+$customOrders = $container->get(
+    \Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController::class
+);
+$synchronizer = $container->get(
+    \Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer::class
+);
+$features = $container->get(
+    \Automattic\WooCommerce\Internal\Features\FeaturesController::class
+);
+woo_optional_install_hook('pre_update_option_woocommerce_permalinks', [[
+    $GLOBALS['WC_Brands_Admin'], 'validate_product_base', 10, 1,
+]]);
+woo_optional_install_hook('pre_update_option', [[
+    $customOrders, 'process_pre_update_option', 999, 3,
+]]);
+woo_optional_install_hook('updated_option', [
+    [$synchronizer, 'process_updated_option', 999, 3],
+    [$customOrders, 'process_updated_option', 999, 3],
+    [$customOrders, 'process_updated_option_fts_index', 999, 3],
+    [$features, 'process_updated_option', 999, 3],
+]);
+$permalinkResult = $materializeMixed(
+    'woocommerce_permalinks',
+    $permalinkNormalized,
+    $permalinkRules,
+    'yes',
+    ['product_base' => 'stale-only-sparse-target']
+);
+duo_check(
+    $permalinkResult['handled'] === true
+        && $permalinkResult['written'] === $permalinkSource
+        && $permalinkResult['projected'] === $permalinkNormalized,
+    'native permalink materialization completes a sparse hostile target through exact source-proven hook topology'
+);
+woo_optional_clear_hooks();
+
+$foreignBrands = new WC_Brands_Admin();
+woo_optional_install_hook('pre_update_option_woocommerce_permalinks', [[
+    $foreignBrands, 'validate_product_base', 10, 1,
+]]);
+$hookWriteCalls = 0;
+$hookFinalizeCalls = 0;
+duo_check_throws(
+    static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
+        'woocommerce_permalinks',
+        $permalinkNormalized,
+        $permalinkRules,
+        'yes',
+        $permalinkSource,
+        static fn(string $companion): ?array => null,
+        static function () use (&$hookFinalizeCalls): array {
+            ++$hookFinalizeCalls;
+            return [];
+        },
+        static fn(): ?array => null,
+        static function (Closure $restore): void {},
+        static function (array $value) use (&$hookWriteCalls): void {
+            ++$hookWriteCalls;
+        }
+    ),
+    RuntimeException::class,
+    'a same-class foreign Brands validator refuses before direct permalink storage',
+    'exact native service'
+);
+duo_check_same([0, 0], [$hookWriteCalls, $hookFinalizeCalls],
+    'foreign specific hook topology reaches no mixed-option write or finalization');
+woo_optional_clear_hooks();
+
+$hostileHook = new class {
+    public function mutate(mixed $value): mixed {
+        return $value;
+    }
+};
+woo_optional_install_hook('pre_update_option', [[
+    $hostileHook, 'mutate', 10, 1,
+]]);
+$hookWriteCalls = 0;
+duo_check_throws(
+    static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
+        'woocommerce_permalinks',
+        $permalinkNormalized,
+        $permalinkRules,
+        'yes',
+        $permalinkSource,
+        static fn(string $companion): ?array => null,
+        static fn(): array => [],
+        static fn(): ?array => null,
+        static function (Closure $restore): void {},
+        static function (array $value) use (&$hookWriteCalls): void {
+            ++$hookWriteCalls;
+        }
+    ),
+    RuntimeException::class,
+    'a generic extension option callback refuses before direct permalink storage',
+    'extension callback'
+);
+duo_check_same(0, $hookWriteCalls,
+    'generic hostile hook topology is observed before the engine-owned write callback');
+woo_optional_clear_hooks();
+duo_check_same(
+    $permalinkSource,
+    $materializeMixed(
+        'woocommerce_permalinks',
+        $permalinkNormalized,
+        $permalinkRules,
+        'yes',
+        $permalinkSource
+    )['written'],
+    'removing a hostile permalink callback permits an exact idempotent retry'
+);
+
 $emailTypeValues = [
     'checkbox' => 'yes',
     'delay_days' => '14',
@@ -767,10 +971,11 @@ foreach ([
     );
 }
 
-WC_Shipping_Zones::$methods = [
-    17 => new WC_Shipping_Flat_Rate('flat_rate', 17),
-    19 => new WC_Shipping_Free_Shipping('free_shipping', 19),
-];
+$wpdb = FakeWpdb::install();
+$wpdb->seedTable('wp_woocommerce_shipping_zone_methods', [
+    ['instance_id' => 17, 'zone_id' => 2, 'method_id' => 'flat_rate', 'method_order' => 0, 'is_enabled' => 1],
+    ['instance_id' => 19, 'zone_id' => 2, 'method_id' => 'free_shipping', 'method_order' => 1, 'is_enabled' => 1],
+]);
 $codSource = [
     'enabled' => 'yes',
     'title' => '<span>Cash</span>',
@@ -793,14 +998,143 @@ duo_check_same(
     $codNormalized['enable_for_methods'] ?? null,
     'COD capture separates stable method-wide identities from typed instance references'
 );
+duo_check_same(
+    2,
+    count(array_filter(
+        $wpdb->queryLog(),
+        static fn(array $entry): bool => ($entry['method'] ?? null) === 'get_results'
+            && str_contains((string) ($entry['sql'] ?? ''), 'woocommerce_shipping_zone_methods')
+    )),
+    'COD capture witnesses each instance through one bounded raw shipping-zone-method query'
+);
+duo_check_same(0, WC_Shipping_Zones::$resolverCalls,
+    'COD capture does not construct or resolve a hook-capable Woo shipping service');
 
-WC_Shipping_Zones::$methods = [
-    117 => new WC_Shipping_Flat_Rate('flat_rate', 117),
-    119 => new WC_Shipping_Free_Shipping('free_shipping', 119),
+$seedCodSourceMethods = static function (array $rows) use ($wpdb): void {
+    $wpdb->seedTable('wp_woocommerce_shipping_zone_methods', $rows);
+};
+$sourceMethodRows = [
+    ['instance_id' => 17, 'zone_id' => 2, 'method_id' => 'flat_rate', 'method_order' => 0, 'is_enabled' => 1],
+    ['instance_id' => 19, 'zone_id' => 2, 'method_id' => 'free_shipping', 'method_order' => 1, 'is_enabled' => 1],
 ];
+$wpdb->onQuery(static function (string $sql, string $method): ?string {
+    return $method === 'get_results' && str_contains($sql, 'woocommerce_shipping_zone_methods')
+        ? 'simulated raw shipping-method witness query failure'
+        : null;
+});
+duo_check_throws(
+    static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
+        'woocommerce_cod_settings',
+        $codSource,
+        $gatewayRules['woocommerce_cod_settings'],
+        ['woocommerce_cod_settings' => serialize($codSource)]
+    ),
+    RuntimeException::class,
+    'COD refuses a failed raw shipping-zone-method witness instead of resolving a service',
+    'raw witness query failed'
+);
+$wpdb->onQuery(null);
+
+foreach ([
+    'duplicate row' => [
+        ['instance_id' => 17, 'zone_id' => 2, 'method_id' => 'flat_rate', 'method_order' => 0, 'is_enabled' => 1],
+        ['instance_id' => 17, 'zone_id' => 2, 'method_id' => 'flat_rate', 'method_order' => 1, 'is_enabled' => 1],
+        ['instance_id' => 19, 'zone_id' => 2, 'method_id' => 'free_shipping', 'method_order' => 2, 'is_enabled' => 1],
+    ],
+    'extension-owned row' => [
+        ['instance_id' => 17, 'zone_id' => 2, 'method_id' => 'table_rate', 'method_order' => 0, 'is_enabled' => 1],
+        ['instance_id' => 19, 'zone_id' => 2, 'method_id' => 'free_shipping', 'method_order' => 1, 'is_enabled' => 1],
+    ],
+    'noncanonical bounded column' => [
+        ['instance_id' => 17, 'zone_id' => '02', 'method_id' => 'flat_rate', 'method_order' => 0, 'is_enabled' => 1],
+        ['instance_id' => 19, 'zone_id' => 2, 'method_id' => 'free_shipping', 'method_order' => 1, 'is_enabled' => 1],
+    ],
+] as $label => $rows) {
+    $seedCodSourceMethods($rows);
+    duo_check_throws(
+        static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
+            'woocommerce_cod_settings',
+            $codSource,
+            $gatewayRules['woocommerce_cod_settings'],
+            ['woocommerce_cod_settings' => serialize($codSource)]
+        ),
+        RuntimeException::class,
+        "COD $label raw witness refuses before canonical publication"
+    );
+}
+$seedCodSourceMethods($sourceMethodRows);
+
+$wpdb->seedTable('wp_woocommerce_shipping_zone_methods', [
+    ['instance_id' => 117, 'zone_id' => 7, 'method_id' => 'flat_rate', 'method_order' => 0, 'is_enabled' => 1],
+    ['instance_id' => 119, 'zone_id' => 7, 'method_id' => 'free_shipping', 'method_order' => 1, 'is_enabled' => 1],
+]);
 $codRebound = $codNormalized;
 $codRebound['enable_for_methods'][1]['instance_id'] = 117;
 $codRebound['enable_for_methods'][2]['instance_id'] = 119;
+$targetMethodRows = [
+    ['instance_id' => 117, 'zone_id' => 7, 'method_id' => 'flat_rate', 'method_order' => 0, 'is_enabled' => 1],
+    ['instance_id' => 119, 'zone_id' => 7, 'method_id' => 'free_shipping', 'method_order' => 1, 'is_enabled' => 1],
+];
+$targetWitnessReads = 0;
+$raceWriteCalls = 0;
+$raceFinalizeCalls = 0;
+$raceRestores = 0;
+$wpdb->onQuery(static function (string $sql, string $method, FakeWpdb $db) use (
+    &$targetWitnessReads,
+    $targetMethodRows
+): null {
+    if ($method !== 'get_results'
+        || !str_contains($sql, 'woocommerce_shipping_zone_methods')
+        || !str_contains($sql, 'instance_id = 117')) {
+        return null;
+    }
+    ++$targetWitnessReads;
+    if ($targetWitnessReads === 2) {
+        $raced = $targetMethodRows;
+        $raced[0]['method_id'] = 'free_shipping';
+        $db->seedTable('wp_woocommerce_shipping_zone_methods', $raced);
+    }
+    return null;
+});
+duo_check_throws(
+    static function () use (
+        $woocommerceInterpreter,
+        $codRebound,
+        $gatewayRules,
+        &$raceFinalizeCalls,
+        &$raceRestores,
+        &$raceWriteCalls
+    ): bool {
+        return $woocommerceInterpreter->materialize_option_sub_keys(
+        'woocommerce_cod_settings',
+        $codRebound,
+        $gatewayRules['woocommerce_cod_settings'],
+        'auto-off',
+        ['enabled' => 'no', 'title' => 'Stale', 'enable_for_methods' => ['local_pickup']],
+        static fn(string $companion): ?array => null,
+        static function () use (&$raceFinalizeCalls): array {
+            ++$raceFinalizeCalls;
+            return [];
+        },
+        static function () use (&$raceRestores): ?array {
+            ++$raceRestores;
+            return null;
+        },
+        static function (Closure $restore): void {},
+        static function (array $value) use (&$raceWriteCalls): void {
+            ++$raceWriteCalls;
+        }
+        );
+    },
+    RuntimeException::class,
+    'COD immediate target raw-row recheck refuses a method replacement race after storage is armed',
+    'does not match its exact core method identity'
+);
+duo_check_same([2, 1, 0, 0], [$targetWitnessReads, $raceWriteCalls, $raceFinalizeCalls, $raceRestores],
+    'COD race refusal reaches one engine-owned write but no finalization or unrequested restoration');
+$wpdb->onQuery(null);
+$wpdb->seedTable('wp_woocommerce_shipping_zone_methods', $targetMethodRows);
+$wpdb->resetLog();
 $codResult = $materializeMixed(
     'woocommerce_cod_settings',
     $codRebound,
@@ -815,6 +1149,17 @@ duo_check_same(
 );
 duo_check_same($codRebound, $codResult['projected'],
     'COD finalized native bytes project back to the exact materialized typed-reference shape');
+duo_check_same(
+    6,
+    count(array_filter(
+        $wpdb->queryLog(),
+        static fn(array $entry): bool => ($entry['method'] ?? null) === 'get_results'
+            && str_contains((string) ($entry['sql'] ?? ''), 'woocommerce_shipping_zone_methods')
+    )),
+    'COD materialization witnesses target rows before storage, immediately after it, and during finalized projection'
+);
+duo_check_same(0, WC_Shipping_Zones::$resolverCalls,
+    'COD raw witness and race recheck execute no shipping-service construction path');
 $codRepeat = $materializeMixed(
     'woocommerce_cod_settings',
     $codRebound,

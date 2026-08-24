@@ -21,15 +21,17 @@ final class WoocommerceHierarchyLookups {
     private Policy $policy;
 
     private const CAPABILITY = 'rebuild_hierarchy_lookups';
+    private const PERMALINK_CAPABILITY = 'rebuild_product_permalink_routes';
     private const CHILD_FORMAT = 'duo-woocommerce-hierarchy-child/v1';
     private const CATEGORY_TABLE = 'wc_category_lookup';
     private const TAXONOMIES = ['product_cat', 'product_brand'];
-    private const MISSING_OPTION = 'duo-woocommerce-hierarchy-option-missing/v1';
     private const MAX_OPTION_BYTES = 16777216;
     private const MAX_TERMS = 200000;
     private const MAX_CATEGORY_LOOKUP_ROWS = 200000;
     private const MAX_REWRITE_RULES = 200000;
     private const MAX_REWRITE_PART_BYTES = 8192;
+    private const MAX_PERMALINK_OPTION_BYTES = 16384;
+    private const MAX_PERMALINK_PART_BYTES = 2048;
     private const MAX_TABLE_COLUMNS = 4096;
     /** Mirrors Ledger::TABLE_IDENTIFIER_WIDTH and the journal SQL grammar. */
     private const TABLE_IDENTIFIER_PATTERN = '/^[A-Za-z0-9_]{1,64}$/D';
@@ -43,7 +45,7 @@ final class WoocommerceHierarchyLookups {
         return [
             'id' => 'woocommerce-hierarchy-lookups',
             'plugin' => 'woocommerce/woocommerce.php',
-            'version' => '1.0.0',
+            'version' => '2.0.0',
         ];
     }
 
@@ -75,11 +77,39 @@ final class WoocommerceHierarchyLookups {
                     'reconcile' => true,
                 ],
             ],
+            self::PERMALINK_CAPABILITY => [
+                'args' => [],
+                'reads' => [
+                    'option:permalink_structure',
+                    'option:rewrite_rules',
+                    'option:woocommerce_brand_permalink',
+                    'option:woocommerce_permalinks',
+                    'table:options',
+                ],
+                'writes' => [
+                    'option:rewrite_rules',
+                ],
+                'scope' => 'site',
+                'idempotent' => true,
+                'timeout_seconds' => 300,
+                'scoped' => [
+                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                    'reconcile' => true,
+                ],
+            ],
         ];
     }
 
     /** @param array<string,mixed> $args */
     public function invoke(string $capability, array $args): array {
+        if ($capability === self::PERMALINK_CAPABILITY) {
+            if ($args !== []) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product permalink repair accepts no arguments'
+                );
+            }
+            return $this->repair_product_permalinks();
+        }
         if ($capability !== self::CAPABILITY) {
             throw new \RuntimeException(
                 "duo: WooCommerce hierarchy provider does not implement capability '$capability'"
@@ -106,6 +136,18 @@ final class WoocommerceHierarchyLookups {
 
     /** @param array<string,mixed> $args @param array<string,mixed> $operation */
     public function reconcile_scoped(string $capability, array $args, array $operation): array {
+        if ($capability === self::PERMALINK_CAPABILITY) {
+            if ($args !== []) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product permalink reconciliation accepts no arguments'
+                );
+            }
+            return [
+                'operation' => $operation,
+                'after' => self::product_permalink_projection(true, true, true),
+                'verified' => true,
+            ];
+        }
         if ($capability !== self::CAPABILITY) {
             throw new \RuntimeException(
                 "duo: WooCommerce hierarchy provider does not implement capability '$capability'"
@@ -118,7 +160,7 @@ final class WoocommerceHierarchyLookups {
         }
         return [
             'operation' => $operation,
-            'after' => self::projection_snapshot(true, (bool) $args['flush_rewrite'], false),
+            'after' => self::projection_snapshot(true, (bool) $args['flush_rewrite'], (bool) $args['flush_rewrite']),
             'verified' => true,
         ];
     }
@@ -134,9 +176,9 @@ final class WoocommerceHierarchyLookups {
         // Validate authored parent graphs and exact table shape before the
         // child can truncate anything. Dirty derived rows/options stay
         // observable and repairable; malformed authored hierarchy is not.
-        $before = self::projection_snapshot(false, $flushRewrite, false);
+        $before = self::projection_snapshot(false, $flushRewrite);
         $childAfter = $this->launch_child($flushRewrite);
-        $after = self::projection_snapshot(true, $flushRewrite, false);
+        $after = self::projection_snapshot(true, $flushRewrite, $flushRewrite);
         self::assert_authored_source_unchanged($before, $after, $flushRewrite);
         if ($childAfter !== $after) {
             throw new \RuntimeException(
@@ -145,6 +187,59 @@ final class WoocommerceHierarchyLookups {
             );
         }
         return ['before' => $before, 'after' => $after, 'verified' => true];
+    }
+
+    /** @return array{before:array,after:array,verified:true} */
+    private function repair_product_permalinks(): array {
+        if (!class_exists('\WP_CLI')) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product permalink repair requires a fresh WP-CLI child process'
+            );
+        }
+
+        // Unlike the hierarchy tables, the permalink record is authored
+        // input. It must already be the exact native five-field storage
+        // shape before Core's reviewed fresh-process rewrite action may touch
+        // derived state. NativeActions owns the extension interpreter: its
+        // child verifies both sanitized durable bytes and the effective
+        // option-filtered projection (Yoast/Polylang/TEC included) without
+        // this Woo adapter guessing a closed set of plugin callbacks.
+        $before = self::product_permalink_projection(true, false);
+        \Duo\NativeActions::execute('rewrite.flush', []);
+        $after = self::product_permalink_projection(true, true, true);
+        self::assert_product_permalink_source_unchanged($before, $after);
+        return ['before' => $before, 'after' => $after, 'verified' => true];
+    }
+
+    /** @param array<string,mixed> $before @param array<string,mixed> $after */
+    private static function assert_product_permalink_source_unchanged(array $before, array $after): void {
+        $keys = [
+            'product_permalink_fields',
+            'product_permalink_valid',
+            'product_permalink_sha256',
+            'product_permalink_raw_sha256',
+            'product_permalink_option_id',
+            'product_permalink_autoload',
+            'brand_permalink_present',
+            'brand_permalink_sha256',
+            'brand_permalink_raw_sha256',
+            'brand_permalink_canonical_sha256',
+            'brand_permalink_option_id',
+            'brand_permalink_autoload',
+            'permalink_structure_present',
+            'permalink_structure_sha256',
+            'permalink_structure_option_id',
+            'permalink_structure_autoload',
+        ];
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $before) || !array_key_exists($key, $after)
+                || $before[$key] !== $after[$key]) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce authored product permalink state changed during native repair; '
+                    . 'recovery_required'
+                );
+            }
+        }
     }
 
     /** @param array<string,mixed> $before @param array<string,mixed> $after */
@@ -157,6 +252,10 @@ final class WoocommerceHierarchyLookups {
         ];
         if ($includeRewrite) {
             $keys[] = 'brand_permalink_sha256';
+            $keys[] = 'permalink_structure_present';
+            $keys[] = 'permalink_structure_sha256';
+            $keys[] = 'permalink_structure_option_id';
+            $keys[] = 'permalink_structure_autoload';
         }
         foreach ($keys as $key) {
             if (!array_key_exists($key, $before) || !array_key_exists($key, $after)
@@ -242,7 +341,7 @@ final class WoocommerceHierarchyLookups {
      * native mutation; the parent owns independent checked readback.
      */
     public static function run_child(bool $flushRewrite): void {
-        self::projection_snapshot(false, $flushRewrite, false);
+        self::projection_snapshot(false, $flushRewrite);
 
         foreach (self::TAXONOMIES as $taxonomy) {
             self::invalidate_taxonomy_caches($taxonomy);
@@ -285,7 +384,7 @@ final class WoocommerceHierarchyLookups {
         }
 
         if ($flushRewrite) {
-            flush_rewrite_rules(false);
+            \Duo\NativeActions::execute('rewrite.flush', []);
         }
         $after = self::projection_snapshot(true, $flushRewrite, $flushRewrite);
         echo json_encode(
@@ -312,7 +411,11 @@ final class WoocommerceHierarchyLookups {
     }
 
     /** @return array<string,int|string|bool> */
-    private static function projection_snapshot(bool $verify, bool $includeRewrite, bool $verifyFreshRewrite): array {
+    private static function projection_snapshot(
+        bool $verify,
+        bool $includeRewrite,
+        bool $includeNativeRewriteEvidence = false
+    ): array {
         self::assert_database_identity();
         self::assert_category_lookup_schema();
         $parents = [];
@@ -338,21 +441,45 @@ final class WoocommerceHierarchyLookups {
             'product_cat_children' => $catHierarchy['links'],
             'product_cat_children_valid' => $catHierarchy['valid'],
             'product_cat_children_raw_sha256' => $catHierarchy['raw_sha256'],
-            'product_cat_children_effective_sha256' => $catHierarchy['effective_sha256'],
+            'product_cat_children_canonical_sha256' => $catHierarchy['canonical_sha256'],
             'product_brand_terms' => count($parents['product_brand']),
             'product_brand_parent_sha256' => self::fingerprint(self::parent_rows($parents['product_brand'])),
             'product_brand_children' => $brandHierarchy['links'],
             'product_brand_children_valid' => $brandHierarchy['valid'],
             'product_brand_children_raw_sha256' => $brandHierarchy['raw_sha256'],
-            'product_brand_children_effective_sha256' => $brandHierarchy['effective_sha256'],
+            'product_brand_children_canonical_sha256' => $brandHierarchy['canonical_sha256'],
             'category_lookup_rows' => $category['rows'],
             'category_lookup_valid' => $category['valid'],
             'category_lookup_sha256' => $category['sha256'],
         ];
         if ($includeRewrite) {
-            $summary = array_merge($summary, self::rewrite_state($verify, $verifyFreshRewrite));
+            $summary['brand_permalink_sha256'] = self::brand_permalink_state()['brand_permalink_sha256'];
+            $summary = array_merge($summary, self::permalink_structure_state());
+            $summary = array_merge($summary, self::rewrite_rules_state($verify));
+            if ($includeNativeRewriteEvidence) {
+                $summary = array_merge($summary, self::native_rewrite_evidence());
+            }
         }
         return $summary;
+    }
+
+    /** @return array<string,int|string|bool> */
+    private static function product_permalink_projection(
+        bool $verifyPermalink,
+        bool $verifyRewrite,
+        bool $includeNativeRewriteEvidence = false
+    ): array {
+        self::assert_options_database_identity();
+        $projection = array_merge(
+            self::product_permalink_state($verifyPermalink),
+            self::brand_permalink_state(),
+            self::permalink_structure_state(),
+            self::rewrite_rules_state($verifyRewrite)
+        );
+        if ($includeNativeRewriteEvidence) {
+            $projection = array_merge($projection, self::native_rewrite_evidence());
+        }
+        return $projection;
     }
 
     private static function assert_category_lookup_schema(): void {
@@ -602,7 +729,7 @@ final class WoocommerceHierarchyLookups {
 
     /**
      * @param list<array{0:int,1:list<int>}> $expected
-     * @return array{links:int,valid:bool,raw_sha256:string,effective_sha256:string}
+     * @return array{links:int,valid:bool,raw_sha256:string,canonical_sha256:string}
      */
     private static function hierarchy_option_state(string $taxonomy, array $expected, bool $verify): array {
         $name = $taxonomy . '_children';
@@ -612,15 +739,13 @@ final class WoocommerceHierarchyLookups {
                 'links' => 0,
                 'valid' => false,
                 'raw_sha256' => hash('sha256', 'missing:' . $name),
-                'effective_sha256' => hash('sha256', 'invalid:' . $name),
+                'canonical_sha256' => hash('sha256', 'invalid:' . $name),
             ];
         }
         $rawHash = hash('sha256', $raw);
         try {
             $decoded = PlainData::decode_serialized($raw, "$name option");
             $normalized = self::normalize_children($decoded, $name);
-            $effective = self::fresh_option($name);
-            $effectiveNormalized = self::normalize_children($effective, "$name effective option");
         } catch (\Throwable $exception) {
             if ($verify) {
                 throw $exception;
@@ -629,10 +754,10 @@ final class WoocommerceHierarchyLookups {
                 'links' => 0,
                 'valid' => false,
                 'raw_sha256' => $rawHash,
-                'effective_sha256' => hash('sha256', 'invalid:' . $name),
+                'canonical_sha256' => hash('sha256', 'invalid:' . $name),
             ];
         }
-        $valid = $normalized === $expected && $effectiveNormalized === $expected;
+        $valid = $normalized === $expected;
         if ($verify && !$valid) {
             throw new \RuntimeException(
                 "duo: WooCommerce $taxonomy hierarchy option disagrees with exact term parents; recovery_required"
@@ -646,7 +771,13 @@ final class WoocommerceHierarchyLookups {
             'links' => $links,
             'valid' => $valid,
             'raw_sha256' => $rawHash,
-            'effective_sha256' => self::fingerprint($effectiveNormalized),
+            // A raw canonical projection deliberately replaces the previous
+            // hook-bearing "effective" read. get_option() crosses arbitrary
+            // pre_option/default/option/alloptions callbacks; matching its
+            // return value would neither prove those callbacks inert nor
+            // contain their effects. Child-native writes still run their own
+            // WordPress hooks; this parent receipt binds only persisted bytes.
+            'canonical_sha256' => self::fingerprint($normalized),
         ];
     }
 
@@ -656,6 +787,19 @@ final class WoocommerceHierarchyLookups {
         int $maxBytes = self::MAX_OPTION_BYTES,
         bool $allowMissing = false
     ): ?string {
+        $state = self::raw_option_state($name, $verify, $maxBytes, $allowMissing);
+        return $state['raw'] ?? null;
+    }
+
+    /**
+     * @return null|array{id:int,bytes:int,autoload:string,raw:string,raw_sha256:string}
+     */
+    private static function raw_option_state(
+        string $name,
+        bool $verify,
+        int $maxBytes = self::MAX_OPTION_BYTES,
+        bool $allowMissing = false
+    ): ?array {
         $witness = self::option_witness($name);
         if ($witness === null) {
             if ($verify && !$allowMissing) {
@@ -698,14 +842,20 @@ final class WoocommerceHierarchyLookups {
             }
             return null;
         }
-        return $confirmed;
+        return [
+            'id' => $witness['id'],
+            'bytes' => $witness['bytes'],
+            'autoload' => $witness['autoload'],
+            'raw' => $confirmed,
+            'raw_sha256' => hash('sha256', $confirmed),
+        ];
     }
 
-    /** @param array{id:int,bytes:int} $witness */
+    /** @param array{id:int,bytes:int,autoload:string} $witness */
     private static function option_payload(string $name, array $witness): ?string {
         global $wpdb;
         $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
-            "SELECT option_id, BINARY option_name AS option_name, option_value, "
+            "SELECT option_id, BINARY option_name AS option_name, option_value, autoload, "
             . "LENGTH(option_value) AS option_bytes FROM {$wpdb->options} "
             . 'WHERE option_id = %d AND BINARY option_name = BINARY %s '
             . 'AND LENGTH(option_value) = %d ORDER BY option_id ASC LIMIT 2',
@@ -717,6 +867,7 @@ final class WoocommerceHierarchyLookups {
             || ($rows[0]['option_name'] ?? null) !== $name
             || ($rows[0]['option_id'] ?? null) !== (string) $witness['id']
             || ($rows[0]['option_bytes'] ?? null) !== (string) $witness['bytes']
+            || ($rows[0]['autoload'] ?? null) !== $witness['autoload']
             || !is_string($rows[0]['option_value'] ?? null)
             || strlen($rows[0]['option_value']) !== $witness['bytes']) {
             return null;
@@ -724,11 +875,11 @@ final class WoocommerceHierarchyLookups {
         return $rows[0]['option_value'];
     }
 
-    /** @return null|array{id:int,bytes:int} */
+    /** @return null|array{id:int,bytes:int,autoload:string} */
     private static function option_witness(string $name): ?array {
         global $wpdb;
         $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
-            "SELECT option_id, BINARY option_name AS option_name, "
+            "SELECT option_id, BINARY option_name AS option_name, autoload, "
             . "LENGTH(option_value) AS option_bytes FROM {$wpdb->options} "
             . 'WHERE option_name = %s ORDER BY option_id ASC LIMIT 2',
             $name
@@ -741,22 +892,26 @@ final class WoocommerceHierarchyLookups {
                 "duo: WooCommerce $name option is missing, aliased, or duplicated; recovery_required"
             );
         }
+        $autoload = $rows[0]['autoload'] ?? null;
+        if (!is_string($autoload)
+            || !in_array($autoload, ['yes', 'no', 'auto', 'on', 'off', 'auto-on', 'auto-off'], true)) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $name option carries an invalid autoload wire; recovery_required"
+            );
+        }
         return [
             'id' => self::strict_uint($rows[0]['option_id'] ?? null, false, "$name option_id"),
             'bytes' => self::strict_uint($rows[0]['option_bytes'] ?? null, true, "$name option bytes"),
+            'autoload' => $autoload,
         ];
     }
 
     private static function assert_database_identity(): void {
         global $wpdb;
-        if (!is_object($wpdb)
-            || !isset($wpdb->prefix, $wpdb->options, $wpdb->term_taxonomy)
-            || !is_string($wpdb->prefix)
-            || !is_string($wpdb->options)
+        self::assert_options_database_identity();
+        if (!isset($wpdb->term_taxonomy)
             || !is_string($wpdb->term_taxonomy)
-            || $wpdb->options !== $wpdb->prefix . 'options'
             || $wpdb->term_taxonomy !== $wpdb->prefix . 'term_taxonomy'
-            || preg_match(self::TABLE_IDENTIFIER_PATTERN, $wpdb->options) !== 1
             || preg_match(self::TABLE_IDENTIFIER_PATTERN, $wpdb->term_taxonomy) !== 1
             || preg_match(
                 self::TABLE_IDENTIFIER_PATTERN,
@@ -768,18 +923,56 @@ final class WoocommerceHierarchyLookups {
         }
     }
 
-    private static function fresh_option(string $name): mixed {
-        wp_cache_delete($name, 'options');
-        wp_cache_delete('alloptions', 'options');
-        wp_cache_delete('notoptions', 'options');
-        $value = get_option($name, self::MISSING_OPTION);
-        if ($value === self::MISSING_OPTION) {
+    private static function assert_options_database_identity(): void {
+        global $wpdb;
+        if (!is_object($wpdb)
+            || !isset($wpdb->prefix, $wpdb->options)
+            || !is_string($wpdb->prefix)
+            || !is_string($wpdb->options)
+            || $wpdb->options !== $wpdb->prefix . 'options'
+            || preg_match(self::TABLE_IDENTIFIER_PATTERN, $wpdb->options) !== 1) {
             throw new \RuntimeException(
-                "duo: WooCommerce $name effective option is missing; recovery_required"
+                'duo: WooCommerce permalink verification requires the exact site options-table identity'
             );
         }
-        PlainData::assert($value, "$name effective option");
-        return $value;
+    }
+
+    /** The Woo sanitizer crosses two URL filters; no extension may run there. */
+    private static function assert_closed_hook(string $hook): void {
+        global $wp_filter;
+        if (isset($wp_filter) && !is_array($wp_filter)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce native hook registry is unreadable; recovery_required'
+            );
+        }
+        $registered = $wp_filter[$hook] ?? null;
+        if ($registered === null) {
+            return;
+        }
+        if (!class_exists('\\WP_Hook') || !$registered instanceof \WP_Hook
+            || !is_array($registered->callbacks ?? null)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce native hook topology is unreadable or extension-owned; recovery_required'
+            );
+        }
+        foreach ($registered->callbacks as $priority => $callbacks) {
+            if (!is_int($priority) || !is_array($callbacks)) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce native hook topology is malformed; recovery_required'
+                );
+            }
+            foreach ($callbacks as $callback) {
+                if (!is_array($callback) || array_keys($callback) !== ['function', 'accepted_args']
+                    || !is_int($callback['accepted_args'])) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce native hook topology has an extension callback; recovery_required'
+                    );
+                }
+                throw new \RuntimeException(
+                    'duo: WooCommerce native hook topology has an extension callback; recovery_required'
+                );
+            }
+        }
     }
 
     /** @return list<array{0:int,1:list<int>}> */
@@ -810,100 +1003,290 @@ final class WoocommerceHierarchyLookups {
     }
 
     /** @return array<string,int|string|bool> */
-    private static function rewrite_state(bool $verify, bool $verifyFresh): array {
-        $raw = self::raw_option('rewrite_rules', $verify);
-        if ($raw === null) {
+    private static function product_permalink_state(bool $verify): array {
+        $name = 'woocommerce_permalinks';
+        $rawState = self::raw_option_state($name, $verify, self::MAX_PERMALINK_OPTION_BYTES);
+        if ($rawState === null) {
             return [
-                'brand_permalink_sha256' => self::brand_permalink_fingerprint(),
-                'rewrite_rules' => 0,
-                'rewrite_rules_valid' => false,
-                'rewrite_rules_raw_sha256' => hash('sha256', 'missing:rewrite_rules'),
-                'rewrite_rules_effective_sha256' => hash('sha256', 'invalid:rewrite_rules'),
+                'product_permalink_fields' => 0,
+                'product_permalink_valid' => false,
+                'product_permalink_sha256' => hash('sha256', 'missing:' . $name),
+                'product_permalink_raw_sha256' => hash('sha256', 'missing:' . $name),
+                'product_permalink_option_id' => 0,
+                'product_permalink_autoload' => 'missing',
             ];
         }
-        $rawHash = hash('sha256', $raw);
+        $raw = $rawState['raw'];
+        $rawHash = $rawState['raw_sha256'];
         try {
-            $decoded = PlainData::decode_serialized($raw, 'rewrite_rules option');
-            $stored = self::normalize_rewrite_rules($decoded, 'rewrite_rules option');
-            $effective = self::normalize_rewrite_rules(
-                self::fresh_option('rewrite_rules'),
-                'rewrite_rules effective option'
+            $stored = self::normalize_product_permalinks(
+                PlainData::decode_serialized($raw, "$name option"),
+                "$name option"
             );
-            if ($stored !== $effective) {
+            $confirmedState = self::raw_option_state($name, true, self::MAX_PERMALINK_OPTION_BYTES);
+            if ($confirmedState === null
+                || $confirmedState['id'] !== $rawState['id']
+                || $confirmedState['autoload'] !== $rawState['autoload']
+                || !hash_equals($rawHash, $confirmedState['raw_sha256'])) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce stored and effective rewrite rules disagree; recovery_required'
+                    'duo: WooCommerce product permalink validation changed authored storage; recovery_required'
                 );
-            }
-            if ($verifyFresh) {
-                global $wp_rewrite;
-                if (!is_object($wp_rewrite) || !is_callable([$wp_rewrite, 'rewrite_rules'])) {
-                    throw new \RuntimeException(
-                        'duo: WordPress native rewrite generator is unavailable; recovery_required'
-                    );
-                }
-                $fresh = self::normalize_rewrite_rules(
-                    $wp_rewrite->rewrite_rules(),
-                    'fresh native rewrite projection'
-                );
-                if ($fresh !== $stored) {
-                    throw new \RuntimeException(
-                        'duo: WooCommerce stored rewrite rules disagree with fresh native generation; '
-                        . 'recovery_required'
-                    );
-                }
             }
         } catch (\Throwable $exception) {
             if ($verify) {
                 throw $exception;
             }
             return [
-                'brand_permalink_sha256' => self::brand_permalink_fingerprint(),
-                'rewrite_rules' => 0,
-                'rewrite_rules_valid' => false,
-                'rewrite_rules_raw_sha256' => $rawHash,
-                'rewrite_rules_effective_sha256' => hash('sha256', 'invalid:rewrite_rules'),
+                'product_permalink_fields' => 0,
+                'product_permalink_valid' => false,
+                'product_permalink_sha256' => $rawHash,
+                'product_permalink_raw_sha256' => $rawHash,
+                'product_permalink_option_id' => $rawState['id'],
+                'product_permalink_autoload' => $rawState['autoload'],
             ];
         }
         return [
-            'brand_permalink_sha256' => self::brand_permalink_fingerprint(),
-            'rewrite_rules' => count($stored),
-            'rewrite_rules_valid' => true,
-            'rewrite_rules_raw_sha256' => $rawHash,
-            'rewrite_rules_effective_sha256' => self::fingerprint($effective),
+            'product_permalink_fields' => count($stored),
+            'product_permalink_valid' => true,
+            'product_permalink_sha256' => self::fingerprint($stored),
+            'product_permalink_raw_sha256' => $rawHash,
+            'product_permalink_option_id' => $rawState['id'],
+            'product_permalink_autoload' => $rawState['autoload'],
         ];
     }
 
-    private static function brand_permalink_fingerprint(): string {
+    /** @return array{product_base:string,category_base:string,tag_base:string,attribute_base:string,use_verbose_page_rules:bool} */
+    private static function normalize_product_permalinks(mixed $value, string $context): array {
+        $fields = [
+            'product_base',
+            'category_base',
+            'tag_base',
+            'attribute_base',
+            'use_verbose_page_rules',
+        ];
+        if (!is_array($value) || count($value) !== count($fields)) {
+            throw new \RuntimeException("duo: $context is not the exact native five-field record");
+        }
+        $actualFields = array_keys($value);
+        sort($actualFields, SORT_STRING);
+        $expectedFields = $fields;
+        sort($expectedFields, SORT_STRING);
+        if ($actualFields !== $expectedFields) {
+            throw new \RuntimeException("duo: $context is not the exact native five-field record");
+        }
+        if (!function_exists('wc_sanitize_permalink')) {
+            throw new \RuntimeException(
+                'duo: WooCommerce native permalink sanitizer is unavailable; recovery_required'
+            );
+        }
+        // Woo 11.0.x calls $wpdb->strip_invalid_text_for_column() then
+        // esc_url_raw() here. The latter reaches both kses_allowed_protocols
+        // and clean_url. Equality of a returned string is not evidence that a
+        // callback was inert, so admit only the empty exact callback topology
+        // before the native sanitizer is allowed to execute.
+        self::assert_closed_hook('kses_allowed_protocols');
+        self::assert_closed_hook('clean_url');
+        foreach (array_slice($fields, 0, 4) as $field) {
+            $part = $value[$field] ?? null;
+            if (!is_string($part)
+                || strlen($part) > self::MAX_PERMALINK_PART_BYTES
+                || preg_match('//u', $part) !== 1
+                || ($field !== 'attribute_base' && $part === '')) {
+                throw new \RuntimeException("duo: $context contains an invalid bounded permalink part");
+            }
+            $canonical = wc_sanitize_permalink($part);
+            if (!is_string($canonical) || !hash_equals($part, $canonical)) {
+                throw new \RuntimeException("duo: $context contains noncanonical native permalink bytes");
+            }
+        }
+        if (!is_bool($value['use_verbose_page_rules'])) {
+            throw new \RuntimeException("duo: $context contains a non-boolean verbose-rule flag");
+        }
+        if (rtrim($value['product_base'], "/\\") . '/' === '/%product_brand%/') {
+            throw new \RuntimeException(
+                "duo: $context uses the reserved sole product-brand base rejected by WooCommerce"
+            );
+        }
+        // Native Woo writers have more than one key order: migrations write
+        // product/category/attribute/tag, Settings updates existing positions,
+        // and wc_get_permalink_structure() appends defaults. Raw option bytes
+        // (and their ID/autoload witness) retain that authored order; this
+        // receipt projects only the five field meanings in one fixed order.
+        return [
+            'product_base' => $value['product_base'],
+            'category_base' => $value['category_base'],
+            'tag_base' => $value['tag_base'],
+            'attribute_base' => $value['attribute_base'],
+            'use_verbose_page_rules' => $value['use_verbose_page_rules'],
+        ];
+    }
+
+    /** @return array<string,int|string|bool> */
+    private static function permalink_structure_state(): array {
+        $name = 'permalink_structure';
+        $state = self::raw_option_state($name, true, self::MAX_PERMALINK_PART_BYTES, true);
+        if ($state === null) {
+            return [
+                'permalink_structure_present' => false,
+                'permalink_structure_sha256' => hash('sha256', 'missing:' . $name),
+                'permalink_structure_option_id' => 0,
+                'permalink_structure_autoload' => 'missing',
+            ];
+        }
+        $decoded = PlainData::decode($state['raw'], "$name raw option");
+        if (!is_string($decoded) || !hash_equals($state['raw'], $decoded)
+            || preg_match('/[\x00-\x1F\x7F]/', $decoded) === 1) {
+            throw new \RuntimeException(
+                'duo: WordPress permalink_structure is not an exact bounded native raw string; recovery_required'
+            );
+        }
+        return [
+            'permalink_structure_present' => true,
+            'permalink_structure_sha256' => $state['raw_sha256'],
+            'permalink_structure_option_id' => $state['id'],
+            'permalink_structure_autoload' => $state['autoload'],
+        ];
+    }
+
+    /** @return array<string,int|string|bool> */
+    private static function rewrite_rules_state(bool $verify): array {
+        $raw = self::raw_option('rewrite_rules', $verify);
+        if ($raw === null) {
+            return [
+                'rewrite_rules' => 0,
+                'rewrite_rules_valid' => false,
+                'rewrite_rules_raw_sha256' => hash('sha256', 'missing:rewrite_rules'),
+                'rewrite_rules_canonical_sha256' => hash('sha256', 'invalid:rewrite_rules'),
+            ];
+        }
+        $rawHash = hash('sha256', $raw);
+        try {
+            if ($raw === '') {
+                $stored = null;
+            } else {
+                $decoded = PlainData::decode_serialized($raw, 'rewrite_rules option');
+                $stored = self::normalize_rewrite_rules($decoded, 'rewrite_rules option');
+            }
+        } catch (\Throwable $exception) {
+            if ($verify) {
+                throw $exception;
+            }
+            return [
+                'rewrite_rules' => 0,
+                'rewrite_rules_valid' => false,
+                'rewrite_rules_raw_sha256' => $rawHash,
+                'rewrite_rules_canonical_sha256' => hash('sha256', 'invalid:rewrite_rules'),
+            ];
+        }
+        return [
+            'rewrite_rules' => $stored === null ? 0 : count($stored),
+            'rewrite_rules_valid' => true,
+            'rewrite_rules_raw_sha256' => $rawHash,
+            'rewrite_rules_canonical_sha256' => $stored === null
+                ? self::fingerprint(['plain'])
+                : self::fingerprint($stored),
+        ];
+    }
+
+    /**
+     * Bind Core's reviewed two-projection receipt to Woo's independently-read
+     * raw authored witnesses. NativeActions owns the extension interpreter:
+     * its strict, read-only accessor checks the persisted sanitized map and
+     * effective runtime map without another rewrite generation. Keeping these
+     * names prefixed prevents a native semantic projection from masquerading
+     * as a Woo raw option witness.
+     *
+     * @return array<string,int|string|bool>
+     */
+    private static function native_rewrite_evidence(): array {
+        if (!is_callable(['\Duo\NativeActions', 'rewrite_evidence'])) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product permalink repair requires Core\'s strict rewrite evidence accessor; '
+                . 'recovery_required'
+            );
+        }
+        $evidence = \Duo\NativeActions::rewrite_evidence();
+        $keys = [
+            'permalink_present',
+            'permalink_hash',
+            'runtime_permalink_matches',
+            'rules_present',
+            'rules_type',
+            'rules_count',
+            'rules_hash',
+            'runtime_rules_type',
+            'runtime_rules_count',
+            'runtime_rules_hash',
+        ];
+        if (!is_array($evidence) || array_keys($evidence) !== $keys
+            || !is_bool($evidence['permalink_present'])
+            || !is_string($evidence['permalink_hash'])
+            || preg_match('/^[a-f0-9]{64}$/D', $evidence['permalink_hash']) !== 1
+            || $evidence['runtime_permalink_matches'] !== true
+            || $evidence['rules_present'] !== true
+            || !in_array($evidence['rules_type'], ['array', 'string'], true)
+            || !is_int($evidence['rules_count']) || $evidence['rules_count'] < 0
+            || !is_string($evidence['rules_hash'])
+            || preg_match('/^[a-f0-9]{64}$/D', $evidence['rules_hash']) !== 1
+            || !in_array($evidence['runtime_rules_type'], ['array', 'string'], true)
+            || !is_int($evidence['runtime_rules_count']) || $evidence['runtime_rules_count'] < 0
+            || !is_string($evidence['runtime_rules_hash'])
+            || preg_match('/^[a-f0-9]{64}$/D', $evidence['runtime_rules_hash']) !== 1
+            || ($evidence['rules_type'] === 'string' && $evidence['rules_count'] !== 0)
+            || ($evidence['runtime_rules_type'] === 'string' && $evidence['runtime_rules_count'] !== 0)) {
+            throw new \RuntimeException(
+                'duo: Core rewrite evidence is outside the reviewed native projection; recovery_required'
+            );
+        }
+        return [
+            'native_rewrite_permalink_present' => $evidence['permalink_present'],
+            'native_rewrite_permalink_sha256' => $evidence['permalink_hash'],
+            'native_rewrite_runtime_permalink_matches' => $evidence['runtime_permalink_matches'],
+            'native_rewrite_rules_present' => $evidence['rules_present'],
+            'native_rewrite_rules_type' => $evidence['rules_type'],
+            'native_rewrite_rules_count' => $evidence['rules_count'],
+            'native_rewrite_rules_sha256' => $evidence['rules_hash'],
+            'native_rewrite_runtime_rules_type' => $evidence['runtime_rules_type'],
+            'native_rewrite_runtime_rules_count' => $evidence['runtime_rules_count'],
+            'native_rewrite_runtime_rules_sha256' => $evidence['runtime_rules_hash'],
+        ];
+    }
+
+    /** @return array<string,int|string|bool> */
+    private static function brand_permalink_state(): array {
         $name = 'woocommerce_brand_permalink';
-        $raw = self::raw_option($name, true, 200, true);
-        wp_cache_delete($name, 'options');
-        wp_cache_delete('alloptions', 'options');
-        wp_cache_delete('notoptions', 'options');
+        $rawState = self::raw_option_state($name, true, 200, true);
+        $raw = $rawState['raw'] ?? null;
         // Absence is WooCommerce's documented empty/default brand base, not
-        // a missing dependency. It must remain distinguishable from an
-        // authored non-empty slug while still producing a bounded receipt.
-        $value = get_option($name, '');
-        PlainData::assert($value, 'woocommerce_brand_permalink effective option');
-        if (!is_string($value) || strlen($value) > 200
-            || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+        // a missing dependency. Raw bytes are the authored witness: using
+        // get_option() here would cross pre_option/default/option and the
+        // alloptions cache filters without proving that their callbacks are
+        // side-effect free.
+        $value = '';
+        if ($raw !== null) {
+            $decoded = PlainData::decode($raw, 'woocommerce_brand_permalink raw option');
+            if (!is_string($decoded) || !hash_equals($raw, $decoded)) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce brand permalink is not an exact native raw string; recovery_required'
+                );
+            }
+            $value = $decoded;
+        }
+        if (strlen($value) > 200 || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
             throw new \RuntimeException(
                 'duo: WooCommerce brand permalink is outside the bounded string contract'
             );
         }
-        if ($raw === null) {
-            if ($value !== '') {
-                throw new \RuntimeException(
-                    'duo: WooCommerce brand permalink raw and effective absence disagree'
-                );
-            }
-        } else {
-            if ($raw !== $value) {
-                throw new \RuntimeException(
-                    'duo: WooCommerce brand permalink raw and effective values disagree'
-                );
-            }
-        }
-        return hash('sha256', $value);
+        $effectiveHash = hash('sha256', $value);
+        return [
+            'brand_permalink_present' => $rawState !== null,
+            'brand_permalink_sha256' => $effectiveHash,
+            'brand_permalink_raw_sha256' => $rawState['raw_sha256']
+                ?? hash('sha256', 'missing:' . $name),
+            'brand_permalink_canonical_sha256' => $effectiveHash,
+            'brand_permalink_option_id' => $rawState['id'] ?? 0,
+            'brand_permalink_autoload' => $rawState['autoload'] ?? 'missing',
+        ];
     }
 
     /** @return list<array{0:string,1:string}> */

@@ -34,14 +34,14 @@
     {"id": "woocommerce-cache", "version": "1.0.0", "source": "manifest", "plugin": "woocommerce/woocommerce.php", "capabilities": ["invalidate_cache_groups"]},
     {
       "id": "woocommerce-hierarchy-lookups",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "source": "manifest",
       "plugin": "woocommerce/woocommerce.php",
       "requires": {
-        "functions": ["clean_taxonomy_cache", "delete_option", "flush_rewrite_rules", "get_option", "wp_cache_delete", "wp_cache_set_terms_last_changed", "_get_term_hierarchy"],
+        "functions": ["clean_taxonomy_cache", "delete_option", "flush_rewrite_rules", "get_option", "wc_sanitize_permalink", "wp_cache_delete", "wp_cache_set_terms_last_changed", "_get_term_hierarchy"],
         "classes": ["WP_CLI", "Automattic\\WooCommerce\\Internal\\Admin\\CategoryLookup"]
       },
-      "capabilities": ["rebuild_hierarchy_lookups"]
+      "capabilities": ["rebuild_hierarchy_lookups", "rebuild_product_permalink_routes"]
     },
     {
       "id": "woocommerce-fulfillment-prerequisites",
@@ -251,6 +251,11 @@
         {"id": "woocommerce-brand-route-product-cat-children", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "product_cat_children"}},
         {"id": "woocommerce-brand-route-product-brand-children", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "product_brand_children"}},
         {"id": "woocommerce-brand-route-rewrite-rules", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "rewrite_rules"}},
+        {"id": "woocommerce-brand-route-tec-expired-transient-options", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "options"}},
+        {"id": "woocommerce-brand-route-tec-last-generate-rewrite-rules", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "tribe_last_generate_rewrite_rules"}},
+        {"id": "woocommerce-brand-route-tec-last-save-post", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "tribe_last_save_post"}},
+        {"id": "woocommerce-brand-route-tec-last-updated-option", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "tribe_last_updated_option"}},
+        {"id": "woocommerce-brand-route-tec-cache-purge-request", "kind": "cache", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "the-events-calendar-cache-purge-request:v1"}},
         {"id": "woocommerce-brand-route-terms-cache", "kind": "cache", "mode": "irreversible", "selector": {"scope": "external", "type": "namespace", "value": "terms"}},
         {"id": "woocommerce-brand-route-term-query-cache", "kind": "cache", "mode": "irreversible", "selector": {"scope": "external", "type": "namespace", "value": "term-queries"}},
         {"id": "woocommerce-brand-route-product-cat-cache", "kind": "cache", "mode": "irreversible", "selector": {"scope": "external", "type": "namespace", "value": "product_cat"}},
@@ -466,11 +471,17 @@
       "triggers": ["option:woocommerce_review_order_page_id"],
       "effects": [
         {"id": "woocommerce-review-order-rewrite-rules", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "rewrite_rules"}},
+        {"id": "woocommerce-review-order-tec-expired-transient-options", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "options"}},
+        {"id": "woocommerce-review-order-tec-last-generate-rewrite-rules", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "tribe_last_generate_rewrite_rules"}},
+        {"id": "woocommerce-review-order-tec-last-save-post", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "tribe_last_save_post"}},
+        {"id": "woocommerce-review-order-tec-last-updated-option", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "tribe_last_updated_option"}},
         {"id": "woocommerce-review-order-rewrite-rules-cache", "kind": "cache", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "wordpress-option:v1:rewrite_rules"}},
+        {"id": "woocommerce-review-order-tec-cache-purge-request", "kind": "cache", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "the-events-calendar-cache-purge-request:v1"}},
         {"id": "woocommerce-review-order-permalink-pre-option-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "pre_option_permalink_structure"}},
         {"id": "woocommerce-review-order-permalink-pre-option-generic-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "pre_option"}},
         {"id": "woocommerce-review-order-permalink-option-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "option_permalink_structure"}},
         {"id": "woocommerce-review-order-permalink-default-option-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "default_option_permalink_structure"}},
+        {"id": "woocommerce-review-order-generate-rewrite-hook", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "generate_rewrite_rules"}},
         {"id": "woocommerce-review-order-rewrite-rules-array-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "rewrite_rules_array"}},
         {"id": "woocommerce-review-order-rewrite-sanitize-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "sanitize_option_rewrite_rules"}},
         {"id": "woocommerce-review-order-rewrite-option-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "option_rewrite_rules"}},
@@ -479,6 +490,38 @@
         {"id": "woocommerce-review-order-rewrite-update-option-hook", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "update_option"}},
         {"id": "woocommerce-review-order-rewrite-update-specific-hook", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "update_option_rewrite_rules"}},
         {"id": "woocommerce-review-order-rewrite-updated-option-hook", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "updated_option"}}
+      ]
+    },
+    {
+      "kind": "provider",
+      "provider": "woocommerce-hierarchy-lookups",
+      "capability": "rebuild_product_permalink_routes",
+      "args": {},
+      "triggers": ["option:woocommerce_permalinks"],
+      "effects": [
+        {"id": "woocommerce-product-route-rewrite-rules", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "rewrite_rules"}},
+        {"id": "woocommerce-product-route-tec-expired-transient-options", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "options"}},
+        {"id": "woocommerce-product-route-tec-last-generate-rewrite-rules", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "tribe_last_generate_rewrite_rules"}},
+        {"id": "woocommerce-product-route-tec-last-save-post", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "tribe_last_save_post"}},
+        {"id": "woocommerce-product-route-tec-last-updated-option", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "tribe_last_updated_option"}},
+        {"id": "woocommerce-product-route-rewrite-rules-cache", "kind": "cache", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "wordpress-option:v1:rewrite_rules"}},
+        {"id": "woocommerce-product-route-tec-cache-purge-request", "kind": "cache", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "the-events-calendar-cache-purge-request:v1"}},
+        {"id": "woocommerce-product-route-options-cache", "kind": "cache", "mode": "irreversible", "selector": {"scope": "external", "type": "namespace", "value": "options"}},
+        {"id": "woocommerce-product-route-permalink-pre-option-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "pre_option_permalink_structure"}},
+        {"id": "woocommerce-product-route-permalink-pre-option-generic-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "pre_option"}},
+        {"id": "woocommerce-product-route-permalink-option-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "option_permalink_structure"}},
+        {"id": "woocommerce-product-route-permalink-default-option-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "default_option_permalink_structure"}},
+        {"id": "woocommerce-product-route-generate-rewrite-hook", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "generate_rewrite_rules"}},
+        {"id": "woocommerce-product-route-rewrite-rules-array-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "rewrite_rules_array"}},
+        {"id": "woocommerce-product-route-rewrite-sanitize-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "sanitize_option_rewrite_rules"}},
+        {"id": "woocommerce-product-route-rewrite-option-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "option_rewrite_rules"}},
+        {"id": "woocommerce-product-route-rewrite-pre-update-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "pre_update_option_rewrite_rules"}},
+        {"id": "woocommerce-product-route-rewrite-pre-update-generic-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "pre_update_option"}},
+        {"id": "woocommerce-product-route-rewrite-update-option-hook", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "update_option"}},
+        {"id": "woocommerce-product-route-rewrite-update-specific-hook", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "update_option_rewrite_rules"}},
+        {"id": "woocommerce-product-route-rewrite-updated-option-hook", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "updated_option"}},
+        {"id": "woocommerce-product-route-permalink-allowed-protocols-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "kses_allowed_protocols"}},
+        {"id": "woocommerce-product-route-permalink-clean-url-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "clean_url"}}
       ]
     }
   ],
@@ -729,6 +772,7 @@
     "woocommerce_payfast_invalid_credentials": {"class": "runtime"},
     "woocommerce_paypal_account_restricted_status": {"class": "runtime"},
     "woocommerce_paypal_branded": {"class": "runtime"},
+    "woocommerce_permalinks": {"class":"derived","required":false,"closed_sub_keys":true,"sub_keys":{"product_base":{"class":"authored"},"category_base":{"class":"authored"},"tag_base":{"class":"authored"},"attribute_base":{"class":"authored"},"use_verbose_page_rules":{"class":"authored"}}},
     "woocommerce_placeholder_image": {"class": "authored", "ref": "post"},
     "woocommerce_pickup_location_settings": {"class": "authored", "plain_data": true},
     "woocommerce_pos_store_name": {"class": "authored"},

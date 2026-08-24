@@ -111,16 +111,32 @@ function woo_effect_hook(string $id, string $hook): array {
 function woo_effect_rewrite(string $prefix): array {
     return [
         woo_effect_db_option($prefix . '-rewrite-rules', 'rewrite_rules'),
+        // TEC's exact Cache_Listener updates these three timestamps while
+        // WordPress generates and persists rewrite_rules, then may delete an
+        // unbounded set of expired tribe_* transient rows at request shutdown.
+        // The table checkpoint is therefore the rollback boundary; the
+        // request-local purge flag remains an irreversible external receipt.
+        woo_effect_db_table($prefix . '-tec-expired-transient-options', 'options'),
+        woo_effect_db_option($prefix . '-tec-last-generate-rewrite-rules', 'tribe_last_generate_rewrite_rules'),
+        woo_effect_db_option($prefix . '-tec-last-save-post', 'tribe_last_save_post'),
+        woo_effect_db_option($prefix . '-tec-last-updated-option', 'tribe_last_updated_option'),
         woo_effect_irreversible(
             $prefix . '-rewrite-rules-cache',
             'cache',
             'provider_resource',
             'wordpress-option:v1:rewrite_rules'
         ),
+        woo_effect_irreversible(
+            $prefix . '-tec-cache-purge-request',
+            'cache',
+            'provider_resource',
+            'the-events-calendar-cache-purge-request:v1'
+        ),
         woo_effect_hook($prefix . '-permalink-pre-option-filter', 'pre_option_permalink_structure'),
         woo_effect_hook($prefix . '-permalink-pre-option-generic-filter', 'pre_option'),
         woo_effect_hook($prefix . '-permalink-option-filter', 'option_permalink_structure'),
         woo_effect_hook($prefix . '-permalink-default-option-filter', 'default_option_permalink_structure'),
+        woo_effect_hook($prefix . '-generate-rewrite-hook', 'generate_rewrite_rules'),
         woo_effect_hook($prefix . '-rewrite-rules-array-filter', 'rewrite_rules_array'),
         woo_effect_hook($prefix . '-rewrite-sanitize-filter', 'sanitize_option_rewrite_rules'),
         woo_effect_hook($prefix . '-rewrite-option-filter', 'option_rewrite_rules'),
@@ -129,6 +145,19 @@ function woo_effect_rewrite(string $prefix): array {
         woo_effect_hook($prefix . '-rewrite-update-option-hook', 'update_option'),
         woo_effect_hook($prefix . '-rewrite-update-specific-hook', 'update_option_rewrite_rules'),
         woo_effect_hook($prefix . '-rewrite-updated-option-hook', 'updated_option'),
+    ];
+}
+
+/** @return list<array<string,mixed>> */
+function woo_effect_product_permalink_route(): array {
+    $effects = woo_effect_rewrite('woocommerce-product-route');
+    array_splice($effects, 7, 0, [
+        woo_effect_irreversible('woocommerce-product-route-options-cache', 'cache', 'namespace', 'options'),
+    ]);
+    return [
+        ...$effects,
+        woo_effect_hook('woocommerce-product-route-permalink-allowed-protocols-filter', 'kses_allowed_protocols'),
+        woo_effect_hook('woocommerce-product-route-permalink-clean-url-filter', 'clean_url'),
     ];
 }
 
@@ -407,6 +436,18 @@ function woo_effect_hierarchy_action(string $prefix, bool $rewrite): array {
     }
     array_splice($effects, 3, 0, [
         woo_effect_db_option($prefix . '-rewrite-rules', 'rewrite_rules'),
+    ]);
+    array_splice($effects, 4, 0, [
+        woo_effect_db_table($prefix . '-tec-expired-transient-options', 'options'),
+        woo_effect_db_option($prefix . '-tec-last-generate-rewrite-rules', 'tribe_last_generate_rewrite_rules'),
+        woo_effect_db_option($prefix . '-tec-last-save-post', 'tribe_last_save_post'),
+        woo_effect_db_option($prefix . '-tec-last-updated-option', 'tribe_last_updated_option'),
+        woo_effect_irreversible(
+            $prefix . '-tec-cache-purge-request',
+            'cache',
+            'provider_resource',
+            'the-events-calendar-cache-purge-request:v1'
+        ),
     ]);
     return [
         ...$effects,
@@ -690,16 +731,25 @@ foreach (woo_effect_rewrite('woocommerce-review-order') as $effect) {
         'effect' => $effect,
     ];
 }
+$productRouteSource = 'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes';
+foreach (woo_effect_product_permalink_route() as $effect) {
+    $expectedWooRows[] = [
+        'manifest' => 'woocommerce',
+        'phase' => 'rebuild',
+        'source' => $productRouteSource,
+        'effect' => $effect,
+    ];
+}
 usort($expectedWooRows, static fn(array $a, array $b): int => strcmp(
     implode("\0", [$a['phase'], $a['manifest'], (string) $a['effect']['id']]),
     implode("\0", [$b['phase'], $b['manifest'], (string) $b['effect']['id']])
 ));
 woo_effect_check($wooRows === $expectedWooRows, 'Woo manifest compiles the exact lifecycle, rebuild, and regenerator inventory');
 woo_effect_check(
-    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 64
-        && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 173
-        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 237,
-    'Woo inventory exposes exact transient/version, hierarchy/rewrite, bounded sale-action, and Action Scheduler hook boundaries, keeps every unproven boundary irreversible, and uses unique effect IDs'
+    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 77
+        && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 194
+        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 271,
+    'Woo inventory exposes exact transient/version, hierarchy/rewrite, TEC marker/purge rollback, bounded sale-action, and Action Scheduler hook boundaries, keeps every unproven boundary irreversible, and uses unique effect IDs'
 );
 $cacheProviderSource = (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/providers/woocommerce-cache.php');
 woo_effect_check(
@@ -761,6 +811,7 @@ $analyticsSchedulerKeys = array_keys((array) ($wooManifest['actions'][5] ?? []))
 $retentionSchedulerKeys = array_keys((array) ($wooManifest['actions'][6] ?? []));
 $lookupKeys = array_keys((array) ($wooManifest['actions'][7] ?? []));
 $reviewRewriteKeys = array_keys((array) ($wooManifest['actions'][8] ?? []));
+$productRouteKeys = array_keys((array) ($wooManifest['actions'][9] ?? []));
 sort($nativeKeys, SORT_STRING);
 sort($providerKeys, SORT_STRING);
 sort($hierarchyKeys, SORT_STRING);
@@ -770,8 +821,9 @@ sort($analyticsSchedulerKeys, SORT_STRING);
 sort($retentionSchedulerKeys, SORT_STRING);
 sort($lookupKeys, SORT_STRING);
 sort($reviewRewriteKeys, SORT_STRING);
+sort($productRouteKeys, SORT_STRING);
 woo_effect_check(
-    count((array) ($wooManifest['actions'] ?? [])) === 9
+    count((array) ($wooManifest['actions'] ?? [])) === 10
         && $nativeKeys === ['action', 'args', 'effects', 'kind', 'triggers']
         && $providerKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $hierarchyKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
@@ -781,6 +833,7 @@ woo_effect_check(
         && $retentionSchedulerKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $lookupKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $reviewRewriteKeys === ['action', 'args', 'effects', 'kind', 'triggers']
+        && $productRouteKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && ($wooManifest['actions'][1]['triggers'] ?? null) === $cacheTriggers
         && ($wooManifest['actions'][1]['args'] ?? null) === ['groups' => ['woocommerce-attributes', 'shipping_zones', 'taxes']]
         && ($wooManifest['actions'][2]['provider'] ?? null) === 'woocommerce-hierarchy-lookups'
@@ -833,6 +886,14 @@ woo_effect_check(
             === woo_effect_rewrite('woocommerce-review-order'),
     'the optional customer-review page reuses the exact fresh-process rewrite boundary with no undeclared effects'
 );
+woo_effect_check(
+    ($wooManifest['actions'][9]['provider'] ?? null) === 'woocommerce-hierarchy-lookups'
+        && ($wooManifest['actions'][9]['capability'] ?? null) === 'rebuild_product_permalink_routes'
+        && ($wooManifest['actions'][9]['args'] ?? null) === []
+        && ($wooManifest['actions'][9]['triggers'] ?? null) === ['option:woocommerce_permalinks']
+        && ($wooManifest['actions'][9]['effects'] ?? null) === woo_effect_product_permalink_route(),
+    'the product-permalink child declares its sanitizer, single-generation, nested-option, and TEC rollback effects'
+);
 $lookupEffectsById = [];
 foreach ((array) ($wooManifest['actions'][7]['effects'] ?? []) as $effect) {
     $lookupEffectsById[(string) ($effect['id'] ?? '')] = $effect;
@@ -875,7 +936,7 @@ woo_effect_check(
         ],
         [
             'id' => 'woocommerce-hierarchy-lookups',
-            'version' => '1.0.0',
+            'version' => '2.0.0',
             'source' => 'manifest',
             'plugin' => 'woocommerce/woocommerce.php',
             'requires' => [
@@ -884,6 +945,7 @@ woo_effect_check(
                     'delete_option',
                     'flush_rewrite_rules',
                     'get_option',
+                    'wc_sanitize_permalink',
                     'wp_cache_delete',
                     'wp_cache_set_terms_last_changed',
                     '_get_term_hierarchy',
@@ -893,7 +955,7 @@ woo_effect_check(
                     'Automattic\WooCommerce\Internal\Admin\CategoryLookup',
                 ],
             ],
-            'capabilities' => ['rebuild_hierarchy_lookups'],
+            'capabilities' => ['rebuild_hierarchy_lookups', 'rebuild_product_permalink_routes'],
         ],
         [
             'id' => 'woocommerce-fulfillment-prerequisites',

@@ -9,12 +9,14 @@ putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
+require_once __DIR__ . '/../../support/woocommerce_mixed_option_hooks.php';
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/OptionState.php';
 require_once $root . '/agent/src/Kernel/PlainData.php';
 require_once $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/agent/src/Adapter/ProviderSdk.php';
 require_once $root . '/agent/src/Adapter/Providers.php';
+require_once $root . '/agent/src/Rebuild/NativeActions.php';
 
 use Duo\Policy;
 use DuoTest\FakeWpdb;
@@ -58,7 +60,10 @@ if (!class_exists('WP_CLI')) {
                 $result->stdout .= "\nwarning: secret=trailing-marker";
             } elseif (self::$mode === 'mismatch') {
                 $decoded = json_decode((string) $result->stdout, true, flags: JSON_THROW_ON_ERROR);
-                $decoded['after']['category_lookup_sha256'] = str_repeat('0', 64);
+                $field = ($decoded['format'] ?? null) === 'duo-woocommerce-permalink-child/v1'
+                    ? 'product_permalink_sha256'
+                    : 'category_lookup_sha256';
+                $decoded['after'][$field] = str_repeat('0', 64);
                 $result->stdout = json_encode(
                     $decoded,
                     JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
@@ -66,6 +71,154 @@ if (!class_exists('WP_CLI')) {
             }
             return $result;
         }
+    }
+}
+
+/** Exact TEC listener shape admitted by the product-route child boundary. */
+if (!class_exists('Tribe__Cache_Listener')) {
+    final class Tribe__Cache_Listener {
+        private static ?self $instance = null;
+        /** @var list<string> */
+        public array $writes = [];
+
+        public static function install(): self {
+            return self::$instance ??= new self();
+        }
+
+        public function generate_rewrite_rules(): void {
+            $this->mark('tribe_last_generate_rewrite_rules');
+        }
+
+        public function update_last_updated_option(string $option, mixed $old, mixed $new): void {
+            if ($option === 'rewrite_rules') {
+                $this->mark('tribe_last_updated_option');
+            }
+        }
+
+        public function update_last_save_post(string $option, mixed $old, mixed $new): void {
+            if ($option === 'rewrite_rules') {
+                $this->mark('tribe_last_save_post');
+            }
+        }
+
+        private function mark(string $option): void {
+            $this->writes[] = $option;
+            $GLOBALS['wooHierarchyTecPurgeRequested'] = true;
+            if (function_exists('woo_hierarchy_test_set_option')) {
+                woo_hierarchy_test_set_option($option, (float) count($this->writes));
+            }
+        }
+    }
+}
+
+/** Minimal exact-shaped extension doubles used only to prove delegation. */
+final class WooHierarchyYoastDynamicRewrites {
+    public function sanitize(mixed $rules): mixed {
+        if (!is_array($rules)) {
+            return $rules;
+        }
+        unset($rules['^yoast-sitemap\\.xml$']);
+        return $rules;
+    }
+
+    public function effective(mixed $rules): mixed {
+        if (!is_array($rules)) {
+            return $rules;
+        }
+        $rules['^yoast-sitemap\\.xml$'] = 'index.php?yoast-sitemap=1';
+        return $rules;
+    }
+}
+
+final class WooHierarchyPolylangLinksDirectory {
+    public int $dynamicTypeCalls = 0;
+
+    public function rewrite_rules(mixed $rules): mixed {
+        if (!is_array($rules)) {
+            return $rules;
+        }
+        ++$this->dynamicTypeCalls;
+        $pattern = '^fr/produit/(.+?)/?$';
+        $query = 'index.php?product=$matches[1]&lang=fr';
+        $replacement = woo_hierarchy_test_apply_native_filter(
+            'pll_modify_rewrite_rule',
+            [$pattern, $query],
+            'product',
+            'fr'
+        );
+        if (!is_array($replacement)
+            || array_keys($replacement) !== [0, 1]
+            || !is_string($replacement[0])
+            || !is_string($replacement[1])) {
+            throw new RuntimeException('Polylang rewrite-rule filter returned an invalid wire value');
+        }
+        $rules[$replacement[0]] = $replacement[1];
+        return $rules;
+    }
+}
+
+final class WooHierarchyTecRewrite {
+    public int $generationCalls = 0;
+
+    public function generate_rewrite_rules(object $rewrite): void {
+        ++$this->generationCalls;
+    }
+
+    public function rewrite_rules_array(mixed $rules): mixed {
+        if (!is_array($rules)) {
+            return $rules;
+        }
+        $rules['^events/(.+?)/?$'] = 'index.php?post_type=tribe_events&name=$matches[1]';
+        return $rules;
+    }
+}
+
+if (!function_exists('wc_sanitize_permalink')) {
+    $GLOBALS['wooHierarchyPermalinkSanitizerCalls'] = 0;
+    function wc_sanitize_permalink(mixed $value): string {
+        ++$GLOBALS['wooHierarchyPermalinkSanitizerCalls'];
+        $value = trim((string) $value);
+        $value = str_replace('http://', '', $value);
+        return untrailingslashit($value);
+    }
+}
+
+if (!function_exists('wc_fix_rewrite_rules')) {
+    function wc_fix_rewrite_rules(array $rules): array {
+        return $rules;
+    }
+}
+
+if (!function_exists('wc_get_permalink_structure')) {
+    /** @return array<string,string|bool> */
+    function wc_get_permalink_structure(): array {
+        ++$GLOBALS['wooHierarchyPermalinkNativeReads'];
+        $saved = (array) get_option('woocommerce_permalinks', []);
+        $permalinks = array_merge(
+            [
+                'product_base' => 'product',
+                'category_base' => 'product-category',
+                'tag_base' => 'product-tag',
+                'attribute_base' => '',
+                'use_verbose_page_rules' => false,
+            ],
+            array_filter($saved)
+        );
+        if ($saved !== $permalinks) {
+            woo_hierarchy_test_set_option('woocommerce_permalinks', $permalinks);
+        }
+        if (($GLOBALS['wooHierarchyPermalinkReadMode'] ?? 'stable') === 'mutate-storage') {
+            $permalinks['category_base'] = 'raced-category';
+            woo_hierarchy_test_set_option('woocommerce_permalinks', $permalinks);
+        }
+        $permalinks['product_rewrite_slug'] = untrailingslashit((string) $permalinks['product_base']);
+        $permalinks['category_rewrite_slug'] = untrailingslashit((string) $permalinks['category_base']);
+        $permalinks['tag_rewrite_slug'] = untrailingslashit((string) $permalinks['tag_base']);
+        $permalinks['attribute_rewrite_slug'] = untrailingslashit((string) $permalinks['attribute_base']);
+        if (($GLOBALS['wooHierarchyPermalinkReadMode'] ?? 'stable') === 'projection-drift') {
+            $permalinks['product_rewrite_slug'] = 'wrong-native-product-route';
+        }
+        return $permalinks;
     }
 }
 
@@ -154,6 +307,61 @@ function woo_hierarchy_test_remove_option(string $name): void {
     $wpdb->delete($wpdb->options, ['option_name' => $name]);
 }
 
+/** @param list<array{0:callable,1:int,2:int}> $callbacks */
+function woo_hierarchy_test_install_native_hook(string $name, array $callbacks): void {
+    $hook = new WP_Hook();
+    foreach ($callbacks as $index => [$callback, $priority, $acceptedArgs]) {
+        $hook->callbacks[$priority]['callback-' . $index] = [
+            'function' => $callback,
+            'accepted_args' => $acceptedArgs,
+        ];
+    }
+    $GLOBALS['wp_filter'][$name] = $hook;
+}
+
+function woo_hierarchy_test_clear_native_hooks(): void {
+    $GLOBALS['wp_filter'] = [];
+}
+
+function woo_hierarchy_test_fire_native_hook(string $name, mixed ...$args): void {
+    $hook = $GLOBALS['wp_filter'][$name] ?? null;
+    if (!$hook instanceof WP_Hook) {
+        return;
+    }
+    $callbacks = $hook->callbacks;
+    ksort($callbacks, SORT_NUMERIC);
+    foreach ($callbacks as $priorityCallbacks) {
+        foreach ($priorityCallbacks as $callback) {
+            $function = $callback['function'] ?? null;
+            $acceptedArgs = $callback['accepted_args'] ?? null;
+            if (!is_callable($function) || !is_int($acceptedArgs)) {
+                throw new RuntimeException('malformed native hook fixture');
+            }
+            $function(...array_slice($args, 0, $acceptedArgs));
+        }
+    }
+}
+
+function woo_hierarchy_test_apply_native_filter(string $name, mixed $value, mixed ...$args): mixed {
+    $hook = $GLOBALS['wp_filter'][$name] ?? null;
+    if (!$hook instanceof WP_Hook) {
+        return $value;
+    }
+    $callbacks = $hook->callbacks;
+    ksort($callbacks, SORT_NUMERIC);
+    foreach ($callbacks as $priorityCallbacks) {
+        foreach ($priorityCallbacks as $callback) {
+            $function = $callback['function'] ?? null;
+            $acceptedArgs = $callback['accepted_args'] ?? null;
+            if (!is_callable($function) || !is_int($acceptedArgs)) {
+                throw new RuntimeException('malformed native hook fixture');
+            }
+            $value = $function(...array_slice(array_merge([$value], $args), 0, $acceptedArgs));
+        }
+    }
+    return $value;
+}
+
 /** @param list<array<string,mixed>> $rows */
 function woo_hierarchy_test_seed_option_rows(array $rows): void {
     global $wpdb;
@@ -163,6 +371,90 @@ function woo_hierarchy_test_seed_option_rows(array $rows): void {
         'option_value' => 'longtext',
         'autoload' => 'varchar(20)',
     ]);
+}
+
+/** @return array<string,string> */
+function woo_hierarchy_test_product_rewrite_rules(): array {
+    $permalinks = (array) (WpStore::instance()->options['woocommerce_permalinks'] ?? []);
+    foreach (['product_base', 'category_base', 'tag_base', 'attribute_base'] as $field) {
+        if (!is_string($permalinks[$field] ?? null)) {
+            throw new RuntimeException('product permalink fixture is missing a native base');
+        }
+    }
+    $productBase = untrailingslashit($permalinks['product_base']);
+    $categoryBase = untrailingslashit($permalinks['category_base']);
+    $tagBase = untrailingslashit($permalinks['tag_base']);
+    $attributeBase = untrailingslashit($permalinks['attribute_base']);
+    $rules = [
+        '^' . $productBase . '/(.+?)/?$' => 'index.php?product=$matches[1]',
+        '^' . $categoryBase . '/(.+?)/?$' => 'index.php?product_cat=$matches[1]',
+        '^' . $tagBase . '/(.+?)/?$' => 'index.php?product_tag=$matches[1]',
+    ];
+    if ($attributeBase !== '') {
+        $rules['^' . $attributeBase . '/(.+?)/?$'] = 'index.php?product_attribute=$matches[1]';
+    }
+    return $rules;
+}
+
+/** Simulate Core's fixed fresh rewrite child, including durable/effective split. */
+function woo_hierarchy_test_native_rewrite_child(): object {
+    $beforeRules = WpStore::instance()->options['rewrite_rules'] ?? null;
+    woo_hierarchy_test_fire_native_hook('generate_rewrite_rules', new stdClass());
+    $permalinkStructure = WpStore::instance()->options['permalink_structure'] ?? '';
+    if (!is_string($permalinkStructure)) {
+        throw new RuntimeException('core permalink structure fixture is not a string');
+    }
+    $generated = $permalinkStructure === '' ? '' : woo_hierarchy_test_product_rewrite_rules();
+    $generated = woo_hierarchy_test_apply_native_filter('rewrite_rules_array', $generated);
+    $durable = woo_hierarchy_test_apply_native_filter('sanitize_option_rewrite_rules', $generated);
+    $durable = woo_hierarchy_test_apply_native_filter(
+        'pre_update_option_rewrite_rules',
+        $durable,
+        $beforeRules
+    );
+    $durable = woo_hierarchy_test_apply_native_filter(
+        'pre_update_option',
+        $durable,
+        'rewrite_rules',
+        $beforeRules
+    );
+    woo_hierarchy_test_fire_native_hook('update_option', 'rewrite_rules', $beforeRules, $durable);
+    woo_hierarchy_test_fire_native_hook('update_option_rewrite_rules', $beforeRules, $durable);
+    $effective = woo_hierarchy_test_apply_native_filter('option_rewrite_rules', $durable);
+    woo_hierarchy_test_set_raw_option(
+        'rewrite_rules',
+        $durable === '' ? '' : serialize($durable),
+        $effective
+    );
+    woo_hierarchy_test_fire_native_hook(
+        'updated_option',
+        'rewrite_rules',
+        $beforeRules,
+        $effective
+    );
+    $GLOBALS['wooHierarchyFreshRewriteRules'] = $effective;
+    $structurePresent = array_key_exists('permalink_structure', WpStore::instance()->options);
+    $hash = static fn(mixed $value): string => hash('sha256', serialize($value));
+    $after = [
+        'permalink_present' => $structurePresent,
+        'permalink_hash' => hash('sha256', $permalinkStructure),
+        'runtime_permalink_matches' => true,
+        'rules_present' => true,
+        'rules_type' => get_debug_type($durable),
+        'rules_count' => is_array($durable) ? count($durable) : 0,
+        'rules_hash' => $hash($durable),
+        'runtime_rules_type' => get_debug_type($effective),
+        'runtime_rules_count' => is_array($effective) ? count($effective) : 0,
+        'runtime_rules_hash' => $hash($effective),
+    ];
+    return (object) [
+        'return_code' => 0,
+        'stdout' => json_encode(
+            ['format' => 'duo-rewrite-flush-fresh/v1', 'after' => $after],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+        ),
+        'stderr' => '',
+    ];
 }
 
 /** Install the exact state the real child must create, then return its bounded receipt. */
@@ -178,21 +470,14 @@ function woo_hierarchy_test_native_child(bool $flushRewrite): object {
     woo_hierarchy_test_set_option('product_brand_children', woo_hierarchy_test_children($brandMap));
 
     if ($flushRewrite) {
-        $brandBase = (string) (WpStore::instance()->options['woocommerce_brand_permalink'] ?? 'brand');
-        if ($brandBase === '') {
-            $brandBase = 'brand';
-        }
-        woo_hierarchy_test_set_option('rewrite_rules', [
-            '^' . $brandBase . '/(.+?)/?$' => 'index.php?product_brand=$matches[1]',
-            '^shop/?$' => 'index.php?post_type=product',
-        ]);
+        \Duo\NativeActions::execute('rewrite.flush', []);
     }
 
     $snapshot = new ReflectionMethod(
         \Duo\Providers\WoocommerceHierarchyLookups::class,
         'projection_snapshot'
     );
-    $after = $snapshot->invoke(null, true, $flushRewrite, false);
+    $after = $snapshot->invoke(null, true, $flushRewrite, $flushRewrite);
     return (object) [
         'return_code' => 0,
         'stdout' => json_encode(
@@ -208,7 +493,26 @@ $store = WpStore::reset()->seedOptions([
     'product_brand_children' => [8000000000 => [8000000002]],
     'rewrite_rules' => ['^stale/(.+)$' => 'index.php?stale=$matches[1]'],
     'woocommerce_brand_permalink' => 'maker-houses',
+    'woocommerce_permalinks' => [
+        'product_base' => 'shop/%product_cat%',
+        'category_base' => 'catalog',
+        'tag_base' => 'labels',
+        'attribute_base' => 'features',
+        'use_verbose_page_rules' => true,
+    ],
 ]);
+$GLOBALS['wooHierarchyPermalinkReadMode'] = 'stable';
+$GLOBALS['wooHierarchyPermalinkNativeReads'] = 0;
+$GLOBALS['wp_filter'] = [];
+$GLOBALS['wooHierarchyFreshRewriteRules'] = $store->options['rewrite_rules'];
+$wp_rewrite = new class {
+    public string|false $permalink_structure = false;
+    public mixed $rules = null;
+
+    public function wp_rewrite_rules(): mixed {
+        return $this->rules;
+    }
+};
 $wpdb = FakeWpdb::install();
 $wpdb->seedTable('wp_term_taxonomy', [
     ['term_taxonomy_id' => 1, 'term_id' => 9000000000, 'taxonomy' => 'product_cat', 'parent' => 0],
@@ -238,6 +542,7 @@ $wpdb->seedTable('wp_options', [
     ['option_id' => 2, 'option_name' => 'product_brand_children', 'option_value' => serialize($store->options['product_brand_children']), 'autoload' => 'yes'],
     ['option_id' => 3, 'option_name' => 'rewrite_rules', 'option_value' => serialize($store->options['rewrite_rules']), 'autoload' => 'yes'],
     ['option_id' => 4, 'option_name' => 'woocommerce_brand_permalink', 'option_value' => 'maker-houses', 'autoload' => 'yes'],
+    ['option_id' => 5, 'option_name' => 'woocommerce_permalinks', 'option_value' => serialize($store->options['woocommerce_permalinks']), 'autoload' => 'yes'],
 ])->setColumns('wp_options', [
     'option_id' => 'bigint(20) unsigned',
     'option_name' => 'varchar(191)',
@@ -246,14 +551,47 @@ $wpdb->seedTable('wp_options', [
 ])->setUniqueKey('wp_options', ['option_name']);
 
 WP_CLI::$handler = static function (string $command, array $options): object {
-    duo_check(str_starts_with($command, 'eval ')
-        && str_contains($command, 'WoocommerceHierarchyLookups::run_child('),
-        'provider launches only its fixed shipped fresh-process entrypoint');
+    $isHierarchy = str_contains($command, 'WoocommerceHierarchyLookups::run_child(');
+    $isNativeRewrite = str_contains($command, 'Duo\\NativeActions::execute("rewrite.flush", [])');
+    duo_check(str_starts_with($command, 'eval ') && ($isHierarchy xor $isNativeRewrite),
+        'provider uses only its fixed hierarchy child or Core\'s fixed native rewrite child');
     duo_check_same(
         ['launch' => true, 'return' => 'all', 'exit_error' => false],
         $options,
         'WP-CLI child invocation is isolated and returns the complete process result'
     );
+    if ($isNativeRewrite) {
+        if (WP_CLI::$mode === 'product-route-race') {
+            $raced = (array) WpStore::instance()->options['woocommerce_permalinks'];
+            $raced['product_base'] = 'raced-products';
+            woo_hierarchy_test_set_option('woocommerce_permalinks', $raced);
+        } elseif (WP_CLI::$mode === 'product-raw-race') {
+            global $wpdb;
+            $raw = serialize(WpStore::instance()->options['woocommerce_permalinks']);
+            $noncanonical = preg_replace('/^a:5:/', 'a:05:', $raw, 1);
+            if (!is_string($noncanonical) || $noncanonical === $raw) {
+                throw new RuntimeException('test could not create same-semantic serialized bytes');
+            }
+            $wpdb->update('wp_options', ['option_value' => $noncanonical], [
+                'option_name' => 'woocommerce_permalinks',
+            ]);
+        } elseif (WP_CLI::$mode === 'product-autoload-race') {
+            global $wpdb;
+            WpStore::instance()->autoload['woocommerce_permalinks'] = 'no';
+            $wpdb->update('wp_options', ['autoload' => 'no'], [
+                'option_name' => 'woocommerce_permalinks',
+            ]);
+        } elseif (WP_CLI::$mode === 'product-reinsert-race') {
+            $value = WpStore::instance()->options['woocommerce_permalinks'];
+            woo_hierarchy_test_remove_option('woocommerce_permalinks');
+            woo_hierarchy_test_set_option('woocommerce_permalinks', $value);
+        } elseif (WP_CLI::$mode === 'product-brand-race') {
+            woo_hierarchy_test_set_option('woocommerce_brand_permalink', 'raced-product-brand');
+        } elseif (WP_CLI::$mode === 'product-core-permalink-race') {
+            woo_hierarchy_test_set_option('permalink_structure', '/%year%/%postname%/');
+        }
+        return woo_hierarchy_test_native_rewrite_child();
+    }
     $flushRewrite = str_contains($command, 'run_child(true)');
     if (WP_CLI::$mode === 'parent-race') {
         global $wpdb;
@@ -270,12 +608,30 @@ $capabilities = $provider->capabilities();
 duo_check_same([
     'id' => 'woocommerce-hierarchy-lookups',
     'plugin' => 'woocommerce/woocommerce.php',
-    'version' => '1.0.0',
+    'version' => '2.0.0',
 ], $provider->identity(), 'provider identity is exact and manifest-bindable');
 duo_check_same(
     ['flush_rewrite' => ['type' => 'bool', 'required' => true]],
     $capabilities['rebuild_hierarchy_lookups']['args'] ?? null,
     'brand rewrite authority is an exact required boolean, never inferred from a dirty target'
+);
+duo_check_same([], $capabilities['rebuild_product_permalink_routes']['args'] ?? null,
+    'product permalink repair takes no target-controlled arguments');
+duo_check_same(
+    [
+        'option:permalink_structure',
+        'option:rewrite_rules',
+        'option:woocommerce_brand_permalink',
+        'option:woocommerce_permalinks',
+        'table:options',
+    ],
+    $capabilities['rebuild_product_permalink_routes']['reads'] ?? null,
+    'product permalink repair declares its exact authored and derived reads'
+);
+duo_check_same(
+    ['option:rewrite_rules'],
+    $capabilities['rebuild_product_permalink_routes']['writes'] ?? null,
+    'product permalink repair writes only the derived rewrite option'
 );
 
 $operation = [
@@ -285,6 +641,177 @@ $operation = [
     'input_sha256' => str_repeat('c', 64),
     'effects_sha256' => str_repeat('d', 64),
 ];
+
+// Core persists rewrite_rules as an exact empty string when permalinks are
+// disabled. The raw source record is deliberately absent at first: absence
+// and an authored empty structure are separate native grammars and both must
+// remain bound to the child receipt.
+$productRoute = $provider->invoke_scoped('rebuild_product_permalink_routes', [], $operation);
+duo_check(($productRoute['after']['permalink_structure_present'] ?? null) === false
+    && ($productRoute['after']['rewrite_rules_valid'] ?? false) === true
+    && ($productRoute['after']['rewrite_rules'] ?? null) === 0
+    && ($productRoute['after']['rewrite_rules_raw_sha256'] ?? null) === hash('sha256', ''),
+    'absent core permalink_structure binds a native plain-permalink empty-string rewrite receipt');
+duo_check_same(0, $GLOBALS['wooHierarchyPermalinkNativeReads'],
+    'product permalink receipt never calls hookful wc_get_permalink_structure');
+
+woo_hierarchy_test_set_option('permalink_structure', '');
+$productEmptyCore = $provider->invoke('rebuild_product_permalink_routes', []);
+duo_check(($productEmptyCore['after']['permalink_structure_present'] ?? null) === true
+    && ($productEmptyCore['after']['permalink_structure_option_id'] ?? 0) > 0
+    && ($productEmptyCore['after']['rewrite_rules_valid'] ?? false) === true
+    && ($productEmptyCore['after']['rewrite_rules'] ?? null) === 0,
+    'present empty core permalink_structure remains distinct while converging to the exact plain rewrite sentinel');
+
+woo_hierarchy_test_set_option('permalink_structure', '/%postname%/');
+$productPretty = $provider->invoke('rebuild_product_permalink_routes', []);
+duo_check(($productPretty['after']['permalink_structure_present'] ?? null) === true
+    && ($productPretty['after']['rewrite_rules_valid'] ?? false) === true
+    && ($productPretty['after']['rewrite_rules'] ?? null) === 4,
+    'pretty core permalinks bind the single native child generation to ordered rewrite bytes');
+
+$nativeFirstHelperRow = [
+    'product_base' => 'shop/%product_cat%',
+    'category_base' => 'catalog',
+    'attribute_base' => 'features',
+    'tag_base' => 'labels',
+    'use_verbose_page_rules' => true,
+];
+woo_hierarchy_test_set_option('woocommerce_permalinks', $nativeFirstHelperRow);
+$alternateOrderRoute = $provider->invoke('rebuild_product_permalink_routes', []);
+duo_check(($alternateOrderRoute['after']['product_permalink_valid'] ?? false) === true
+    && ($alternateOrderRoute['after']['product_permalink_fields'] ?? null) === 5
+    && ($alternateOrderRoute['after']['product_permalink_raw_sha256'] ?? null)
+        !== ($productPretty['after']['product_permalink_raw_sha256'] ?? null),
+    'native migration/helper five-field order is accepted semantically while its distinct raw bytes remain receipt-bound');
+duo_check_same(0, $GLOBALS['wooHierarchyPermalinkNativeReads'],
+    'alternate native permalink key order does not reach a hookful Woo option reader');
+
+$sanitizerCallsBeforeHostile = $GLOBALS['wooHierarchyPermalinkSanitizerCalls'];
+$sameValueCleanUrlCalls = 0;
+woo_hierarchy_test_install_native_hook('clean_url', [[
+    static function (string $value) use (&$sameValueCleanUrlCalls): string {
+        ++$sameValueCleanUrlCalls;
+        return $value;
+    }, 10, 3,
+]]);
+duo_check_throws(
+    static fn() => $provider->invoke('rebuild_product_permalink_routes', []),
+    RuntimeException::class,
+    'same-value clean_url callback is refused before Woo native permalink sanitization',
+    'extension callback'
+);
+duo_check_same(0, $sameValueCleanUrlCalls,
+    'hostile clean_url callback has zero runtime effects because topology is checked before sanitization');
+duo_check_same($sanitizerCallsBeforeHostile, $GLOBALS['wooHierarchyPermalinkSanitizerCalls'],
+    'hostile clean_url callback cannot enter wc_sanitize_permalink before the refusal');
+woo_hierarchy_test_clear_native_hooks();
+
+$tecListener = Tribe__Cache_Listener::install();
+$tecRewrite = new WooHierarchyTecRewrite();
+$yoastRewrites = new WooHierarchyYoastDynamicRewrites();
+$polylangLinks = new WooHierarchyPolylangLinksDirectory();
+$pllModifyCalls = 0;
+$tecListener->writes = [];
+$GLOBALS['wooHierarchyTecPurgeRequested'] = false;
+woo_hierarchy_test_install_native_hook('rewrite_rules_array', [
+    ['wc_fix_rewrite_rules', 10, 1],
+    [[$tecRewrite, 'rewrite_rules_array'], 25, 1],
+    [[$polylangLinks, 'rewrite_rules'], 30, 1],
+    [static function (array $rules): array {
+        $rules['^yoast-sitemap\\.xml$'] = 'index.php?yoast-sitemap=1';
+        return $rules;
+    }, 40, 1],
+]);
+woo_hierarchy_test_install_native_hook('pll_modify_rewrite_rule', [
+    [static function (array $rule, string $type, string $language) use (&$pllModifyCalls): array {
+        ++$pllModifyCalls;
+        if ($type !== 'product' || $language !== 'fr') {
+            throw new RuntimeException('Polylang dynamic rewrite type/language drifted');
+        }
+        return [$rule[0], $rule[1] . '&third_party_pll_modify=1'];
+    }, 15, 3],
+]);
+woo_hierarchy_test_install_native_hook('sanitize_option_rewrite_rules', [
+    [[$yoastRewrites, 'sanitize'], 10, 1],
+]);
+woo_hierarchy_test_install_native_hook('option_rewrite_rules', [
+    [[$yoastRewrites, 'effective'], 10, 1],
+]);
+woo_hierarchy_test_install_native_hook('generate_rewrite_rules', [
+    [[$tecListener, 'generate_rewrite_rules'], 10, 1],
+    [[$tecRewrite, 'generate_rewrite_rules'], 20, 1],
+]);
+woo_hierarchy_test_install_native_hook('updated_option', [
+    [[$tecListener, 'update_last_updated_option'], 10, 3],
+    [[$tecListener, 'update_last_save_post'], 10, 3],
+]);
+$mixedRoute = $provider->invoke('rebuild_product_permalink_routes', []);
+duo_check(($mixedRoute['after']['rewrite_rules_valid'] ?? false) === true
+    && ($mixedRoute['after']['native_rewrite_rules_type'] ?? null) === 'array'
+    && ($mixedRoute['after']['native_rewrite_runtime_rules_type'] ?? null) === 'array'
+    && ($mixedRoute['after']['native_rewrite_rules_count'] ?? null) === 6
+    && ($mixedRoute['after']['native_rewrite_runtime_rules_count'] ?? null) === 7
+    && ($mixedRoute['after']['native_rewrite_rules_sha256'] ?? null)
+        !== ($mixedRoute['after']['native_rewrite_runtime_rules_sha256'] ?? null)
+    && $tecRewrite->generationCalls === 1
+    && $polylangLinks->dynamicTypeCalls === 1
+    && $pllModifyCalls === 1
+    && $tecListener->writes === [
+        'tribe_last_generate_rewrite_rules',
+        'tribe_last_updated_option',
+        'tribe_last_save_post',
+    ]
+    && $GLOBALS['wooHierarchyTecPurgeRequested'] === true,
+    'mixed Woo+Yoast+Polylang+TEC delegates one generation to Core: durable/effective Yoast rules differ, Polylang dynamic type/third-party callback runs, and TEC records all marker effects');
+duo_check(array_keys(array_intersect_key(WpStore::instance()->options, array_flip($tecListener->writes)))
+    === $tecListener->writes,
+    'mixed Woo+TEC listener writes are explicit option effects rather than an untracked request-local side effect');
+woo_hierarchy_test_clear_native_hooks();
+
+WP_CLI::$mode = 'product-core-permalink-race';
+duo_check_throws(
+    static fn() => $provider->invoke('rebuild_product_permalink_routes', []),
+    RuntimeException::class,
+    'a concurrent core permalink grammar edit cannot be blessed by a matching child rewrite receipt',
+    'fresh-process evidence disagrees with checked durable storage'
+);
+WP_CLI::$mode = 'success';
+woo_hierarchy_test_set_option('permalink_structure', '/%postname%/');
+duo_check(($provider->invoke('rebuild_product_permalink_routes', [])['after']['rewrite_rules_valid'] ?? false) === true,
+    'product permalink retry converges after a core permalink grammar race');
+
+foreach ([
+    'product-route-race' => 'authored product permalink state changed',
+    'product-autoload-race' => 'authored product permalink state changed',
+    'product-reinsert-race' => 'authored product permalink state changed',
+    'product-brand-race' => 'authored product permalink state changed',
+] as $mode => $needle) {
+    WP_CLI::$mode = $mode;
+    duo_check_throws(
+        static fn() => $provider->invoke('rebuild_product_permalink_routes', []),
+        RuntimeException::class,
+        "raw Woo source witness ($mode) cannot be replaced while Core regenerates rewrites",
+        $needle
+    );
+    WP_CLI::$mode = 'success';
+    woo_hierarchy_test_set_option('woocommerce_permalinks', $nativeFirstHelperRow);
+    woo_hierarchy_test_set_option('woocommerce_brand_permalink', 'maker-houses');
+    duo_check(($provider->invoke('rebuild_product_permalink_routes', [])['after']['product_permalink_valid'] ?? false) === true,
+        "product permalink retry converges after raw Woo source race $mode");
+}
+WP_CLI::$mode = 'product-raw-race';
+duo_check_throws(
+    static fn() => $provider->invoke('rebuild_product_permalink_routes', []),
+    RuntimeException::class,
+    'a same-semantic but noncanonical Woo permalink byte replacement cannot inherit the first raw witness',
+    'noncanonical PHP-serialized data'
+);
+WP_CLI::$mode = 'success';
+woo_hierarchy_test_set_option('woocommerce_permalinks', $nativeFirstHelperRow);
+duo_check(($provider->invoke('rebuild_product_permalink_routes', [])['after']['product_permalink_valid'] ?? false) === true,
+    'product permalink retry converges after same-semantic raw-byte replacement');
+
 $hierarchyArgs = ['flush_rewrite' => false];
 $receipt = $provider->invoke_scoped('rebuild_hierarchy_lookups', $hierarchyArgs, $operation);
 duo_check_same(false, $receipt['before']['category_lookup_valid'] ?? null,
@@ -438,13 +965,15 @@ WP_CLI::$mode = 'success';
 woo_hierarchy_test_set_option('woocommerce_brand_permalink', 'maker-houses');
 $routeReceipt = $provider->invoke_scoped('rebuild_hierarchy_lookups', $rewriteArgs, $operation);
 duo_check(($routeReceipt['after']['rewrite_rules_valid'] ?? false) === true
-    && ($routeReceipt['after']['rewrite_rules'] ?? null) === 2
+    && ($routeReceipt['after']['rewrite_rules'] ?? null) === 4
     && preg_match('/^[a-f0-9]{64}$/D', (string) ($routeReceipt['after']['brand_permalink_sha256'] ?? '')) === 1,
     'brand permalink path flushes and binds exact fresh-process rewrite state');
 $savedRoute = $routeReceipt['after'];
 woo_hierarchy_test_set_option('rewrite_rules', [
     '^maker-houses/(.+?)/?$' => 'index.php?wrong=$matches[1]',
     '^shop/?$' => 'index.php?post_type=product',
+    '^catalog/(.+?)/?$' => 'index.php?wrong-product-cat=$matches[1]',
+    '^labels/(.+?)/?$' => 'index.php?wrong-product-tag=$matches[1]',
 ]);
 $routeDrift = $provider->reconcile_scoped(
     'rebuild_hierarchy_lookups',
@@ -452,9 +981,9 @@ $routeDrift = $provider->reconcile_scoped(
     $operation
 );
 duo_check(($routeDrift['after']['rewrite_rules'] ?? null) === ($savedRoute['rewrite_rules'] ?? null)
-    && ($routeDrift['after']['rewrite_rules_effective_sha256'] ?? null)
-        !== ($savedRoute['rewrite_rules_effective_sha256'] ?? null),
-    'same-count rewrite drift changes the scoped recovery fingerprint');
+    && ($routeDrift['after']['rewrite_rules_canonical_sha256'] ?? null)
+        !== ($savedRoute['rewrite_rules_canonical_sha256'] ?? null),
+    'same-count durable rewrite drift changes the scoped recovery fingerprint');
 $routeRecovered = $provider->invoke('rebuild_hierarchy_lookups', $rewriteArgs);
 duo_check_same($savedRoute, $routeRecovered['after'], 'brand-route retry restores exact native rewrite state');
 
@@ -602,7 +1131,7 @@ duo_check_throws(
     static fn() => $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs),
     RuntimeException::class,
     'a hostile hierarchy database prefix is refused before identifier interpolation',
-    'exact site database identity'
+    'exact site options-table identity'
 );
 duo_check_same([], $wpdb->queries(),
     'invalid hierarchy database identifiers reach no checked SQL read');
@@ -644,10 +1173,11 @@ duo_check(str_contains($source, 'CategoryLookup')
     && str_contains($source, 'clean_taxonomy_cache($taxonomy)')
     && str_contains($source, "wp_cache_delete('get', 'term-queries')"),
     'shipped child uses Woo/WordPress native writers after explicit persistent-cache invalidation');
-duo_check(str_contains($source, 'flush_rewrite_rules(false)')
-    && str_contains($source, '$wp_rewrite->rewrite_rules()')
-    && str_contains($source, 'fresh native generation'),
-    'brand route verification compares stored rules with a fresh native generation in the child');
+duo_check(str_contains($source, "NativeActions::execute('rewrite.flush', [])")
+    && !str_contains($source, 'flush_rewrite_rules(false)')
+    && !str_contains($source, '$wp_rewrite->rewrite_rules()')
+    && str_contains($source, 'NativeActions owns the extension interpreter'),
+    'Woo binds exactly one shared native rewrite receipt and never re-enters the effectful generator for verification');
 duo_check(str_contains($source, 'PlainData::decode_serialized(')
     && !str_contains($source, 'maybe_unserialize('),
     'all raw serialized hierarchy/rewrite bytes use the shared class-disabled plain-data boundary');
