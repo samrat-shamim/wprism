@@ -366,7 +366,6 @@ final class NativeRewriteEffects {
         }
 
         $tecRewrite = null;
-        $deprecation = null;
         $aggregator = null;
         $views = null;
         $kitchenSink = null;
@@ -379,12 +378,6 @@ final class NativeRewriteEffects {
                 'instance',
                 'generate_rewrite_rules',
                 'filter_generate'
-            );
-            $deprecation = self::exact_static_service(
-                'Tribe__Deprecation',
-                'instance',
-                'tribe_pre_rewrite',
-                'deprecated_action_message'
             );
             $aggregator = self::exact_static_service(
                 'Tribe__Events__Aggregator',
@@ -445,12 +438,9 @@ final class NativeRewriteEffects {
         }
         self::assert_exact_hook('rewrite_rules_array', $rewriteArrayExpected);
 
-        $tribeExpected = [];
         $eventsExpected = [];
         if ($listener !== null) {
-            $tribeExpected[] = [$deprecation, 'deprecated_action_message', 10, 1];
             $eventsExpected = [
-                [$deprecation, 'deprecated_action_message', 10, 1],
                 [$tecRewrite, 'generate_core_rules', 10, 1],
                 [$aggregator, 'action_endpoint_configuration', 10, 1],
                 [$views, 'on_tribe_events_pre_rewrite', 10, 1],
@@ -460,7 +450,12 @@ final class NativeRewriteEffects {
                 $eventsExpected[] = [$registration, 'filter_add_routes', 5, 1];
             }
         }
-        self::assert_exact_hook('tribe_pre_rewrite', $tribeExpected);
+        // Common 6.17.2/6.17.3 defines Tribe__Deprecation::instance(), but no
+        // normal free-plugin boot path resolves it. The exact live WP-CLI
+        // roster is therefore empty. Resolving that opt-in singleton here
+        // would itself mutate both old/new rewrite hooks and would turn an
+        // extension-only diagnostic service into an admitted native effect.
+        self::assert_exact_hook('tribe_pre_rewrite', []);
         self::assert_exact_hook('tribe_events_pre_rewrite', $eventsExpected);
         self::assert_exact_hook('tribe_events_rewrite_rules_custom', []);
 
@@ -474,7 +469,6 @@ final class NativeRewriteEffects {
 
         return [
             'tec_rewrite' => $tecRewrite,
-            'deprecation' => $deprecation,
             'aggregator' => $aggregator,
             'views' => $views,
             'kitchen_sink' => $kitchenSink,

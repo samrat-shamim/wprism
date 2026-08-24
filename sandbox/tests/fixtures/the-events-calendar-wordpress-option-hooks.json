@@ -135,6 +135,9 @@
     ]
   },
   "rewrite_generation": {
+    "normal_empty_hooks": [
+      "tribe_pre_rewrite"
+    ],
     "exact_hooks": [
       "post_rewrite_rules",
       "date_rewrite_rules",

@@ -4208,6 +4208,11 @@ duo_check_same(
     $wooRewriteTopology['tec_exact_empty_inner_hooks'] ?? null,
     'the source-bound TEC inner rewrite hook frontier is closed and order-stable'
 );
+duo_check_same(
+    ['tribe_pre_rewrite'],
+    $optionHookFixture['rewrite_generation']['normal_empty_hooks'] ?? null,
+    'both exact TEC artifacts bind the opt-in predecessor hook as empty during normal boot'
+);
 $staticRewriteCallbacks = [];
 foreach (($wooRewriteTopology['static_callbacks'] ?? []) as $callback) {
     $staticRewriteCallbacks[(string) ($callback['hook'] ?? '')][] = $callback['callback'] ?? null;
@@ -6379,7 +6384,6 @@ $GLOBALS['tec_readiness_events_main'] = Tribe__Events__Main::instance();
 $GLOBALS['tec_readiness_cutoff_effect_calls'] = 0;
 $GLOBALS['tec_readiness_cleaner_effect_calls'] = 0;
 $GLOBALS['tec_readiness_cache_listener'] = Tribe__Cache_Listener::instance();
-$GLOBALS['tec_readiness_deprecation'] = Tribe__Deprecation::instance();
 $GLOBALS['tec_readiness_events_rewrite'] = Tribe__Events__Rewrite::instance();
 $GLOBALS['tec_readiness_aggregator'] = Tribe__Events__Aggregator::instance();
 $GLOBALS['tec_readiness_views_manager'] = new \Tribe\Events\Views\V2\Manager();
@@ -7830,8 +7834,66 @@ $GLOBALS['tec_readiness_wp_cache_deletes'] = 0;
 $GLOBALS['tec_readiness_wp_cache'] = [];
 $GLOBALS['wp_rewrite'] = new TecReadinessRewriteRuntime();
 $nativeRewriteChild = new ReflectionMethod(\Duo\NativeActions::class, 'flush_rewrite_in_fresh_process');
+$rewriteRefusalState = static function () use ($tecDb, $optionsTable): array {
+    $rows = array_values(array_filter(
+        $tecDb->rows($optionsTable),
+        static fn(array $row): bool => in_array($row['option_name'] ?? null, [
+            'rewrite_rules',
+            'tribe_last_generate_rewrite_rules',
+            'tribe_last_updated_option',
+            'tribe_last_save_post',
+        ], true)
+    ));
+    usort(
+        $rows,
+        static fn(array $left, array $right): int => strcmp(
+            (string) ($left['option_name'] ?? ''),
+            (string) ($right['option_name'] ?? '')
+        )
+    );
+    $purgePresent = tribe_isset_var('should_delete_expired_transients');
+    return [
+        'rows' => $rows,
+        'runtime_rules' => $GLOBALS['wp_rewrite']->rules,
+        'flush_calls' => $GLOBALS['wp_rewrite']->flushCalls,
+        'purge_present' => $purgePresent,
+        'purge_value' => $purgePresent ? tribe_get_var('should_delete_expired_transients') : null,
+    ];
+};
+duo_check_same(
+    false,
+    has_filter('tribe_pre_rewrite'),
+    'the exact free-plugin normal boot leaves the predecessor rewrite hook empty'
+);
+$deprecationPreimage = $rewriteRefusalState();
+$optInDeprecation = Tribe__Deprecation::instance();
+$deprecationFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $deprecationFailure = $failure;
+}
+duo_check(
+    $deprecationFailure instanceof RuntimeException
+        && str_contains(
+            $deprecationFailure->getMessage(),
+            "extended or substituted 'tribe_pre_rewrite' callbacks"
+        ),
+    'resolving the opt-in TEC deprecation singleton refuses before native rewrite generation'
+);
+duo_check_same(
+    $deprecationPreimage,
+    $rewriteRefusalState(),
+    'the opt-in deprecation callback refusal preserves durable rows, runtime rules, and purge state'
+);
+remove_action('tribe_pre_rewrite', [$optInDeprecation, 'deprecated_action_message'], 10);
+remove_action('tribe_events_pre_rewrite', [$optInDeprecation, 'deprecated_action_message'], 10);
 $nativeRewriteReceipt = $nativeRewriteChild->invoke(null);
-duo_check_same(true, $nativeRewriteReceipt['verified'] ?? null, 'TEC-active native rewrite returns only after checked child readback');
+duo_check_same(
+    true,
+    $nativeRewriteReceipt['verified'] ?? null,
+    'removing the opt-in deprecation callbacks permits same-process checked retry'
+);
 duo_check_same(1, $GLOBALS['wp_rewrite']->flushCalls, 'TEC-active native rewrite invokes the fresh soft flush exactly once');
 duo_check(
     in_array(
@@ -7903,6 +7965,41 @@ $GLOBALS['wp_rewrite']->malformedAfterGenerate = false;
 $retryRewrite = $nativeRewriteChild->invoke(null);
 duo_check_same(true, $retryRewrite['verified'] ?? null, 'same-process retry after a partial TEC marker effect converges');
 duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'retry also restores the exact absent shutdown-flag preimage');
+
+$foreignPredecessorCalls = 0;
+$foreignPredecessor = static function (mixed $rewrite = null) use (&$foreignPredecessorCalls): mixed {
+    ++$foreignPredecessorCalls;
+    return $rewrite;
+};
+$foreignPredecessorPreimage = $rewriteRefusalState();
+add_action('tribe_pre_rewrite', $foreignPredecessor, 10, 1);
+$foreignPredecessorFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $foreignPredecessorFailure = $failure;
+}
+remove_action('tribe_pre_rewrite', $foreignPredecessor, 10);
+duo_check(
+    $foreignPredecessorFailure instanceof RuntimeException
+        && str_contains(
+            $foreignPredecessorFailure->getMessage(),
+            "extended or substituted 'tribe_pre_rewrite' callbacks"
+        ),
+    'a foreign predecessor-hook callback refuses before native rewrite generation'
+);
+duo_check_same(0, $foreignPredecessorCalls, 'the refused predecessor-hook callback never executes');
+duo_check_same(
+    $foreignPredecessorPreimage,
+    $rewriteRefusalState(),
+    'the foreign predecessor-hook refusal preserves durable rows, runtime rules, and purge state'
+);
+$foreignPredecessorRetry = $nativeRewriteChild->invoke(null);
+duo_check_same(
+    true,
+    $foreignPredecessorRetry['verified'] ?? null,
+    'removing the foreign predecessor-hook callback permits same-process retry'
+);
 
 $hostileMarkerCallback = static fn(mixed $value): mixed => $value;
 add_filter('update_option_tribe_last_generate_rewrite_rules', $hostileMarkerCallback, 999, 3);

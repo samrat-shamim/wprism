@@ -351,6 +351,10 @@ $pluginRewriteHooks = [
     'pll_modify_rewrite_rule',
 ];
 $rewriteGeneration = [
+    // Common defines an opt-in deprecation singleton for this predecessor
+    // hook, but both exact free-plugin artifacts leave it unresolved during
+    // normal boot. Native rewrite generation must therefore see no callback.
+    'normal_empty_hooks' => ['tribe_pre_rewrite'],
     'exact_hooks' => [...$coreRewriteHooks, ...$pluginRewriteHooks],
     'dynamic_hook_template' => '{slug}_rewrite_rules',
     'soft_flush_excludes' => [
@@ -568,6 +572,55 @@ if ($tecRoot !== '' || $tecVersion !== '') {
         $tecSources[$relative] = $bytes;
     }
     $compactPhp = static fn(string $source): string => (string) preg_replace('/\s+/', '', $source);
+
+    $deprecationSource = $compactPhp($tecSources['common/src/Tribe/Deprecation.php'] ?? '');
+    if (!str_contains(
+        $deprecationSource,
+        "'tribe_pre_rewrite'=>['4.3','tribe_events_pre_rewrite']"
+    ) || !str_contains(
+        $deprecationSource,
+        "add_action(\$new_action_tag,[\$this,'deprecated_action_message']);"
+    )) {
+        tec_option_usage("TEC $tecVersion deprecation singleton source drifted");
+    }
+    $deprecationBootCalls = 0;
+    $scannedPhpFiles = 0;
+    $scannedPhpBytes = 0;
+    try {
+        $sourceIterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($tecRoot, FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($sourceIterator as $sourceFile) {
+            if (!$sourceFile instanceof SplFileInfo || !$sourceFile->isFile()) {
+                continue;
+            }
+            if ($sourceFile->isLink()) {
+                tec_option_usage("TEC $tecVersion source tree contains a symlink");
+            }
+            if (strtolower($sourceFile->getExtension()) !== 'php') {
+                continue;
+            }
+            ++$scannedPhpFiles;
+            $size = $sourceFile->getSize();
+            if ($scannedPhpFiles > 10000 || $size < 0 || $size > 16777216) {
+                tec_option_usage("TEC $tecVersion source tree exceeds the bounded PHP scan frontier");
+            }
+            $scannedPhpBytes += $size;
+            if ($scannedPhpBytes > 268435456) {
+                tec_option_usage("TEC $tecVersion source tree exceeds the bounded PHP scan frontier");
+            }
+            $sourceBytes = @file_get_contents($sourceFile->getPathname());
+            if (!is_string($sourceBytes) || strlen($sourceBytes) !== $size) {
+                tec_option_usage("TEC $tecVersion source tree changed during the PHP scan");
+            }
+            $deprecationBootCalls += substr_count($sourceBytes, 'Tribe__Deprecation::instance()');
+        }
+    } catch (UnexpectedValueException $failure) {
+        tec_option_usage("TEC $tecVersion source tree is unreadable");
+    }
+    if ($deprecationBootCalls !== 0 || $scannedPhpFiles < 1) {
+        tec_option_usage("TEC $tecVersion normal boot now resolves the opt-in deprecation singleton");
+    }
 
     $bootstrap = $compactPhp($tecSources['the-events-calendar.php'] ?? '');
     $main = $tecSources['src/Tribe/Main.php'] ?? '';
