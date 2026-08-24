@@ -58,6 +58,24 @@ final class EntityMetaPolicyFixture {
             'runtime' => ['class' => 'runtime'],
             'scalar_ref', 'dangling' => ['class' => 'authored', 'ref' => 'post'],
             'term_ref' => ['class' => 'authored', 'ref' => 'term'],
+            'repeated_ref' => [
+                'class' => 'authored',
+                'ref' => 'post',
+                'repeated_rows' => [
+                    'cardinality' => 'one_or_more',
+                    'duplicates' => 'forbid',
+                    'order' => 'preserve',
+                ],
+            ],
+            'repeated_term_ref' => [
+                'class' => 'authored',
+                'ref' => 'term',
+                'repeated_rows' => [
+                    'cardinality' => 'one_or_more',
+                    'duplicates' => 'forbid',
+                    'order' => 'preserve',
+                ],
+            ],
             'structured' => [
                 'class' => 'authored',
                 'json_refs' => [['path' => 'owner', 'kind' => 'post']],
@@ -98,8 +116,9 @@ final class EntityMetaTokensFixture {
     }
 
     public function meta_value_to_tokens($value, array $rule) {
+        $normalized = (string) (int) $value;
         $this->record(($rule['ref'] ?? 'unknown') . ':' . (string) $value);
-        return (string) $value === '404' ? null : '{{' . $rule['ref'] . ':fixture-' . $value . '}}';
+        return (string) $value === '404' ? null : '{{' . $rule['ref'] . ':fixture-' . $normalized . '}}';
     }
 
     public function struct_capture($value, array $_jsonRefs, ?array $_keyRefs) {
@@ -436,6 +455,105 @@ $check($trace === [
     'secret:term_meta:term_ref: on term category:news:string',
     'codec:term:21',
 ], 'term security context and codec ordering remain exact');
+
+$trace = [];
+[$oneRepeatedStore, $oneRepeated] = $capture->classifyValue(
+    'repeated_ref', ['21'], ['repeated_ref' => '21'], 'post 7', 'post_meta'
+);
+$check($oneRepeatedStore && $oneRepeated === ['{{post:fixture-21}}'],
+    'one physical row captures as a one-element canonical list');
+$check($trace === [
+    'policy:post:repeated_ref',
+    'secret:post_meta:repeated_ref: on post 7:string',
+    'codec:post:21',
+], 'one repeated row uses the scalar secret and reference pipeline exactly once');
+
+$trace = [];
+[$manyRepeatedStore, $manyRepeated] = $capture->classifyValue(
+    'repeated_ref', ['900000001', '37', '800000003'],
+    ['repeated_ref' => '900000001'],
+    'post 7',
+    'post_meta'
+);
+$check($manyRepeatedStore && $manyRepeated === [
+    '{{post:fixture-900000001}}', '{{post:fixture-37}}', '{{post:fixture-800000003}}',
+], 'many divergent local ids capture as independently rebound tokens in physical row order');
+$check($trace === [
+    'policy:post:repeated_ref',
+    'secret:post_meta:repeated_ref: on post 7:string',
+    'codec:post:900000001',
+    'secret:post_meta:repeated_ref: on post 7:string',
+    'codec:post:37',
+    'secret:post_meta:repeated_ref: on post 7:string',
+    'codec:post:800000003',
+], 'every repeated row is scanned and rebound independently without serializing the list');
+
+$trace = [];
+[$termRepeatedStore, $termRepeated] = $capture->classifyValue(
+    'repeated_term_ref', ['81', '29'], ['repeated_term_ref' => '81'],
+    'term category:news', 'term_meta', true
+);
+$check($termRepeatedStore && $termRepeated === ['{{term:fixture-81}}', '{{term:fixture-29}}'],
+    'the explicit primitive is shared by term metadata without widening undeclared multi-row keys');
+$check($trace[0] === 'policy:term:repeated_term_ref'
+    && substr_count(implode('|', $trace), 'secret:term_meta:repeated_term_ref') === 2,
+    'repeated term rows stay on the term policy and secret surfaces');
+
+$throws(
+    static fn() => $capture->classifyValue(
+        'repeated_ref', [], [], 'post 7', 'post_meta'
+    ),
+    'must contain one or more rows when present',
+    'an empty present repeated-row field refuses; zero cardinality is represented only by absence'
+);
+$throws(
+    static fn() => $capture->classifyValue(
+        'repeated_ref', ['21', '021'], ['repeated_ref' => '21'], 'post 7', 'post_meta'
+    ),
+    'contains a duplicate value',
+    'raw aliases that tokenize to one canonical ref refuse the complete repeated set'
+);
+$throws(
+    static fn() => $capture->classifyValue(
+        'repeated_ref', ['21', '404'], ['repeated_ref' => '21'], 'post 7', 'post_meta'
+    ),
+    'cannot drop one unresolved row without changing its ordered set',
+    'one dangling repeated ref refuses the whole field instead of silently shortening the set'
+);
+$throws(
+    static fn() => $capture->classifyValue(
+        'repeated_ref', ['a:1:{i:0;s:2:"21";}'], ['repeated_ref' => 'fixture'], 'post 7', 'post_meta'
+    ),
+    'requires one scalar value per database row',
+    'a serialized list in one physical row cannot masquerade as repeated-row storage'
+);
+$throws(
+    static fn() => $capture->classifyValue(
+        'repeated_ref', [null], ['repeated_ref' => null], 'post 7', 'post_meta'
+    ),
+    'requires one scalar value per database row',
+    'SQL NULL cannot masquerade as one repeated scalar row'
+);
+
+$priorPostRows = $wpdb->postRows;
+$wpdb->postRows = [
+    ['meta_id' => 1, 'post_id' => 77, 'meta_key' => 'repeated_ref', 'meta_value' => '21'],
+    ['meta_id' => 2, 'post_id' => 77, 'meta_key' => 'REPEATED_REF', 'meta_value' => '22'],
+    ['meta_id' => 3, 'post_id' => 77, 'meta_key' => 'repeated_ref', 'meta_value' => '23'],
+];
+$aliasByKey = $capture->postMetaByKey(77);
+$check($aliasByKey === [
+    'repeated_ref' => ['21', '23'],
+    'REPEATED_REF' => ['22'],
+], 'capture groups byte-distinct collation aliases separately while preserving each exact row order');
+[$aliasStore] = $capture->classifyValue(
+    'REPEATED_REF', $aliasByKey['REPEATED_REF'], array_map(static fn(array $rows) => $rows[0], $aliasByKey),
+    'post 77', 'post_meta'
+);
+$check(!$aliasStore && $unclassified === ['post_meta:REPEATED_REF'],
+    'a non-byte-exact key alias remains loud instead of being folded into the repeated authored key');
+$wpdb->postRows = $priorPostRows;
+$unclassified = [];
 
 [$danglingStore] = $capture->classifyValue(
     'dangling', ['404'], ['dangling' => '404'], 'post 7', 'post_meta'

@@ -240,6 +240,104 @@ function accepts(array $b, string $msg): void {
     );
 }
 
+$repeatedRows = [
+    'cardinality' => 'one_or_more',
+    'duplicates' => 'forbid',
+    'order' => 'preserve',
+];
+$repeatedRule = ['class' => 'authored', 'ref' => 'post', 'repeated_rows' => $repeatedRows];
+accepts(
+    solo_b(['post_meta' => ['acme_b_many' => $repeatedRule]]),
+    'post metadata accepts the closed ordered unique repeated-row storage declaration'
+);
+accepts(
+    solo_b(['term_meta' => ['acme_b_many' => $repeatedRule]]),
+    'term metadata shares the same explicit repeated-row storage declaration'
+);
+accepts(
+    solo_b(['post_meta_patterns' => [[
+        'match' => '^acme_b_many_',
+    ] + $repeatedRule]]),
+    'post metadata patterns may opt matching physical keys into the same repeated-row contract'
+);
+accepts(
+    solo_b(['meta_patterns' => [[
+        'match' => '^acme_b_many_',
+    ] + $repeatedRule]]),
+    'shared post/term metadata patterns may declare repeated rows explicitly'
+);
+accepts(
+    solo_b(['post_meta' => ['acme_b_many' => array_merge($repeatedRule, ['repeated_rows' => [
+        'order' => 'preserve', 'cardinality' => 'one_or_more', 'duplicates' => 'forbid',
+    ]])]]),
+    'repeated-row declaration object key order is not semantically significant'
+);
+refuses(
+    solo_b(['post_meta' => ['acme_b_many' => array_merge($repeatedRule, ['repeated_rows' => [
+        'cardinality' => 'zero_or_more', 'duplicates' => 'forbid', 'order' => 'preserve',
+    ]])]]),
+    'repeated_rows must be exactly {cardinality: one_or_more, duplicates: forbid, order: preserve}',
+    'repeated rows cannot encode an empty present value instead of honest key absence'
+);
+refuses(
+    solo_b(['post_meta' => ['acme_b_many' => array_merge(
+        $repeatedRule,
+        ['repeated_rows' => $repeatedRows + ['max' => 5]]
+    )]]),
+    'repeated_rows must be exactly',
+    'the repeated-row grammar is closed and rejects undeclared cardinality fields'
+);
+refuses(
+    solo_b(['post_meta' => ['acme_b_many' => ['class' => 'runtime', 'repeated_rows' => $repeatedRows]]]),
+    'repeated_rows is valid only for authored metadata',
+    'runtime metadata cannot claim authored repeated-row materialization'
+);
+refuses(
+    solo_b(['post_meta' => ['acme_b_many' => $repeatedRule + ['order_preserving' => true]]]),
+    'cannot combine repeated_rows with order_preserving',
+    'row ordering cannot be confused with the associative-value order wrapper'
+);
+refuses(
+    solo_b(['post_meta' => ['acme_b_many' => array_merge($repeatedRule, ['ref' => 'post[]'])]]),
+    'cannot combine repeated_rows with an array ref',
+    'one repeated scalar ref per physical row cannot be replaced by a serialized ref list'
+);
+refuses(
+    solo_b(['post_meta' => ['acme_b_many' => $repeatedRule + ['plain_data' => true]]]),
+    'repeated_rows requires one scalar value per database row',
+    'plain-data collections cannot make the canonical outer list storage-ambiguous'
+);
+refuses(
+    solo_b(['post_meta' => ['acme_b_many' => $repeatedRule + ['cast' => 'csv']]]),
+    'repeated_rows requires one scalar value per database row',
+    'a CSV collection inside one row cannot masquerade as repeated physical rows'
+);
+refuses(
+    solo_b(['post_meta' => ['acme_b_many' => $repeatedRule + [
+        'json_refs' => [['path' => '$.id', 'kind' => 'post']],
+    ]]]),
+    'repeated_rows requires one scalar value per database row',
+    'a structured document in one row cannot masquerade as repeated physical rows'
+);
+refuses(
+    solo_b(['options' => ['acme_b_many' => $repeatedRule + ['autoload' => 'yes']]]),
+    'only post_meta and term_meta storage has repeated rows',
+    'whole options cannot declare a physical metadata-row grammar'
+);
+refuses(
+    solo_b(['user_meta' => ['acme_b_many' => $repeatedRule]]),
+    'only post_meta and term_meta storage has repeated rows',
+    'user metadata remains on its existing explicit single-row contract'
+);
+refuses(
+    solo_b(['option_patterns' => [[
+        'match' => '^acme_b_many_',
+        'autoload' => 'preserve',
+    ] + $repeatedRule]]),
+    'only post_meta and term_meta storage has repeated rows',
+    'option patterns cannot silently widen repeated-row storage beyond metadata tables'
+);
+
 // ======================================================================
 echo "\n== the real-world smoke: every SHIPPED manifest validates through the command ==\n";
 

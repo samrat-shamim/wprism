@@ -115,8 +115,24 @@ namespace {
         'structured_keys' => ['key_refs' => ['kind' => 'term']],
         'list' => ['ref' => 'term[]'],
         'map_at_path' => ['key_refs' => ['path' => '$.map', 'kind' => 'term']],
+        'repeated' => [
+            'class' => 'authored',
+            'ref' => 'post',
+            'repeated_rows' => [
+                'cardinality' => 'one_or_more', 'duplicates' => 'forbid', 'order' => 'preserve',
+            ],
+        ],
     ];
-    $policy->termRules = ['related' => ['ref' => 'term']];
+    $policy->termRules = [
+        'related' => ['ref' => 'term'],
+        'repeated_related' => [
+            'class' => 'authored',
+            'ref' => 'term',
+            'repeated_rows' => [
+                'cardinality' => 'one_or_more', 'duplicates' => 'forbid', 'order' => 'preserve',
+            ],
+        ],
+    ];
     $policy->userRules = ['owner' => ['ref' => 'user']];
     $policy->descriptionRules = ['category' => ['json_refs' => [['path' => '$.term', 'kind' => 'term']]]];
     $policy->optionRules = [
@@ -149,6 +165,7 @@ namespace {
                 'structured_keys' => ['17' => true],
                 'list' => ["{{term:$term}}", '15'],
                 'map_at_path' => ['map' => ['16' => true]],
+                'repeated' => ["{{post:$post}}", '26'],
             ],
         ]],
         'menu' => ['type' => 'menu', 'path' => 'menus/main.json', 'data' => [
@@ -191,6 +208,7 @@ namespace {
         'posts/page/portable.md:meta.structured_keys (key)',
         'posts/page/portable.md:meta.list[1]',
         'posts/page/portable.md:meta.map_at_path.map (key)',
+        'posts/page/portable.md:meta.repeated[1]',
         'menus/main.json:items[0].ref',
         'terms/category/portable.json:description.term',
         'terms/category/portable.json:meta.related',
@@ -224,10 +242,14 @@ namespace {
                 'structured_keys' => ["{{term:$term}}" => true],
                 'list' => ["{{term:$term}}"],
                 'map_at_path' => ['map' => ["{{term:$term}}" => true]],
+                'repeated' => ["{{post:$post}}"],
             ],
         ]],
         'menu' => ['type' => 'menu', 'path' => 'menus/valid.json', 'data' => ['items' => [['type' => 'post_type', 'ref' => "{{post:$post}}"]]]],
-        'term' => ['type' => 'term', 'path' => 'terms/category/valid.json', 'data' => ['taxonomy' => 'category', 'description' => ['term' => "{{term:$term}}"], 'meta' => ['related' => "{{term:$term}}"]]],
+        'term' => ['type' => 'term', 'path' => 'terms/category/valid.json', 'data' => ['taxonomy' => 'category', 'description' => ['term' => "{{term:$term}}"], 'meta' => [
+            'related' => "{{term:$term}}",
+            'repeated_related' => ["{{term:$term}}"],
+        ]]],
         'options' => ['type' => 'options', 'path' => 'options/valid.json', 'data' => ['records' => [
             'plain' => ['state' => 'present', 'value' => "{{post:$post}}"],
             'unset' => ['state' => 'present', 'value' => 0],
@@ -242,6 +264,68 @@ namespace {
     $check(
         $diagnostics === [],
         'canonical tokens, a whole-option scalar zero, and declared unset structured leaves remain accepted across every dispatch branch'
+    );
+
+    $diagnostics = [];
+    $invalidRepeatedTree = [[
+        'type' => 'post',
+        'path' => 'posts/page/repeated-invalid.md',
+        'data' => [
+            'type' => 'page',
+            'meta' => ['repeated' => ["{{post:$post}}", "{{post:$post}}"]],
+        ],
+    ], [
+        'type' => 'post',
+        'path' => 'posts/page/repeated-empty.md',
+        'data' => ['type' => 'page', 'meta' => ['repeated' => []]],
+    ], [
+        'type' => 'post',
+        'path' => 'posts/page/repeated-scalar.md',
+        'data' => ['type' => 'page', 'meta' => ['repeated' => "{{post:$post}}"]],
+    ], [
+        'type' => 'post',
+        'path' => 'posts/page/repeated-nested.md',
+        'data' => ['type' => 'page', 'meta' => ['repeated' => [["{{post:$post}}"]]]],
+    ], [
+        'type' => 'post',
+        'path' => 'posts/page/repeated-serialized.md',
+        'data' => ['type' => 'page', 'meta' => ['repeated' => ['a:1:{i:0;s:5:"value";}']]],
+    ]];
+    $validator->validate($invalidRepeatedTree);
+    $check(
+        array_map(
+            static fn(array $diagnostic): array => [
+                $diagnostic['path'], $diagnostic['locator'], $diagnostic['message'],
+            ],
+            $diagnostics
+        ) === [
+            [
+                'posts/page/repeated-invalid.md',
+                'meta.repeated[1]',
+                'repeated-row authored meta values must be unique',
+            ],
+            [
+                'posts/page/repeated-empty.md',
+                'meta.repeated',
+                'repeated-row authored meta must be a non-empty canonical list',
+            ],
+            [
+                'posts/page/repeated-scalar.md',
+                'meta.repeated',
+                'repeated-row authored meta must be a non-empty canonical list',
+            ],
+            [
+                'posts/page/repeated-nested.md',
+                'meta.repeated[0]',
+                'each repeated authored meta row must contain one scalar canonical value',
+            ],
+            [
+                'posts/page/repeated-serialized.md',
+                'meta.repeated[0]',
+                'each repeated authored meta row must be one canonical decoded scalar value',
+            ],
+        ],
+        'portable-shape validation rejects duplicate, empty, scalar, nested, and serialized-container repeated-row artifacts before apply'
     );
 
     $diagnostics = [];

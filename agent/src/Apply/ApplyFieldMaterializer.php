@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/../Kernel/MetaRows.php';
+require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/MetaOwnerRangeLock.php';
 
 /**
@@ -121,69 +122,14 @@ final class ApplyFieldMaterializer {
      */
     public function reconcile_authored_meta(int $id, array $frontMeta, string $ownerLabel): void {
         global $wpdb;
-        $desired = [];
-        foreach ($frontMeta as $key => $v) {
-            $rule = $this->policy->meta_rule_for_post($key, $frontMeta) ?? [];
-            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-                $v = StructuredValue::encode($v, $rule, "$ownerLabel meta $key");
-            } elseif (!empty($rule['plain_data'])) {
-                $v = $this->tokens->plain_data_apply($v);
-            } elseif (!empty($rule['ref'])) {
-                $v = $this->tokens->meta_tokens_to_value($v, $rule);
-            } elseif (is_string($v)) {
-                $v = $this->tokens->detokenize_text($v);
-            }
-            $desired[$key] = maybe_serialize($v);
-        }
-        $envMeta = $this->meta_owner_range_lock(
+        $this->reconcileMetaTable(
             $wpdb->postmeta,
             'post_id',
-            "authored $ownerLabel meta row locking"
-        )->read($id);
-        $envFlat = [];
-        $exactMetaIds = [];
-        foreach ($envMeta as $m) {
-            if (!array_key_exists($m['meta_key'], $envFlat)) {
-                $envFlat[$m['meta_key']] = $m['meta_value'];
-            }
-            $slot = "k\0" . $m['meta_key'];
-            if (!isset($exactMetaIds[$slot])) {
-                $exactMetaIds[$slot] = MetaRows::positive_id($m['meta_id']);
-            }
-        }
-        $kept = [];
-        foreach ($envMeta as $m) {
-            $rule = $this->policy->meta_rule_for_post($m['meta_key'], $envFlat);
-            if (($rule['class'] ?? '') !== 'authored') {
-                continue;
-            }
-            $key = (string) $m['meta_key'];
-            $slot = "k\0" . $key;
-            if (!array_key_exists($key, $desired) || isset($kept[$slot])) {
-                Db::delete($wpdb->postmeta, ['meta_id' => $m['meta_id']], null, "apply delete authored $ownerLabel meta");
-                continue;
-            }
-            $kept[$slot] = true;
-        }
-        foreach ($desired as $key => $val) {
-            $rule = $this->policy->meta_rule_for_post((string) $key, $envFlat);
-            if (($rule['class'] ?? null) !== 'authored') {
-                throw new \RuntimeException(
-                    "duo: authored $ownerLabel meta '$key' is not authored in the locked target context"
-                );
-            }
-            $this->upsert_locked_authored_meta(
-                $wpdb->postmeta,
-                'post_id',
-                $id,
-                (string) $key,
-                $val,
-                $exactMetaIds["k\0" . $key] ?? null,
-                "apply reconcile authored $ownerLabel meta"
-            );
-        }
-        CacheInvalidationTransaction::queue($id, 'post_meta', "authored $ownerLabel meta reconciliation");
+            $id,
+            $frontMeta,
+            false,
+            $ownerLabel
+        );
     }
 
     /**
@@ -193,71 +139,232 @@ final class ApplyFieldMaterializer {
      */
     public function reconcile_authored_term_meta(int $termId, array $frontMeta): void {
         global $wpdb;
-        $desired = [];
-        foreach ($frontMeta as $key => $value) {
-            $rule = $this->policy->meta_rule_for_term((string) $key, $frontMeta) ?? [];
-            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                $value = $this->tokens->struct_apply($value, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-                $value = StructuredValue::encode($value, $rule, "term meta $key");
-            } elseif (!empty($rule['plain_data'])) {
-                $value = $this->tokens->plain_data_apply($value);
-            } elseif (!empty($rule['ref'])) {
-                $value = $this->tokens->meta_tokens_to_value($value, $rule);
-            } elseif (is_string($value)) {
-                $value = $this->tokens->detokenize_text($value);
-            }
-            $desired[(string) $key] = maybe_serialize($value);
-        }
-
-        $ownerRange = $this->meta_owner_range_lock(
+        $this->reconcileMetaTable(
             $wpdb->termmeta,
             'term_id',
-            'authored term-meta row locking'
+            $termId,
+            $frontMeta,
+            true,
+            'term'
         );
-        $envMeta = $ownerRange->read($termId);
+    }
+
+    /**
+     * Reconcile the complete byte-exact authored key roster under one owner
+     * range lock. Repeated rows own physical order; ordinary rules retain the
+     * historical first-row-wins duplicate collapse. Collation-equal aliases
+     * remain separate target rows because every mutation addresses the exact
+     * meta_id witnessed by the locked owner range.
+     */
+    private function reconcileMetaTable(
+        string $table,
+        string $ownerColumn,
+        int $ownerId,
+        array $frontMeta,
+        bool $termMeta,
+        string $ownerLabel
+    ): void {
+        $desired = [];
+        foreach ($frontMeta as $key => $value) {
+            $key = (string) $key;
+            $rule = $termMeta
+                ? ($this->policy->meta_rule_for_term($key, $frontMeta) ?? [])
+                : ($this->policy->meta_rule_for_post($key, $frontMeta) ?? []);
+            $repeated = array_key_exists('repeated_rows', $rule);
+            $values = $repeated ? $value : [$value];
+            if ($repeated && (!is_array($values) || !array_is_list($values) || $values === [])) {
+                throw new \RuntimeException(
+                    "duo: repeated-row authored $ownerLabel meta '$key' must be a non-empty canonical list"
+                );
+            }
+            $wireValues = [];
+            $seenCanonical = [];
+            foreach ($values as $one) {
+                if ($repeated && !is_scalar($one)) {
+                    throw new \RuntimeException(
+                        "duo: repeated-row authored $ownerLabel meta '$key' requires one scalar value per row"
+                    );
+                }
+                if ($repeated && is_string($one)
+                    && PlainData::decode($one, "$ownerLabel meta $key") !== $one) {
+                    throw new \RuntimeException(
+                        "duo: repeated-row authored $ownerLabel meta '$key' requires canonical decoded scalar values"
+                    );
+                }
+                $canonicalFingerprint = "v\0" . serialize($one);
+                if ($repeated && isset($seenCanonical[$canonicalFingerprint])) {
+                    throw new \RuntimeException(
+                        "duo: repeated-row authored $ownerLabel meta '$key' contains a duplicate value"
+                    );
+                }
+                $seenCanonical[$canonicalFingerprint] = true;
+            }
+            $seenWire = [];
+            foreach ($values as $one) {
+                $resolved = $this->resolveMetaValue($one, $rule, "$ownerLabel meta $key");
+                $wire = maybe_serialize($resolved);
+                $wire = $wire === null ? null : (string) $wire;
+                $wireFingerprint = "v\0" . serialize($wire);
+                if ($repeated && isset($seenWire[$wireFingerprint])) {
+                    throw new \RuntimeException(
+                        "duo: repeated-row authored $ownerLabel meta '$key' resolves to a duplicate target wire value"
+                    );
+                }
+                $seenWire[$wireFingerprint] = true;
+                $wireValues[] = $wire;
+            }
+            $desired[$key] = ['repeated' => $repeated, 'values' => $wireValues];
+        }
+
+        $purpose = $termMeta
+            ? 'authored term-meta row locking'
+            : "authored $ownerLabel meta row locking";
+        $ownerRange = $this->meta_owner_range_lock($table, $ownerColumn, $purpose);
+        $envMeta = $ownerRange->read($ownerId);
         $envFlat = [];
-        $exactMetaIds = [];
+        $envByKey = [];
         foreach ($envMeta as $row) {
             if (!array_key_exists($row['meta_key'], $envFlat)) {
                 $envFlat[$row['meta_key']] = $row['meta_value'];
             }
-            $slot = "k\0" . $row['meta_key'];
-            if (!isset($exactMetaIds[$slot])) {
-                $exactMetaIds[$slot] = MetaRows::positive_id($row['meta_id']);
+            $envByKey[$row['meta_key']][] = $row;
+        }
+        foreach ($desired as $key => $declaration) {
+            $rule = $termMeta
+                ? $this->policy->meta_rule_for_term($key, $envFlat)
+                : $this->policy->meta_rule_for_post($key, $envFlat);
+            if (($rule['class'] ?? null) !== 'authored'
+                || array_key_exists('repeated_rows', (array) $rule) !== $declaration['repeated']) {
+                throw new \RuntimeException(
+                    "duo: authored $ownerLabel meta '$key' disagrees with the locked target context"
+                );
             }
         }
-        $kept = [];
+        $expectedRepeated = [];
+        foreach ($desired as $key => $declaration) {
+            if ($declaration['repeated']) {
+                $expectedRepeated[$key] = $declaration['values'];
+            }
+        }
         foreach ($envMeta as $row) {
-            $rule = $this->policy->meta_rule_for_term($row['meta_key'], $envFlat);
+            $rule = $termMeta
+                ? $this->policy->meta_rule_for_term($row['meta_key'], $envFlat)
+                : $this->policy->meta_rule_for_post($row['meta_key'], $envFlat);
             if (($rule['class'] ?? '') !== 'authored') {
                 continue;
             }
             $key = (string) $row['meta_key'];
-            $slot = "k\0" . $key;
-            if (!array_key_exists($key, $desired) || isset($kept[$slot])) {
-                Db::delete($wpdb->termmeta, ['meta_id' => $row['meta_id']], null, 'apply delete authored term meta');
+            if (!array_key_exists($key, $desired)) {
+                if (array_key_exists('repeated_rows', (array) $rule)) {
+                    $expectedRepeated[$key] = [];
+                }
+                Db::delete($table, ['meta_id' => $row['meta_id']], null, "apply delete authored $ownerLabel meta");
+            }
+        }
+        foreach ($desired as $key => $declaration) {
+            $currentRows = $envByKey[$key] ?? [];
+            if ($declaration['repeated']) {
+                $currentValues = array_map(
+                    static fn(array $row): ?string => $row['meta_value'],
+                    $currentRows
+                );
+                if ($currentValues === $declaration['values']) {
+                    continue;
+                }
+                foreach ($currentRows as $row) {
+                    Db::delete(
+                        $table,
+                        ['meta_id' => $row['meta_id']],
+                        null,
+                        "apply delete repeated $ownerLabel meta"
+                    );
+                }
+                foreach ($declaration['values'] as $wireValue) {
+                    Db::insert(
+                        $table,
+                        [$ownerColumn => $ownerId, 'meta_key' => $key, 'meta_value' => $wireValue],
+                        null,
+                        "apply insert repeated $ownerLabel meta"
+                    );
+                }
                 continue;
             }
-            $kept[$slot] = true;
-        }
-        foreach ($desired as $key => $value) {
-            $rule = $this->policy->meta_rule_for_term((string) $key, $envFlat);
-            if (($rule['class'] ?? null) !== 'authored') {
-                throw new \RuntimeException(
-                    "duo: authored term meta '$key' is not authored in the locked target context"
+
+            $first = $currentRows[0] ?? null;
+            foreach (array_slice($currentRows, 1) as $duplicate) {
+                Db::delete(
+                    $table,
+                    ['meta_id' => $duplicate['meta_id']],
+                    null,
+                    "apply delete authored $ownerLabel meta"
                 );
             }
+            $wireValue = $declaration['values'][0];
+            if ($first !== null && $first['meta_value'] === $wireValue) {
+                continue;
+            }
             $this->upsert_locked_authored_meta(
-                $wpdb->termmeta,
-                'term_id',
-                $termId,
-                (string) $key,
-                $value,
-                $exactMetaIds["k\0" . $key] ?? null,
-                'apply reconcile authored term meta'
+                $table,
+                $ownerColumn,
+                $ownerId,
+                $key,
+                $wireValue,
+                $first === null ? null : MetaRows::positive_id($first['meta_id']),
+                "apply reconcile authored $ownerLabel meta"
             );
         }
-        CacheInvalidationTransaction::queue($termId, 'term_meta', 'authored term-meta reconciliation');
+        if ($expectedRepeated !== []) {
+            $finalByKey = [];
+            $finalRows = $ownerRange->read($ownerId);
+            $finalFlat = [];
+            foreach ($finalRows as $row) {
+                if (!array_key_exists($row['meta_key'], $finalFlat)) {
+                    $finalFlat[$row['meta_key']] = $row['meta_value'];
+                }
+            }
+            foreach ($finalRows as $row) {
+                $key = (string) $row['meta_key'];
+                $rule = $termMeta
+                    ? $this->policy->meta_rule_for_term($key, $finalFlat)
+                    : $this->policy->meta_rule_for_post($key, $finalFlat);
+                if (($rule['class'] ?? null) === 'authored'
+                    && array_key_exists('repeated_rows', (array) $rule)
+                    && !array_key_exists($key, $expectedRepeated)) {
+                    throw new \RuntimeException(
+                        "duo: omitted repeated-row authored $ownerLabel meta '$key' survived exact locked readback"
+                    );
+                }
+                if (array_key_exists($key, $expectedRepeated)) {
+                    $finalByKey[$key][] = $row['meta_value'];
+                }
+            }
+            foreach ($expectedRepeated as $key => $expectedValues) {
+                if (($finalByKey[$key] ?? []) !== $expectedValues) {
+                    throw new \RuntimeException(
+                        "duo: repeated-row authored $ownerLabel meta '$key' failed exact locked readback"
+                    );
+                }
+            }
+        }
+        CacheInvalidationTransaction::queue(
+            $ownerId,
+            $termMeta ? 'term_meta' : 'post_meta',
+            "authored $ownerLabel meta reconciliation"
+        );
+    }
+
+    private function resolveMetaValue(mixed $value, array $rule, string $context): mixed {
+        if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+            $value = $this->tokens->struct_apply($value, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+            return StructuredValue::encode($value, $rule, $context);
+        }
+        if (!empty($rule['plain_data'])) {
+            return $this->tokens->plain_data_apply($value);
+        }
+        if (!empty($rule['ref'])) {
+            return $this->tokens->meta_tokens_to_value($value, $rule);
+        }
+        return is_string($value) ? $this->tokens->detokenize_text($value) : $value;
     }
 
     /** $value null writes a real SQL NULL — byte-faithful to plugins that store

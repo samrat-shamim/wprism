@@ -129,11 +129,55 @@ final class EntityMetaCapture {
         if (($rule['class'] ?? '') !== 'authored') {
             return [false, null];
         }
-        if (count($values) > 1) {
+        $repeated = array_key_exists('repeated_rows', $rule);
+        if (!$repeated && count($values) > 1) {
             throw new \RuntimeException("duo: multi-value authored meta '$key' on $ownerLabel unsupported in v0");
         }
-        $value = PlainData::decode($values[0], "$ownerLabel meta $key");
+        if (!$repeated) {
+            return $this->classifyOne($key, $values[0], $rule, $ownerLabel, $termMeta);
+        }
+        if ($values === []) {
+            throw new \RuntimeException(
+                "duo: repeated-row authored meta '$key' on $ownerLabel must contain one or more rows when present"
+            );
+        }
+
+        $captured = [];
+        $seen = [];
+        foreach ($values as $rawValue) {
+            [$store, $value] = $this->classifyOne($key, $rawValue, $rule, $ownerLabel, $termMeta);
+            if (!$store) {
+                throw new \RuntimeException(
+                    "duo: repeated-row authored meta '$key' on $ownerLabel cannot drop one unresolved row without changing its ordered set"
+                );
+            }
+            $fingerprint = "v\0" . serialize($value);
+            if (isset($seen[$fingerprint])) {
+                throw new \RuntimeException(
+                    "duo: repeated-row authored meta '$key' on $ownerLabel contains a duplicate value"
+                );
+            }
+            $seen[$fingerprint] = true;
+            $captured[] = $value;
+        }
+        return [true, $captured];
+    }
+
+    /** @return array{0:bool,1:mixed} */
+    private function classifyOne(
+        string $key,
+        mixed $rawValue,
+        array $rule,
+        string $ownerLabel,
+        bool $termMeta
+    ): array {
+        $value = PlainData::decode($rawValue, "$ownerLabel meta $key");
         PlainData::assert($value, "$ownerLabel meta $key");
+        if (array_key_exists('repeated_rows', $rule) && !is_scalar($value)) {
+            throw new \RuntimeException(
+                "duo: repeated-row authored meta '$key' on $ownerLabel requires one scalar value per database row"
+            );
+        }
         ($this->guardSecret)($termMeta ? 'term_meta' : 'post_meta', $key, $value, $rule, " on $ownerLabel");
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $decoded = StructuredValue::decode($value, $rule, "$ownerLabel meta $key");

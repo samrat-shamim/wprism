@@ -147,10 +147,21 @@ $ids = [
 ];
 
 $repo = "$tmp/repo";
+$repeatedPostMeta = [
+    '_scope_links' => [
+        'class' => 'authored',
+        'ref' => 'post',
+        'repeated_rows' => [
+            'cardinality' => 'one_or_more',
+            'duplicates' => 'forbid',
+            'order' => 'preserve',
+        ],
+    ],
+];
 put("$repo/site.duo.json", Canon::encode([
     'manifests' => ['core', 'duo-scope-taxonomy', 'duo-scope-fixture'],
     'policy' => [
-        'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [],
+        'options' => (object) [], 'post_meta' => $repeatedPostMeta, 'term_meta' => (object) [],
         'post_types' => ['post', 'page', 'attachment', 'duo_parent', 'duo_child'],
         'taxonomies' => ['category', 'post_tag', 'duo_link'],
     ],
@@ -180,14 +191,17 @@ $photo = post_front($ids['photo'], 'attachment', 'photo');
 $photo += ['alt' => 'Photo', 'file' => 'photo.txt', 'media' => "$mediaHash.txt", 'mime' => 'text/plain'];
 put("$repo/state/posts/attachment/{$ids['photo']}--photo.md", Canon::post_file($photo, ''));
 
-// The page reaches its term through `terms` and its attachment through a
-// body token — two structurally different edge shapes, one closure.
+// The page reaches its term through `terms`, its attachment through a body
+// token and repeated metadata, and a second page through the other repeated
+// row — three structurally different edge shapes, one closure.
 $about = post_front($ids['about'], 'page', 'about');
 $about['terms'] = (object) ['category' => [$ids['news']]];
-put("$repo/state/posts/page/{$ids['about']}--about.md", Canon::post_file(
-    $about,
-    '<!-- wp:image {"id":"{{post:' . $ids['photo'] . '}}"} --><figure></figure><!-- /wp:image -->'
-));
+$about['meta'] = ['_scope_links' => [
+    '{{post:' . $ids['photo'] . '}}',
+    '{{post:' . $ids['contact'] . '}}',
+]];
+$aboutBody = '<!-- wp:image {"id":"{{post:' . $ids['photo'] . '}}"} --><figure></figure><!-- /wp:image -->';
+put("$repo/state/posts/page/{$ids['about']}--about.md", Canon::post_file($about, $aboutBody));
 
 put("$repo/state/posts/page/{$ids['contact']}--contact.md", Canon::post_file(
     post_front($ids['contact'], 'page', 'contact'),
@@ -261,11 +275,17 @@ check(
 check(
     in_array("posts/attachment/{$ids['photo']}--photo.md", $includedPaths, true)
     && $reasonByPath["posts/attachment/{$ids['photo']}--photo.md"] === 'reference',
-    'an attachment referenced only from a block attribute inside the post body is closed over'
+    'an attachment referenced from canonical post content is closed over'
+);
+check(
+    in_array("posts/page/{$ids['contact']}--contact.md", $includedPaths, true)
+    && $reasonByPath["posts/page/{$ids['contact']}--contact.md"] === 'reference'
+    && $fromByPath["posts/page/{$ids['contact']}--contact.md"] === '$.meta._scope_links[1]',
+    'both repeated metadata rows are graph edges and the second independently closes over its target'
 );
 check($report['media'] === ["$mediaHash.txt"], 'the media blob owned by an included attachment is named');
 check(
-    !in_array("posts/page/{$ids['contact']}--contact.md", $includedPaths, true),
+    !in_array("posts/duo_parent/{$ids['parentDoc']}--parent-doc.md", $includedPaths, true),
     'unrelated state stays out of the scope'
 );
 check(
@@ -292,8 +312,8 @@ check(
     'excluded count and included count partition the revision exactly'
 );
 check(
-    ($report['excluded']['by_type']['post'] ?? 0) === 3,
-    'excluded state is broken down by entity type (contact + the two fixture docs)'
+    ($report['excluded']['by_type']['post'] ?? 0) === 2,
+    'excluded state is broken down by entity type (the two unrelated fixture docs)'
 );
 
 // ------------------------------------------- DUO-3315 declared child descent
@@ -317,7 +337,7 @@ check(
 put("$repo/site.duo.json", Canon::encode([
     'manifests' => ['core', 'duo-scope-taxonomy'],
     'policy' => [
-        'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [],
+        'options' => (object) [], 'post_meta' => $repeatedPostMeta, 'term_meta' => (object) [],
         'post_types' => ['post', 'page', 'attachment', 'duo_parent', 'duo_child'],
         'taxonomies' => ['category', 'post_tag', 'duo_link'],
     ],
@@ -423,8 +443,9 @@ $byPageOnFront = ScopeClosure::resolve($compiled, $policy, ['option:page_on_fron
 $pofPaths = array_column($byPageOnFront['included'], 'path');
 check(
     in_array("posts/page/{$ids['about']}--about.md", $pofPaths, true)
-    && in_array("posts/attachment/{$ids['photo']}--photo.md", $pofPaths, true),
-    'option:page_on_front closes over the about page it references, transitively through its own attachment'
+    && in_array("posts/attachment/{$ids['photo']}--photo.md", $pofPaths, true)
+    && in_array("posts/page/{$ids['contact']}--contact.md", $pofPaths, true),
+    'option:page_on_front closes transitively through the about page body and both repeated metadata rows'
 );
 // NOT a disjointness check against default_category: about's OWN terms
 // assignment (line ~173 above) legitimately pulls news/topics/linked in
@@ -632,6 +653,41 @@ $aboutEdges = array_filter($edges, static fn(array $e): bool => $e['from'] === $
 check(
     count(array_filter($aboutEdges, static fn(array $e): bool => str_starts_with($e['locator'], 'body'))) === 1,
     'a token inside a post body is enumerated with a body-rooted locator'
+);
+check(
+    array_values(array_map(
+        static fn(array $edge): array => [$edge['locator'], $edge['target']],
+        array_filter(
+            $aboutEdges,
+            static fn(array $edge): bool => str_starts_with($edge['locator'], '$.meta._scope_links[')
+        )
+    )) === [
+        ['$.meta._scope_links[0]', $ids['photo']],
+        ['$.meta._scope_links[1]', $ids['contact']],
+    ],
+    'the shared validator/closure graph enumerates every repeated ref with its exact list position'
+);
+
+$invalidAbout = $about;
+$invalidAbout['meta']['_scope_links'][1] = '{{post:' . uuid(999) . '}}';
+put("$repo/state/posts/page/{$ids['about']}--about.md", Canon::post_file($invalidAbout, $aboutBody));
+try {
+    RepositoryCompiler::compile($repo, Policy::load($repo));
+    $missingRepeatedDiagnostics = [];
+} catch (RepositoryCompilationException $e) {
+    $missingRepeatedDiagnostics = array_values(array_filter(
+        $e->payload()['diagnostics'],
+        static fn(array $diagnostic): bool => ($diagnostic['code'] ?? null) === 'semantic_delete_reference'
+            && ($diagnostic['path'] ?? null) === "posts/page/{$ids['about']}--about.md"
+            && ($diagnostic['locator'] ?? null) === '$.meta._scope_links[1]'
+    ));
+} finally {
+    put("$repo/state/posts/page/{$ids['about']}--about.md", Canon::post_file($about, $aboutBody));
+}
+check(
+    count($missingRepeatedDiagnostics) === 1
+        && str_contains($missingRepeatedDiagnostics[0]['message'], 'is absent from the compiled revision'),
+    'an absent second repeated ref is refused by repository compilation at its exact graph locator'
 );
 
 echo "\n";
