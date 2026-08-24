@@ -2,6 +2,9 @@
 namespace Duo\Providers;
 
 use Duo\Policy;
+use Duo\WpCliChildProcess;
+
+require_once __DIR__ . '/../../agent/src/Kernel/WpCliChildProcess.php';
 
 /**
  * Elementor generated-CSS regeneration provider.
@@ -153,11 +156,7 @@ final class ElementorCss {
         $before = $this->projection_summary($beforeDetail, false);
 
         try {
-            $result = \WP_CLI::runcommand(self::COMMAND, [
-                'launch' => true,
-                'return' => 'all',
-                'exit_error' => false,
-            ]);
+            $result = WpCliChildProcess::capture(self::COMMAND, 600, 524288, 131072);
         } catch (\Throwable $t) {
             throw new \RuntimeException(
                 "duo: Elementor '" . self::COMMAND . "' could not start",
@@ -165,27 +164,13 @@ final class ElementorCss {
                 $t
             );
         }
-        if (!is_object($result) || !isset($result->return_code) || !is_int($result->return_code)) {
+        if ($result['return_code'] !== 0) {
             throw new \RuntimeException(
-                "duo: Elementor '" . self::COMMAND . "' returned an unreadable process result"
+                "duo: Elementor '" . self::COMMAND . "' exited {$result['return_code']}"
             );
         }
-        if ($result->return_code !== 0) {
-            // DUO-3282: the launch layer is a genuinely separate process
-            // boundary, and a bare exit code does not explain a fatal inside
-            // the plugin's own command. Surfacing the tails is the difference
-            // between "exited 255" and the error message that already
-            // existed and was being discarded.
-            $out = trim((string) ($result->stdout ?? ''));
-            $err = trim((string) ($result->stderr ?? ''));
-            throw new \RuntimeException(
-                "duo: Elementor '" . self::COMMAND . "' exited {$result->return_code}"
-                . ($out !== '' ? "\nstdout: $out" : '')
-                . ($err !== '' ? "\nstderr: $err" : '')
-            );
-        }
-        $out = trim((string) ($result->stdout ?? ''));
-        $err = trim((string) ($result->stderr ?? ''));
+        $out = trim($result['stdout']);
+        $err = trim($result['stderr']);
         if ($err !== '') {
             throw new \RuntimeException(
                 "duo: Elementor '" . self::COMMAND
@@ -199,7 +184,7 @@ final class ElementorCss {
             );
         }
 
-        // WP_CLI::runcommand(launch=true) regenerates in a child process.
+        // WpCliChildProcess regenerates in a bounded fresh process.
         // projection_detail() populated this parent's post-meta cache before
         // launch, so readback would otherwise see the pre-command
         // `_elementor_css` receipt after the child committed the new one.

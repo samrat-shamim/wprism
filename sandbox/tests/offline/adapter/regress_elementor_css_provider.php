@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace {
     require_once __DIR__ . '/../../lib/check.php';
+    require_once __DIR__ . '/../../support/wp_cli_child_process_fake.php';
 
     $scratch = sys_get_temp_dir() . '/duo_elementor_css_provider_' . bin2hex(random_bytes(8));
     if (!mkdir($scratch, 0700, true) && !is_dir($scratch)) {
@@ -61,6 +62,8 @@ namespace {
     }
 
     final class WP_CLI {
+        use \DuoTest\WpCliChildRuntime;
+
         public static function runcommand(string $command, array $options): mixed {
             $GLOBALS['ec_command_calls'][] = [$command, $options];
             if ($GLOBALS['ec_command_throw'] instanceof \Throwable) {
@@ -196,6 +199,7 @@ namespace {
         ];
         $GLOBALS['ec_command_throw'] = null;
         $GLOBALS['ec_command_calls'] = [];
+        $GLOBALS['duo_wp_cli_child_fake_stderr_first'] = false;
         $GLOBALS['ec_after_command'] = null;
         $GLOBALS['ec_delete_calls'] = [];
         $GLOBALS['ec_retain_render_caches'] = false;
@@ -287,16 +291,17 @@ namespace {
         preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['css_fingerprint'] ?? '')) === 1,
         'receipt publishes a bounded fingerprint instead of stylesheet contents'
     );
+    duo_check_same(1, count($GLOBALS['ec_command_calls']), 'provider invokes one bounded fresh process');
+    [$elementorCommand, $elementorOptions] = $GLOBALS['ec_command_calls'][0];
+    duo_check(
+        str_starts_with($elementorCommand, 'exec ')
+            && str_contains($elementorCommand, 'elementor flush-css --regenerate'),
+        'bounded launch preserves the exact plugin-owned command'
+    );
     duo_check_same(
-        [
-            ['elementor flush-css --regenerate', [
-                'launch' => true,
-                'return' => 'all',
-                'exit_error' => false,
-            ]],
-        ],
-        $GLOBALS['ec_command_calls'],
-        'provider invokes the exact plugin-owned command through the isolated launch boundary'
+        ['launch' => true, 'return' => 'all', 'exit_error' => false],
+        $elementorOptions,
+        'the fake command boundary observes the isolated launch contract'
     );
     duo_check_same(
         ['_elementor_element_cache', '_elementor_page_assets'],
@@ -502,7 +507,8 @@ namespace {
     } catch (\RuntimeException $e) {
         duo_check(
             $e->getMessage() === "duo: Elementor 'elementor flush-css --regenerate' could not start"
-                && $e->getPrevious()?->getMessage() === 'fixture launch secret',
+                && $e->getPrevious()?->getMessage() === 'duo: bounded WP-CLI child could not start'
+                && $e->getPrevious()?->getPrevious()?->getMessage() === 'fixture launch secret',
             'thrown native launch failure is wrapped at the command boundary'
         );
     }
@@ -514,7 +520,7 @@ namespace {
             static fn(): array => $provider->invoke('regenerate_css', []),
             \RuntimeException::class,
             'malformed native process result refuses instead of coercing success',
-            'returned an unreadable process result'
+            'could not start'
         );
     }
 
@@ -530,9 +536,9 @@ namespace {
     } catch (\RuntimeException $e) {
         duo_check(
             str_contains($e->getMessage(), 'exited 255')
-                && str_contains($e->getMessage(), 'native stdout context')
-                && str_contains($e->getMessage(), 'native stderr context'),
-            'nonzero native exit refuses and retains actionable command context'
+                && !str_contains($e->getMessage(), 'native stdout context')
+                && !str_contains($e->getMessage(), 'native stderr context'),
+            'nonzero native exit refuses with command context while child output stays private'
         );
     }
 
@@ -540,8 +546,9 @@ namespace {
     $GLOBALS['ec_command_result'] = (object) [
         'return_code' => 0,
         'stdout' => 'Success: Flushed the Elementor CSS Cache',
-        'stderr' => 'fixture zero-exit secret',
+        'stderr' => str_repeat('fixture zero-exit secret', 5000),
     ];
+    $GLOBALS['duo_wp_cli_child_fake_stderr_first'] = true;
     try {
         $provider->invoke('regenerate_css', []);
         duo_check(false, 'exit-zero stderr refuses without publishing stderr bytes');
@@ -552,6 +559,26 @@ namespace {
             'exit-zero stderr refuses without publishing stderr bytes'
         );
     }
+
+    $provider = ec_reset();
+    $GLOBALS['ec_command_result'] = (object) [
+        'return_code' => 0,
+        'stdout' => str_repeat('credential-shaped-boot-output-', 20000),
+        'stderr' => '',
+    ];
+    $overflowMessage = '';
+    try {
+        $provider->invoke('regenerate_css', []);
+    } catch (RuntimeException $failure) {
+        $overflowMessage = $failure->getMessage();
+    }
+    duo_check(
+        str_contains($overflowMessage, "Elementor 'elementor flush-css --regenerate' could not start")
+            && !str_contains($overflowMessage, 'credential-shaped')
+            && $GLOBALS['ec_delete_calls'] === []
+            && $GLOBALS['ec_cache_delete_calls'] === [],
+        'Elementor wraps helper overflow without output leak or post-command cache continuation'
+    );
 
     $provider = ec_reset();
     $GLOBALS['ec_command_result'] = (object) [
