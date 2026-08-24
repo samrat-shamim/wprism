@@ -161,7 +161,7 @@ pass 'normal apply invoked the verified product-route provider'
 say 'inspect the actual co-install callback identities and effects'
 HOOKS=$(wp2 eval '
 $markers=["tribe_last_generate_rewrite_rules","tribe_last_updated_option","tribe_last_save_post"];
-$want=["rewrite_rules_array","option_rewrite_rules","sanitize_option_rewrite_rules","generate_rewrite_rules","updated_option","pre_option","wp_default_autoload_value","pre_wp_load_alloptions","pre_cache_alloptions","alloptions","pre_update_option","update_option","wp_autoload_values_to_autoload","wp_max_autoloaded_option_size","add_option","added_option"];
+$want=["rewrite_rules_array","option_rewrite_rules","sanitize_option_rewrite_rules","generate_rewrite_rules","updated_option","pre_option","wp_default_autoload_value","pre_wp_load_alloptions","pre_cache_alloptions","alloptions","pre_update_option","update_option","wp_autoload_values_to_autoload","wp_max_autoloaded_option_size","add_option","added_option","pll_rewrite_rules","pll_modify_rewrite_rule"];
 foreach($markers as $name){foreach(["sanitize_option_","pre_option_","default_option_","option_","pre_update_option_","update_option_","add_option_"] as $prefix){$want[]=$prefix.$name;}}
 $rows=[];
 foreach($want as $hook){foreach(($GLOBALS["wp_filter"][$hook]->callbacks??[])as $priority=>$set){foreach($set as $entry){$f=$entry["function"]??null;if(is_string($f)){$name=$f;}elseif(is_array($f)&&isset($f[0],$f[1])){$name=(is_object($f[0])?get_class($f[0]):$f[0])."::".$f[1];}else{continue;}$rows[]=["hook"=>$hook,"priority"=>(int)$priority,"args"=>(int)($entry["accepted_args"]??0),"callback"=>$name];}}}echo wp_json_encode($rows);
@@ -185,7 +185,8 @@ echo "$HOOKS" | jq -e --slurpfile topology "$TOPOLOGY" '
   ([ $actual[] | select(.hook=="wp_default_autoload_value") | del(.hook) ] | canon) == [
     ($topology[0].marker_option_topology.wp_default_autoload_value | {priority, args:.accepted_args, callback})
   ] and
-  all($actual[]; .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules" or .hook=="updated_option" or .hook=="pre_update_option" or .hook=="added_option" or .hook=="pre_option" or .hook=="wp_default_autoload_value") and
+  ([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0 and
+  all($actual[]; .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules" or .hook=="updated_option" or .hook=="pre_update_option" or .hook=="added_option" or .hook=="pre_option" or .hook=="wp_default_autoload_value" or .hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") and
   any($actual[]; .hook=="rewrite_rules_array" and .callback=="PLL_Links_Directory::rewrite_rules" and .priority==10 and .args==1)
 ' >/dev/null || fail "live callback topology differs from audited pins: $HOOKS"
 RULES=$(wp2 eval '
@@ -253,6 +254,57 @@ echo "$TARGET_ROUTE" | jq -e --argjson source "$SOURCE_ROUTE" '
   (.path|startswith("/en/catalogue/")) and (.path|endswith("/rewrite-coinstall-product/"))
 ' >/dev/null || fail "retry did not generate and resolve the exact directory-mode product route: $TARGET_ROUTE"
 pass 'closed sanitizer refusal restored raw witnesses; retry retained target row identity, copied the exact Woo row, and resolved the Polylang directory product route'
+
+say 'a third-party Polylang dynamic rewrite callback must refuse without an unreceipted generation, then retry'
+wp1 eval '
+$value=get_option("woocommerce_permalinks");
+if(!is_array($value)||array_keys($value)!==["product_base","category_base","attribute_base","tag_base","use_verbose_page_rules"]){throw new RuntimeException("five-key source witness changed before Polylang refusal");}
+$value["product_base"]="atelier/%product_cat%";
+update_option("woocommerce_permalinks",$value);
+' >/dev/null
+wp1 duo capture --repo=/siterepo >/dev/null
+bash bin/pair.sh repo-host "$PAIR" 1 >/dev/null
+git -C "$R1" -c user.name=duo-woo-rewrite -c user.email=woo-rewrite@example.test add -A
+git -C "$R1" -c user.name=duo-woo-rewrite -c user.email=woo-rewrite@example.test commit -qm 'capture: Woo product route Polylang dynamic refusal'
+git -C "$R1" push -q origin main
+git -C "$R2" pull -q origin main
+REVISION=$(git -C "$R2" rev-parse HEAD)
+SOURCE_POLY=$(witness 1)
+SOURCE_ROUTE_POLY=$(product_route 1)
+echo "$SOURCE_ROUTE_POLY" | jq -e '.language=="en" and (.path|startswith("/en/atelier/")) and .resolved==.id' >/dev/null || fail "source route did not reach the next Polylang directory grammar: $SOURCE_ROUTE_POLY"
+BEFORE_POLY=$(witness 2)
+wp2 eval '
+$dir=WPMU_PLUGIN_DIR;if(!is_dir($dir)&&!wp_mkdir_p($dir)){throw new RuntimeException("no MU directory");}
+$path=$dir."/duo-woo-polylang-dynamic-hostile.php";
+$bytes="<?php\nadd_filter(\"pll_modify_rewrite_rule\", static function(bool \$modify, array \$rule, string \$type, string|false \$archive): bool { return \$modify; }, 10, 4);\n";
+if(file_put_contents($path,$bytes)!==strlen($bytes)){throw new RuntimeException("could not install hostile Polylang callback");}
+' >/dev/null
+set +e
+FAILED_POLY=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" 2>&1)
+RC=$?
+set -e
+[ "$RC" -ne 0 ] || fail "third-party Polylang dynamic callback unexpectedly allowed apply: $FAILED_POLY"
+grep -Fq 'recovery_required' <<<"$FAILED_POLY" || fail "Polylang dynamic refusal was not a bounded recovery failure: $FAILED_POLY"
+AFTER_POLY_FAILED=$(witness 2)
+[ "$AFTER_POLY_FAILED" = "$BEFORE_POLY" ] || fail "third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses
+before=$BEFORE_POLY
+after=$AFTER_POLY_FAILED"
+wp2 eval '
+$path=WPMU_PLUGIN_DIR."/duo-woo-polylang-dynamic-hostile.php";
+if(!is_file($path)||!unlink($path)){throw new RuntimeException("could not remove hostile Polylang callback");}
+' >/dev/null
+RETRY_POLY=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json | tail -1) || fail 'Polylang dynamic retry failed'
+echo "$RETRY_POLY" | jq -e '.canary=="clean" and (.actions|any(.kind=="provider" and .source=="provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes" and .verified==true))' >/dev/null || fail "Polylang dynamic retry receipt missing: $RETRY_POLY"
+AFTER_POLY_RETRY=$(witness 2)
+echo "$AFTER_POLY_RETRY" | jq -e --argjson source "$SOURCE_POLY" --argjson before "$BEFORE_POLY" '
+  .woo!=null and .woo.id==$before.woo.id and .woo.value_base64==$source.woo.value_base64 and
+  .woo.autoload==$source.woo.autoload and .woo.keys==$source.woo.keys and .woo.value==$source.woo.value
+' >/dev/null || fail "Polylang dynamic retry did not preserve target row identity and copy the exact source Woo row: $AFTER_POLY_RETRY"
+TARGET_ROUTE_POLY=$(product_route 2)
+echo "$TARGET_ROUTE_POLY" | jq -e --argjson source "$SOURCE_ROUTE_POLY" '
+  .language=="en" and .path==$source.path and .resolved==.id and (.path|startswith("/en/atelier/"))
+' >/dev/null || fail "Polylang dynamic retry did not regenerate the exact directory product route: $TARGET_ROUTE_POLY"
+pass 'third-party Polylang dynamic callback refused before generation; retry copied the exact raw Woo witness and resolved the regenerated directory route'
 
 GREEN=1
 printf '

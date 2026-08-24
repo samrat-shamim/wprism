@@ -836,6 +836,9 @@ $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/cert
 $wooSeedHarness = (string) file_get_contents($root . '/sandbox/conformance/seeds/woocommerce.sh');
 $wooPostdeployHarness = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/woocommerce.sh');
 $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
+$wooRewriteCoInstallHarness = (string) file_get_contents(
+    $root . '/sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh'
+);
 foreach ([
     'new WC_Product_External()',
     "new WP_REST_Request('PUT', '/wc/v3/products/",
@@ -922,5 +925,17 @@ foreach ([
 woo_ok(substr_count($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"') === 1
     && str_contains($matrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
     'one lifecycle call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
+foreach ([
+    '"pll_rewrite_rules","pll_modify_rewrite_rule"',
+    '([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0',
+    'duo-woo-polylang-dynamic-hostile.php',
+    'third-party Polylang dynamic callback unexpectedly allowed apply',
+    'third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses',
+    'Polylang dynamic retry did not preserve target row identity and copy the exact source Woo row',
+    'Polylang dynamic retry did not regenerate the exact directory product route',
+] as $rewriteCoInstallWitness) {
+    woo_ok(str_contains($wooRewriteCoInstallHarness, $rewriteCoInstallWitness),
+        "candidate-bound co-install harness pins $rewriteCoInstallWitness");
+}
 
 echo "PASS: WooCommerce 11.0.x option/table inventory and rebuild contract are explicit\n";
