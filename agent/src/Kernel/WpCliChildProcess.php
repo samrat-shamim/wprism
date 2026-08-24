@@ -18,15 +18,21 @@ namespace Duo;
 final class WpCliChildProcess {
     private const MAX_COMMAND_BYTES = 262144;
     private const MAX_COMMAND_LINE_BYTES = 327680;
+    private const MAX_LAUNCH_LINE_BYTES = 1572864;
     private const MAX_CAPTURE_BYTES = 1048576;
-    // Yoast and Elementor's reviewed native commands each declare 600s; keep
-    // one small hard ceiling above those exact callers, never an open timeout.
+    // Yoast and Elementor's reviewed native commands each declare 600s;
+    // ConvergenceVerifier admits 900s for its full snapshot verification, so
+    // that exact longest caller is the hard ceiling rather than an open value.
     private const MAX_TIMEOUT_SECONDS = 900;
     private const READ_BYTES = 65536;
     private const SELECT_MICROSECONDS = 50000;
     private const NANOSECONDS_PER_SECOND = 1000000000;
     private const TERM_GRACE_NANOSECONDS = 250000000;
     private const KILL_GRACE_NANOSECONDS = 2000000000;
+    // This fixed program runs under the exact PHP binary WP-CLI selected. It
+    // creates the process group before any plugin code and independently
+    // refuses a child binary that lacks the required primitives.
+    private const SESSION_WRAPPER = 'if(!function_exists("pcntl_exec")||!function_exists("posix_setsid")){fwrite(STDERR,"duo-child-process-profile-unavailable\\n");exit(125);}$sid=posix_setsid();if(!is_int($sid)||$sid<1){fwrite(STDERR,"duo-child-session-unavailable\\n");exit(125);}pcntl_exec("/bin/sh",["-c",(string)($argv[1]??"")]);fwrite(STDERR,"duo-child-exec-unavailable\\n");exit(126);';
 
     /**
      * Launch one fixed caller-owned WP-CLI command and capture bounded output.
@@ -45,19 +51,25 @@ final class WpCliChildProcess {
         int $stderrLimit
     ): array {
         self::assert_request($command, $timeoutSeconds, $stdoutLimit, $stderrLimit);
-        $commandLine = self::command_line($command);
+        self::assert_process_profile();
+        $commandBoundary = self::command_line($command);
+        $launchLine = self::session_launch_line(
+            $commandBoundary['php_binary'],
+            $commandBoundary['command_line']
+        );
         if (!defined('STDIN') || !is_resource(STDIN)) {
             throw new \RuntimeException('duo: bounded WP-CLI child has no inherited standard input');
         }
 
         $pipes = [];
+        $process = null;
         try {
-            // The reviewed platform admits Linux and Darwin only. `exec`
-            // replaces proc_open's shell with the WP-CLI PHP process, so TERM
-            // and the wall-clock SIGKILL address the process that owns both
-            // pipes instead of leaving an orphan behind the shell.
+            // `exec` replaces proc_open's shell with the fixed wrapper. The
+            // wrapper creates one owned session/process group, then replaces
+            // itself with the exact reviewed WP-CLI command. Every ordinary
+            // descendant is therefore inside the same lifecycle boundary.
             $process = \WP_CLI\Utils\proc_open_compat(
-                'exec ' . $commandLine,
+                $launchLine,
                 [0 => STDIN, 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
                 $pipes
             );
@@ -69,22 +81,34 @@ final class WpCliChildProcess {
             || !is_resource($pipes[1])
             || !is_resource($pipes[2])) {
             if (is_resource($process)) {
-                self::terminate_and_reap($process, $pipes);
+                self::terminate_and_reap($process, $pipes, null);
             }
             throw new \RuntimeException('duo: bounded WP-CLI child could not start');
         }
+
+        $initialStatus = @proc_get_status($process);
+        if (!is_array($initialStatus)
+            || !isset($initialStatus['pid'])
+            || !is_int($initialStatus['pid'])
+            || $initialStatus['pid'] < 2) {
+            self::terminate_and_reap($process, $pipes, null);
+            throw new \RuntimeException('duo: bounded WP-CLI child process state became unreadable');
+        }
+        $leaderPid = $initialStatus['pid'];
 
         try {
             return self::capture_process(
                 $process,
                 $pipes,
+                $leaderPid,
+                $initialStatus,
                 $timeoutSeconds,
                 $stdoutLimit,
                 $stderrLimit
             );
         } catch (\Throwable $failure) {
             if (is_resource($process)) {
-                self::terminate_and_reap($process, $pipes);
+                self::terminate_and_reap($process, $pipes, $leaderPid);
             }
             throw $failure;
         }
@@ -115,8 +139,32 @@ final class WpCliChildProcess {
         }
     }
 
-    /** Reproduce WP_CLI::runcommand(launch=true)'s runtime/alias construction. */
-    private static function command_line(string $command): string {
+    /** Fail closed when this file is loaded outside the normal platform gate. */
+    private static function assert_process_profile(): void {
+        foreach ([
+            'proc_open',
+            'proc_close',
+            'proc_get_status',
+            'proc_terminate',
+            'pcntl_exec',
+            'posix_kill',
+            'posix_setsid',
+        ] as $function) {
+            if (!function_exists($function)) {
+                throw new \RuntimeException('duo: bounded WP-CLI child requires the reviewed POSIX process profile');
+            }
+        }
+        if (!function_exists('is_executable') || !is_executable('/bin/sh')) {
+            throw new \RuntimeException('duo: bounded WP-CLI child requires the reviewed POSIX process profile');
+        }
+    }
+
+    /**
+     * Reproduce WP_CLI::runcommand(launch=true)'s runtime/alias construction.
+     *
+     * @return array{php_binary:string,command_line:string}
+     */
+    private static function command_line(string $command): array {
         $requiredFunctions = [
             'WP_CLI\\Utils\\check_proc_available',
             'WP_CLI\\Utils\\get_php_binary',
@@ -201,17 +249,31 @@ final class WpCliChildProcess {
         if (strlen($commandLine) > self::MAX_COMMAND_LINE_BYTES || str_contains($commandLine, "\0")) {
             throw new \RuntimeException('duo: bounded WP-CLI child command line exceeds the fixed transport boundary');
         }
-        return $commandLine;
+        return ['php_binary' => $phpBinary, 'command_line' => $commandLine];
+    }
+
+    /** Create the fixed session wrapper without reopening caller command policy. */
+    private static function session_launch_line(string $phpBinary, string $commandLine): string {
+        $launchLine = 'exec ' . escapeshellarg($phpBinary)
+            . ' -r ' . escapeshellarg(self::SESSION_WRAPPER)
+            . ' -- ' . escapeshellarg($commandLine);
+        if (strlen($launchLine) > self::MAX_LAUNCH_LINE_BYTES || str_contains($launchLine, "\0")) {
+            throw new \RuntimeException('duo: bounded WP-CLI child launch line exceeds the fixed transport boundary');
+        }
+        return $launchLine;
     }
 
     /**
      * @param resource|null $process
      * @param array<int,resource> $pipes
+     * @param array<string,mixed> $initialStatus
      * @return array{return_code:int,stdout:string,stderr:string}
      */
     private static function capture_process(
         &$process,
         array &$pipes,
+        int $leaderPid,
+        array $initialStatus,
         int $timeoutSeconds,
         int $stdoutLimit,
         int $stderrLimit
@@ -226,13 +288,27 @@ final class WpCliChildProcess {
         $termination = null;
         $termAt = null;
         $killAt = null;
-        $observedExit = null;
-        $exitObservedAt = null;
+        $closedExit = null;
+        $running = ($initialStatus['running'] ?? null) === true;
+        $observedExit = !$running
+            && isset($initialStatus['exitcode'])
+            && is_int($initialStatus['exitcode'])
+            && $initialStatus['exitcode'] >= 0
+                ? $initialStatus['exitcode']
+                : null;
+        $exitObservedAt = $running ? null : hrtime(true);
 
-        while (isset($pipes[1]) || isset($pipes[2])) {
+        while (true) {
             $read = [];
             foreach ([1, 2] as $index) {
                 if (!isset($pipes[$index])) {
+                    continue;
+                }
+                if (!is_resource($pipes[$index])) {
+                    unset($pipes[$index]);
+                    if ($termination === null) {
+                        $termination = 'duo: bounded WP-CLI child output transport failed';
+                    }
                     continue;
                 }
                 if (feof($pipes[$index])) {
@@ -273,57 +349,94 @@ final class WpCliChildProcess {
                 usleep(self::SELECT_MICROSECONDS);
             }
 
-            $status = @proc_get_status($process);
-            if (!is_array($status) || !array_key_exists('running', $status)) {
-                if ($termination === null) {
-                    $termination = 'duo: bounded WP-CLI child process state became unreadable';
+            if (is_resource($process)) {
+                $status = @proc_get_status($process);
+                if (!is_array($status) || !array_key_exists('running', $status)) {
+                    if ($termination === null) {
+                        $termination = 'duo: bounded WP-CLI child process state became unreadable';
+                    }
+                    $running = true;
+                } else {
+                    $running = $status['running'] === true;
+                    if (!$running && is_int($status['exitcode'] ?? null) && $status['exitcode'] >= 0) {
+                        $observedExit = $status['exitcode'];
+                    }
+                    if (!$running && $exitObservedAt === null) {
+                        $exitObservedAt = hrtime(true);
+                    }
                 }
-                $running = true;
-            } else {
-                $running = $status['running'] === true;
-                if (!$running && is_int($status['exitcode']) && $status['exitcode'] >= 0) {
-                    $observedExit = $status['exitcode'];
-                }
-                if (!$running && $exitObservedAt === null) {
-                    $exitObservedAt = hrtime(true);
+                if (!$running) {
+                    // Reap the exact leader before probing its process group.
+                    // Otherwise an unreaped zombie can make kill(-pgid, 0)
+                    // look like a surviving descendant on some POSIX hosts.
+                    // Drain every byte the exited leader already committed;
+                    // proc_close invalidates its pipe resources on supported
+                    // PHP builds, so no later read may safely own this data.
+                    foreach ([1, 2] as $index) {
+                        if (!isset($pipes[$index]) || !is_resource($pipes[$index])) {
+                            unset($pipes[$index]);
+                            continue;
+                        }
+                        while (true) {
+                            $chunk = @fread($pipes[$index], self::READ_BYTES);
+                            if (!is_string($chunk)) {
+                                if ($termination === null) {
+                                    $termination = 'duo: bounded WP-CLI child output transport failed';
+                                }
+                                break;
+                            }
+                            if ($chunk === '') {
+                                break;
+                            }
+                            if ($termination === null) {
+                                if (strlen($buffers[$index]) + strlen($chunk) > $limits[$index]) {
+                                    $termination = 'duo: bounded WP-CLI child output exceeded its fixed byte limit';
+                                } else {
+                                    $buffers[$index] .= $chunk;
+                                }
+                            }
+                        }
+                        @fclose($pipes[$index]);
+                        unset($pipes[$index]);
+                    }
+                    $closedExit = @proc_close($process);
+                    $process = null;
                 }
             }
 
             $now = hrtime(true);
+            $groupAlive = self::process_group_exists($leaderPid);
             if ($termination === null && $now >= $deadline) {
                 $termination = 'duo: bounded WP-CLI child exceeded its wall-clock limit';
             }
-            if ($termination !== null && $running && $termAt === null) {
-                @proc_terminate($process, 15);
+            if ($termination === null
+                && !$running
+                && $groupAlive
+                && $exitObservedAt !== null
+                && $now >= $exitObservedAt + self::TERM_GRACE_NANOSECONDS) {
+                $termination = 'duo: bounded WP-CLI child left its process group running after exit';
+            }
+
+            if ($termination !== null && ($running || $groupAlive) && $termAt === null) {
+                self::signal_owned_processes($process, $leaderPid, 15);
                 $termAt = $now;
                 $killAt = $now + self::TERM_GRACE_NANOSECONDS;
             } elseif ($termination !== null
-                && $running
+                && ($running || $groupAlive)
                 && $killAt !== null
                 && $now >= $killAt) {
-                @proc_terminate($process, 9);
+                self::signal_owned_processes($process, $leaderPid, 9);
                 $killAt = $now + self::KILL_GRACE_NANOSECONDS;
             }
 
-            if (!$running && $read === []) {
-                break;
-            }
-            if (!$running
-                && $exitObservedAt !== null
-                && $now >= $exitObservedAt + self::TERM_GRACE_NANOSECONDS) {
-                // A descendant that inherited the pipes must not hold this
-                // already-exited WP-CLI process's parent open indefinitely.
-                // Closing the read ends makes further descendant writes fail;
-                // proc_close below still reaps the exact launched process.
-                if ($termination === null) {
-                    $termination = 'duo: bounded WP-CLI child left its output transport open after exit';
-                }
+            $pipesOpen = isset($pipes[1]) || isset($pipes[2]);
+            if (!$running && !$groupAlive && (!$pipesOpen || $termination !== null)) {
                 break;
             }
             if ($termination !== null
                 && $termAt !== null
                 && $now >= $termAt + self::TERM_GRACE_NANOSECONDS + self::KILL_GRACE_NANOSECONDS) {
-                throw new \RuntimeException('duo: bounded WP-CLI child could not be reaped after termination');
+                throw new \RuntimeException('duo: bounded WP-CLI child process group could not be reaped after termination');
             }
         }
 
@@ -333,8 +446,10 @@ final class WpCliChildProcess {
                 unset($pipes[$index]);
             }
         }
-        $closedExit = @proc_close($process);
-        $process = null;
+        if (is_resource($process)) {
+            $closedExit = @proc_close($process);
+            $process = null;
+        }
         if ($termination !== null) {
             throw new \RuntimeException($termination);
         }
@@ -349,16 +464,34 @@ final class WpCliChildProcess {
         ];
     }
 
+    private static function process_group_exists(int $leaderPid): bool {
+        return $leaderPid > 1 && @posix_kill(-$leaderPid, 0) === true;
+    }
+
+    /** @param resource|null $process */
+    private static function signal_owned_processes(&$process, int $leaderPid, int $signal): void {
+        if ($leaderPid > 1) {
+            @posix_kill(-$leaderPid, $signal);
+        }
+        // This direct signal closes the startup race before setsid(); later
+        // iterations continue addressing the entire process group.
+        if (is_resource($process)) {
+            @proc_terminate($process, $signal);
+        }
+    }
+
     /** @param resource|null $process @param array<int,mixed> $pipes */
-    private static function terminate_and_reap(&$process, array &$pipes): void {
+    private static function terminate_and_reap(&$process, array &$pipes, ?int $leaderPid): void {
         if (!is_resource($process)) {
             $process = null;
             return;
         }
-        @proc_terminate($process, 15);
+        $ownedLeader = is_int($leaderPid) && $leaderPid > 1 ? $leaderPid : 0;
+        self::signal_owned_processes($process, $ownedLeader, 15);
         $termDeadline = hrtime(true) + self::TERM_GRACE_NANOSECONDS;
         $killDeadline = $termDeadline + self::KILL_GRACE_NANOSECONDS;
         $killed = false;
+        $running = true;
         do {
             foreach ([1, 2] as $index) {
                 if (isset($pipes[$index]) && is_resource($pipes[$index])) {
@@ -369,13 +502,23 @@ final class WpCliChildProcess {
                     }
                 }
             }
-            $status = @proc_get_status($process);
-            if (is_array($status) && ($status['running'] ?? true) === false) {
+            if (is_resource($process)) {
+                $status = @proc_get_status($process);
+                $running = !is_array($status) || ($status['running'] ?? true) !== false;
+                if (!$running) {
+                    @proc_close($process);
+                    $process = null;
+                }
+            } else {
+                $running = false;
+            }
+            $groupAlive = $ownedLeader > 1 && self::process_group_exists($ownedLeader);
+            if (!$running && !$groupAlive) {
                 break;
             }
             $now = hrtime(true);
             if (!$killed && $now >= $termDeadline) {
-                @proc_terminate($process, 9);
+                self::signal_owned_processes($process, $ownedLeader, 9);
                 $killed = true;
             }
             if ($now >= $killDeadline) {
@@ -389,7 +532,9 @@ final class WpCliChildProcess {
             }
             unset($pipes[$index]);
         }
-        @proc_close($process);
+        if (!$running && is_resource($process)) {
+            @proc_close($process);
+        }
         $process = null;
     }
 }
