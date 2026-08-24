@@ -336,8 +336,8 @@ $widget_instance = static function (string $name): array {
 };
 $sidebars = get_option('sidebars_widgets', null);
 if (!is_array($sidebars)
-    || !is_array($sidebars['tec-readiness-sidebar'] ?? null)
-    || count($sidebars['tec-readiness-sidebar']) !== 2) {
+    || !is_array($sidebars['wp_inactive_widgets'] ?? null)
+    || count($sidebars['wp_inactive_widgets']) !== 2) {
     throw new RuntimeException('TEC legacy-widget sidebar assignment is missing or malformed');
 }
 $list_widget_instance = $widget_instance('widget_tribe-widget-events-list');
@@ -514,7 +514,7 @@ echo wp_json_encode([
         'page_id' => (int) $widget_page->ID,
         'permalink' => get_permalink($widget_page),
         'qr' => $qr_widget_instance,
-        'sidebar' => array_values($sidebars['tec-readiness-sidebar']),
+        'sidebar' => array_values($sidebars['wp_inactive_widgets']),
     ],
     'home' => home_url('/'),
     'map_boundary_venues' => [
@@ -937,7 +937,7 @@ TEC_CANON_WIDGET_BLOCKS=$(TEC_STATE_PATH="$TEC_SOURCE_WIDGET_STATE" php -r '
   }
   echo json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 ' "$DUO_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$DUO_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php")
-TEC_SOURCE_SIDEBAR="${CONF_REPO1:-siterepo/conf1}/state/sidebars/tec-readiness-sidebar.json"
+TEC_SOURCE_SIDEBAR="${CONF_REPO1:-siterepo/conf1}/state/sidebars/wp_inactive_widgets.json"
 [ -f "$TEC_SOURCE_SIDEBAR" ] || fail "TEC canonical SidebarState fixture is missing: $TEC_SOURCE_SIDEBAR"
 jq -e --argjson blocks "$TEC_CANON_WIDGET_BLOCKS" --argjson event "$TEC_SOURCE_EVENT_JSON" '
   .widgets as $widgets |

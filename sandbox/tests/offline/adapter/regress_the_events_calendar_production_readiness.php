@@ -4786,6 +4786,20 @@ duo_check_same(
     'the stored-id form is explicitly bound to SidebarState physical storage'
 );
 duo_check_same(
+    'wp_inactive_widgets',
+    $legacyWidgetBoundary['stored_id_form']['portable_bucket'] ?? null,
+    'the stored-id product fixture uses the core-owned renderable inactive-widget bucket'
+);
+duo_check_same(
+    [
+        'finder' => 'wp_find_widgets_sidebar',
+        'renderer' => 'wp_render_widget',
+        'unregistered_bucket' => 'wp_inactive_widgets',
+    ],
+    $legacyWidgetBoundary['stored_id_form']['render_contract'] ?? null,
+    'the exact core renderer admits the inactive bucket without a theme-owned sidebar registration'
+);
+duo_check_same(
     ['tribe-widget-events-list', 'tribe-widget-events-qr-code'],
     $legacyWidgetBoundary['embedded_form']['id_bases'] ?? null,
     'the exact free plugin registers only the two reviewed legacy widget id bases'
@@ -7845,6 +7859,13 @@ $deletionSeed = (string) file_get_contents($root . '/sandbox/conformance/seeds/t
 $deletionPostdeploy = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/the-events-calendar.sh');
 $sentinelPostapply = (string) file_get_contents($root . '/sandbox/conformance/postapply/the-events-calendar.sh');
 $deletionCheck = (string) file_get_contents($root . '/sandbox/conformance/checks/the-events-calendar.sh');
+foreach ([$deletionSeed, $deletionPostdeploy, $deletionCheck] as $widgetFixtureSource) {
+    duo_check(
+        str_contains($widgetFixtureSource, 'wp_inactive_widgets')
+            && !str_contains($widgetFixtureSource, 'tec-readiness-sidebar'),
+        'the exact stored-widget fixture never depends on an unregistered synthetic sidebar'
+    );
+}
 foreach (['duo_source_only_secret', 'duo_target_only_runtime'] as $undeclaredFixtureKey) {
     duo_check(
         !str_contains($deletionSeed, $undeclaredFixtureKey)

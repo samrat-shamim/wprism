@@ -188,6 +188,7 @@ $paths = [
     'rest_widgets_php_sha256' => 'wp-includes/rest-api/endpoints/class-wp-rest-widgets-controller.php',
     'blocks_php_sha256' => 'wp-includes/blocks.php',
     'layout_php_sha256' => 'wp-includes/block-supports/layout.php',
+    'widgets_php_sha256' => 'wp-includes/widgets.php',
 ];
 $sources = [];
 foreach ($paths as $digestKey => $relative) {
@@ -538,6 +539,16 @@ foreach ([
 ] as [$needle, $label]) {
     tec_option_require_call($legacyRender, $needle, "legacy-widget $label");
 }
+$renderStoredWidget = (string) preg_replace(
+    '/\s+/',
+    '',
+    tec_option_function_body($sources['wp-includes/widgets.php'], 'wp_render_widget')
+);
+tec_option_require_call(
+    $renderStoredWidget,
+    "elseif('wp_inactive_widgets'===\$sidebar_id){\$sidebar=array();}else{return'';}",
+    'inactive-widget unregistered-sidebar render path'
+);
 $legacyEncode = tec_option_function_body(
     $sources['wp-includes/rest-api/endpoints/class-wp-rest-widget-types-controller.php'],
     'encode_form_data'
@@ -563,6 +574,12 @@ if (!is_array($legacyBoundary)
     || ($legacyBoundary['block'] ?? null) !== 'core/legacy-widget'
     || ($legacyBoundary['attributes'] ?? null) !== ['id', 'idBase', 'instance']
     || ($legacyBoundary['stored_id_form']['storage'] ?? null) !== ['sidebars_widgets', 'widget_<idBase>']
+    || ($legacyBoundary['stored_id_form']['portable_bucket'] ?? null) !== 'wp_inactive_widgets'
+    || ($legacyBoundary['stored_id_form']['render_contract'] ?? null) !== [
+        'finder' => 'wp_find_widgets_sidebar',
+        'renderer' => 'wp_render_widget',
+        'unregistered_bucket' => 'wp_inactive_widgets',
+    ]
     || ($legacyBoundary['embedded_form']['encoded'] ?? null) !== 'base64(PHP-serialized-instance)'
     || ($legacyBoundary['embedded_form']['hash'] ?? null) !== 'wp_hash(serialized-instance)'
     || ($legacyBoundary['embedded_form']['target_rebinding_required'] ?? null) !== true

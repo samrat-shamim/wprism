@@ -16,7 +16,8 @@
       "rest_widget_types_php_sha256": "25c5b174877aa1cf1d4e3a13836066512e4f6be74e64b6146628e5fbece9c739",
       "rest_widgets_php_sha256": "1316bf57deae5b9a26a65b74d0153fbe65f0fd0fcf39a43991196d5e786e2739",
       "blocks_php_sha256": "f57261605c65b8edf5df141a9ace86cd208334bff6eff87a6e9a0f33e3aa0d20",
-      "layout_php_sha256": "674761b734efd05d5946771f6cf2b2508dbb80f815e80ef588b89810ea8b4a36"
+      "layout_php_sha256": "674761b734efd05d5946771f6cf2b2508dbb80f815e80ef588b89810ea8b4a36",
+      "widgets_php_sha256": "6556450bfbe74994c06d0977ebd215897f86dbb1e97dbf6a25af926909fd396a"
     },
     "7.0.3": {
       "option_php_sha256": "d1daad9a1d19ee438eb6e3b6698b42a3682f6f7ab9626be02f2157a238ea3e2f",
@@ -31,7 +32,8 @@
       "rest_widget_types_php_sha256": "a74bbb9fd067e78616a4d791c5b2bcd8472090794d60b7629901e6974d6fc904",
       "rest_widgets_php_sha256": "fcdd417e2aea0998a6cca9a37326582131a734352d9814b64f74ee617fcd34d6",
       "blocks_php_sha256": "b8b44cb18d6ae7526a36fd3a5fd08c411f3af6c07aba85b3feb34563ed0ad321",
-      "layout_php_sha256": "eb0dc2c4b42a02b330c143f22b867eec1061d6e1291839bb749c80c9d85547ff"
+      "layout_php_sha256": "eb0dc2c4b42a02b330c143f22b867eec1061d6e1291839bb749c80c9d85547ff",
+      "widgets_php_sha256": "5e51d83d86226609bfcfe3d4f3dbf6ead978f1018ea13648e8cf7cd27d4b10b6"
     },
     "7.1": {
       "option_php_sha256": "fe3f0b7e115b2a50c31162ed6428abe4088c080b0f71b9678d84806168fe90d0",
@@ -46,7 +48,8 @@
       "rest_widget_types_php_sha256": "d9e58e213eec93eb402c730d834e859a8127f8f7c3c9c8f6fb6db7d1d1ac66cf",
       "rest_widgets_php_sha256": "fcdd417e2aea0998a6cca9a37326582131a734352d9814b64f74ee617fcd34d6",
       "blocks_php_sha256": "99de93fa9afbf4576d5a34d1e46365980d510de59f565bece9f4db178625a460",
-      "layout_php_sha256": "4c0cf2784ad07bb4004ba3660ad44919c5c20f72700b91d480774a3ad3dd9d3f"
+      "layout_php_sha256": "4c0cf2784ad07bb4004ba3660ad44919c5c20f72700b91d480774a3ad3dd9d3f",
+      "widgets_php_sha256": "2426468c359c2aaab8dc047c9bf0b896adb58c3ae26b8c3edf29c8941176c1d6"
     }
   },
   "local_object_cache_boundary": {
@@ -425,6 +428,12 @@
     "stored_id_form": {
       "id_shape": "<idBase>-<positive-instance>",
       "storage": ["sidebars_widgets", "widget_<idBase>"],
+      "portable_bucket": "wp_inactive_widgets",
+      "render_contract": {
+        "finder": "wp_find_widgets_sidebar",
+        "renderer": "wp_render_widget",
+        "unregistered_bucket": "wp_inactive_widgets"
+      },
       "identity": "SidebarState widget ledger"
     },
     "embedded_form": {

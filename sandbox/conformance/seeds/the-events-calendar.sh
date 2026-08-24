@@ -287,7 +287,7 @@ update_option('widget_tribe-widget-events-qr-code', [
     '_multiwidget' => 1,
 ], true);
 update_option('sidebars_widgets', [
-    'tec-readiness-sidebar' => [
+    'wp_inactive_widgets' => [
         "tribe-widget-events-list-$list_widget_id",
         "tribe-widget-events-qr-code-$qr_widget_id",
     ],
