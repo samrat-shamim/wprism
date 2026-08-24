@@ -72,6 +72,7 @@ return [
     'Duo\\Orchestrator\\InitCommand' => 'src/Command/InitCommand.php',
     'Duo\\Orchestrator\\InitRefusalException' => 'src/Onboarding/Init.php',
     'Duo\\Orchestrator\\JourneyOracle' => 'src/Release/JourneyOracle.php',
+    'Duo\\Orchestrator\\LintTree' => 'src/Adapter/LintTree.php',
     'Duo\\Orchestrator\\LocalTransport' => 'src/Transport/LocalTransport.php',
     'Duo\\Orchestrator\\ManifestValidate' => 'src/Adapter/ManifestValidate.php',
     'Duo\\Orchestrator\\MergeCheck' => 'src/Refresh/MergeCheck.php',

@@ -123,6 +123,7 @@ return [
     'Duo\\LifecycleJournal' => 'src/Promotion/LifecycleJournal.php',
     'Duo\\LifecyclePlanner' => 'src/Promotion/LifecyclePlanner.php',
     'Duo\\Lint' => 'src/Review/Lint.php',
+    'Duo\\LintEnvironment' => 'src/Review/LintEnvironment.php',
     'Duo\\LintFinding' => 'src/Review/LintFinding.php',
     'Duo\\ManifestDispositions' => 'src/Policy/ManifestDispositions.php',
     'Duo\\ManifestGrammar' => 'src/Policy/ManifestGrammar.php',

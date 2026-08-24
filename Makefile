@@ -62,6 +62,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
+	regress-lint-host-verb regress-lint-type-exemptions \
 	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-scope-wire regress-conformance-asserts \
 	release-gate
 
@@ -612,6 +613,25 @@ regress-close-gate-parent-count:
 # Authoring aid, not a gate on anything.
 regress-manifest-validate:
 	bash sandbox/tests/offline/policy/regress_manifest_validate.sh
+
+# WP-2.4(a): `duo lint-tree`, the linter as a WordPress-free host verb. Drives
+# the REAL `wp duo lint` handler (through a WP_CLI stub) and the REAL host
+# binary as a subprocess over one recorded duo-lint-environment/v1 transcript,
+# and compares raw stdout bytes both ways. One child run poisons get_option()/
+# untrailingslashit()/$wpdb to throw, so "WordPress-free" is asserted
+# positively. The one class a host process cannot perform (WordPress's block
+# parser) is asserted to be DEFERRED and named, never silently dropped.
+regress-lint-host-verb:
+	php sandbox/tests/offline/cli/regress_lint_host_verb.php
+
+# WP-2.4(b): a bare_id on a custom-table column whose live MySQL type bounds it
+# to {0,1} is emitted as a PROPOSED lint_ok carrying that type as its premise.
+# Reproduces the measured Ninja Forms 6-of-8 split over the shipped manifest
+# with its reviewed lint_ok declarations stripped: six BIT(1) columns proposed,
+# nf3_actions.active and nf3_fields.order left on the reviewer's desk. Asserts
+# the finding COUNT never drops — a proposal is a re-class, not a silence.
+regress-lint-type-exemptions:
+	php sandbox/tests/offline/policy/regress_lint_type_exemptions.php
 
 # DUO-3325: `duo adapter-draft`, the safe adapter-DRAFT generator (offline slice).
 # Reuses policy-to-manifest's facts core (Policy::export_manifest) and adds OFFLINE

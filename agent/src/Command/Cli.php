@@ -2796,16 +2796,44 @@ final class Cli {
      * run.sh, which currently runs this warn-only, pending main wiring it
      * into capture as a hard gate).
      *
+     * WP-2.4 adds two optional flags, and neither changes a byte of what this
+     * command prints without them:
+     *
+     *   --evidence=<probe.json> reads a `duo-adapter-probe/v1` document
+     *     (`wp duo adapter-probe --format=json`) so a custom-table `bare_id`
+     *     collision on a column whose LIVE MySQL type bounds it to {0,1} is
+     *     re-classed `proposed_lint_ok`, carrying the type as its premise. It
+     *     proposes; the `lint_ok` declaration stays a human's edit.
+     *   --emit-environment=<file> writes the `duo-lint-environment/v1`
+     *     transcript of everything this scan read that was NOT a byte of the
+     *     state tree — home URL, every id resolution, the probe's types, the
+     *     state-tree digest. `duo lint <repo> --environment=<file>` replays it
+     *     into the same `Lint::scan_tree()` on a host with no WordPress and
+     *     produces byte-identical findings.
+     *
      * ## OPTIONS
      * --repo=<path>
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
+     * [--evidence=<path>] : a duo-adapter-probe/v1 document; live column types
+     *                       turn a bare_id on a boolean column into a PROPOSED
+     *                       lint_ok carrying its premise.
+     * [--emit-environment=<path>] : write the duo-lint-environment/v1 transcript
+     *                       this scan consumed, for `duo lint --environment=`.
      */
     public function lint($args, $assoc) {
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('lint', '--repo');
             $policy = Policy::load($repo);
-            $findings = Lint::scan_tree(rtrim($repo, '/') . '/state', $policy);
+            $stateDir = rtrim($repo, '/') . '/state';
+            $environment = Lint::live_environment(self::lint_probe($assoc['evidence'] ?? null));
+            $findings = Lint::scan_tree($stateDir, $policy, $environment);
+            if (isset($assoc['emit-environment'])) {
+                // Written only after a completed scan: a transcript of a
+                // partial scan would be an incomplete answer set that replays
+                // as a refusal at the first id it never got to record.
+                self::write_lint_environment((string) $assoc['emit-environment'], $environment->document($stateDir));
+            }
         } catch (\Throwable $t) {
             // A refusal and a findings-bearing success both exit 1 here, so a
             // caller scripting this as a gate could not previously tell "the
@@ -2819,19 +2847,71 @@ final class Cli {
         } elseif (!$findings) {
             WP_CLI::success('no findings — captured state is clean');
         } else {
-            foreach ($findings as $f) {
-                $val = is_scalar($f['value']) ? (string) $f['value'] : json_encode($f['value'], JSON_UNESCAPED_SLASHES);
-                $match = isset($f['matches'])
-                    ? sprintf(' matches=%s:%d "%s" (%s)', $f['matches']['kind'], $f['matches']['id'], $f['matches']['title'], $f['matches']['post_type'])
-                    : '';
-                WP_CLI::line(sprintf('%-24s %-55s %-32s value=%s%s', $f['class'], $f['path'], $f['locator'], $val, $match));
-                WP_CLI::line('    ' . $f['note']);
+            // One renderer, shared with `duo lint-tree` (Lint::render_lines()).
+            // These bytes are pinned by AGENTS.md rule 8; the extraction is what
+            // keeps them pinned for the host verb too.
+            foreach (Lint::render_lines($findings) as $line) {
+                WP_CLI::line($line);
             }
             WP_CLI::line('');
             WP_CLI::warning(count($findings) . ' finding(s) — review before trusting a byte-identical round trip');
         }
         if ($findings) {
             WP_CLI::halt(1);
+        }
+    }
+
+    /**
+     * Read `lint --evidence=<file>` — a `duo-adapter-probe/v1` document.
+     *
+     * `json_decode()`, not `Canon::decode()`: this is a document handed in
+     * from outside the repository, exactly as `AdapterDraft::read_probe()`
+     * treats the same file (`cli/src/Adapter/AdapterDraft.php:917`), and the
+     * envelope/authority/self-hash validation that actually matters happens
+     * in `LintEnvironment::column_types_from_probe()` for both callers.
+     *
+     * @return array<string,mixed>|null
+     */
+    private static function lint_probe($path): ?array {
+        if ($path === null) {
+            return null;
+        }
+        $path = (string) $path;
+        if ($path === '' || !is_file($path) || !is_readable($path)) {
+            throw new \RuntimeException(
+                "duo: lint --evidence '$path' is not a readable file (`wp duo adapter-probe --format=json > $path`)"
+            );
+        }
+        $decoded = json_decode((string) file_get_contents($path), true);
+        if (!is_array($decoded) || array_is_list($decoded)) {
+            throw new \RuntimeException("duo: lint --evidence '$path' is not a JSON object");
+        }
+        return $decoded;
+    }
+
+    /**
+     * Write the `duo-lint-environment/v1` transcript.
+     *
+     * Canonical bytes, atomically: the host verb compares this document's own
+     * recorded `state_hash` against the tree it is handed, so a half-written
+     * transcript must never be readable as a whole one.
+     */
+    private static function write_lint_environment(string $path, array $document): void {
+        if ($path === '') {
+            throw new \RuntimeException('duo: lint --emit-environment needs a file path');
+        }
+        $directory = dirname($path);
+        if (!is_dir($directory) || !is_writable($directory)) {
+            throw new \RuntimeException("duo: lint --emit-environment cannot write into '$directory'");
+        }
+        $encoded = Canon::encode($document);
+        $temporary = tempnam($directory, '.duo-lint-environment-');
+        if ($temporary === false || file_put_contents($temporary, $encoded, LOCK_EX) === false
+            || !chmod($temporary, 0644) || !rename($temporary, $path)) {
+            if (is_string($temporary) && is_file($temporary)) {
+                unlink($temporary);
+            }
+            throw new \RuntimeException("duo: lint could not write the environment transcript to '$path'");
         }
     }
 

@@ -7,6 +7,7 @@ require_once __DIR__ . '/SerializedTermDescriptionScanner.php';
 require_once __DIR__ . '/ShortcodeReferenceScanner.php';
 require_once __DIR__ . '/StructuredReferenceScanner.php';
 require_once __DIR__ . '/LintFinding.php';
+require_once __DIR__ . '/LintEnvironment.php';
 require_once __DIR__ . '/../Repository/StateTreeWalker.php';
 
 /**
@@ -119,19 +120,65 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
  * post_type} — the same shape Pending::resolve_id() returns, reused
  * byte-for-byte rather than reinvented. `note` always carries the
  * class-specific honest caveat (never assume — small ids coincide).
+ *
+ * A ninth class, `proposed_lint_ok` (WP-2.4), is a bare_id on a custom-table
+ * column whose LIVE MySQL TYPE — supplied by a `duo-adapter-probe/v1` document,
+ * never guessed — bounds the column's value space to {0,1}. It is a re-CLASS,
+ * not a suppression: the row is still emitted, still counted, and still exits
+ * 1, and it carries the type as its premise plus the exact declaration to paste
+ * into the manifest. The exemption itself stays what it has always been — a
+ * `lint_ok: true` an author writes and a reviewer reads (`manifests/
+ * ninja-forms.json:24-25` is the hand-written precedent whose evidence-
+ * gathering half this automates).
+ *
+ * WHERE THE SCAN'S NON-STATE INPUTS COME FROM: everything scan_tree() reads
+ * that is not a byte of the state tree — the home URL, every id resolution,
+ * the probe's column types, and whether this process can parse blocks or
+ * shortcodes at all — arrives through one `LintEnvironment`. That is the whole
+ * reason `duo lint` (host, WordPress-free) and `wp duo lint` (live) can be one
+ * implementation with byte-identical findings: the host hands scan_tree() a
+ * RECORDED environment, and nothing else about the call differs.
  */
 final class Lint {
     /** Findings' `value` is truncated past this length for readability
      *  (opaque JSON-blob meta values, e.g. Elementor's, can be huge). */
     private const MAX_VALUE_LEN = 200;
 
-    /** @return array<int, array{class:string, path:string, locator:string, value:mixed, matches?:array{kind:string,id:int,title:string,post_type:string}, note:string}> */
-    public static function scan_tree(string $stateDir, Policy $policy): array {
+    /**
+     * The two scan classes that need WordPress's own parsers, named exactly
+     * once so a caller printing `LintEnvironment::deferrals()` prints the
+     * engine's words and not its own paraphrase. Neither can be recorded into
+     * a `duo-lint-environment/v1` transcript — see that class's docblock,
+     * correction (3).
+     */
+    private const BLOCK_DEFERRAL = 'unregistered_block_attr / unrewritten_registered_ref (block attributes): '
+        . 'WordPress parse_blocks() is unavailable in this process, so no block attribute was read. Run '
+        . '`wp duo lint` on the target for this class.';
+
+    private const SHORTCODE_DEFERRAL = 'unregistered_shortcode_attr / unrewritten_registered_shortcode_ref: '
+        . 'WordPress get_shortcode_regex()/shortcode_parse_atts() are unavailable in this process, so no shortcode '
+        . 'attribute was read. Run `wp duo lint` on the target for this class.';
+
+    /**
+     * `$env` is the one seam for every non-state input (see the class docblock).
+     * It defaults to `LintEnvironment::live()`, which is exactly what this
+     * method did inline before WP-2.4 — `get_option('home')` plus an
+     * unmemoized `Pending::resolve_id()` per candidate — so every existing
+     * caller's findings are byte-identical without passing anything.
+     *
+     * @return array<int, array{class:string, path:string, locator:string, value:mixed, matches?:array{kind:string,id:int,title:string,post_type:string}, note:string}>
+     */
+    public static function scan_tree(string $stateDir, Policy $policy, ?LintEnvironment $env = null): array {
         $stateDir = rtrim($stateDir, '/');
         if (!is_dir($stateDir)) {
             throw new \RuntimeException("duo: state dir not found: $stateDir (nothing captured yet?)");
         }
-        $home = untrailingslashit((string) get_option('home'));
+        $env ??= LintEnvironment::live();
+        // A replayed transcript describes ONE tree; this is where it says so,
+        // before a single finding is computed from other bytes. Recording is a
+        // no-op here — the tree being scanned is the tree being described.
+        $env->assert_state_tree($stateDir);
+        $home = $env->home();
         $homeEscaped = str_replace('/', '\/', $home);
         $blockRules = $policy->block_attr_rules();
         $shortcodeRules = $policy->shortcode_attr_rules();
@@ -141,25 +188,25 @@ final class Lint {
             $rel = $file['path'];
             switch ($file['surface']) {
                 case 'post':
-                    self::scan_post_file($stateDir, $rel, $policy, $blockRules, $shortcodeRules, $home, $homeEscaped, $findings);
+                    self::scan_post_file($stateDir, $rel, $policy, $blockRules, $shortcodeRules, $home, $homeEscaped, $env, $findings);
                     break;
                 case 'term':
-                    self::scan_term_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+                    self::scan_term_file($stateDir, $rel, $policy, $home, $homeEscaped, $env, $findings);
                     break;
                 case 'menu':
-                    self::scan_menu_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+                    self::scan_menu_file($stateDir, $rel, $policy, $home, $homeEscaped, $env, $findings);
                     break;
                 case 'sidebar':
-                    self::scan_sidebar_file($stateDir, $rel, $policy, $blockRules, $home, $homeEscaped, $findings);
+                    self::scan_sidebar_file($stateDir, $rel, $policy, $blockRules, $home, $homeEscaped, $env, $findings);
                     break;
                 case 'options':
-                    self::scan_options_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+                    self::scan_options_file($stateDir, $rel, $policy, $home, $homeEscaped, $env, $findings);
                     break;
                 case 'user_meta':
-                    self::scan_user_meta_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+                    self::scan_user_meta_file($stateDir, $rel, $policy, $home, $homeEscaped, $env, $findings);
                     break;
                 case 'table':
-                    self::scan_table_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+                    self::scan_table_file($stateDir, $rel, $policy, $home, $homeEscaped, $env, $findings);
                     break;
                 default:
                     throw new \LogicException('duo: unknown canonical lint surface ' . $file['surface']);
@@ -168,12 +215,54 @@ final class Lint {
         return $findings;
     }
 
+    /**
+     * The live environment, as a factory on the class both verbs already name.
+     *
+     * `wp duo lint` reaches `LintEnvironment` only through here, and hands the
+     * transcript back out as a plain array (`document()`), so `Cli.php` names
+     * no `agent/src/Review` class it did not already name. That is not
+     * cosmetic: `sandbox/tests/offline/cli/regress_cli_json_refusals.php`
+     * pre-declares its own `Duo\Canon` and `Duo\Pending` stubs and then
+     * `require`s `Cli.php`, so a new `require_once` in that file for a Review
+     * class that pulls either one is an immediate "Cannot redeclare class"
+     * fatal in an unrelated suite. One factory keeps `Cli.php`'s load set
+     * exactly as it was.
+     *
+     * @param array<string,mixed>|null $probe a `duo-adapter-probe/v1` document
+     */
+    public static function live_environment(?array $probe = null): LintEnvironment {
+        return LintEnvironment::live($probe);
+    }
+
+    /**
+     * The human rendering of a finding set, for every caller.
+     *
+     * Extracted from `Cli::lint()` verbatim (column widths, the `value=` and
+     * ` matches=` spellings, the four-space note indent) because WP-2.4 gives
+     * lint a SECOND caller — the WordPress-free `duo lint-tree` host verb — and
+     * two copies of a renderer is how two verbs that share an implementation
+     * start printing different things about it. AGENTS.md rule 8 pins the
+     * WP-CLI bytes; one renderer is what keeps them pinned across two callers
+     * rather than two disciplines.
+     *
+     * The trailing blank line and the "N finding(s)" summary stay with each
+     * caller: those are the caller's own envelope (`WP_CLI::warning()` on one
+     * side, stderr on the other), not part of a finding.
+     *
+     * @param array<int,array<string,mixed>> $findings
+     * @return list<string>
+     */
+    public static function render_lines(array $findings): array {
+        return LintFinding::render_lines($findings);
+    }
+
     private static function scan_user_meta_file(
         string $stateDir,
         string $rel,
         Policy $policy,
         string $home,
         string $homeEscaped,
+        LintEnvironment $env,
         array &$findings
     ): void {
         $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
@@ -190,12 +279,13 @@ final class Lint {
                     'meta.' . $key,
                     $findings,
                     (array) ($rule['json_refs'] ?? []),
-                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null
+                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null,
+                    $env
                 );
                 continue;
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
-                $hit = Pending::resolve_id($id);
+                $hit = $env->resolve_id($id);
                 if ($hit !== null) {
                     $findings[] = LintFinding::make(
                         'bare_id', $rel, 'meta.' . $key . $locSuffix, $id, $hit, self::bare_id_note($hit)
@@ -219,6 +309,7 @@ final class Lint {
         array $blockRules,
         string $home,
         string $homeEscaped,
+        LintEnvironment $env,
         array &$findings
     ): void {
         $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
@@ -230,12 +321,12 @@ final class Lint {
                 $rule = (array) (($declared[$type]['settings'] ?? [])[$key] ?? []);
                 $locator = "widgets[$i].settings.$key";
                 if (($rule['codec'] ?? '') === 'blocks' && is_string($value)) {
-                    self::scan_blocks(parse_blocks($value), $blockRules, $rel, $home, $findings);
+                    self::scan_widget_blocks($value, $blockRules, $rel, $home, $env, $findings);
                 } elseif (($rule['ref'] ?? '') === 'term') {
                     foreach (Pending::numeric_candidates($value) as [$id, $suffix]) {
                         $findings[] = LintFinding::make(
                             'unrewritten_registered_ref', $rel, $locator . $suffix, $id,
-                            Pending::resolve_id($id),
+                            $env->resolve_id($id),
                             "widget '$type' setting '$key' is a declared term ref but remains numeric"
                         );
                     }
@@ -264,6 +355,7 @@ final class Lint {
         Policy $policy,
         string $home,
         string $homeEscaped,
+        LintEnvironment $env,
         array &$findings
     ): void {
         $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
@@ -272,7 +364,8 @@ final class Lint {
             $rel,
             [$policy, 'meta_rule_for_post'],
             $home,
-            $homeEscaped
+            $homeEscaped,
+            $env->resolver()
         ) as $finding) {
             $findings[] = $finding;
         }
@@ -282,7 +375,7 @@ final class Lint {
 
     private static function scan_post_file(
         string $stateDir, string $rel, Policy $policy, array $blockRules, array $shortcodeRules,
-        string $home, string $homeEscaped, array &$findings
+        string $home, string $homeEscaped, LintEnvironment $env, array &$findings
     ): void {
         [$front, $body] = Canon::parse_post_file(Canon::read_file($stateDir . '/' . $rel));
         $postType = (string) ($front['type'] ?? '');
@@ -291,6 +384,7 @@ final class Lint {
         self::scan_taxonomy_relationship_keyspaces(
             (array) ($front['terms'] ?? []), $rel, 'terms', 'post', $policy, $findings
         );
+        $resolve = $env->resolver();
 
         // (a) bare_id — shallow scan of authored, no-ref-declared meta;
         // deep scan (below) for json_refs/key_refs-declared structures.
@@ -309,12 +403,13 @@ final class Lint {
                     'meta.' . $key,
                     $findings,
                     (array) ($rule['json_refs'] ?? []),
-                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null
+                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null,
+                    $env
                 );
                 continue; // structured value: the deep scan above supersedes the shallow one below
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
-                $hit = Pending::resolve_id($id);
+                $hit = $resolve($id);
                 if ($hit === null) {
                     continue;
                 }
@@ -324,13 +419,13 @@ final class Lint {
 
         // (b) escaped_home / unrewritten_url_query_ref — recursively
         // through meta values, and the raw body as one unit.
-        StateTreeWalker::strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped, $shortcodeRules) {
+        StateTreeWalker::strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped, $shortcodeRules, $env) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
-            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
-            self::scan_shortcodes($s, $shortcodeRules, $rel, $findings, $path);
+            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s, $env);
+            self::scan_shortcodes($s, $shortcodeRules, $rel, $env, $findings, $path);
         });
         self::flag_escaped_home($findings, $rel, 'body', $body, $home, $homeEscaped);
-        self::flag_unrewritten_url_query_ref($findings, $rel, 'body', $body);
+        self::flag_unrewritten_url_query_ref($findings, $rel, 'body', $body, $env);
 
         // (c) unregistered_block_attr / (e) shortcode findings — block/
         // shortcode content only (verbatim bodies, e.g. acf-field, aren't
@@ -338,9 +433,32 @@ final class Lint {
         // skips Blocks::capture_rewrite() for them, so nothing would ever
         // have rewritten a shortcode ref there either; same gate both scans share).
         if ($body !== '' && $policy->body_mode($postType) === 'blocks') {
-            self::scan_blocks(parse_blocks($body), $blockRules, $rel, $home, $findings);
-            self::scan_shortcodes($body, $shortcodeRules, $rel, $findings);
+            if ($env->parses_blocks()) {
+                self::scan_blocks(parse_blocks($body), $blockRules, $rel, $home, $env, $findings);
+            } else {
+                $env->defer(self::BLOCK_DEFERRAL);
+            }
+            self::scan_shortcodes($body, $shortcodeRules, $rel, $env, $findings);
         }
+    }
+
+    /**
+     * A widget setting whose codec is `blocks` (Lint.php's sidebar surface):
+     * the same parse_blocks() boundary as a post body, stated once.
+     */
+    private static function scan_widget_blocks(
+        string $value,
+        array $blockRules,
+        string $rel,
+        string $home,
+        LintEnvironment $env,
+        array &$findings
+    ): void {
+        if (!$env->parses_blocks()) {
+            $env->defer(self::BLOCK_DEFERRAL);
+            return;
+        }
+        self::scan_blocks(parse_blocks($value), $blockRules, $rel, $home, $env, $findings);
     }
 
     private static function bare_id_note(array $hit): string {
@@ -361,17 +479,26 @@ final class Lint {
         string $locator,
         array &$findings,
         array $jsonRefs = [],
-        ?array $keyRefs = null
+        ?array $keyRefs = null,
+        ?LintEnvironment $env = null
     ): void {
-        foreach (StructuredReferenceScanner::scan($node, $rel, $locator, $jsonRefs, $keyRefs) as $finding) {
+        $resolve = $env === null ? null : $env->resolver();
+        foreach (StructuredReferenceScanner::scan($node, $rel, $locator, $jsonRefs, $keyRefs, $resolve) as $finding) {
             $findings[] = $finding;
         }
     }
 
     // ------------------------------------------------------------ blocks
 
-    private static function scan_blocks(array $blocks, array $blockRules, string $rel, string $home, array &$findings): void {
-        foreach (BlockReferenceScanner::scan($blocks, $blockRules, $rel, $home) as $finding) {
+    private static function scan_blocks(
+        array $blocks,
+        array $blockRules,
+        string $rel,
+        string $home,
+        LintEnvironment $env,
+        array &$findings
+    ): void {
+        foreach (BlockReferenceScanner::scan($blocks, $blockRules, $rel, $home, $env->resolver()) as $finding) {
             $findings[] = $finding;
         }
     }
@@ -406,17 +533,29 @@ final class Lint {
         string $body,
         array $shortcodeRules,
         string $rel,
+        LintEnvironment $env,
         array &$findings,
         string $locatorPrefix = ''
     ): void {
-        foreach (ShortcodeReferenceScanner::scan($body, $shortcodeRules, $rel, $locatorPrefix) as $finding) {
+        if (!$env->parses_shortcodes()) {
+            // Only a tree that COULD have carried a shortcode finding records
+            // the deferral: the scanner's own first line returns early on
+            // rules-empty / no `[` bodies (ShortcodeReferenceScanner.php:31),
+            // so deferring unconditionally would report a limitation on trees
+            // where this class had nothing to say either way.
+            if ($shortcodeRules !== [] && str_contains($body, '[')) {
+                $env->defer(self::SHORTCODE_DEFERRAL);
+            }
+            return;
+        }
+        foreach (ShortcodeReferenceScanner::scan($body, $shortcodeRules, $rel, $locatorPrefix, $env->resolver()) as $finding) {
             $findings[] = $finding;
         }
     }
 
     // ------------------------------------------------------------ terms
 
-    private static function scan_term_file(string $stateDir, string $rel, Policy $policy, string $home, string $homeEscaped, array &$findings): void {
+    private static function scan_term_file(string $stateDir, string $rel, Policy $policy, string $home, string $homeEscaped, LintEnvironment $env, array &$findings): void {
         $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
         $desc = $front['description'] ?? '';
         $taxonomy = (string) ($front['taxonomy'] ?? '');
@@ -438,12 +577,13 @@ final class Lint {
                     'meta.' . $key,
                     $findings,
                     (array) ($rule['json_refs'] ?? []),
-                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null
+                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null,
+                    $env
                 );
                 continue;
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
-                $hit = Pending::resolve_id($id);
+                $hit = $env->resolve_id($id);
                 if ($hit !== null) {
                     $findings[] = LintFinding::make('bare_id', $rel, 'meta.' . $key . $locSuffix, $id, $hit, self::bare_id_note($hit));
                 }
@@ -472,7 +612,8 @@ final class Lint {
                 'description',
                 $findings,
                 $descriptionRef['json_refs'],
-                $descriptionRef['key_refs']
+                $descriptionRef['key_refs'],
+                $env
             );
             return;
         }
@@ -483,9 +624,9 @@ final class Lint {
 
         // (b) escaped_home / unrewritten_url_query_ref
         self::flag_escaped_home($findings, $rel, 'description', $desc, $home, $homeEscaped);
-        self::flag_unrewritten_url_query_ref($findings, $rel, 'description', $desc);
+        self::flag_unrewritten_url_query_ref($findings, $rel, 'description', $desc, $env);
 
-        foreach (SerializedTermDescriptionScanner::scan($desc, $taxonomy, $rel) as $finding) {
+        foreach (SerializedTermDescriptionScanner::scan($desc, $taxonomy, $rel, $env->resolver()) as $finding) {
             $findings[] = $finding;
         }
     }
@@ -538,7 +679,7 @@ final class Lint {
 
     // ------------------------------------------------------------ options
 
-    private static function scan_options_file(string $stateDir, string $rel, Policy $policy, string $home, string $homeEscaped, array &$findings): void {
+    private static function scan_options_file(string $stateDir, string $rel, Policy $policy, string $home, string $homeEscaped, LintEnvironment $env, array &$findings): void {
         $options = OptionState::values((array) Canon::decode(Canon::read_file($stateDir . '/' . $rel)));
 
         // (a) bare_id
@@ -552,7 +693,7 @@ final class Lint {
                 // whole option would, so this recurses the identical checks
                 // scan_options_file() already runs, once per declared
                 // sub-key, instead of the single flat check below.
-                self::scan_option_sub_keys($value, (array) $rule['sub_keys'], $rel, (string) $key, $findings);
+                self::scan_option_sub_keys($value, (array) $rule['sub_keys'], $rel, (string) $key, $env, $findings);
                 continue;
             }
             if (isset($rule['ref'])) {
@@ -568,12 +709,13 @@ final class Lint {
                     'options.' . $key,
                     $findings,
                     (array) ($rule['json_refs'] ?? []),
-                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null
+                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null,
+                    $env
                 );
                 continue; // structured value: the deep scan above supersedes the shallow one below
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
-                $hit = Pending::resolve_id($id);
+                $hit = $env->resolve_id($id);
                 if ($hit === null) {
                     continue;
                 }
@@ -582,14 +724,14 @@ final class Lint {
         }
 
         // (b) escaped_home / unrewritten_url_query_ref
-        StateTreeWalker::strings($options, 'options', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
+        StateTreeWalker::strings($options, 'options', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped, $env) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
-            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
+            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s, $env);
         });
     }
 
     /** @see scan_options_file()'s sub_keys branch */
-    private static function scan_option_sub_keys($value, array $subKeys, string $rel, string $optionName, array &$findings): void {
+    private static function scan_option_sub_keys($value, array $subKeys, string $rel, string $optionName, LintEnvironment $env, array &$findings): void {
         if (!is_array($value)) {
             return; // malformed shape -- RepositoryAuthorization's own gate is the authoritative check for this
         }
@@ -606,12 +748,13 @@ final class Lint {
                     $locator,
                     $findings,
                     (array) ($subRule['json_refs'] ?? []),
-                    isset($subRule['key_refs']) ? (array) $subRule['key_refs'] : null
+                    isset($subRule['key_refs']) ? (array) $subRule['key_refs'] : null,
+                    $env
                 );
                 continue;
             }
             foreach (Pending::numeric_candidates($subVal) as [$id, $locSuffix]) {
-                $hit = Pending::resolve_id($id);
+                $hit = $env->resolve_id($id);
                 if ($hit === null) {
                     continue;
                 }
@@ -646,8 +789,15 @@ final class Lint {
      * "declared meta ref" exclusion list is needed here, mirroring why
      * scan_structured_bare_ids() itself needs none for json_refs/key_refs-
      * declared paths elsewhere in this class.
+     *
+     * WP-2.4 adds the TYPE axis to the undeclared-column case, and only here:
+     * a column is the one lint surface whose value space is described by a
+     * live schema. When the environment carries a probed MySQL type that
+     * bounds the column to {0,1}, the collision is re-classed
+     * `proposed_lint_ok` — same row, same count, same exit code, plus the type
+     * as its premise and the declaration to paste. See proposal_note().
      */
-    private static function scan_table_file(string $stateDir, string $rel, Policy $policy, string $home, string $homeEscaped, array &$findings): void {
+    private static function scan_table_file(string $stateDir, string $rel, Policy $policy, string $home, string $homeEscaped, LintEnvironment $env, array &$findings): void {
         $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
         $table = (string) ($front['table'] ?? '');
         $decl = $policy->table_rule($table) ?? [];
@@ -662,9 +812,22 @@ final class Lint {
             if (!empty($decl['columns'][$col]['lint_ok'])) {
                 continue; // human-reviewed declaration: numeric but genuinely not a ref
             }
+            $columnType = $env->column_type($table, (string) $col);
+            $premise = LintEnvironment::boolean_domain_premise($columnType);
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
-                $hit = Pending::resolve_id($id);
+                $hit = $env->resolve_id($id);
                 if ($hit === null) {
+                    continue;
+                }
+                if ($premise !== null) {
+                    $findings[] = LintFinding::make(
+                        'proposed_lint_ok',
+                        $rel,
+                        "columns.$col" . $locSuffix,
+                        $id,
+                        $hit,
+                        self::proposal_note($table, (string) $col, (string) $columnType, $premise, $hit)
+                    );
                     continue;
                 }
                 $findings[] = LintFinding::make('bare_id', $rel, "columns.$col" . $locSuffix, $id, $hit, sprintf(
@@ -679,13 +842,13 @@ final class Lint {
 
         // (b) escaped_home / unrewritten_url_query_ref — columns and the attached-meta sidecar
         $meta = (array) ($front['meta'] ?? []);
-        StateTreeWalker::strings($columns, 'columns', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
+        StateTreeWalker::strings($columns, 'columns', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped, $env) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
-            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
+            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s, $env);
         });
-        StateTreeWalker::strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
+        StateTreeWalker::strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped, $env) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
-            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
+            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s, $env);
         });
 
         // (c) attached-meta values use the exact same per-key declaration
@@ -705,7 +868,8 @@ final class Lint {
                     'meta.' . $key,
                     $findings,
                     (array) ($rule['json_refs'] ?? []),
-                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null
+                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null,
+                    $env
                 );
                 continue;
             }
@@ -719,7 +883,7 @@ final class Lint {
                         $rel,
                         'meta.' . $key . $locSuffix,
                         $id,
-                        Pending::resolve_id($id),
+                        $env->resolve_id($id),
                         "attached-meta key '$key' declares a {$rule['ref']} reference, but it is still numeric "
                             . 'in captured state instead of a portable token'
                     );
@@ -728,7 +892,43 @@ final class Lint {
             }
             $unstructured[$key] = $value;
         }
-        self::scan_structured_bare_ids($unstructured, $rel, 'meta', $findings);
+        self::scan_structured_bare_ids($unstructured, $rel, 'meta', $findings, [], null, $env);
+    }
+
+    /**
+     * The `proposed_lint_ok` note: the finding, its premise, and the exact
+     * declaration a reviewer would write if they accept it.
+     *
+     * Three properties are deliberate. (1) The collision is stated FIRST and
+     * in full, exactly as `bare_id` states it — a proposal that led with its
+     * conclusion would read as a verdict. (2) The premise is quoted from
+     * `LintEnvironment::BOOLEAN_DOMAIN`, so a `tinyint(1)` proposal carries its
+     * own weakness rather than borrowing `bit(1)`'s confidence. (3) The note
+     * ends in the declaration text, because the whole point is to make the
+     * reviewer's act cheap — not to perform it for them. Nothing in this
+     * engine ever writes that declaration; `manifests/*.json` bytes are
+     * adapter identity (AGENTS.md rule 2) and move only by a human's edit.
+     *
+     * @param array{kind:string,id:int,title:string,post_type:string} $hit
+     */
+    private static function proposal_note(string $table, string $column, string $type, string $premise, array $hit): string {
+        return sprintf(
+            "table '%s' column '%s' has no ref declared; the number coincides with an existing %s id (#%d \"%s\", "
+            . '%s) on this environment. PROPOSED EXEMPTION: the live column type is %s — %s. This is a proposal '
+            . 'carrying its premise, not a verdict and not a silence: the finding is still reported and still '
+            . 'counted. If you agree, the reviewed declaration is tables.%s.columns.%s = {"class": "authored", '
+            . '"lint_ok": true} in the owning manifest, which exempts the COLUMN rather than today\'s collision.',
+            $table,
+            $column,
+            $hit['kind'],
+            $hit['id'],
+            $hit['title'],
+            $hit['post_type'],
+            $type,
+            $premise,
+            $table,
+            $column
+        );
     }
 
     // ------------------------------------------------------------ shared
@@ -766,7 +966,7 @@ final class Lint {
      * mirroring bare_id's own "small ids coincide" framing — not
      * something this method tries to rule out structurally.
      */
-    private static function flag_unrewritten_url_query_ref(array &$findings, string $rel, string $locator, string $s): void {
+    private static function flag_unrewritten_url_query_ref(array &$findings, string $rel, string $locator, string $s, LintEnvironment $env): void {
         if ($s === '' || (!str_contains($s, '?') && !str_contains($s, '&'))) {
             return;
         }
@@ -775,7 +975,7 @@ final class Lint {
         }
         foreach ($matches as $i => $m) {
             $id = (int) $m[2];
-            $hit = Pending::resolve_id($id);
+            $hit = $env->resolve_id($id);
             $findings[] = LintFinding::make('unrewritten_url_query_ref', $rel, $locator . "[url_query:$i]", $id, $hit, sprintf(
                 "a '%s=%d' query-string parameter is still a raw numeric id in captured state — WordPress's own "
                 . 'redirect_canonical() resolves this parameter to a real post regardless of post_type. This is '
