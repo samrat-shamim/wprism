@@ -33,6 +33,7 @@ regress-offline-corpus: code-half-unit \
 	regress-adapter-production-readiness \
 	regress-adapter-registry \
 	regress-adapter-sources \
+	regress-adapter-test-kit \
 	regress-adopt-command \
 	regress-adopt-rollback \
 	regress-agent-src-requires \

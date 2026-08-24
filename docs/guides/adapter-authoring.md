@@ -651,6 +651,35 @@ plugin faithfully.
    switch a runtime field to authored, and create a conflicting second owner.
    Each false claim must fail for the reason the production path would fail.
 
+### Getting the harness those tests need
+
+The archive `duo adopt` sends a site is exactly `agent manifests recovery`, so
+none of Duo's own test estate reaches you. Rather than reinvent it, assemble
+the adapter test kit out of a Duo checkout:
+
+```sh
+php tools/adapter-kit.php --assemble=/path/to/kit --adapter=my-forms
+php /path/to/kit/skeleton/regress_my_forms_kit.php
+```
+
+That second command's whole dependency list is `php` — no composer, no
+WordPress, no database. The kit carries `check.php` (assertions, the summary
+line, the suite exit code), `wp_stubs.php` (seedable WordPress function stubs),
+`FakeWpdb.php`, `frozen_policy.php`, and the manifest-agnostic conformance
+harness `run.sh`/`asserts.sh`, plus a generated skeleton to edit into your own
+suite. `MANIFEST.json` records the sha256 of every file so you can tell which
+revision of the harness you received.
+
+Take `FakeWpdb` in particular even if you keep nothing else. It holds rows and
+interprets your SQL against them, and any statement it cannot interpret throws
+`\LogicException` naming that statement. A hand-rolled fake answers `null`
+instead, which pushes your suite down a "no row" branch your real database
+never takes — every assertion after that point is green for the wrong reason.
+
+The kit is assembled from the live files on every run and never stored as a
+second copy, so re-assemble from a newer checkout rather than patching a file
+inside a kit you already have.
+
 For shortcode identities, test the callback's actual lookup rather than the
 shape of its example markup. Ordinary numeric attributes use a named
 `shortcode_attrs` ref. A callback that consumes a positional post-meta
