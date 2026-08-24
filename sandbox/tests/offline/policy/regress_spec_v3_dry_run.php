@@ -609,7 +609,11 @@ duo_check(
 $axes = array_keys((array) ($platform['compatibility'] ?? []));
 sort($axes, SORT_STRING);
 $report('compatibility axes a v3 certificate would bind: ' . implode(', ', $axes));
-duo_check_same(['database', 'filesystem', 'php', 'wordpress'], $axes, 'V3-AXIS: the boundary declares four compatibility axes today');
+// #560 (24ca80aa) added the `process` axis — the WP-CLI child-process bound —
+// so the boundary a v3 certificate binds is five axes now. This pin exists so
+// a NEW axis is a reviewed sentence here rather than a silent widening of what
+// WP-4.7's axis-bound certificates will sign over.
+duo_check_same(['database', 'filesystem', 'php', 'process', 'wordpress'], $axes, 'V3-AXIS: the boundary declares five compatibility axes today');
 
 // The measured fact WP-4.6 exists to change: every claim carries the SAME
 // environment because ManifestDispositions.php:245-250 copies it verbatim from
