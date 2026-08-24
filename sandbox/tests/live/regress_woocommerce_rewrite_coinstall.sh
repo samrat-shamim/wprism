@@ -53,9 +53,9 @@ witness() { # side
   local side="$1"
   "wp$side" eval '
 global $wpdb;
-$row=static function($name)use($wpdb){$r=$wpdb->get_row($wpdb->prepare("SELECT option_id,option_value,autoload FROM {$wpdb->options} WHERE option_name=%s LIMIT 1",$name),ARRAY_A);return is_array($r)?["id"=>(int)$r["option_id"],"sha256"=>hash("sha256",(string)$r["option_value"]),"autoload"=>(string)$r["autoload"]]:null;};
-$woo=$row("woocommerce_permalinks");
-if(is_array($woo)){$raw=(string)$wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name=%s LIMIT 1","woocommerce_permalinks"));$value=maybe_unserialize($raw);$woo["value_base64"]=base64_encode($raw);$woo["keys"]=is_array($value)?array_keys($value):null;$woo["value"]=$value;}
+$row=static function($name,$include_raw=false)use($wpdb){$r=$wpdb->get_row($wpdb->prepare("SELECT option_id,option_value,autoload FROM {$wpdb->options} WHERE option_name=%s LIMIT 1",$name),ARRAY_A);if(!is_array($r)){return null;}$raw=(string)$r["option_value"];$out=["id"=>(int)$r["option_id"],"sha256"=>hash("sha256",$raw),"autoload"=>(string)$r["autoload"]];if($include_raw){$out["raw"]=$raw;}return $out;};
+$woo=$row("woocommerce_permalinks",true);
+if(is_array($woo)){$raw=(string)$woo["raw"];unset($woo["raw"]);$value=maybe_unserialize($raw);$woo["value_base64"]=base64_encode($raw);$woo["keys"]=is_array($value)?array_keys($value):null;$woo["value"]=$value;}
 echo wp_json_encode(["permalink"=>$row("permalink_structure"),"woo"=>$woo,"rules"=>$row("rewrite_rules"),"generate"=>$row("tribe_last_generate_rewrite_rules"),"save"=>$row("tribe_last_save_post"),"updated"=>$row("tribe_last_updated_option")]);
 ' | tail -1
 }
