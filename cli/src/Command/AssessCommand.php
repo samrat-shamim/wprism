@@ -15,6 +15,7 @@ require_once __DIR__ . '/../Assess/GapActions.php';
 require_once __DIR__ . '/../Assess/AssessReport.php';
 require_once __DIR__ . '/../Assess/AssessRenderer.php';
 require_once __DIR__ . '/../Contract/ApplicationContract.php';
+require_once __DIR__ . '/../Contract/ContractAttestation.php';
 require_once __DIR__ . '/../Contract/ContractProjection.php';
 require_once __DIR__ . '/../Contract/ContractProposal.php';
 require_once __DIR__ . '/../Contract/ContractStore.php';
@@ -131,6 +132,12 @@ final class AssessCommand {
         $lines = AssessRenderer::render($result['report'], $limit, [
             'proposal_path' => $proposalPath,
             'contract_present' => $result['contract'] !== null,
+            // No second read and no second opinion: `assess()` already read the
+            // contract through `ContractStore::readContract()`, which VERIFIES
+            // a signed attestation or refuses. So a signed contract in hand is
+            // a verified one, and re-deriving the principal here would be the
+            // renderer computing a fact instead of projecting one.
+            'contract_attestation' => self::contractAttestation($result['contract']),
             'operation' => $viewOperation,
         ]);
         foreach ($lines as $line) {
@@ -405,6 +412,40 @@ final class AssessCommand {
             return;
         }
         $store->writeProjection(self::projection($result));
+    }
+
+    /**
+     * The five facts a verified contract attestation carries, or null.
+     *
+     * Null covers the two states that are one state for a reader: no contract
+     * and an unsigned contract. There is no third: a signed attestation with a
+     * missing or empty field never reaches here, because
+     * `ApplicationContract::validateAttestation()` (:433-480) requires all
+     * five as non-empty strings the moment `state` is `signed`, so the `?? ''`
+     * fallbacks below are total-function hygiene and not a real case.
+     *
+     * It never verifies anything itself: `ContractStore::readContract()`
+     * already refused if verification failed, so reaching this function with a
+     * signed contract in hand IS the verification result. A second check here
+     * would be a second answer, which is the defect `AssessRenderer`'s own
+     * docblock ("the human view is a projection of the report, never a second
+     * computation") names.
+     *
+     * @param array<string,mixed>|null $contract
+     * @return array<string,string>|null
+     */
+    private static function contractAttestation(?array $contract): ?array {
+        $attestation = is_array($contract['attestation'] ?? null) ? $contract['attestation'] : [];
+        if (($attestation['state'] ?? null) !== 'signed') {
+            return null;
+        }
+        $facts = [];
+        foreach (['expires_at', 'key_id', 'policy_version', 'trust_root'] as $key) {
+            $facts[$key] = (string) ($attestation[$key] ?? '');
+        }
+        $facts['principal'] = (string) ($attestation['approving_principal'] ?? '');
+
+        return $facts;
     }
 
     /**

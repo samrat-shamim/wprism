@@ -105,6 +105,7 @@ next actions:
       1  provision env value
       3  install adapter
       0  certify adapter
+      0  attest contract
       2  nothing — supported
 evidence: 4 certification subject(s) pinned
           certified by site-1a2b3c4d5e6f (site trust root); contract attestation unsigned
@@ -158,7 +159,9 @@ a Duo endorsement. It is what `duo adapter certify` produces; see
 The evidence block prints `certified by <principal> (<root> trust root);
 contract attestation unsigned` once — the second half matters, because a
 certified *adapter* does not make your application *contract* a signed
-document. See *What this profile does not claim* below.
+document. Once you run `duo contract <env> attest`, that half reads `contract
+attested by <principal> (site trust root, expires <when>)` instead, and it says
+so only because the signature verified on this read. See *What this profile does not claim* below.
 
 **containment** — whether an effect can escape: `prevented`, `live`, or
 `unknown`. `prevented` is emitted only where the mutation happens entirely
@@ -182,7 +185,7 @@ JSON), a `reason:` line quoting the registry's own words, a one-line
 
 The assessment prints a count per action. There are exactly eight, the set is
 closed — a gap Duo cannot express as one of these is a bug, not a judgement
-call — and every one of the eight is printed with its count *including the
+call — and every one of the nine is printed with its count *including the
 zeroes*. A section that showed a line only when it had rows would teach you to
 read the presence of the line as the signal. The count is the signal.
 
@@ -195,6 +198,7 @@ read the presence of the line as the signal. The count is the signal.
 | `certify adapter` | The adapter **is** installed and is one signature or one pin short: `duo adapter certify <site-repo> --name=<n> --secret-key-file=<key> --pin`. It is also the word for the other two rows that need a reviewed, current claim rather than a repeat run — a contract whose pinned dispositions moved (`Requalification required`) and an authored `experimental` status — neither of which a rehearsal can produce. |
 | `provision env value` | A manifest-declared `class: "env"` option is unset here: `duo env-set <env> --name=<name> --stdin`. |
 | `exclude` | The boundary is stated, not broken. Record the decision in the contract's `unsupported[]` and stop trying to release it. Also the answer when an installed, certified adapter's certification simply does not cover one operation (`operation_not_certified` alone — typically `delete`): nothing to install or sign; keep that operation off the surface. |
+| `attest contract` | **Never printed by this profile**, for a different reason than `qualify in rehearsal` above. The signer exists — `duo contract <env> attest` signs your contract under an Ed25519 key in `.duo/contract/authorities.json` — but that trust root ships with no key, so attesting is a decision to hold an organizational signing key rather than a next step Duo can hand you. It is in the closed set so that a projection written by a build that does emit it still validates. |
 | `nothing — supported` | Every projected operation agrees. This is last in the ordering so it wins only when nothing else applies. |
 
 A row can read `Ready` in the columns and still carry a next action, because
@@ -275,12 +279,16 @@ grammar verdict and the reason you stated, so `certified` can never be read as
 "somebody ran it". It is not a claim that the adapter was tested against a
 live site, and it is not a Duo endorsement of anything.
 
-The contract's own `attestation.state` is still written `unsigned`, which is
-why the evidence line ends `contract attestation unsigned`. A certified
-*adapter* and a signed *contract* are different documents; this release ships
-the first and not the second. Machine-legible attestation of the contract, and
-the resumable 12-step qualification workflow that would justify a stronger
-word, both remain deferred.
+The contract's own `attestation.state` reads `unsigned` until you attest it,
+which is why the evidence line ends `contract attestation unsigned`. A
+certified *adapter* and a signed *contract* are different documents signed
+under different trust roots: `duo contract <env> attest` signs the second,
+under a key you provision in `.duo/contract/authorities.json`, and that file
+ships absent — so the line above is what every site says until an organization
+decides to hold a signing key. Once attested, the same line names who attested
+and until when. The resumable 12-step qualification workflow that would justify
+a stronger word still remains deferred, as does any ruling on whether a
+platform-owned root may attest a contract.
 
 **Containment is unknown wherever it is not structurally prevented.** The word
 `sandboxed` is never emitted, because there is no egress control to

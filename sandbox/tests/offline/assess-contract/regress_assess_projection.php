@@ -584,7 +584,17 @@ duo_check(
     !isset($gapActionsSeen['qualify in rehearsal']),
     'no projection in the table emits the retired `qualify in rehearsal`'
 );
-foreach (array_diff(V::GAP_ACTIONS, ['qualify in rehearsal']) as $action) {
+// `attest contract` joins the set the same way and for the same structural
+// reason, from the other end of its life: the signer ships
+// (ContractAttestation) but the trust root is empty on every site, so
+// "attest the contract" is a decision to hold an organizational signing key
+// and not a smallest safe next action. It is in the set so a projection
+// written by a build that DOES emit it still validates here.
+duo_check(
+    !isset($gapActionsSeen['attest contract']),
+    'and nothing emits `attest contract` either: it ships in-set and unemitted'
+);
+foreach (array_diff(V::GAP_ACTIONS, ['qualify in rehearsal', 'attest contract']) as $action) {
     duo_check(isset($gapActionsSeen[$action]), "table covers gap action = $action");
 }
 

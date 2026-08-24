@@ -19006,6 +19006,13 @@
                 "ATTESTATION_FORMAT": {
                     "value_repr": "duo-contract-attestation/v1"
                 },
+                "ATTESTATION_SIGNED_ONLY": {
+                    "value_repr": [
+                        "key_id",
+                        "platform_sha256",
+                        "trust_root"
+                    ]
+                },
                 "ATTESTATION_STATES": {
                     "value_repr": [
                         "unsigned",
@@ -22332,6 +22339,236 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\ContractAttestation": {
+            "abstract": false,
+            "constants": {
+                "AUTHORITIES_FORMAT": {
+                    "value_repr": "duo-contract-attestation-authorities/v1"
+                },
+                "AUTHORITIES_RELATIVE": {
+                    "value_repr": ".duo/contract/authorities.json"
+                },
+                "SCOPE": {
+                    "value_repr": "contract_attestation"
+                },
+                "SIGNATURE_DOMAIN": {
+                    "value_repr": "duo-contract-attestation-signature/v1\u0000"
+                },
+                "STATEMENT_FORMAT": {
+                    "value_repr": "duo-contract-attestation-statement/v1"
+                },
+                "TRUST_ROOT_SITE": {
+                    "value_repr": "site"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "attestedDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "authorities": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "authoritiesPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "currentPlatformDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "manifestDir",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "registerAuthority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "keyId",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "publicKey",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "sign": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "keyId",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "secret",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "claim",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "manifestDir",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "verify": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "manifestDir",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "now",
+                            "type": "?int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\ContractCommand": {
             "abstract": false,
             "constants": {
@@ -22339,7 +22576,8 @@
                     "value_repr": [
                         "show",
                         "propose",
-                        "accept"
+                        "accept",
+                        "attest"
                     ]
                 }
             },
@@ -22733,6 +22971,23 @@
                 "readContract": {
                     "abstract": false,
                     "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "manifestDir",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "readContractUnverified": {
+                    "abstract": false,
+                    "final": false,
                     "parameters": [],
                     "return_type": "?array",
                     "static": false,
@@ -22760,6 +23015,39 @@
                         }
                     ],
                     "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "writeAttestedContract": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "expectedDigest",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "manifestDir",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
                     "static": false,
                     "visibility": "public"
                 },
@@ -24382,6 +24670,7 @@
                         "provision env value",
                         "install adapter",
                         "certify adapter",
+                        "attest contract",
                         "nothing — supported"
                     ]
                 },
@@ -24401,6 +24690,7 @@
                         "certify adapter",
                         "provision env value",
                         "exclude",
+                        "attest contract",
                         "nothing — supported"
                     ]
                 }
@@ -26830,6 +27120,9 @@
                 "ANNOTATION_RESTORED_BY_PREFIX": {
                     "value_repr": "restored by: "
                 },
+                "ANNOTATION_SITE_CERTIFIED_ATTESTED_SUFFIX": {
+                    "value_repr": "; contract attested by "
+                },
                 "ANNOTATION_SITE_CERTIFIED_PREFIX": {
                     "value_repr": "certified by "
                 },
@@ -26914,6 +27207,7 @@
                         "provision env value",
                         "install adapter",
                         "certify adapter",
+                        "attest contract",
                         "nothing — supported"
                     ]
                 },

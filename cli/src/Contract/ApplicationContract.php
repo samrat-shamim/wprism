@@ -35,11 +35,22 @@ use Duo\CommandRefusalException;
  *
  * Two rules are not schema, they are the round's honesty properties:
  *
- *  1. `attestation.state` is a closed enum `unsigned | signed`, and this
- *     profile only ever *writes* `unsigned` — the certification gate is
- *     deferred (MUP §7). The enum still admits `signed` so a future signed
- *     document parses rather than being unreadable; refusing to write one is
- *     ContractStore's job, at the boundary where writing happens.
+ *  1. `attestation.state` is a closed enum `unsigned | signed`, and WHICH one
+ *     a document may carry is decided at the write boundary, not here.
+ *     `ContractStore::writeContract()` — the ordinary accept path — still
+ *     refuses anything but `unsigned` with `attestation_signing_unsupported`,
+ *     because accepting a reviewed proposal is not an act that can produce a
+ *     signature. `signed` now has exactly one door,
+ *     `ContractStore::writeAttestedContract()`, and it opens only for bytes
+ *     `ContractAttestation::verify()` accepts under a key the OPERATOR
+ *     provisioned in `.duo/contract/authorities.json`. That file ships with no
+ *     key and nothing but `duo contract <env> attest` creates it, so on every
+ *     site that has not provisioned one the mint refuses
+ *     (`contract_attestation_unsigned_anchor`) and this document's `signed`
+ *     branch is reachable only by reading someone else's repository.
+ *     Validation here stays pure — no filesystem, no trust root, no clock —
+ *     which is why it validates the SHAPE of both states and asserts nothing
+ *     about whether a signature is good.
  *  2. An `external_effects[]` entry may not be `decided_by: unresolved`.
  *     MUP §1.6's consequence is that an undeclared live lifecycle window
  *     blocks a release, and the *fix* is a reviewed declaration. A generator
@@ -64,8 +75,20 @@ final class ApplicationContract {
 
     public const ATTESTATION_FORMAT = 'duo-contract-attestation/v1';
 
-    /** MUP §3.2: closed enum; this profile only ever writes `unsigned`. */
+    /**
+     * MUP §3.2: closed enum. `accept` writes `unsigned`; only the attest verb,
+     * under an operator-provisioned trust root, writes `signed`.
+     */
     public const ATTESTATION_STATES = ['unsigned', 'signed'];
+
+    /**
+     * The three keys a signed attestation carries and an unsigned one may not.
+     *
+     * Optional to the closed key set and conditional on the state, so every
+     * contract already accepted keeps its exact canonical bytes and its exact
+     * `contract_digest`. See validateAttestation() for what each one is for.
+     */
+    public const ATTESTATION_SIGNED_ONLY = ['key_id', 'platform_sha256', 'trust_root'];
 
     public const MANIFEST_SOURCES = ['shipped', 'site', 'plugin'];
     public const SITE_MODES = ['single-site', 'multisite'];
@@ -389,13 +412,30 @@ final class ApplicationContract {
         self::nonEmptyString($from['dispositions_sha256'], "$path.generated_from.dispositions_sha256");
     }
 
-    /** @param array<string,mixed> $attestation */
+    /**
+     * The four signed fields, plus the three the signer added, plus the one
+     * rule that keeps every unsigned document byte-identical.
+     *
+     * `key_id`, `platform_sha256` and `trust_root` are OPTIONAL to the closed
+     * key set and required only in the `signed` branch, which is what makes
+     * this change invisible to every contract already on disk: an unsigned
+     * document that never carried them still parses, and its
+     * `contract_digest` does not move. In the signed branch all three are
+     * required, because verification cannot be done without them —
+     * `ContractAttestation::verify()` resolves the key from
+     * `.duo/contract/authorities.json` by `key_id`, refuses a root other than
+     * `site` by name, and re-binds `platform_sha256` against the live agent so
+     * that a moved agent boundary reads as "re-attest", not as "someone
+     * tampered with your contract".
+     *
+     * @param array<string,mixed> $attestation
+     */
     private static function validateAttestation(array $attestation): void {
         $path = 'contract.attestation';
         self::closedKeys(
             $attestation,
             ['format', 'state', 'reason', 'approving_principal', 'policy_version', 'signature', 'expires_at'],
-            [],
+            self::ATTESTATION_SIGNED_ONLY,
             $path
         );
         if (($attestation['format'] ?? null) !== self::ATTESTATION_FORMAT) {
@@ -405,7 +445,8 @@ final class ApplicationContract {
             throw new CommandRefusalException(
                 'attestation_state_invalid',
                 "$path.state must be one of " . implode(' | ', self::ATTESTATION_STATES),
-                'accept a freshly proposed contract; this profile writes attestation.state "unsigned"'
+                'accept a freshly proposed contract; accept writes attestation.state "unsigned" and '
+                    . 'duo contract <env> attest is the only verb that writes "signed"'
             );
         }
         self::nonEmptyString($attestation['reason'], "$path.reason");
@@ -415,10 +456,25 @@ final class ApplicationContract {
                     throw self::refuseShape("$path.$key must be null while the attestation is unsigned");
                 }
             }
+            foreach (self::ATTESTATION_SIGNED_ONLY as $key) {
+                // Forbidden rather than null-valued: an unsigned document that
+                // carried an empty `key_id` slot would have different canonical
+                // bytes, and therefore a different `contract_digest`, than the
+                // identical document every accept has written since v2 existed.
+                if (array_key_exists($key, $attestation)) {
+                    throw self::refuseShape("$path.$key may only appear on a signed attestation");
+                }
+            }
 
             return;
         }
         foreach (['approving_principal', 'policy_version', 'signature', 'expires_at'] as $key) {
+            self::nonEmptyString($attestation[$key], "$path.$key");
+        }
+        foreach (self::ATTESTATION_SIGNED_ONLY as $key) {
+            if (!array_key_exists($key, $attestation)) {
+                throw self::refuseShape("$path is missing the required key '$key' for a signed attestation");
+            }
             self::nonEmptyString($attestation[$key], "$path.$key");
         }
     }

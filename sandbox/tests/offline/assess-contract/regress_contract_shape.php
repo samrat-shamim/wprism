@@ -353,10 +353,44 @@ $signed['attestation'] = [
     'policy_version' => '3',
     'signature' => 'ed25519:deadbeef',
     'expires_at' => '2027-01-01T00:00:00Z',
+    // The three the signer added. They are OPTIONAL to the closed key set and
+    // required only here, in the signed branch, which is the whole reason this
+    // change is invisible to every contract already on disk. Their content is
+    // checked by ContractAttestation, not by the schema: this document's
+    // `signature` is still the placeholder it always was, and it still parses.
+    'key_id' => 'contract-0123456789ab',
+    'platform_sha256' => str_repeat('a', 64),
+    'trust_root' => 'site',
 ];
 $signed = ApplicationContract::withDigest($signed);
 ApplicationContract::validate($signed);
 duo_check(true, 'a fully populated signed attestation still parses, so a future document is readable');
+foreach (ApplicationContract::ATTESTATION_SIGNED_ONLY as $signedOnly) {
+    $missing = $signed;
+    unset($missing['attestation'][$signedOnly]);
+    duo_check_refuses(
+        static fn () => ApplicationContract::validate(ApplicationContract::withDigest($missing)),
+        'contract_shape_invalid',
+        "a signed attestation without $signedOnly refuses: verification cannot be done without it"
+    );
+    $onUnsigned = $contract;
+    $onUnsigned['attestation'][$signedOnly] = 'x';
+    duo_check_refuses(
+        static fn () => ApplicationContract::validate(ApplicationContract::withDigest($onUnsigned)),
+        'contract_shape_invalid',
+        "an unsigned attestation may not carry $signedOnly, so no unsigned document gains a byte"
+    );
+}
+// The property the whole optional-key design exists for: an unsigned contract's
+// canonical bytes — and therefore its contract_digest, which duo release
+// freezes into an authorization plan — are exactly what they were before a
+// signed branch existed.
+foreach (ApplicationContract::ATTESTATION_SIGNED_ONLY as $signedOnly) {
+    duo_check(
+        !str_contains(ApplicationContract::encode($contract), '"' . $signedOnly . '"'),
+        "an unsigned contract's canonical bytes carry no $signedOnly key, so its contract_digest did not move"
+    );
+}
 $unsignedWithPrincipal = $contract;
 $unsignedWithPrincipal['attestation']['approving_principal'] = 'someone@example.test';
 duo_check_refuses(

@@ -38,6 +38,7 @@ return [
     'Duo\\Orchestrator\\CodeResolver' => 'src/Code/CodeResolver.php',
     'Duo\\Orchestrator\\CommandEnvironmentProvider' => 'src/Environment/EnvironmentLifecycle.php',
     'Duo\\Orchestrator\\CommandOutput' => 'src/Command/CommandOutput.php',
+    'Duo\\Orchestrator\\ContractAttestation' => 'src/Contract/ContractAttestation.php',
     'Duo\\Orchestrator\\ContractCommand' => 'src/Command/ContractCommand.php',
     'Duo\\Orchestrator\\ContractProjection' => 'src/Contract/ContractProjection.php',
     'Duo\\Orchestrator\\ContractProposal' => 'src/Contract/ContractProposal.php',

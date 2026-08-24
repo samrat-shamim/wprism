@@ -6,6 +6,10 @@ namespace Duo\Orchestrator;
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__) . '/Plan/HumanViewLimit.php';
 require_once __DIR__ . '/GapActions.php';
+// Named directly since the certified-principal sentence reads two annotation
+// constants from it; GapActions requires it too, and a file that references a
+// class states its own dependency (AGENTS.md non-negotiable 1).
+require_once dirname(__DIR__) . '/Contract/ProjectionVocabulary.php';
 
 use Duo\CommandRefusalException;
 
@@ -79,9 +83,12 @@ final class AssessRenderer {
      *
      * @param array<string,mixed> $report a `duo-assess-report/v1` document
      * @param array<string,mixed> $context `proposal_path` (the path written,
-     *        relative to the site repository), `contract_present` (bool) and
+     *        relative to the site repository), `contract_present` (bool),
      *        `operation` (the operation whose projection the table's columns
-     *        show)
+     *        show) and the optional `contract_attestation` — the verified
+     *        result of `ContractAttestation::verify()` for this site's
+     *        contract, or absent, which is what every unsigned contract and
+     *        every site with no contract produces
      * @return list<string>
      */
     public static function render(array $report, int $limit, array $context = []): array {
@@ -101,7 +108,7 @@ final class AssessRenderer {
         foreach (self::gapSection($report) as $line) {
             $lines[] = $line;
         }
-        foreach (self::evidenceSection($report) as $line) {
+        foreach (self::evidenceSection($report, $context) as $line) {
             $lines[] = $line;
         }
         foreach (self::proposalSection($report, $context) as $line) {
@@ -419,7 +426,7 @@ final class AssessRenderer {
      * @param array<string,mixed> $report
      * @return list<string>
      */
-    private static function evidenceSection(array $report): array {
+    private static function evidenceSection(array $report, array $context = []): array {
         $sha = is_string($report['evidence']['registry_sha256'] ?? null)
             ? (string) $report['evidence']['registry_sha256']
             : '';
@@ -427,7 +434,7 @@ final class AssessRenderer {
         foreach (self::mismatchLines($report) as $line) {
             $lines[] = '          ' . $line;
         }
-        foreach (self::siteCertifiedPrincipals($report) as $line) {
+        foreach (self::siteCertifiedPrincipals($report, $context) as $line) {
             $lines[] = '          ' . $line;
         }
 
@@ -492,10 +499,30 @@ final class AssessRenderer {
      * `Site-certified` on every row it applies to, so nothing is hidden by
      * not repeating the sentence.
      *
+     * ## The second half, once a contract IS signed
+     *
+     * `; contract attestation unsigned` is the true half on every site with no
+     * contract trust root, which is every site this build ships to. When the
+     * caller hands over a VERIFIED attestation — `ContractAttestation::verify()`
+     * has already run inside `ContractStore::readContract()`, so its presence
+     * in the context is proof, not a claim — the sentence names who attested
+     * and under which root instead. The constant
+     * `ProjectionVocabulary::ANNOTATION_SITE_CERTIFIED_SUFFIX` is untouched by
+     * the swap: a stored projection from an earlier build carries it, and it
+     * is still what an unsigned site's row says.
+     *
      * @param array<string,mixed> $report
+     * @param array<string,mixed> $context
      * @return list<string>
      */
-    private static function siteCertifiedPrincipals(array $report): array {
+    private static function siteCertifiedPrincipals(array $report, array $context = []): array {
+        $attestation = is_array($context['contract_attestation'] ?? null) ? $context['contract_attestation'] : null;
+        $suffix = $attestation === null
+            ? ProjectionVocabulary::ANNOTATION_SITE_CERTIFIED_SUFFIX
+            : ProjectionVocabulary::ANNOTATION_SITE_CERTIFIED_ATTESTED_SUFFIX
+                . self::safe($attestation['principal'] ?? '')
+                . ' (' . self::safe($attestation['trust_root'] ?? '') . ' trust root, expires '
+                . self::safe($attestation['expires_at'] ?? '') . ')';
         $seen = [];
         foreach ((is_array($report['surfaces'] ?? null) ? $report['surfaces'] : []) as $row) {
             $operations = is_array($row['operations'] ?? null) ? $row['operations'] : [];
@@ -512,8 +539,8 @@ final class AssessRenderer {
                     && $projection['certification_trust_root'] !== ''
                         ? $projection['certification_trust_root']
                         : 'site';
-                $seen[$principal . "\0" . $root] = 'certified by ' . self::safe($principal)
-                    . ' (' . self::safe($root) . ' trust root); contract attestation unsigned';
+                $seen[$principal . "\0" . $root] = ProjectionVocabulary::ANNOTATION_SITE_CERTIFIED_PREFIX
+                    . self::safe($principal) . ' (' . self::safe($root) . ' trust root)' . $suffix;
             }
         }
         ksort($seen, SORT_STRING);

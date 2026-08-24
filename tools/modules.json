@@ -1589,6 +1589,7 @@
         "status": "populated",
         "entry_points": [
           "ApplicationContract",
+          "ContractAttestation",
           "ContractProjection",
           "ContractProposal",
           "ContractStore",
@@ -1602,9 +1603,10 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 5,
+        "file_count": 6,
         "files": [
           "ApplicationContract.php",
+          "ContractAttestation.php",
           "ContractProjection.php",
           "ContractProposal.php",
           "ContractStore.php",

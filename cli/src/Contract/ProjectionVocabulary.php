@@ -114,10 +114,25 @@ final class ProjectionVocabulary {
      * actually close the gap. It stays in the set rather than being deleted
      * because a stored projection written by an earlier build carries it, and
      * `GapActions::assertMember()` must keep accepting one.
+     *
+     * `attest contract` is the contract-attestation signer's word and it ships
+     * the same way `qualify in rehearsal` sits: IN the set, emitted by
+     * nothing. The signer is real — `ContractAttestation` signs and verifies
+     * under `.duo/contract/authorities.json` — but the trust root ships empty,
+     * so on every site this build reaches, "attest the contract" is not a
+     * smallest safe next action: it is a request to provision an
+     * organizational signing key, which is a decision and not a step. It is
+     * added now rather than when something emits it because the set is closed
+     * and a projection written by a build that HAS the word must validate
+     * against a build that does not emit it — the same direction the
+     * rehearsal word travels. The roll-up prints it at zero either way
+     * (GapActions::summarise() seeds every action), which is the count being
+     * the signal.
      */
     public const GAP_ACTIONS = [
         'classify', 'declare in contract', 'qualify in rehearsal', 'exclude',
-        'provision env value', 'install adapter', 'certify adapter', 'nothing — supported',
+        'provision env value', 'install adapter', 'certify adapter', 'attest contract',
+        'nothing — supported',
     ];
 
     /**
@@ -187,6 +202,21 @@ final class ProjectionVocabulary {
      */
     public const ANNOTATION_SITE_CERTIFIED_PREFIX = 'certified by ';
     public const ANNOTATION_SITE_CERTIFIED_SUFFIX = '; contract attestation unsigned';
+
+    /**
+     * The same sentence's second half once the contract IS signed.
+     *
+     * `ANNOTATION_SITE_CERTIFIED_SUFFIX` is not retired and must not be: a
+     * projection written before the signer existed carries it verbatim, and it
+     * is still the true half on every site that has provisioned no contract
+     * trust root — which is every site this build ships to. The swap happens
+     * where a VERIFIED attestation is actually in hand
+     * (`AssessRenderer::siteCertifiedPrincipals()`, fed from the contract
+     * `AssessCommand` already read), never by rewriting the constant, because
+     * the two sentences describe two different states of one site and both
+     * states exist.
+     */
+    public const ANNOTATION_SITE_CERTIFIED_ATTESTED_SUFFIX = '; contract attested by ';
 
     /** The §1.6 consequence, stated on the row it blocks. */
     public const ANNOTATION_CONTAINMENT_BLOCK =

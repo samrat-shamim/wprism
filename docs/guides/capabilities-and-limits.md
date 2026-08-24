@@ -356,10 +356,15 @@ the certificate itself is what says so.
 
 Three things it does not do:
 
-- It does not sign your **contract**. `attestation.state` is still written
-  `unsigned`, which is why assess prints `certified by <principal>
-  (<root> trust root); contract attestation unsigned`. A certified adapter and
-  a signed contract are different documents and this release ships the first.
+- It does not sign your **contract**. That is a separate verb, `duo contract
+  <env> attest`, under a separate trust root (`.duo/contract/authorities.json`)
+  that ships with no key — so until your organization provisions one,
+  `attestation.state` stays `unsigned` and assess prints `certified by
+  <principal> (<root> trust root); contract attestation unsigned`. Once you do
+  attest, that second half names the principal and the expiry instead, and
+  every read re-verifies the signature: an edited contract drops the claim
+  rather than degrading it, and an agent upgrade moves the platform boundary
+  the attestation binds, so you attest again.
 - It does not become `Platform-certified` under the agent-owned trust root. A
   certificate about a *site adapter* reads `Site-certified` whichever root
   signed it; only the named root changes. A signed override of a shipped

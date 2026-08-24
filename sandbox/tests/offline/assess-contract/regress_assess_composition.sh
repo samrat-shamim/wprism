@@ -324,9 +324,18 @@ assert_contains "$TMP/outh.txt" '  install adapter' \
   'and so does install adapter'
 assert_contains "$TMP/outh.txt" '  qualify in rehearsal' \
   'the retired word still PRINTS its count — the closed set is the same size for a reader'
+# The ninth word. `attest contract` is in the closed set and emitted by nothing:
+# the contract attestation signer ships, and the trust root
+# (.duo/contract/authorities.json) is absent on every site, so attesting is an
+# organizational decision rather than a next action. It still prints its zero
+# for the same reason `qualify in rehearsal` does two lines above — the count is
+# the signal, so a line that appears only when non-zero would teach a reader to
+# read presence instead of the number.
+assert_contains "$TMP/outh.txt" '  attest contract' \
+  'the unemitted attestation action prints in the roll-up, at its true count of zero'
 NEXT_ACTION_LINES=$(sed -n '/^next actions:/,/^evidence:/p' "$TMP/outh.txt" | grep -cE '^ +[0-9]+  ')
-check "$([ "$NEXT_ACTION_LINES" = 8 ] && echo 0 || echo 1)" \
-  "the roll-up prints all eight closed-set actions (got $NEXT_ACTION_LINES)"
+check "$([ "$NEXT_ACTION_LINES" = 9 ] && echo 0 || echo 1)" \
+  "the roll-up prints all nine closed-set actions (got $NEXT_ACTION_LINES)"
 
 # The roll-up counts every finding EXACTLY once. An undeclared table is a
 # surface row AND an unknown-section finding, so counting the coverage total on
