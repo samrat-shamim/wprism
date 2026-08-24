@@ -211,6 +211,7 @@ foreach ([
     'enable_month_view_cache' => true,
     'trash-past-events' => 12,
     'delete-past-events' => 24,
+    'multiDayCutoff' => '07:00',
     'category-color-enable-frontend' => false,
     'category-color-show-hidden-categories' => true,
     'tec_seo_out_of_range_behavior' => 'hard_404',
@@ -218,6 +219,28 @@ foreach ([
     'eb_security_key' => 'target-event-aggregator-secret-preserved',
 ] as $key => $value) {
     tribe_update_option($key, $value);
+}
+
+$cutoff_sentinel = tribe_events()->set_args([
+    'title' => 'Duo Target Local All Day Cutoff Sentinel',
+    'status' => 'publish',
+    'description' => 'Target-owned event must survive the hook-bypassing settings write byte-exact.',
+    'start_date' => '2020-04-05 02:03:04',
+    'end_date' => '2020-04-05 04:03:04',
+    'timezone' => 'UTC',
+    'all_day' => true,
+])->create();
+if (!$cutoff_sentinel || !$cutoff_sentinel->ID) {
+    throw new RuntimeException('TEC target-local cutoff sentinel could not be created');
+}
+$cutoff_sentinel_id = (int) $cutoff_sentinel->ID;
+$cutoff_sentinel_post = get_post($cutoff_sentinel_id);
+if (!$cutoff_sentinel_post instanceof WP_Post) {
+    throw new RuntimeException('TEC target-local cutoff sentinel post could not be read back');
+}
+$cutoff_sentinel_meta = [];
+foreach (['_EventAllDay', '_EventStartDate', '_EventEndDate', '_EventDuration'] as $key) {
+    $cutoff_sentinel_meta[$key] = get_post_meta($cutoff_sentinel_id, $key, true);
 }
 
 // Duo's materializer does not fire TEC's wp-admin category-save hook. Keep a
@@ -241,6 +264,15 @@ if (count($dirty_dropdown) !== 1 || ($dirty_dropdown[0]['primary'] ?? null) !== 
 
 echo wp_json_encode([
     'category' => $category_id,
+    'cutoff_sentinel' => [
+        'id' => $cutoff_sentinel_id,
+        'post' => [
+            'post_status' => $cutoff_sentinel_post->post_status,
+            'post_title' => $cutoff_sentinel_post->post_title,
+            'post_type' => $cutoff_sentinel_post->post_type,
+        ],
+        'meta' => $cutoff_sentinel_meta,
+    ],
     'all_day' => (int) $dirty_all_day->ID,
     'delete_probe' => (int) $dirty_delete_probe->ID,
     'dirty_event' => (int) $dirty->ID,
@@ -259,6 +291,12 @@ require_observed_nonempty "TEC dirty target premise" "$TARGET_OUT"
 TARGET_JSON=$(printf '%s\n' "$TARGET_OUT" | awk 'NF { line=$0 } END { print line }')
 printf '%s\n' "$TARGET_JSON" | jq -e '
   .dirty_event >= 7000000000 and .all_day >= 7000000000 and .delete_probe >= 7000000000 and
+  .cutoff_sentinel.id >= 7000000000 and
+  .cutoff_sentinel.post == {
+    post_status:"publish",
+    post_title:"Duo Target Local All Day Cutoff Sentinel",
+    post_type:"tribe_events"
+  } and .cutoff_sentinel.meta._EventAllDay == "yes" and
   .venue >= 7000000000 and .organizer >= 7000000000 and
   (.organizers | length) == 3 and (.organizers | unique | length) == 3 and
   all(.organizers[]; . >= 7000000000) and

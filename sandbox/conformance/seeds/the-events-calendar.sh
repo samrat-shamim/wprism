@@ -9,6 +9,14 @@ read -r -d '' SEED_PHP <<'PHPEOF' || true
 <?php
 wp_set_current_user(1);
 
+// Establish the target-owned end-of-day policy before any all-day row exists.
+// Updating it later would execute TEC's unchecked global postmeta callback and
+// manufacture an incoherent source fixture before Duo ever captures it.
+if (!tribe_update_option('multiDayCutoff', '03:00')
+    && tribe_get_option('multiDayCutoff', '__missing__') !== '03:00') {
+    throw new RuntimeException('TEC source multi-day cutoff did not persist');
+}
+
 $category = wp_insert_term('Duo Readiness 東京', 'tribe_events_cat', [
     'slug' => 'duo-readiness-category',
     'description' => 'Portable category description — বাংলা — مرحبا',

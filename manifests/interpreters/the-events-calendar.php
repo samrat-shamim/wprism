@@ -283,6 +283,9 @@ final class TheEventsCalendar {
         } else {
             $this->assert_option_mutation_hook_topology($name, $targetValue !== null);
             $storage = $this->ordinary_closed_mixed_storage($captured, $declaredSubKeys, $targetValue);
+            if ($targetValue !== null) {
+                $this->assert_calendar_option_update_callbacks_are_noop($targetValue, $storage);
+            }
             if ($writeRuntimeOption === null) {
                 throw new \RuntimeException(
                     'duo: The Events Calendar settings writer lacks runtime-companion authority'
@@ -2084,6 +2087,11 @@ final class TheEventsCalendar {
                 $this->assert_updated_option_callbacks($records, $woo);
                 continue;
             }
+            if ($hookName === 'update_option_' . self::CALENDAR_OPTIONS
+                && $name === self::CALENDAR_OPTIONS) {
+                $this->assert_calendar_option_update_callbacks($records);
+                continue;
+            }
             if ($hookName === 'pre_update_option' && $woo !== null) {
                 $this->assert_woo_option_callbacks($hookName, $records, $woo);
                 continue;
@@ -2114,6 +2122,89 @@ final class TheEventsCalendar {
             throw new \RuntimeException(
                 "duo: The Events Calendar option mutation hook topology is extended for '$name'"
             );
+        }
+    }
+
+    /**
+     * Free TEC registers two callbacks on its mixed settings row. Duo never
+     * executes either: fix_all_day_events() performs two unchecked global
+     * postmeta updates without UTC/CT1/cache closure, while the cleaner can
+     * permanently delete posts. The closed registry therefore keeps both
+     * trigger keys target-owned and admits raw replacement only when strict
+     * old/new equality proves both callbacks would return before mutation.
+     *
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> $records
+     */
+    private function assert_calendar_option_update_callbacks(array $records): void {
+        if (!class_exists('Tribe__Events__Main')
+            || !class_exists('Tribe__Events__Event_Cleaner')
+            || !function_exists('tribe')
+            || !function_exists('tribe_callback')) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar settings-effect services are unavailable'
+            );
+        }
+        try {
+            $main = \Tribe__Events__Main::instance();
+            $cleaner = tribe('tec.event-cleaner');
+            $cleanerCallback = tribe_callback('tec.event-cleaner', 'permanently_delete_old_events');
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar settings-effect services could not be resolved',
+                0,
+                $failure
+            );
+        }
+        if (!is_object($main)
+            || get_class($main) !== 'Tribe__Events__Main'
+            || !is_object($cleaner)
+            || get_class($cleaner) !== 'Tribe__Events__Event_Cleaner'
+            || !isset($cleaner->key_delete_events)
+            || $cleaner->key_delete_events !== 'delete-past-events'
+            || !is_callable($cleanerCallback)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar settings-effect service identities were substituted'
+            );
+        }
+        $expected = [
+            [$main, 'fix_all_day_events', 10, 2],
+            [$cleanerCallback, null, 10, 2],
+        ];
+        foreach ($records as $position => [$priority, $record]) {
+            $wanted = $expected[$position] ?? null;
+            if (!is_array($wanted)) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar settings-effect callback topology was extended'
+                );
+            }
+            [$service, $method, $expectedPriority, $accepted] = $wanted;
+            $callback = $method === null ? $service : [$service, $method];
+            if ($priority !== $expectedPriority
+                || ($record['accepted_args'] ?? null) !== $accepted
+                || ($record['function'] ?? null) !== $callback) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar settings-effect callback topology was extended or substituted'
+                );
+            }
+        }
+        if (count($records) !== count($expected)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar settings-effect callback topology is incomplete'
+            );
+        }
+    }
+
+    /** @param array<string,mixed> $old @param array<string,mixed> $new */
+    private function assert_calendar_option_update_callbacks_are_noop(array $old, array $new): void {
+        foreach (['multiDayCutoff', 'delete-past-events'] as $key) {
+            $oldPresent = array_key_exists($key, $old);
+            $newPresent = array_key_exists($key, $new);
+            if ($oldPresent !== $newPresent
+                || ($oldPresent && $old[$key] !== $new[$key])) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar target-owned settings effect would mutate global event state'
+                );
+            }
         }
     }
 

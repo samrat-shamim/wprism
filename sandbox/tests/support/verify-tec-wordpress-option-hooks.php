@@ -506,9 +506,19 @@ if ($tecRoot !== '' || $tecVersion !== '') {
 
     $bootstrap = $compactPhp($tecSources['the-events-calendar.php'] ?? '');
     $main = $tecSources['src/Tribe/Main.php'] ?? '';
+    $mainCompact = $compactPhp($main);
     $mainActivate = $compactPhp(tec_option_function_body($main, 'activate'));
     $mainDeactivate = $compactPhp(tec_option_function_body($main, 'deactivate'));
     $mainClearCt1 = $compactPhp(tec_option_function_body($main, 'clear_ct1_activation_state'));
+    $fixAllDayEvents = $compactPhp(tec_option_function_body($main, 'fix_all_day_events'));
+    $eventCleaner = $tecSources['src/Tribe/Event_Cleaner.php'] ?? '';
+    $permanentlyDelete = $compactPhp(tec_option_function_body(
+        $eventCleaner,
+        'permanently_delete_old_events'
+    ));
+    $displayDateTime = $compactPhp(
+        $tecSources['src/admin-views/settings/tabs/display/display-date-time.php'] ?? ''
+    );
     foreach ([
         [
             $bootstrap,
@@ -532,6 +542,43 @@ if ($tecRoot !== '' || $tecVersion !== '') {
         ],
         [$mainActivate, 'self::clear_ct1_activation_state();', 'activation CT1 reset'],
         [$mainDeactivate, 'self::clear_ct1_activation_state();', 'deactivation CT1 reset'],
+        [
+            $mainCompact,
+            "add_action('update_option_'.Tribe__Main::OPTIONNAME,[\$this,'fix_all_day_events'],10,2);",
+            'all-day cutoff update callback',
+        ],
+        [
+            $mainCompact,
+            "tribe_callback('tec.event-cleaner','permanently_delete_old_events')",
+            'permanent event-cleaner update callback',
+        ],
+        [
+            $fixAllDayEvents,
+            "if(\$old_value['multiDayCutoff']==\$new_value['multiDayCutoff']){return;}",
+            'all-day callback no-op guard',
+        ],
+        [
+            $fixAllDayEvents,
+            '$wpdb->query($fix_start_dates);$wpdb->query($fix_end_dates);',
+            'unchecked global all-day postmeta mutations',
+        ],
+        [
+            $permanentlyDelete,
+            'if($new_value==$old_value){return;}',
+            'event-cleaner no-op guard',
+        ],
+        [
+            $permanentlyDelete,
+            '$this->scheduler->permanently_delete_old_events();',
+            'event-cleaner immediate permanent delete effect',
+        ],
+        [
+            $displayDateTime,
+            "'multiDayCutoff'=>['type'=>'dropdown'",
+            'end-of-day cutoff registry',
+        ],
+        [$displayDateTime, "'00:00'=>", 'end-of-day cutoff lower value'],
+        [$displayDateTime, "'11:00'=>", 'end-of-day cutoff upper value'],
         [
             $mainDeactivate,
             "\$hook_name='tribe_schedule_transient_purge';",
@@ -966,7 +1013,7 @@ if ($tecRoot !== '' || $tecVersion !== '') {
             'qr_code_size' => ['4', '8', '12', '16', '20', '24', '28'],
             'redirection' => ['current', 'upcoming', 'specific'],
             'event_ref' => 'post:tribe_events',
-            'series_ref' => 'free-plugin-absence',
+            'series_ref' => 'free-plugin-zero-wire',
         ],
     ]) {
         tec_option_usage("TEC $tecVersion reviewed legacy-widget schema fixture drifted");

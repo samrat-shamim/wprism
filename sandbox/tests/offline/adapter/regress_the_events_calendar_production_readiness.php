@@ -414,10 +414,53 @@ final class Tribe__Cache {
     }
 }
 
-final class Tribe__Main {
+class Tribe__Main {
     /** @return list<string> */
     public static function get_post_types(): array {
         return ['tribe_events', 'tribe_venue', 'tribe_organizer'];
+    }
+}
+
+final class Tribe__Events__Main extends Tribe__Main {
+    private static ?self $instance = null;
+
+    private function __construct() {
+        add_action(
+            'update_option_tribe_events_calendar_options',
+            [$this, 'fix_all_day_events'],
+            10,
+            2
+        );
+        add_action(
+            'update_option_tribe_events_calendar_options',
+            tribe_callback('tec.event-cleaner', 'permanently_delete_old_events'),
+            10,
+            2
+        );
+    }
+
+    public static function instance(): self {
+        return self::$instance ??= new self();
+    }
+
+    public function fix_all_day_events(array $old, array $new): void {
+        $oldCutoff = empty($old['multiDayCutoff']) ? '00:00' : $old['multiDayCutoff'];
+        $newCutoff = empty($new['multiDayCutoff']) ? '00:00' : $new['multiDayCutoff'];
+        if ($oldCutoff != $newCutoff) {
+            ++$GLOBALS['tec_readiness_cutoff_effect_calls'];
+        }
+    }
+}
+
+final class Tribe__Events__Event_Cleaner {
+    public string $key_delete_events = 'delete-past-events';
+
+    public function permanently_delete_old_events(array $old, array $new): void {
+        $oldDelete = empty($old[$this->key_delete_events]) ? null : $old[$this->key_delete_events];
+        $newDelete = empty($new[$this->key_delete_events]) ? null : $new[$this->key_delete_events];
+        if ($oldDelete != $newDelete) {
+            ++$GLOBALS['tec_readiness_cleaner_effect_calls'];
+        }
     }
 }
 
@@ -1243,6 +1286,7 @@ function tribe(?string $class = null): object {
         return $GLOBALS['tec_readiness_native_container']->make($class);
     }
     return match ($class) {
+        'tec.event-cleaner' => $GLOBALS['tec_readiness_event_cleaner'],
         'customizer' => $GLOBALS['tec_readiness_customizer'],
         'cache' => $GLOBALS['tec_readiness_container_cache'],
         'Tribe\\Events\\Views\\V2\\Hooks' => $GLOBALS['tec_readiness_views_hooks'],
@@ -1256,6 +1300,19 @@ function tribe(?string $class = null): object {
             $GLOBALS['tec_readiness_category_color_dropdown'],
         default => $GLOBALS['tec_readiness_category_color_controller'],
     };
+}
+
+function tribe_callback(string $id, string $method): Closure {
+    $key = $id . '::' . $method;
+    if (!isset($GLOBALS['tec_readiness_tribe_callbacks'][$key])) {
+        $GLOBALS['tec_readiness_tribe_callbacks'][$key] = static function (mixed ...$args) use (
+            $id,
+            $method
+        ): mixed {
+            return tribe($id)->{$method}(...$args);
+        };
+    }
+    return $GLOBALS['tec_readiness_tribe_callbacks'][$key];
 }
 
 function tribe_cache(): object {
@@ -2737,7 +2794,6 @@ $expectedMainOptionClasses = [
         'eventsSlug',
         'monthAndYearFormat',
         'monthEventAmount',
-        'multiDayCutoff',
         'postsPerPage',
         'posts_per_page',
         'remove_event_end_time',
@@ -2796,6 +2852,7 @@ $expectedMainOptionClasses = [
         'liveFiltersUpdate',
         'meetup_api_key',
         'meetup_security_key',
+        'multiDayCutoff',
         'opt-in-status',
         'opt_in_status',
         'previous_ecp_versions',
@@ -2861,6 +2918,19 @@ foreach ($expectedMainOptionClasses as $class => &$keys) {
     );
 }
 unset($keys);
+duo_check_same(
+    'env',
+    $options['sub_keys']['multiDayCutoff']['class'] ?? null,
+    'the unsafe native all-day cutoff effect remains target-owned rather than hollow authored state'
+);
+duo_check(
+    in_array(
+        'option:tribe_events_calendar_options.multiDayCutoff',
+        array_column($disposition['unsupported'] ?? [], 'surface'),
+        true
+    ),
+    'the reviewed disposition names the target-owned all-day cutoff boundary explicitly'
+);
 duo_check_same(
     null,
     $options['sub_keys']['tribe_aggregator_default_webcal_post_status'] ?? null,
@@ -4230,6 +4300,7 @@ duo_check_same(
     [
         'the-events-calendar.php',
         'uninstall.php',
+        'src/admin-views/settings/tabs/display/display-date-time.php',
         'build/js/customizer-views-v2-controls.js',
         'build/js/customizer-views-v2-live-preview.js',
         'common/src/Tribe/Abstract_Deactivation.php',
@@ -4264,6 +4335,7 @@ duo_check_same(
         'src/Tribe/Aggregator/Records.php',
         'src/Tribe/Capabilities.php',
         'src/Tribe/Deactivation.php',
+        'src/Tribe/Event_Cleaner.php',
         'src/Tribe/Event_Cleaner_Scheduler.php',
         'src/Tribe/Main.php',
         'src/Tribe/Rewrite.php',
@@ -4296,6 +4368,10 @@ foreach ([
     'wp-includes/blocks/legacy-widget.php',
     'wp-includes/blocks/legacy-widget/block.json',
     'src/Tribe/Views/V2/Widgets/Service_Provider.php',
+    'src/Tribe/Event_Cleaner.php',
+    'fix_all_day_events',
+    'permanently_delete_old_events',
+    'multiDayCutoff',
     'common/src/Tribe/Settings_Manager.php',
     'common/src/Common/Integrations/Harbor/PUE.php',
     'tribe()->make( Occurrences_Generator::class )',
@@ -5986,7 +6062,8 @@ function tec_readiness_capture_customizer_record(
  *   row:?array{option_id:mixed,option_name:mixed,option_value:mixed,autoload:mixed},
  *   legacy_row:?array{option_id:mixed,option_name:mixed,option_value:mixed,autoload:mixed},
  *   failure:?Throwable,warnings:list<string>,settings_cache_present:bool,settings_cache:mixed,
- *   runtime_rows:array<string,array>,purge_flag_present:bool,purge_flag:mixed,tribe_var_writes:list<array>
+ *   runtime_rows:array<string,array>,purge_flag_present:bool,purge_flag:mixed,tribe_var_writes:list<array>,
+ *   postmeta_rows:list<array<string,mixed>>
  * }
  */
 function tec_readiness_materialize_mixed_option(
@@ -6049,6 +6126,7 @@ function tec_readiness_materialize_mixed_option(
         ];
     }
     $db->seedTable($db->options, $targetRows);
+    $db->seedTable($db->postmeta, []);
     if ($configureDb !== null) {
         $configureDb($db);
     }
@@ -6139,6 +6217,7 @@ function tec_readiness_materialize_mixed_option(
     $purgePresentAfter = tribe_isset_var('should_delete_expired_transients');
     $purgeAfter = $purgePresentAfter ? tribe_get_var('should_delete_expired_transients') : null;
     $tribeVarWrites = $GLOBALS['tec_readiness_tribe_var_writes'];
+    $postmetaRows = $db->rows($db->postmeta);
     if ($participantsStarted) {
         $optionsMaterializer->end_authored_transaction();
         $fieldMaterializer->end_authored_transaction();
@@ -6169,6 +6248,7 @@ function tec_readiness_materialize_mixed_option(
         'purge_flag_present' => $purgePresentAfter,
         'purge_flag' => $purgeAfter,
         'tribe_var_writes' => $tribeVarWrites,
+        'postmeta_rows' => $postmetaRows,
     ];
 }
 
@@ -6219,6 +6299,11 @@ $decodeLegacyCompanion = static function (array $result): ?array {
 };
 
 $GLOBALS['tec_readiness_settings_manager'] = Tribe__Settings_Manager::instance();
+$GLOBALS['tec_readiness_event_cleaner'] = new Tribe__Events__Event_Cleaner();
+$GLOBALS['tec_readiness_tribe_callbacks'] = [];
+$GLOBALS['tec_readiness_events_main'] = Tribe__Events__Main::instance();
+$GLOBALS['tec_readiness_cutoff_effect_calls'] = 0;
+$GLOBALS['tec_readiness_cleaner_effect_calls'] = 0;
 $GLOBALS['tec_readiness_cache_listener'] = Tribe__Cache_Listener::instance();
 $GLOBALS['tec_readiness_deprecation'] = Tribe__Deprecation::instance();
 $GLOBALS['tec_readiness_events_rewrite'] = Tribe__Events__Rewrite::instance();
@@ -6715,6 +6800,130 @@ duo_check_same(
 duo_check_same(true, $mainSettings['purge_flag_present'], 'successful marker writes publish the native purge flag');
 duo_check_same(true, $mainSettings['purge_flag'], 'the native transient-purge intent is the exact boolean true');
 
+$allDayPreimage = [
+    ['meta_id' => 1, 'post_id' => 9001, 'meta_key' => '_EventAllDay', 'meta_value' => 'yes'],
+    ['meta_id' => 2, 'post_id' => 9001, 'meta_key' => '_EventStartDate', 'meta_value' => '2020-02-03 02:03:04'],
+    ['meta_id' => 3, 'post_id' => 9001, 'meta_key' => '_EventEndDate', 'meta_value' => '2020-02-03 04:03:04'],
+    ['meta_id' => 4, 'post_id' => 9001, 'meta_key' => '_EventDuration', 'meta_value' => '7200'],
+    // Native joins are unsafe even around hostile duplicates. Since both
+    // trigger values are target-owned and unchanged, Duo must not inspect or
+    // normalize this unrelated target-local state at all.
+    ['meta_id' => 5, 'post_id' => 9002, 'meta_key' => '_EventAllDay', 'meta_value' => 'yes'],
+    ['meta_id' => 6, 'post_id' => 9002, 'meta_key' => '_EventStartDate', 'meta_value' => 'malformed'],
+    ['meta_id' => 7, 'post_id' => 9002, 'meta_key' => '_EventStartDate', 'meta_value' => 'duplicate'],
+];
+$effectTarget = [
+    'eventsSlug' => 'dirty-events',
+    'multiDayCutoff' => '07:00',
+    'delete-past-events' => 24,
+];
+$cutoffCallsBefore = $GLOBALS['tec_readiness_cutoff_effect_calls'];
+$cleanerCallsBefore = $GLOBALS['tec_readiness_cleaner_effect_calls'];
+$noOpEffects = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'portable-events'],
+    target: $effectTarget,
+    configureDb: static function (LockingFakeWpdb $db) use ($allDayPreimage): void {
+        $db->inner()->seedTable($db->postmeta, $allDayPreimage);
+    },
+    timePlan: [1001.125, 1001.875]
+);
+duo_check_same(null, $noOpEffects['failure'], 'the exact two native settings callbacks are admitted only as proved no-ops');
+$noOpStorage = $decodeMixedRow($noOpEffects);
+duo_check_same('07:00', $noOpStorage['multiDayCutoff'] ?? null, 'target-owned cutoff survives an unrelated authored update');
+duo_check_same(24, $noOpStorage['delete-past-events'] ?? null, 'target-owned cleaner schedule survives an unrelated authored update');
+duo_check_same($allDayPreimage, $noOpEffects['postmeta_rows'], 'no-op callback bypass preserves malformed/duplicate target-local all-day rows byte-exact');
+duo_check_same($cutoffCallsBefore, $GLOBALS['tec_readiness_cutoff_effect_calls'], 'Duo never executes the unchecked all-day postmeta callback');
+duo_check_same($cleanerCallsBefore, $GLOBALS['tec_readiness_cleaner_effect_calls'], 'Duo never executes the permanent event-cleaner callback');
+
+$effectGuard = new ReflectionMethod($interpreter, 'assert_calendar_option_update_callbacks_are_noop');
+foreach ([
+    'cutoff drift' => [
+        ['multiDayCutoff' => '07:00', 'delete-past-events' => 24],
+        ['multiDayCutoff' => '08:00', 'delete-past-events' => 24],
+    ],
+    'cleaner drift' => [
+        ['multiDayCutoff' => '07:00', 'delete-past-events' => 24],
+        ['multiDayCutoff' => '07:00', 'delete-past-events' => 6],
+    ],
+] as $label => [$oldEffectValue, $newEffectValue]) {
+    duo_check_throws(
+        static fn() => $effectGuard->invoke($interpreter, $oldEffectValue, $newEffectValue),
+        RuntimeException::class,
+        "the pre-storage no-op proof refuses $label before a broad native effect could be skipped",
+        'would mutate global event state'
+    );
+}
+
+$hostileMainSpecific = static function (array $old, array $new): void {};
+add_action('update_option_tribe_events_calendar_options', $hostileMainSpecific, 999, 2);
+$extendedMainTopology = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_events_calendar_options',
+    ['eventsSlug' => 'portable-events'],
+    $effectTarget
+);
+remove_action('update_option_tribe_events_calendar_options', $hostileMainSpecific, 999);
+duo_check(
+    $extendedMainTopology['failure'] instanceof RuntimeException
+        && str_contains($extendedMainTopology['failure']->getMessage(), 'settings-effect callback topology'),
+    'an extension callback on the exact main-option hook refuses before storage'
+);
+duo_check_same($effectTarget, $decodeMixedRow($extendedMainTopology), 'extended settings topology preserves the exact target row');
+$extendedMainRetry = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_events_calendar_options',
+    ['eventsSlug' => 'portable-events'],
+    $effectTarget
+);
+duo_check_same(null, $extendedMainRetry['failure'], 'removing the main-option extension callback permits same-process retry');
+
+$mainSingleton = Tribe__Events__Main::instance();
+$foreignMain = (new ReflectionClass(Tribe__Events__Main::class))->newInstanceWithoutConstructor();
+remove_action('update_option_tribe_events_calendar_options', [$mainSingleton, 'fix_all_day_events'], 10);
+add_action('update_option_tribe_events_calendar_options', [$foreignMain, 'fix_all_day_events'], 10, 2);
+$substitutedMainEffect = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_events_calendar_options',
+    ['eventsSlug' => 'portable-events'],
+    $effectTarget
+);
+$cleanerCallback = tribe_callback('tec.event-cleaner', 'permanently_delete_old_events');
+remove_action('update_option_tribe_events_calendar_options', $cleanerCallback, 10);
+remove_action('update_option_tribe_events_calendar_options', [$foreignMain, 'fix_all_day_events'], 10);
+add_action('update_option_tribe_events_calendar_options', [$mainSingleton, 'fix_all_day_events'], 10, 2);
+add_action('update_option_tribe_events_calendar_options', $cleanerCallback, 10, 2);
+duo_check(
+    $substitutedMainEffect['failure'] instanceof RuntimeException
+        && str_contains($substitutedMainEffect['failure']->getMessage(), 'extended or substituted'),
+    'a same-class non-singleton all-day callback refuses before storage'
+);
+
+$foreignCleanerCallback = static function (array $old, array $new): void {};
+remove_action('update_option_tribe_events_calendar_options', $cleanerCallback, 10);
+add_action('update_option_tribe_events_calendar_options', $foreignCleanerCallback, 10, 2);
+$substitutedCleanerEffect = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_events_calendar_options',
+    ['eventsSlug' => 'portable-events'],
+    $effectTarget
+);
+remove_action('update_option_tribe_events_calendar_options', $foreignCleanerCallback, 10);
+add_action('update_option_tribe_events_calendar_options', $cleanerCallback, 10, 2);
+duo_check(
+    $substitutedCleanerEffect['failure'] instanceof RuntimeException
+        && str_contains($substitutedCleanerEffect['failure']->getMessage(), 'extended or substituted'),
+    'a closure substituted for the container-cached event-cleaner callback refuses before storage'
+);
+$substitutedEffectRetry = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_events_calendar_options',
+    ['eventsSlug' => 'portable-events'],
+    $effectTarget
+);
+duo_check_same(null, $substitutedEffectRetry['failure'], 'restoring exact native callback identities permits same-process retry');
+
 $mainInsert = tec_readiness_materialize_mixed_option(
     policy: $policy,
     name: 'tribe_events_calendar_options',
@@ -7118,7 +7327,8 @@ foreach ([
     remove_filter($hookName, $hostileOptionMutationCallback, 999);
     duo_check(
         $mainMutationRefusal['failure'] instanceof RuntimeException
-            && str_contains($mainMutationRefusal['failure']->getMessage(), 'option mutation hook topology'),
+            && (str_contains($mainMutationRefusal['failure']->getMessage(), 'option mutation hook topology')
+                || str_contains($mainMutationRefusal['failure']->getMessage(), 'settings-effect callback topology')),
         "$label refuses before raw main-settings storage"
     );
     if ($target === null) {

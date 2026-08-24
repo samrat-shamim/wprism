@@ -553,6 +553,7 @@ echo wp_json_encode([
         'delete_past' => $option['delete-past-events'] ?? null,
         'eb_secret' => $option['eb_security_key'] ?? null,
         'month_cache' => $option['enable_month_view_cache'] ?? null,
+        'multi_day_cutoff' => $option['multiDayCutoff'] ?? null,
         'events_slug' => $option['eventsSlug'] ?? null,
         'maps_key' => $option['google_maps_js_api_key'] ?? null,
         'seo_behavior' => $option['tec_seo_out_of_range_behavior'] ?? null,
@@ -997,6 +998,7 @@ jq -e '
   ($o | has("enable_month_view_cache") | not) and
   ($o | has("trash-past-events") | not) and
   ($o | has("delete-past-events") | not) and
+  ($o | has("multiDayCutoff") | not) and
   ($o | has("eventsDefaultVenueID") | not) and
   ($o | has("eventsDefaultOrganizerID") | not) and
   ($o | has("google_maps_js_api_key") | not)
@@ -1046,6 +1048,7 @@ printf '%s\n' "$SOURCE" | jq -e \
   .event.organizer_blocks == (.organizers | map(.id)) and
   .all_day.organizer_blocks == [null] and .delete_probe.organizer_blocks == [] and
   .options.blocks_editor == true and
+  .options.multi_day_cutoff == "03:00" and
   .customizer_contract == {
     accepted_args:1,
     callback:"Tribe__Customizer::maybe_fallback_get_option",
@@ -1207,6 +1210,7 @@ printf '%s\n' "$TARGET" | jq -e \
   .options.timezone_mode == "event" and
   .options.debug == false and .options.month_cache == true and
   .options.trash_past == 12 and .options.delete_past == 24 and
+  .options.multi_day_cutoff == "07:00" and
   .options.maps_key == "target-maps-key-preserved" and
   .options.eb_secret == "target-event-aggregator-secret-preserved" and
   .cache == "target-runtime-preserved" and
@@ -1242,6 +1246,40 @@ printf '%s\n' "$TARGET" | jq -e \
     safe_instance_rehashed:true
   }
 ' >/dev/null || fail "TEC native graph/settings/derived state did not converge: $TARGET"
+
+CUTOFF_SENTINEL=$(wp_conf2 eval '
+$posts = get_posts([
+    "post_type" => "tribe_events",
+    "post_status" => "any",
+    "posts_per_page" => 2,
+    "title" => "Duo Target Local All Day Cutoff Sentinel",
+]);
+if (count($posts) !== 1) {
+    throw new RuntimeException("target-local cutoff sentinel cardinality changed");
+}
+$post = $posts[0];
+$meta = [];
+foreach (["_EventAllDay", "_EventStartDate", "_EventEndDate", "_EventDuration"] as $key) {
+    $meta[$key] = get_post_meta($post->ID, $key, true);
+}
+echo wp_json_encode([
+    "id" => (int) $post->ID,
+    "post" => [
+        "post_status" => $post->post_status,
+        "post_title" => $post->post_title,
+        "post_type" => $post->post_type,
+    ],
+    "meta" => $meta,
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+') || fail "TEC target-local cutoff sentinel could not be observed after apply"
+require_observed_nonempty "TEC target-local cutoff sentinel after apply" "$CUTOFF_SENTINEL"
+CUTOFF_SENTINEL_JSON=$(printf '%s\n' "$CUTOFF_SENTINEL" | awk 'NF { line=$0 } END { print line }')
+CUTOFF_SENTINEL_EXPECTED=$(jq -c '.cutoff_sentinel' <<<"$TARGET_IDS")
+jq -e --argjson expected "$CUTOFF_SENTINEL_EXPECTED" '. == $expected' \
+  <<<"$CUTOFF_SENTINEL_JSON" >/dev/null \
+  || fail "TEC hook-bypassing settings apply mutated or deleted the target-local all-day sentinel"
+pass "TEC preserved the target-local multi-day-cutoff setting and all-day event bytes without invoking broad native callbacks"
+
 pass "TEC adopted huge native identities, rewrote refs/URLs, repaired projections, and preserved target-owned extension state"
 
 PERMALINK=$(jq -er '.event.permalink' <<<"$TARGET")

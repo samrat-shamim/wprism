@@ -313,6 +313,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 **Unsupported, explicitly.**
 
+- `option:tribe_events_calendar_options.multiDayCutoff` / `capture,apply` — The native end-of-day cutoff callback performs unchecked global postmeta rewrites without bounded preimages, UTC/Custom Tables closure, query verification, or cache invalidation. multiDayCutoff therefore remains target-owned; Duo binds the exact native callback identities and replaces the mixed settings row only when strict old/new equality proves the callbacks are no-ops.
 - `post:tribe_events|tribe_organizer|tribe_venue|term:tribe_events_cat` / `delete` — TEC events, venues, organizers, and event categories own occurrence, linked-post, relationship, Category Colors, and optional-add-on effects; generic hook-free entity deletion cannot prove that complete semantic boundary, so capture refuses before publishing a tombstone.
 - `optional-and-extension-owned` / `capture` — Events Calendar Pro recurrence/series, Event Tickets, Event Aggregator remote records, legacy Category Colors plugin residue, and third-party add-on entities are outside the reviewed free-plugin inventory and remain unclassified and loud.
 - `options:tribe_events_calendar_options:target-runtime-and-integrations` / `apply` — Credentials, remote-import state, schema/migration markers, telemetry, schedules, calculated date ranges, caches, and undeclared mixed-option siblings remain target-owned and are verified to survive apply.
