@@ -977,7 +977,10 @@ function rehearsal_probes(string $estate, string $state): array {
     // --- manifest axis: pins, snapshots, artifacts ------------------------
 
     $probe(
-        'agent/src/Policy/Policy.php::load',
+        // WP-1.3 moved load()'s body into the private load_with() and the
+        // register row moved with it; the public entry this probe CALLS is
+        // unchanged, only the gate's registered site name is.
+        'agent/src/Policy/Policy.php::load_with',
         'Policy::load(sites/editorial)',
         'loaded',
         static function () use ($estate): string {
