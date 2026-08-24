@@ -175,6 +175,76 @@ final class HarnessLibTest extends TestCase
         );
     }
 
+    public function testSelectLeftCanBindOneBoundedBinaryValueToItsByteLength(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_options', [
+            ['option_id' => 1, 'option_name' => 'long', 'option_value' => 'abcdef'],
+            ['option_id' => 2, 'option_name' => 'utf8', 'option_value' => 'éx'],
+            ['option_id' => 3, 'option_name' => 'null', 'option_value' => null],
+        ]);
+
+        self::assertSame(
+            [
+                ['value_bytes' => '6', 'value_prefix' => 'ab'],
+                ['value_bytes' => '3', 'value_prefix' => 'é'],
+                ['value_bytes' => null, 'value_prefix' => null],
+            ],
+            $db->get_results(
+                'SELECT LENGTH(option_value) AS value_bytes, '
+                    . 'LEFT(BINARY option_value, 2) AS value_prefix FROM wp_options ORDER BY option_id',
+                ARRAY_A
+            )
+        );
+    }
+
+    public function testSelectLeftCountsUtf8CharactersWithoutExpandingTheInput(): void
+    {
+        $db = FakeWpdb::install();
+        $large = str_repeat('x', 8 * 1024 * 1024 + 1);
+        $db->seedTable('wp_options', [
+            ['option_id' => 1, 'option_name' => 'utf8', 'option_value' => 'é東京x'],
+            ['option_id' => 2, 'option_name' => 'large', 'option_value' => $large],
+        ]);
+
+        self::assertSame(
+            'é東京',
+            $db->get_var('SELECT LEFT(option_value, 3) FROM wp_options WHERE option_id = 1')
+        );
+        self::assertSame(
+            hash('sha256', $large),
+            $db->get_var(
+                'SELECT SHA2(LEFT(option_value, 8388609), 256) FROM wp_options WHERE option_id = 2'
+            )
+        );
+    }
+
+    public function testSelectLeftRefusesEveryMalformedUtf8Sequence(): void
+    {
+        $db = FakeWpdb::install();
+        $invalid = [
+            'continuation lead' => "\x80",
+            'overlong encoding' => "\xc0\xaf",
+            'truncated sequence' => "\xe2\x82",
+            'surrogate' => "\xed\xa0\x80",
+            'above Unicode maximum' => "\xf4\x90\x80\x80",
+        ];
+
+        foreach (array_values($invalid) as $index => $value) {
+            $db->seedTable('wp_options', [[
+                'option_id' => $index + 1,
+                'option_name' => 'invalid-' . $index,
+                'option_value' => $value,
+            ]]);
+            try {
+                $db->get_var('SELECT LEFT(option_value, 1) FROM wp_options');
+                self::fail('malformed UTF-8 sequence was accepted by LEFT()');
+            } catch (LogicException $failure) {
+                self::assertStringContainsString('LEFT() invalid UTF-8 input', $failure->getMessage());
+            }
+        }
+    }
+
     public function testInsertAssignsTheNextAutoIncrementIdAndUpdateRewritesInPlace(): void
     {
         $db = $this->seededDb();
