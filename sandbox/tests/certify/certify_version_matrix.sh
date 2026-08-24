@@ -2921,13 +2921,14 @@ if (!is_string($bytes) || substr_count($bytes, " * Version: 11.0.1") !== 1) {
 }
 $next = preg_replace("/^ \\* Version: 11\\.0\\.1$/m", " * Version: 11.0.2", $bytes, 1);
 if (!is_string($next) || $next === $bytes || file_put_contents($path, $next) !== strlen($next)) {
-    throw new RuntimeException("exclusive-upper fixture could not replace the Version header atomically");
+    throw new RuntimeException("exclusive-upper fixture could not replace the inactive plugin Version header");
 }
 ' >/dev/null
 UPPER_INSTALLED=$(wp1 plugin get woocommerce --field=version)
 [ "$UPPER_INSTALLED" = "11.0.2" ] \
   || fail "exclusive-upper fixture expected WordPress to parse WooCommerce 11.0.2, got $UPPER_INSTALLED"
 PRE_REFUSAL_ACTIVE=$(wp1 option get active_plugins --format=json | tail -1)
+PRE_REFUSAL_HEAD=$(git -C "siterepo/${PAIR}1" rev-parse HEAD)
 PRE_REFUSAL_REPO=$(git -C "siterepo/${PAIR}1" status --porcelain)
 
 set +e
@@ -2943,6 +2944,8 @@ grep -q "11.0.2" <<<"$DEPLOY_OUT" \
   || fail "exclusive-upper refusal did not name WordPress's installed Version header (got: $DEPLOY_OUT)"
 [ "$(wp1 option get active_plugins --format=json | tail -1)" = "$PRE_REFUSAL_ACTIVE" ] \
   || fail "exclusive-upper code mismatch changed active_plugins before refusing"
+[ "$(git -C "siterepo/${PAIR}1" rev-parse HEAD)" = "$PRE_REFUSAL_HEAD" ] \
+  || fail "exclusive-upper code mismatch changed the captured repository revision before refusing"
 [ "$(git -C "siterepo/${PAIR}1" status --porcelain)" = "$PRE_REFUSAL_REPO" ] \
   || fail "exclusive-upper code mismatch changed the captured repository before refusing"
 printf '%s\n' "$DEPLOY_OUT"

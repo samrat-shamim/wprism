@@ -46,7 +46,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
 	regress-snapshot-meta regress-generic-reference-shapes regress-ssh-adopt regress-tec-regen regress-user-meta \
-	regress-option-name-refs-wiring regress-offline-all regress-live-list regress-code-compatibility regress-upload-bundle \
+	regress-option-name-refs-wiring regress-offline-all regress-live-list regress-woocommerce-rewrite-coinstall regress-code-compatibility regress-upload-bundle \
 	regress-effect-bundle regress-woocommerce-effect-contract regress-ssh-rollback-certification \
 	regress-coverage-offline regress-coverage regress-classification-batch \
 	regress-refresh-orchestration \
@@ -2585,6 +2585,13 @@ regress-option-ref-scope:
 regress-pmpro-composite-ref:
 	bash sandbox/tests/live/regress_pmpro_composite_ref.sh
 
+# Candidate-bound production leg for WooCommerce product permalink rebuilds
+# under the exact supported Yoast, Polylang, and TEC co-install topology.
+# Docker/pair.sh-dependent, so it is discoverable in regress-live-list rather
+# than folded into the offline corpus.
+regress-woocommerce-rewrite-coinstall:
+	bash sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh
+
 regress-repository-authorization:
 	bash sandbox/tests/live/regress_repository_authorization.sh
 
@@ -2800,6 +2807,7 @@ regress-live-list:
 	@echo "  regress-env-set                           pair asnapenvset"
 	@echo "  regress-option-ref-scope                  legacy docker-compose.yml --profile r1b"
 	@echo "  regress-pmpro-composite-ref               pair asnaprt"
+	@echo "  regress-woocommerce-rewrite-coinstall     own disposable pair (parameterized: WOO_REWRITE_COINSTALL_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; Woo 11.0.1 + Yoast 28.3 + Polylang 3.8.6 + TEC 6.17.2 product routes and refusal/retry)"
 	@echo "  regress-repository-authorization          pair conf 8806/8807"
 	@echo "  regress-repository-compiler-integration   pair conf 8806/8807"
 	@echo "  regress-scope-gate                        pair codexmac3229 8900/8901"
