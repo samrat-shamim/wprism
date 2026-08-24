@@ -207,6 +207,48 @@ fixture, not a reusable WPForms capability claim. The adversarial review in
 found local ids inside the form body and block attributes that the fixture does
 not migrate. Do not copy that deletion declaration into a product adapter.
 
+#### Can each guard actually lock?
+
+A guard is only worth what its lock boundary is worth. Before the delete, the
+engine re-reads every guard under `SELECT … FOR UPDATE` behind
+`FORCE INDEX (<index>)`, and it resolves that index from the guard's first
+equality column against live `SHOW INDEX`. When no index leads with that
+column — or a prefix index is too narrow to cover a declared metadata key —
+there is no index to force, InnoDB cannot take the next-key/gap locks that
+close concurrent reverse-reference insertion, and the whole deletion refuses:
+`guard table 'X' has no complete indexed lock boundary for Y`. Plugin schemas
+routinely ship the reverse-reference column unindexed, so this is not a corner
+case; it is the first thing to check about a deletion contract you are about to
+write.
+
+`wp duo adapter-deletion-feasibility` runs that identical computation on the
+target, over a proposal nothing has declared yet:
+
+```sh
+cat > proposal.json <<'JSON'
+{"table:nf3_forms": {"guards": [
+  {"table": "nf3_actions", "column": "parent_id", "id_kind": "nf3_form", "reason": "actions reference this form"},
+  {"table": "nf3_fields",  "column": "parent_id", "id_kind": "nf3_form", "reason": "fields reference this form"}
+]}}
+JSON
+wp duo adapter-deletion-feasibility --proposal=proposal.json
+```
+
+Each guard answers with the covering index name, or `null` plus the reason —
+`no index leads with this column`, or `prefix index of N bytes cannot cover a
+declared key of M`. That null is the engine's own verdict, not a second
+opinion: the report publishes `DeleteGuardEvaluator::lock_index()`'s return
+value and refuses to print an explanation that disagrees with it.
+
+The proposal is deliberately *not* a manifest fragment. It carries no
+`cascades` — the report refuses one by name — proposes nothing, and declares
+`authority: false`, because a covering index is a necessary condition for a
+deletion contract and never a sufficient one. The example above is Ninja Forms,
+and its shipped `parent_id` columns are unindexed: the honest conclusion is the
+one `manifests/ninja-forms.json` records, that Duo does not advertise
+`table:nf3_forms` deletion. Deciding that is your job. The report only makes
+sure you are deciding it before an operator meets it.
+
 ## Precedence, in one sentence each
 
 - **Site policy always wins.** A rule in `site.duo.json`'s `policy` outranks

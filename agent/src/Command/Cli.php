@@ -14,7 +14,7 @@ require_once __DIR__ . '/../Review/PlanView.php';
 use WP_CLI;
 
 /**
- * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset|code-inventory>
+ * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset|code-inventory>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
@@ -438,6 +438,7 @@ final class Cli {
             'capabilities' => 'inspect the manifest disposition registry, the platform boundary, and this repository\'s manifest pins, then correct that input before reporting capabilities again',
             'adapter-observe' => 'inspect private target evidence and restore the existing provenance-journal prerequisite or policy inputs before collecting a new adapter observation',
             'adapter-probe' => 'inspect the named unprefixed tables and this target\'s own schema reads (SHOW COLUMNS, SHOW INDEX, information_schema), then correct that selection or access before probing again',
+            'adapter-deletion-feasibility' => 'inspect the proposed deletion selectors and their guards in --proposal, and this target\'s own SHOW TABLES/SHOW INDEX access, then correct that proposal or access before asking again',
             'adapter-survey' => 'inspect the agent manifest library and, if --repo was given, that repository\'s site.duo.json and adapters/ source, then correct the unreadable or malformed input before surveying again',
             default => "correct the named $command blocker, then retry the command",
         };
@@ -3110,6 +3111,140 @@ final class Cli {
         }
         WP_CLI::line('probe hash: ' . $document['probe_hash']);
         WP_CLI::line('deferred: schema facts only; see --format=json for the closed limitations');
+    }
+
+    /**
+     * Can each guard of a PROPOSED deletion selector actually lock?
+     *
+     * `DeleteGuardEvaluator::lock_index()` decides that at DELETION time, on a
+     * live site, long after the selector was declared and pinned — and when it
+     * answers null the whole deletion refuses ("guard table 'X' has no
+     * complete indexed lock boundary for Y",
+     * `DeleteGuardReferenceScanner.php:135-142`). This verb runs the identical
+     * computation at AUTHORING time over a proposal nothing has declared yet,
+     * so an unindexed plugin schema is a fact the author reads before writing
+     * the contract rather than a refusal an operator meets after shipping it.
+     *
+     * It answers feasibility ONLY. A covering index never makes a deletion
+     * selector right for a site; `DeletionFeasibility` proposes no fragment,
+     * names no cascade set, and refuses a proposal that hands it one.
+     *
+     * ## OPTIONS
+     * --proposal=<path> : A JSON object shaped like a manifest `deletions` section — `<selector>: {"guards": [...]}` — minus `cascades`.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand adapter-deletion-feasibility
+     */
+    public function adapter_deletion_feasibility($args, $assoc) {
+        // Same entry-point discipline as adapter-probe: a read-only verb must
+        // not leave the journal's shutdown flush attached, or asking a target
+        // whether a guard could lock becomes a later Duo INSERT — including on
+        // an argument refusal, where bootstrap has already buffered.
+        Journal::suspend_for_observation();
+        $document = null;
+        try {
+            require_once __DIR__ . '/../Adapter/DeletionFeasibility.php';
+            if ($args !== [] || array_diff(array_keys($assoc), ['proposal', 'format']) !== []) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'adapter-deletion-feasibility accepts only --proposal=<path> and optional --format=json',
+                    'name the file holding the proposed deletion selectors and their guards, then rerun adapter-deletion-feasibility',
+                    [],
+                    'adapter-deletion-feasibility received unsupported positional arguments or flags'
+                );
+            }
+            if (!is_string($assoc['proposal'] ?? null) || trim((string) $assoc['proposal']) === '') {
+                throw CommandRefusalException::invalidArgument('adapter-deletion-feasibility', '--proposal');
+            }
+            if (array_key_exists('format', $assoc) && $assoc['format'] !== 'json') {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'adapter-deletion-feasibility accepts only --format=json',
+                    'omit --format for the human summary, or use --format=json for the full document',
+                    [],
+                    'adapter-deletion-feasibility received an unsupported output format'
+                );
+            }
+            $document = DeletionFeasibility::report(self::read_deletion_proposal((string) $assoc['proposal']));
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'adapter-deletion-feasibility');
+            if ($t instanceof CommandRefusalException) {
+                WP_CLI::error($t->publicMessage);
+            }
+            // A raw Throwable here can carry a path or a server identifier;
+            // the JSON form above is the sole transport form.
+            WP_CLI::error(
+                'deletion feasibility refused; inspect the proposed selectors, their guards, and this target\'s schema access before retrying'
+            );
+        }
+        if (!is_array($document)) {
+            // Unreachable on a target: every arm of the catch above halts. It
+            // exists so the output path below cannot be entered without a
+            // document in a process that replaced WP_CLI's error handler.
+            throw new \RuntimeException('duo: adapter-deletion-feasibility reached its output path without a document');
+        }
+
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(rtrim(Canon::encode($document), "\n"));
+            return;
+        }
+
+        WP_CLI::line('deletion guard feasibility');
+        WP_CLI::line('format: ' . DeletionFeasibility::FORMAT);
+        WP_CLI::line('authority: false; redaction: ' . DeletionFeasibility::REDACTION);
+        foreach ($document['selectors'] as $selector => $facts) {
+            $guards = (array) ($facts['guards'] ?? []);
+            if ($guards === []) {
+                WP_CLI::line("$selector: no guard declared, so no lock boundary to resolve");
+                continue;
+            }
+            foreach ($guards as $guard) {
+                WP_CLI::line(sprintf(
+                    '%s: %s.%s locks on %s — %s',
+                    $selector,
+                    $guard['table'],
+                    $guard['column'],
+                    $guard['lock_column'],
+                    $guard['index'] !== null
+                        ? 'index `' . $guard['index'] . '`'
+                            . ($guard['prefix'] !== null ? ' (prefix ' . $guard['prefix'] . ')' : '')
+                        : 'NO covering index: ' . $guard['reason']
+                ));
+            }
+        }
+        WP_CLI::line('feasibility hash: ' . $document['feasibility_hash']);
+        WP_CLI::line('deferred: lock feasibility only; see --format=json for the closed limitations');
+    }
+
+    /**
+     * The `--proposal=<path>` document, read under a bound.
+     *
+     * The bound is the point: this file is an authoring artifact a human just
+     * wrote, and `DeletionFeasibility` caps the selectors and guards inside
+     * it, so a multi-megabyte input is a mistake worth refusing before JSON
+     * decoding it rather than after.
+     *
+     * @return array<string,mixed>
+     */
+    private static function read_deletion_proposal(string $path): array {
+        if (!is_file($path) || !is_readable($path)) {
+            throw CommandRefusalException::invalidArgument('adapter-deletion-feasibility', '--proposal');
+        }
+        $bytes = @file_get_contents($path, false, null, 0, 262145);
+        if (!is_string($bytes) || $bytes === '' || strlen($bytes) > 262144) {
+            throw CommandRefusalException::invalidArgument('adapter-deletion-feasibility', '--proposal');
+        }
+        $decoded = Canon::decode($bytes);
+        if (!is_array($decoded) || $decoded === [] || array_is_list($decoded)) {
+            throw new CommandRefusalException(
+                'invalid_arguments',
+                'the proposal must be a JSON object of `<selector>: {"guards": [...]}`, as a manifest `deletions` section is shaped',
+                'shape the proposal like the `deletions` section you are drafting, then rerun adapter-deletion-feasibility',
+                [],
+                'adapter-deletion-feasibility received a proposal that is not a selector object'
+            );
+        }
+        return $decoded;
     }
 
     /**

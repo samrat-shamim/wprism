@@ -1111,10 +1111,12 @@ namespace {
     // `assess-inventory`; 29 with DUO-3499's read-only `code-inventory`, which
     // reports one repository's lockable code components for `duo code-classify`;
     // 30 with `adapter-probe`, the read-only live-schema half `duo adapter-draft
-    // --evidence=` consumes.
+    // --evidence=` consumes; 31 with WP-2.5's `adapter-deletion-feasibility`,
+    // which answers DeleteGuardEvaluator::lock_index() for a PROPOSED deletion
+    // selector's guards at authoring time.
     // Every advertised handler is covered by the common envelope contract, so
     // this count moves with the set rather than around it.
-    check(count($advertised) === 30, 'every one of the 30 --format=json commands was scanned (' . count($advertised) . ')');
+    check(count($advertised) === 31, 'every one of the 31 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path

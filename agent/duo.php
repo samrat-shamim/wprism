@@ -109,6 +109,7 @@ require_once __DIR__ . '/src/Review/Journal.php';
 require_once __DIR__ . '/src/Review/Pending.php';
 require_once __DIR__ . '/src/Adapter/AdapterObservation.php';
 require_once __DIR__ . '/src/Adapter/AdapterProbe.php';
+require_once __DIR__ . '/src/Adapter/DeletionFeasibility.php';
 require_once __DIR__ . '/src/Review/Coverage.php';
 require_once __DIR__ . '/src/Review/Lint.php';
 require_once __DIR__ . '/src/Assess/AssessInventory.php';
