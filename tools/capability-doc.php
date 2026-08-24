@@ -197,8 +197,15 @@ function capdoc_platform(string $repo): array {
             . 'documentation -- cli/src/Onboarding/Doctor.php reads it at runtime for the blocking PHP/database check'
         );
     }
-    foreach (['database' => ['engine', 'max', 'min', 'note'],
-              'php' => ['max', 'min', 'note'],
+    // An EXACT per-axis key set, deliberately not a subset check: this array
+    // is the tripwire that makes a shape change to the boundary a decision
+    // rather than a silent projection. `php` gained `verified` and `database`
+    // traded `engine`+`min`+`max` for the `engines` map in the same commit
+    // that widened both claims, and each of those edits threw here until it
+    // was made on purpose (agent/src/Policy/PlatformCompatibility.php's
+    // valid_exercised_axis()/valid_database_axis() are the load-time mirror).
+    foreach (['database' => ['engines', 'note'],
+              'php' => ['max', 'min', 'note', 'verified'],
               'wordpress' => ['last_verified', 'max', 'min', 'note', 'verified']] as $axis => $axisKeys) {
         $found = array_keys($platform['compatibility'][$axis] ?? []);
         sort($found, SORT_STRING);
@@ -341,19 +348,39 @@ function capdoc_plugin_label(string $name, array $manifest, array $supportedVers
 }
 
 /**
- * The WordPress axis as one rendered cell: the declared bounds plus the exact
- * patch each exercised series was proven on. Both halves are printed because
- * both halves gate — the range alone would read as a claim over minor lines
- * the `verified` map deliberately excludes (agent/src/Policy/
- * PlatformCompatibility.php:wordpress_supported()).
+ * One exercised axis — WordPress or PHP — as a rendered cell: the declared
+ * bounds plus the exact patch each exercised series was proven on. Both
+ * halves are printed because both halves gate — the range alone would read as
+ * a claim over minor lines the `verified` map deliberately excludes
+ * (agent/src/Policy/PlatformCompatibility.php:exercised_supported()). One
+ * function for both axes because one predicate decides both.
  */
-function capdoc_wordpress_label(array $compatibility): string {
-    $wordpress = $compatibility['wordpress'];
-    $patches = array_map('strval', array_values($wordpress['verified']));
+function capdoc_exercised_label(array $axis): string {
+    $patches = array_map('strval', array_values($axis['verified']));
     usort($patches, static fn(string $a, string $b): int => version_compare($a, $b));
 
-    return '>=' . $wordpress['min'] . ' <' . $wordpress['max']
+    return '>=' . $axis['min'] . ' <' . $axis['max']
         . ' (exercised ' . implode(', ', $patches) . ')';
+}
+
+/**
+ * The database axis as a rendered cell: every claimed engine with its own
+ * range. Printing one entry per engine is the whole point of the engines map
+ * — a single range could only describe one product, and an engine that is not
+ * printed here is one the agent refuses outright
+ * (platform_database_engine_unsupported), not one it merely has no numbers
+ * for. Sorted by engine name so the document is stable against the claim's
+ * own key order.
+ */
+function capdoc_database_label(array $database): string {
+    $engines = $database['engines'];
+    ksort($engines, SORT_STRING);
+    $cells = [];
+    foreach ($engines as $engine => $range) {
+        $cells[] = (string) $engine . ' >=' . $range['min'] . ' <' . $range['max'];
+    }
+
+    return implode('; ', $cells);
 }
 
 /**
@@ -364,7 +391,7 @@ function capdoc_wordpress_label(array $compatibility): string {
  */
 function capdoc_version_label(array $supportedVersions, array $platform): string {
     if (isset($supportedVersions['wordpress'])) {
-        return 'WordPress ' . capdoc_wordpress_label($platform['compatibility']);
+        return 'WordPress ' . capdoc_exercised_label($platform['compatibility']['wordpress']);
     }
     $range = $supportedVersions['range'] ?? null;
     if (is_array($range) && isset($range['min'], $range['max'])) {
@@ -435,12 +462,9 @@ function capdoc_platform_section(array $platform): string {
     $out .= '| Site mode | ' . capdoc_cell((string) $platform['site_mode']) . " |\n";
     $out .= '| Plugin execution | ' . capdoc_cell((string) $platform['plugin_execution']) . " |\n";
     $out .= '| Branchable state | ' . capdoc_cell((string) $platform['branchable_state']) . " |\n";
-    $out .= '| WordPress | ' . capdoc_cell(capdoc_wordpress_label($compatibility)) . " |\n";
-    $out .= '| PHP | >=' . capdoc_cell($compatibility['php']['min']) . ' <'
-        . capdoc_cell($compatibility['php']['max']) . " |\n";
-    $out .= '| Database | ' . capdoc_cell($compatibility['database']['engine']) . ' >='
-        . capdoc_cell($compatibility['database']['min']) . ' <'
-        . capdoc_cell($compatibility['database']['max']) . " |\n\n";
+    $out .= '| WordPress | ' . capdoc_cell(capdoc_exercised_label($compatibility['wordpress'])) . " |\n";
+    $out .= '| PHP | ' . capdoc_cell(capdoc_exercised_label($compatibility['php'])) . " |\n";
+    $out .= '| Database | ' . capdoc_cell(capdoc_database_label($compatibility['database'])) . " |\n\n";
     $out .= 'Multisite is refused before policy load or mutation. Each compatibility axis carries its own reviewed '
         . "note saying what pins it and what it does not claim:\n\n";
     $out .= '- **WordPress** — ' . $compatibility['wordpress']['note'] . "\n";

@@ -666,11 +666,15 @@ holds those two copies equal so they cannot drift into two truths.
 
 Be precise about who enforces which half. The agent pre-policy gate and `duo
 doctor` compare live PHP and database facts against the baseline and **block**
-outside either range; a different database engine is genuinely untested, not
-merely unpinned. WordPress is a bounded range narrowed to the exercised
-series named in `verified` — a core is admitted only when it is inside
-`[min, max)` *and* its MAJOR.MINOR is one of those series, so a minor line
-inside the window that nobody ran is still refused rather than claimed. The
+outside it. WordPress **and PHP** are each a bounded range narrowed to the
+exercised series named in that axis's own `verified` map — a version is
+admitted only when it is inside `[min, max)` *and* its MAJOR.MINOR is one of
+those series, so a minor line inside the window that nobody ran is still
+refused rather than claimed. The database axis is per-engine instead:
+`database.engines` maps each claimed engine to its own version line, an engine
+the map does not name is refused outright (genuinely untested, not merely
+unpinned), and a version is measured against the range belonging to the engine
+actually observed — never against another product's numbers. The
 *capability report* still enforces none of the three per surface: with the
 measured evidence record gone, `AdapterRegistry::target_reasons()` does not
 re-derive global compatibility as adapter-local reasons. The adapter plugin

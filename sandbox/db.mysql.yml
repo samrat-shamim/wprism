@@ -13,15 +13,18 @@ name: duo-db-mysql
 # `docker compose -p duo-db-mysql -f db.mysql.yml` have disjoint blast radii,
 # and a pair selects between them with DUO_DB_ENGINE (sandbox/bin/pair.sh).
 #
-# THIS FILE CLAIMS NOTHING. manifests/capabilities/platform.json still declares
-# `compatibility.database.engine = "MariaDB"` and
-# agent/src/Policy/PlatformCompatibility.php:117 still compares the probed
-# engine with `!==`, so every `wp duo ...` invocation against a pair on this
-# server refuses with reason_code `platform_unsupported` and diagnostic code
-# `platform_database_engine_unsupported`. That refusal is the lane's FIRST
-# datum, not a defect: it proves the harness reaches a real MySQL server before
-# any contract is widened. Widening the claim requires the live matrix, and the
-# claim moves only in a commit that carries the evidence.
+# THIS FILE STILL CLAIMS NOTHING BY ITSELF -- but the contract it used to be
+# refused by has moved. manifests/capabilities/platform.json's database axis is
+# now an engine-keyed map (`compatibility.database.engines`) naming
+# MySQL [8.4.0, 8.5.0) beside MariaDB [11.0.0, 12.0.0), so a pair on this
+# server is no longer answered with `platform_database_engine_unsupported`
+# before it does anything: `wp duo ...` runs, and this lane is what decides
+# whether it should have. The claim's own note carries a PENDING saying the
+# live proof has NOT run and names the remedy if it fails (drop the MySQL
+# entry, restore a MariaDB-only map -- never widen around a failure). The
+# assertions that turn that PENDING into evidence are
+# sandbox/tests/live/regress_core_scope_database.sh's, drawn verbatim from
+# docs/mysql-dialect-audit.md.
 #
 # Network: attach-only. db.yml:37-39 is the sole creator of `duo-shared` (it
 # declares the network WITHOUT `external: true`); every other file in this

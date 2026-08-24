@@ -7,7 +7,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept regress-contract-multi-env
 .PHONY: regress-offline-all regress-offline-corpus regress-offline-diagnostics
 .PHONY: regress-lifecycle-options-snapshot
-.PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform
+.PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform regress-core-scope-database
 .PHONY: regress-platform-compatibility regress-topology-gate
 .PHONY: regress-cli-json-refusals regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
 .PHONY: regress-plan-explain
@@ -307,13 +307,29 @@ regress-core-lifecycle:
 regress-core-data-boundary:
 	bash sandbox/tests/live/regress_core_data_boundary.sh
 
-# Exact platform matrix for the host-integrated core adapter: one full PHP
-# 8.3/MariaDB 11 round trip per claimed core (6.9.2, 7.0.2, 7.0.3, 7.1 — the cell
-# set is cross-checked against manifests/capabilities/platform.json's own
-# exercised-series map) plus a below-range WordPress and a
-# PHP-exclusive-maximum refusal. Multisite retains its dedicated live suite.
+# Exact core AND PHP matrix for the host-integrated core adapter: one full
+# MariaDB 11 round trip per cell (6.9.2, 7.0.2, 7.0.3 and 7.1 on PHP 8.3, plus
+# 7.1 on PHP 8.4 — both cell sets are cross-checked against
+# manifests/capabilities/platform.json's own exercised-series maps, and each
+# cell asserts the booted PHP_VERSION EQUALS that series' proof patch) plus a
+# below-range WordPress and a past-the-exclusive-maximum PHP refusal. Multisite
+# retains its dedicated live suite; the engine axis is regress-core-scope-database.
 regress-core-scope-platform:
 	bash sandbox/tests/live/regress_core_scope_platform.sh
+
+# Exact database engine matrix: one full round trip per CLAIMED engine on that
+# engine's own shared server (sandbox/db.yml's MariaDB 11 and
+# sandbox/db.mysql.yml's MySQL 8.4, selected with DUO_DB_ENGINE), carrying the
+# five probe groups docs/mysql-dialect-audit.md derived from the shipped SQL in
+# its stated order — §5 authentication FIRST, then GET_LOCK bounds, the
+# VALUES(col) upserts through the real lease CAS, the planted non-JSON lease
+# row on both engines, and the schema/collation record. The cell set is
+# cross-checked against platform.json's engines map, so an engine widened into
+# the claim without live evidence fails before any pair boots. Brings the MySQL
+# server down on exit (db.mysql.yml:43-47 — a second 2g/2.0-cpu container is
+# what wedged OrbStack).
+regress-core-scope-database:
+	bash sandbox/tests/live/regress_core_scope_database.sh
 
 regress-attachment-portability:
 	bash sandbox/tests/live/regress_attachment_portability.sh
@@ -2268,7 +2284,8 @@ regress-live-list:
 	@echo "  regress-core-semantics                    pair codexmac3207 8900/8901"
 	@echo "  regress-core-lifecycle                    own disposable pair (parameterized: CORE_LIFECYCLE_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact offline WordPress 7.0.3 -> 7.1 -> rollback/reinstall)"
 	@echo "  regress-core-data-boundary                own disposable pair (parameterized: CORE_DATA_BOUNDARY_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact offline core per run: CORE_DATA_BOUNDARY_WORDPRESS/_IMAGE, default 7.1; re-run per exercised series)"
-	@echo "  regress-core-scope-platform               own disposable pair (parameterized: CORE_SCOPE_PLATFORM_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact PHP 8.3/8.4 + claimed WordPress 6.9.2/7.0.2/7.0.3/7.1 matrix and a below-range 6.8.3 refusal)"
+	@echo "  regress-core-scope-platform               own disposable pair (parameterized: CORE_SCOPE_PLATFORM_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact claimed WordPress 6.9.2/7.0.2/7.0.3/7.1 x PHP 8.3/8.4 matrix, a below-range 6.8.3 refusal and a past-the-maximum PHP 8.5 refusal)"
+	@echo "  regress-core-scope-database               own disposable pair (parameterized: CORE_SCOPE_DATABASE_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; one round trip per CLAIMED engine on sandbox/db.yml + sandbox/db.mysql.yml, carrying docs/mysql-dialect-audit.md's five probe groups)"
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
