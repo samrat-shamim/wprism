@@ -2523,7 +2523,7 @@ $driveRebuild = static function (
     bool $retrying = false,
     mixed $receiptOverride = null,
     ?\Duo\Policy $policyOverride = null
-) use ($drivePolicy, $driveAction, $reset): array {
+) use ($drivePolicy, $driveAction, $reset, $dir): array {
     $reset();
     \Duo\Providers\ProbeCache::$receiptOverride = $receiptOverride;
     \Duo\Providers\ProbeCache::$capabilityOverrides = $channels === []
@@ -2562,7 +2562,11 @@ $driveRebuild = static function (
             pinnedProviderActionOwns: fn(string $surface): bool => $selection->pinned_action_owns($surface),
             upsertMeta: static function (string $table, string $keyColumn, int $id, string $metaKey, ?string $value, ?string $phase, string $metaIdColumn): void {}
         );
-        $services = new \Duo\ApplyServices($passPolicy, $compiledSentinel, $callbacks);
+        // The real composition root now binds durable attachment control
+        // state to the caller-owned repository even when this particular
+        // rebuild has no attachments. Keep the product-path drive exact
+        // instead of bypassing ApplyServices with hand-built collaborators.
+        $services = new \Duo\ApplyServices($passPolicy, $compiledSentinel, $callbacks, $dir);
         $coordinator = new \Duo\ApplyRebuildCoordinator($services, $selection);
         $coordinator->rebuild(
             new \Duo\RebuildRequest(
