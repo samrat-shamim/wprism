@@ -19830,6 +19830,9 @@
                 "FORMAT": {
                     "value_repr": "duo-adapter-draft/v1"
                 },
+                "GAP_REPORT_FORMAT": {
+                    "value_repr": "duo-adapter-draft-gap-report/v1"
+                },
                 "SEED_COVERAGE_FORMAT": {
                     "value_repr": "duo-coverage-report/v1"
                 },

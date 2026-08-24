@@ -384,11 +384,14 @@ regress-site-adapter-certification:
 # Product release gate: every generated artifact must still agree with the
 # source it was generated from -- the public capability prose with the
 # manifest dispositions it describes, the published branch-environment
-# provider protocol with the boundary that enforces it, and the classmap with
-# agent/src.
+# provider protocol with the boundary that enforces it, the adapter-authoring
+# limitation ledger with tools/engine-gaps.json (whose closed-gap rows also
+# assert the implementations they cite are still on disk), and the classmap
+# with agent/src.
 release-gate:
 	php tools/capability-doc.php --check
 	php tools/provider-protocol-doc.php --check
+	php tools/engine-gap-doc.php --check
 	php tools/classmap-generate.php --check
 
 regress-multisite-refusal:

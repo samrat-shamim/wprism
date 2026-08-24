@@ -266,7 +266,8 @@ Usage:
   duo manifest-validate --emit-schema
   duo adapter-draft <site-repo> --name=<n> [--match=<regex>]
                     [--evidence=<live-evidence.json>] [--seed=<coverage.json>]
-                    [--out=<path> [--force]] [--format=json] [--check-proposals]
+                    [--out=<path> [--force]] [--format=json]
+                    [--check-proposals|--gap-report]
   duo adapter list [--repo=<site-repo>] [--format=json]
   duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
   duo adapter doctor [--repo=<site-repo>] [--format=json]
@@ -389,12 +390,18 @@ Verbs:
     [--force]             each carrying status/confidence/evidence/questions. Every
     [--format=json]
     [--check-proposals]
+    [--gap-report]
                           fact needing a live target (column types, real PK, id
                           resolution, natural-key uniqueness) stays a proposal with a
                           question; --evidence is the deferred live seam, accepted and
                           ignored in this offline slice. --check-proposals lifts each
                           candidate into a throwaway manifest and runs the REAL
-                          validators, writing nothing live. WordPress-free, no
+                          validators, writing nothing live. --gap-report reads the
+                          same lift and emits only the REFUSED shapes, as draft rows
+                          for the engine-gap ledger (tools/engine-gaps.json) with the
+                          primitive deliberately unnamed — classifying the demand
+                          against that closed vocabulary is a review judgement, and
+                          it is what keeps duplicate demand countable. WordPress-free, no
                           environment, no transport; the generator never applies or
                           promotes a proposal and never emits PHP.
                           --seed takes a `duo coverage <env> --format=json`
