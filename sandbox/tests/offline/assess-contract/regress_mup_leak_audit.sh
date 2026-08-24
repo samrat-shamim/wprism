@@ -5,15 +5,30 @@
 # every `wp duo` command is either host-driven or named in
 # docs/guides/internals.md".
 #
-# Three independent properties. Each one closes a leak the product spec names
+# Five independent properties. Each one closes a leak the product spec names
 # explicitly — "normal operation never depends on private identifiers,
-# undocumented commands, or raw database surgery" — and each one is checked
-# against OUTPUT or SOURCE, never against a promise in a docblock.
+# undocumented commands, or raw database surgery", and §776-777's fourth
+# class, "unbounded-output leaks that prevent an agent from completing a first
+# session cleanly" — and each one is checked against OUTPUT or SOURCE, never
+# against a promise in a docblock.
 #
 #   (a) INTERNAL IDENTIFIERS (§5.2). The human view of `duo assess`,
 #       `duo release --plan-only`, `duo verify`, `duo recover --list`,
-#       `duo recover --restore` and `duo rehearse` may print an internal
-#       identifier only where a documented command consumes it. The allowlist
+#       `duo recover --restore`, `duo rehearse`, `duo pending` and
+#       `duo contract show` may print an internal identifier only where a
+#       documented command consumes it. The last two joined the set in
+#       DUO-3521: the rule was never about six particular verbs, it is about
+#       every host-rendered view with an obtainable `--format=json` twin, and
+#       leaving two of them out made the gate look narrower than the rule.
+#
+#       ONE host-rendered view has no twin and is named here rather than
+#       silently skipped: the post-checkpoint promotion failure. It stops
+#       before any machine document exists, so part (c) below scans it
+#       directly for the two identifier classes it could plausibly carry (a
+#       64-hex artifact hash and a bare lease owner) instead of diffing it
+#       against a document that cannot be produced.
+#
+#       The allowlist
 #       is closed and is exactly §5.2's: the `<bucket>:<uuid>` selector
 #       `duo explain` takes, the receipt ids `duo recover --restore=<id>`
 #       takes, and the `plan_digest` `duo verify --plan=<digest>` takes.
@@ -34,15 +49,58 @@
 #       command; the point is that an operator can never find one that is
 #       reachable, undocumented, and unexplained.
 #
-#   (c) RAW RECOVERY (§5.3). The four-ordered-commands recipe — abort,
-#       re-begin, isolated import, mandatory final abort — is gone from
-#       `docs/guides/**` except `internals.md`, replaced by
-#       `duo recover <env> --restore=<id> --writers-excluded`. Naming the
-#       runtime in prose is still allowed and is in fact required: §5.3
-#       retires it as an ENTRY POINT, and saying so is documentation. What is
-#       forbidden is a runnable recipe.
+#   (c) RAW RECOVERY (§5.3), in the guides AND in the product. The
+#       four-ordered-commands recipe — abort, re-begin, isolated import,
+#       mandatory final abort — is gone from `docs/guides/**` except
+#       `internals.md`, replaced by `duo recover <env> --restore=<id>
+#       --writers-excluded`. Naming the runtime in prose is still allowed and
+#       is in fact required: §5.3 retires it as an ENTRY POINT, and saying so
+#       is documentation. What is forbidden is a runnable recipe.
 #
-# `--self-test` proves all three gates actually fail on an injected
+#       Until DUO-3525 this part scanned prose only, which left the one
+#       surface that mattered most unaudited: `cli/duo`'s
+#       `print_promotion_recovery()` printed the recipe itself, and it is the
+#       source the pattern list below was written FROM. The second half now
+#       renders a real post-checkpoint promotion failure with the real `php
+#       cli/duo` and scans its human view with the same patterns, then proves
+#       the remedy it prints instead is a verb `duo` actually publishes in its
+#       own Usage block. A gate that forbids a recipe in the documentation
+#       while the product emits it is a gate that measures the wrong file.
+#
+#   (d) UNBOUNDED OUTPUT (product spec:776-777). Every human view that
+#       prints a list is bounded, the cut names the remedy in the output
+#       itself — `N more (use --format=json)` — and the `--format=json` twin
+#       stays COMPLETE, because a bound is only honest while the whole
+#       document is one flag away. The bound is exercised with `--limit=1`
+#       against the ordinary fixtures rather than with a fixture larger than
+#       the 200-row ceiling: the property under test is "this view cuts and
+#       says so", and `--limit=1` tests it on every view without asking five
+#       fixture generators to grow a thousand rows each. The ceiling itself
+#       is checked through the grammar: `--limit=0`, `--limit=201`,
+#       `--limit=+5`, a bare `--limit` and a repeated one must each produce
+#       that verb's OWN refusal bytes, which is also the proof that sharing
+#       one parser (`HumanViewLimit`) moved no refusal envelope.
+#
+#       The PASSTHROUGH verbs — `capabilities`, `lint`, `plan`, `explain`,
+#       `apply`, `coverage` — are deliberately out of scope for a HOST bound,
+#       and this is the sentence that says so rather than leaving the surface
+#       unexplained. `PassthroughCommand::run()` forwards the verb verbatim
+#       and streams the target's own output (`streamWp(['duo', $verb, …])`,
+#       cli/src/Command/PassthroughCommand.php:34); bounding there would mean
+#       the host parsing target stdout, which is the exact boundary that class
+#       exists to hold. Their bound is the agent's: `coverage` and `scope` are
+#       cut at `Coverage::LARGE_LISTING_THRESHOLD` through `Cli::scope_listing()`
+#       (agent/src/Command/Cli.php:2570-2582), `plan` carries `PlanView`'s
+#       `--limit`, and `wp duo pending` joined the same helper in DUO-3521.
+#
+#   (e) VERB SYMMETRY. Every verb `duo`'s Usage block publishes is dispatched
+#       by `main()`, and every verb `main()` dispatches is published. Part (b)
+#       gates that disjunction for `wp duo` commands; the host half had the
+#       same failure mode and no gate. Measured when this landed, the two
+#       sides already agree — so this LOCKS an invariant rather than fixing a
+#       bug, and the self-test drives it in both directions so it stays one.
+#
+# `--self-test` proves all five gates actually fail on an injected
 # violation. A leak audit whose only evidence is that it printed `ok` is not
 # evidence, and this suite ships green over a tree that has already been
 # closed, so the self-test is the only thing standing between it and a
@@ -70,8 +128,10 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; FAILURES=$((FAILURES + 1)); }
 say()  { printf '\n== %s ==\n' "$*"; }
 
 # The four ordered raw-recovery commands, in the exact spellings cli/duo's
-# print_promotion_recovery() emits them (cli/duo:2990-2993, built from
-# CodeDeploy::abortArgs / beginArgs / recoveryDbImportArgs). Steps 1 and 4 are
+# print_promotion_recovery() USED to emit them (built from
+# CodeDeploy::abortArgs / beginArgs / recoveryDbImportArgs; the function is at
+# cli/duo:3317-3394 and since DUO-3525 emits none of them — the second half of
+# part (c) is what keeps that true). Steps 1 and 4 are
 # the same command, so three patterns cover four steps; the fourth pattern is
 # an INVOCATION of the runtime itself, which is what §5.3 retires. A bare
 # mention of the path is deliberately not matched — `php ` must precede it —
@@ -82,6 +142,22 @@ RECOVERY_RECIPE_PATTERNS=(
   'wp duo promotion-begin'
   'wp db import'
   'php [^[:space:]]*rollback-control\.php'
+)
+
+# The same four steps as they look when the PRODUCT renders them rather than
+# when prose writes them. `EnvironmentDriver::wpInstruction()` emits one
+# shell-quoted argv per line — `'wp' '--path=…' '--exec=…' '--skip-plugins'
+# '--skip-themes' 'duo' 'promotion-abort' '--promotion-owner=…'` — with the
+# whole control-plane bootstrap sitting between `wp` and `duo`. Measured
+# against the pre-DUO-3525 `cli/duo`, whose output printed all four steps, the
+# prose patterns above found ZERO hits. A rendered gate that inherited them
+# would be a gate that cannot fail, which is the one thing this suite exists
+# not to be. Both sets are applied to a rendered view.
+RECOVERY_RENDERED_PATTERNS=(
+  "duo'?[[:space:]]+'?promotion-abort"
+  "duo'?[[:space:]]+'?promotion-begin"
+  "'?db'?[[:space:]]+'?import'?[[:space:]/]"
+  'rollback-control\.php'
 )
 
 # ---------------------------------------------------------------- part (c)
@@ -111,6 +187,49 @@ scan_guides_recovery() {
     return 1
   fi
   return "$status"
+}
+
+# scan_rendered_recovery <label> <human-view-file> -> 0 clean, 1 any recipe.
+# The same RECOVERY_RECIPE_PATTERNS the guide scan uses, applied to what the
+# PRODUCT prints. There is no internals.md exemption here: a terminal is not a
+# reference page, and an operator reading a failure has nowhere else to be.
+scan_rendered_recovery() {
+  local label="$1" view="$2" status=0 pattern hits
+  [ -s "$view" ] || { printf 'RECIPE: %s rendered no output at all\n' "$label"; return 1; }
+  for pattern in "${RECOVERY_RECIPE_PATTERNS[@]}" "${RECOVERY_RENDERED_PATTERNS[@]}"; do
+    hits="$(grep -nE -- "$pattern" "$view" || true)"
+    [ -n "$hits" ] || continue
+    while IFS= read -r hit; do
+      [ -n "$hit" ] || continue
+      printf 'RECIPE: %s:%s\n' "$label" "${hit%%:*}"
+      printf '        the product printed the retired raw-recovery step /%s/ — MUP §5.3 replaces it with `duo recover <env> --restore=<id> --writers-excluded`\n' "$pattern"
+    done <<< "$hits"
+    status=1
+  done
+  return "$status"
+}
+
+# ---------------------------------------------------------------- part (d)
+# assert_bounded <label> <human-view-file> <total-rows> <rows-shown>
+# 0 when the view cut correctly, 1 otherwise. The expected remainder is
+# computed from the TRUE total and the bound that was asked for, so a view
+# that prints the right number of rows under a WRONG tail still fails — the
+# tail is the operator's only evidence that anything was withheld.
+assert_bounded() {
+  local label="$1" view="$2" total="$3" shown="$4" expected
+  [ -s "$view" ] || { printf 'UNBOUNDED: %s rendered nothing\n' "$label"; return 1; }
+  expected=$((total - shown))
+  if [ "$expected" -le 0 ]; then
+    printf 'UNBOUNDED: %s was driven with a case that cuts nothing (total=%s, shown=%s); the check would be vacuous\n' \
+      "$label" "$total" "$shown"
+    return 1
+  fi
+  if ! grep -Fq -- "$expected more (use --format=json)" "$view"; then
+    printf 'UNBOUNDED: %s printed no `%d more (use --format=json)` tail for a %d-row listing bounded at %d\n' \
+      "$label" "$expected" "$total" "$shown"
+    return 1
+  fi
+  return 0
 }
 
 # ------------------------------------------------------------------ self-test
@@ -278,11 +397,137 @@ MD
   else
     pass 'self-test C: an empty guide directory is a failure, not a pass'
   fi
+
+  # (c, rendered) the same proof for the product half. A synthetic view stands
+  # in for a real failure for the reason the guide corpus is synthetic: this
+  # case is about the SCANNER, and seeding it from the tree under audit would
+  # make it pass or fail for reasons that have nothing to do with the checker.
+  echo 'self-test C: an injected raw-recovery step in a RENDERED view must fail the output scan'
+  cat > "$scratch/rendered-bad.human" <<'TXT'
+duo: promote: apply failed (exit 1); later phases were not run
+duo: promote: promotion lease cleanup confirmed
+database checkpoint: /srv/site/.duo/checkpoints/promote-owner.sql
+  3. wp db import /srv/site/.duo/checkpoints/promote-owner.sql
+TXT
+  out="$(scan_rendered_recovery 'fake failure view' "$scratch/rendered-bad.human" 2>&1)"
+  rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -Fq 'fake failure view:4'; then
+    pass 'self-test C: a rendered wp db import is reported with the line it appeared on'
+  else
+    fail 'self-test C: an injected raw database import in a rendered view was accepted'
+    printf '%s\n' "$out" >&2
+  fi
+
+  # The form the product ACTUALLY used before DUO-3525: one shell-quoted argv
+  # per numbered step, with the control-plane bootstrap between `wp` and the
+  # subcommand. The prose patterns match none of these lines, which is why
+  # RECOVERY_RENDERED_PATTERNS exists; each of the three steps is injected
+  # separately so a missing pattern is named rather than masked by its
+  # neighbours.
+  local rendered_step
+  for rendered_step in \
+    "  1. 'wp' '--path=/srv/site' '--exec=\$duoWpRoot = …' '--skip-plugins' 'duo' 'promotion-abort' '--promotion-owner=o'" \
+    "  2. 'wp' '--path=/srv/site' '--exec=\$duoWpRoot = …' '--skip-plugins' 'duo' 'promotion-begin' '--promotion-owner=o'" \
+    "  3. 'wp' '--path=/srv/site' '--exec=\$duoWpRoot = …' '--skip-plugins' 'db' 'import' '/srv/site/.duo/checkpoints/promote-o.sql'"
+  do
+    printf 'database checkpoint: /srv/site/.duo/checkpoints/promote-o.sql\n%s\n' "$rendered_step" \
+      > "$scratch/rendered-argv.human"
+    if scan_rendered_recovery 'fake failure view' "$scratch/rendered-argv.human" >/dev/null 2>&1; then
+      fail "self-test C: the argv-form step was accepted: $rendered_step"
+    else
+      pass "self-test C: the argv-form step is reported (${rendered_step:2:4}…)"
+    fi
+  done
+  cat > "$scratch/rendered-good.human" <<'TXT'
+duo: promote: apply failed (exit 1); later phases were not run
+database checkpoint: /srv/site/.duo/checkpoints/promote-owner.sql
+duo: promote: once that exclusion is in place, recover with: duo recover production --restore=promote-owner --writers-excluded --operator-directed
+TXT
+  if scan_rendered_recovery 'fake failure view' "$scratch/rendered-good.human" >/dev/null 2>&1; then
+    pass 'self-test C: a rendered view that publishes only duo recover passes'
+  else
+    fail 'self-test C: a clean rendered view was rejected'
+  fi
+  : > "$scratch/rendered-empty.human"
+  if scan_rendered_recovery 'fake failure view' "$scratch/rendered-empty.human" >/dev/null 2>&1; then
+    fail 'self-test C: an empty rendered view was reported as clean'
+  else
+    pass 'self-test C: an empty rendered view is a failure, not a pass'
+  fi
+
+  # (d) a view that prints every row must fail the bound check, and the same
+  #     view cut correctly must pass it. Synthetic for the same reason (c)'s
+  #     corpus is: this case is about the CHECKER.
+  echo 'self-test D: a human view that prints its whole listing unbounded must fail'
+  printf 'row a\nrow b\nrow c\nrow d\n3 item(s)\n' > "$scratch/unbounded.human"
+  if assert_bounded 'fake listing' "$scratch/unbounded.human" 4 1 >/dev/null 2>&1; then
+    fail 'self-test D: an unbounded human view was accepted as bounded'
+  else
+    pass 'self-test D: a view with no cut line is reported'
+  fi
+  printf 'row a\n  3 more (use --format=json)\n\n4 item(s)\n' > "$scratch/bounded.human"
+  if assert_bounded 'fake listing' "$scratch/bounded.human" 4 1 >/dev/null 2>&1; then
+    pass 'self-test D: a view whose tail names the true remainder passes'
+  else
+    fail 'self-test D: a correctly cut view was rejected'
+  fi
+  # A tail that under-reports what was withheld is the failure mode a
+  # presence-only check would miss entirely.
+  printf 'row a\n  1 more (use --format=json)\n' > "$scratch/wrong-tail.human"
+  if assert_bounded 'fake listing' "$scratch/wrong-tail.human" 4 1 >/dev/null 2>&1; then
+    fail 'self-test D: a tail naming the wrong remainder was accepted'
+  else
+    pass 'self-test D: a tail that under-reports the remainder is reported'
+  fi
+  # And a tail that names no remedy is not a cut line at all.
+  printf 'row a\n  3 more\n' > "$scratch/no-remedy.human"
+  if assert_bounded 'fake listing' "$scratch/no-remedy.human" 4 1 >/dev/null 2>&1; then
+    fail 'self-test D: a tail that names no --format=json remedy was accepted'
+  else
+    pass 'self-test D: a cut that does not name --format=json is reported'
+  fi
+
+  # (e) the symmetry gate must fail in BOTH directions. It passes today, so
+  #     without this it is a `true` with paperwork.
+  echo 'self-test E: the host-verb symmetry gate must fail in both directions'
+  php "$ROOT/cli/duo" > "$scratch/usage.txt" 2>&1
+  grep -v '^  duo pending ' "$scratch/usage.txt" > "$scratch/usage-missing.txt"
+  out="$(php "$FIX/host-verb-symmetry.php" "$ROOT" --usage="$scratch/usage-missing.txt" 2>&1)"
+  rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -Fq 'duo pending'; then
+    pass 'self-test E: a dispatched verb missing from the Usage block is reported by name'
+  else
+    fail 'self-test E: dropping a verb from the Usage block did not fail the symmetry gate'
+    printf '%s\n' "$out" >&2
+  fi
+
+  { cat "$scratch/usage.txt"; printf '  duo not-a-real-verb <env>\n'; } > "$scratch/usage-extra.txt"
+  out="$(php "$FIX/host-verb-symmetry.php" "$ROOT" --usage="$scratch/usage-extra.txt" 2>&1)"
+  rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -Fq 'not-a-real-verb'; then
+    pass 'self-test E: a published verb nothing dispatches is reported by name'
+  else
+    fail 'self-test E: an invented Usage line was accepted'
+    printf '%s\n' "$out" >&2
+  fi
+
+  # The dispatch half is read from SOURCE, so mutate the source and prove
+  # that half is really being read rather than inferred from the Usage block.
+  sed "s/\$verb === 'envs'/\$verb === 'not-dispatched-any-more'/" "$ROOT/cli/duo" > "$scratch/duo-source"
+  out="$(php "$FIX/host-verb-symmetry.php" "$ROOT" --usage="$scratch/usage.txt" --source="$scratch/duo-source" 2>&1)"
+  rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -Fq 'duo envs'; then
+    pass 'self-test E: removing a dispatch arm reports the verb the Usage block still publishes'
+  else
+    fail 'self-test E: a Usage line whose dispatch arm was deleted was accepted'
+    printf '%s\n' "$out" >&2
+  fi
 }
 
 # ------------------------------------------------------------------ syntax
 say 'syntax'
-for file in "$FIX/identifier-scan.php" "$FIX/command-dispositions.php" "$FIX/rehearse-view.php"; do
+for file in "$FIX/identifier-scan.php" "$FIX/command-dispositions.php" "$FIX/rehearse-view.php" \
+            "$FIX/host-verb-symmetry.php"; do
   php -l "$file" >/dev/null || fail "php -l $file"
 done
 bash -n "$0" || fail "bash -n $0"
@@ -392,8 +637,36 @@ file_put_contents($path, json_encode($proposal, JSON_PRETTY_PRINT | JSON_UNESCAP
 ' "$RSITE/.duo/contract/fixture/proposed.json"
 rel 'accept' contract fixture accept || { fail 'contract accept failed'; cat "$TMP/accept.err" >&2; }
 
+# `duo contract <env> show` reads the two committed review artifacts off disk
+# and contacts nothing, so it renders only after accept has written them.
+rel 'contract-show'      contract fixture show
+rel 'contract-show-one'  contract fixture show --limit=1
+rel 'contract-show-json' contract fixture show --format=json
+
 rel 'assess'      assess fixture
 rel 'assess-json' assess fixture --format=json
+
+# The review queue, at a size this suite chooses. `duo pending` renders
+# host-side (PendingCommand -> Pending::render()), so its human view is on
+# trial here exactly like the other seven; the fixture's fake wp answers
+# `duo pending` from $DUO_PENDING (make-release-site.php).
+PENDING_ROWS=4
+php -r '
+$rows = [];
+for ($i = 0; $i < (int) $argv[2]; $i++) {
+    $rows[] = [
+        "section" => "options",
+        "key" => "fixture_pending_$i",
+        "proposal" => "runtime",
+        "evidence" => ["entities" => 3],
+    ];
+}
+file_put_contents($argv[1], json_encode($rows, JSON_UNESCAPED_SLASHES));
+' "$TMP/pending-queue.json" "$PENDING_ROWS"
+DUO_PENDING="$TMP/pending-queue.json" rel 'pending'      pending fixture
+DUO_PENDING="$TMP/pending-queue.json" rel 'pending-one'  pending fixture --limit=1
+DUO_PENDING="$TMP/pending-queue.json" rel 'pending-json' pending fixture --format=json
+rel 'assess-one' assess fixture --limit=1
 rel 'release'      release fixture --plan-only
 rel 'release-json' release fixture --plan-only --format=json
 DUO_PLAN=plan-converged rel 'verify'      verify fixture
@@ -413,7 +686,7 @@ rec 'recover-restore-json' database-only recover fixture \
 php "$FIX/rehearse-view.php" "$TMP/rehearse" > /dev/null \
   || fail 'could not render the rehearsal preview view'
 
-for view in assess release verify recover-list recover-restore; do
+for view in assess release verify recover-list recover-restore pending contract-show; do
   cp "$TMP/$view-json.out" "$TMP/$view.json" \
     || fail "the --format=json run for $view produced nothing"
 done
@@ -456,6 +729,19 @@ scan 'duo recover <env> --list'          recover-list    --allow-key=id
 scan 'duo recover <env> --restore=<id>'  recover-restore --allow-key=id
 scan 'duo rehearse <env> (disclosure and provider refusal)' rehearse-verb
 scan 'duo rehearse <env> (preview)'      rehearse-preview
+# DUO-3521 widened the set past §5.2's original six. `pending`'s rows are
+# `section:key` pairs an operator types straight back into `duo classify`, and
+# `contract show` prints surface ids `duo contract accept` consumes; neither
+# is an internal identifier, so neither needs an allowlist entry — which is
+# the point of running them through the same scanner rather than assuming it.
+scan 'duo pending <env>'                 pending
+# `probable_owner` for the same reason it is allowlisted for assess above and
+# for no other view: it holds an ACTIVE PLUGIN SLUG, and `contract show`
+# prints that slug as the `plugin:<slug>` surface id an operator types into
+# `duo contract accept`. The "leak" the scanner sees is that documented id
+# arriving through a second field. This view carries the projection assess
+# generated, so it inherits assess's exemption and nothing else.
+scan 'duo contract <env> show'           contract-show --allow-key=probable_owner
 
 # ------------------------------------------- the allowlist is exercised, not
 # assumed. An audit that passed because every view printed nothing would be
@@ -544,6 +830,203 @@ if grep -Fq 'duo recover' "$GUIDES/recovery.md" 2>/dev/null; then
   pass 'docs/guides/recovery.md publishes duo recover as the replacement entry point'
 else
   fail 'docs/guides/recovery.md does not publish duo recover as the recovery entry point'
+fi
+
+# ---------------------------------------- part (c), the product's own output
+say '(c) the product itself never prints the raw-recovery recipe'
+
+# A REAL post-checkpoint promotion failure, rendered by the real `php cli/duo`
+# through the same rel() helper part (a) uses. `DUO_APPLY_EXIT=1` is enough:
+# the release fixture's fake wp already answers `duo apply`
+# (make-release-site.php:299), and an apply failure is the one that happens
+# AFTER the checkpoint, which is exactly when print_promotion_recovery() runs
+# (cli/duo:2502 -> promote_failed() -> the one chokepoint).
+if DUO_APPLY_EXIT=1 rel 'promote-failed' promote fixture; then
+  fail 'the seeded post-checkpoint promote failure exited 0; no recovery guidance was rendered'
+fi
+if grep -Fq 'database checkpoint: ' "$TMP/promote-failed.human"; then
+  pass 'a post-checkpoint promote failure renders its recovery guidance'
+else
+  fail 'the seeded promote failure never reached the checkpoint; the fixture no longer drives this path'
+  cat "$TMP/promote-failed.human" >&2
+fi
+
+if RENDERED_FINDINGS="$(scan_rendered_recovery 'duo promote <env> (post-checkpoint failure)' \
+      "$TMP/promote-failed.human" 2>&1)"; then
+  pass 'the promote failure view publishes no abort/begin/import/abort recipe and no runtime invocation'
+else
+  fail 'the product still prints the retired raw-recovery recipe (MUP §5.3)'
+  printf '%s\n' "$RENDERED_FINDINGS" >&2
+fi
+
+# What it prints INSTEAD has to be real. Take the remedy out of the rendered
+# view, take its verb, and require that verb of `duo`'s own Usage block —
+# rendered by running `php cli/duo` with no arguments, not by reading the
+# heredoc, so a verb that is documented but unreachable cannot satisfy this.
+REMEDY="$(sed -n 's/^duo: promote: .*recover with: //p' "$TMP/promote-failed.human" | head -1)"
+if [ -n "$REMEDY" ]; then
+  pass "the promote failure names a remedy instead of a recipe ($REMEDY)"
+else
+  fail 'the promote failure view named no remedy at all'
+fi
+case "$REMEDY" in
+  'duo recover '*' --restore='*' --writers-excluded --operator-directed')
+    pass 'the remedy is the documented duo recover --restore/--writers-excluded/--operator-directed form' ;;
+  *) fail "the remedy is not the documented duo recover form: $REMEDY" ;;
+esac
+REMEDY_VERB="$(printf '%s\n' "$REMEDY" | awk '{print $2}')"
+php "$ROOT/cli/duo" > "$TMP/usage.txt" 2>&1
+if [ -n "$REMEDY_VERB" ] && grep -qE "^  duo $REMEDY_VERB( |\$)" "$TMP/usage.txt"; then
+  pass "the remedy's verb is published in duo's own Usage block (duo $REMEDY_VERB)"
+else
+  fail "the remedy names 'duo $REMEDY_VERB', which duo's Usage block does not publish"
+fi
+
+# The `<id>` it hands the operator has to be the id `duo recover --list`
+# publishes, not a path or an invented token: RetainedCheckpoints builds both
+# from one `<prefix><owner>` stem (RetainedCheckpoints.php:287, :342).
+REMEDY_ID="$(printf '%s\n' "$REMEDY" | tr ' ' '\n' | sed -n 's/^--restore=//p')"
+CHECKPOINT_PATH="$(sed -n 's/^database checkpoint: //p' "$TMP/promote-failed.human" | head -1)"
+if [ -n "$REMEDY_ID" ] && [ "$CHECKPOINT_PATH" = "${CHECKPOINT_PATH%/*}/$REMEDY_ID.sql" ]; then
+  pass "the --restore=<id> the failure prints is the retained checkpoint's own stem ($REMEDY_ID)"
+else
+  fail "the printed --restore=<id> ('$REMEDY_ID') is not the stem of '$CHECKPOINT_PATH'"
+fi
+
+# The one host-rendered view with no `--format=json` twin (named in the header
+# above): it stops before any machine document exists, so part (a)'s
+# document-diffing scanner has nothing to diff against. The two identifier
+# classes it could plausibly carry are checked directly instead of the view
+# being skipped. The lease owner is allowed ONLY as part of the checkpoint's
+# `promote-<owner>` stem — that stem is the `<id>` `duo recover --restore=<id>`
+# consumes, which is exactly §5.2's second allowlist entry, and part (a)'s own
+# self-test pins the same distinction for `duo recover --list`.
+if grep -qE '(^|[^0-9a-f])[0-9a-f]{64}([^0-9a-f]|$)' "$TMP/promote-failed.human"; then
+  fail 'the promote failure view printed a 64-hex artifact hash; §5.2 keeps it to --format=json'
+else
+  pass 'the promote failure view prints no artifact hash'
+fi
+if grep -oE '[0-9]{8}-[0-9]{6}-[0-9a-f]{32}' "$TMP/promote-failed.human" | grep -q .; then
+  if grep -oE '.{8}[0-9]{8}-[0-9]{6}-[0-9a-f]{32}' "$TMP/promote-failed.human" \
+     | grep -vq 'promote-'; then
+    fail 'the promote failure view printed a bare lease owner outside the allowlisted checkpoint id'
+  else
+    pass 'every lease owner in the promote failure view is part of the --restore=<id> that consumes it'
+  fi
+else
+  fail 'the promote failure view printed no checkpoint id at all; the fixture no longer exercises this path'
+fi
+
+# ============================================================ part (d)
+say '(d) every human view is bounded, names the remedy, and keeps its JSON twin whole'
+
+# json_rows <json-file> <expression> — the TRUE row count, read out of the
+# machine document. The bound is asserted against this rather than against a
+# number written here, so a fixture that grows or shrinks cannot make the
+# check vacuous without also making it fail.
+json_rows() {
+  php -r '
+$d = json_decode((string) file_get_contents($argv[1]), true);
+$path = $argv[2] === "" ? [] : explode(".", $argv[2]);
+foreach ($path as $key) {
+    $d = is_array($d) ? ($d[$key] ?? null) : null;
+}
+echo is_array($d) ? count($d) : 0;
+' "$1" "$2"
+}
+
+# duo pending — the view that had NO ceiling at all before DUO-3521.
+PENDING_TOTAL="$(json_rows "$TMP/pending.json" '')"
+if [ "$PENDING_TOTAL" = "$PENDING_ROWS" ]; then
+  pass "duo pending --format=json publishes the complete queue ($PENDING_TOTAL row(s), unbounded)"
+else
+  fail "duo pending --format=json published $PENDING_TOTAL row(s) for a queue of $PENDING_ROWS"
+fi
+if BOUND_FINDINGS="$(assert_bounded 'duo pending <env> --limit=1' "$TMP/pending-one.human" "$PENDING_TOTAL" 1 2>&1)"; then
+  pass 'duo pending --limit=1 prints one row and a tail naming the true remainder'
+else
+  fail 'duo pending --limit=1 did not cut, or its tail does not name what was withheld'
+  printf '%s\n' "$BOUND_FINDINGS" >&2
+fi
+# The count line beside a cut table is the TRUE total. A truncated sample is
+# honest; a truncated count is a lie about the site.
+if grep -Fq -- "$PENDING_TOTAL item(s) in the review queue" "$TMP/pending-one.human"; then
+  pass 'duo pending keeps the true queue size in its count line under --limit=1'
+else
+  fail 'duo pending reported a truncated count instead of the true queue size'
+fi
+
+# duo assess — bounded before this change; the check is that delegating the
+# grammar to HumanViewLimit did not move the rendering.
+ASSESS_SURFACES="$(json_rows "$TMP/assess.json" 'surfaces')"
+if BOUND_FINDINGS="$(assert_bounded 'duo assess <env> --limit=1' "$TMP/assess-one.human" "$ASSESS_SURFACES" 1 2>&1)"; then
+  pass "duo assess --limit=1 cuts its $ASSESS_SURFACES-surface table and names the remainder"
+else
+  fail 'duo assess --limit=1 did not cut its surface table'
+  printf '%s\n' "$BOUND_FINDINGS" >&2
+fi
+
+# duo contract show — bounded at a hardcoded 50 before this change; what it
+# gained is the flag every other bounded view already published.
+CONTRACT_SURFACES="$(json_rows "$TMP/contract-show.json" 'projection.surfaces')"
+if BOUND_FINDINGS="$(assert_bounded 'duo contract <env> show --limit=1' "$TMP/contract-show-one.human" "$CONTRACT_SURFACES" 1 2>&1)"; then
+  pass "duo contract show --limit=1 cuts its $CONTRACT_SURFACES-surface projection and names the remainder"
+else
+  fail 'duo contract show --limit=1 did not cut its projection listing'
+  printf '%s\n' "$BOUND_FINDINGS" >&2
+fi
+if [ "$CONTRACT_SURFACES" -gt 1 ]; then
+  pass "duo contract show --format=json publishes the complete projection ($CONTRACT_SURFACES surface(s))"
+else
+  fail 'duo contract show --format=json published no complete projection to compare against'
+fi
+
+# ------------------------------------------- the shared grammar, per verb.
+# Every out-of-range spelling must produce THAT VERB'S OWN refusal bytes.
+# `HumanViewLimit::parse()` takes a caller-supplied refusal factory precisely
+# so this stays true, and this is where "no envelope moved" is checked rather
+# than asserted in a docblock.
+say '(d) the --limit grammar is closed, and each verb keeps its own refusal'
+
+# check_limit_refusal <label> <expected-substring> <verb-args...>
+check_limit_refusal() {
+  local label="$1" expected="$2"; shift 2
+  local bad
+  for bad in '--limit=0' '--limit=201' '--limit=+5' '--limit=1e2' '--limit=050' '--limit'; do
+    if rel "limit-$$" "$@" "$bad"; then
+      fail "$label accepted an out-of-range bound ($bad)"
+      continue
+    fi
+    grep -Fq -- "$expected" "$TMP/limit-$$.human" \
+      || fail "$label refused $bad in words that are not its own: expected /$expected/"
+  done
+  # A repeated flag is refused too: two bounds is an ambiguity, and resolving
+  # it silently would make one of them invisible.
+  if rel "limit-$$" "$@" '--limit=1' '--limit=2'; then
+    fail "$label accepted a repeated --limit"
+  else
+    grep -Fq -- "$expected" "$TMP/limit-$$.human" \
+      || fail "$label refused a repeated --limit in words that are not its own"
+  fi
+  pass "$label refuses 0, 201, +5, 1e2, 050, a bare --limit and a repeated one, in its own words"
+}
+
+check_limit_refusal 'duo assess <env>' \
+  'assess accepts at most one canonical --limit=<1..200>' assess fixture
+check_limit_refusal 'duo release <env> --plan-only' \
+  '--limit must be given once as --limit=N with N between 1 and 200' release fixture --plan-only
+check_limit_refusal 'duo contract <env> show' \
+  '--limit must be given once as --limit=N with N between 1 and 200' contract fixture show
+check_limit_refusal 'duo pending <env>' \
+  'duo: pending: --limit must be given once as --limit=N with N between 1 and 200' pending fixture
+
+# ============================================================ part (e)
+say '(e) every published duo verb is dispatched, and every dispatched verb is published'
+if SYMMETRY_FINDINGS="$(php "$FIX/host-verb-symmetry.php" "$ROOT" 2>&1 >/dev/null)"; then
+  pass "duo's Usage block and main()'s three dispatch sources name exactly the same verbs"
+else
+  fail "duo publishes a verb it does not dispatch, or dispatches one it does not publish (MUP §5.1)"
+  printf '%s\n' "$SYMMETRY_FINDINGS" >&2
 fi
 
 # ------------------------------------------------------------------- verdict

@@ -126,12 +126,13 @@ function run_deploy_command(DeployCommandDriver $driver, array $extra, ?int $sco
             $callbacks[] = "abort:$owner:$hash";
             return true;
         },
+        // DUO-3525: the recovery callback takes no owner/hash any more — the
+        // guidance names `duo recover <env> --restore=<id>`, whose `<id>` is
+        // the checkpoint basename, so nothing PRINTED needs the lease pair.
         static function (
             EnvironmentDriver $transport,
             string $checkpoint,
-            bool $codeMayHaveChanged,
-            string $owner,
-            string $hash
+            bool $codeMayHaveChanged
         ) use (&$callbacks): void {
             $callbacks[] = "recovery:$checkpoint:" . ($codeMayHaveChanged ? 'code' : 'nocode');
         }

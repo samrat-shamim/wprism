@@ -81,6 +81,8 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
     public bool $cleanPlan = true;
     public bool $emptyExport = false;
     public string $artifactHash = '';
+    /** Non-zero drives the post-checkpoint failure that renders recovery guidance. */
+    public int $applyExit = 0;
 
     public function __construct(private string $repo) {}
     public function name(): string { return 'branch'; }
@@ -168,6 +170,9 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
             ], JSON_UNESCAPED_SLASHES) . "\n");
         }
         if ($verb === 'apply') {
+            if ($this->applyExit !== 0) {
+                return ['exit' => $this->applyExit, 'stdout' => '', 'stderr' => "apply refused\n"];
+            }
             $artifact = '';
             foreach ($args as $arg) if (str_starts_with($arg, '--artifact-hash=')) $artifact = substr($arg, 16);
             $revision = hash('sha256', 'state-release');
@@ -229,6 +234,65 @@ $context = [
     'checkpoint_path' => '/target/repo/.duo/checkpoints/materialize-' . $operation . '.sql',
     'compiled_summary' => $summary,
 ];
+
+// DUO-3525 — the materialize branch of print_promotion_recovery().
+//
+// A frozen materialization's checkpoint is `materialize-<operation_id>.sql`
+// (cli/duo:2632), and `RetainedCheckpoints::ID_PREFIXES` is a CLOSED set of
+// `promote-` / `deploy-` (cli/src/Recovery/RetainedCheckpoints.php:88-100)
+// that excludes it on purpose, so `duo recover --restore=<id>` would refuse
+// this id. A post-checkpoint failure here must therefore print a NAMED
+// REFUSAL identifying the required operator authority — never that verb, and
+// never the raw abort/begin/import/abort recipe the product stopped emitting
+// (regress_mup_leak_audit.sh part (c) forbids it in every guide; DUO-3525
+// removed the product's own copy).
+//
+// The guidance is written with fwrite(STDERR, ...), which no in-process
+// buffer intercepts, so the failing promotion runs as a child re-exec of THIS
+// file: same source, same fixture driver, same cmd_promote_frozen() entry.
+if (($argv[1] ?? '') === '--recovery-view') {
+    $failing = new FrozenPromotionDriver('/target/repo');
+    $failing->artifactHash = $artifactHash;
+    $failing->applyExit = 1;
+    cmd_promote_frozen($failing, $context);
+    exit(0);
+}
+$viewFile = tempnam(sys_get_temp_dir(), 'fmp-recovery-view');
+if (!is_string($viewFile)) fmp_fail('could not stage the recovery-view capture file');
+exec(
+    escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' --recovery-view'
+        . ' >/dev/null 2>' . escapeshellarg($viewFile),
+    $fmpIgnored,
+    $fmpChildExit
+);
+$recoveryView = (string) file_get_contents($viewFile);
+@unlink($viewFile);
+fmp_ok(
+    str_contains($recoveryView, 'this checkpoint contains its temporary promotion lease row'),
+    'a failed frozen promotion still explains the checkpoint lease row'
+);
+fmp_ok(
+    str_contains(
+        $recoveryView,
+        'this checkpoint is not a retained release checkpoint, so no duo verb restores it; '
+            . "recovery requires the operator authority that owns this target's database backups."
+    ),
+    'a materialize checkpoint gets the named operator-authority refusal, not a verb'
+);
+fmp_ok(
+    !str_contains($recoveryView, 'duo recover '),
+    'the refusal names no duo recover command for a checkpoint that verb cannot list'
+);
+foreach (['wp duo promotion-abort', 'wp duo promotion-begin', 'wp db import', 'rollback-control.php'] as $retired) {
+    fmp_ok(
+        !str_contains($recoveryView, $retired),
+        "the failure view publishes no retired raw-recovery step ($retired)"
+    );
+}
+fmp_ok(
+    !str_contains($recoveryView, $artifactHash),
+    'the failure view keeps the artifact hash out of the human view (MUP §5.2)'
+);
 
 $driver = new FrozenPromotionDriver('/target/repo');
 $driver->artifactHash = $artifactHash;

@@ -1,5 +1,5 @@
 {
-    "class_count": 354,
+    "class_count": 355,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -24390,6 +24390,106 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\HumanViewLimit": {
+            "abstract": false,
+            "constants": {
+                "CUT_SUFFIX": {
+                    "value_repr": " more (use --format=json)"
+                },
+                "DEFAULT_LIMIT": {
+                    "value_repr": 50
+                },
+                "GRAMMAR": {
+                    "value_repr": "/^(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)$/D"
+                },
+                "MAX_LIMIT": {
+                    "value_repr": 200
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "cut": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "total",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "shown",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "  ",
+                            "has_default": true,
+                            "name": "indent",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "parse": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "onInvalid",
+                            "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "valid": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "raw",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\ImportedArchives": {
             "abstract": false,
             "constants": {
@@ -26054,6 +26154,14 @@
                             "has_default": false,
                             "name": "items",
                             "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "Duo\\Orchestrator\\HumanViewLimit::DEFAULT_LIMIT",
+                            "has_default": true,
+                            "name": "limit",
+                            "type": "int",
                             "variadic": false
                         }
                     ],

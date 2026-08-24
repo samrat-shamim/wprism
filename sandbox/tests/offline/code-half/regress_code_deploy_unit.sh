@@ -353,13 +353,25 @@ invoke 1 env FAKE_STAGE_FAIL=1
 [[ "$(line 6)" == *"duo promotion-abort"* ]] || fail "stage failure did not clean begun session"
 assert_control_call "$(line 6)" "stage-failure promotion-abort"
 grep -q 'code-stage failed.*were not run' <<<"$OUT" || fail "stage stop wording missing"
-# A checkpoint an operator is never told how to use is not a recovery story:
-# the four numbered steps are print_promotion_recovery()'s own, verb-substituted.
+# A checkpoint an operator is never told how to use is not a recovery story.
+# Since DUO-3525 that story is ONE verb, not four numbered `wp` instructions:
+# print_promotion_recovery() (cli/duo:3317-3394) now names `duo recover <env>
+# --restore=<id> --writers-excluded --operator-directed`, which drives exactly
+# the four steps it used to print (RecoverCommand::ORDERED_STEPS,
+# cli/src/Command/RecoverCommand.php:114). Deploy shares that one chokepoint
+# with `$verb` substituted, so this asserts the deploy-attributed remedy and
+# that the retired raw import is absent — the same property
+# regress_mup_leak_audit.sh part (c) gates for the guides.
 grep -q 'promotion lease cleanup confirmed' <<<"$OUT" || fail "the abort result was discarded"
 grep -q 'this checkpoint contains its temporary promotion lease row' <<<"$OUT" \
   || fail "a post-checkpoint failure printed no recovery guidance"
-grep -q 'duo: deploy: run step 4 even if the database import fails' <<<"$OUT" \
-  || fail "the recovery guidance was not attributed to deploy"
+grep -qE '^duo: deploy: once that exclusion is in place, recover with: duo recover unit --restore=deploy-[A-Za-z0-9._-]+ --writers-excluded --operator-directed$' <<<"$OUT" \
+  || fail "the deploy-attributed duo recover remedy is missing: $OUT"
+grep -q 'releases the lease row the import reinstates, including when the import' <<<"$OUT" \
+  || fail "the recovery guidance dropped the mandatory-final-abort safety fact"
+if grep -Fq 'wp db import' <<<"$OUT"; then
+  fail "deploy still publishes the retired raw database import recipe"
+fi
 grep -q 'duo: deploy: code may be staged or partially finalized' <<<"$OUT" \
   || fail "a stage failure did not announce the code-first ordering"
 pass "stage failure stops lifecycle/finalize and guides recovery of its own checkpoint"

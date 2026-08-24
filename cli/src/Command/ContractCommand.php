@@ -12,7 +12,7 @@ require_once __DIR__ . '/../Contract/ContractProposal.php';
 require_once __DIR__ . '/../Contract/ContractStore.php';
 require_once __DIR__ . '/../Contract/ProjectionVocabulary.php';
 require_once __DIR__ . '/../Assess/AssessReport.php';
-require_once __DIR__ . '/../Assess/AssessRenderer.php';
+require_once __DIR__ . '/../Plan/HumanViewLimit.php';
 require_once __DIR__ . '/AssessCommand.php';
 require_once __DIR__ . '/CommandOutput.php';
 
@@ -87,11 +87,19 @@ final class ContractCommand {
         $json = AssessCommand::wantsJson($extra);
         try {
             $subcommand = self::subcommand($extra);
+            // DUO-3521: `show` was already bounded at a hardcoded 50; what it
+            // lacked was the flag every other bounded view publishes. The
+            // grammar and the refusal are the shared ones, so an operator
+            // learns `--limit=<1..200>` once.
+            $limit = HumanViewLimit::parse(
+                $extra,
+                static fn(): CommandRefusalException => self::refuseLimit()
+            );
             $siteRepo = AssessCommand::siteRepo(getcwd() ?: '.');
             $store = new ContractStore($siteRepo);
 
             $lines = match ($subcommand) {
-                'show' => self::show($store, $json),
+                'show' => self::show($store, $json, $limit),
                 'propose' => self::propose($driver, $sourceRoot, $hostCatalog, $clock, $json),
                 'accept' => self::accept($driver, $store, $siteRepo, $sourceRoot, $hostCatalog, $clock, $json),
             };
@@ -110,7 +118,7 @@ final class ContractCommand {
      *
      * @return list<string>
      */
-    private static function show(ContractStore $store, bool $json): array {
+    private static function show(ContractStore $store, bool $json, int $limit = HumanViewLimit::DEFAULT_LIMIT): array {
         $contract = $store->readContract();
         if ($contract === null) {
             throw new CommandRefusalException(
@@ -124,7 +132,7 @@ final class ContractCommand {
             return [rtrim(Canon::encode(['contract' => $contract, 'projection' => $projection]), "\n")];
         }
 
-        return self::renderContract($contract, $projection);
+        return self::renderContract($contract, $projection, $limit);
     }
 
     /**
@@ -317,7 +325,11 @@ final class ContractCommand {
      * @param array<string,mixed>|null $projection
      * @return list<string>
      */
-    private static function renderContract(array $contract, ?array $projection): array {
+    private static function renderContract(
+        array $contract,
+        ?array $projection,
+        int $limit = HumanViewLimit::DEFAULT_LIMIT
+    ): array {
         $declarations = is_array($contract['declarations'] ?? null) ? $contract['declarations'] : [];
         $attestation = is_array($contract['attestation'] ?? null) ? $contract['attestation'] : [];
         $surfaces = is_array($declarations['surfaces'] ?? null) ? $declarations['surfaces'] : [];
@@ -332,7 +344,11 @@ final class ContractCommand {
             'declared: ' . count($surfaces) . ' surface(s), ' . count($effects)
                 . ' external effect(s), ' . count($journeys) . ' journey(s)',
         ];
-        foreach (array_slice($effects, 0, AssessRenderer::DEFAULT_LIMIT) as $effect) {
+        // DUO-3521: this slice had NO tail line, so a site with more than 50
+        // declared effects printed a truncated sample that read as complete —
+        // the one failure mode `N more (use --format=json)` exists to prevent.
+        $shownEffects = array_slice($effects, 0, $limit);
+        foreach ($shownEffects as $effect) {
             if (!is_array($effect)) {
                 continue;
             }
@@ -340,6 +356,10 @@ final class ContractCommand {
                 . ': containment ' . self::safe($effect['containment'] ?? '?')
                 . ' · recovery ' . self::safe($effect['effect_recovery_semantics'] ?? '?')
                 . ' · decided by ' . self::safe($effect['decided_by'] ?? '?');
+        }
+        $effectsCut = HumanViewLimit::cut(count($effects), count($shownEffects));
+        if ($effectsCut !== null) {
+            $lines[] = $effectsCut;
         }
         if ($journeys === []) {
             // MUP §2.4's disclosure, said once here rather than only at
@@ -358,7 +378,7 @@ final class ContractCommand {
         $pins = is_array($projection['evidence_pins'] ?? null) ? $projection['evidence_pins'] : [];
         $lines[] = 'projection: ' . count($rows) . ' surface(s) · evidence '
             . (($pins['current'] ?? false) === true ? 'current' : 'stale');
-        $shown = array_slice($rows, 0, AssessRenderer::DEFAULT_LIMIT);
+        $shown = array_slice($rows, 0, $limit);
         foreach ($shown as $row) {
             if (!is_array($row)) {
                 continue;
@@ -437,6 +457,16 @@ final class ContractCommand {
         }
 
         return $found;
+    }
+
+    /** The shared `--limit` grammar, refused in this verb's own words. */
+    private static function refuseLimit(): CommandRefusalException {
+        return new CommandRefusalException(
+            'invalid_arguments',
+            '--limit must be given once as --limit=N with N between 1 and ' . HumanViewLimit::MAX_LIMIT,
+            'rerun with --limit=N in that range, or drop --limit for the default of '
+                . HumanViewLimit::DEFAULT_LIMIT
+        );
     }
 
     private static function usage(): CommandRefusalException {
