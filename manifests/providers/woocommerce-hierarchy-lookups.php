@@ -3,6 +3,11 @@ namespace Duo\Providers;
 
 use Duo\PlainData;
 use Duo\Policy;
+use Duo\WpCliChildProcess;
+
+if (!class_exists(WpCliChildProcess::class, false)) {
+    require_once __DIR__ . '/../../agent/src/Kernel/WpCliChildProcess.php';
+}
 
 /**
  * WooCommerce 11.0.x category/brand hierarchy projection provider.
@@ -273,11 +278,16 @@ final class WoocommerceHierarchyLookups {
             . '\\Duo\\Providers\\WoocommerceHierarchyLookups::run_child('
             . ($flushRewrite ? 'true' : 'false') . ');';
         try {
-            $result = \WP_CLI::runcommand('eval ' . escapeshellarg($code), [
-                'launch' => true,
-                'return' => 'all',
-                'exit_error' => false,
-            ]);
+            // The canonical child receipt is capped at 16 KiB below. Bound
+            // both pipes to that same reviewed envelope: hierarchy failures
+            // may contain merchant-shaped diagnostics and must never restore
+            // WP-CLI return=all's unbounded capture behavior.
+            $result = WpCliChildProcess::capture(
+                'eval ' . escapeshellarg($code),
+                120,
+                16384,
+                16384
+            );
         } catch (\Throwable $exception) {
             throw new \RuntimeException(
                 'duo: WooCommerce hierarchy child process could not start; recovery_required',
@@ -285,27 +295,22 @@ final class WoocommerceHierarchyLookups {
                 $exception
             );
         }
-        if (!is_object($result) || !isset($result->return_code) || !is_int($result->return_code)) {
-            throw new \RuntimeException(
-                'duo: WooCommerce hierarchy child returned an unreadable process result; recovery_required'
-            );
-        }
-        if ($result->return_code !== 0) {
+        if ($result['return_code'] !== 0) {
             // Child output can contain plugin paths, SQL diagnostics, or
             // merchant-shaped filter output. The exit code is sufficient to
             // keep the failure actionable without copying those bytes into a
             // promotion receipt or operator log.
             throw new \RuntimeException(
-                "duo: WooCommerce hierarchy child exited {$result->return_code}; recovery_required"
+                "duo: WooCommerce hierarchy child exited {$result['return_code']}; recovery_required"
             );
         }
-        $stderr = (string) ($result->stderr ?? '');
+        $stderr = $result['stderr'];
         if ($stderr !== '') {
             throw new \RuntimeException(
                 'duo: WooCommerce hierarchy child emitted stderr despite exit 0; recovery_required'
             );
         }
-        $stdout = (string) ($result->stdout ?? '');
+        $stdout = $result['stdout'];
         if ($stdout === '' || strlen($stdout) > 16384) {
             throw new \RuntimeException(
                 'duo: WooCommerce hierarchy child returned a missing or oversized receipt; recovery_required'

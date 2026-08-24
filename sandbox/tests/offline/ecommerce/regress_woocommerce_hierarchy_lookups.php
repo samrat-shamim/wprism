@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
 require_once __DIR__ . '/../../support/woocommerce_mixed_option_hooks.php';
+require_once __DIR__ . '/../../support/wp_cli_child_process_fake.php';
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/OptionState.php';
 require_once $root . '/agent/src/Kernel/PlainData.php';
@@ -20,6 +21,7 @@ require_once $root . '/agent/src/Rebuild/NativeActions.php';
 
 use Duo\Policy;
 use DuoTest\FakeWpdb;
+use DuoTest\WpCliChildRuntime;
 use DuoTest\WpStore;
 
 $coinstallTopology = json_decode(
@@ -184,6 +186,8 @@ final class WooHierarchyWakeupCanary {
 
 if (!class_exists('WP_CLI')) {
     final class WP_CLI {
+        use WpCliChildRuntime;
+
         public static string $mode = 'success';
         /** @var null|callable(string,array):object */
         public static $handler = null;
@@ -716,8 +720,8 @@ $wpdb->seedTable('wp_options', [
 WP_CLI::$handler = static function (string $command, array $options): object {
     $isHierarchy = str_contains($command, 'WoocommerceHierarchyLookups::run_child(');
     $isNativeRewrite = str_contains($command, 'Duo\\NativeActions::execute("rewrite.flush", [])');
-    duo_check(str_starts_with($command, 'eval ') && ($isHierarchy xor $isNativeRewrite),
-        'provider uses only its fixed hierarchy child or Core\'s fixed native rewrite child');
+    duo_check(($isHierarchy xor $isNativeRewrite),
+        'the bounded process transport contains only its fixed hierarchy child or Core\'s fixed native rewrite child');
     duo_check_same(
         ['launch' => true, 'return' => 'all', 'exit_error' => false],
         $options,
@@ -1333,6 +1337,11 @@ $wpdb->setColumns('wp_wc_category_lookup', [
 $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs);
 
 $source = (string) file_get_contents($root . '/manifests/providers/woocommerce-hierarchy-lookups.php');
+duo_check(str_contains($source, 'use Duo\\WpCliChildProcess;')
+    && str_contains($source, "require_once __DIR__ . '/../../agent/src/Kernel/WpCliChildProcess.php';")
+    && preg_match('/WpCliChildProcess::capture\(\s*\'eval \' \. escapeshellarg\(\$code\),\s*120,\s*16384,\s*16384\s*\)/', $source) === 1
+    && !str_contains($source, 'WP_CLI::runcommand('),
+    'hierarchy repair owns the reviewed bounded 120-second/16-KiB child transport rather than WP-CLI return=all');
 duo_check(str_contains($source, 'CategoryLookup')
     && str_contains($source, '->regenerate()')
     && str_contains($source, '_get_term_hierarchy($taxonomy)')
