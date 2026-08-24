@@ -267,8 +267,21 @@ final class AdapterSources {
      * SupersededWireSiteAdapterCertificate at the certificate wire-version
      * test — and both resolve the adapter to the same uncertified support a
      * companion-absent site adapter reaches. Nothing here catches
-     * \RuntimeException: forgery, an authority anomaly, a wrong binding and an
-     * unparseable statement all stay whole-source refusals.
+     * \RuntimeException: an authority anomaly, a wrong binding, a bad signature
+     * and an unparseable statement all stay whole-source refusals.
+     *
+     * The two are NOT equally guarded, and the difference is load-bearing.
+     * STALE_PLATFORM is raised only after the Ed25519 signature, the authority
+     * binding and the adapter binding have all verified, so nothing but a
+     * genuine certificate reaches it. SUPERSEDED_WIRE is raised in
+     * assertCertificateShape(), ahead of all three, and is UNAUTHENTICATED BY
+     * CONSTRUCTION — root `format` is outside the signed bytes, so anyone who
+     * can write the companion file can trigger it, including by flipping the
+     * `format` of a valid certificate. That is accepted because its only
+     * destination is uncertified support, which the same write access already
+     * reached by deleting the companion; the full risk note, its damping and
+     * the shape proofs that narrow it are on
+     * SupersededWireSiteAdapterCertificate.
      *
      * They exist as tags rather than as sentences at the call site because the
      * sentence lands in provenance_record()'s `reason`, which is
@@ -3800,11 +3813,12 @@ final class AdapterSources {
      * binding.
      *
      * The one thing a frozen certified record may do besides verify or refuse
-     * is be WITHDRAWN: when an agent-owned document the signature binds has
-     * moved (platform boundary, certificate wire version), the certificate is
-     * still proved authentic and the adapter still resolves — as uncertified
-     * support, from a record derived here. See the WITHDRAWN_* constants and
-     * the catch below; every other disagreement is still a refusal.
+     * is be WITHDRAWN, and on this path exactly one condition qualifies: the
+     * agent-owned platform boundary the signature binds has moved. The
+     * certificate is still proved authentic and the adapter still resolves — as
+     * uncertified support, from a record derived here. Every other
+     * disagreement, the superseded wire version included, is still a refusal;
+     * the single catch below says why.
      */
     public static function from_snapshot(array $data, array $manifests): self {
         $keys = array_keys($data);
@@ -3894,8 +3908,6 @@ final class AdapterSources {
                     );
                 } catch (StalePlatformSiteAdapterCertificate $movedPlatform) {
                     $withdrawn = self::WITHDRAWN_STALE_PLATFORM;
-                } catch (SupersededWireSiteAdapterCertificate $movedWire) {
-                    $withdrawn = self::WITHDRAWN_SUPERSEDED_WIRE;
                 }
                 if ($withdrawn !== null) {
                     // The identical withdrawal the live scan performs, on the
@@ -3911,15 +3923,27 @@ final class AdapterSources {
                     // manifest alone — the same record provenance_record()
                     // mints live — so a tampered record buys nothing. The
                     // certificate itself was still proved authentic before the
-                    // withdrawal (signature, current authority, and the exact
-                    // adapter binding all verify ahead of both typed signals),
-                    // which is why this is a withdrawal and not a shrug.
+                    // withdrawal (signature, current authority and the exact
+                    // adapter binding all verify ahead of this one typed
+                    // signal), which is why this is a withdrawal and not a
+                    // shrug.
                     //
-                    // A SupersededSiteAdapterCertificate is deliberately NOT
-                    // caught here: on the frozen path the manifest and the
-                    // certificate travel together in one snapshot, so bytes
-                    // that disagree mean the snapshot was edited, not that an
-                    // operator edited an adapter. That stays a hard refusal.
+                    // Exactly ONE signal is caught here, and that is the whole
+                    // asymmetry of the frozen path. A SupersededSiteAdapter-
+                    // Certificate is not caught: manifest and certificate
+                    // travel together in one snapshot, so bytes that disagree
+                    // mean the snapshot was edited, not that an operator edited
+                    // an adapter. A SupersededWireSiteAdapterCertificate is not
+                    // caught either, and for the identical reason — it is
+                    // raised before any signature is checked (root `format` is
+                    // outside the signed bytes), so in a snapshot it can only
+                    // mean the snapshot's own certificate was rewritten. There
+                    // is no /v2 wire and never has been, so no snapshot can
+                    // honestly carry one; catching it would buy zero
+                    // compatibility and cost the tamper-evidence that is the
+                    // point of freezing. If a /v2 wire is ever published, this
+                    // is the decision to revisit — with a real wire to migrate,
+                    // not a hypothetical one.
                     $record = self::provenance_record(
                         $name,
                         self::SITE_DIR . '/' . $name . '.json',
@@ -3955,6 +3979,12 @@ final class AdapterSources {
                 false,
                 $origin === self::SITE ? self::shipped_executable_grants(Policy::manifests_dir(), $name) : null
             );
+            // Tautological in the withdrawn branch above and deliberately left
+            // that way: $record was re-minted by provenance_record(), whose
+            // 'trust_tier' IS self::trust_tier($manifest), so the withdrawal
+            // cannot smuggle a tier past this line by construction rather than
+            // by this check. For every other record — the frozen bytes as they
+            // arrived — this is the check that proves it.
             if (($record['trust_tier'] ?? null) !== self::trust_tier($manifest)) {
                 throw new \RuntimeException(
                     "duo: frozen adapter source record for '$name' claims trust tier '{$record['trust_tier']}' but "

@@ -1910,7 +1910,7 @@ PHP
         cert_check(
             true,
             '(a) a moved platform boundary no longer refuses the whole source — Policy::load() completes, and the '
-            . 'now-stale exact digest pin rides the site-pin concession (PinResolver.php:187-190) instead of '
+            . 'now-stale exact digest pin rides the site-pin concession (PinResolver.php:201-208) instead of '
             . 'stranding the load'
         );
     } catch (Throwable $e) {
@@ -2188,6 +2188,169 @@ PHP
             "(e) format '$nearMissFormat' is not this wire family at another version — still a whole-source refusal"
         );
     }
+
+    // (h) WHAT THE WIRE SIGNAL ACTUALLY IS, pinned rather than assumed. Unlike
+    // the stale-platform signal, this one is UNAUTHENTICATED BY CONSTRUCTION:
+    // it is raised in assertCertificateShape(), before any signature is
+    // checked, and root `format` is outside the signed bytes anyway
+    // (signatureBytes signs the statement alone). The three cases below are the
+    // real boundary — one accepted degradation and two hard refusals — and they
+    // are what the risk note on SupersededWireSiteAdapterCertificate is about.
+    // The agent boundary is back to CURRENT here, so nothing but the wire
+    // version is in play.
+    $mutatedFutureWire = Canon::decode($originalCertificateRaw);
+    $mutatedFutureWire['format'] = 'duo-adapter-certification/v2';
+    $mutatedFutureWire['statement']['bundle']['git_revision'] = str_repeat('f', 40);
+    cert_write_canon($certPath, $mutatedFutureWire);
+    $mutatedWirePolicy = null;
+    try {
+        $mutatedWirePolicy = Policy::load($site);
+    } catch (Throwable $e) {
+        cert_check(false, '(h) a mutated statement under a superseded wire version withdraws rather than refuses ('
+            . $e->getMessage() . ')');
+    }
+    if ($mutatedWirePolicy instanceof Policy) {
+        // ACCEPTED, deliberately asserted as the real behaviour rather than the
+        // behaviour one would prefer: this is byte-for-byte the statement case
+        // (d) above refuses with 'invalid Ed25519 signature', and the ONLY
+        // difference is a root `format` no signature covers — so the signature
+        // is never reached and the adapter degrades instead. It is accepted
+        // because the destination is UNCERTIFIED support: strictly weaker than
+        // what the certificate conferred, never a grant, and the same write
+        // access that edited this file reaches the identical state by deleting
+        // it. The loss is tamper-evidence (a refusal an operator would have
+        // investigated becomes a quiet degradation), not a trust boundary —
+        // docs/guides/adapter-authoring.md says so to operators in the same
+        // words. Cases (h2)/(h3) are the part that is NOT accepted: the shape
+        // proofs that keep the cheap forgeries away from this signal.
+        cert_check(
+            !$mutatedWirePolicy->adapter_sources()->is_certified('site-demo')
+            && str_contains(
+                (string) ($mutatedWirePolicy->adapter_sources()->provenance('site-demo')['reason'] ?? ''),
+                'certification wire version this agent does not verify'
+            ),
+            '(h) a superseded wire version withdraws the claim WITHOUT authenticating anything — the same statement '
+            . 'mutation that case (d) refuses as a forgery degrades here, because root `format` is outside the '
+            . 'signed bytes; accepted, and the accepted risk is written down at the throw site'
+        );
+    }
+    // (h2) The cheapest thing an attacker with write access to
+    // adapters/certification/ can author: a one-key file naming a future wire.
+    // assertExactKeys runs AHEAD of the wire test precisely so this cannot
+    // reach the typed signal — before that ordering it degraded the adapter.
+    cert_write_canon($certPath, ['format' => 'duo-adapter-certification/v2']);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        'site adapter certification must contain exactly format, signature, statement',
+        '(h) a bare {"format":"…/v2"} file with statement and signature REMOVED is refused as malformed and never '
+        . 'reaches the wire signal — the closed root key set is proved first'
+    );
+    // (h3) And the signature must at least be a canonical base64 Ed25519-length
+    // signature, proved before the wire test for the same reason.
+    $shortSignatureFutureWire = Canon::decode($originalCertificateRaw);
+    $shortSignatureFutureWire['format'] = 'duo-adapter-certification/v2';
+    $shortSignatureFutureWire['signature'] = base64_encode('not an ed25519 signature');
+    cert_write_canon($certPath, $shortSignatureFutureWire);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        'certification signature is not a base64 Ed25519 signature',
+        '(h) and a superseded-wire file whose signature is not Ed25519-shaped is refused on the signature, not '
+        . 'degraded on the version'
+    );
+
+    // (i) The FROZEN path does not take the wire signal at all. A snapshot
+    // carries its manifest and its certificate together, so a certificate in it
+    // claiming a wire version that has never been published cannot mean "this
+    // agent upgraded past it" — there is no /v2 wire to have been written on.
+    // It can only mean the snapshot was edited, which is exactly the argument
+    // from_snapshot() already applies to SupersededSiteAdapterCertificate.
+    // Stale-platform stays caught there (case (f)) because a boundary genuinely
+    // moves under a frozen site; this does not.
+    $frozenWireEnvelope = $currentEnvelope;
+    $frozenWireCertificate = Canon::decode((string) base64_decode((string) $currentEnvelope['certificate_json'], true));
+    $frozenWireCertificate['format'] = 'duo-adapter-certification/v2';
+    $frozenWireRaw = Canon::encode($frozenWireCertificate);
+    // Digest recomputed so the envelope's own integrity check passes and the
+    // refusal below is the wire test, not 'corrupt certificate bytes'.
+    $frozenWireEnvelope['certificate_json'] = base64_encode($frozenWireRaw);
+    $frozenWireEnvelope['certificate_sha256'] = hash('sha256', $frozenWireRaw);
+    $frozenWireSnapshot = $currentSnapshot;
+    $frozenWireSnapshot['adapter_sources']['certificates']['site-demo'] = $frozenWireEnvelope;
+    cert_expect_throw(
+        static fn() => Policy::from_snapshot($frozenWireSnapshot),
+        "wire version 'duo-adapter-certification/v2', which this agent does not verify",
+        '(i) a superseded wire version inside a FROZEN snapshot is a hard refusal, not a withdrawal — the frozen '
+        . 'asymmetry that keeps superseded BYTES a refusal applies to it verbatim'
+    );
+
+    // (j) THE PIN CONCESSION IS ABOUT STATE, NOT SPELLING. A withdrawn adapter
+    // is only unbricked if the operator's pin rides the concession, and the
+    // source-qualified `{name,source,digest}` form is not the only one an
+    // operator writes: neither `duo adapter certify --pin` nor `wp duo
+    // manifest-pin` emits the bare `{name,digest}`, so that shape is
+    // hand-written — a shorter statement of the same intent, not a weaker one.
+    // PinResolver asks source() rather than the pin, so the concession follows
+    // where the adapter RESOLVED from.
+    cert_write($certPath, $originalCertificateRaw);
+    cert_write_canon($integrationManifests . '/capabilities/platform.json', [
+        'format' => ManifestDispositions::PLATFORM_FORMAT,
+        'platform' => $stalePlatform,
+    ]);
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => ['core', ['digest' => $certifiedDigest, 'name' => 'site-demo']],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    try {
+        $sourcelessPolicy = Policy::load($site);
+        cert_check(
+            !$sourcelessPolicy->adapter_sources()->is_certified('site-demo')
+            && (RepositoryCompiler::resolved_adapters($sourcelessPolicy)[0]['digest'] ?? null) === $currentCoreDigest,
+            '(j) a SOURCE-LESS digest pin on the withdrawn, site-resolved adapter rides the same concession — '
+            . 'without this the unbrick only reached operators who had spelled the source out'
+        );
+    } catch (Throwable $e) {
+        cert_check(false, '(j) a SOURCE-LESS digest pin on the withdrawn, site-resolved adapter rides the same '
+            . 'concession (' . $e->getMessage() . ')');
+    }
+    // The other half, and the reason the widening is narrow: dropping `source`
+    // buys nothing for an adapter that did not resolve from the site source. A
+    // shipped manifest that changed under a digest pin is a real integrity
+    // failure, and its refusal must not have moved one byte.
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => [
+            ['digest' => str_repeat('a', 64), 'name' => 'core'],
+            ['digest' => $certifiedDigest, 'name' => 'site-demo'],
+        ],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        "duo: manifest 'core' digest mismatch: expected " . str_repeat('a', 64) . ", actual $currentCoreDigest — "
+        . 'review the manifest change, then update its site.duo.json pin',
+        '(j) but a SOURCE-LESS digest pin on a SHIPPED-resolved manifest still refuses byte-identically — the '
+        . 'concession followed the resolved source, not the absence of a declared one'
+    );
+    // And the concession is still gated on the STATE, not the source: put the
+    // boundary back, so the same source-less pin now names a still-certified
+    // adapter whose digest simply disagrees, and it refuses again.
+    cert_write_canon($integrationManifests . '/capabilities/platform.json', [
+        'format' => ManifestDispositions::PLATFORM_FORMAT,
+        'platform' => $platform,
+    ]);
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => ['core', ['digest' => str_repeat('b', 64), 'name' => 'site-demo']],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        "duo: manifest 'site-demo' digest mismatch: expected " . str_repeat('b', 64),
+        '(j) and a source-less digest pin on a STILL-CERTIFIED site adapter refuses too — is_certified() is what '
+        . 'gates the concession, and dropping `source` did not loosen it'
+    );
+
     cert_write($certPath, $originalCertificateRaw);
     cert_write_canon($site . '/site.duo.json', [
         'manifests' => [['name' => 'site-demo', 'source' => 'site']],
