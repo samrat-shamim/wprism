@@ -44,7 +44,7 @@ foreach ((array) ($coinstallTopology['artifacts'] ?? []) as $slug => $artifact) 
 duo_check_same([
     ['plugin' => 'woocommerce', 'path' => 'includes/wc-core-functions.php', 'sha256' => '17bf218326de339c872eba8c9f855b73bb1c7874053c36774c35ef222927e684'],
     ['plugin' => 'woocommerce', 'path' => 'includes/wc-formatting-functions.php', 'sha256' => 'c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41'],
-    ['plugin' => 'woocommerce', 'path' => 'includes/class-woocommerce.php', 'sha256' => '5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4'],
+    ['plugin' => 'woocommerce', 'path' => 'includes/class-woocommerce.php', 'sha256' => '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7'],
     ['plugin' => 'woocommerce', 'path' => 'src/Internal/Features/FeaturesController.php', 'sha256' => 'c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2'],
     ['plugin' => 'woocommerce', 'path' => 'src/Internal/DataStores/Orders/DataSynchronizer.php', 'sha256' => 'a10ff8e2e5820deeb5a032cccfc2ffca09a5134e3e87e388e0262a89a8805234'],
     ['plugin' => 'woocommerce', 'path' => 'src/Internal/DataStores/Orders/CustomOrdersTableController.php', 'sha256' => 'b4d1a6772b064de9be6a80750074b0a9e371514f58131a1701cad6cd52ccb8bf'],
