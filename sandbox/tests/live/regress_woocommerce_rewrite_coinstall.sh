@@ -168,10 +168,12 @@ foreach($want as $hook){foreach(($GLOBALS["wp_filter"][$hook]->callbacks??[])as 
 ' | tail -1)
 echo "$HOOKS" | jq -e --slurpfile topology "$TOPOLOGY" '
   def canon: sort_by(.priority,.args,.callback);
+  def static_rewrite_hook:
+    .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules";
   . as $actual |
-  ($topology[0].static_callbacks | all(. as $want |
-    any($actual[]; .hook==$want.hook and .callback==$want.callback and .priority==$want.priority and .args==$want.accepted_args)
-  )) and
+  ([ $actual[] | select(static_rewrite_hook) ] | canon) ==
+    ([ $topology[0].static_callbacks[] | select(static_rewrite_hook) |
+      {hook,priority,args:.accepted_args,callback} ] | canon) and
   ([ $actual[] | select(.hook=="updated_option") | del(.hook) ] | canon) ==
     ([ $topology[0].woocommerce_normal_option_topology.updated_option[], $topology[0].marker_option_topology.updated_option[] | {priority, args:.accepted_args, callback} ] | canon) and
   ([ $actual[] | select(.hook=="pre_update_option") | del(.hook) ] | canon) ==
@@ -189,6 +191,29 @@ echo "$HOOKS" | jq -e --slurpfile topology "$TOPOLOGY" '
   all($actual[]; .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules" or .hook=="updated_option" or .hook=="pre_update_option" or .hook=="added_option" or .hook=="pre_option" or .hook=="wp_default_autoload_value" or .hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") and
   any($actual[]; .hook=="rewrite_rules_array" and .callback=="PLL_Links_Directory::rewrite_rules" and .priority==10 and .args==1)
 ' >/dev/null || fail "live callback topology differs from audited pins: $HOOKS"
+# Polylang derives its `{$type}_rewrite_rules` hooks at `wp_loaded`; checking
+# only the static hook names above would let a same-class foreign callback or
+# a missing dynamic type evade the artifact topology. Its two extension
+# filters must be empty before its own type resolver is safe to call.
+PLL_DYNAMIC=$(wp2 eval '
+$records=static function($hook):array{$out=[];foreach(($GLOBALS["wp_filter"][$hook]->callbacks??[])as $priority=>$set){foreach($set as $entry){$out[]=["priority"=>(int)$priority,"args"=>(int)($entry["accepted_args"]??0),"function"=>$entry["function"]??null];}}return $out;};
+$polylang=function_exists("PLL")?PLL():null;
+$links=is_object($polylang)?($polylang->links_model??null):null;
+if(!is_object($links)||get_class($links)!=="PLL_Links_Directory"){throw new RuntimeException("Polylang directory links model is unavailable");}
+if($records("pll_rewrite_rules")!==[]||$records("pll_modify_rewrite_rule")!==[]){throw new RuntimeException("Polylang extension filter chain is not empty");}
+$static=$records("rewrite_rules_array");
+$staticMatches=array_values(array_filter($static,static fn(array $record):bool=>$record["priority"]===10&&$record["args"]===1&&$record["function"]===[$links,"rewrite_rules"]));
+if(count($staticMatches)!==1){throw new RuntimeException("Polylang static rewrite callback is not the directory links model");}
+$types=$links->get_rewrite_rules_filters();
+if(!is_array($types)||$types===[]||!array_is_list($types)||$types!==array_values(array_unique($types))){throw new RuntimeException("Polylang rewrite type inventory is malformed");}
+$dynamic=[];
+foreach($types as $type){if(!is_string($type)||preg_match("/^[a-z0-9_]{1,191}$/D",$type)!==1){throw new RuntimeException("Polylang rewrite type is malformed");}$hook=$type."_rewrite_rules";$current=$records($hook);if(count($current)!==1||$current[0]["priority"]!==10||$current[0]["args"]!==1||$current[0]["function"]!==[$links,"rewrite_rules"]){throw new RuntimeException("Polylang dynamic rewrite callback differs from the directory links model");}$dynamic[]=$hook;}
+echo wp_json_encode(["links_model"=>get_class($links),"types"=>$types,"hooks"=>$dynamic]);
+' | tail -1) || fail 'could not verify Polylang dynamic rewrite callback identity'
+echo "$PLL_DYNAMIC" | jq -e '
+  .links_model=="PLL_Links_Directory" and (.types|type=="array" and length>0) and
+  (.hooks==[.types[]+"_rewrite_rules"])
+' >/dev/null || fail "Polylang dynamic rewrite topology is malformed: $PLL_DYNAMIC"
 RULES=$(wp2 eval '
 global $wpdb;$raw=$wpdb->get_var("SELECT option_value FROM {$wpdb->options} WHERE option_name="rewrite_rules" LIMIT 1");$durable=is_string($raw)?maybe_unserialize($raw):null;$effective=get_option("rewrite_rules");$h=static fn($x)=>hash("sha256",is_array($x)?wp_json_encode($x):(string)$x);echo wp_json_encode(["durable"=>is_array($durable),"effective"=>is_array($effective),"durable_sha256"=>$h($durable),"effective_sha256"=>$h($effective)]);
 ' | tail -1)

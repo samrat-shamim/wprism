@@ -928,6 +928,9 @@ woo_ok(substr_count($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_
 foreach ([
     '"pll_rewrite_rules","pll_modify_rewrite_rule"',
     '([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0',
+    'def static_rewrite_hook:',
+    'Polylang dynamic rewrite callback differs from the directory links model',
+    '.links_model=="PLL_Links_Directory"',
     'duo-woo-polylang-dynamic-hostile.php',
     'third-party Polylang dynamic callback unexpectedly allowed apply',
     'third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses',
