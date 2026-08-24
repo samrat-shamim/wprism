@@ -250,6 +250,9 @@ Usage:
   duo envs
   duo env materialize <env> --from <production-env> --branch <ref> [--create] [--ttl <seconds>]
   duo env reap <env>
+  duo env provider-check <env> [--role=source|target] [--format=json]
+  duo env provider-check <env> --cycle --from <disposable-src>
+                         --confirm-disposable [--create] [--branch <ref>] [--format=json]
   duo manifest-validate <manifests-dir> [--manifest=<name>[,...]]
                         [--pins=<name>[,...]|--all] [--site=<site-repo>]
                         [--no-code] [--format=json]
@@ -318,6 +321,21 @@ Verbs:
                           only through its explicit provider capability and an
                           exact resource/lease/ownership compare-and-reap.
                           Repeated reap is idempotent; stale identity refuses.
+  env provider-check      Diagnose a branch-environment provider BEFORE it is
+    <env>                 trusted with a production snapshot, through the same
+    [--role=<side>]       client the orchestrator uses. The default tier is
+                          non-mutating: machine-local config validation, one
+                          `capabilities` call, one `inspect`, then the advertised
+                          set diffed against every requirement set for that side.
+                          It contacts no source and prepares no snapshot.
+  env provider-check      The full synthetic materialize/reap cycle over all 18
+    <env> --cycle         provider actions. --confirm-disposable is REQUIRED
+    --from <src>          because this FREEZES <src> with `snapshot-prepare`.
+    --confirm-disposable  The snapshot is aborted rather than retained and the
+    [--create]            target is destroyed (--create) or detached in a
+    [--branch <ref>]      finally, so a failed run leaves nothing behind.
+                          The wire contract both tiers speak is
+                          docs/branch-environment-provider.md.
   envs                    List environments from site.duo.json + .duo-envs.json
                           (overlay wins per env name), with transport summaries.
   manifest-validate       Adapter-authoring aid: run the engine's REAL manifest

@@ -19,6 +19,7 @@ The normative wire contract is not here — it is
 
 | Path | What it is |
 |---|---|
+| [branch-environment-provider.md](branch-environment-provider.md) | **Generated** — the `duo-branch-environment-provider-request/v1` wire contract every customer's own provider must satisfy: where it is configured, the canonical-JSON framing, the 18 actions with their closed field sets, and every refusal a violation produces. Written by `tools/provider-protocol-doc.php`; `make release-gate` byte-compares it. Never hand-edited. |
 | [recovery-runtime.md](recovery-runtime.md) | The WordPress-independent PHP recovery runtime, its maintenance-exclusion provider contract, and the two-primitive transport boundary it needs. |
 | [checkpoint-bundle.md](checkpoint-bundle.md) · [code-release-runtime.md](code-release-runtime.md) · [upload-bundle.md](upload-bundle.md) · [effect-bundle.md](effect-bundle.md) | The four provider slices of verified SSH rollback: database before-image, code before-image, uploads/media, lifecycle-and-rebuild effects. |
 | [ssh-rollback-certification.md](ssh-rollback-certification.md) | The local certification harness that gates that design. |

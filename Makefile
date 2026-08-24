@@ -55,6 +55,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-environment-materializer-ssh \
 	regress-environment-materializer-recovery \
 	regress-environment-materializer-live \
+	regress-env-provider-conformance-live \
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-suite-wiring \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
@@ -365,9 +366,12 @@ regress-site-adapter-certification:
 
 # Product release gate: every generated artifact must still agree with the
 # source it was generated from -- the public capability prose with the
-# manifest dispositions it describes, and the classmap with agent/src.
+# manifest dispositions it describes, the published branch-environment
+# provider protocol with the boundary that enforces it, and the classmap with
+# agent/src.
 release-gate:
 	php tools/capability-doc.php --check
+	php tools/provider-protocol-doc.php --check
 	php tools/classmap-generate.php --check
 
 regress-multisite-refusal:
@@ -1753,6 +1757,13 @@ regress-environment-command:
 regress-environment-materializer:
 	php sandbox/tests/offline/environment/regress_environment_materializer.php
 
+# The published provider protocol (docs/branch-environment-provider.md) and
+# the `duo env provider-check` harness, proven against the LIVE
+# CommandEnvironmentProvider so neither can drift from what the orchestrator
+# actually sends. No docker, no pair, no source environment is contacted.
+regress-env-provider-conformance:
+	php sandbox/tests/offline/environment/regress_env_provider_conformance.php
+
 # DUO-3324: public attach/materialize over the real SSH driver with an
 # offline SSH wrapper and generic machine-local provider; no provisioning is
 # claimed and reap is verified as exact detach.
@@ -1771,6 +1782,15 @@ regress-environment-materializer-recovery:
 # machine-local provider independently proves snapshot/fence/TTL cleanup.
 regress-environment-materializer-live:
 	bash sandbox/tests/live/regress_environment_materializer_live.sh
+
+# The `duo env provider-check` harness against tools/reference-env-provider.php
+# on a real pair. Live deliberately: the offline suite proves the harness
+# agrees with the ORCHESTRATOR using stub providers this repo writes, and only
+# a real, independent provider can prove the synthetic cycle is one such a
+# provider can actually serve -- including that its teardown unfreezes the
+# source and releases the target.
+regress-env-provider-conformance-live:
+	bash sandbox/tests/live/regress_env_provider_conformance_live.sh
 
 regress-frozen-materialization-promotion:
 	php sandbox/tests/offline/environment/regress_frozen_materialization_promotion.php
@@ -2235,7 +2255,7 @@ regress-offline-corpus: code-half-unit \
 	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-ecosystem-adapter-batch regress-code-snippets-state-provider regress-yoast-duplicate-post-role-provider regress-yoast-index-provider regress-elementor-css-provider regress-adapter-production-readiness regress-manifest-dispositions regress-platform-compatibility regress-topology-gate regress-interpreter-policy regress-proof-legacy-pair \
 	regress-acf-meta-interpreter regress-acf-production-readiness regress-contact-form-7-production-readiness regress-paid-memberships-pro-production-readiness regress-ninja-forms-production-readiness regress-ninja-forms-form-cache-provider regress-fatal-mutations-unit regress-capture-secret-scan regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-reference-scope-classifier regress-capture-safety-gates regress-capture-gate-scanner regress-capture-refactor-boundaries \
 	regress-order-preserving regress-canonical-json-parity regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-attestation regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept regress-contract-multi-env regress-authorization-plan regress-release-containment-gate regress-recover-claim regress-verify-oracles regress-rehearse-provider regress-release-next-action regress-release-condition-gate regress-release-ref-binding regress-recover-ordering regress-mup-leak-audit regress-adapter-certify \
-	regress-block-refs regress-identity-token-codec regress-text-tokenizer regress-structured-reference-codec regress-url-query-reference-codec regress-lint-primitives regress-block-reference-scanner regress-menu-reference-scanner regress-serialized-term-description-scanner regress-shortcode-reference-scanner regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-command regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion regress-docker-exec-mode regress-pending-queue-ownership \
+	regress-block-refs regress-identity-token-codec regress-text-tokenizer regress-structured-reference-codec regress-url-query-reference-codec regress-lint-primitives regress-block-reference-scanner regress-menu-reference-scanner regress-serialized-term-description-scanner regress-shortcode-reference-scanner regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-command regress-environment-materializer regress-env-provider-conformance regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion regress-docker-exec-mode regress-pending-queue-ownership \
 	regress-dynamic-options-policy regress-option-name-reference-resolver regress-deletion-capability-resolver regress-taxonomy-pattern-resolver regress-taxonomy-keyspace-resolver regress-taxonomy-description-reference-resolver regress-taxonomy-object-type-option-resolver regress-widget-type-resolver regress-table-declaration-resolver regress-content-attribute-rule-resolver regress-policy-rule-resolver regress-exact-option-resolver regress-option-namespace-resolver regress-taxonomy-object-keyspace regress-env-options-policy regress-export-manifest-roundtrip regress-policy-writer regress-manifest-validator regress-site-policy-validator regress-policy-load-finalizer regress-artifact-policy-identity regress-compiled-artifact-reader regress-repository-media-catalog regress-repository-schema-validator regress-repository-deletion-parser regress-repository-entity-parser regress-repository-identity-registry regress-repository-reference-graph-validator regress-repository-portable-shape-validator regress-repository-menu-location-validator regress-repository-state-file-catalog regress-post-type-relation-resolver regress-shipped-option-declarations \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
@@ -2312,6 +2332,7 @@ regress-live-list:
 	@echo "  regress-tec-regen                         pair asnaptec"
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"
 	@echo "  regress-environment-materializer-live     pair codexmacb3324 9100/9101 (public env materialize/reap; user-authorized)"
+	@echo "  regress-env-provider-conformance-live     pair envprovcheck 9200/9201 (duo env provider-check vs tools/reference-env-provider.php)"
 	@echo "  regress-duo-init                         pair codexmaca3336 9300/9301 (parameterized: DUO_INIT_PAIR/DUO_INIT_PORT1/DUO_INIT_PORT2)"
 	@echo "  regress-coverage                         needs an already-up pair with WooCommerce active (parameterized: DUO_PAIR)"
 	@echo "  regress-woo-attribute-deletion            pair wooattrdel 8996/8997 (parameterized: WOOATTRDEL_PAIR/WOOATTRDEL_PORT1/WOOATTRDEL_PORT2)"
