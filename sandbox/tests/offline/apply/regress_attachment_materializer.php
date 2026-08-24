@@ -432,7 +432,7 @@ namespace {
         $chunk = static function (string $type, string $data): string {
             return pack('N', strlen($data)) . $type . $data . pack('N', crc32($type . $data));
         };
-        $uuid = '9c8e6f21-4a35-4b0d-8a11-2f6d5c4b3a29';
+        $uuid = '01a0341e-2067-7fe3-9402-530b5a0f6b34';
         $blob = hash('sha256', $png) . '.png';
         $front = [
             'alt' => 'portable alt',
@@ -498,6 +498,29 @@ namespace {
         $filesystem->load_pending();
         $filesystem->recover_pending_with_marker($authored['value']);
         $check($filesystem->phase() === 'originals_published', 'authored-marker crash recovery resumes at exact post-COMMIT original bytes');
+
+        $normalizer = new \ReflectionMethod(
+            AttachmentFilesystemTransaction::class,
+            'normalize_generated_metadata'
+        );
+        $stageOriginal = $temporary . '/photo.png';
+        file_put_contents($stageOriginal, $png);
+        $emptyProjection = $normalizer->invoke(
+            $filesystem,
+            [
+                'file' => $stageOriginal,
+                'filesize' => strlen($png),
+                'sizes' => [],
+            ],
+            ['original_path' => '2026/08/photo.png'],
+            $stageOriginal,
+            []
+        );
+        $check(
+            ($emptyProjection['file'] ?? null) === '2026/08/photo.png'
+                && ($emptyProjection['sizes'] ?? null) === [],
+            'valid Core metadata with zero generated derivatives normalizes to an exact empty sizes map'
+        );
 
         $generator = new AttachmentNativeMetadataGenerator(static function (int $id): string {
             DeleteGuardEvaluator::assert_transaction_isolation(
