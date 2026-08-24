@@ -17,16 +17,51 @@ do
   wp_conf2 db query "ALTER TABLE $table AUTO_INCREMENT=3147484000" >/dev/null
 done
 
+TARGET_CAT_PARENT_ID=$(wp_conf2 term create product_cat 'Hostile target catalog parent' --slug=conformance-catalog --porcelain)
 TARGET_CAT_ID=$(wp_conf2 term create product_cat 'Hostile target category' --slug=conformance-widgets --porcelain)
 TARGET_TAG_ID=$(wp_conf2 term create product_tag 'Hostile target tag' --slug=portable-tokyo --porcelain)
 TARGET_SHIP_CLASS_ID=$(wp_conf2 term create product_shipping_class 'Hostile target class' --slug=oversize-portable --porcelain)
+TARGET_BRAND_PARENT_ID=$(wp_conf2 term create product_brand 'Hostile target maker parent' --slug=conformance-makers --porcelain)
+TARGET_BRAND_EXCLUDED_ID=$(wp_conf2 term create product_brand 'Hostile target excluded brand' --slug=excluded-merchant-brand --porcelain)
+TARGET_BRAND_CHILD_ID=$(wp_conf2 term create product_brand 'Hostile target atelier' --slug=atelier-tokyo --parent="$TARGET_BRAND_EXCLUDED_ID" --porcelain)
 TARGET_COLOR_ATTR_ID=$(wp_conf2 wc product_attribute create --name='Hostile Color' --slug=conf-color --type=select --order_by=name --has_archives=true --porcelain --user=admin)
 TARGET_SIZE_ATTR_ID=$(wp_conf2 wc product_attribute create --name='Hostile Size' --slug=conf-size --type=select --order_by=name --has_archives=true --porcelain --user=admin)
-require_fixture_ids TARGET_CAT_ID TARGET_TAG_ID TARGET_SHIP_CLASS_ID TARGET_COLOR_ATTR_ID TARGET_SIZE_ATTR_ID
+require_fixture_ids TARGET_CAT_PARENT_ID TARGET_CAT_ID TARGET_TAG_ID TARGET_SHIP_CLASS_ID \
+  TARGET_BRAND_PARENT_ID TARGET_BRAND_CHILD_ID TARGET_BRAND_EXCLUDED_ID \
+  TARGET_COLOR_ATTR_ID TARGET_SIZE_ATTR_ID
 wp_conf2 wc product_attribute_term create "$TARGET_SIZE_ATTR_ID" --name=Small --user=admin >/dev/null
 wp_conf2 wc product_attribute_term create "$TARGET_SIZE_ATTR_ID" --name=Large --user=admin >/dev/null
 wp_conf2 wc product_attribute_term create "$TARGET_COLOR_ATTR_ID" --name=Red --user=admin >/dev/null
 wp_conf2 wc product_attribute_term create "$TARGET_COLOR_ATTR_ID" --name=Blue --user=admin >/dev/null
+TARGET_COLOR_TERM_IDS=$(wp_conf2 eval '
+$red = get_term_by("slug", "red", "pa_conf-color");
+$blue = get_term_by("slug", "blue", "pa_conf-color");
+echo ($red ? (int) $red->term_id : 0) . "|" . ($blue ? (int) $blue->term_id : 0);
+')
+IFS='|' read -r TARGET_COLOR_RED_ID TARGET_COLOR_BLUE_ID <<<"$TARGET_COLOR_TERM_IDS"
+require_fixture_ids TARGET_COLOR_RED_ID TARGET_COLOR_BLUE_ID
+
+# Hostile authored rows and derived caches are deliberately internally
+# inconsistent. Apply must converge the portable REST state and the fresh
+# hierarchy provider must replace—not bless—the equal-cardinality stale maps.
+wp_conf2 eval "
+update_term_meta($TARGET_CAT_ID, 'display_type', 'products');
+update_term_meta($TARGET_CAT_ID, 'order', '1');
+update_term_meta($TARGET_CAT_ID, 'thumbnail_id', '9999999999');
+update_term_meta($TARGET_BRAND_CHILD_ID, 'display_type', 'products');
+update_term_meta($TARGET_BRAND_CHILD_ID, 'order', '1');
+update_term_meta($TARGET_BRAND_CHILD_ID, 'thumbnail_id', '9999999998');
+update_term_meta($TARGET_COLOR_RED_ID, 'image', '9999999997');
+update_term_meta($TARGET_COLOR_RED_ID, 'order', '2');
+update_term_meta($TARGET_COLOR_BLUE_ID, 'color', '#000000');
+update_term_meta($TARGET_COLOR_BLUE_ID, 'order', '8');
+update_option('product_cat_children', [$TARGET_CAT_ID => [$TARGET_CAT_PARENT_ID]]);
+update_option('product_brand_children', [$TARGET_BRAND_EXCLUDED_ID => [$TARGET_BRAND_CHILD_ID]]);
+update_option('rewrite_rules', ['^hostile-brand/(.+)$' => 'index.php?hostile_brand=\$matches[1]']);
+" >/dev/null
+wp_conf2 option update woocommerce_brand_permalink hostile-brand >/dev/null
+wp_conf2 option update wc_brands_show_description no >/dev/null
+wp_conf2 option update woocommerce_feature_wc_visual_attribute_enabled no >/dev/null
 
 # Product/coupon same-slug adoption is exercised after the initial canonical
 # round trip in checks/woocommerce.sh. An adopted product update legitimately
@@ -52,7 +87,13 @@ wp_conf2 option update woocommerce_maybe_regenerate_images_hash 'target-thumbnai
 
 wp_conf2 eval "
 file_put_contents('/siterepo/.tmp-woocommerce-target.json', wp_json_encode([
+  'brand_child' => $TARGET_BRAND_CHILD_ID,
+  'brand_excluded' => $TARGET_BRAND_EXCLUDED_ID,
+  'brand_parent' => $TARGET_BRAND_PARENT_ID,
   'category' => $TARGET_CAT_ID,
+  'category_parent' => $TARGET_CAT_PARENT_ID,
+  'color_blue' => $TARGET_COLOR_BLUE_ID,
+  'color_red' => $TARGET_COLOR_RED_ID,
   'shipping_class' => $TARGET_SHIP_CLASS_ID,
   'tag' => $TARGET_TAG_ID,
   'attribute_color' => $TARGET_COLOR_ATTR_ID,

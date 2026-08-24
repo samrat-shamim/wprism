@@ -65,6 +65,11 @@ $externalProductInventory = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
+$termSurfaceInventory = json_decode(
+    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-terms.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
 woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inventory/v1',
     'the source-audited settings inventory uses the exact reviewed schema');
 woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 147,
@@ -138,6 +143,24 @@ foreach ((array) ($externalProductInventory['source_files'] ?? []) as $sourceFil
 woo_ok(($externalProductInventory['contract']['authored_post_meta'] ?? null) === ['_button_text', '_product_url']
     && ($externalProductInventory['contract']['url_semantics'] ?? null) === 'source-home-tokenized-target-home-rebound',
     'the external-product inventory closes its two authored rows and target-local URL identity');
+woo_ok(($termSurfaceInventory['format'] ?? null) === 'duo-woocommerce-term-surface-inventory/v1'
+    && count((array) ($termSurfaceInventory['source_files'] ?? [])) === 14,
+    'the brand/category/visual inventory binds all fourteen exact native paths');
+foreach ((array) ($termSurfaceInventory['artifacts'] ?? []) as $version => $sha256) {
+    woo_ok(($artifactLock['plugins']['woocommerce'][$version]['sha256'] ?? null) === $sha256,
+        "term-surface source evidence is pinned to official WooCommerce $version");
+}
+foreach ((array) ($termSurfaceInventory['source_files'] ?? []) as $sourceFile => $sha256) {
+    woo_ok(is_string($sourceFile) && $sourceFile !== ''
+        && is_string($sha256) && preg_match('/^[0-9a-f]{64}$/D', $sha256) === 1,
+        "$sourceFile binds the exact shared brand/category/visual implementation");
+}
+woo_ok(($termSurfaceInventory['authorities'] ?? null) === [
+    'display_type' => ['product_brand', 'product_cat'],
+    'image' => ['pa_*'],
+    'order' => ['pa_*', 'product_brand', 'product_cat'],
+    'thumbnail_id' => ['product_brand', 'product_cat'],
+], 'term metadata authority is closed to the exact core category, brand, and global-attribute owners');
 
 $inventoryClassifications = array_merge(
     (array) ($settingsInventory['literal_ids'] ?? []),
@@ -630,6 +653,18 @@ foreach ([
         "external-product source fixture pins $externalSeedWitness");
 }
 foreach ([
+    "'/wc/v3/products/categories/",
+    "'/wc/v3/products/brands/",
+    "'display' => 'subcategories'",
+    "--type=wc-visual",
+    'VisualAttributeTermMeta::save_term_visual_from_request',
+    "'/wc/v3/products/attributes/",
+    "update_post_meta(\$COUPON_ID, 'product_brands'",
+] as $termSeedWitness) {
+    woo_ok(str_contains($wooSeedHarness, $termSeedWitness),
+        "category/brand/visual source fixture pins $termSeedWitness");
+}
+foreach ([
     "new WP_REST_Request('GET', '/wc/v3/products/",
     '/wp-json/wc/store/v1/products/',
     '/product/conformance-external-partner/',
@@ -639,6 +674,17 @@ foreach ([
 ] as $externalCheckWitness) {
     woo_ok(str_contains($wooCheckHarness, $externalCheckWitness),
         "external-product target fixture pins $externalCheckWitness");
+}
+foreach ([
+    "'/wc/v3/products/brands/'",
+    'VisualAttributeTermMeta::prime_term_visual_caches',
+    '/wp-json/wc/store/v1/products/brands',
+    '__experimental_visual=true',
+    'product-category archive leaked the source host',
+    'woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
+] as $termCheckWitness) {
+    woo_ok(str_contains($wooCheckHarness, $termCheckWitness),
+        "category/brand/visual target fixture pins $termCheckWitness");
 }
 woo_ok(str_contains($matrixHarness, 'update_option("default_category", (int) $category->term_id)'), 'version-matrix resets the core default-category reference before each plugin boundary');
 woo_ok(str_contains($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"'),

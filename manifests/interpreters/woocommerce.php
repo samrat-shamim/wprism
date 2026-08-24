@@ -633,8 +633,8 @@ final class Woocommerce {
         $allowedTaxonomies = [
             'color' => 'global product attribute',
             'image' => 'global product attribute',
-            'display_type' => 'product_cat',
-            'order' => 'product_cat or global product attribute',
+            'display_type' => 'product_cat or product_brand',
+            'order' => 'product_cat, product_brand, or global product attribute',
             'thumbnail_id' => 'product_cat or product_brand',
             'tracking_url_template' => 'wc_fulfillment_shipping_provider',
             'icon' => 'wc_fulfillment_shipping_provider',
@@ -656,7 +656,7 @@ final class Woocommerce {
             $out[] = $this->diagnostic(
                 $path,
                 'meta.display_type',
-                'WooCommerce category display type must be default, products, subcategories, or both'
+                'WooCommerce category/brand REST display type must be default, products, subcategories, or both'
             );
         }
         if (array_key_exists('order', $meta)
@@ -744,8 +744,9 @@ final class Woocommerce {
     private function term_key_matches_taxonomy(string $key, string $taxonomy): bool {
         return match ($key) {
             'color', 'image' => $this->is_global_attribute_name($taxonomy),
-            'display_type' => $taxonomy === 'product_cat',
-            'order' => $taxonomy === 'product_cat' || $this->is_global_attribute_name($taxonomy),
+            'display_type' => in_array($taxonomy, ['product_cat', 'product_brand'], true),
+            'order' => in_array($taxonomy, ['product_cat', 'product_brand'], true)
+                || $this->is_global_attribute_name($taxonomy),
             'thumbnail_id' => in_array($taxonomy, ['product_cat', 'product_brand'], true),
             'tracking_url_template', 'icon' => $taxonomy === 'wc_fulfillment_shipping_provider',
             'product_ids' => $taxonomy === 'product_cat'

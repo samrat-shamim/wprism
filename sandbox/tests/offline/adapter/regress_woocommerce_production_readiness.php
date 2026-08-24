@@ -911,9 +911,11 @@ duo_check_same(
 duo_check_same(
     [],
     woo_readiness_term_diagnostics($interpreter, 'product_brand', [
+        'display_type' => 'both',
+        'order' => '17',
         'thumbnail_id' => '{{post:44444444-4444-4444-8444-444444444444}}',
     ], [woo_readiness_post_entity('44444444-4444-4444-8444-444444444444')]),
-    'core brand thumbnails use the same attachment-ledger boundary'
+    'core brand REST display/order and thumbnail fields share the exact portable term boundary'
 );
 duo_check_same(
     [],
@@ -972,12 +974,13 @@ foreach ([
 $termCases = [
     ['category', ['display_type' => 'both'], 'valid only on product_cat'],
     ['product_cat', ['display_type' => 'grid'], 'must be default, products, subcategories, or both'],
+    ['product_brand', ['display_type' => 'grid'], 'must be default, products, subcategories, or both'],
     ['product_cat', ['order' => '01'], 'canonical non-negative 32-bit'],
     ['product_cat', ['order' => '2147483648'], 'canonical non-negative 32-bit'],
     ['product_cat', ['color' => '#abc'], 'valid only on global product attribute'],
     ['pa_color', ['color' => 'red'], 'exact three- or six-digit hex'],
     ['pa_color', ['color' => '#abc', 'image' => '{{post:55555555-5555-4555-8555-555555555555}}'], 'mutually exclusive'],
-    ['product_brand', ['order' => '1'], 'valid only on product_cat or global product attribute'],
+    ['product_tag', ['order' => '1'], 'valid only on product_cat, product_brand, or global product attribute'],
     ['product_tag', ['thumbnail_id' => '{{post:55555555-5555-4555-8555-555555555555}}'], 'valid only on product_cat or product_brand'],
     ['wc_fulfillment_shipping_provider', ['icon' => 'javascript:alert(1)'], 'HTTP or HTTPS'],
     ['wc_fulfillment_shipping_provider', ['tracking_url_template' => 'https://user:secret@carrier.example/t'], 'without credentials'],

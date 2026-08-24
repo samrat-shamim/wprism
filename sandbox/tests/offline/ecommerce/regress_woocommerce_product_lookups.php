@@ -307,9 +307,11 @@ check($sources === [
     'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
     'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
     'provider:woocommerce-fulfillment-prerequisites/verify_fulfillment_prerequisites',
+    'provider:woocommerce-scheduler-settings/reconcile_analytics_import_schedule',
+    'provider:woocommerce-scheduler-settings/reconcile_stock_notification_retention',
     'provider:woocommerce-product-lookups/rebuild_product_lookups',
-], 'Woo policy declares only the bounded transient, cache, hierarchy/route, fulfillment prerequisite, and product-lookup repairs, '
-    . 'and no whole-catalog projection');
+], 'Woo policy declares only the bounded transient, cache, hierarchy/route, fulfillment prerequisite, scheduler-setting, '
+    . 'and product-lookup repairs, and no whole-catalog projection');
 check(array_filter($actions, static fn(array $row): bool => array_key_exists('command', $row)) === [],
     'no Woo action carries an executable command string');
 

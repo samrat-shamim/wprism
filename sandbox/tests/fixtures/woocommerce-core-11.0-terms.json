@@ -1,0 +1,50 @@
+{
+  "format": "duo-woocommerce-term-surface-inventory/v1",
+  "artifacts": {
+    "11.0.0": "ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666",
+    "11.0.1": "da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21"
+  },
+  "source_files": {
+    "includes/admin/class-wc-admin-brands.php": "62211e2e0ee74e3dd61446017a2f4f1ebbe0ec42cf0040a2ab0bdca103d89312",
+    "includes/class-wc-brands.php": "1d932bf0b5e705953ae57a5341fd3131ce90f421aac56df3416ff6d650e9efe3",
+    "includes/rest-api/Controllers/Version2/class-wc-rest-product-categories-v2-controller.php": "3cbc8e6d7a837336de03cd0a3a31327d6d66e3e524bb3659123872c5607f368e",
+    "includes/rest-api/Controllers/Version3/class-wc-rest-product-attribute-terms-controller.php": "74e961d66c2091dd0070536f4913d594bfc9c4522486fe32373d3f29d33cd797",
+    "includes/rest-api/Controllers/Version3/class-wc-rest-product-brands-controller.php": "f4db6bbc2e8cfd1b91a3da9bcad8c544806565b0485a200ced79ca77452f633e",
+    "includes/rest-api/Controllers/Version3/class-wc-rest-product-categories-controller.php": "8830786a05b0c60d8194d5f66f89a4bdba1c5668a9fbdb7e78879fe7394cf95e",
+    "includes/wc-term-functions.php": "54a2013e5895af12806eda28ffd4c5af95dee0277a9143b9dba3d4bb8be47f2d",
+    "src/Internal/Admin/CategoryLookup.php": "4f272f54bacee155ee1d12f305e3b1d5069ef507daaebe8684013c254f939df1",
+    "src/Internal/Brands.php": "ebd281166c09cee9dc0d71e176c93e1e6e4300437edf2733677e189196f0a92e",
+    "src/Internal/ProductAttributes/VisualAttributeTermMeta.php": "dc7b8c1832549a12fc6962859e4a17491e0621dec0b4a1917106fac3f60368e1",
+    "src/StoreApi/Routes/V1/ProductAttributeTerms.php": "2fb1eb1140c4c3258578db89c7416c37355142206b20d06dda26094731876112",
+    "src/StoreApi/Routes/V1/ProductBrands.php": "52ea33243bd172a2a023a33cd9f9fc0268dcdea5ec44e9ebbf599dc34d37599a",
+    "src/StoreApi/Schemas/V1/ProductAttributeTermSchema.php": "af17a266c114ae5d3f109d31e4a425499298e80277a2853bb72fcfc144628a23",
+    "src/StoreApi/Schemas/V1/ProductBrandSchema.php": "c8b065dad3f6616ec445098e4e7db2f8806dc911f937fc25194b7a8b79664692"
+  },
+  "authorities": {
+    "display_type": [
+      "product_brand",
+      "product_cat"
+    ],
+    "image": [
+      "pa_*"
+    ],
+    "order": [
+      "pa_*",
+      "product_brand",
+      "product_cat"
+    ],
+    "thumbnail_id": [
+      "product_brand",
+      "product_cat"
+    ]
+  },
+  "native_paths": [
+    "wc/v3 category update/read",
+    "wc/v3 brand update/read inherited from category controller",
+    "wc/v3 attribute-term order update",
+    "VisualAttributeTermMeta admin writer and cache-prime/read",
+    "wc/store/v1 brand and visual-term reads",
+    "category/brand archive and rewrite",
+    "CategoryLookup and hierarchy option regeneration"
+  ]
+}

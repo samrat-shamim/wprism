@@ -55,6 +55,48 @@ if ($externalRestResponse->is_error()) {
     throw new RuntimeException('WooCommerce external-product REST read failed');
 }
 $externalRest = $externalRestResponse->get_data();
+$category = get_term_by('slug', 'conformance-widgets', 'product_cat');
+$categoryParent = get_term_by('slug', 'conformance-catalog', 'product_cat');
+$brand = get_term_by('slug', 'atelier-tokyo', 'product_brand');
+$brandParent = get_term_by('slug', 'conformance-makers', 'product_brand');
+$brandExcluded = get_term_by('slug', 'excluded-merchant-brand', 'product_brand');
+$red = get_term_by('slug', 'red', 'pa_conf-color');
+$blue = get_term_by('slug', 'blue', 'pa_conf-color');
+if (!$category || !$categoryParent || !$brand || !$brandParent || !$brandExcluded || !$red || !$blue) {
+    throw new RuntimeException('WooCommerce category, brand, or visual term fixture is incomplete');
+}
+$restTerm = static function (string $route): array {
+    $response = rest_do_request(new WP_REST_Request('GET', $route));
+    if ($response->is_error() || $response->get_status() !== 200) {
+        throw new RuntimeException('WooCommerce term REST read failed for ' . $route);
+    }
+    return $response->get_data();
+};
+$categoryRest = $restTerm('/wc/v3/products/categories/' . $category->term_id);
+$brandRest = $restTerm('/wc/v3/products/brands/' . $brand->term_id);
+\Automattic\WooCommerce\Internal\ProductAttributes\VisualAttributeTermMeta::prime_term_visual_caches([
+    (int) $red->term_id,
+    (int) $blue->term_id,
+]);
+$visuals = \Automattic\WooCommerce\Internal\ProductAttributes\VisualAttributeTermMeta::get_term_visuals([
+    (int) $red->term_id,
+    (int) $blue->term_id,
+]);
+$catChildren = get_option('product_cat_children', []);
+$brandChildren = get_option('product_brand_children', []);
+$childIds = static function ($state, int $parentId): array {
+    $ids = is_array($state) ? (array) ($state[$parentId] ?? []) : [];
+    $ids = array_map('intval', $ids);
+    sort($ids, SORT_NUMERIC);
+    return array_values($ids);
+};
+$rewriteRules = get_option('rewrite_rules', []);
+$brandRuleCount = 0;
+foreach (is_array($rewriteRules) ? array_keys($rewriteRules) : [] as $rule) {
+    if (is_string($rule) && str_starts_with($rule, 'maker-houses/')) {
+        $brandRuleCount++;
+    }
+}
 
 $localAttributes = [];
 foreach ($precision->get_attributes() as $attribute) {
@@ -114,7 +156,7 @@ $taxClass = $wpdb->get_row(
     ARRAY_A
 );
 $attributeRows = $wpdb->get_results(
-    "SELECT attribute_id,attribute_label,attribute_name,attribute_orderby,attribute_public " .
+    "SELECT attribute_id,attribute_label,attribute_name,attribute_orderby,attribute_public,attribute_type " .
     "FROM {$wpdb->prefix}woocommerce_attribute_taxonomies " .
     "WHERE attribute_name IN ('conf-color','conf-size') ORDER BY attribute_name",
     ARRAY_A
@@ -123,7 +165,6 @@ $lookup = $wpdb->get_row($wpdb->prepare(
     "SELECT product_id,sku,min_price,max_price FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id=%d",
     $precisionId
 ), ARRAY_A);
-$category = get_term_by('slug', 'conformance-widgets', 'product_cat');
 $tag = get_term_by('slug', 'portable-tokyo', 'product_tag');
 $shipping = get_term_by('slug', 'oversize-portable', 'product_shipping_class');
 $thumbnailId = $category ? (int) get_term_meta($category->term_id, 'thumbnail_id', true) : 0;
@@ -132,15 +173,59 @@ $targetOrders = wc_get_orders(['billing_email' => 'target-runtime@example.test',
 
 echo wp_json_encode([
     'attributes' => $attributeRows,
+    'brands' => [
+        'child' => [
+            'description' => $brand->description,
+            'display' => (string) get_term_meta($brand->term_id, 'display_type', true),
+            'menu_order' => (string) get_term_meta($brand->term_id, 'order', true),
+            'parent' => (int) $brand->parent,
+            'permalink' => get_term_link($brand, 'product_brand'),
+            'thumbnail' => (int) get_term_meta($brand->term_id, 'thumbnail_id', true),
+        ],
+        'children' => $childIds($brandChildren, (int) $brandParent->term_id),
+        'rest' => [
+            'display' => (string) ($brandRest['display'] ?? ''),
+            'image' => (int) ($brandRest['image']['id'] ?? 0),
+            'image_src' => (string) ($brandRest['image']['src'] ?? ''),
+            'menu_order' => (int) ($brandRest['menu_order'] ?? -1),
+            'parent' => (int) ($brandRest['parent'] ?? 0),
+        ],
+        'simple' => $termSlugs($simpleId, 'product_brand'),
+    ],
+    'category' => [
+        'children' => $childIds($catChildren, (int) $categoryParent->term_id),
+        'display' => (string) get_term_meta($category->term_id, 'display_type', true),
+        'menu_order' => (string) get_term_meta($category->term_id, 'order', true),
+        'parent' => (int) $category->parent,
+        'permalink' => get_term_link($category, 'product_cat'),
+        'rest' => [
+            'display' => (string) ($categoryRest['display'] ?? ''),
+            'image' => (int) ($categoryRest['image']['id'] ?? 0),
+            'image_src' => (string) ($categoryRest['image']['src'] ?? ''),
+            'menu_order' => (int) ($categoryRest['menu_order'] ?? -1),
+            'parent' => (int) ($categoryRest['parent'] ?? 0),
+        ],
+    ],
     'coupon' => [
         'amount' => $coupon->get_amount('edit'),
+        'brands' => array_map('intval', (array) get_post_meta($coupon->get_id(), 'product_brands', true)),
         'categories' => array_values($coupon->get_product_categories('edit')),
+        'excluded_brands' => array_map('intval', (array) get_post_meta($coupon->get_id(), 'exclude_product_brands', true)),
         'id' => $coupon->get_id(),
         'products' => array_values($coupon->get_product_ids('edit')),
         'status' => $coupon->get_status('edit'),
         'type' => $coupon->get_discount_type('edit'),
     ],
-    'derived' => ['precision_lookup' => $lookup],
+    'derived' => [
+        'brand_rule_count' => $brandRuleCount,
+        'category_lookup' => $wpdb->get_results($wpdb->prepare(
+            "SELECT category_tree_id,category_id FROM {$wpdb->prefix}wc_category_lookup " .
+            'WHERE category_id IN (%d,%d) ORDER BY category_tree_id,category_id',
+            (int) $categoryParent->term_id,
+            (int) $category->term_id
+        ), ARRAY_A),
+        'precision_lookup' => $lookup,
+    ],
     'external' => [
         'button_text' => $external->get_button_text('edit'),
         'price' => $external->get_price('edit'),
@@ -158,7 +243,13 @@ echo wp_json_encode([
     'ids' => [
         'attribute_color' => (int) ($attributeRows[0]['attribute_id'] ?? 0),
         'attribute_size' => (int) ($attributeRows[1]['attribute_id'] ?? 0),
+        'brand_child' => (int) $brand->term_id,
+        'brand_excluded' => (int) $brandExcluded->term_id,
+        'brand_parent' => (int) $brandParent->term_id,
         'category' => $category ? (int) $category->term_id : 0,
+        'category_parent' => (int) $categoryParent->term_id,
+        'color_blue' => (int) $blue->term_id,
+        'color_red' => (int) $red->term_id,
         'coupon' => $coupon->get_id(),
         'external' => $externalId,
         'flat_method' => (int) ($zoneMethods['flat_rate']['id'] ?? 0),
@@ -177,6 +268,8 @@ echo wp_json_encode([
         'zone' => $zoneId,
     ],
     'options' => [
+        'brand_description' => (string) get_option('wc_brands_show_description', ''),
+        'brand_permalink' => (string) get_option('woocommerce_brand_permalink', ''),
         'neighbor' => get_option('duo_target_environment_neighbor', null),
         'paypal' => get_option('woocommerce_paypal_settings', null),
         'precision' => (string) get_option('woocommerce_price_num_decimals', ''),
@@ -186,6 +279,7 @@ echo wp_json_encode([
             'custom_width' => (string) get_option('woocommerce_thumbnail_cropping_custom_width', ''),
             'width' => (string) get_option('woocommerce_thumbnail_image_width', ''),
         ],
+        'visual_attribute' => (string) get_option('woocommerce_feature_wc_visual_attribute_enabled', ''),
     ],
     'precision' => [
         'description_bytes' => strlen($precision->get_description('edit')),
@@ -219,6 +313,20 @@ echo wp_json_encode([
         'upsells' => array_values($simple->get_upsell_ids('edit')),
     ],
     'version' => defined('WC_VERSION') ? WC_VERSION : null,
+    'visuals' => [
+        'blue' => [
+            'color' => (string) get_term_meta($blue->term_id, 'color', true),
+            'image' => (int) get_term_meta($blue->term_id, 'image', true),
+            'order' => (string) get_term_meta($blue->term_id, 'order', true),
+            'semantic' => $visuals[(int) $blue->term_id] ?? null,
+        ],
+        'red' => [
+            'color' => (string) get_term_meta($red->term_id, 'color', true),
+            'image' => (int) get_term_meta($red->term_id, 'image', true),
+            'order' => (string) get_term_meta($red->term_id, 'order', true),
+            'semantic' => $visuals[(int) $red->term_id] ?? null,
+        ],
+    ],
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
 PHPEOF
   out=$($COMPOSE run --rm -T "$service" wp eval-file /siterepo/.tmp-woocommerce-observe.php)
@@ -659,12 +767,6 @@ jq -e --arg target "http://localhost:${CONF2_PORT}" --arg source "http://localho
   || fail "Store API image schema did not resolve the target-local converged product image: $PRODUCT_IMAGE_API"
 pass "Store API image schema reads the target-local product thumbnail through Woo's real image callback"
 
-# The current fixture predates the hostile category/brand hierarchy matrix.
-# Automatic repair is shipped by woocommerce-hierarchy-lookups; readiness
-# stays unready until this live check observes its checked rows/options on the
-# final bytes rather than treating the old flat category as evidence.
-pass "bounded Woo price/product-meta/sale projections verified; expanded category/brand hierarchy live evidence remains withheld"
-
 FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/product/conformance-widget/") \
   || fail "conf2 Conformance Widget page did not return 200"
 require_observed_nonempty "conf2 WooCommerce rendered product response" "$FRONT"
@@ -688,6 +790,8 @@ require_observed_nonempty 'WooCommerce hostile-target identity record' "$TARGET_
 
 jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localhost:${CONF2_PORT}" --arg source "http://localhost:${CONF1_PORT}" '
   .version == $version and
+  .options.brand_description == "yes" and .options.brand_permalink == "maker-houses" and
+  .options.visual_attribute == "yes" and
   .simple.title == "Conformance Widget" and
   .precision.title == "Conformance Precision Download 東京 🚀" and
   .precision.regular == "123456789.123456" and .precision.sale == "123456788.654321" and
@@ -711,14 +815,37 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
     "rest":{"button_text":"اشتر الآن — 東京","external_url":($target + "/partner/checkout?campaign=summer&locale=ja"),"type":"external"},
     "tags":["portable-tokyo"],"title":"Conformance External Partner 東京","type":"external"
   } and
+  .category.children == [.ids.category] and .category.display == "both" and
+  .category.menu_order == "17" and .category.parent == .ids.category_parent and
+  (.category.permalink | startswith($target + "/product-category/")) and
+  .category.rest.display == "both" and .category.rest.image == .ids.thumbnail and
+  (.category.rest.image_src | startswith($target + "/wp-content/uploads/")) and
+  .category.rest.menu_order == 17 and .category.rest.parent == .ids.category_parent and
+  .brands.child.description == "<strong>Portable brand 東京</strong>" and
+  .brands.child.display == "subcategories" and .brands.child.menu_order == "23" and
+  .brands.child.parent == .ids.brand_parent and .brands.child.thumbnail == .ids.thumbnail and
+  (.brands.child.permalink | startswith($target + "/maker-houses/")) and
+  .brands.children == [.ids.brand_child] and .brands.simple == ["atelier-tokyo"] and
+  .brands.rest.display == "subcategories" and .brands.rest.image == .ids.thumbnail and
+  (.brands.rest.image_src | startswith($target + "/wp-content/uploads/")) and
+  .brands.rest.menu_order == 23 and .brands.rest.parent == .ids.brand_parent and
+  .visuals.red == {"color":"#d92f2f","image":0,"order":"7","semantic":{"type":"color","value":"#d92f2f"}} and
+  .visuals.blue.color == "" and .visuals.blue.image == .ids.thumbnail and .visuals.blue.order == "3" and
+  .visuals.blue.semantic.type == "image" and
+  (.visuals.blue.semantic.value | startswith($target + "/wp-content/uploads/")) and
   .simple.tags == ["portable-tokyo"] and .simple.shipping_class == "oversize-portable" and
   .simple.image[1] == 500 and .simple.image[2] == 500 and
   .simple.upsells == [.ids.precision] and .simple.cross_sells == [.ids.grouped] and
   .grouped.children == [.ids.product,.ids.precision] and
   .coupon.status == "publish" and .coupon.type == "percent" and .coupon.amount == "10" and
   .coupon.products == [.ids.product] and .coupon.categories == [.ids.category] and
-  (.attributes | map(select(.attribute_name == "conf-color" and .attribute_label == "Conf Color" and .attribute_orderby == "menu_order" and .attribute_public == "0")) | length) == 1 and
-  (.attributes | map(select(.attribute_name == "conf-size" and .attribute_label == "Conf Size" and .attribute_orderby == "menu_order" and .attribute_public == "0")) | length) == 1 and
+  .coupon.brands == [.ids.brand_child] and .coupon.excluded_brands == [.ids.brand_excluded] and
+  (.attributes | map(select(.attribute_name == "conf-color" and .attribute_label == "Conf Color" and .attribute_orderby == "menu_order" and .attribute_public == "0" and .attribute_type == "wc-visual")) | length) == 1 and
+  (.attributes | map(select(.attribute_name == "conf-size" and .attribute_label == "Conf Size" and .attribute_orderby == "menu_order" and .attribute_public == "0" and .attribute_type == "select")) | length) == 1 and
+  (.ids.category_parent as $parent | .ids.category as $child |
+    (.derived.category_lookup | map([(.category_tree_id | tonumber),(.category_id | tonumber)])) ==
+      [[$parent,$parent],[$parent,$child],[$child,$child]]) and
+  .derived.brand_rule_count > 0 and
   (.derived.precision_lookup.min_price | tonumber) == 123456788.6543 and
   (.derived.precision_lookup.max_price | tonumber) == 123456788.6543 and
   .shipping.methods.flat_rate.cost == "5.99" and .shipping.methods.free_shipping.min_amount == "50.00" and
@@ -732,7 +859,7 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   (.ids | to_entries | all(.value > 2147483647))
 ' <<<"$TARGET" >/dev/null || fail "WooCommerce difficult values/native/runtime state did not converge: $TARGET"
 
-for key in category tag shipping_class attribute_color attribute_size tax_class; do
+for key in brand_child brand_excluded brand_parent category category_parent color_blue color_red tag shipping_class attribute_color attribute_size tax_class; do
   SOURCE_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$SOURCE_IDS")
   EXPECTED_TARGET_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$TARGET_IDS")
   OBSERVED_TARGET_ID=$(jq -r --arg key "$key" '.ids[$key]' <<<"$TARGET")
@@ -783,6 +910,56 @@ if grep -Fq "localhost:${CONF1_PORT}" <<<"$EXTERNAL_FRONT"; then
 fi
 pass 'external product resolves through Woo CRUD, v3 REST, Store API, and frontend using only the target-local rebound URL'
 
+BRAND_ID=$(jq -r '.ids.brand_child' <<<"$TARGET")
+COLOR_ATTRIBUTE_ID=$(jq -r '.ids.attribute_color' <<<"$TARGET")
+require_fixture_ids BRAND_ID COLOR_ATTRIBUTE_ID
+BRAND_STORE=$(curl -fsSG "http://localhost:${CONF2_PORT}/wp-json/wc/store/v1/products/brands" \
+  --data-urlencode 'slug=atelier-tokyo') \
+  || fail 'conf2 Store API did not return the core brand'
+require_observed_nonempty 'conf2 core-brand Store API response' "$BRAND_STORE"
+jq -e --arg target "http://localhost:${CONF2_PORT}" --argjson id "$BRAND_ID" '
+  length == 1 and .[0].id == $id and .[0].slug == "atelier-tokyo" and
+  (.[0].permalink | startswith($target + "/maker-houses/")) and
+  (.[0].image.src | startswith($target + "/wp-content/uploads/"))
+' <<<"$BRAND_STORE" >/dev/null \
+  || fail "WooCommerce Store API did not consume brand hierarchy/image/permalink state: $BRAND_STORE"
+
+VISUAL_STORE=$(curl -fsSG "http://localhost:${CONF2_PORT}/wp-json/wc/store/v1/products/attributes/${COLOR_ATTRIBUTE_ID}/terms" \
+  --data-urlencode '__experimental_visual=true' \
+  --data-urlencode 'orderby=menu_order' \
+  --data-urlencode 'order=asc') \
+  || fail 'conf2 Store API did not return visual attribute terms'
+require_observed_nonempty 'conf2 visual-attribute Store API response' "$VISUAL_STORE"
+jq -e --arg target "http://localhost:${CONF2_PORT}" '
+  map(.slug) == ["blue","red"] and
+  .[0].__experimentalVisual.type == "image" and
+  (.[0].__experimentalVisual.value | startswith($target + "/wp-content/uploads/")) and
+  .[1].__experimentalVisual == {"type":"color","value":"#d92f2f"}
+' <<<"$VISUAL_STORE" >/dev/null \
+  || fail "WooCommerce Store API did not consume visual term order/color/image state: $VISUAL_STORE"
+
+BRAND_ARCHIVE=$(curl -fsSL "$(jq -r '.brands.child.permalink' <<<"$TARGET")") \
+  || fail 'conf2 hierarchical brand archive did not return 200'
+require_observed_nonempty 'conf2 hierarchical brand archive response' "$BRAND_ARCHIVE"
+grep -Fq 'Atelier 東京' <<<"$BRAND_ARCHIVE" \
+  || fail 'core brand archive omitted its native term heading'
+grep -Fq 'Conformance Widget' <<<"$BRAND_ARCHIVE" \
+  || fail 'core brand archive omitted its related product'
+if grep -Fq "localhost:${CONF1_PORT}" <<<"$BRAND_ARCHIVE"; then
+  fail 'core brand archive leaked the source host'
+fi
+CATEGORY_ARCHIVE=$(curl -fsSL "$(jq -r '.category.permalink' <<<"$TARGET")") \
+  || fail 'conf2 hierarchical product-category archive did not return 200'
+require_observed_nonempty 'conf2 hierarchical product-category archive response' "$CATEGORY_ARCHIVE"
+grep -Fq 'Conformance Widgets' <<<"$CATEGORY_ARCHIVE" \
+  || fail 'product-category archive omitted its native term heading'
+grep -Fq 'Conformance Widget' <<<"$CATEGORY_ARCHIVE" \
+  || fail 'product-category archive omitted its related product'
+if grep -Fq "localhost:${CONF1_PORT}" <<<"$CATEGORY_ARCHIVE"; then
+  fail 'product-category archive leaked the source host'
+fi
+pass 'Brands, category hierarchy, and visual attributes resolve through exact v3 REST, Store API, lookup/rewrite, image, and archive paths'
+
 PROVIDER_RECEIPT="${APPLY_JSON:-}"
 if [ -z "$PROVIDER_RECEIPT" ] && [ -n "${VMATRIX_APPLY_LOG:-}" ] && [ -f "$VMATRIX_APPLY_LOG" ]; then
   PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")
@@ -791,14 +968,17 @@ grep -Eq 'woocommerce-cache@1\.0\.0 invalidate_cache_groups .*verified' <<<"$PRO
   || fail "initial apply receipt omitted the verified WooCommerce cache provider: ${PROVIDER_RECEIPT:-<missing>}"
 grep -Eq 'woocommerce-product-lookups@2\.0\.0 rebuild_product_lookups .*verified' <<<"$PROVIDER_RECEIPT" \
   || fail "initial apply receipt omitted the verified WooCommerce lookup provider: ${PROVIDER_RECEIPT:-<missing>}"
+grep -Eq 'woocommerce-hierarchy-lookups@1\.0\.0 rebuild_hierarchy_lookups .*verified' <<<"$PROVIDER_RECEIPT" \
+  || fail "initial apply receipt omitted the verified WooCommerce hierarchy provider: ${PROVIDER_RECEIPT:-<missing>}"
 if jq -e 'type == "object"' <<<"$PROVIDER_RECEIPT" >/dev/null 2>&1; then
   jq -e '
     any(.actions[]?; .source == "provider:woocommerce-cache/invalidate_cache_groups" and .verified == true) and
-    any(.actions[]?; .source == "provider:woocommerce-product-lookups/rebuild_product_lookups" and .verified == true)
+    any(.actions[]?; .source == "provider:woocommerce-product-lookups/rebuild_product_lookups" and .verified == true) and
+    ([.actions[]? | select(.source == "provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups" and .verified == true)] | length) == 2
   ' <<<"$PROVIDER_RECEIPT" >/dev/null \
     || fail 'WooCommerce provider JSON receipt omitted a closed verified action'
 fi
-pass 'both digest-bound WooCommerce providers identify themselves and return verified receipts'
+pass 'all selected digest-bound WooCommerce cache, hierarchy, and product providers return verified receipts'
 
 ZERO_PLAN=$($COMPOSE run --rm -T cli2 wp duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered 'WooCommerce zero-change plan' json "$ZERO_PLAN"

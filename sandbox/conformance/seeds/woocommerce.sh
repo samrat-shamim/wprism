@@ -51,7 +51,8 @@ do
   wp_conf1 db query "ALTER TABLE $table AUTO_INCREMENT=2147484000" >/dev/null
 done
 
-CAT_ID=$(wp_conf1 term create product_cat "Conformance Widgets" --slug=conformance-widgets --porcelain)
+CAT_PARENT_ID=$(wp_conf1 term create product_cat "Conformance Catalog" --slug=conformance-catalog --porcelain)
+CAT_ID=$(wp_conf1 term create product_cat "Conformance Widgets" --slug=conformance-widgets --parent="$CAT_PARENT_ID" --porcelain)
 TAG_ID=$(wp_conf1 term create product_tag "Portable 東京" --slug=portable-tokyo --porcelain)
 SHIP_CLASS_ID=$(wp_conf1 term create product_shipping_class "Oversize Portable" --slug=oversize-portable --porcelain)
 
@@ -76,8 +77,53 @@ rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-make-woo-category-image.php
 # author a termmeta ref that points nowhere — and checks/woocommerce.sh would
 # then report "thumbnail_id did not resolve to a local attachment" as an
 # engine failure.
-require_fixture_ids CAT_ID TAG_ID SHIP_CLASS_ID THUMB_ID
-wp_conf1 term meta update "$CAT_ID" thumbnail_id "$THUMB_ID" >/dev/null
+require_fixture_ids CAT_PARENT_ID CAT_ID TAG_ID SHIP_CLASS_ID THUMB_ID
+
+# Brands is unconditional core in both admitted artifacts. Build a hierarchy,
+# exercise the inherited category-controller REST fields on the child, and use
+# the same source attachment for category and brand thumbnails so both refs
+# must converge to one target-local media identity.
+BRAND_PARENT_ID=$(wp_conf1 term create product_brand 'Conformance Makers' --slug=conformance-makers --porcelain)
+BRAND_CHILD_ID=$(wp_conf1 term create product_brand 'Atelier 東京' --slug=atelier-tokyo --parent="$BRAND_PARENT_ID" --description='<strong>Portable brand 東京</strong>' --porcelain)
+BRAND_EXCLUDED_ID=$(wp_conf1 term create product_brand 'Excluded Merchant Brand' --slug=excluded-merchant-brand --porcelain)
+require_fixture_ids BRAND_PARENT_ID BRAND_CHILD_ID BRAND_EXCLUDED_ID
+wp_conf1 eval "
+\$admin = get_user_by('login', 'admin');
+wp_set_current_user(\$admin ? (int) \$admin->ID : 0);
+\$update = static function (string \$route, array \$values): array {
+    \$request = new WP_REST_Request('PUT', \$route);
+    foreach (\$values as \$name => \$value) {
+        \$request->set_param(\$name, \$value);
+    }
+    \$response = rest_do_request(\$request);
+    if (\$response->is_error() || \$response->get_status() !== 200) {
+        throw new RuntimeException('WooCommerce term REST update failed for ' . \$route);
+    }
+    return \$response->get_data();
+};
+\$category = \$update('/wc/v3/products/categories/$CAT_ID', [
+    'display' => 'both',
+    'menu_order' => 17,
+    'parent' => $CAT_PARENT_ID,
+    'image' => ['id' => $THUMB_ID],
+]);
+\$brand = \$update('/wc/v3/products/brands/$BRAND_CHILD_ID', [
+    'display' => 'subcategories',
+    'menu_order' => 23,
+    'parent' => $BRAND_PARENT_ID,
+    'image' => ['id' => $THUMB_ID],
+]);
+if ((int) (\$category['image']['id'] ?? 0) !== $THUMB_ID
+    || (string) (\$category['display'] ?? '') !== 'both'
+    || (int) (\$category['menu_order'] ?? -1) !== 17
+    || (int) (\$brand['image']['id'] ?? 0) !== $THUMB_ID
+    || (string) (\$brand['display'] ?? '') !== 'subcategories'
+    || (int) (\$brand['menu_order'] ?? -1) !== 23) {
+    throw new RuntimeException('WooCommerce category/brand REST update did not round-trip native fields');
+}
+" >/dev/null
+wp_conf1 option update woocommerce_brand_permalink maker-houses >/dev/null
+wp_conf1 option update wc_brands_show_description yes >/dev/null
 
 PID=$(wp_conf1 wc product create --name='Conformance Widget' --type=simple \
   --regular_price=19.99 --sale_price=14.99 --date_on_sale_to=2030-01-01T00:00:00 --sku=CONF-WIDGET-1 \
@@ -95,6 +141,7 @@ if (!\$product) { throw new RuntimeException('missing seeded simple product'); }
 wp_conf1 post term add "$PID" product_cat conformance-widgets --by=slug
 wp_conf1 post term add "$PID" product_tag portable-tokyo --by=slug
 wp_conf1 post term add "$PID" product_shipping_class oversize-portable --by=slug
+wp_conf1 post term add "$PID" product_brand atelier-tokyo --by=slug
 
 # Precision, long UTF-8, local-attribute, nested-download URL, and product-ref
 # fixture. `_downloadable_files` is serialized structured data: the file URL
@@ -202,6 +249,11 @@ COUPON_ID=$(wp_conf1 wc shop_coupon create --code=CONF-WELCOME10 \
   --usage_limit=50 --minimum_amount=10.00 --free_shipping=true \
   --date_expires=2027-06-30T00:00:00 \
   --status=publish --user=admin --porcelain)
+require_fixture_ids COUPON_ID
+wp_conf1 eval "
+update_post_meta($COUPON_ID, 'product_brands', [$BRAND_CHILD_ID]);
+update_post_meta($COUPON_ID, 'exclude_product_brands', [$BRAND_EXCLUDED_ID]);
+" >/dev/null
 
 
 # Variable product with global attributes (task #92): exercises
@@ -210,13 +262,45 @@ COUPON_ID=$(wp_conf1 wc shop_coupon create --code=CONF-WELCOME10 \
 # are NOT hardcoded — a fresh conf1 mints them in creation order, so this
 # reads them back rather than assuming 1/2 (conf's own reset cycle can
 # leave a different starting id across repeated runs).
+wp_conf1 option update woocommerce_feature_wc_visual_attribute_enabled yes >/dev/null
 SIZE_ATTR_ID=$(wp_conf1 wc product_attribute create --name="Conf Size" --slug="conf-size" --type=select --order_by=menu_order --has_archives=false --porcelain --user=admin)
-COLOR_ATTR_ID=$(wp_conf1 wc product_attribute create --name="Conf Color" --slug="conf-color" --type=select --order_by=menu_order --has_archives=false --porcelain --user=admin)
+COLOR_ATTR_ID=$(wp_conf1 wc product_attribute create --name="Conf Color" --slug="conf-color" --type=wc-visual --order_by=menu_order --has_archives=false --porcelain --user=admin)
 require_fixture_ids COUPON_ID SIZE_ATTR_ID COLOR_ATTR_ID
 wp_conf1 wc product_attribute_term create "$SIZE_ATTR_ID" --name=Small --user=admin >/dev/null
 wp_conf1 wc product_attribute_term create "$SIZE_ATTR_ID" --name=Large --user=admin >/dev/null
 wp_conf1 wc product_attribute_term create "$COLOR_ATTR_ID" --name=Red --user=admin >/dev/null
 wp_conf1 wc product_attribute_term create "$COLOR_ATTR_ID" --name=Blue --user=admin >/dev/null
+
+COLOR_TERM_IDS=$(wp_conf1 eval '
+$red = get_term_by("slug", "red", "pa_conf-color");
+$blue = get_term_by("slug", "blue", "pa_conf-color");
+echo ($red ? (int) $red->term_id : 0) . "|" . ($blue ? (int) $blue->term_id : 0);
+')
+IFS='|' read -r COLOR_RED_ID COLOR_BLUE_ID <<<"$COLOR_TERM_IDS"
+require_fixture_ids COLOR_RED_ID COLOR_BLUE_ID
+wp_conf1 eval "
+\Automattic\WooCommerce\Internal\ProductAttributes\VisualAttributeTermMeta::save_term_visual_from_request(
+    $COLOR_RED_ID,
+    'pa_conf-color',
+    ['wc_visual_attribute_type' => 'color', 'term_color' => '#d92f2f']
+);
+\Automattic\WooCommerce\Internal\ProductAttributes\VisualAttributeTermMeta::save_term_visual_from_request(
+    $COLOR_BLUE_ID,
+    'pa_conf-color',
+    ['wc_visual_attribute_type' => 'image', 'term_image' => '$THUMB_ID']
+);
+\$admin = get_user_by('login', 'admin');
+wp_set_current_user(\$admin ? (int) \$admin->ID : 0);
+foreach ([$COLOR_RED_ID => 7, $COLOR_BLUE_ID => 3] as \$termId => \$order) {
+    \$request = new WP_REST_Request('PUT', '/wc/v3/products/attributes/$COLOR_ATTR_ID/terms/' . \$termId);
+    \$request->set_param('menu_order', \$order);
+    \$response = rest_do_request(\$request);
+    \$data = \$response->get_data();
+    if (\$response->is_error() || \$response->get_status() !== 200 || (int) (\$data['menu_order'] ?? -1) !== \$order) {
+        throw new RuntimeException('WooCommerce visual attribute term REST order update failed');
+    }
+}
+" >/dev/null
 
 VPID=$(wp_conf1 wc product create --name='Conformance Variable Widget' --type=variable \
   --attributes="[{\"id\":$SIZE_ATTR_ID,\"variation\":true,\"visible\":true,\"options\":[\"Small\",\"Large\"]},{\"id\":$COLOR_ATTR_ID,\"variation\":true,\"visible\":true,\"options\":[\"Red\",\"Blue\"]}]" \
@@ -351,7 +435,13 @@ as_schedule_single_action(time() + 7200, "duo_woo_source_runtime_probe", [], "du
 
 wp_conf1 eval "
 file_put_contents('/siterepo/.tmp-woocommerce-source.json', wp_json_encode([
+  'brand_child' => $BRAND_CHILD_ID,
+  'brand_excluded' => $BRAND_EXCLUDED_ID,
+  'brand_parent' => $BRAND_PARENT_ID,
   'category' => $CAT_ID,
+  'category_parent' => $CAT_PARENT_ID,
+  'color_blue' => $COLOR_BLUE_ID,
+  'color_red' => $COLOR_RED_ID,
   'coupon' => $COUPON_ID,
   'external' => $EXTERNAL_ID,
   'grouped' => $GROUPED_ID,
@@ -373,4 +463,4 @@ file_put_contents('/siterepo/.tmp-woocommerce-source.json', wp_json_encode([
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 " >/dev/null
 
-echo "woocommerce seed: category=$CAT_ID tag=$TAG_ID shipping_class=$SHIP_CLASS_ID thumbnail=$THUMB_ID product=$PID precision=$PRECISION_ID external=$EXTERNAL_ID grouped=$GROUPED_ID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID) zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax_class=$TAX_CLASS_ID tax=$TAX_ID source_runtime_order=$SOURCE_ORDER_ID source_runtime_review=$SOURCE_REVIEW_ID"
+echo "woocommerce seed: category=$CAT_PARENT_ID/$CAT_ID brands=$BRAND_PARENT_ID/$BRAND_CHILD_ID/$BRAND_EXCLUDED_ID tag=$TAG_ID shipping_class=$SHIP_CLASS_ID thumbnail=$THUMB_ID product=$PID precision=$PRECISION_ID external=$EXTERNAL_ID grouped=$GROUPED_ID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID terms=$COLOR_RED_ID,$COLOR_BLUE_ID) zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax_class=$TAX_CLASS_ID tax=$TAX_ID source_runtime_order=$SOURCE_ORDER_ID source_runtime_review=$SOURCE_REVIEW_ID"
