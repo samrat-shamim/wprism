@@ -626,16 +626,7 @@ final class Code {
             $transactionStarted = false;
         } catch (\Throwable $t) {
             if ($transactionStarted) {
-                try {
-                    Db::rollback('code ledger transaction rollback');
-                } catch (\Throwable $rollback) {
-                    throw new \RuntimeException(
-                        'duo: code ledger transaction failed and rollback could not be confirmed: '
-                        . $rollback->getMessage(),
-                        0,
-                        $t
-                    );
-                }
+                Db::rollback_after_failure($t, 'code ledger transaction rollback');
             }
             throw $t;
         }

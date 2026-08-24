@@ -101,11 +101,7 @@ final class ApplyLedgerFinalizer {
             $transactionStarted = false;
         } catch (\Throwable $failure) {
             if ($transactionStarted) {
-                try {
-                    Db::rollback('ledger transaction rollback');
-                } catch (DatabaseMutationException $rollback) {
-                    throw new DatabaseMutationException($rollback->mutationContext, $failure);
-                }
+                Db::rollback_after_failure($failure, 'ledger transaction rollback');
             }
             throw $failure;
         }

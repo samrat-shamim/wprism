@@ -50,6 +50,40 @@ namespace {
         public array $queries = [];
         public ?string $failure = null;
         public bool $mutatePayload = false;
+        public string $connectionId = '8101';
+        public string $activeTransaction = '0';
+        public bool $ambiguousCommit = false;
+        public int $rollbackQueries = 0;
+
+        public function query(string $sql): int|false {
+            $this->queries[] = $sql;
+            if ($sql === 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ') {
+                return 1;
+            }
+            if ($sql === 'START TRANSACTION WITH CONSISTENT SNAPSHOT') {
+                $this->activeTransaction = '1';
+                return 1;
+            }
+            if ($sql === 'COMMIT') {
+                $this->activeTransaction = '0';
+                return $this->ambiguousCommit ? false : 1;
+            }
+            if ($sql === 'ROLLBACK') {
+                $this->rollbackQueries++;
+                $this->activeTransaction = '0';
+                return 1;
+            }
+            throw new \RuntimeException("unsupported identity-backup mutation query: $sql");
+        }
+
+        public function get_var(string $sql): mixed {
+            $this->queries[] = $sql;
+            return match ($sql) {
+                'SELECT CONNECTION_ID()' => $this->connectionId,
+                'SELECT @@in_transaction' => $this->activeTransaction,
+                default => throw new \RuntimeException("unsupported identity-backup scalar query: $sql"),
+            };
+        }
 
         public function prepare(string $sql, ...$args): string {
             foreach ($args as $arg) {
@@ -137,6 +171,7 @@ namespace {
     require_once "$root/agent/src/Repository/IdentityBackup.php";
 
     use Duo\Policy;
+    use Duo\Db;
     use Duo\IdentityBackup;
     use Duo\RepositoryIdentityRegistry;
     use Duo\Snapshot;
@@ -271,6 +306,44 @@ namespace {
         $failure instanceof Throwable && count($wpdb->queries) === 2,
         'identity backup refuses payload drift after the compact identity witness'
     );
+
+    $transactionWpdb = new IdentityBackupFakeWpdb();
+    $transactionWpdb->ambiguousCommit = true;
+    $GLOBALS['wpdb'] = $transactionWpdb;
+    Db::forget_transaction_tracking();
+    Db::start_consistent_snapshot('identity transaction outcome regression start');
+    try {
+        Db::commit('identity transaction outcome regression commit');
+        $commitFailure = null;
+    } catch (Throwable $failure) {
+        $commitFailure = $failure;
+    }
+    $identityRollback = new ReflectionMethod(IdentityBackup::class, 'rollback_after_failure');
+    try {
+        $identityRollback->invoke(
+            null,
+            $commitFailure ?? new RuntimeException('missing commit failure'),
+            'identity transaction outcome regression rollback'
+        );
+        $identityRecovery = null;
+    } catch (Throwable $failure) {
+        $identityRecovery = $failure;
+    }
+    try {
+        Db::start('identity transaction outcome accidental retry');
+        $identityRetryBlocked = false;
+    } catch (Throwable $failure) {
+        $identityRetryBlocked = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    }
+    $check(
+        $commitFailure instanceof \Duo\DatabaseTransactionOutcomeException
+            && $identityRecovery instanceof \Duo\DatabaseTransactionOutcomeException
+            && $identityRecovery->getPrevious() === $commitFailure
+            && $transactionWpdb->rollbackQueries === 0
+            && $identityRetryBlocked,
+        'identity recovery retains an inactive ambiguous COMMIT and never compensates through autocommit'
+    );
+    Db::forget_transaction_tracking();
 
     if ($failures !== []) {
         fwrite(STDERR, "\nFAILED " . count($failures) . " assertion(s)\n");

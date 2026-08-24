@@ -336,7 +336,6 @@ final class AuthoredTransactionExecutor {
                     } catch (\Throwable $cachePurgeFailure) {
                         $cacheFailure = $cachePurgeFailure;
                     }
-                    Db::forget_transaction_tracking();
                     Canary::disarm();
                     $recovery = [
                         'original=' . self::failure_fingerprint($failure),
@@ -365,7 +364,7 @@ final class AuthoredTransactionExecutor {
                 }
                 try {
                     Db::rollback('apply transaction rollback');
-                } catch (DatabaseMutationException $rollback) {
+                } catch (\Throwable $rollback) {
                     $rollbackFailure = $rollback;
                 }
                 try {
@@ -375,7 +374,9 @@ final class AuthoredTransactionExecutor {
                 }
                 if ($participantFailure !== null || $rollbackFailure !== null || $cacheFailure !== null) {
                     Canary::disarm();
-                    if ($rollbackFailure !== null && $participantFailure === null && $cacheFailure === null) {
+                    if ($rollbackFailure instanceof DatabaseMutationException
+                        && $participantFailure === null
+                        && $cacheFailure === null) {
                         throw new DatabaseMutationException($rollbackFailure->mutationContext, $failure);
                     }
                     $recovery = [];

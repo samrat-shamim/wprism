@@ -22,6 +22,7 @@ namespace Duo {
         /** @var array<string,string>|null */
         private static ?array $transactionValues = null;
         public static bool $failNextPromotionSessionUpsert = false;
+        public static bool $terminalCommitFailure = false;
         public static int $promotionLockWrites = 0;
         public static int $transactionStarts = 0;
         public static int $transactionRollbacks = 0;
@@ -141,10 +142,25 @@ namespace Duo {
 
         public static function commit(string $context = 'transaction commit'): void {
             ScopedPromotionTargetLedger::commit();
+            if (ScopedPromotionTargetLedger::$terminalCommitFailure) {
+                throw new \RuntimeException('injected terminal scoped replacement commit outcome');
+            }
         }
 
         public static function rollback(string $context = 'transaction rollback'): void {
             ScopedPromotionTargetLedger::rollback();
+        }
+
+        public static function rollback_after_failure(\Throwable $primary, string $context): void {
+            if (ScopedPromotionTargetLedger::$terminalCommitFailure
+                && !ScopedPromotionTargetLedger::transactionOpen()) {
+                throw new \RuntimeException(
+                    'injected terminal scoped replacement recovery_required',
+                    0,
+                    $primary
+                );
+            }
+            self::rollback($context);
         }
     }
 
@@ -648,6 +664,31 @@ namespace {
             && ScopedPromotionTargetLedger::$promotionLockWrites === $ordinaryReplacementLockWrites + 1,
         'replacement session-upsert failure rolls back its provisional lock and preserves the exact ordinary session bytes'
     );
+
+    $terminalReplacementRollbacks = ScopedPromotionTargetLedger::$transactionRollbacks;
+    ScopedPromotionTargetLedger::$terminalCommitFailure = true;
+    $expect(
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+        'terminal scoped replacement recovery_required',
+        'terminal ordinary-session replacement outcome refuses without autocommit compensation'
+    );
+    $terminalSession = json_decode(
+        (string) (ScopedPromotionTargetLedger::$values['promotion_session'] ?? ''),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $check(
+        !ScopedPromotionTargetLedger::transactionOpen()
+            && ScopedPromotionTargetLedger::$transactionRollbacks === $terminalReplacementRollbacks
+            && ($terminalSession['profile'] ?? null) === 'scoped-checkpoint-v1'
+            && array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
+        'terminal replacement preserves its physical postimage for exact recovery classification'
+    );
+    ScopedPromotionTargetLedger::$terminalCommitFailure = false;
+    ScopedPromotionTargetLedger::$values = [
+        'promotion_session' => $ordinaryCompletedBytes,
+    ];
     $ordinaryReclaimed = PromotionLock::begin_scoped(
         $owner, $artifact, $receipt, $scopeHash, $witness, 300
     );

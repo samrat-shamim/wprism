@@ -34,9 +34,14 @@ final class Db {
     public static int $commits = 0;
     public static int $rollbacks = 0;
     public static bool $failCommit = false;
+    public static bool $terminalCommitFailure = false;
     public static function start(string $context): void { self::$snapshot = Ledger::$rows; }
     public static function commit(string $context): void {
         self::$commits++;
+        if (self::$terminalCommitFailure) {
+            self::$snapshot = null;
+            throw new \RuntimeException('injected terminal completed-ledger commit outcome');
+        }
         if (self::$failCommit) { throw new \RuntimeException('injected commit failure'); }
         self::$snapshot = null;
     }
@@ -44,6 +49,12 @@ final class Db {
         self::$rollbacks++;
         Ledger::$rows = self::$snapshot ?? [];
         self::$snapshot = null;
+    }
+    public static function rollback_after_failure(\Throwable $primary, string $context): void {
+        if (self::$terminalCommitFailure && self::$snapshot === null) {
+            throw new \RuntimeException('injected terminal completed-ledger recovery_required', 0, $primary);
+        }
+        self::rollback($context);
     }
 }
 
@@ -72,6 +83,7 @@ $reset = static function () use ($staged): void {
     Db::$commits = 0;
     Db::$rollbacks = 0;
     Db::$failCommit = false;
+    Db::$terminalCommitFailure = false;
 };
 
 for ($failure = 1; $failure <= 7; $failure++) {
@@ -102,6 +114,26 @@ try {
 }
 if (Ledger::$rows !== $staged || Db::$rollbacks !== 1 || Db::$commits !== 1) {
     throw new \RuntimeException('FAIL: COMMIT failure left a partial finalization');
+}
+
+$reset();
+Db::$terminalCommitFailure = true;
+try {
+    $publish->invoke(null, $descriptor);
+    throw new \RuntimeException('FAIL: terminal completed-ledger COMMIT outcome did not fail closed');
+} catch (\ReflectionException $e) {
+    throw $e;
+} catch (\Throwable $e) {
+    if ($e->getMessage() !== 'injected terminal completed-ledger recovery_required'
+        || $e->getPrevious()?->getMessage() !== 'injected terminal completed-ledger commit outcome') {
+        throw $e;
+    }
+}
+if (Db::$rollbacks !== 0 || Db::$commits !== 1
+    || array_key_exists(Code::CODE_STAGE_DESCRIPTOR_KEY, Ledger::$rows)
+    || (Ledger::$rows[Code::CODE_DESCRIPTOR_KEY] ?? null) !== Canon::encode($descriptor)
+    || (Ledger::$rows[Code::CODE_REVISION_KEY] ?? null) !== $revision) {
+    throw new \RuntimeException('FAIL: terminal completed-ledger outcome ran compensation or lost its durable postimage');
 }
 
 $reset();

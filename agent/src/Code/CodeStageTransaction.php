@@ -52,16 +52,7 @@ final class CodeStageTransaction {
             $transactionStarted = false;
         } catch (\Throwable $t) {
             if ($transactionStarted) {
-                try {
-                    Db::rollback('code stage ledger transaction rollback');
-                } catch (\Throwable $rollback) {
-                    throw new \RuntimeException(
-                        'duo: code stage ledger transaction failed and rollback could not be confirmed: '
-                        . $rollback->getMessage(),
-                        0,
-                        $t
-                    );
-                }
+                Db::rollback_after_failure($t, 'code stage ledger transaction rollback');
             }
             throw $t;
         }

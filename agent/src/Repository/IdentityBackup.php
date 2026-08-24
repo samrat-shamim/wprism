@@ -444,44 +444,6 @@ final class IdentityBackup {
     }
 
     private static function rollback_after_failure(\Throwable $primary, string $context): void {
-        try {
-            $active = Db::transaction_active($context . ' boundary');
-        } catch (\Throwable $stateFailure) {
-            Db::forget_transaction_tracking();
-            throw new \RuntimeException(
-                'duo: identity transaction recovery could not prove the original transaction; '
-                . 'recovery_required; original=' . self::failure_fingerprint($primary)
-                . '; state=' . self::failure_fingerprint($stateFailure),
-                0,
-                $primary
-            );
-        }
-        if (!$active) {
-            Db::forget_transaction_tracking();
-            throw new \RuntimeException(
-                'duo: identity transaction ended before rollback; recovery_required; original='
-                . self::failure_fingerprint($primary),
-                0,
-                $primary
-            );
-        }
-        try {
-            Db::rollback($context);
-        } catch (\Throwable $rollbackFailure) {
-            Db::forget_transaction_tracking();
-            throw new \RuntimeException(
-                'duo: identity transaction rollback failed; recovery_required; original='
-                . self::failure_fingerprint($primary)
-                . '; rollback=' . self::failure_fingerprint($rollbackFailure),
-                0,
-                $primary
-            );
-        }
-    }
-
-    private static function failure_fingerprint(\Throwable $failure): string {
-        $message = $failure->getMessage();
-        return get_class($failure) . ':' . strlen($message) . ':'
-            . substr(hash('sha256', $message), 0, 16);
+        Db::rollback_after_failure($primary, $context);
     }
 }

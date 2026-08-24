@@ -475,15 +475,13 @@ class PromotionLease {
         } catch (\Throwable $t) {
             if ($replacementTransactionOpen) {
                 try {
-                    Db::rollback('scoped ordinary session replacement transaction rollback');
-                } catch (\Throwable $rollback) {
-                    self::release_process_fence();
-                    throw new \RuntimeException(
-                        'duo: scoped ordinary session replacement failed and rollback could not be confirmed: '
-                        . $rollback->getMessage(),
-                        0,
-                        $t
+                    Db::rollback_after_failure(
+                        $t,
+                        'scoped ordinary session replacement transaction rollback'
                     );
+                } catch (\Throwable $recoveryFailure) {
+                    self::release_process_fence();
+                    throw $recoveryFailure;
                 }
             }
             self::release_process_fence();

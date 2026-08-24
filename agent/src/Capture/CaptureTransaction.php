@@ -259,7 +259,10 @@ final class CaptureTransaction {
                     // before the outer retry/refusal branch; a reconnect or
                     // applied-but-false COMMIT takes the outcome exception
                     // above instead.
-                    Db::rollback('capture transaction rollback after refused commit');
+                    Db::rollback_after_failure(
+                        $notCommitted,
+                        'capture transaction rollback after refused commit'
+                    );
                     $transactionOpen = false;
                     $commitAttempted = false;
                     throw $notCommitted;
@@ -279,7 +282,7 @@ final class CaptureTransaction {
                     );
                 }
                 if ($transactionOpen) {
-                    Db::rollback('capture transaction rollback');
+                    Db::rollback_after_failure($e, 'capture transaction rollback');
                 }
                 if (!empty($phase['filesystem_swapped'])) {
                     throw new CommandRefusalException(
@@ -327,7 +330,7 @@ final class CaptureTransaction {
                     );
                 }
                 if ($transactionOpen) {
-                    Db::rollback('capture transaction rollback');
+                    Db::rollback_after_failure($t, 'capture transaction rollback');
                 }
                 throw $t;
             }

@@ -32,13 +32,25 @@ final class DeleteGuardEvaluatorFakeWpdb {
     public bool $savepointExists = false;
     public bool $nextRepeatableRead = false;
     public bool $failSetTransaction = false;
+    public bool $applySetTransaction = true;
+    public bool $throwOnSetTransaction = false;
+    public bool $setTransactionLeavesError = false;
+    public int|false $setTransactionResult = 1;
+    public int $startsWithoutOneShot = 0;
+    public bool $replaceConnectionOnSetTransaction = false;
     public bool $applyStart = true;
+    public int $falseStartsBeforeApply = 0;
+    public int $throwStartsBeforeApply = 0;
     public bool $applyCommit = true;
     public bool $applyRollback = true;
     public int|false $startResult = 1;
     public int|false $commitResult = 1;
     public int|false $rollbackResult = 1;
     public bool $replaceConnectionOnCommit = false;
+    public bool $throwOnStart = false;
+    public bool $throwOnCommit = false;
+    public bool $throwOnRollback = false;
+    public bool $commitLeavesError = false;
 
     /** @param list<array<string,mixed>> $indexRows */
     public function __construct(
@@ -56,25 +68,44 @@ final class DeleteGuardEvaluatorFakeWpdb {
     public function query(string $sql): int|false {
         $this->queries[] = $sql;
         if ($sql === 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ') {
-            if ($this->failSetTransaction) {
-                $this->last_error = 'simulated SET TRANSACTION failure';
-                return false;
+            if ($this->applySetTransaction) {
+                $this->nextRepeatableRead = true;
             }
-            $this->nextRepeatableRead = true;
-            return 1;
+            if ($this->failSetTransaction || $this->setTransactionLeavesError) {
+                $this->last_error = 'simulated SET TRANSACTION failure';
+            }
+            if ($this->throwOnSetTransaction) {
+                throw new RuntimeException('simulated SET TRANSACTION driver exception');
+            }
+            if ($this->replaceConnectionOnSetTransaction) {
+                $this->connectionId = (string) ((int) $this->connectionId + 1);
+                $this->nextRepeatableRead = false;
+            }
+            return $this->failSetTransaction ? false : $this->setTransactionResult;
         }
         if (in_array($sql, [
             'START TRANSACTION',
             'START TRANSACTION WITH CONSISTENT SNAPSHOT',
             'START TRANSACTION READ ONLY, WITH CONSISTENT SNAPSHOT',
         ], true)) {
+            if ($this->falseStartsBeforeApply > 0) {
+                $this->falseStartsBeforeApply--;
+                return false;
+            }
+            if ($this->throwStartsBeforeApply > 0) {
+                $this->throwStartsBeforeApply--;
+                throw new RuntimeException('simulated START driver exception before apply');
+            }
             if (!$this->nextRepeatableRead) {
-                throw new RuntimeException('START TRANSACTION was not immediately preceded by the one-shot isolation');
+                $this->startsWithoutOneShot++;
             }
             $this->nextRepeatableRead = false;
             if ($this->applyStart) {
                 $this->activeTransaction = '1';
                 $this->savepointExists = false;
+            }
+            if ($this->throwOnStart) {
+                throw new RuntimeException('simulated START driver exception');
             }
             return $this->startResult;
         }
@@ -86,12 +117,21 @@ final class DeleteGuardEvaluatorFakeWpdb {
             if ($this->replaceConnectionOnCommit) {
                 $this->connectionId = (string) ((int) $this->connectionId + 1);
             }
+            if ($this->commitLeavesError) {
+                $this->last_error = 'simulated COMMIT error after control';
+            }
+            if ($this->throwOnCommit) {
+                throw new RuntimeException('simulated COMMIT driver exception');
+            }
             return $this->commitResult;
         }
         if ($sql === 'ROLLBACK') {
             if ($this->applyRollback) {
                 $this->activeTransaction = '0';
                 $this->savepointExists = false;
+            }
+            if ($this->throwOnRollback) {
+                throw new RuntimeException('simulated ROLLBACK driver exception');
             }
             return $this->rollbackResult;
         }
@@ -512,10 +552,12 @@ try {
 }
 $check($restartedTransactionRefused, 'same-isolation transaction restart cannot reuse the authored lock boundary');
 DeleteGuardEvaluator::end_authored_transaction();
+Db::rollback('fixture transaction cleanup');
 
 $setFailureWpdb = new DeleteGuardEvaluatorFakeWpdb([]);
 $setFailureWpdb->activeTransaction = '0';
 $setFailureWpdb->failSetTransaction = true;
+$setFailureWpdb->applySetTransaction = false;
 $GLOBALS['wpdb'] = $setFailureWpdb;
 try {
     Db::start_repeatable_read('fixture transaction start');
@@ -525,13 +567,74 @@ try {
 }
 $check(
     $setFailureRefused
-        && $setFailureWpdb->queries === [
-            'SELECT CONNECTION_ID()',
-            'SELECT @@in_transaction',
-            'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
-        ],
-    'failed one-shot isolation refuses before START TRANSACTION'
+        && $setFailureWpdb->startsWithoutOneShot === 1
+        && $setFailureWpdb->activeTransaction === '0'
+        && in_array('ROLLBACK', $setFailureWpdb->queries, true),
+    'failed non-applied one-shot isolation is consumed by a bounded transaction before refusal'
 );
+$setFailureWpdb->failSetTransaction = false;
+$setFailureWpdb->applySetTransaction = true;
+Db::start_repeatable_read('transaction after failed isolation cleanup');
+$check(
+    Db::transaction_active('transaction after failed isolation cleanup verification'),
+    'a transaction after failed isolation cleanup starts from a fresh one-shot control'
+);
+Db::rollback('transaction after failed isolation cleanup rollback');
+
+$ambiguousIsolationCases = [
+    'false-after-apply' => static function (DeleteGuardEvaluatorFakeWpdb $wpdb): void {
+        $wpdb->setTransactionResult = false;
+    },
+    'throw-after-apply' => static function (DeleteGuardEvaluatorFakeWpdb $wpdb): void {
+        $wpdb->throwOnSetTransaction = true;
+    },
+    'truthy-plus-error' => static function (DeleteGuardEvaluatorFakeWpdb $wpdb): void {
+        $wpdb->setTransactionLeavesError = true;
+    },
+];
+foreach ($ambiguousIsolationCases as $case => $configure) {
+    $ambiguousSet = new DeleteGuardEvaluatorFakeWpdb([]);
+    $ambiguousSet->activeTransaction = '0';
+    $configure($ambiguousSet);
+    $GLOBALS['wpdb'] = $ambiguousSet;
+    Db::forget_transaction_tracking();
+    try {
+        Db::start_repeatable_read("$case isolation");
+        $ambiguousSetRefused = false;
+    } catch (Throwable $failure) {
+        $ambiguousSetRefused = $failure instanceof \Duo\DatabaseMutationException;
+    }
+    $consumed = $ambiguousSet->activeTransaction === '0'
+        && $ambiguousSet->nextRepeatableRead === false
+        && in_array('ROLLBACK', $ambiguousSet->queries, true);
+    $ambiguousSet->setTransactionResult = 1;
+    $ambiguousSet->throwOnSetTransaction = false;
+    $ambiguousSet->setTransactionLeavesError = false;
+    Db::start_repeatable_read("$case isolation subsequent transaction");
+    $fresh = Db::transaction_active("$case isolation subsequent verification");
+    Db::rollback("$case isolation subsequent rollback");
+    $check(
+        $ambiguousSetRefused && $consumed && $fresh,
+        "$case one-shot isolation ambiguity is consumed and cannot contaminate the next transaction"
+    );
+}
+
+$reconnectedSet = new DeleteGuardEvaluatorFakeWpdb([]);
+$reconnectedSet->activeTransaction = '0';
+$reconnectedSet->replaceConnectionOnSetTransaction = true;
+$GLOBALS['wpdb'] = $reconnectedSet;
+Db::forget_transaction_tracking();
+try {
+    Db::start_repeatable_read('reconnected isolation');
+    $reconnectedSetRefused = false;
+} catch (Throwable $failure) {
+    $reconnectedSetRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+}
+$check(
+    $reconnectedSetRefused && $reconnectedSet->activeTransaction === '0',
+    'connection replacement across one-shot isolation refuses without applying control to the replacement'
+);
+Db::forget_transaction_tracking();
 
 $readOnlySnapshot = new DeleteGuardEvaluatorFakeWpdb([]);
 $readOnlySnapshot->activeTransaction = '0';
@@ -562,8 +665,7 @@ Db::rollback('applied-false start cleanup');
 
 $notAppliedStart = new DeleteGuardEvaluatorFakeWpdb([]);
 $notAppliedStart->activeTransaction = '0';
-$notAppliedStart->startResult = false;
-$notAppliedStart->applyStart = false;
+$notAppliedStart->falseStartsBeforeApply = 1;
 $GLOBALS['wpdb'] = $notAppliedStart;
 Db::forget_transaction_tracking();
 try {
@@ -573,8 +675,71 @@ try {
     $notAppliedStartRefused = $failure instanceof \Duo\DatabaseMutationException;
 }
 $check(
-    $notAppliedStartRefused && $notAppliedStart->activeTransaction === '0',
-    'START returning false without the active-state transition is a deterministic mutation failure'
+    $notAppliedStartRefused
+        && $notAppliedStart->activeTransaction === '0'
+        && $notAppliedStart->nextRepeatableRead === false
+        && in_array('ROLLBACK', $notAppliedStart->queries, true),
+    'START returning false before application consumes its pending one-shot isolation before refusal'
+);
+
+$appliedThrowStart = new DeleteGuardEvaluatorFakeWpdb([]);
+$appliedThrowStart->activeTransaction = '0';
+$appliedThrowStart->throwOnStart = true;
+$GLOBALS['wpdb'] = $appliedThrowStart;
+Db::forget_transaction_tracking();
+Db::start_repeatable_read('applied-throw start');
+$check(
+    Db::transaction_active('applied-throw start verification'),
+    'START throwing after the server transition is classified from the same-connection active state'
+);
+Db::rollback('applied-throw start cleanup');
+
+$notAppliedThrowStart = new DeleteGuardEvaluatorFakeWpdb([]);
+$notAppliedThrowStart->activeTransaction = '0';
+$notAppliedThrowStart->throwStartsBeforeApply = 1;
+$GLOBALS['wpdb'] = $notAppliedThrowStart;
+Db::forget_transaction_tracking();
+try {
+    Db::start_repeatable_read('not-applied throw start');
+    $notAppliedThrowStartRefused = false;
+} catch (Throwable $failure) {
+    $notAppliedThrowStartRefused = $failure instanceof \Duo\DatabaseMutationException;
+}
+$check(
+    $notAppliedThrowStartRefused
+        && $notAppliedThrowStart->activeTransaction === '0'
+        && $notAppliedThrowStart->nextRepeatableRead === false
+        && in_array('ROLLBACK', $notAppliedThrowStart->queries, true),
+    'START throwing before application consumes its pending one-shot isolation before refusal'
+);
+
+$unsettledStart = new DeleteGuardEvaluatorFakeWpdb([]);
+$unsettledStart->activeTransaction = '0';
+$unsettledStart->applyStart = false;
+$unsettledStart->startResult = false;
+$GLOBALS['wpdb'] = $unsettledStart;
+Db::forget_transaction_tracking();
+try {
+    Db::start_repeatable_read('unsettled one-shot start');
+    $unsettledStartRefused = false;
+} catch (Throwable $failure) {
+    $unsettledStartRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+}
+try {
+    Db::start('unrelated start while isolation is unresolved');
+    $unrelatedBlocked = false;
+} catch (Throwable $failure) {
+    $unrelatedBlocked = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+}
+$unsettledStart->connectionId = '7002';
+$unsettledStart->applyStart = true;
+$unsettledStart->startResult = 1;
+Db::start('replacement-connection transaction');
+$replacementFresh = Db::transaction_active('replacement-connection verification');
+Db::rollback('replacement-connection rollback');
+$check(
+    $unsettledStartRefused && $unrelatedBlocked && $replacementFresh,
+    'an unconsumed one-shot isolation blocks the same session and cannot contaminate a replacement connection'
 );
 
 $appliedFalseCommit = new DeleteGuardEvaluatorFakeWpdb([]);
@@ -583,11 +748,77 @@ $appliedFalseCommit->commitResult = false;
 $GLOBALS['wpdb'] = $appliedFalseCommit;
 Db::forget_transaction_tracking();
 Db::start_repeatable_read('applied-false commit start');
-Db::commit('applied-false commit');
+try {
+    Db::commit('applied-false commit');
+    $appliedFalseCommitRefused = false;
+} catch (Throwable $failure) {
+    $appliedFalseCommitRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+}
+$unresolvedCommitBlocksStart = false;
+try {
+    Db::start_repeatable_read('start after unresolved commit');
+} catch (Throwable $failure) {
+    $unresolvedCommitBlocksStart = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+}
 $check(
-    $appliedFalseCommit->activeTransaction === '0',
-    'COMMIT returning false is terminal success only when the same connection proves active-to-inactive'
+    $appliedFalseCommitRefused
+        && $appliedFalseCommit->activeTransaction === '0'
+        && $unresolvedCommitBlocksStart,
+    'COMMIT false plus inactive is outcome-uncertain and its retained witness blocks a new transaction'
 );
+Db::forget_transaction_tracking();
+
+$appliedThrowCommit = new DeleteGuardEvaluatorFakeWpdb([]);
+$appliedThrowCommit->activeTransaction = '0';
+$appliedThrowCommit->throwOnCommit = true;
+$GLOBALS['wpdb'] = $appliedThrowCommit;
+Db::start_repeatable_read('applied-throw commit start');
+try {
+    Db::commit('applied-throw commit');
+    $appliedThrowCommitRefused = false;
+} catch (Throwable $failure) {
+    $appliedThrowCommitRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+}
+$check(
+    $appliedThrowCommitRefused && $appliedThrowCommit->activeTransaction === '0',
+    'COMMIT throwing after active-to-inactive remains outcome-uncertain instead of guessed committed'
+);
+Db::forget_transaction_tracking();
+
+$notAppliedThrowCommit = new DeleteGuardEvaluatorFakeWpdb([]);
+$notAppliedThrowCommit->activeTransaction = '0';
+$notAppliedThrowCommit->applyCommit = false;
+$notAppliedThrowCommit->throwOnCommit = true;
+$GLOBALS['wpdb'] = $notAppliedThrowCommit;
+Db::start_repeatable_read('not-applied throw commit start');
+try {
+    Db::commit('not-applied throw commit');
+    $notAppliedThrowCommitRefused = false;
+} catch (Throwable $failure) {
+    $notAppliedThrowCommitRefused = $failure instanceof \Duo\DatabaseMutationException;
+}
+$check(
+    $notAppliedThrowCommitRefused && Db::transaction_active('not-applied throw commit remains active'),
+    'COMMIT throwing while the original transaction remains active is rollback-recoverable'
+);
+Db::rollback('not-applied throw commit cleanup');
+
+$truthyErrorCommit = new DeleteGuardEvaluatorFakeWpdb([]);
+$truthyErrorCommit->activeTransaction = '0';
+$truthyErrorCommit->commitLeavesError = true;
+$GLOBALS['wpdb'] = $truthyErrorCommit;
+Db::start_repeatable_read('truthy-error commit start');
+try {
+    Db::commit('truthy-error commit');
+    $truthyErrorCommitRefused = false;
+} catch (Throwable $failure) {
+    $truthyErrorCommitRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+}
+$check(
+    $truthyErrorCommitRefused && $truthyErrorCommit->activeTransaction === '0',
+    'COMMIT truthy result plus driver error is not accepted from inactive state'
+);
+Db::forget_transaction_tracking();
 
 $notAppliedCommit = new DeleteGuardEvaluatorFakeWpdb([]);
 $notAppliedCommit->activeTransaction = '0';
@@ -618,6 +849,18 @@ Db::rollback('applied-false rollback');
 $check(
     $appliedFalseRollback->activeTransaction === '0',
     'ROLLBACK returning false is terminal success only when the same connection proves inactive'
+);
+
+$appliedThrowRollback = new DeleteGuardEvaluatorFakeWpdb([]);
+$appliedThrowRollback->activeTransaction = '0';
+$appliedThrowRollback->throwOnRollback = true;
+$GLOBALS['wpdb'] = $appliedThrowRollback;
+Db::forget_transaction_tracking();
+Db::start_repeatable_read('applied-throw rollback start');
+Db::rollback('applied-throw rollback');
+$check(
+    $appliedThrowRollback->activeTransaction === '0',
+    'ROLLBACK throwing after the same-connection inactive transition is still a confirmed rollback outcome'
 );
 
 $notAppliedRollback = new DeleteGuardEvaluatorFakeWpdb([]);

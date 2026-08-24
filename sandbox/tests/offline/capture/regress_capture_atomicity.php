@@ -610,8 +610,9 @@ assert_capture_atomicity(
     'a retry refuses when its fresh read set no longer uses InnoDB'
 );
 assert_capture_atomicity(
-    $wpdb->starts === 1 && $wpdb->commits === 0 && $callbackRuns === 0,
-    'retry engine validation runs before the second START and callback'
+    $wpdb->starts === 2 && $wpdb->rollbacks === 1
+        && $wpdb->commits === 0 && $callbackRuns === 0,
+    'retry engine validation runs after bounded isolation cleanup but before a second capture START and callback'
 );
 $wpdb->tableEngines = [];
 $wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
@@ -625,9 +626,15 @@ $result = $invokeConsistentSnapshot(static function () use (&$callbackRuns): arr
     return ['captured' => true];
 });
 assert_capture_atomicity($result === ['captured' => true], 'transaction-start contention retries and returns the candidate');
-assert_capture_atomicity($wpdb->starts === 2, 'a transient START failure enters a bounded retry attempt');
+assert_capture_atomicity(
+    $wpdb->starts === 3,
+    'a transient START failure consumes its one-shot isolation before the bounded retry attempt'
+);
 assert_capture_atomicity($callbackRuns === 1, 'the capture callback is not run against the failed transaction start');
-assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0, 'a pre-open START failure does not issue a spurious rollback');
+assert_capture_atomicity(
+    $wpdb->commits === 1 && $wpdb->rollbacks === 1,
+    'a pre-open START failure rolls back only its isolation-cleanup transaction'
+);
 
 // A driver can return false after the server has actually opened START. The
 // same-connection active-state proof is authoritative: replaying or rolling
@@ -666,23 +673,36 @@ assert_capture_atomicity($result === ['committed' => true], 'a successful COMMIT
 assert_capture_atomicity($callbackRuns === 1 && $wpdb->starts === 1, 'a successful COMMIT runs the callback exactly once');
 assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0, 'a successful COMMIT has no rollback');
 
-// A client-side error string after the same server connection positively
-// proves active->inactive cannot turn a durable commit into an ambiguous
-// retry. The exact server outcome wins over the stale client diagnostic.
+// Active->inactive does not distinguish an accepted COMMIT from a server-side
+// rollback/rejection when the client also reports an error. Capture must keep
+// the physical candidate for recovery inspection without replay or rollback.
 $wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
 $wpdb->commitCheckpointError = 'Deadlock found when trying to get lock';
 $callbackRuns = 0;
-$committedAfterClientError = $invokeConsistentSnapshot(static function () use (&$callbackRuns, &$wpdb): array {
-    $callbackRuns++;
-    $wpdb->kv['client_error_candidate'] = 'durable';
-    return ['committed' => true];
-});
-assert_capture_atomicity($committedAfterClientError === ['committed' => true],
-    'same-connection active-to-inactive proof accepts a committed result despite a stale client error');
+$uncertainClientErrorCommit = null;
+try {
+    $invokeConsistentSnapshot(static function () use (&$callbackRuns, &$wpdb): array {
+        $callbackRuns++;
+        $wpdb->kv['client_error_candidate'] = 'physically-ambiguous';
+        return ['must-not-return' => true];
+    });
+} catch (Throwable $failure) {
+    $uncertainClientErrorCommit = $failure;
+}
+assert_capture_atomicity(
+    $uncertainClientErrorCommit instanceof CommandRefusalException
+        && $uncertainClientErrorCommit->reasonCode === 'capture_commit_uncertain',
+    'truthy COMMIT plus a driver error becomes the typed capture recovery refusal'
+);
 assert_capture_atomicity($callbackRuns === 1 && $wpdb->starts === 1,
-    'an outcome-proven COMMIT never replays the callback');
+    'an ambiguous inactive COMMIT never replays the callback');
 assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0,
-    'an outcome-proven COMMIT never runs a compensating rollback');
+    'an ambiguous inactive COMMIT never runs a compensating rollback');
+assert_capture_atomicity(
+    ($wpdb->kv['client_error_candidate'] ?? null) === 'physically-ambiguous',
+    'capture preserves the physical postimage for exact recovery classification'
+);
+Db::forget_transaction_tracking();
 
 // A reconnect during COMMIT destroys that proof. Capture must translate the
 // exact Db outcome exception into its durable recovery refusal and never run
