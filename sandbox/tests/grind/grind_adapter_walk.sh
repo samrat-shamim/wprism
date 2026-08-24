@@ -1000,16 +1000,13 @@ scenario_s4() {
   fi
 
   say "$S — copy the shipped woocommerce manifest into adapters/ and add one authored option"
-  # `woocommerce_demo_store_notice` is a real WooCommerce setting (the store
-  # notice text, WooCommerce → Settings → General) that manifests/woocommerce.json
-  # neither declares in `options` nor covers with an `option_patterns` rule —
-  # checked against the shipped manifest below, so the override is a genuine
-  # widening rather than a restatement (run 23 asserted store_address_2 and
-  # found the shipped copy declares it). One added rule is enough: §3.3 is
-  # about which COPY answers to the name, and a copy that differed in nothing
-  # would make "the site copy won" unobservable.
+  # This synthetic option is deliberately inside Woo's discovery namespace
+  # but outside every shipped exact/pattern rule. A site copy must differ in
+  # observable policy bytes to prove which copy answers to the name; using a
+  # real merchant field here previously froze a production omission into the
+  # grind fixture instead of testing only override precedence.
   local override="$HOST_R1/adapters/woocommerce.json"
-  local newOption=woocommerce_demo_store_notice
+  local newOption=woocommerce_duo_site_override_probe
   run mkdir -p "$HOST_R1/adapters"
   if dry; then
     plan "jq: cp manifests/woocommerce.json -> adapters/woocommerce.json + options.$newOption = authored"
@@ -1025,7 +1022,7 @@ scenario_s4() {
     jq --arg o "$newOption" '
       .options[$o] = {class: "authored", autoload: "preserve"}
       | .notes = ((if (.notes | type) == "object" then .notes else {} end)
-          + {"round-3 T6 S4: site override": "This copy is the shipped manifest plus one authored option the shipped copy neither declares nor pattern-covers (\($o), the store notice text WooCommerce writes), so which copy answered to the name is observable rather than asserted."})
+          + {"round-3 T6 S4: site override": "This copy is the shipped manifest plus one synthetic authored option the shipped copy neither declares nor pattern-covers (\($o)), so which copy answered to the name is observable rather than asserted."})
     ' "$REPO_ROOT/manifests/woocommerce.json" > "$override" \
       || fail "$S: could not build the site override manifest"
   fi

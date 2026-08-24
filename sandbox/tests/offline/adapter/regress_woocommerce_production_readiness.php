@@ -1072,6 +1072,10 @@ $validSettings = [
         'state' => 'present',
         'value' => 'period=month&compare=previous_year',
     ],
+    'woocommerce_demo_store_notice' => [
+        'state' => 'present',
+        'value' => '<strong>افتتاح المتجر 東京</strong><br>الشحن مجاني',
+    ],
     'woocommerce_email_from_name' => ['state' => 'present', 'value' => 'متجر 東京'],
     'woocommerce_enable_order_comments' => ['state' => 'present', 'value' => 'yes'],
     'woocommerce_excluded_report_order_statuses' => [
@@ -1267,6 +1271,8 @@ $invalidSettings = [
         'enabled' => true,
     ]], 'HTML-sanitized bytes'],
     ['woocommerce_checkout_terms_and_conditions_checkbox_text', '<script>bad</script>', 'HTML-sanitized bytes'],
+    ['woocommerce_demo_store_notice', '<script>hidden()</script><strong>Sale</strong>', 'HTML-sanitized bytes'],
+    ['woocommerce_demo_store_notice', str_repeat('x', 262145), 'at most 262144 bytes'],
     ['woocommerce_thumbnail_cropping', 'square', 'exact native value set'],
     ['woocommerce_thumbnail_cropping', true, 'exact native value set'],
     ['woocommerce_single_image_width', 600, 'canonical native absint string'],

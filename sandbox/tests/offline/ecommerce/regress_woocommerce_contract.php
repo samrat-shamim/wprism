@@ -72,10 +72,10 @@ $termSurfaceInventory = json_decode(
 );
 woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inventory/v1',
     'the source-audited settings inventory uses the exact reviewed schema');
-woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 147,
-    'the exact 11.0.0/11.0.1 literal settings scan freezes all 147 source ids');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 79,
-    'the inventory binds all seventy-nine byte-identical settings, gateway, email, pickup, scheduler, stock-notification, launch, and image-regeneration sources');
+woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 148,
+    'the exact 11.0.0/11.0.1 visible-settings union freezes all 148 reviewed source ids');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 81,
+    'the inventory binds all eighty-one byte-identical settings, gateway, email, pickup, scheduler, stock-notification, launch, image-regeneration, and frontend-read sources');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''
@@ -96,6 +96,15 @@ woo_ok(
     ($settingsInventory['source_files']['src/Internal/CustomerEmailVerification/Emails/CustomerVerifyEmail.php'] ?? null)
         === 'bd48b0c99038d9e43affe9aee1f406117930ac4af79bf49e4cd9c69b758f171f',
     'the always-registered customer verification email source is byte-identical across both exact artifacts'
+);
+woo_ok(
+    ($settingsInventory['source_files']['includes/customizer/class-wc-shop-customizer.php'] ?? null)
+        === '6ad7b3e724e21bdc0723b2385a4a5aab13b4cf26527f7d9b56a30270309f4e53'
+        && ($settingsInventory['source_files']['includes/wc-template-functions.php'] ?? null)
+            === '33bab39b8616f42c6ac8f9c1901977f6ea440208817268dad1b7c2f035e82485'
+        && ($settingsInventory['source_files']['src/Admin/API/Options.php'] ?? null)
+            === '475588425f5657d7d951ffcd33b64521bdae5d0e6fd3cad0d37e0d73b7a14dcb',
+    'the store-notice Customizer writer, legacy settings endpoint, and site-wide frontend reader are exact across both artifacts'
 );
 $schedulerSources = [
     'includes/queue/class-wc-action-queue.php' => 'bb0a9a15659fa8cf8ddf7281a214dd12d7ef6c4b8c266711c1bcc24f46e14f10',
@@ -455,6 +464,17 @@ foreach (['wc_blocks_db_schema_version', 'wc_customer_stock_notifications_produc
 foreach (['wc_brands_show_description', 'woocommerce_brand_permalink', 'woocommerce_catalog_columns', 'woocommerce_catalog_rows', 'woocommerce_enable_delayed_account_creation', 'woocommerce_feature_wc_visual_attribute_enabled', 'woocommerce_hooked_blocks_version'] as $name) {
     woo_ok(($policy->owned_option_rule($name)['class'] ?? '') === 'authored', "$name stays portable merchant-authored state");
 }
+woo_ok(
+    ($policy->option_rule('woocommerce_demo_store_notice')['class'] ?? null) === 'authored'
+        && ($settingsInventory['closed_records']['store_notice'] ?? null) === [
+            'option' => 'woocommerce_demo_store_notice',
+            'writer' => 'WC_Shop_Customizer::add_store_notice_section/wp_kses_post',
+            'readers' => ['woocommerce_demo_store', 'wc-admin/options'],
+            'max_bytes' => 262144,
+            'boundary' => 'authored_bounded_native_html',
+        ],
+    'the normal Customizer store notice is portable bounded native HTML rather than an override-only gap'
+);
 foreach (['woocommerce_catalog_columns', 'woocommerce_catalog_rows'] as $name) {
     woo_ok(($policy->owned_option_rule($name)['lint_ok'] ?? false) === true, "$name is audited as a numeric grid count, not an entity reference");
 }

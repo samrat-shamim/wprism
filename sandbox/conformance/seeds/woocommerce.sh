@@ -148,6 +148,11 @@ wp_conf1 post term add "$PID" product_brand atelier-tokyo --by=slug
 # deliberately names conf1 so the target assertion can prove recursive
 # `{{home}}` rebinding rather than byte-identical source-host leakage.
 wp_conf1 option update woocommerce_price_num_decimals 6 >/dev/null
+# The store notice is ordinary Customizer-authored HTML, not launch/runtime
+# state. Persist bytes that already equal the exact wp_kses_post writer and
+# verify them later through Woo's site-wide native frontend renderer.
+wp_conf1 option update woocommerce_demo_store yes >/dev/null
+wp_conf1 eval "update_option('woocommerce_demo_store_notice', wp_kses_post('<strong>افتتاح المتجر 東京</strong><br>الشحن مجاني'));" >/dev/null
 # Exact Woo 11.0.x Customizer-native thumbnail state. The background queue is
 # deliberately not invoked here: checks/woocommerce.sh proves the always-on
 # request path is sufficient when the target starts with stale 300px metadata.

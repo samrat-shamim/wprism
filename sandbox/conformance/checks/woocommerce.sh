@@ -170,6 +170,9 @@ $shipping = get_term_by('slug', 'oversize-portable', 'product_shipping_class');
 $thumbnailId = $category ? (int) get_term_meta($category->term_id, 'thumbnail_id', true) : 0;
 $sourceOrders = wc_get_orders(['billing_email' => 'source-runtime@example.test', 'limit' => -1, 'return' => 'ids']);
 $targetOrders = wc_get_orders(['billing_email' => 'target-runtime@example.test', 'limit' => -1, 'return' => 'ids']);
+ob_start();
+woocommerce_demo_store();
+$storeNoticeHtml = (string) ob_get_clean();
 
 echo wp_json_encode([
     'attributes' => $attributeRows,
@@ -273,6 +276,9 @@ echo wp_json_encode([
         'neighbor' => get_option('duo_target_environment_neighbor', null),
         'paypal' => get_option('woocommerce_paypal_settings', null),
         'precision' => (string) get_option('woocommerce_price_num_decimals', ''),
+        'store_notice' => (string) get_option('woocommerce_demo_store_notice', ''),
+        'store_notice_enabled' => (string) get_option('woocommerce_demo_store', ''),
+        'store_notice_html' => $storeNoticeHtml,
         'thumbnail' => [
             'cropping' => (string) get_option('woocommerce_thumbnail_cropping', ''),
             'custom_height' => (string) get_option('woocommerce_thumbnail_cropping_custom_height', ''),
@@ -792,6 +798,10 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   .version == $version and
   .options.brand_description == "yes" and .options.brand_permalink == "maker-houses" and
   .options.visual_attribute == "yes" and
+  .options.store_notice_enabled == "yes" and
+  .options.store_notice == "<strong>افتتاح المتجر 東京</strong><br>الشحن مجاني" and
+  (.options.store_notice_html | contains("<strong>افتتاح المتجر 東京</strong><br>الشحن مجاني")) and
+  (.options.store_notice_html | contains("woocommerce-store-notice demo_store")) and
   .simple.title == "Conformance Widget" and
   .precision.title == "Conformance Precision Download 東京 🚀" and
   .precision.regular == "123456789.123456" and .precision.sale == "123456788.654321" and
@@ -1071,6 +1081,7 @@ woocommerce_storage_hash() {
     $state["options"]=$wpdb->get_results(
       "SELECT option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (" .
       "\"pickup_location_pickup_locations\",\"woocommerce_calc_taxes\"," .
+      "\"woocommerce_demo_store\",\"woocommerce_demo_store_notice\"," .
       "\"woocommerce_paypal_settings\",\"woocommerce_pickup_location_settings\"," .
       "\"woocommerce_price_num_decimals\",\"woocommerce_thumbnail_cropping\"," .
       "\"woocommerce_thumbnail_cropping_custom_height\",\"woocommerce_thumbnail_cropping_custom_width\"," .

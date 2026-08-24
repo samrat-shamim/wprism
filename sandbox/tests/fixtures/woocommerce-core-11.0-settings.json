@@ -49,6 +49,7 @@
     "includes/queue/class-wc-action-queue.php": "bb0a9a15659fa8cf8ddf7281a214dd12d7ef6c4b8c266711c1bcc24f46e14f10",
     "includes/wc-core-functions.php": "17bf218326de339c872eba8c9f855b73bb1c7874053c36774c35ef222927e684",
     "includes/wc-formatting-functions.php": "c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41",
+    "includes/wc-template-functions.php": "33bab39b8616f42c6ac8f9c1901977f6ea440208817268dad1b7c2f035e82485",
     "packages/action-scheduler/classes/ActionScheduler_ActionFactory.php": "9316e8fc027e7eca88eb53918288d6b6dafbfc50a59db7c31aa2c4ea16dcf776",
     "packages/action-scheduler/classes/ActionScheduler_QueueRunner.php": "0b5bdaf8a7fdb406edc1ac1eb93855dd483478e64278be9302cbfe5284f4e5e1",
     "packages/action-scheduler/classes/abstracts/ActionScheduler.php": "a0166451fa0bd3decad60bd746530d118aff72310d921728a781ac2432da4737",
@@ -58,6 +59,7 @@
     "packages/action-scheduler/classes/schema/ActionScheduler_LoggerSchema.php": "12311d4a842b3ecb7602fcae7ea957d03b83a1f9f1f8a1746bc7dab453f26890",
     "packages/action-scheduler/classes/schema/ActionScheduler_StoreSchema.php": "c917c87ed0680f2a7881c56e7a60f8bd087dcd04497a597f388150735faf0c05",
     "src/Admin/API/LaunchYourStore.php": "68915a78a51a44b6ce707c0fce0fadaef8ad773ec512a6fa483a1ddac28bd4ce",
+    "src/Admin/API/Options.php": "475588425f5657d7d951ffcd33b64521bdae5d0e6fd3cad0d37e0d73b7a14dcb",
     "src/Admin/Features/LaunchYourStore.php": "941dbddf38a638df0fa6162bd440f87daa3a5f3855ba713b3478464db3ba96bd",
     "src/Admin/Features/Features.php": "095b85cd1c689dd7e712ce4b011eaf168d01e5b18fa21cf4e3bc1fba3d439fcc",
     "src/Admin/Schedulers/SchedulerTraits.php": "fa94da88dc1d4c367dddcf68435f3a6abad92ab27514b2f4ad04395a6e1d1a94",
@@ -130,6 +132,7 @@
     "woocommerce_default_customer_address": "authored",
     "woocommerce_default_date_range": "authored",
     "woocommerce_delete_inactive_accounts": "authored",
+    "woocommerce_demo_store_notice": "authored",
     "woocommerce_dimension_unit": "authored",
     "woocommerce_downloads_add_hash_to_filename": "authored",
     "woocommerce_downloads_count_partial": "authored",
@@ -393,6 +396,13 @@
       "target_owned_siblings": "preserve_exactly",
       "absent_authored_siblings": "delete",
       "unknown_siblings": "fail_closed_redacted"
+    },
+    "store_notice": {
+      "option": "woocommerce_demo_store_notice",
+      "writer": "WC_Shop_Customizer::add_store_notice_section/wp_kses_post",
+      "readers": ["woocommerce_demo_store", "wc-admin/options"],
+      "max_bytes": 262144,
+      "boundary": "authored_bounded_native_html"
     },
     "target_environment_side_effect_options": {
       "coming_soon": {

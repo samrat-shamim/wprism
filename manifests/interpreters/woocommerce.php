@@ -112,6 +112,11 @@ final class Woocommerce {
         'woocommerce_pos_store_name' => 4096,
     ];
 
+    private const NATIVE_HTML_OPTIONS = [
+        'woocommerce_checkout_terms_and_conditions_checkbox_text' => 16384,
+        'woocommerce_demo_store_notice' => 262144,
+    ];
+
     private const POSITIVE_INTEGER_OPTIONS = [
         'woocommerce_graphql_max_query_complexity',
         'woocommerce_graphql_max_query_depth',
@@ -1478,13 +1483,13 @@ final class Woocommerce {
                 $out = array_merge($out, $this->pickup_locations_diagnostics($path, $locator, $value));
                 continue;
             }
-            if ($name === 'woocommerce_checkout_terms_and_conditions_checkbox_text') {
+            if (array_key_exists($name, self::NATIVE_HTML_OPTIONS)) {
                 $out = array_merge($out, $this->native_html_diagnostics(
                     $path,
                     $locator,
                     $value,
-                    16384,
-                    'WooCommerce checkout terms checkbox text'
+                    self::NATIVE_HTML_OPTIONS[$name],
+                    "WooCommerce option $name"
                 ));
             }
         }
