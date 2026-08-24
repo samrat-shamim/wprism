@@ -123,6 +123,30 @@ const REHEARSAL_PREFIX_REFUSAL =
  * exercised nor listed (drive it, or write down why it cannot be driven).
  */
 const REHEARSAL_GAPS = [
+    // WP-1.5's `duo adapter doctor --migration`. These four gates CONSUME this
+    // estate rather than living inside it: the preflight predicts what a bump
+    // will move for one site, and the suite that drives it —
+    // sandbox/tests/offline/cli/regress_migration_preflight.php — builds THIS
+    // estate with THIS driver, observes it at both states, and then asserts
+    // that the preflight's predicted invalidation set equals the movement set
+    // measured here, per site. Driving them from inside the estate as well
+    // would be the same command exercised twice under two names, and would put
+    // the cross-check's own subject inside the fixture it is checked against.
+    'cli/src/Adapter/MigrationPreflight.php::certificates' =>
+        'the preflight\'s certificate half, which classifies the refusal AdapterCertification::verifyCertificate '
+        . 'raises (an anchor gate this estate DOES exercise) into predicted invalidation rows. Exercised by '
+        . 'sandbox/tests/offline/cli/regress_migration_preflight.php, which drives it against this estate.',
+    'cli/src/Adapter/MigrationPreflight.php::identity' =>
+        'the held-versus-target comparison of the four identity values. Its inputs are this estate\'s own '
+        . 'holdings; exercised by sandbox/tests/offline/cli/regress_migration_preflight.php.',
+    'cli/src/Adapter/MigrationPreflight.php::report' =>
+        'where the preflight resolves its own status (refused/unclassified/moves/ok). Exercised by '
+        . 'sandbox/tests/offline/cli/regress_migration_preflight.php, including the two refuse-to-classify '
+        . 'fixtures that prove `ok` is unreachable while a shape is unclassified.',
+    'cli/src/Adapter/MigrationPreflight.php::snapshot' =>
+        'the preflight\'s frozen half. This estate drives the frozen path through Policy::from_snapshot() '
+        . 'directly (the promoted-frozen site above); the preflight\'s reading of it is exercised by '
+        . 'sandbox/tests/offline/cli/regress_migration_preflight.php.',
     'agent/src/Policy/Policy.php::assert_supported_platform' =>
         'runs PlatformCompatibility::assert_supported() only against a REAL loaded target (ABSPATH + WPINC + '
         . 'get_bloginfo all defined), so an offline estate cannot reach it by construction — that guard is the '

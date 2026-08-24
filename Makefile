@@ -9,7 +9,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform regress-core-scope-database
 .PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run
-.PHONY: regress-cli-json-refusals regress-fleet-census regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
+.PHONY: regress-cli-json-refusals regress-fleet-census regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-migration-preflight regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
 .PHONY: regress-init-command regress-init-contract regress-duo-init regress-bound-helper
@@ -1449,6 +1449,18 @@ regress-environment-list-command:
 
 regress-doctor-command:
 	php sandbox/tests/offline/cli/regress_doctor_command.php
+
+# WP-1.5: `duo adapter doctor --migration`, the blast-radius preflight. Its
+# acceptance is a CROSS-CHECK, not an expectation table: it drives the verb
+# against WP-1.4's own nine-site estate at the post-bump state and asserts, per
+# site, that the invalidation set it PREDICTED equals the set that rehearsal
+# OBSERVED between its two passes. Includes the two movements a digest-neutral
+# bump still causes -- artifact_hash fleet-wide, and manifest/revision identity
+# on every certificate-holding site -- plus fixtures for a certificate and a pin
+# shape the verb refuses to classify. Builds and observes the estate once
+# (~5s) and then runs the preflight per site.
+regress-migration-preflight:
+	php sandbox/tests/offline/cli/regress_migration_preflight.php
 
 regress-adopt-command:
 	php sandbox/tests/offline/cli/regress_adopt_command.php
