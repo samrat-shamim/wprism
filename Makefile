@@ -1578,6 +1578,15 @@ regress-reference-scope-classifier:
 regress-capture-safety-gates:
 	php sandbox/tests/offline/capture/regress_capture_safety_gates.php
 
+# WP-3.1: a capture-time lint finding is ADVISORY for a shipped adapter's state
+# and BLOCKING for an uncertified out-of-tree adapter's. Every case is a PAIR
+# over the same state bytes and the same findings, so the shipped half pins the
+# unchanged warning (rule 8) while the out-of-tree half pins the refusal, its
+# named locators and the adapter record's own reason. Covers the WITHDRAWN
+# certification (WP-1.1) and asserts a PROPOSED lint_ok (WP-2.4) still refuses.
+regress-lint-trust-tier-gate:
+	php sandbox/tests/offline/capture/regress_lint_trust_tier_gate.php
+
 regress-capture-gate-scanner:
 	php sandbox/tests/offline/capture/regress_capture_gate_scanner.php
 

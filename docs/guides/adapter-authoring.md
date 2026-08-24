@@ -901,6 +901,19 @@ are plan-time signals, not proof of corruption; each carries its own caveat
 note, because small ids legitimately coincide with counts, versions, and
 ordering indexes.
 
+**A finding on state your out-of-tree adapter declared blocks capture.** For a
+shipped or certified adapter every finding stays the advisory warning it always
+was; for an adapter installed out-of-tree that nothing has certified — including
+one whose certification was withdrawn, and one whose valid signature the
+repository has not yet pinned — `duo capture` refuses with
+`uncertified_adapter_lint_findings` and names each locator and the adapter that
+declared it. Two ways forward, and no third: declare the reference so capture
+tokenizes it, or write the reviewed `lint_ok: true` on that declaration. A
+`proposed_lint_ok` finding (the type-derived proposal `wp duo lint
+--evidence=<probe.json>` emits) does **not** clear the gate on its own — it is
+the evidence for the review, and `lint_ok` is the review. Certifying the adapter
+returns its findings to advisory.
+
 An experimental adapter that deliberately excludes `apply` uses the narrower
 `mode: "capture-plan"` conformance profile instead. It still boots a fresh
 exact-artifact pair, authors state through the plugin's own APIs, runs capture,

@@ -1074,7 +1074,8 @@
           "Orphans",
           "RefreshExport",
           "LintEnvironment",
-          "LintFinding"
+          "LintFinding",
+          "LintTrustGate"
         ],
         "depends_on": [
           "Code",
@@ -1115,7 +1116,7 @@
             ]
           }
         ],
-        "file_count": 19,
+        "file_count": 20,
         "files": [
           "BlockReferenceScanner.php",
           "Canary.php",
@@ -1126,6 +1127,7 @@
           "Lint.php",
           "LintEnvironment.php",
           "LintFinding.php",
+          "LintTrustGate.php",
           "MenuReferenceScanner.php",
           "Orphans.php",
           "Pending.php",
