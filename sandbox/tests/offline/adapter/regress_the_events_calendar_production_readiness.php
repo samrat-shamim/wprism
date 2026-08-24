@@ -7902,6 +7902,68 @@ foreach ([
         "the exact live matrix binds Category Colors boundary evidence $categoryColorsBoundaryEvidence"
     );
 }
+foreach ([
+    'tec_category_scope "$TEC_COLOR_PRECOMMIT_SCOPE" "$TEC_COLOR_UUID"',
+    '--scope-contract=/siterepo/.tmp-tec-category-colors-precommit.scope.json',
+    'duo_tec_fail_scoped_receipt',
+    '.phase == "authoring" and .recovery_from == null',
+    '.intent_count == 1 and .receipt_count == 0',
+    '.author_action == "duo-scoped-authored-transaction/v2"',
+    'tec_category_scope "$TEC_COLOR_SCOPE" "$TEC_COLOR_UUID"',
+    '--scope-contract=/siterepo/.tmp-tec-category-colors-provider.scope.json',
+    '$session=\\Duo\\ScopedApplySession::open(new \\Duo\\LedgerScopedApplySessionStorage())',
+    '$current=\\Duo\\ScopedApplyCoordinator::authored_ledger_map_hash($roots)',
+    'UPDATE wp_terms SET term_id=${COLOR_ABA_NEW_ID}',
+    'UPDATE wp_term_taxonomy SET term_id=${COLOR_ABA_NEW_ID}',
+    'UPDATE wp_termmeta SET term_id=${COLOR_ABA_NEW_ID}',
+    'UPDATE wp_duo_map SET local_id=${COLOR_ABA_NEW_ID}',
+    '.author_receipt_after != .current_author_after',
+    'scoped apply recovery author receipt does not match selected state and identity map',
+    'TEC selected-map ABA refusal replayed the Category Colors CSS effect',
+    'ALTER TABLE wp_terms AUTO_INCREMENT=${COLOR_ABA_AUTOINCREMENT}',
+    '.author_matches == true',
+] as $scopedCategoryRecoveryEvidence) {
+    duo_check(
+        str_contains($deletionCheck, $scopedCategoryRecoveryEvidence),
+        "the exact live matrix binds scoped Category Colors recovery evidence $scopedCategoryRecoveryEvidence"
+    );
+}
+$atomicColorBeforeAt = strpos($deletionCheck, 'COLOR_ATOMIC_BEFORE=$(tec_scoped_color_storage_hash');
+$atomicColorConstraintAt = strpos($deletionCheck, 'ADD CONSTRAINT duo_tec_fail_scoped_receipt');
+$atomicColorApplyAt = strpos($deletionCheck, 'COLOR_ATOMIC_OUT=$(wp_conf2 duo apply');
+$atomicColorRollbackAt = strpos($deletionCheck, 'did not roll target, map, state, and CSS bytes back');
+$atomicColorSessionAt = strpos($deletionCheck, 'COLOR_ATOMIC_SESSION=$(tec_scoped_session_evidence)');
+$atomicColorRetryAt = strpos($deletionCheck, 'COLOR_ATOMIC_RETRY=$(wp_conf2 duo apply');
+duo_check(
+    $atomicColorBeforeAt !== false
+        && $atomicColorBeforeAt < $atomicColorConstraintAt
+        && $atomicColorConstraintAt < $atomicColorApplyAt
+        && $atomicColorApplyAt < $atomicColorRollbackAt
+        && $atomicColorRollbackAt < $atomicColorSessionAt
+        && $atomicColorSessionAt < $atomicColorRetryAt,
+    'the exact TEC product fault orders preimage, atomic CAS failure, rollback proof, session proof, then retry'
+);
+$colorProviderFailureAt = strpos($deletionCheck, 'COLOR_FAULT_OUT=$(wp_conf2 duo apply');
+$colorProviderSessionAt = strpos($deletionCheck, 'COLOR_FAULT_SESSION=$(tec_scoped_session_evidence)');
+$colorAbaWriteAt = strpos($deletionCheck, 'UPDATE wp_terms SET term_id=${COLOR_ABA_NEW_ID}');
+$colorAbaWitnessAt = strpos($deletionCheck, 'COLOR_ABA_SESSION_DRIFT=$(tec_scoped_session_evidence)');
+$colorAbaRefusalAt = strpos($deletionCheck, 'COLOR_ABA_OUT=$(wp_conf2 duo apply');
+$colorAbaNoEffectAt = strpos($deletionCheck, 'TEC selected-map ABA refusal replayed the Category Colors CSS effect');
+$colorAbaInverseAt = strpos($deletionCheck, 'UPDATE wp_duo_map SET local_id=${COLOR_ABA_OLD_ID}');
+$colorAbaRestoredAt = strpos($deletionCheck, 'COLOR_ABA_SESSION_RESTORED=$(tec_scoped_session_evidence)');
+$colorProviderRetryAt = strpos($deletionCheck, 'COLOR_RETRY=$(wp_conf2 duo apply');
+duo_check(
+    $colorProviderFailureAt !== false
+        && $colorProviderFailureAt < $colorProviderSessionAt
+        && $colorProviderSessionAt < $colorAbaWriteAt
+        && $colorAbaWriteAt < $colorAbaWitnessAt
+        && $colorAbaWitnessAt < $colorAbaRefusalAt
+        && $colorAbaRefusalAt < $colorAbaNoEffectAt
+        && $colorAbaNoEffectAt < $colorAbaInverseAt
+        && $colorAbaInverseAt < $colorAbaRestoredAt
+        && $colorAbaRestoredAt < $colorProviderRetryAt,
+    'the exact TEC product fault orders post-author failure, selected-map ABA, pre-effect refusal, inverse, then recovery'
+);
 duo_check(
     strpos($deletionCheck, 'duo-equal-priority-alpha')
         < strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]'),

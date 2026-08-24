@@ -1587,25 +1587,162 @@ if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]; then
 fi
 
 # Category metadata commits before required actions (the same recovery boundary
-# core rewrite, Elementor, and Yoast conformance exercise). Reject the provider
-# option write after that commit, then prove the revision stays unapplied and a
-# retry consumes the retained intent while repairing CSS + plugin cache.
-wp_conf1 eval '
-  $term=get_term_by("slug","duo-readiness-category","tribe_events_cat");
-  if(!$term instanceof WP_Term) throw new RuntimeException("TEC source category disappeared");
-  tribe(\TEC\Events\Category_Colors\Event_Category_Meta::class)
-    ->set_term((int)$term->term_id)
-    ->set("tec-events-cat-colors-primary","#654321")
-    ->save();
-  tribe(\TEC\Events\Category_Colors\CSS\Controller::class)->generate_css();
-  $css=get_option("tec_events_category_color_css","");
-  if(!is_string($css)||!str_contains($css,"#654321")) throw new RuntimeException("TEC source CSS update failed");
+# core rewrite, Elementor, and Yoast conformance exercise). Drive that boundary
+# through a real term-scoped authority so ordinal-one's transaction-atomic map
+# receipt is exercised by both a failure before COMMIT and a provider failure
+# after COMMIT. The physical term-id re-key below is a portable-state-preserving
+# ABA: every term/taxonomy/meta/relationship byte keeps its meaning while the
+# selected duo_map generation alone changes.
+tec_category_uuid() {
+  wp_conf1 eval '
+    $term=get_term_by("slug","duo-readiness-category","tribe_events_cat");
+    if(!$term instanceof WP_Term) throw new RuntimeException("TEC source category disappeared");
+    $uuid=\Duo\Ledger::uuid_for((int)$term->term_id,\Duo\Ledger::KIND_TERM);
+    if(!is_string($uuid)) throw new RuntimeException("TEC source category has no term UUID");
+    echo $uuid;
+  ' | tr -d '[:space:]'
+}
+
+tec_category_scope() { # <target-host-path> <category-uuid>
+  local output=$1 uuid=$2
+  [[ "$uuid" =~ ^[a-f0-9-]{36}$ ]] || fail "TEC Category Colors scope received a malformed category UUID"
+  wp_conf1 duo scope --repo=/siterepo --roots="term:${uuid}" --contract --format=json >"$output"
+  jq -e --arg uuid "$uuid" '
+    .format == "duo-scope-contract/v1" and .selectors == ["term:" + $uuid] and
+    any(.potential_actions[];
+      .manifest == "the-events-calendar" and
+      .declaration.kind == "provider" and
+      .declaration.provider == "the-events-calendar-category-colors" and
+      .declaration.capability == "regenerate_css") and
+    any(.potential_providers[]; .id == "the-events-calendar-category-colors")
+  ' "$output" >/dev/null || fail "TEC Category Colors scope did not bind its exact provider action"
+}
+
+tec_scoped_session_evidence() {
+  wp_conf2 eval '
+    $session=\Duo\ScopedApplySession::open(new \Duo\LedgerScopedApplySessionStorage());
+    if(!$session instanceof \Duo\ScopedApplySession) throw new RuntimeException("TEC scoped session is absent");
+    $canonical=$session->canonical();
+    $record=$session->to_array();
+    $receipt=$record["receipts"][0]??null;
+    $roots=\Duo\ScopedApply::ledger_map_roots(
+      (array)($record["authority"]["selection"]["ledger_map_identity_hashes"]??[])
+    );
+    $current=\Duo\ScopedApplyCoordinator::authored_ledger_map_hash($roots);
+    $receiptAfter=is_array($receipt)?($receipt["after_hash"]??null):null;
+    echo wp_json_encode([
+      "canonical_sha256"=>hash("sha256",$canonical),
+      "phase"=>$session->phase(),
+      "recovery_from"=>$session->recorded_recovery_phase(),
+      "intent_count"=>count($record["intents"]??[]),
+      "receipt_count"=>count($record["receipts"]??[]),
+      "author_action"=>$record["intents"][0]["action"]??null,
+      "author_receipt_after"=>$receiptAfter,
+      "current_author_after"=>$current,
+      "author_matches"=>is_string($receiptAfter)&&hash_equals($receiptAfter,$current),
+    ],JSON_UNESCAPED_SLASHES)."\n";
+  ' | awk 'NF { line=$0 } END { print line }'
+}
+
+tec_scoped_color_storage_hash() { # <category-uuid>; excludes the scoped session itself
+  local uuid=$1
+  [[ "$uuid" =~ ^[a-f0-9-]{36}$ ]] || fail "TEC Category Colors storage hash received a malformed UUID"
+  wp_conf2 eval "
+    global \$wpdb;
+    \$uuid='$uuid';
+    \$term=get_term_by('slug','duo-readiness-category','tribe_events_cat');
+    if(!\$term instanceof WP_Term) throw new RuntimeException('TEC target category disappeared');
+    \$id=(int)\$term->term_id;
+    \$queries=[
+      'term'=>\$wpdb->prepare(\"SELECT * FROM {\$wpdb->terms} WHERE term_id=%d\",\$id),
+      'tt'=>\$wpdb->prepare(\"SELECT * FROM {\$wpdb->term_taxonomy} WHERE term_id=%d ORDER BY term_taxonomy_id\",\$id),
+      'meta'=>\$wpdb->prepare(\"SELECT * FROM {\$wpdb->termmeta} WHERE term_id=%d ORDER BY meta_id\",\$id),
+      'rel'=>\$wpdb->prepare(\"SELECT tr.* FROM {\$wpdb->term_relationships} tr INNER JOIN {\$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tt.term_id=%d ORDER BY tr.object_id,tr.term_taxonomy_id\",\$id),
+      'map'=>\$wpdb->prepare(\"SELECT * FROM {\$wpdb->prefix}duo_map WHERE uuid=%s ORDER BY id_kind,local_id\",\$uuid),
+      'state'=>\$wpdb->prepare(\"SELECT * FROM {\$wpdb->prefix}duo_state WHERE uuid=%s\",\$uuid),
+      'css'=>\$wpdb->prepare(\"SELECT option_id,option_name,option_value,autoload FROM {\$wpdb->options} WHERE option_name=%s\",'tec_events_category_color_css'),
+      'revision'=>\"SELECT k,v FROM {\$wpdb->prefix}duo_kv WHERE k IN ('applied_revision','apply_in_progress') ORDER BY k\",
+    ];
+    \$rows=[];
+    foreach(\$queries as \$name=>\$sql){
+      \$wpdb->last_error='';
+      \$result=\$wpdb->get_results(\$sql,ARRAY_A);
+      if(!is_array(\$result)||\$wpdb->last_error!=='') throw new RuntimeException('TEC scoped storage witness read failed');
+      \$rows[\$name]=\$result;
+    }
+    echo hash('sha256',serialize(\$rows));
+  " | tr -d '[:space:]'
+}
+
+tec_set_source_category_primary() { # <#rrggbb>
+  local color=$1
+  [[ "$color" =~ ^#[0-9a-f]{6}$ ]] || fail "TEC source Category Colors fixture received an invalid color"
+  wp_conf1 eval "
+    \$term=get_term_by('slug','duo-readiness-category','tribe_events_cat');
+    if(!\$term instanceof WP_Term) throw new RuntimeException('TEC source category disappeared');
+    tribe(\\TEC\\Events\\Category_Colors\\Event_Category_Meta::class)
+      ->set_term((int)\$term->term_id)
+      ->set('tec-events-cat-colors-primary','$color')
+      ->save();
+    tribe(\\TEC\\Events\\Category_Colors\\CSS\\Controller::class)->generate_css();
+    \$css=get_option('tec_events_category_color_css','');
+    if(!is_string(\$css)||!str_contains(\$css,'$color')) throw new RuntimeException('TEC source CSS update failed');
+  " >/dev/null
+}
+
+TEC_COLOR_UUID=$(tec_category_uuid)
+TEC_COLOR_PRECOMMIT_SCOPE="${CONF_REPO2:-siterepo/conf2}/.tmp-tec-category-colors-precommit.scope.json"
+tec_set_source_category_primary '#456789'
+commit_tec_source 'conformance: scoped TEC Category Colors atomic author intent'
+tec_category_scope "$TEC_COLOR_PRECOMMIT_SCOPE" "$TEC_COLOR_UUID"
+COLOR_ATOMIC_BEFORE=$(tec_scoped_color_storage_hash "$TEC_COLOR_UUID")
+wp_conf2 db query 'ALTER TABLE wp_duo_kv DROP CONSTRAINT IF EXISTS duo_tec_fail_scoped_receipt' >/dev/null
+wp_conf2 db query '
+  ALTER TABLE wp_duo_kv ADD CONSTRAINT duo_tec_fail_scoped_receipt
+  CHECK (k <> "scoped_apply_session" OR v NOT LIKE "%\"phase\":\"authored_committed\"%")
 ' >/dev/null
-commit_tec_source 'conformance: native TEC Category Colors intent'
+COLOR_ATOMIC_RC=0
+COLOR_ATOMIC_OUT=$(wp_conf2 duo apply --repo=/siterepo \
+  --scope-contract=/siterepo/.tmp-tec-category-colors-precommit.scope.json \
+  --default-author=admin 2>&1) || COLOR_ATOMIC_RC=$?
+require_duo_answered "TEC injected atomic scoped author-receipt failure" human "$COLOR_ATOMIC_OUT"
+[ "$COLOR_ATOMIC_RC" -ne 0 ] && grep -Fq 'duo_tec_fail_scoped_receipt' <<<"$COLOR_ATOMIC_OUT" \
+  || fail "TEC atomic scoped author-receipt constraint did not fail at the product boundary: $COLOR_ATOMIC_OUT"
+[ "$(tec_scoped_color_storage_hash "$TEC_COLOR_UUID")" = "$COLOR_ATOMIC_BEFORE" ] \
+  || fail "TEC atomic author-receipt failure did not roll target, map, state, and CSS bytes back"
+COLOR_ATOMIC_SESSION=$(tec_scoped_session_evidence)
+printf '%s\n' "$COLOR_ATOMIC_SESSION" | jq -e '
+  .phase == "authoring" and .recovery_from == null and
+  .intent_count == 1 and .receipt_count == 0 and
+  .author_action == "duo-scoped-authored-transaction/v2" and
+  .author_receipt_after == null and .author_matches == false
+' >/dev/null || fail "TEC failed atomic author receipt did not retain only retryable authoring intent: $COLOR_ATOMIC_SESSION"
+wp_conf2 db query 'ALTER TABLE wp_duo_kv DROP CONSTRAINT duo_tec_fail_scoped_receipt' >/dev/null
+COLOR_ATOMIC_RETRY=$(wp_conf2 duo apply --repo=/siterepo \
+  --scope-contract=/siterepo/.tmp-tec-category-colors-precommit.scope.json \
+  --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "TEC atomic scoped author-receipt retry" json "$COLOR_ATOMIC_RETRY"
+jq -e '
+  .format == "duo-scoped-apply-result/v1" and .canary == "clean" and
+  .verification.result == "pass" and .scoped_receipt.phase == "complete"
+' <<<"$COLOR_ATOMIC_RETRY" >/dev/null \
+  || fail "TEC atomic scoped author-receipt retry did not converge: $COLOR_ATOMIC_RETRY"
+COLOR_ATOMIC_RECOVERED=$(observe_tec conf2)
+printf '%s\n' "$COLOR_ATOMIC_RECOVERED" | jq -e '
+  .category.meta.primary == "#456789" and .category.dropdown.primary == "#456789" and
+  (.category_css | contains("--tec-color-category-primary:#456789"))
+' >/dev/null || fail "TEC atomic scoped author-receipt retry did not repair Category Colors"
+rm -f "$TEC_COLOR_PRECOMMIT_SCOPE"
+pass "atomic scoped author receipt failure rolls target/map/session publication back and retries exactly"
+
+tec_set_source_category_primary '#654321'
+commit_tec_source 'conformance: scoped native TEC Category Colors provider intent'
+TEC_COLOR_SCOPE="${CONF_REPO2:-siterepo/conf2}/.tmp-tec-category-colors-provider.scope.json"
+tec_category_scope "$TEC_COLOR_SCOPE" "$TEC_COLOR_UUID"
 COLOR_FAULT_BEFORE=$(observe_tec conf2)
 printf '%s\n' "$COLOR_FAULT_BEFORE" | jq -e '
-  .category.meta.primary == "#123abc" and .category.dropdown.primary == "#123abc" and
-  (.category_css | contains("--tec-color-category-primary:#123abc"))
+  .category.meta.primary == "#456789" and .category.dropdown.primary == "#456789" and
+  (.category_css | contains("--tec-color-category-primary:#456789"))
 ' >/dev/null || fail "TEC Category Colors failure premise is not at the prior projection: $COLOR_FAULT_BEFORE"
 COLOR_FAULT_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
 require_observed_nonempty "TEC applied revision before Category Colors fault" "$COLOR_FAULT_REV_BEFORE"
@@ -1615,7 +1752,9 @@ wp_conf2 db query '
   CHECK (option_name <> "tec_events_category_color_css" OR option_value NOT LIKE "%#654321%")
 ' >/dev/null
 COLOR_FAULT_RC=0
-COLOR_FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || COLOR_FAULT_RC=$?
+COLOR_FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo \
+  --scope-contract=/siterepo/.tmp-tec-category-colors-provider.scope.json \
+  --default-author=admin 2>&1) || COLOR_FAULT_RC=$?
 require_duo_answered "TEC injected Category Colors provider failure" human "$COLOR_FAULT_OUT"
 [ "$COLOR_FAULT_RC" -ne 0 ] \
   && grep -Fq "required manifest action 'provider:the-events-calendar-category-colors/regenerate_css' failed" <<<"$COLOR_FAULT_OUT" \
@@ -1629,22 +1768,93 @@ COLOR_FAULT_EXPECTED=$(printf '%s\n' "$COLOR_FAULT_BEFORE" | jq -Sc '
   || fail "TEC failed Category Colors provider action crossed its post-commit intent/CSS boundary: $COLOR_FAULT_AFTER"
 [ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$COLOR_FAULT_REV_BEFORE" ] \
   || fail "TEC failed Category Colors provider action advanced applied_revision"
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
-  || fail "TEC failed Category Colors provider action did not retain retry authority"
+COLOR_FAULT_SESSION=$(tec_scoped_session_evidence)
+printf '%s\n' "$COLOR_FAULT_SESSION" | jq -e '
+  .phase == "recovery_required" and .recovery_from == "effects_pending" and
+  .intent_count >= 3 and .receipt_count >= 2 and
+  .author_action == "duo-scoped-authored-transaction/v2" and .author_matches == true
+' >/dev/null || fail "TEC failed Category Colors provider action did not retain exact scoped recovery authority: $COLOR_FAULT_SESSION"
 wp_conf2 db query 'ALTER TABLE wp_options DROP CONSTRAINT duo_tec_fail_category_css' >/dev/null
-COLOR_RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+
+COLOR_ABA_OLD_ID=$(wp_conf2 db query "
+  SELECT local_id FROM wp_duo_map
+  WHERE uuid='${TEC_COLOR_UUID}' AND id_kind='term'
+" --skip-column-names | tr -d '[:space:]')
+[[ "$COLOR_ABA_OLD_ID" =~ ^[1-9][0-9]*$ ]] || fail "TEC Category Colors ABA premise lacks one selected term map"
+[ "$(wp_conf2 db query "SELECT COUNT(*) FROM wp_duo_map WHERE uuid='${TEC_COLOR_UUID}' AND id_kind='term'" --skip-column-names | tr -d '[:space:]')" = 1 ] \
+  || fail "TEC Category Colors ABA premise has a duplicate selected term map"
+COLOR_ABA_NEW_ID=$(wp_conf2 db query 'SELECT COALESCE(MAX(term_id),0)+1000 FROM wp_terms' --skip-column-names | tr -d '[:space:]')
+COLOR_ABA_AUTOINCREMENT=$(wp_conf2 db query "
+  SELECT AUTO_INCREMENT FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='wp_terms'
+" --skip-column-names | tr -d '[:space:]')
+[[ "$COLOR_ABA_NEW_ID" =~ ^[1-9][0-9]*$ && "$COLOR_ABA_AUTOINCREMENT" =~ ^[1-9][0-9]*$ ]] \
+  || fail "TEC Category Colors ABA could not bind its reversible term-id frontier"
+COLOR_ABA_CSS_BEFORE=$(wp_conf2 db query "
+  SELECT SHA2(CONCAT(option_id,0x00,option_value,0x00,autoload),256)
+  FROM wp_options WHERE option_name='tec_events_category_color_css'
+" --skip-column-names | tr -d '[:space:]')
+wp_conf2 db query "
+  START TRANSACTION;
+  UPDATE wp_terms SET term_id=${COLOR_ABA_NEW_ID} WHERE term_id=${COLOR_ABA_OLD_ID};
+  UPDATE wp_term_taxonomy SET term_id=${COLOR_ABA_NEW_ID} WHERE term_id=${COLOR_ABA_OLD_ID} AND taxonomy='tribe_events_cat';
+  UPDATE wp_termmeta SET term_id=${COLOR_ABA_NEW_ID} WHERE term_id=${COLOR_ABA_OLD_ID};
+  UPDATE wp_duo_map SET local_id=${COLOR_ABA_NEW_ID}
+    WHERE uuid='${TEC_COLOR_UUID}' AND id_kind='term' AND local_id=${COLOR_ABA_OLD_ID};
+  COMMIT;
+" >/dev/null
+COLOR_ABA_SESSION_DRIFT=$(tec_scoped_session_evidence)
+printf '%s\n' "$COLOR_ABA_SESSION_DRIFT" | jq -e '
+  .phase == "recovery_required" and .recovery_from == "effects_pending" and
+  .author_matches == false and
+  (.author_receipt_after | test("^[a-f0-9]{64}$")) and
+  (.current_author_after | test("^[a-f0-9]{64}$")) and
+  .author_receipt_after != .current_author_after
+' >/dev/null || fail "TEC selected term-id ABA did not change only the atomic author map witness: $COLOR_ABA_SESSION_DRIFT"
+COLOR_ABA_RC=0
+COLOR_ABA_OUT=$(wp_conf2 duo apply --repo=/siterepo \
+  --scope-contract=/siterepo/.tmp-tec-category-colors-provider.scope.json \
+  --default-author=admin 2>&1) || COLOR_ABA_RC=$?
+require_duo_answered "TEC selected-map ABA retry refusal" human "$COLOR_ABA_OUT"
+[ "$COLOR_ABA_RC" -ne 0 ] \
+  && grep -Fq 'scoped apply recovery author receipt does not match selected state and identity map' <<<"$COLOR_ABA_OUT" \
+  || fail "TEC selected-map ABA did not refuse before Category Colors effect replay: $COLOR_ABA_OUT"
+[ "$(tec_scoped_session_evidence | jq -Sc .)" = "$(printf '%s\n' "$COLOR_ABA_SESSION_DRIFT" | jq -Sc .)" ] \
+  || fail "TEC selected-map ABA refusal changed its already-active recovery session"
+[ "$(wp_conf2 db query "SELECT SHA2(CONCAT(option_id,0x00,option_value,0x00,autoload),256) FROM wp_options WHERE option_name='tec_events_category_color_css'" --skip-column-names | tr -d '[:space:]')" = "$COLOR_ABA_CSS_BEFORE" ] \
+  || fail "TEC selected-map ABA refusal replayed the Category Colors CSS effect"
+[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$COLOR_FAULT_REV_BEFORE" ] \
+  || fail "TEC selected-map ABA refusal advanced applied_revision"
+
+wp_conf2 db query "
+  START TRANSACTION;
+  UPDATE wp_duo_map SET local_id=${COLOR_ABA_OLD_ID}
+    WHERE uuid='${TEC_COLOR_UUID}' AND id_kind='term' AND local_id=${COLOR_ABA_NEW_ID};
+  UPDATE wp_termmeta SET term_id=${COLOR_ABA_OLD_ID} WHERE term_id=${COLOR_ABA_NEW_ID};
+  UPDATE wp_term_taxonomy SET term_id=${COLOR_ABA_OLD_ID} WHERE term_id=${COLOR_ABA_NEW_ID} AND taxonomy='tribe_events_cat';
+  UPDATE wp_terms SET term_id=${COLOR_ABA_OLD_ID} WHERE term_id=${COLOR_ABA_NEW_ID};
+  COMMIT;
+" >/dev/null
+wp_conf2 db query "ALTER TABLE wp_terms AUTO_INCREMENT=${COLOR_ABA_AUTOINCREMENT}" >/dev/null
+COLOR_ABA_SESSION_RESTORED=$(tec_scoped_session_evidence)
+printf '%s\n' "$COLOR_ABA_SESSION_RESTORED" | jq -e '.author_matches == true' >/dev/null \
+  || fail "TEC selected-map ABA inverse did not restore the exact atomic author map witness: $COLOR_ABA_SESSION_RESTORED"
+COLOR_RETRY=$(wp_conf2 duo apply --repo=/siterepo \
+  --scope-contract=/siterepo/.tmp-tec-category-colors-provider.scope.json \
+  --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "TEC Category Colors retry" json "$COLOR_RETRY"
-jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' <<<"$COLOR_RETRY" >/dev/null \
-  || fail "TEC Category Colors retry did not converge: $COLOR_RETRY"
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "cleared" : "retained";')" = cleared ] \
-  || fail "TEC successful Category Colors retry retained apply_in_progress"
+jq -e '
+  .format == "duo-scoped-apply-result/v1" and .canary == "clean" and
+  .verification.result == "pass" and .scoped_receipt.phase == "complete" and .applied >= 1
+' <<<"$COLOR_RETRY" >/dev/null || fail "TEC Category Colors retry did not converge: $COLOR_RETRY"
 COLOR_RECOVERED=$(observe_tec conf2)
 printf '%s\n' "$COLOR_RECOVERED" | jq -e '
   .category.meta.primary == "#654321" and .category.dropdown.primary == "#654321" and
   (.category_css | contains("--tec-color-category-primary:#654321")) and
   (.category_css | contains("--tec-color-category-secondary:#fedcba"))
 ' >/dev/null || fail "TEC Category Colors retry did not repair native CSS/dropdown projections: $COLOR_RECOVERED"
-pass "native Category Colors option failure retains post-commit intent and retries CSS/cache repair cleanly"
+rm -f "$TEC_COLOR_SCOPE"
+pass "scoped Category Colors recovery refuses a selected-map ABA before effects, then inverse/retry converges"
 
 # Capture-time schema/secret probes restore exact live bytes. Post bodies may
 # legitimately discuss credentials, while the same token in authored TEC meta
