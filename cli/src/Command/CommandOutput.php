@@ -88,12 +88,20 @@ final class CommandOutput {
      * stderr line for exit 1 could not tell "a human owes me a decision" from
      * "my checkout is broken", which is precisely the distinction the verb
      * exists to publish.
+     *
+     * `census` joins on merge-check's exact argument: it is env-free, every
+     * refusal it can raise fires on this host before a single document is
+     * folded, and its success path is a canonical `duo-fleet-census/v1`
+     * document. A collector scripting submissions from many operators reads
+     * stdout and nothing else, so an unparseable stderr line for the one
+     * submission that would not decode is the difference between "this
+     * document is malformed" and "the census produced nothing".
      */
     public static function wantsAgentRefusalJson(string $verb, array $extra): bool {
         if (!in_array(
             $verb,
             [
-                'adapter-observe', 'assess', 'capture', 'contract', 'lint', 'merge-check', 'plan',
+                'adapter-observe', 'assess', 'capture', 'census', 'contract', 'lint', 'merge-check', 'plan',
                 'explain', 'apply', 'recover', 'refresh', 'rehearse', 'release', 'verify',
             ],
             true

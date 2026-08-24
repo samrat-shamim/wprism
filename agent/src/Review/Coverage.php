@@ -355,8 +355,17 @@ final class Coverage {
 
     /** First one or two underscore-separated segments, leading underscore
      *  (WordPress's own "private/internal" convention) stripped for
-     *  grouping purposes only -- never for the option name itself. */
-    private static function guess_prefix(string $name): string {
+     *  grouping purposes only -- never for the option name itself.
+     *
+     *  Public since the fleet census: `invisible_groups[].prefix` is the
+     *  namespace the residual is REPORTED in, so anything asking "does this
+     *  adapter's declared option key fall in that group" has to fold the key
+     *  through this exact grammar (cli/src/Assess/FleetCensus.php's
+     *  credits_option_prefix()). A second regex that disagreed by one
+     *  underscore would credit or deny an adapter for a reason no operator
+     *  could reconstruct from either file. Behaviour is unchanged: no caller
+     *  inside this class moved, and the function still reads nothing. */
+    public static function guess_prefix(string $name): string {
         $bare = ltrim($name, '_');
         if (preg_match('/^([a-z0-9]+(?:_[a-z0-9]+)?)_/i', $bare, $m)) {
             return $m[1];

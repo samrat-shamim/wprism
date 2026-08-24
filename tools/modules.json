@@ -1477,11 +1477,12 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 30,
+        "file_count": 31,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
           "CaptureCommand.php",
+          "CensusCommand.php",
           "ClassifyCommand.php",
           "CodeClassifyCommand.php",
           "CodeImportCommand.php",
@@ -1513,14 +1514,15 @@
       },
       "Assess": {
         "layer": "engine",
-        "purpose": "The assess mechanism \u2014 stack inventory and the authority block, the per-surface catalog carrying the six spec dimensions, the closed gap-action set, the `duo-assess-report/v1` document and its bounded human renderer. Mechanism only: `AssessCommand` (cli:Command) calls Doctor, the environment registry and the adapter catalog and hands their results in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
+        "purpose": "The assess mechanism \u2014 stack inventory and the authority block, the per-surface catalog carrying the six spec dimensions, the closed gap-action set, the `duo-assess-report/v1` document and its bounded human renderer. Mechanism only: `AssessCommand` (cli:Command) calls Doctor, the environment registry and the adapter catalog and hands their results in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9). `FleetCensus` is the one file here with no target at all: it folds N `duo-assess-inventory/v1` documents into `duo-fleet-census/v1` against a manifest library on this machine, which is why it reaches agent:Policy (the reviewed-claim projector) and agent:Review (the one option-prefix grammar the residual is grouped in) as data sources rather than through any cli module.",
         "status": "populated",
         "entry_points": [
           "StackInventory",
           "SurfaceCatalog",
           "GapActions",
           "AssessReport",
-          "AssessRenderer"
+          "AssessRenderer",
+          "FleetCensus"
         ],
         "depends_on": [
           "Assess",
@@ -1529,13 +1531,16 @@
           "Transport",
           "agent:Adapter",
           "agent:Assess",
-          "agent:Kernel"
+          "agent:Kernel",
+          "agent:Policy",
+          "agent:Review"
         ],
         "exceptions": [],
-        "file_count": 5,
+        "file_count": 6,
         "files": [
           "AssessRenderer.php",
           "AssessReport.php",
+          "FleetCensus.php",
           "GapActions.php",
           "StackInventory.php",
           "SurfaceCatalog.php"

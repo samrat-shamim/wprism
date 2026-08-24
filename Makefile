@@ -9,7 +9,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform regress-core-scope-database
 .PHONY: regress-platform-compatibility regress-topology-gate
-.PHONY: regress-cli-json-refusals regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
+.PHONY: regress-cli-json-refusals regress-fleet-census regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
 .PHONY: regress-init-command regress-init-contract regress-duo-init regress-bound-helper
@@ -2005,6 +2005,15 @@ regress-refresh-field-diff:
 # result rather than as a return value.
 regress-merge-check:
 	php sandbox/tests/offline/refresh/regress_merge_check.php
+
+# The fleet census: `duo census` folds N duo-assess-inventory/v1 documents into
+# duo-fleet-census/v1 with no environment, no target and no WordPress. Drives
+# the real executable against synthetic manifest libraries and inventories
+# under sandbox/tmp, because the deliverable includes the dispatch entry, the
+# usage line, the exit-code contract and the redaction property — none of which
+# an in-process call to FleetCensus::project() would see.
+regress-fleet-census:
+	php sandbox/tests/offline/cli/regress_fleet_census.php
 
 regress-rollback-authority:
 	php sandbox/tests/offline/recovery/regress_rollback_authority.php
