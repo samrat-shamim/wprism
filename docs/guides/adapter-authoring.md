@@ -1135,6 +1135,33 @@ identically (DUO-3504; before it, the first read `Platform-certified`).
 drops back to uncertified. Re-run `duo adapter certify … --pin` after every
 edit. That is the mechanism working, not a bug to route around.
 
+**An agent upgrade can withdraw the claim, and only the claim.** The signed
+statement also binds the agent's own platform boundary
+(`manifests/capabilities/platform.json`) and the certificate wire version, and
+both move on an ordinary agent upgrade. When either no longer matches, that one
+adapter drops back to uncertified with a reason naming what moved — "its signed
+certification binds an agent platform boundary this agent no longer publishes"
+— and every other adapter the site pins, shipped ones included, keeps loading
+untouched. The remedy is the same one line: re-run `duo adapter certify …
+--pin`, which is runnable in exactly that state. A companion that fails for any
+other reason — a bad signature, an authority this agent does not trust, a wrong
+binding, a file that is not a certificate — still refuses the whole
+`adapters/` source, because none of those is the agent having moved.
+
+Note the asymmetry between those two withdrawals, because it is a real one. The
+platform-boundary withdrawal happens only after the agent has verified the
+signature, the authority and the binding, so only a genuine certificate can
+reach it. The wire-version withdrawal cannot: the root `format` field sits
+outside the bytes the signature covers, and a statement written on a wire this
+agent cannot parse is a statement it cannot verify a signature over. So anyone
+who can write `adapters/certification/<name>.json` can put that adapter into the
+uncertified state by editing the `format` of an otherwise valid certificate. It
+takes nothing away that deleting the companion file would not — the destination
+is uncertified support either way, and no certified claim is ever granted by it
+— but it means a wire-version withdrawal is a report about a file, not a proof
+about a signer. If you see one on a site you did not upgrade, treat the
+companion as edited and look at it, rather than assuming the agent moved.
+
 **Key custody is yours.** A lost key cannot re-sign. A leaked key can certify
 any adapter in a repository whose `adapters/authorities.json` names it. Back it
 up where you back up deploy keys; production-grade custody (HSMs, rotation,

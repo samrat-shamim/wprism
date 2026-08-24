@@ -203,11 +203,14 @@ first-party source file that ships inside `agent/`, and **every existing
 `require_once` stays** (owner ruling D4). The fallback is additive — an
 autoloader is only consulted for a class that is *still undeclared* when it is
 referenced — so on the production path it resolves nothing at all. Measured:
-after `agent/duo.php` finishes, 237 of the map's 239 names are already
-declared, and the two exceptions (`Duo\AdapterCertification` and the
-`Duo\SupersededSiteAdapterCertificate` declared in the same file) are
+after `agent/duo.php` finishes, 247 of the map's 251 names are already
+declared, and the four exceptions (`Duo\AdapterCertification` and the three
+withdrawal/supersession signals declared in the same file —
+`Duo\SupersededSiteAdapterCertificate`,
+`Duo\StalePlatformSiteAdapterCertificate`,
+`Duo\SupersededWireSiteAdapterCertificate`) are
 `require_once`d at each of that file's three use sites in `AdapterSources.php`
-before either is ever named. What the map buys is the partially-loaded case —
+before any of them is ever named. What the map buys is the partially-loaded case —
 an offline suite that includes three `agent/src` files by hand, or a new file
 whose hand-written require chain missed a dependency — where the alternative is
 a fatal `Class not found`.

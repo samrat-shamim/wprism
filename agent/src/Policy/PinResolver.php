@@ -184,8 +184,26 @@ final class PinResolver {
             // that changed under a digest pin is a real integrity failure the
             // operator must re-pin, and bind_explicit_pins() gates elevation on
             // is_certified() so this concession can never read as certified.
-            if (($pin['source'] ?? null) === AdapterSources::SITE
-                && !$policy->adapter_sources()->is_certified((string) $pin['name'])) {
+            //
+            // The source-less `{name, digest}` pin is the SAME operator in the
+            // SAME state and reaches the concession on the same terms. Neither
+            // `duo adapter certify --pin` nor `wp duo manifest-pin` emits that
+            // shape — both always write a source (AdapterCertify.php:677-680,
+            // Cli.php:2921-2923) — so it is the hand-written short form of the
+            // pin, and a shorter statement of intent is not a weaker one. What
+            // does NOT widen is the SOURCE: the concession is for an adapter
+            // that RESOLVED from the site source, so source() is asked rather
+            // than the pin, and a source-less digest pin on a shipped- or
+            // plugin-resolved manifest still refuses byte-identically. source()
+            // answers `shipped` for a name nothing installed
+            // (AdapterSources.php:3488-3490), so an uninstalled name cannot
+            // reach this either.
+            $pinnedSource = $pin['source'] ?? null;
+            $name = (string) $pin['name'];
+            $resolvedFromSite = $pinnedSource === AdapterSources::SITE
+                || ($pinnedSource === null
+                    && $policy->adapter_sources()->source($name) === AdapterSources::SITE);
+            if ($resolvedFromSite && !$policy->adapter_sources()->is_certified($name)) {
                 continue;
             }
             throw new \RuntimeException(

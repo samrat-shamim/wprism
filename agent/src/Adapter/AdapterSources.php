@@ -259,6 +259,41 @@ final class AdapterSources {
     public const NOT_INSTALLED_PLUGIN_INACTIVE = 'plugin_not_active';
 
     /**
+     * Why a certified claim was WITHDRAWN, when the reason is a document the
+     * AGENT owns rather than anything about the adapter or its authority.
+     *
+     * Both name a signal thrown by a typed exception at exactly one site —
+     * StalePlatformSiteAdapterCertificate at the platform byte comparison,
+     * SupersededWireSiteAdapterCertificate at the certificate wire-version
+     * test — and both resolve the adapter to the same uncertified support a
+     * companion-absent site adapter reaches. Nothing here catches
+     * \RuntimeException: an authority anomaly, a wrong binding, a bad signature
+     * and an unparseable statement all stay whole-source refusals.
+     *
+     * The two are NOT equally guarded, and the difference is load-bearing.
+     * STALE_PLATFORM is raised only after the Ed25519 signature, the authority
+     * binding and the adapter binding have all verified, so nothing but a
+     * genuine certificate reaches it. SUPERSEDED_WIRE is raised in
+     * assertCertificateShape(), ahead of all three, and is UNAUTHENTICATED BY
+     * CONSTRUCTION — root `format` is outside the signed bytes, so anyone who
+     * can write the companion file can trigger it, including by flipping the
+     * `format` of a valid certificate. That is accepted because its only
+     * destination is uncertified support, which the same write access already
+     * reached by deleting the companion; the full risk note, its damping and
+     * the shape proofs that narrow it are on
+     * SupersededWireSiteAdapterCertificate.
+     *
+     * They exist as tags rather than as sentences at the call site because the
+     * sentence lands in provenance_record()'s `reason`, which is
+     * IDENTITY-BEARING (it is folded into the adapter digest a pin binds), so
+     * it must be derived in exactly one place. The superseded-BYTES case
+     * deliberately has no tag: its reason is the companion-absent one, byte for
+     * byte, because that adapter's digest already exists in the field.
+     */
+    public const WITHDRAWN_STALE_PLATFORM = 'stale_platform_boundary';
+    public const WITHDRAWN_SUPERSEDED_WIRE = 'superseded_certificate_wire';
+
+    /**
      * A surveyed adapter's grammar verdict (DUO-3339).
      *
      * `blocked_by_source_refusal` is a third word rather than an `error`
@@ -1056,6 +1091,10 @@ final class AdapterSources {
             require_once __DIR__ . '/AdapterCertification.php';
             $verified = null;
             $superseded = false;
+            // The withdrawal tag, when the certified claim drops because an
+            // AGENT-owned document moved (see WITHDRAWN_*). Null keeps the
+            // superseded-bytes case on the existing companion-absent reason.
+            $withdrawn = null;
             if (!self::guarded(
                 $collect,
                 $refusals,
@@ -1064,7 +1103,7 @@ final class AdapterSources {
                 [self::SITE_DIR . '/' . self::CERTIFICATION_DIR . "/$name.json", $relative],
                 'obtain a certificate signed by an authority this agent trusts, or remove the companion and keep '
                     . 'the adapter as uncertified support',
-                static function () use ($manifestDir, $repo, $name, $manifest, $certificateFile, &$verified, &$superseded): void {
+                static function () use ($manifestDir, $repo, $name, $manifest, $certificateFile, &$verified, &$superseded, &$withdrawn): void {
                     try {
                         $verified = AdapterCertification::verifyFile(
                             $manifestDir,
@@ -1083,6 +1122,24 @@ final class AdapterSources {
                         // then re-establishes. Not a refusal: the adapter simply
                         // loses its certified grants until it is re-signed.
                         $superseded = true;
+                    } catch (StalePlatformSiteAdapterCertificate $movedPlatform) {
+                        // The AGENT moved, not the adapter: an upgrade rewrote
+                        // manifests/capabilities/platform.json, which every
+                        // signed statement binds byte for byte. A whole-source
+                        // refusal here took every command on the site with it —
+                        // including the `duo adapter certify --pin` that repairs
+                        // it — for a condition no site caused and no operator
+                        // could see. One adapter loses its certified grants; the
+                        // unrelated adapters this site pins are untouched.
+                        $superseded = true;
+                        $withdrawn = self::WITHDRAWN_STALE_PLATFORM;
+                    } catch (SupersededWireSiteAdapterCertificate $movedWire) {
+                        // Same withdrawal for the other agent-owned document in
+                        // the certificate: its wire version. A fleet that
+                        // upgrades past a certificate's version degrades that
+                        // adapter rather than losing the site.
+                        $superseded = true;
+                        $withdrawn = self::WITHDRAWN_SUPERSEDED_WIRE;
                     }
                 }
             )) {
@@ -1096,11 +1153,21 @@ final class AdapterSources {
                 continue;
             }
             if ($superseded) {
-                // Superseded companion (adapter edited after signing) → the
-                // same uncertified record a companion-absent site adapter
-                // gets; no $certificates/$claims entry, so is_certified() is
-                // false and every certified-only gate treats it as unsigned.
-                $provenance[$name] = self::provenance_record($name, $relative, $manifest);
+                // Superseded companion (adapter edited after signing) or a
+                // withdrawn claim (an agent-owned document moved) → the same
+                // uncertified record a companion-absent site adapter gets; no
+                // $certificates/$claims entry, so is_certified() is false and
+                // every certified-only gate treats it as unsigned. $withdrawn
+                // only changes the sentence an operator reads, and only for the
+                // two cases that did not exist before WP-1.1.
+                $provenance[$name] = self::provenance_record(
+                    $name,
+                    $relative,
+                    $manifest,
+                    self::SITE,
+                    null,
+                    $withdrawn
+                );
                 continue;
             }
             $provenance[$name] = $verified['disposition'];
@@ -3012,7 +3079,8 @@ final class AdapterSources {
         string $relativePath,
         array $manifest,
         string $source = self::SITE,
-        ?string $plugin = null
+        ?string $plugin = null,
+        ?string $withdrawn = null
     ): array {
         $sha256 = hash('sha256', Canon::encode($manifest));
         return [
@@ -3029,10 +3097,36 @@ final class AdapterSources {
                     . '— certification is a repository-scoped signed companion at ' . self::SITE_DIR . '/'
                     . self::CERTIFICATION_DIR . "/$name.json."
                 : "adapter '$name' is installed out-of-tree from the site repository's "
-                    . self::SITE_DIR . '/ directory and carries no reviewed certification evidence',
+                    . self::SITE_DIR . '/ directory and ' . self::withdrawal_clause($withdrawn),
             'status' => 'uncertified',
             'trust_tier' => self::trust_tier($manifest),
         ];
+    }
+
+    /**
+     * The half-sentence that says WHY this out-of-tree adapter is uncertified.
+     *
+     * `match` rather than a switch with a default: an unrecognised tag is a
+     * programming error, and \UnhandledMatchError says so loudly instead of
+     * silently minting the companion-absent wording for a state nobody
+     * classified — the reason is folded into the adapter digest a pin binds
+     * (see provenance_record()), so a wrong sentence here is a wrong identity.
+     *
+     * The null arm is byte-identical to the string this method replaced, and it
+     * is what the companion-absent case and the superseded-BYTES case both take
+     * (AdapterSources::scan_site_source(), grind_adoption A8): those digests
+     * already exist in the field and must not move.
+     */
+    private static function withdrawal_clause(?string $withdrawn): string {
+        return match ($withdrawn) {
+            null => 'carries no reviewed certification evidence',
+            self::WITHDRAWN_STALE_PLATFORM =>
+                'its signed certification binds an agent platform boundary this agent no longer publishes, so the '
+                    . 'certified claim is withdrawn until the adapter is re-signed against the current boundary',
+            self::WITHDRAWN_SUPERSEDED_WIRE =>
+                'its signed certification is written in a certification wire version this agent does not verify, so '
+                    . 'the certified claim is withdrawn until the adapter is re-signed on the current wire',
+        };
     }
 
     /**
@@ -3717,6 +3811,14 @@ final class AdapterSources {
      * rather than being carried forward. Editing an out-of-tree record in place
      * separately fails through validate_frozen_record() and the adapter digest
      * binding.
+     *
+     * The one thing a frozen certified record may do besides verify or refuse
+     * is be WITHDRAWN, and on this path exactly one condition qualifies: the
+     * agent-owned platform boundary the signature binds has moved. The
+     * certificate is still proved authentic and the adapter still resolves — as
+     * uncertified support, from a record derived here. Every other
+     * disagreement, the superseded wire version included, is still a refusal;
+     * the single catch below says why.
      */
     public static function from_snapshot(array $data, array $manifests): self {
         $keys = array_keys($data);
@@ -3738,6 +3840,11 @@ final class AdapterSources {
         $provenance = [];
         $certificates = [];
         $claims = [];
+        // Names whose frozen certificate verified as authentic but no longer
+        // confers a claim (an agent-owned document moved). They produce no
+        // $certificates row, so the orphan-certificate check below has to know
+        // they were read rather than skipped.
+        $withdrawnCertificates = [];
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '');
             self::assert_name($name, 'frozen adapter source record name');
@@ -3790,19 +3897,71 @@ final class AdapterSources {
                 // certification verifier. Load it only for the record that
                 // actually carries a signed external claim; see discover().
                 require_once __DIR__ . '/AdapterCertification.php';
-                $verified = AdapterCertification::verifyFrozen(
-                    Policy::manifests_dir(),
-                    $name,
-                    $manifest,
-                    $certificate
-                );
-                if (Canon::encode($verified['disposition']) !== Canon::encode($record)) {
-                    throw new \RuntimeException(
-                        "duo: frozen adapter certification for '$name' disagrees with its derived disposition"
+                $verified = null;
+                $withdrawn = null;
+                try {
+                    $verified = AdapterCertification::verifyFrozen(
+                        Policy::manifests_dir(),
+                        $name,
+                        $manifest,
+                        $certificate
                     );
+                } catch (StalePlatformSiteAdapterCertificate $movedPlatform) {
+                    $withdrawn = self::WITHDRAWN_STALE_PLATFORM;
                 }
-                $certificates[$name] = $verified['envelope'];
-                $claims[$name] = $verified['claim'];
+                if ($withdrawn !== null) {
+                    // The identical withdrawal the live scan performs, on the
+                    // path a deployed site actually walks: a compiled artifact
+                    // is verified from its frozen snapshot, so without this an
+                    // agent upgrade bricked every promoted site holding a
+                    // certified adapter, and reopening the mutable repository
+                    // is exactly what this path may not do to recover.
+                    //
+                    // The frozen record is DISCARDED rather than trusted: it
+                    // claims `certified`, and nothing here can still derive
+                    // that. What replaces it is derived from the frozen
+                    // manifest alone — the same record provenance_record()
+                    // mints live — so a tampered record buys nothing. The
+                    // certificate itself was still proved authentic before the
+                    // withdrawal (signature, current authority and the exact
+                    // adapter binding all verify ahead of this one typed
+                    // signal), which is why this is a withdrawal and not a
+                    // shrug.
+                    //
+                    // Exactly ONE signal is caught here, and that is the whole
+                    // asymmetry of the frozen path. A SupersededSiteAdapter-
+                    // Certificate is not caught: manifest and certificate
+                    // travel together in one snapshot, so bytes that disagree
+                    // mean the snapshot was edited, not that an operator edited
+                    // an adapter. A SupersededWireSiteAdapterCertificate is not
+                    // caught either, and for the identical reason — it is
+                    // raised before any signature is checked (root `format` is
+                    // outside the signed bytes), so in a snapshot it can only
+                    // mean the snapshot's own certificate was rewritten. There
+                    // is no /v2 wire and never has been, so no snapshot can
+                    // honestly carry one; catching it would buy zero
+                    // compatibility and cost the tamper-evidence that is the
+                    // point of freezing. If a /v2 wire is ever published, this
+                    // is the decision to revisit — with a real wire to migrate,
+                    // not a hypothetical one.
+                    $record = self::provenance_record(
+                        $name,
+                        self::SITE_DIR . '/' . $name . '.json',
+                        $manifest,
+                        self::SITE,
+                        null,
+                        $withdrawn
+                    );
+                    $withdrawnCertificates[$name] = true;
+                } else {
+                    if (Canon::encode($verified['disposition']) !== Canon::encode($record)) {
+                        throw new \RuntimeException(
+                            "duo: frozen adapter certification for '$name' disagrees with its derived disposition"
+                        );
+                    }
+                    $certificates[$name] = $verified['envelope'];
+                    $claims[$name] = $verified['claim'];
+                }
             }
             // The record's own path, not a re-derived site path: a frozen
             // plugin record's path is `plugins/<dir>/duo-adapter.json`, and
@@ -3820,6 +3979,12 @@ final class AdapterSources {
                 false,
                 $origin === self::SITE ? self::shipped_executable_grants(Policy::manifests_dir(), $name) : null
             );
+            // Tautological in the withdrawn branch above and deliberately left
+            // that way: $record was re-minted by provenance_record(), whose
+            // 'trust_tier' IS self::trust_tier($manifest), so the withdrawal
+            // cannot smuggle a tier past this line by construction rather than
+            // by this check. For every other record — the frozen bytes as they
+            // arrived — this is the check that proves it.
             if (($record['trust_tier'] ?? null) !== self::trust_tier($manifest)) {
                 throw new \RuntimeException(
                     "duo: frozen adapter source record for '$name' claims trust tier '{$record['trust_tier']}' but "
@@ -3840,7 +4005,11 @@ final class AdapterSources {
                 . implode(',', $unmatched)
             );
         }
-        $unmatchedCertificates = array_diff(array_keys($frozenCertificates), array_keys($certificates));
+        $unmatchedCertificates = array_diff(
+            array_keys($frozenCertificates),
+            array_keys($certificates),
+            array_keys($withdrawnCertificates)
+        );
         if ($unmatchedCertificates !== []) {
             throw new \RuntimeException(
                 'duo: frozen adapter source record names certificates absent from its manifests: '

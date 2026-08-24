@@ -313,11 +313,17 @@ PHP;
     /**
      * The whole point of "additive": including agent/duo.php must still load
      * every file it loaded before, with the autoloader as a net underneath
-     * rather than a replacement. 222 of the 224 agent/src files load eagerly
-     * here (Cli.php is WP_CLI-gated, AdapterCertification.php is deliberately
-     * lazy — see agent/src/Adapter/AdapterSources.php:898), and the two names that
-     * lazy file declares (AdapterCertification and its companion
-     * SupersededSiteAdapterCertificate exception) are left for the fallback.
+     * rather than a replacement. 247 of the 251 mapped names are declared
+     * eagerly here; the four that are not are exactly the four
+     * AdapterCertification.php declares, and that file is deliberately lazy —
+     * only a record carrying a signed external claim requires it
+     * (agent/src/Adapter/AdapterSources.php:838, :1091, :3899). Duo\Cli is not
+     * in this list because it is not in the map at all (see
+     * testDuoCliIsNotResolvableThroughTheFallback above).
+     *
+     * The list is spelled out rather than counted: WP-1.1 added the two
+     * withdrawal exceptions to that file, and a count would have absorbed them
+     * silently where this assertion names them.
      */
     public function testDuoPhpStillLoadsEagerlyWithExactlyOneExtraAutoloader(): void
     {
@@ -344,7 +350,8 @@ PHP;
         self::assertSame(
             "AUTOLOADERS=1/1\n"
             . "VERSION=0.5.0/2\n"
-            . "UNDECLARED=Duo\\AdapterCertification,Duo\\SupersededSiteAdapterCertificate\n",
+            . 'UNDECLARED=Duo\\AdapterCertification,Duo\\StalePlatformSiteAdapterCertificate,'
+            . "Duo\\SupersededSiteAdapterCertificate,Duo\\SupersededWireSiteAdapterCertificate\n",
             $result['stdout']
         );
     }

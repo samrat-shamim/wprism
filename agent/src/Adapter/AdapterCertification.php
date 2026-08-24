@@ -39,6 +39,83 @@ require_once __DIR__ . '/../Policy/ManifestDispositions.php';
 final class SupersededSiteAdapterCertificate extends \RuntimeException {
 }
 
+/**
+ * A correctly-signed companion, under a currently-trusted authority, binding
+ * exactly the bytes `adapters/<name>.json` carries now — whose statement names
+ * an agent platform boundary this agent no longer publishes. THE AGENT MOVED,
+ * NOT THE ADAPTER: `manifests/capabilities/platform.json` is agent-owned and
+ * changes on an ordinary upgrade (a new `compatibility.wordpress.last_verified`
+ * moves its bytes without moving one manifest), and verifyCertificate()
+ * compares it byte for byte (`:1123-1128`).
+ *
+ * Before this type the comparison threw a bare \RuntimeException, which
+ * scan_site_source() could not tell from a forgery, so discover() refused the
+ * WHOLE site source (refuse() at SCOPE_SOURCE) and Policy::load() propagated
+ * it uncaught (Policy.php:400) — an agent upgrade bricked every command on
+ * every site holding a certified adapter, including `duo adapter certify
+ * --pin`, the one command that repairs it (AdapterCertify.php:283, 349, 570).
+ *
+ * Routing it to uncertified support is a WITHDRAWAL OF A CLAIM, never a
+ * fallback: the adapter loses its certified grants until it is re-signed
+ * against the current boundary, which is strictly more conservative for it and
+ * strictly less destructive for the unrelated adapters the same site pins. The
+ * line holds because assertAdapterBinding(), the authority binding and the
+ * Ed25519 signature are all verified BEFORE this comparison (`:1025-1116`) — a
+ * forged, wrongly-bound or wrongly-rooted companion can never reach this throw
+ * site. That is what distinguishes it from SupersededWireSiteAdapterCertificate,
+ * which nothing authenticates; read that type's note before treating the two as
+ * one mechanism.
+ */
+final class StalePlatformSiteAdapterCertificate extends \RuntimeException {
+}
+
+/**
+ * A canonical companion whose root `format` names the certification wire
+ * family (`duo-adapter-certification/v<n>`) at a version this agent cannot
+ * verify. Same withdrawal as StalePlatformSiteAdapterCertificate — the wire is
+ * agent-owned, so a fleet that upgrades past a certificate's version must
+ * degrade the adapter rather than refuse every command on the site — but NOT
+ * the same argument, and the difference is the whole risk note:
+ *
+ * THIS SIGNAL IS UNAUTHENTICATED BY CONSTRUCTION. StalePlatform is reached only
+ * after the Ed25519 signature, the authority binding and assertAdapterBinding()
+ * have all verified (`:1025-1128`); this one is raised inside
+ * assertCertificateShape(), before any of them, and it cannot be otherwise: a
+ * signature cannot be verified over a wire whose statement shape this agent
+ * cannot parse, and root `format` is outside the signed bytes anyway
+ * (signatureBytes() signs SIGNATURE_DOMAIN . Canon::encode($statement) alone,
+ * `:1340-1342`). So anyone who can write `adapters/certification/<name>.json`
+ * can raise it — including by flipping the `format` of a GENUINE, valid
+ * certificate, which strips that adapter's certification without breaking one
+ * signature. That is the LIVE path only: AdapterSources::from_snapshot()
+ * deliberately does not catch this type, so the same edit inside a frozen
+ * snapshot is a hard refusal (there is no /v2 wire, so a snapshot cannot
+ * honestly carry one).
+ *
+ * ACCEPTED, with its damping stated rather than argued away: the destination is
+ * UNCERTIFIED support, strictly weaker than what the certificate conferred, so
+ * the signal can only take a claim away, never grant one; and the same write
+ * access reaches the identical state by deleting the companion outright, which
+ * has always resolved the adapter as uncertified. It buys an attacker nothing
+ * they did not already have — it is a tamper-evidence loss (a hard refusal an
+ * operator would have investigated becomes a quiet degradation), not a trust
+ * boundary loss.
+ *
+ * What is NOT accepted is widening the door. assertCertificateShape() proves
+ * the closed root key set and a canonical base64 Ed25519-length signature
+ * BEFORE this test, so the cheapest forgery — a one-key file naming a future
+ * version — is refused as malformed and never reaches here. The predicate is
+ * then the exact family at a different integer version and nothing else: any
+ * other string, a non-string, a missing key, a non-canonical or unparseable
+ * file, and every malformed statement inside a correctly-versioned envelope
+ * stay hard whole-source refusals. That predicate is the difference between
+ * "this agent does not speak this version" and "this file is not a
+ * certificate", and one term wider would launder a forgery into unsigned
+ * support.
+ */
+final class SupersededWireSiteAdapterCertificate extends \RuntimeException {
+}
+
 final class AdapterCertification {
     public const FORMAT = 'duo-adapter-certification/v1';
     // Frozen policy snapshots carry the exact certificate format too; there
@@ -1039,9 +1116,13 @@ final class AdapterCertification {
             throw new \RuntimeException("duo: site adapter '$name' certification has an invalid Ed25519 signature");
         }
 
+        // Reached only after the signature and the authority binding above have
+        // both verified, which is exactly why the typed signal below is safe:
+        // this line can only be about an AGENT-owned document that moved, never
+        // about the companion's provenance.
         [$platform, $platformDigest] = self::currentPlatform($manifestDir);
         if (!hash_equals(Canon::encode($platform), Canon::encode($statementTyped->platform))) {
-            throw new \RuntimeException(
+            throw new StalePlatformSiteAdapterCertificate(
                 "duo: site adapter '$name' certification platform boundary disagrees with the current agent-owned platform"
             );
         }
@@ -1592,9 +1673,28 @@ final class AdapterCertification {
     }
 
     private static function assertCertificateShape(object $typed, array $certificate): void {
+        // Every UNCONDITIONAL shape proof runs first, and the wire-version test
+        // last, because that test is the one signal here that no signature
+        // authenticates (SupersededWireSiteAdapterCertificate states why it
+        // cannot be: root `format` is outside signatureBytes(), `:1340-1342`).
+        // Ordering is therefore the only thing that narrows it, and it buys
+        // exactly this: a one-key `{"format":"duo-adapter-certification/v2"}`
+        // file — the cheapest thing an attacker with write access to
+        // adapters/certification/ can author — is refused as malformed here
+        // instead of reaching the typed signal and silently degrading the
+        // adapter. What reaches the signal now must at minimum carry the exact
+        // three root keys and a canonical base64 Ed25519-length signature.
+        //
+        // The cost is forward compatibility this agent cannot specify anyway: a
+        // real /v2 wire that adds a root key or a different signature primitive
+        // gets 'unsupported or malformed root' rather than the version
+        // sentence. Accepted — no /v2 wire exists (self::FORMAT is the only one
+        // ever published), so the version predicate has no genuine traffic to
+        // serve today, and shipping the wider door for a hypothetical future
+        // reader is worth strictly less than closing it against a real
+        // hand-edited file.
         self::assertExactKeys($certificate, ['format', 'signature', 'statement'], 'site adapter certification');
-        if (($certificate['format'] ?? null) !== self::FORMAT
-            || !is_string($certificate['signature'] ?? null)
+        if (!is_string($certificate['signature'] ?? null)
             || !isset($typed->statement) || !is_object($typed->statement)
             || !is_array($certificate['statement'] ?? null) || array_is_list($certificate['statement'])) {
             throw new \RuntimeException('duo: site adapter certification has an unsupported or malformed root');
@@ -1603,6 +1703,29 @@ final class AdapterCertification {
         if ($signature === false || !self::isCanonicalBase64($certificate['signature'], $signature)
             || strlen($signature) !== SODIUM_CRYPTO_SIGN_BYTES) {
             throw new \RuntimeException('duo: site adapter certification signature is not a base64 Ed25519 signature');
+        }
+        // The predicate is the exact family at a different integer version and
+        // nothing else — see SupersededWireSiteAdapterCertificate for why one
+        // term wider would be a laundering path. The bytes reaching here are
+        // already proved canonical JSON by readCanonicalObjectFile()/
+        // parseCanonicalObject(), so an unparseable file never arrives at all.
+        $format = $certificate['format'] ?? null;
+        if (is_string($format) && $format !== self::FORMAT
+            && preg_match('#^duo-adapter-certification/v[1-9][0-9]*$#D', $format) === 1) {
+            throw new SupersededWireSiteAdapterCertificate(
+                // The regex above has already proved $format is exactly
+                // `duo-adapter-certification/v<digits>`, so it is safe to
+                // print verbatim: there is nothing left in it to inject.
+                "duo: site adapter certification is written in wire version '$format', which this agent does not "
+                . "verify; it verifies '" . self::FORMAT . "'"
+            );
+        }
+        // The same refusal the root-shape test above raises, deliberately
+        // restated after the wire test rather than folded into it: the format
+        // VALUE is the one root term the version signal is allowed to answer
+        // for, so it is the one term that may not preempt it.
+        if ($format !== self::FORMAT) {
+            throw new \RuntimeException('duo: site adapter certification has an unsupported or malformed root');
         }
     }
 

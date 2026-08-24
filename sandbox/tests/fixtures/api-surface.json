@@ -694,6 +694,12 @@
                 },
                 "TRUST_ROOT_SITE": {
                     "value_repr": "site"
+                },
+                "WITHDRAWN_STALE_PLATFORM": {
+                    "value_repr": "stale_platform_boundary"
+                },
+                "WITHDRAWN_SUPERSEDED_WIRE": {
+                    "value_repr": "superseded_certificate_wire"
                 }
             },
             "final": true,
