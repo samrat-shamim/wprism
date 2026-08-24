@@ -152,6 +152,15 @@ const REHEARSAL_GAPS = [
         . 'get_bloginfo all defined), so an offline estate cannot reach it by construction — that guard is the '
         . 'register\'s own note. Its shape half, PlatformCompatibility::assert_boundary_shape, IS exercised here '
         . 'through assert_supported()\'s injected-facts argument.',
+    'agent/src/Policy/ManifestDispositions.php::narrowed_environment' =>
+        'WP-4.6\'s narrowing refusal is reachable only from a manifest declaring BOTH `spec_version: 3` and an '
+        . '`environment` block, and this estate is stamped v2 end to end by construction — state B moves '
+        . 'DUO_AGENT_VERSION and platform.json, never DUO_SPEC_VERSION (the scope limit in this file\'s header), '
+        . 'and no shipped or fixture manifest here declares the channel. Its inert half IS driven by every pass: '
+        . 'the estate\'s claims are projected through this function at both states and their environment_assumptions '
+        . 'are part of the digests compared across the transition. The refusal itself is exercised by '
+        . 'sandbox/tests/offline/policy/regress_adapter_environment_narrowing.php, on all four narrowable axes. '
+        . 'When WP-4.2\'s acceptance window ships and this estate gains the spec half, this gap should close.',
     'agent/src/Promotion/Deploy.php::run' =>
         'promotion needs a live target: a promotion lease, the ledger and an apply session. The manifest-identity '
         . 'refusal it surfaces is CompiledArtifactReader::read_artifact()\'s, which this estate drives directly '

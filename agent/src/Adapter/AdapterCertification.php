@@ -176,10 +176,22 @@ final class AdapterCertification {
         'option_namespaces', 'option_patterns', 'options', 'post_meta', 'post_meta_patterns', 'shortcode_attrs',
         'term_meta', 'user_meta',
     ];
-    /** Manifest keys that declare no branchable state surface of their own. */
+    /**
+     * Manifest keys that declare no branchable state surface of their own.
+     *
+     * `environment` joined this arm with WP-4.6: it narrows the adapter's own
+     * capability CLAIM to the boundary cells it was exercised on
+     * (ManifestDispositions::narrowed_environment(), spec § v3.5) and covers no
+     * state, so classifying it as an entity or field section would put a
+     * runtime assertion into a certificate's surface list. It rides here rather
+     * than in a later rider because `regress_spec_v3_dry_run.php` measured the
+     * consequence of the alternative: a key in no arm makes the whole adapter
+     * unsignable (rule V3-KEYS, the `theme_version_range` case), so a narrowing
+     * adapter could not be certified at all.
+     */
     private const NON_SURFACE_KEYS = [
-        'actions', 'deletions', 'lifecycle_effects', 'name', 'note', 'notes', 'option_autoload', 'plugin',
-        'providers', 'spec_version', 'theme', 'version_range',
+        'actions', 'deletions', 'environment', 'lifecycle_effects', 'name', 'note', 'notes', 'option_autoload',
+        'plugin', 'providers', 'spec_version', 'theme', 'version_range',
     ];
 
     /**

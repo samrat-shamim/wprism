@@ -785,7 +785,7 @@ evidence before this line changes.
 | v3.2 | `engine_features` declaration channel | WP-4.2 | no — the key is inert |
 | v3.3 | closed top-level key set and its growth rule | WP-4.3 | signing only, never the validator |
 | v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | no — one monolith, one whole-document hash |
-| v3.5 | per-adapter environment narrowing | WP-4.6 | no — one global copy into every claim |
+| v3.5 | per-adapter environment narrowing | WP-4.6 | yes at `spec_version: 3`; inert at v2 |
 | v3.6 | certificates bind exercised axes; in-statement version; domain `/v2` | WP-4.7 | no — whole-`platform.json` byte equality |
 | v3.7 | authority record v2, and the platform root's identity-only binding | WP-4.8 | no — 6-key record, whole-record platform binding |
 | v3.8 | depth-1 delegation and typed revocation | WP-4.9 | no — no chain, one `status` word per key |
@@ -864,9 +864,14 @@ flattening them would publish less than the engine knows:
 - **field sections** (14): `block_attrs`, `dynamic_options`, `interpreter`, `menu_fields`,
   `meta_patterns`, `option_name_refs`, `option_namespaces`, `option_patterns`, `options`, `post_meta`,
   `post_meta_patterns`, `shortcode_attrs`, `term_meta`, `user_meta`;
-- **non-surface keys** (12, declaring no branchable state surface of their own): `actions`, `deletions`,
-  `lifecycle_effects`, `name`, `note`, `notes`, `option_autoload`, `plugin`, `providers`, `spec_version`,
-  `theme`, `version_range`.
+- **non-surface keys** (13, declaring no branchable state surface of their own): `actions`, `deletions`,
+  `environment`, `lifecycle_effects`, `name`, `note`, `notes`, `option_autoload`, `plugin`, `providers`,
+  `spec_version`, `theme`, `version_range`.
+
+`environment` is the newest member and the growth rule's first live exercise: WP-4.6 added it with the
+rule that reads it (§ v3.5), because a key in no arm makes its whole adapter unsignable and a narrowing
+channel nobody can certify is not a channel. No shipped adapter declares it, so admitting it moved no
+digest and no certificate — the same standing `theme` has below.
 
 **The growth rule.** A closed set that cannot grow is the next flag day. It grows in exactly one way: a
 key claimed by a declared `engine_features` value the engine IMPLEMENTS is admitted; a key claimed by a
@@ -935,22 +940,56 @@ unrelated: an edit attributable to no pinned subject still invalidates fail-clos
 
 ### v3.5 Per-adapter environment narrowing, never widening
 
-**Rider: WP-4.6. Enforced today: no.** `claim_from_disposition()` copies `environment_assumptions`
-verbatim out of the single global `platform.json` into every claim
-(`agent/src/Policy/ManifestDispositions.php:338-343`), so all 16 shipped claims carry byte-identical
-environment assumptions and no adapter can state anything about the cells it actually ran on.
+**Rider: WP-4.6. Enforced today: yes, for a `spec_version: 3` manifest; inert for v2.**
+`claim_from_disposition()` used to copy `environment_assumptions` verbatim out of the single global
+`platform.json` into every claim, so all 16 shipped claims carried byte-identical environment assumptions
+and no adapter could state anything about the cells it actually ran on. It now projects them through
+`ManifestDispositions::narrowed_environment()`, which honours the adapter's own declaration.
 
-At v3 an adapter may declare an environment that is a SUBSET of the reviewed platform boundary — the same
+An adapter may declare an environment that is a SUBSET of the reviewed platform boundary — the same
 subset shape `unsupported[]` already uses for surfaces — and that declaration narrows the CLAIM only:
 
 - a narrower declaration is honoured and reported;
 - a WIDER one refuses by name. An adapter may never claim a cell the reviewed boundary does not carry;
 - an adapter declaring nothing binds the whole current boundary, which is today's behaviour exactly.
 
+**The declaration.** A top-level `environment` key, an object of axis to the list of boundary cells that
+axis was exercised on:
+
+```json
+"environment": {"database": ["MariaDB"], "php": ["8.3"], "site_mode": ["single-site"], "wordpress": ["6.9", "7.0"]}
+```
+
+The four narrowable axes are exactly the four members a capability claim states — `site_mode` plus the
+`php`, `database` and `wordpress` compatibility axes. `filesystem` and `process` are load-time profiles
+that no claim states, so naming one would narrow a sentence the claim never makes and refuses by name
+along with any other unrecognised axis. A cell is the boundary's own vocabulary for that axis: an
+exercised series of `php.verified`/`wordpress.verified`, a key of `database.engines`, or the one reviewed
+`site_mode` value — so `"site_mode": ["multisite"]` is a widening and is refused, which is the sharpest
+demonstration that this channel subtracts and never adds. An axis the declaration omits keeps the whole
+boundary; narrowing is opt-in per axis. A narrowed `wordpress` axis recomputes its own `last_verified`,
+because that scalar is the GREATEST exercised core and must be a member of the map it heads
+(`PlatformCompatibility::valid_wordpress_axis()`).
+
+`environment` therefore JOINS § v3.3's partition as a non-surface key — it covers no branchable state —
+and it joins in the same change that reads it, because a top-level key in no arm makes the whole adapter
+unsignable (the `theme_version_range` case measured under rule V3-KEYS): a narrowing channel only
+uncertified adapters could use would be no channel at all.
+
+**What v2 does with it.** Nothing. Under a `spec_version: 2` manifest the key is INERT — the claim is the
+whole boundary, byte for byte, exactly as if the key were absent — which is the same silence
+`engine_features` sits in (§ v3.2). Refusing a v3-only section inside a v2 manifest BY NAME rather than
+ignoring it is § v3.1's acceptance window, and it is the only mechanism that can do so without refusing
+the manifest wholesale; until it ships this channel is a declaration surface a v2 engine reads and does
+not act on. `DUO_SPEC_VERSION` is still `2`, so no shipped manifest reaches the live half of this rule and
+no shipped claim, digest or certificate moved.
+
 Narrowing relaxes no load-time assertion. `PlatformCompatibility::assert_supported()` still gates
 `site_mode`, PHP, database engine and version, WordPress version, the filesystem profile and the process
-profile exactly as it does now. A claim that says which cells were exercised is strictly more information
-than one that inherits the whole boundary; it is not permission to run outside it.
+profile exactly as it does now — it takes no manifest and reads no claim, so a declaration cannot reach
+it, and `regress_adapter_environment_narrowing.php` drives every one of those refusals with a narrowing
+adapter projected. A claim that says which cells were exercised is strictly more information than one
+that inherits the whole boundary; it is not permission to run outside it.
 
 ### v3.6 Certificates bind exercised axes, carry an in-statement version, and move to domain `/v2`
 
