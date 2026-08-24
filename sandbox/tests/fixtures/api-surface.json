@@ -1,5 +1,5 @@
 {
-    "class_count": 376,
+    "class_count": 377,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -21504,6 +21504,121 @@
                     "parameters": [],
                     "return_type": "void",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\AdapterBoundary": {
+            "abstract": false,
+            "constants": {
+                "EXIT_BLOCKED": {
+                    "value_repr": 1
+                },
+                "EXIT_OK": {
+                    "value_repr": 0
+                },
+                "EXIT_PROBE_REQUIRED": {
+                    "value_repr": 3
+                },
+                "EXIT_USAGE": {
+                    "value_repr": 2
+                },
+                "FORMAT": {
+                    "value_repr": "duo-adapter-boundary-search/v1"
+                },
+                "OUTCOMES": {
+                    "value_repr": [
+                        "green",
+                        "boot-fatal",
+                        "round-trip-diverges",
+                        "artifact-unresolved"
+                    ]
+                },
+                "OUTCOMES_FORMAT": {
+                    "value_repr": "duo-adapter-boundary-outcomes/v1"
+                },
+                "OUTCOME_BOOT_FATAL": {
+                    "value_repr": "boot-fatal"
+                },
+                "OUTCOME_DIVERGES": {
+                    "value_repr": "round-trip-diverges"
+                },
+                "OUTCOME_GREEN": {
+                    "value_repr": "green"
+                },
+                "OUTCOME_UNRESOLVED": {
+                    "value_repr": "artifact-unresolved"
+                },
+                "RELEASES_FORMAT": {
+                    "value_repr": "duo-adapter-release-list/v1"
+                },
+                "ROLE_CERTIFIED": {
+                    "value_repr": "certified-boundary"
+                },
+                "ROLE_REFUSAL": {
+                    "value_repr": "refusal-fixture"
+                },
+                "VERBS": {
+                    "value_repr": [
+                        "boundary"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "search": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "releases",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "outcomes",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "options",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
                     "visibility": "public"
                 }
             },

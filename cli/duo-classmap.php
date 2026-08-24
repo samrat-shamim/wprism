@@ -10,6 +10,7 @@ declare(strict_types=1);
 // at the point it is referenced.
 
 return [
+    'Duo\\Orchestrator\\AdapterBoundary' => 'src/Adapter/AdapterBoundary.php',
     'Duo\\Orchestrator\\AdapterCatalog' => 'src/Adapter/AdapterCatalog.php',
     'Duo\\Orchestrator\\AdapterCertify' => 'src/Adapter/AdapterCertify.php',
     'Duo\\Orchestrator\\AdapterDraft' => 'src/Adapter/AdapterDraft.php',
