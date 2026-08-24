@@ -925,6 +925,20 @@ foreach ([
 woo_ok(substr_count($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"') === 1
     && str_contains($matrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
     'one lifecycle call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
+woo_ok(substr_count($matrixHarness, 'check_woocommerce_product_delete_refusal "$WOO_VERSION"') === 1
+    && str_contains($matrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
+    'one product-deletion refusal call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
+foreach ([
+    'wc_get_product_id_by_sku("CONF-WIDGET-1")',
+    'wc_order_product_lookup',
+    'deletion intent for post:product is unsupported',
+    '--force-delete-referenced',
+    'refs/remotes/origin/main',
+    'deletion retry did not settle after intent removal',
+] as $deletionWitness) {
+    woo_ok(str_contains($matrixHarness, $deletionWitness),
+        "exact WooCommerce product-deletion matrix pins $deletionWitness");
+}
 woo_ok(str_contains($matrixHarness, 'WooCommerce version-matrix evidence requires DUO_EXPECTED_SOURCE_SHA')
     && str_contains($matrixHarness, 'export DUO_SOURCE_ROOT="$(cd .. && pwd -P)"'),
     'the WooCommerce-only artifact matrix mounts its invoking candidate worktree before pair reset');

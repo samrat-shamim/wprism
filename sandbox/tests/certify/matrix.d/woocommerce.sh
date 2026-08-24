@@ -133,3 +133,61 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   [ -z "$lifecycle_diff" ] || fail "WooCommerce $version exact-reinstall recapture lost byte identity: $lifecycle_diff"
   pass "WooCommerce $version deactivate/reactivate, retained-data uninstall, absent-code refusal, digest-bound exact reinstall, native readback, recapture, and retry are clean"
 }
+
+check_woocommerce_product_delete_refusal() { # <exact-version>
+  local version="$1" repo="siterepo/${PAIR}2" product order lookup_before lookup_after
+  local product_file product_uuid expected_hash expected_revision source_path backup
+  local before_tree after_tree before_head after_head before_origin after_origin plan_rc apply_rc force_rc plan_out apply_out force_out retry
+  product=$(wp2 eval '$id=(int) wc_get_product_id_by_sku("CONF-WIDGET-1"); echo $id;')
+  require_fixture_ids product
+  order=$(wp2 eval "
+\$product = wc_get_product($product);
+if (!\$product) { throw new RuntimeException('WooCommerce deletion fixture product is absent'); }
+\$order = wc_create_order(); \$order->add_product(\$product, 1); \$order->calculate_totals(); \$order->set_status('processing'); \$order->save(); echo \$order->get_id();")
+  require_fixture_ids order
+  lookup_before=0
+  for _ in $(seq 1 8); do
+    wp2 action-scheduler run >/dev/null
+    lookup_before=$(wp2 db query "SELECT COUNT(*) FROM wp_wc_order_product_lookup WHERE order_id=$order AND product_id=$product" --skip-column-names)
+    require_observed_nonempty "WooCommerce $version deletion order lookup count" "$lookup_before"
+    [ "$lookup_before" -ge 1 ] && break
+    sleep 2
+  done
+  [ "$lookup_before" -ge 1 ] || fail "WooCommerce $version deletion fixture did not materialize its native order-product lookup"
+  product_file=$(find "$repo/state/posts/product" -type f -name '*--conformance-widget.md' -print -quit)
+  [ -n "$product_file" ] || fail "WooCommerce $version deletion fixture cannot locate the captured product state"
+  product_uuid=$(basename "$product_file" | cut -d- -f1-5)
+  [[ "$product_uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || fail "WooCommerce $version deletion fixture has a malformed product UUID"
+  expected_hash=$(shasum -a 256 "$product_file" | awk '{print $1}')
+  expected_revision=$(wp2 eval 'echo \Duo\RepositoryCompiler::compile("/siterepo", \Duo\Policy::load("/siterepo"))->revision_hash();')
+  require_observed_nonempty "WooCommerce $version deletion expected revision" "$expected_revision"
+  source_path="posts/product/$(basename "$product_file")"; backup="$repo/.tmp-woocommerce-product-delete.md"
+  mkdir -p "$repo/state/deletions"; mv "$product_file" "$backup"
+  jq -n --arg expected_hash "$expected_hash" --arg expected_revision "$expected_revision" --arg source_path "$source_path" --arg uuid "$product_uuid" \
+    '{expected_hash:$expected_hash,expected_revision:$expected_revision,format:"duo-deletion/v1",kind:"post",source_path:$source_path,type:"product",uuid:$uuid}' > "$repo/state/deletions/$product_uuid.json"
+  before_tree=$(git -C "$repo" status --porcelain); before_head=$(git -C "$repo" rev-parse HEAD); before_origin=$(git -C "$repo" rev-parse refs/remotes/origin/main)
+  set +e
+  plan_rc=0; plan_out=$(wp2 duo plan --repo=/siterepo --format=json 2>&1) || plan_rc=$?
+  require_duo_answered "WooCommerce $version deletion refusal plan" json "$plan_out"
+  apply_rc=0; apply_out=$(wp2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || apply_rc=$?
+  require_duo_answered "WooCommerce $version deletion refusal apply" human "$apply_out"
+  force_rc=0; force_out=$(wp2 duo apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin 2>&1) || force_rc=$?
+  require_duo_answered "WooCommerce $version forced deletion refusal apply" human "$force_out"
+  set -e
+  [ "$plan_rc" -ne 0 ] && [ "$apply_rc" -ne 0 ] && [ "$force_rc" -ne 0 ] || fail "WooCommerce $version accepted unsupported product deletion"
+  for output in "$plan_out" "$apply_out" "$force_out"; do grep -Fq 'deletion intent for post:product is unsupported' <<<"$output" || fail "WooCommerce $version deletion refusal did not name the missing capability: $output"; done
+  [ "$(wp2 eval '$id=(int) wc_get_product_id_by_sku("CONF-WIDGET-1"); echo $id;')" = "$product" ] || fail "WooCommerce $version refusal changed the target product identity"
+  lookup_after=$(wp2 db query "SELECT COUNT(*) FROM wp_wc_order_product_lookup WHERE order_id=$order AND product_id=$product" --skip-column-names)
+  require_observed_nonempty "WooCommerce $version retained order lookup count" "$lookup_after"
+  [ "$lookup_after" = "$lookup_before" ] || fail "WooCommerce $version refusal changed the native order-product lookup"
+  [ "$(wp2 wc shop_order get "$order" --field=status --user=admin)" = processing ] || fail "WooCommerce $version refusal changed the target HPOS order"
+  after_tree=$(git -C "$repo" status --porcelain); [ "$after_tree" = "$before_tree" ] || fail "WooCommerce $version refusal mutated the authored deletion intent"
+  after_head=$(git -C "$repo" rev-parse HEAD); after_origin=$(git -C "$repo" rev-parse refs/remotes/origin/main)
+  [ "$after_head" = "$before_head" ] && [ "$after_origin" = "$before_origin" ] || fail "WooCommerce $version refusal moved the disposable repository revision"
+  rm "$repo/state/deletions/$product_uuid.json"; rmdir "$repo/state/deletions"; mv "$backup" "$product_file"
+  retry=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+  require_duo_answered "WooCommerce $version deletion retry plan" json "$retry"
+  echo "$retry" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null || fail "WooCommerce $version deletion retry did not settle after intent removal: $retry"
+  [ -z "$(git -C "$repo" status --porcelain)" ] || fail "WooCommerce $version deletion fixture did not restore its disposable repository state"
+  pass "WooCommerce $version product deletion refuses before product/order/repository mutation and retry settles"
+}
