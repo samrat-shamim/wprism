@@ -1157,7 +1157,7 @@
           "Review"
         ],
         "exceptions": [],
-        "file_count": 12,
+        "file_count": 13,
         "files": [
           "ActionProviderGrammar.php",
           "AdapterCertification.php",
@@ -1165,6 +1165,7 @@
           "AdapterObservation.php",
           "AdapterProbe.php",
           "AdapterRegistry.php",
+          "AdapterScan.php",
           "AdapterSources.php",
           "ProviderActionBatchBuilder.php",
           "ProviderSdk.php",

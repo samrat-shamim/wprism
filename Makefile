@@ -384,6 +384,14 @@ regress-topology-gate:
 regress-adapter-sources:
 	bash sandbox/tests/offline/adapter/regress_adapter_sources.sh
 
+# WP-1.3: the survey resolves the adapter library ONCE and refuses when it
+# moves underneath. Counted rather than timed (constant whole-library work at
+# 125/250/500 adapters, two decodes per row), plus the two mid-survey
+# mutations -- a manifest appearing, and one rewritten in place -- that each
+# have to refuse through a different half of the memo's witness.
+regress-adapter-survey-scale:
+	php sandbox/tests/offline/adapter/regress_adapter_survey_scale.php
+
 regress-site-adapter-certification:
 	php sandbox/tests/offline/adapter/regress_site_adapter_certification.php
 

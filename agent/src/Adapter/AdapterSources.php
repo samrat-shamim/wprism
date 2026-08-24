@@ -462,6 +462,115 @@ final class AdapterSources {
     }
 
     /**
+     * WHAT THE SCAN'S ANSWER IS A FUNCTION OF — the inputs a memo of it has to
+     * key on (WP-1.3).
+     *
+     * `AdapterScan` holds one resolved `discover()` for a whole survey instead
+     * of re-running it per surveyed adapter, and it may only do that while it
+     * can prove the inputs have not moved. This is the list of those inputs,
+     * and it lives HERE, beside scan(), for the reason the two scan modes share
+     * one body: a list of "which files does the scan read" maintained anywhere
+     * else is a second description of this walk that can silently disagree with
+     * it. `regress_adapter_survey_scale.php` closes the loop by intercepting
+     * every read the real scan performs and refusing one this list does not
+     * name.
+     *
+     *   - `anchors` are stat-cheap and re-checked per memo reuse: the three
+     *     source directories (whose mtime/ctime move on any entry churn), the
+     *     two documents that gate the whole scan, and `capabilities/` (which
+     *     holds the platform boundary the load's own precondition reads).
+     *   - `files` is every file the scan can open, re-checked once by content.
+     *   - `plugins` is the activation set, which decides which bundles are in
+     *     force and lives in the options table rather than on disk — a file
+     *     witness alone would be blind to a plugin activated mid-survey.
+     *
+     * The split between scan_anchors() and this is the whole reason the memo
+     * is cheap enough to check per reuse: naming the anchors costs no
+     * directory read at all, while naming the FILES costs one glob per source
+     * — which, re-derived once per surveyed adapter, would be the very
+     * O(rows x files) term WP-1.3 removed. Measured: folding the two together
+     * left a 400-adapter survey at 808 directory scans instead of 8.
+     *
+     * @return array{anchors:list<string>, files:list<string>, plugins:list<string>}
+     */
+    public static function scan_dependencies(string $manifestDir, ?string $repo): array {
+        $anchored = self::scan_anchors($manifestDir, $repo);
+        $library = rtrim($manifestDir, '/');
+        // The platform boundary is not an adapter and is not matched by the
+        // adapter glob, but Policy's own load precondition reads it
+        // (ManifestDispositions::platform_boundary()), so a memo that outlived
+        // a change to it would answer with a boundary the process no longer
+        // enforces.
+        $files = array_merge(
+            array_values(glob($library . '/*.json') ?: []),
+            glob($library . '/capabilities/*.json') ?: []
+        );
+        if ($repo !== null) {
+            $root = rtrim($repo, '/');
+            $siteDir = $root . '/' . self::SITE_DIR;
+            $files = array_merge(
+                $files,
+                [$root . '/site.duo.json'],
+                glob($siteDir . '/*.json') ?: [],
+                glob($siteDir . '/' . self::CERTIFICATION_DIR . '/*.json') ?: []
+            );
+        }
+        $source = self::plugin_source();
+        if ($source !== null) {
+            $files = array_merge(
+                $files,
+                // Both shapes the plugin block reads: the bundle at each
+                // plugin's root, and the one at the plugins root that is
+                // refused for belonging to no plugin.
+                glob($source['dir'] . '/*/' . self::PLUGIN_FILE) ?: [],
+                is_file($source['dir'] . '/' . self::PLUGIN_FILE)
+                    ? [$source['dir'] . '/' . self::PLUGIN_FILE]
+                    : []
+            );
+        }
+        $files = array_values(array_unique($files));
+        sort($files, SORT_STRING);
+        return ['anchors' => $anchored['anchors'], 'files' => $files, 'plugins' => $anchored['plugins']];
+    }
+
+    /**
+     * The O(1) half of the dependency set: the paths whose own `stat` moves
+     * when the file SET moves, plus the activation set.
+     *
+     * Every one of these is derived, never enumerated — no glob, no scandir —
+     * because this is what a memo re-checks before answering each row. A
+     * directory's mtime and ctime move on any entry added, removed or renamed
+     * inside it, which is exactly the class of change a stale origins map
+     * would get wrong; an in-place rewrite that churns no entry is the other
+     * class, and scan_dependencies()' content witness is what covers it.
+     *
+     * @return array{anchors:list<string>, plugins:list<string>}
+     */
+    public static function scan_anchors(string $manifestDir, ?string $repo): array {
+        $library = rtrim($manifestDir, '/');
+        $anchors = [$library, $library . '/dispositions.json', $library . '/capabilities'];
+        if ($repo !== null) {
+            $root = rtrim($repo, '/');
+            $siteDir = $root . '/' . self::SITE_DIR;
+            // site.duo.json: read by override_pins() below, and by nothing
+            // else in this scan — the one exception discover() makes to never
+            // opening the site's own policy file.
+            $anchors = array_merge($anchors, [
+                $root . '/site.duo.json',
+                $siteDir,
+                $siteDir . '/' . self::CERTIFICATION_DIR,
+            ]);
+        }
+        $plugins = [];
+        $source = self::plugin_source();
+        if ($source !== null) {
+            $anchors[] = $source['dir'];
+            $plugins = $source['active'];
+        }
+        return ['anchors' => $anchors, 'plugins' => $plugins];
+    }
+
+    /**
      * The one scan, in its two modes.
      *
      * `$collect === false` is discover(): every condition below throws, with
@@ -2127,10 +2236,28 @@ final class AdapterSources {
      * `not_installed` carries every adapter that is on this disk and did not
      * load, with the definition that outranked it.
      *
+     * Every grammar verdict below is taken against ONE resolved library
+     * (WP-1.3): the scan handle opened at the loop, passed explicitly into
+     * grammar_verdict(), and settled before these rows are returned. Before it,
+     * each row re-ran discover() and the reviewed-registry read that the row
+     * before it had already paid for — 501 directory scans and 501 registry
+     * reads for a 500-adapter library, growing 3.7x per doubling; 6 and 2 now.
+     * AdapterScan's header carries the measurements and the reason the handle
+     * is an argument rather than process state.
+     *
      * @param ?string $repo site repository whose adapters/ source also counts
      * @return array{adapters:list<array<string,mixed>>, not_installed:list<array<string,mixed>>, refusals:list<array<string,mixed>>, sources:list<array<string,mixed>>}
      */
     public static function survey(?string $repo): array {
+        // Lazily, at the one entry that needs them, for the reason the
+        // AdapterCertification requires below give: this file is on the pure
+        // loader path Policy::load() walks, and AdapterScan requires Policy,
+        // so a top-level require here would make AdapterSources and Policy
+        // require each other at load time. CommandRefusal comes with it
+        // because grammar_verdict() — reachable only from here — names
+        // CommandRefusalException to let the one typed refusal through.
+        require_once __DIR__ . '/AdapterScan.php';
+        require_once __DIR__ . '/../Kernel/CommandRefusal.php';
         $manifestDir = Policy::manifests_dir();
         $refusals = [];
         $scan = self::scan($manifestDir, $repo, true, $refusals);
@@ -2242,6 +2369,18 @@ final class AdapterSources {
             }
         }
 
+        // WHICH REFUSALS BLOCK, computed once for the whole survey rather than
+        // once per row: it is a function of $refusals, which is complete before
+        // the loop starts, and it decides the repository every row below is
+        // judged against — so the scan handle can be opened for exactly that
+        // repository, once.
+        $blocking = self::blocking_refusals($refusals);
+        // The resolved library every verdict below is taken against. Opening it
+        // reads nothing (AdapterScan::open()); the first row that actually
+        // loads is what pays for the one scan, so a survey whose rows are all
+        // answered without a load still costs none.
+        $library = AdapterScan::open($blocking === [] ? $repo : null);
+
         $adapters = [];
         foreach ($scan['origins'] as $name => $origin) {
             $name = (string) $name;
@@ -2250,7 +2389,7 @@ final class AdapterSources {
             $outOfTree = isset($scan['provenance'][$name]);
             $entry = $dispositions === null || $outOfTree ? null : $dispositions->entry($name);
             $tier = self::tier_decision($manifest);
-            $grammar = self::grammar_verdict($name, $source, $repo, $refusals);
+            $grammar = self::grammar_verdict($name, $source, $blocking, $library);
             $adapters[] = [
                 // A bundled adapter's word is `uncertified`, always, and never
                 // one of DUO-3314's signed words: certification binds
@@ -2298,12 +2437,43 @@ final class AdapterSources {
             ];
         }
 
+        // The exact half of the memo's witness, before a single row is
+        // published: every row above was judged against one resolved library,
+        // and this is where the survey proves that library was one library.
+        // A difference refuses the whole survey — an inventory assembled from
+        // two epochs is not an inventory of anything.
+        $library->settle();
+
         return [
             'adapters' => $adapters,
             'not_installed' => $scan['not_installed'],
             'refusals' => $refusals,
             'sources' => $scan['sources'],
         ];
+    }
+
+    /**
+     * The refusals that stop an adapter source from being read at all, which
+     * is what decides whether a verdict can be taken against the repository.
+     *
+     * Its own function since WP-1.3 because two callers need the identical
+     * answer: survey() opens ONE scan handle for the repository the whole loop
+     * will be judged against, and grammar_verdict() renders the first of these
+     * into a blocked SITE row's message. Deriving it twice would let a future
+     * filter change one and not the other, and the two disagreeing means rows
+     * judged against a repository the message says was not read.
+     *
+     * @param list<array<string,mixed>> $refusals
+     * @return list<array<string,mixed>>
+     */
+    private static function blocking_refusals(array $refusals): array {
+        $blocking = [];
+        foreach ($refusals as $refusal) {
+            if (($refusal['scope'] ?? self::SCOPE_SOURCE) === self::SCOPE_SOURCE) {
+                $blocking[] = $refusal;
+            }
+        }
+        return $blocking;
     }
 
     /**
@@ -2514,17 +2684,25 @@ final class AdapterSources {
      * both false and exactly the "true and useless" answer this function was
      * written to avoid.
      *
+     * The loader reached through the survey's scan handle rather than through
+     * `Policy::load()` directly (WP-1.3): the handle already holds the
+     * discovered sources and the reviewed registry that a fresh load would
+     * re-derive for this row, and it re-proves its witness before answering.
+     * The verdict is otherwise the same load, on the same bytes, with the same
+     * messages — the per-pin work (this manifest's own read, validation and
+     * finalization) is untouched, which is the half that is actually about
+     * this adapter.
+     *
      * @param string $source the row's own adapter source
-     * @param list<array<string,mixed>> $refusals refusals this survey already collected
+     * @param list<array<string,mixed>> $blocking source-scoped refusals this survey collected
      * @return array{status:string, message:?string}
      */
-    private static function grammar_verdict(string $name, string $source, ?string $repo, array $refusals): array {
-        $blocking = [];
-        foreach ($refusals as $refusal) {
-            if (($refusal['scope'] ?? self::SCOPE_SOURCE) === self::SCOPE_SOURCE) {
-                $blocking[] = $refusal;
-            }
-        }
+    private static function grammar_verdict(
+        string $name,
+        string $source,
+        array $blocking,
+        AdapterScan $library
+    ): array {
         if ($source === self::SITE && $blocking !== []) {
             $first = $blocking[0];
             return [
@@ -2540,8 +2718,19 @@ final class AdapterSources {
             ];
         }
         try {
-            Policy::load($blocking === [] ? $repo : null, [$name]);
+            $library->load($name);
             return ['message' => null, 'status' => self::GRAMMAR_OK];
+        } catch (CommandRefusalException $refusal) {
+            // The ONE throwable that is not this adapter's grammar. A moved
+            // library says the survey read two libraries, which is a fact
+            // about the RUN: folding it into one row's message would report
+            // "this adapter is malformed" for a library that changed under an
+            // unrelated adapter, and would leave the rows already collected
+            // published as if they still described the disk.
+            if ($refusal->reasonCode === AdapterScan::REFUSAL_MOVED) {
+                throw $refusal;
+            }
+            return ['message' => $refusal->getMessage(), 'status' => self::GRAMMAR_ERROR];
         } catch (\Throwable $t) {
             return ['message' => $t->getMessage(), 'status' => self::GRAMMAR_ERROR];
         }
