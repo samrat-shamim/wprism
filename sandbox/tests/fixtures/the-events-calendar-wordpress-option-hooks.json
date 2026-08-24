@@ -364,7 +364,7 @@
         "qr_code_size": ["4", "8", "12", "16", "20", "24", "28"],
         "redirection": ["current", "upcoming", "specific"],
         "event_ref": "post:tribe_events",
-        "series_ref": "free-plugin-absence"
+        "series_ref": "free-plugin-zero-wire"
       }
     },
     "callbacks": {

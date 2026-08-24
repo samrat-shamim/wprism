@@ -1198,7 +1198,7 @@ final class TheEventsCalendar {
             } elseif ($key === 'redirection') {
                 $valid = is_string($value) && in_array($value, ['current', 'upcoming', 'specific'], true);
             } elseif ($key === 'series_id') {
-                $valid = $value === null;
+                $valid = $value === 0;
             } elseif ($key === 'event_id') {
                 if ($value === null) {
                     $valid = true;
@@ -1487,7 +1487,9 @@ final class TheEventsCalendar {
                         'duo: The Events Calendar QR widget series reference requires the licensed recurrence surface'
                     );
                 }
-                $out[$key] = null;
+                // Exact 6.17.2/6.17.3 Widget_QR_Code::update() persists
+                // absint(unset) as integer zero; positive IDs are Pro series.
+                $out[$key] = 0;
             }
         }
         if (($out['redirection'] ?? null) === 'specific' && ($out['event_id'] ?? null) === null) {
@@ -1569,7 +1571,7 @@ final class TheEventsCalendar {
                 continue;
             }
             if ($key === 'series_id') {
-                if ($value !== null) {
+                if ($value !== 0) {
                     throw new \RuntimeException(
                         'duo: The Events Calendar canonical QR widget series state is outside the free adapter'
                     );

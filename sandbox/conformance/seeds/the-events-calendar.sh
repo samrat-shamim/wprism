@@ -80,6 +80,7 @@ foreach ([
 $organizer = $organizers[0];
 $delete_venue = tribe_venues()->set_args([
     'venue' => 'Duo Unsupported Delete Venue',
+    'status' => 'publish',
     'address' => '400 Atomic Refusal Street',
     'city' => 'Kathmandu',
     'country' => 'Nepal',
@@ -108,6 +109,7 @@ $disabled_venue_id = tribe_create_venue([
 ]);
 $absent_map_venue = tribe_venues()->set_args([
     'venue' => 'Duo Map Metadata Absent Venue',
+    'status' => 'publish',
     'address' => '300 Legacy Boundary Street',
     'city' => 'Kathmandu',
     'country' => 'Nepal',

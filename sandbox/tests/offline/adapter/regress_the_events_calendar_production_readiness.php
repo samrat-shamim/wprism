@@ -3299,8 +3299,8 @@ duo_check_same(
 );
 duo_check(
     array_key_exists('series_id', $embeddedQrAttrs['instance']['settings'] ?? [])
-        && $embeddedQrAttrs['instance']['settings']['series_id'] === null,
-    'the free QR widget represents its licensed series surface only as exact absence'
+        && $embeddedQrAttrs['instance']['settings']['series_id'] === 0,
+    'the free QR widget preserves the exact native zero wire while refusing licensed series IDs'
 );
 duo_check(
     !str_contains($canonicalEmbeddedList, base64_encode(serialize($sourceEmbeddedListSettings)))
@@ -3747,7 +3747,7 @@ $widgetRepositoryTree[] = [
                     'qr_code_size' => '28',
                     'redirection' => 'specific',
                     'event_id' => '{{post:' . TEC_EVENT_UUID . '}}',
-                    'series_id' => null,
+                    'series_id' => 0,
                 ],
             ],
         ],
@@ -3757,6 +3757,14 @@ duo_check_same(
     [],
     $interpreter->repository_diagnostics($widgetRepositoryTree),
     'repository compilation binds stored widget tokens to exact SidebarState owners and QR tokens to tribe_events'
+);
+$nullSeriesWidgetTree = $widgetRepositoryTree;
+$nullSeriesWidgetTree[array_key_last($nullSeriesWidgetTree)]['data']['widgets'][1]['settings']['series_id'] = null;
+tec_readiness_refuses(
+    $interpreter,
+    $nullSeriesWidgetTree,
+    'exact native scalar contract',
+    'canonical QR widget series absence cannot drift from the native integer-zero wire'
 );
 $wrongWidgetOwnerTree = $widgetRepositoryTree;
 $wrongWidgetOwnerTree[array_key_last($wrongWidgetOwnerTree)]['data']['widgets'][0]['type'] = 'tribe-widget-events-qr-code';
@@ -4438,7 +4446,7 @@ duo_check_same(
             'qr_code_size' => ['4', '8', '12', '16', '20', '24', '28'],
             'redirection' => ['current', 'upcoming', 'specific'],
             'event_ref' => 'post:tribe_events',
-            'series_ref' => 'free-plugin-absence',
+            'series_ref' => 'free-plugin-zero-wire',
         ],
     ],
     $legacyWidgetBoundary['widget_types'] ?? null,
@@ -7249,6 +7257,15 @@ foreach (['duo_source_only_secret', 'duo_target_only_runtime'] as $undeclaredFix
             && !str_contains($deletionPostdeploy, $undeclaredFixtureKey)
             && !str_contains($deletionCheck, $undeclaredFixtureKey),
         "the exact live fixture never bypasses the closed main-option registry with synthetic sibling $undeclaredFixtureKey"
+    );
+}
+foreach (['Duo Unsupported Delete Venue', 'Duo Map Metadata Absent Venue'] as $unlinkedVenueTitle) {
+    duo_check(
+        preg_match(
+            "/'venue' => '" . preg_quote($unlinkedVenueTitle, '/') . "',\\s*'status' => 'publish'/",
+            $deletionSeed
+        ) === 1,
+        "the unlinked native venue fixture $unlinkedVenueTitle has a unique published slug before capture"
     );
 }
 duo_check(
