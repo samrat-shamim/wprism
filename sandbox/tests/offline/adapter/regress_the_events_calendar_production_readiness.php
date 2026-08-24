@@ -1076,7 +1076,7 @@ function update_option(string $name, mixed $value, mixed $autoload = null): bool
         do_action('update_option', $name, $old, $value);
         $updatedRow = ['option_value' => $stored];
         if ($autoload === null && in_array($existingAutoload, ['auto', 'auto-on', 'auto-off'], true)) {
-            apply_filters('wp_default_autoload_value', null, $name, $stored);
+            apply_filters('wp_default_autoload_value', null, $name, $value, $stored);
             $updatedRow['autoload'] = 'auto-on';
         }
         $changed = $wpdb->update($wpdb->options, $updatedRow, ['option_name' => $name]);
@@ -1094,7 +1094,7 @@ function update_option(string $name, mixed $value, mixed $autoload = null): bool
         $autoload === false ? ['off'] : ['on']
     );
     if ($autoload === null) {
-        apply_filters('wp_default_autoload_value', null, $name, $stored);
+        apply_filters('wp_default_autoload_value', null, $name, $value, $stored);
         $rowAutoload = 'auto-on';
     } else {
         $rowAutoload = $autoload === false || !in_array('on', (array) $autoloadValue, true)
@@ -1394,6 +1394,17 @@ function wp_using_ext_object_cache(): mixed {
     return array_key_exists('tec_readiness_external_object_cache', $GLOBALS)
         ? $GLOBALS['tec_readiness_external_object_cache']
         : false;
+}
+
+function wp_filter_default_autoload_value_via_option_size(
+    mixed $autoload,
+    string $option,
+    mixed $value,
+    mixed $serializedValue
+): mixed {
+    $maxOptionSize = (int) apply_filters('wp_max_autoloaded_option_size', 150000, $option);
+    $size = !empty($serializedValue) ? strlen((string) $serializedValue) : 0;
+    return $size > $maxOptionSize ? false : $autoload;
 }
 
 /** @return mixed */
@@ -4280,6 +4291,17 @@ duo_check_same(
     ],
     $optionHookFixture['local_object_cache_boundary'] ?? null,
     'the reviewed WordPress source fixture closes the exact nullable local-cache topology'
+);
+duo_check_same(
+    [
+        'hook' => 'wp_default_autoload_value',
+        'callback' => 'wp_filter_default_autoload_value_via_option_size',
+        'priority' => 5,
+        'accepted_args' => 4,
+        'nested_hook' => 'wp_max_autoloaded_option_size',
+    ],
+    $optionHookFixture['marker_default_autoload_callback'] ?? null,
+    'the reviewed WordPress source fixture closes the native marker default-autoload callback'
 );
 duo_check_same(
     'php sandbox/tests/support/verify-tec-wordpress-option-hooks.php '
@@ -7721,6 +7743,12 @@ duo_check(
     'every TEC network command rechecks physical adapter state, repository absence, and code activation'
 );
 
+add_filter(
+    'wp_default_autoload_value',
+    'wp_filter_default_autoload_value_via_option_size',
+    5,
+    4
+);
 $regenerator = new TheEventsCalendarRegenerator($policy);
 $GLOBALS['tec_readiness_settings_manager'] = Tribe__Settings_Manager::instance();
 duo_check_throws(
@@ -9238,12 +9266,45 @@ $resetTecDerived();
 $defaultAutoloadCallback = static fn(mixed $autoload): mixed => $autoload;
 add_filter('wp_default_autoload_value', $defaultAutoloadCallback, 1, 3);
 duo_check_same(
-    'duo: TEC free-plugin derived-state contract does not admit callback hook wp_default_autoload_value',
+    'duo: TEC derived-state regeneration requires the exact WordPress default-autoload callback',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
-    'the implicit native marker autoload path refuses a default-autoload callback before mutation'
+    'the implicit native marker autoload path refuses an extension callback before mutation'
 );
 duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'default-autoload hook refusal precedes plugin code');
 remove_filter('wp_default_autoload_value', $defaultAutoloadCallback, 1);
+
+$resetTecDerived();
+remove_filter(
+    'wp_default_autoload_value',
+    'wp_filter_default_autoload_value_via_option_size',
+    5
+);
+duo_check_same(
+    'duo: TEC derived-state regeneration requires the exact WordPress default-autoload callback',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a partial boot missing the source-proven WordPress callback refuses before native option mutation'
+);
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'missing default-autoload callback precedes plugin code');
+$substitutedDefaultAutoload = static fn(mixed $autoload): mixed => $autoload;
+add_filter('wp_default_autoload_value', $substitutedDefaultAutoload, 5, 4);
+duo_check_same(
+    'duo: TEC derived-state regeneration requires the exact WordPress default-autoload callback',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a same-priority same-arity substitute cannot impersonate the WordPress callback'
+);
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'substituted default-autoload callback precedes plugin code');
+remove_filter('wp_default_autoload_value', $substitutedDefaultAutoload, 5);
+add_filter(
+    'wp_default_autoload_value',
+    'wp_filter_default_autoload_value_via_option_size',
+    5,
+    4
+);
+$regenerator->regenerate($tecEventId);
+duo_check(
+    count($GLOBALS['tec_readiness_event_data_calls']) > 0,
+    'the exact normal-boot WordPress callback permits native marker add/update and derived regeneration'
+);
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_external_object_cache'] = ['malformed'];

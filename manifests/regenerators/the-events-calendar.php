@@ -88,7 +88,6 @@ final class TheEventsCalendar {
         'add_option',
         'add_option_tribe_last_save_post',
         'added_option',
-        'wp_default_autoload_value',
         'wp_max_autoloaded_option_size',
     ];
 
@@ -1022,6 +1021,17 @@ final class TheEventsCalendar {
                     "duo: TEC free-plugin derived-state contract does not admit callback hook $hook"
                 );
             }
+        }
+        $defaultAutoload = $this->hookCallbacks('wp_default_autoload_value');
+        if (count($defaultAutoload) !== 1
+            || ($defaultAutoload[0]['function'] ?? null)
+                !== 'wp_filter_default_autoload_value_via_option_size'
+            || ($defaultAutoload[0]['priority'] ?? null) !== 5
+            || ($defaultAutoload[0]['accepted_args'] ?? null) !== 4
+            || !function_exists('wp_filter_default_autoload_value_via_option_size')) {
+            throw new \RuntimeException(
+                'duo: TEC derived-state regeneration requires the exact WordPress default-autoload callback'
+            );
         }
         foreach (self::ALLOWED_OPTION_HOOKS as $hook => $allowed) {
             $seen = [];

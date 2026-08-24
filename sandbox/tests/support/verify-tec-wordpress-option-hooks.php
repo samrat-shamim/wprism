@@ -179,6 +179,7 @@ $paths = [
     'rewrite_php_sha256' => 'wp-includes/class-wp-rewrite.php',
     'formatting_php_sha256' => 'wp-includes/formatting.php',
     'load_php_sha256' => 'wp-includes/load.php',
+    'default_filters_php_sha256' => 'wp-includes/default-filters.php',
     'cache_php_sha256' => 'wp-includes/cache.php',
     'object_cache_php_sha256' => 'wp-includes/class-wp-object-cache.php',
     'legacy_widget_php_sha256' => 'wp-includes/blocks/legacy-widget.php',
@@ -405,6 +406,30 @@ tec_option_require_call(
     "apply_filters( 'wp_max_autoloaded_option_size'",
     'maximum autoloaded-option size filter'
 );
+$defaultAutoloadCallback = [
+    'hook' => 'wp_default_autoload_value',
+    'callback' => 'wp_filter_default_autoload_value_via_option_size',
+    'priority' => 5,
+    'accepted_args' => 4,
+    'nested_hook' => 'wp_max_autoloaded_option_size',
+];
+tec_option_require_call(
+    $sources['wp-includes/default-filters.php'],
+    "add_filter( 'wp_default_autoload_value', "
+        . "'wp_filter_default_autoload_value_via_option_size', 5, 4 );",
+    'normal-boot default-autoload callback registration'
+);
+foreach ([
+    ['$size            = ! empty( $serialized_value ) ? strlen( $serialized_value ) : 0;', 'bounded option-size input'],
+    ['if ( $size > $max_option_size )', 'maximum-size comparison'],
+    ['return false;', 'oversized option result'],
+    ['return $autoload;', 'unchanged bounded option result'],
+] as [$needle, $label]) {
+    tec_option_require_call($isLargeOption, $needle, $label);
+}
+if (($fixture['marker_default_autoload_callback'] ?? null) !== $defaultAutoloadCallback) {
+    tec_option_usage('normal-boot default-autoload callback disagrees with the reviewed fixture');
+}
 foreach (['wp_cache_get', 'wp_cache_set', 'wp_cache_delete'] as $function) {
     $body = tec_option_function_body($sources['wp-includes/cache.php'], $function);
     if (str_contains($body, 'apply_filters(') || str_contains($body, 'do_action(')) {
