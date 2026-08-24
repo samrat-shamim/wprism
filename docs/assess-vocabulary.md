@@ -91,7 +91,10 @@ raises `plugin_version_mismatch` and `plugin_not_active` and nothing else
 (`agent/src/Adapter/AdapterRegistry.php:559-579`). `revision_not_certified` and
 `profile_evidence_not_current` left `BLOCKERS_REQUALIFICATION`, which now holds
 exactly `evidence_not_current`, synthesized by
-`ContractProjection::withStaleEvidence()`. `multisite_unsupported` left the
+`ContractProjection::withStaleEvidence()` into the surfaces the observed drift
+reaches — every surface when the moved subject cannot be attributed to a pinned
+adapter, and only the surfaces that adapter governs when it can
+(`ContractProjection::invalidation()`). `multisite_unsupported` left the
 `Unsupported` row because topology is judged once, by `AssessCommand::assess()`
 refusing the whole assessment, not per surface. `missing_registry_entry` is now
 `missing_disposition_entry`. The `Experimental` row lost its second route for a

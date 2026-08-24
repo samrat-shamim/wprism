@@ -12,17 +12,33 @@
  * being evidence. The suite generates twice, and generates once more from
  * inputs whose every associative level is reversed, and compares bytes.
  *
- * **The evidence-pin flip.** MUP §3.4: "a mismatch against pinned evidence
- * flips affected surfaces to `Requalification required`". There is exactly one
- * pin left to mismatch — `registry_sha256`, the content address of the
- * reviewed dispositions the verdict was read from — so the flip is total by
- * construction: every surface, whatever it declares and whatever it used to
- * cite. That bluntness is MUP §8's declared deferral and the suite pins it,
- * including the case that used to be the narrow one (a managed surface that
- * named no subject flips too). The per-subject `bundles[]` half is now pinned
- * from the other side: the key is REFUSED in the fact object, so a caller that
- * still supplies observed bundle rows is told, rather than having them
- * silently ignored while `evidence_pins` reports `current`.
+ * **The evidence-pin flip, and how narrow it gets.** MUP §3.4: "a mismatch
+ * against pinned evidence flips affected surfaces to `Requalification
+ * required`". *Affected* is the whole question, and it is decided by what can
+ * be PROVED, so the suite pins both halves against each other:
+ *
+ * - `exact` — the caller supplied the observed `manifest_pins` and some
+ *   adapter's `adapter_digest` moved. Because
+ *   `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own
+ *   disposition entry into that manifest's row
+ *   (`agent/src/Policy/ArtifactPolicyIdentity.php:68`, hashed at `:147`),
+ *   editing ONE subject in `manifests/dispositions.json` moves
+ *   `registry_sha256` and exactly that adapter's digest — so the moved set
+ *   names the affected surfaces, and only those flip.
+ * - `whole-contract` — the registry hash moved but no PINNED adapter's digest
+ *   did (a subject for an adapter this site does not load, or a document-level
+ *   field), or the caller supplied no pins at all. Nothing can prove which
+ *   capability is affected, so every surface flips. This is MUP §8's declared
+ *   bluntness, still reachable, and the suite pins the case that used to be
+ *   the narrow one (a managed surface that named no subject flips too). The
+ *   fallback is what a naive per-adapter comparison would get wrong: it would
+ *   flip nothing.
+ *
+ * The per-subject `bundles[]` half is pinned from the other side: the key is
+ * REFUSED in the fact object, so a caller that still supplies observed bundle
+ * rows is told, rather than having them silently ignored while `evidence_pins`
+ * reports `current`. `governed_by` is held to the same standard — supplying
+ * `manifest_pins` without it refuses rather than degrading to the blunt path.
  *
  * The third assertion is structural: a surface the caller supplies no facts
  * for must project `Not qualified`, never the contract's own declaration.
@@ -51,6 +67,16 @@ use Duo\Orchestrator\ProjectionVocabulary as V;
 // (agent/src/Adapter/AdapterObservation.php:548).
 const DUO_REGISTRY_SHA = '8fa100000000000000000000000000000000000000000000000000000000ffff';
 const DUO_GENERATED_AT = '2026-08-17T09:14:02Z';
+
+// The two `declarations.manifest_pins[].adapter_digest` values
+// `contract-unbound.json` carries, verbatim. Real producer: the per-manifest
+// row hash in `agent/src/Policy/ArtifactPolicyIdentity.php:147`.
+const DUO_CORE_DIGEST = '4d1e00000000000000000000000000000000000000000000000000000000ffff';
+const DUO_COMMERCE_DIGEST = 'c07a00000000000000000000000000000000000000000000000000000000ffff';
+// A dispositions edit moves the whole-document hash too — the same authored
+// byte is inside both preimages (ArtifactPolicyIdentity.php:68).
+const DUO_MOVED_REGISTRY_SHA = 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const DUO_MOVED_COMMERCE_DIGEST = 'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
 
 /**
  * @param array<string,mixed> $overrides
@@ -124,6 +150,50 @@ function duo_projection_facts(): array {
             ],
         ],
     ];
+}
+
+/**
+ * The same facts a target that CAN observe its adapter pins supplies: the
+ * observed `{name, source, adapter_digest}` rows plus the per-surface
+ * attribution they oblige. Digests match `contract-unbound.json` unless an
+ * override moves one.
+ *
+ * `products` is governed by `storefront-commerce` and `orders` by `core`, so
+ * one moved digest separates the two — which is the whole claim under test.
+ *
+ * @param array<string,string> $moved manifest name -> the digest observed now
+ * @return array<string,mixed>
+ */
+function duo_pinned_facts(array $moved = []): array {
+    $facts = duo_projection_facts();
+    $facts['manifest_pins'] = [
+        ['name' => 'core', 'source' => 'shipped',
+            'adapter_digest' => $moved['core'] ?? DUO_CORE_DIGEST],
+        ['name' => 'storefront-commerce', 'source' => 'shipped',
+            'adapter_digest' => $moved['storefront-commerce'] ?? DUO_COMMERCE_DIGEST],
+    ];
+    $facts['surfaces']['products']['governed_by'] = ['storefront-commerce'];
+    $facts['surfaces']['orders']['governed_by'] = ['core'];
+
+    return $facts;
+}
+
+/**
+ * `orders` projected as an ordinary qualifying managed surface rather than the
+ * preserve-local one the base fixture builds. Needed wherever the assertion is
+ * "this surface did NOT flip": `Unsupported` reads the same before and after a
+ * flip, so it cannot witness the narrowing, and `Ready` can.
+ *
+ * @param array<string,mixed> $facts
+ * @return array<string,mixed>
+ */
+function duo_with_qualifying_orders(array $facts): array {
+    $facts['surfaces']['orders']['operations'] = [
+        'capture' => ['facts' => duo_vector('capture')],
+        'release' => ['facts' => duo_vector('release')],
+    ];
+
+    return $facts;
 }
 
 /** @return array<string,mixed> */
@@ -333,9 +403,11 @@ duo_check_same($first, $reversed, 'the bytes do not move with the caller key ord
 duo_check(str_ends_with($first, "\n"), 'the projection ends in exactly one LF');
 duo_check(!str_contains($first, "\r"), 'the projection contains no CR');
 
-// ------------------------------------------------- the evidence-pin flip
+// ------------- the evidence-pin flip, blunt half: nothing observed the pins
+// No `manifest_pins` in the fact object, so the only comparison available is
+// the whole-document one and the flip is total by construction.
 $movedRegistry = duo_projection_facts();
-$movedRegistry['registry_sha256'] = 'sha256:' . str_repeat('a', 64);
+$movedRegistry['registry_sha256'] = DUO_MOVED_REGISTRY_SHA;
 $flipped = ContractProjection::generate($contract, $movedRegistry, $probe, duo_inventory(), DUO_GENERATED_AT);
 duo_check_same(false, $flipped['evidence_pins']['current'], 'a moved registry hash is reported as stale');
 duo_check_same(true, $flipped['evidence_pins']['stale_registry'], 'the stale registry is named');
@@ -396,19 +468,245 @@ duo_check_same(
     'the flipped row states how to get back'
 );
 
-// `evidence_pins` reports the one comparison and no residue of the other. A
-// leftover `stale_bundles: []` would read as "no bundle is stale" — a standing
-// all-clear about a check nothing performs — which is the dishonesty the
-// narrowing exists to remove.
+// `evidence_pins` reports the comparisons it actually performed and no residue
+// of one it did not. A leftover `stale_bundles: []` would read as "no bundle is
+// stale" — a standing all-clear about a check nothing performs — which is the
+// dishonesty the narrowing exists to remove. `stale_adapters: []` under
+// `whole-contract` is NOT that: it is the literal statement "the moved set
+// could not be attributed", which is why the mode word sits beside it.
 duo_check_same(
-    ['current', 'stale_registry'],
+    ['current', 'invalidation', 'stale_adapters', 'stale_registry'],
     array_keys($document['evidence_pins']),
-    'the projection reports exactly the two pin facts it can still observe'
+    'the projection reports exactly the four pin facts it can observe'
 );
 duo_check_same(
-    ['current' => false, 'stale_registry' => true],
+    ['current' => false, 'invalidation' => 'whole-contract', 'stale_adapters' => [], 'stale_registry' => true],
     $flipped['evidence_pins'],
-    'a drifted pin says so in both fields and invents no third'
+    'an unattributable drift says so in all four fields and invents no fifth'
+);
+duo_check_same(
+    ['current' => true, 'invalidation' => 'none', 'stale_adapters' => [], 'stale_registry' => false],
+    $document['evidence_pins'],
+    'matching pins report no invalidation at all'
+);
+duo_check_same(
+    ['id', 'label', 'declared', 'governed_by', 'state_class', 'handling', 'meaning', 'operations'],
+    array_keys($rows['products']),
+    'every surface row carries the dependency edge the flip turns on'
+);
+duo_check_same(
+    [],
+    $rows['products']['governed_by'],
+    'a caller that supplies no attribution gets the empty list, not a guess'
+);
+
+// -------- the evidence-pin flip, exact half: the moved adapter set is proved
+// One subject edited in `manifests/dispositions.json` moves BOTH the
+// whole-document hash and exactly that manifest's `adapter_digest`, because
+// `ArtifactPolicyIdentity::manifest_rows()` folds the manifest's own
+// disposition into the row it hashes (agent/src/Policy/ArtifactPolicyIdentity.php:68,
+// :147). So the fixture moves both, and the flip must reach only the surfaces
+// `storefront-commerce` governs.
+$exactFacts = duo_with_qualifying_orders(
+    duo_pinned_facts(['storefront-commerce' => DUO_MOVED_COMMERCE_DIGEST])
+);
+$exactFacts['registry_sha256'] = DUO_MOVED_REGISTRY_SHA;
+$exact = ContractProjection::generate($contract, $exactFacts, $probe, duo_inventory(), DUO_GENERATED_AT);
+$exactRows = duo_rows_by_id($exact);
+duo_check_same(
+    ['current' => false, 'invalidation' => 'exact',
+        'stale_adapters' => ['storefront-commerce'], 'stale_registry' => true],
+    $exact['evidence_pins'],
+    'one edited subject names the one adapter it moved'
+);
+duo_check_same(
+    ['storefront-commerce'],
+    $exactRows['products']['governed_by'],
+    'the flipped row records which adapter governs it'
+);
+foreach (['capture', 'release'] as $operation) {
+    duo_check_same(
+        'Requalification required',
+        $exactRows['products']['operations'][$operation]['readiness'],
+        "the surface governed by the moved adapter flips for $operation"
+    );
+    duo_check_same(
+        'certify adapter',
+        $exactRows['products']['operations'][$operation]['gap_action'],
+        "… and names the same requalification gap action the blunt flip does for $operation"
+    );
+    duo_check_same(
+        'Ready',
+        $exactRows['orders']['operations'][$operation]['readiness'],
+        "a qualifying surface governed by an UNMOVED adapter keeps its word for $operation"
+    );
+    duo_check(
+        !in_array(
+            ContractProjection::STALE_EVIDENCE_BLOCKER,
+            $exactRows['orders']['operations'][$operation]['blockers'],
+            true
+        ),
+        "… and no stale-evidence blocker was synthesized into it for $operation"
+    );
+}
+duo_check_same(
+    're-certify the pinned evidence, then re-run assess',
+    $exactRows['products']['operations']['release']['remediation'],
+    'the exactly-flipped row states how to get back in the same words'
+);
+// A surface the caller supplied no facts for is governed by nothing, so an
+// exact flip cannot reach it — and does not need to: it is already
+// `Not qualified` through `missing_disposition_entry`, the stronger word.
+duo_check_same(
+    'Not qualified',
+    $exactRows['acme_catalog']['operations']['release']['readiness'],
+    'an unqualified surface is not re-labelled Requalification required by someone else\'s drift'
+);
+
+// Adapter bytes alone. `registry_sha256` still matches its pin — nobody edited
+// the reviewed document — but a manifest's own bytes moved, which
+// docs/product-spec.md:646 names as its own drift class. Equality on the
+// whole-document hash is not a licence, and today's code granted one.
+$bytesOnly = duo_with_qualifying_orders(
+    duo_pinned_facts(['storefront-commerce' => DUO_MOVED_COMMERCE_DIGEST])
+);
+$bytesOnlyDoc = ContractProjection::generate($contract, $bytesOnly, $probe, duo_inventory(), DUO_GENERATED_AT);
+duo_check_same(
+    ['current' => false, 'invalidation' => 'exact',
+        'stale_adapters' => ['storefront-commerce'], 'stale_registry' => false],
+    $bytesOnlyDoc['evidence_pins'],
+    'adapter bytes that no longer match their pin are drift even when the reviewed document did not move'
+);
+duo_check_same(
+    'Requalification required',
+    duo_rows_by_id($bytesOnlyDoc)['products']['operations']['release']['readiness'],
+    '… and the surface that adapter governs flips'
+);
+
+// The fail-closed fallback, with pins in hand. Every pinned digest matches, so
+// nothing is attributable — yet the reviewed document moved, so a subject for
+// some manifest this site does not pin was edited. A naive per-adapter
+// comparison flips nothing here; the contract has to flip everything.
+$unattributable = duo_with_qualifying_orders(duo_pinned_facts());
+$unattributable['registry_sha256'] = DUO_MOVED_REGISTRY_SHA;
+$unattributableDoc = ContractProjection::generate(
+    $contract,
+    $unattributable,
+    $probe,
+    duo_inventory(),
+    DUO_GENERATED_AT
+);
+duo_check_same(
+    ['current' => false, 'invalidation' => 'whole-contract', 'stale_adapters' => [], 'stale_registry' => true],
+    $unattributableDoc['evidence_pins'],
+    'a dispositions edit that touches no pinned manifest is unattributable and says so'
+);
+$unattributableRows = duo_rows_by_id($unattributableDoc);
+foreach (['products', 'orders'] as $surface) {
+    duo_check_same(
+        'Requalification required',
+        $unattributableRows[$surface]['operations']['release']['readiness'],
+        "an unattributable drift still flips $surface — the blunt path is intact"
+    );
+}
+
+// An adapter observed now that no review pinned. The surfaces it governs were
+// never covered by that review, so they are drift.
+$installedSince = duo_with_qualifying_orders(duo_pinned_facts());
+$installedSince['manifest_pins'][] = [
+    'name' => 'site-forms', 'source' => 'site',
+    'adapter_digest' => 'sha256:' . str_repeat('d', 64),
+];
+$installedSince['surfaces']['orders']['governed_by'] = ['site-forms'];
+$installedSinceDoc = ContractProjection::generate(
+    $contract,
+    $installedSince,
+    $probe,
+    duo_inventory(),
+    DUO_GENERATED_AT
+);
+duo_check_same(
+    ['current' => false, 'invalidation' => 'exact',
+        'stale_adapters' => ['site-forms'], 'stale_registry' => false],
+    $installedSinceDoc['evidence_pins'],
+    'an adapter installed since accept is drift for the surfaces it governs'
+);
+duo_check_same(
+    'Requalification required',
+    duo_rows_by_id($installedSinceDoc)['orders']['operations']['release']['readiness'],
+    '… and those surfaces flip, because no review covered them'
+);
+
+// The mirror: a pinned adapter the target no longer reports.
+$removed = duo_with_qualifying_orders(duo_pinned_facts());
+$removed['manifest_pins'] = array_values(array_filter(
+    $removed['manifest_pins'],
+    static fn (array $pin): bool => $pin['name'] !== 'core'
+));
+$removedDoc = ContractProjection::generate($contract, $removed, $probe, duo_inventory(), DUO_GENERATED_AT);
+duo_check_same(
+    ['current' => false, 'invalidation' => 'exact', 'stale_adapters' => ['core'], 'stale_registry' => false],
+    $removedDoc['evidence_pins'],
+    'a pinned adapter the target no longer loads is drift'
+);
+duo_check_same(
+    'Requalification required',
+    duo_rows_by_id($removedDoc)['orders']['operations']['release']['readiness'],
+    '… for exactly the surfaces it governed'
+);
+
+// `governed_by` is a set, and the committed document is byte-compared: the
+// emitted list is deduplicated and sorted whatever the caller hands over.
+$twoAdapters = duo_pinned_facts();
+$twoAdapters['surfaces']['products']['governed_by'] = ['storefront-commerce', 'core', 'core'];
+duo_check_same(
+    ['core', 'storefront-commerce'],
+    duo_rows_by_id(
+        ContractProjection::generate($contract, $twoAdapters, $probe, duo_inventory(), DUO_GENERATED_AT)
+    )['products']['governed_by'],
+    'governed_by is emitted deduplicated and sorted, whatever order the caller used'
+);
+
+// Determinism over the pinned shape too — `stale_adapters` and `governed_by`
+// are both sets built from caller order, and an unsorted one would move bytes.
+$pinnedFirst = ContractProjection::encode(
+    ContractProjection::generate($contract, $exactFacts, $probe, duo_inventory(), DUO_GENERATED_AT)
+);
+duo_check_same(
+    $pinnedFirst,
+    ContractProjection::encode(ContractProjection::generate(
+        duo_reverse_levels($contract),
+        duo_reverse_levels($exactFacts),
+        duo_reverse_levels($probe),
+        duo_reverse_levels(duo_inventory()),
+        DUO_GENERATED_AT
+    )),
+    'the exact-flip bytes do not move with the caller key order either'
+);
+
+// Supplying observed pins is a promise that attribution is available. Breaking
+// it refuses; it does not silently degrade to the blunt flip, which would
+// under-report drift on exactly the surface whose edge went missing.
+$noEdge = duo_pinned_facts();
+unset($noEdge['surfaces']['orders']['governed_by']);
+duo_check_refuses(
+    static fn () => ContractProjection::generate($contract, $noEdge, $probe, duo_inventory(), DUO_GENERATED_AT),
+    'projection_invalid',
+    'observed pins without per-surface attribution refuse rather than degrading to the blunt flip'
+);
+$badPin = duo_pinned_facts();
+$badPin['manifest_pins'][0] = ['name' => 'core', 'source' => 'shipped'];
+duo_check_refuses(
+    static fn () => ContractProjection::generate($contract, $badPin, $probe, duo_inventory(), DUO_GENERATED_AT),
+    'projection_invalid',
+    'an observed pin row missing its digest refuses: a pin with no digest is not a pin'
+);
+$listPins = duo_pinned_facts();
+$listPins['manifest_pins'] = ['core' => DUO_CORE_DIGEST];
+duo_check_refuses(
+    static fn () => ContractProjection::generate($contract, $listPins, $probe, duo_inventory(), DUO_GENERATED_AT),
+    'projection_invalid',
+    'observed pins must arrive as the same row list the contract holds'
 );
 
 // The other half of the narrowing: observed bundle rows are refused, not
@@ -518,7 +816,8 @@ duo_check_same(
 );
 
 // ------------------------------------------------- the three forbidden words
-$sweep = [$document, $flipped, $managedFlipped, $withoutInventory];
+$sweep = [$document, $flipped, $managedFlipped, $withoutInventory,
+    $exact, $bytesOnlyDoc, $unattributableDoc, $installedSinceDoc, $removedDoc];
 foreach ($sweep as $index => $candidate) {
     $encoded = Canon::encode($candidate);
     foreach (V::NEVER_EMITTED as $forbidden) {

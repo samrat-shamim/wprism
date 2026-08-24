@@ -146,7 +146,11 @@ read from a file. A condition under a `Ready with conditions` row is re-checked
 at the mutation gate, so it is a live promise, not a footnote.
 `Requalification required` has exactly one entrance, and it is not one the
 agent can produce: the CLI raises it when an *accepted contract*'s pinned
-`registry_sha256` no longer matches the dispositions the target answers from
+evidence no longer matches what the target answers from — either its
+`registry_sha256` or one of its `manifest_pins[].adapter_digest` rows. When the
+moved adapter can be named, only the surfaces it governs flip and
+`projection.json` says so in `evidence_pins.invalidation: exact`; when it
+cannot, every surface flips (`whole-contract`)
 (see [capabilities-and-limits.md](capabilities-and-limits.md#the-six-projected-dimensions)).
 
 **certification** — where the claim comes from: `Platform-certified`,

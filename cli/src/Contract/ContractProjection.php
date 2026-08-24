@@ -33,18 +33,37 @@ use Duo\CommandRefusalException;
  * not a clock read; surfaces are emitted in `id` order and operations in the
  * spec's own operation order; everything else is Canon's key sort.
  *
- * **The evidence-pin flip.** The contract pins one number, `registry_sha256`
- * — the content address of the reviewed dispositions the verdict was read
- * from. When the observed hash differs from the pin, the reviewed document
- * this contract was accepted against is not the document answering now, and
- * every surface flips to `Requalification required`. MUP §8 records the
- * bluntness of the whole-surface flip as a deliberate deferral (bounded
- * requalification is Phase C); the per-subject bundle pins that used to make a
- * narrower flip possible addressed a generated evidence record this tree no
- * longer produces. The flip is implemented by injecting
- * `evidence_not_current` into the fact vector, so the readiness word still
- * comes from ProjectionVocabulary's §1.3 table and nothing here mints a status
- * word.
+ * **The evidence-pin flip.** The contract pins two things: one number,
+ * `evidence_pins.registry_sha256` — the content address of the reviewed
+ * dispositions the verdict was read from — and one row per adapter,
+ * `declarations.manifest_pins[].adapter_digest`
+ * (ApplicationContract.php:216-222). When the observed evidence has moved,
+ * the reviewed library this contract was accepted against is not the library
+ * answering now, and what it covered flips to `Requalification required`.
+ *
+ * **How narrow that flip is, is a question of proof, not of taste.**
+ * `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's OWN
+ * disposition entry into that manifest's row
+ * (`agent/src/Policy/ArtifactPolicyIdentity.php:68`), and `adapter_digest` is
+ * exactly that row hashed (`:147`). So editing one subject in
+ * `manifests/dispositions.json` moves `registry_sha256` AND precisely that
+ * adapter's digest — the moved-adapter set is a *proof* of attribution, not a
+ * heuristic. When the caller supplies observed `manifest_pins`, the flip is
+ * therefore scoped to the surfaces those adapters govern
+ * (`facts.surfaces.<id>.governed_by`), which is product-spec.md:649's
+ * "invalidates the smallest dependency-bound capability it can prove".
+ *
+ * **The converse is real and stays fail-closed.** A dispositions edit that
+ * touches no PINNED manifest's subject — a subject for an adapter this site
+ * does not load, or a document-level field — moves `registry_sha256` and no
+ * `adapter_digest`. Nothing can prove which capability it affects, so that
+ * case keeps the blunt whole-contract flip MUP §8 recorded as a deliberate
+ * deferral. Observed pins are optional in the fact vector, so a caller that
+ * supplies none gets that blunt behaviour byte for byte.
+ *
+ * Either way the flip is implemented by injecting `evidence_not_current` into
+ * the fact vector, so the readiness word still comes from
+ * ProjectionVocabulary's §1.3 table and nothing here mints a status word.
  */
 final class ContractProjection {
     public const FORMAT = 'duo-site-capability-projection/v1';
@@ -62,6 +81,20 @@ final class ContractProjection {
     public const STALE_EVIDENCE_BLOCKER = 'evidence_not_current';
 
     /**
+     * How far the evidence drift this projection observed could be narrowed.
+     *
+     * These three words are deliberately DISJOINT from every readiness word in
+     * `ProjectionVocabulary::READINESS` and from every handling word: an
+     * invalidation mode says how much of the contract the drift reaches, never
+     * whether anything is ready. Readiness still comes only from §1.3's table,
+     * and a reader who mistook `none` for "ready" would be reading a word this
+     * class is not entitled to say.
+     */
+    public const INVALIDATION_NONE = 'none';
+    public const INVALIDATION_EXACT = 'exact';
+    public const INVALIDATION_WHOLE_CONTRACT = 'whole-contract';
+
+    /**
      * Generate the projection document.
      *
      * @param array<string,mixed> $contract a validated `duo-application-contract/v2`
@@ -69,13 +102,21 @@ final class ContractProjection {
      *        {
      *          'operations': list<operation>,       // the operations this projection covers
      *          'registry_sha256': string,           // observed now
+     *          'manifest_pins': list<{name, source, adapter_digest}>,  // OPTIONAL, observed now
      *          'surfaces': {
      *            '<surface id>': {
+     *               'governed_by': list<string>,    // REQUIRED when manifest_pins is supplied
      *               'operations': {'<op>': {'facts': <ProjectionVocabulary fact vector>,
      *                                       'expiry_and_dependencies': list<string>}}
      *            }
      *          }
      *        }
+     *        `manifest_pins` is optional because the narrow flip is an
+     *        additive capability: absent, this class behaves exactly as it did
+     *        when `registry_sha256` was the only pin it could compare. Present,
+     *        it is a promise that every surface carries `governed_by`, and a
+     *        surface that omits it refuses rather than silently degrading to
+     *        the blunt path (AGENTS rule 9).
      * @param array<string,string> $targetProbe e.g. {"wordpress":"7.0.3","php":"8.3.33"}
      * @param array<string,mixed> $inventory a `duo-assess-inventory/v1` document, or []
      *        when unavailable; its `policy.surface_groups` supply the
@@ -100,11 +141,11 @@ final class ContractProjection {
 
         /** @var list<string> $operations */
         $operations = array_values($facts['operations']);
-        $stale = self::staleRegistry($contract, $facts);
+        $invalidation = self::invalidation($contract, $facts);
 
         $rows = [];
         foreach (self::surfaceIdentities($contract, $inventory) as $id => $identity) {
-            $rows[] = self::projectSurface($id, $identity, $facts, $operations, $stale);
+            $rows[] = self::projectSurface($id, $identity, $facts, $operations, $invalidation);
         }
         usort($rows, static fn (array $a, array $b): int => strcmp((string) $a['id'], (string) $b['id']));
 
@@ -115,8 +156,18 @@ final class ContractProjection {
             'generated_at' => $generatedAt,
             'target_probe' => $targetProbe,
             'evidence_pins' => [
-                'current' => !$stale,
-                'stale_registry' => $stale,
+                // `current` and `stale_registry` keep their exact prior
+                // definitions — `ContractCommand.php:358-360` prints
+                // `evidence current|stale` off `current` alone and must not
+                // change meaning because the flip got narrower. `current` is
+                // "no surface flipped"; `stale_registry` is "the pinned
+                // dispositions hash moved", which under an exact flip can be
+                // false while surfaces still flip (adapter bytes moved on
+                // their own — docs/product-spec.md:646).
+                'current' => $invalidation['mode'] === self::INVALIDATION_NONE,
+                'invalidation' => $invalidation['mode'],
+                'stale_adapters' => $invalidation['stale_adapters'],
+                'stale_registry' => $invalidation['registry_moved'],
             ],
             'surfaces' => $rows,
         ];
@@ -128,24 +179,123 @@ final class ContractProjection {
     }
 
     /**
-     * Whether the reviewed dispositions moved since this contract was accepted.
+     * What moved since this contract was accepted, and how narrowly it can be
+     * attributed.
      *
-     * One comparison, not a set: the pin addresses the whole reviewed document
-     * (`ManifestDispositions::sha256()`), so any authored change to any
-     * subject's status, boundary or citation moves it. The per-subject bundle
-     * comparison this method also used to make read a generated evidence
-     * record that no longer exists, and a claim's `evidence` is now the
-     * authored citation verbatim — no digest, no status, nothing that can go
-     * stale independently of the document carrying it.
+     * Two comparisons, in order of how much they prove.
+     *
+     * 1. `registry_sha256` addresses the WHOLE reviewed document
+     *    (`ManifestDispositions::sha256()`), so any authored change to any
+     *    subject's status, boundary or citation moves it. It proves that
+     *    something moved and nothing about what.
+     * 2. Each `declarations.manifest_pins[].adapter_digest` addresses ONE
+     *    manifest, and it folds that manifest's own disposition entry:
+     *    `ArtifactPolicyIdentity::manifest_rows()` puts
+     *    `'disposition' => $policy->manifest_disposition($name)` in the row
+     *    (`agent/src/Policy/ArtifactPolicyIdentity.php:68`) and `digest` is
+     *    that row hashed (`:147`). So the set of adapters whose digest moved
+     *    is a proof of which reviewed subjects were edited.
+     *
+     * The rule, fail-closed by construction:
+     *
+     * - no observed pins supplied → `whole-contract` iff the registry moved.
+     *   This is the pre-DUO exact-invalidation behaviour, kept byte-identical
+     *   for callers that cannot observe pins.
+     * - pins supplied and some adapter's digest moved (or the pinned set and
+     *   the observed set disagree at all) → `exact`, scoped to those adapters.
+     * - pins supplied, no adapter moved, but the registry hash DID move → the
+     *   edit landed on a subject no pinned manifest carries, so nothing can
+     *   prove which capability it affects → `whole-contract`. This branch is
+     *   the reason a naive per-adapter comparison would be wrong: it would
+     *   flip nothing at all here.
+     * - otherwise → `none`.
+     *
+     * A pinned name absent from the observed set (the adapter was removed) and
+     * an observed name absent from the pinned set (installed since accept)
+     * both count as drift for the surfaces they govern: a surface governed by
+     * an adapter no review pinned is not covered by that review.
+     *
+     * `exact` also fires when a digest moved and `registry_sha256` did NOT —
+     * adapter bytes that no longer match their pin, which
+     * `docs/product-spec.md:646` names as its own drift class and which
+     * nothing in this tree observed before. It only ever adds refusals.
      *
      * @param array<string,mixed> $contract
      * @param array<string,mixed> $facts
+     * @return array{registry_moved: bool, stale_adapters: list<string>, mode: string}
      */
-    private static function staleRegistry(array $contract, array $facts): bool {
-        return !hash_equals(
+    private static function invalidation(array $contract, array $facts): array {
+        $registryMoved = !hash_equals(
             (string) $contract['evidence_pins']['registry_sha256'],
             (string) $facts['registry_sha256']
         );
+
+        if (!array_key_exists('manifest_pins', $facts)) {
+            return [
+                'registry_moved' => $registryMoved,
+                'stale_adapters' => [],
+                'mode' => $registryMoved ? self::INVALIDATION_WHOLE_CONTRACT : self::INVALIDATION_NONE,
+            ];
+        }
+
+        $pinned = self::pinIndex($contract['declarations']['manifest_pins'] ?? []);
+        $observed = self::pinIndex($facts['manifest_pins']);
+
+        $stale = [];
+        foreach ($pinned as $name => $digest) {
+            if (!isset($observed[$name]) || !hash_equals($digest, $observed[$name])) {
+                $stale[$name] = true;
+            }
+        }
+        foreach ($observed as $name => $digest) {
+            if (!isset($pinned[$name])) {
+                $stale[$name] = true;
+            }
+        }
+        $staleAdapters = array_keys($stale);
+        // Sorted because the document is committed and byte-compared: an
+        // unsorted list would move with the caller's key order and make every
+        // review noise (the determinism paragraph above).
+        sort($staleAdapters, SORT_STRING);
+
+        if ($staleAdapters !== []) {
+            $mode = self::INVALIDATION_EXACT;
+        } elseif ($registryMoved) {
+            $mode = self::INVALIDATION_WHOLE_CONTRACT;
+        } else {
+            $mode = self::INVALIDATION_NONE;
+        }
+
+        return [
+            'registry_moved' => $registryMoved,
+            'stale_adapters' => $staleAdapters,
+            'mode' => $mode,
+        ];
+    }
+
+    /**
+     * `{name, source, adapter_digest}` rows folded to `name => adapter_digest`.
+     *
+     * `source` is deliberately not compared: a manifest that moved from
+     * `shipped` to `site` with identical bytes carries identical reviewed
+     * content, and the digest is what the review addressed.
+     *
+     * @param mixed $rows
+     * @return array<string,string>
+     */
+    private static function pinIndex(mixed $rows): array {
+        $index = [];
+        if (!is_array($rows)) {
+            return $index;
+        }
+        foreach ($rows as $row) {
+            if (!is_array($row) || !is_string($row['name'] ?? null) || !is_string($row['adapter_digest'] ?? null)) {
+                continue;
+            }
+            $index[$row['name']] = $row['adapter_digest'];
+        }
+
+        return $index;
     }
 
     /**
@@ -201,7 +351,7 @@ final class ContractProjection {
      * @param array<string,mixed> $identity
      * @param array<string,mixed> $facts
      * @param list<string> $operations
-     * @param bool $stale the pinned dispositions hash no longer matches
+     * @param array{registry_moved: bool, stale_adapters: list<string>, mode: string} $invalidation
      * @return array<string,mixed>
      */
     private static function projectSurface(
@@ -209,10 +359,21 @@ final class ContractProjection {
         array $identity,
         array $facts,
         array $operations,
-        bool $stale
+        array $invalidation
     ): array {
         /** @var array<string,mixed> $surfaceFacts */
         $surfaceFacts = $facts['surfaces'][$id] ?? [];
+
+        $governedBy = self::governedBy($surfaceFacts);
+        // A surface the caller supplied no facts for has no governing adapter
+        // to intersect, so under an exact flip it does not flip — and it does
+        // not need to: `defaultFacts()` already projects it `Not qualified`
+        // via `missing_disposition_entry`, which is the stronger word.
+        $stale = match ($invalidation['mode']) {
+            self::INVALIDATION_WHOLE_CONTRACT => true,
+            self::INVALIDATION_EXACT => array_intersect($governedBy, $invalidation['stale_adapters']) !== [],
+            default => false,
+        };
 
         $projected = [];
         $stateClasses = [];
@@ -287,11 +448,42 @@ final class ContractProjection {
             'id' => $id,
             'label' => (string) $identity['label'],
             'declared' => (bool) $identity['declared'],
+            // The dependency edge the exact flip turns on, recorded so the
+            // committed artifact is auditable on its own: a reviewer reading
+            // `projection.json` can intersect this with
+            // `evidence_pins.stale_adapters` and reconstruct why this row
+            // flipped and its neighbour did not (docs/product-spec.md:641-643,
+            // "every capability declares the facts on which it depends").
+            'governed_by' => $governedBy,
             'state_class' => $stateClass,
             'handling' => $handling,
             'meaning' => ProjectionVocabulary::meaningFor($stateClass, $handling),
             'operations' => $projected,
         ];
+    }
+
+    /**
+     * The manifest names that govern one surface, sorted.
+     *
+     * Attribution is a REGISTRY fact and arrives in the fact vector, never off
+     * `contract.json`: MUP §3.4's "a declaration never grants authority" cuts
+     * both ways, and a contract that could name its own governing adapters
+     * could also narrow its own flip.
+     *
+     * @param array<string,mixed> $surfaceFacts
+     * @return list<string>
+     */
+    private static function governedBy(array $surfaceFacts): array {
+        $names = [];
+        foreach (($surfaceFacts['governed_by'] ?? []) as $name) {
+            if (is_string($name) && $name !== '') {
+                $names[$name] = true;
+            }
+        }
+        $names = array_keys($names);
+        sort($names, SORT_STRING);
+
+        return $names;
     }
 
     /**
@@ -402,8 +594,11 @@ final class ContractProjection {
                 throw self::refuse('projection_invalid', "projection facts are missing '$key'");
             }
         }
+        // `manifest_pins` is accepted but NOT required: the required set above
+        // is unchanged, so every existing caller and every existing refusal
+        // string stays exactly where it was.
         foreach (array_keys($facts) as $key) {
-            if (!in_array((string) $key, ['operations', 'registry_sha256', 'surfaces'], true)) {
+            if (!in_array((string) $key, ['operations', 'registry_sha256', 'surfaces', 'manifest_pins'], true)) {
                 throw self::refuse('projection_invalid', "projection facts carry the unknown key '" . (string) $key . "'");
             }
         }
@@ -420,6 +615,39 @@ final class ContractProjection {
         }
         if (!is_array($facts['surfaces']) || array_is_list($facts['surfaces'])) {
             throw self::refuse('projection_invalid', 'projection facts.surfaces must be an id -> facts object');
+        }
+        if (!array_key_exists('manifest_pins', $facts)) {
+            return;
+        }
+        if (!is_array($facts['manifest_pins']) || !array_is_list($facts['manifest_pins'])) {
+            throw self::refuse('projection_invalid', 'projection facts.manifest_pins must be a list of observed pin rows');
+        }
+        foreach ($facts['manifest_pins'] as $pin) {
+            foreach (['name', 'source', 'adapter_digest'] as $field) {
+                if (!is_array($pin) || !is_string($pin[$field] ?? null) || $pin[$field] === '') {
+                    throw self::refuse(
+                        'projection_invalid',
+                        "every projection facts.manifest_pins row needs a non-empty '$field'"
+                    );
+                }
+            }
+        }
+        // Supplying observed pins is a promise that attribution is available
+        // for every surface. Degrading silently to the blunt flip when it is
+        // not would under-report drift on the surfaces whose edge is missing
+        // — or over-report it on every other — so this refuses instead
+        // (AGENTS rule 9: no silent fallbacks). No existing caller can reach
+        // it: `manifest_pins` is opt-in, and the one producer that supplies it
+        // emits `governed_by` on every row it emits at all.
+        foreach ($facts['surfaces'] as $id => $surface) {
+            $governedBy = is_array($surface) ? ($surface['governed_by'] ?? null) : null;
+            if (!is_array($governedBy) || !array_is_list($governedBy)) {
+                throw self::refuse(
+                    'projection_invalid',
+                    "projection facts supply manifest_pins, so surface '" . (string) $id
+                        . "' must name the adapters that govern it in governed_by"
+                );
+            }
         }
     }
 

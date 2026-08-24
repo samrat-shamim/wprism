@@ -342,9 +342,12 @@ final class AssessReport {
      * `proposed.json`, and `duo contract propose` / `accept` refuse.
      *
      * Diagnosis is not the unsafe act and is not gated. Neither is
-     * `projection.json`: its pin and its observation are both the TARGET's
-     * number at two points in time (`ContractProjection::staleRegistry()`),
-     * one machine, so it stays honest under skew and assess keeps
+     * `projection.json`: its pins and its observations are both the TARGET's
+     * own numbers at two points in time — `registry_sha256` and, since the
+     * flip got narrower, each `manifest_pins[].adapter_digest`
+     * (`ContractProjection::invalidation()`) — one machine, and both sides of
+     * every one of those comparisons come out of `proposalSeed()` below and
+     * the same target's report, so it stays honest under skew and assess keeps
      * regenerating it — leaving a stale projection beside a fresh assessment
      * would be the worse failure.
      *
