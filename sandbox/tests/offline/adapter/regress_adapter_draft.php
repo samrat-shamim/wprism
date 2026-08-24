@@ -903,6 +903,43 @@ echo "\n== 7. --check-proposals: grammar-valid reports liftable; malformed repor
     check(($contractRows['deletions.post:page']['liftable'] ?? null) === false
         && str_contains($contractRows['deletions.post:page']['message'] ?? '', 'omits required cascade'),
         'a deletion proposal missing required cascades is refused by Deletion::capability rather than called liftable');
+
+    // --gap-report (WP-0.4): the engine-gap ledger's tool-fed half. It reads the
+    // SAME lift as --check-proposals and emits only the shapes the real grammar
+    // refused, as draft rows for tools/engine-gaps.json. The `tables.nopk`
+    // fixture above is a real observed shape with no expressible identity, so it
+    // is the row; `tables.liftable` is expressible and must NOT be one.
+    $gap = duo(['adapter-draft', "$t/repo", '--name=chk-draft', '--gap-report', '--format=json'], $lib);
+    check($gap['exit'] === 0, '--gap-report runs and reports (exit 0)');
+    $gapReport = json_decode($gap['stdout'], true);
+    check(($gapReport['format'] ?? '') === 'duo-adapter-draft-gap-report/v1', '--gap-report declares its own envelope');
+    $gapRows = [];
+    foreach (($gapReport['rows'] ?? []) as $row) {
+        $gapRows[$row['coordinate']] = $row;
+    }
+    check(isset($gapRows['tables.nopk']) && str_contains(strtolower($gapRows['tables.nopk']['cannot_represent'] ?? ''), 'pk'),
+        'a shape the real grammar refuses becomes a ledger row carrying the engine\'s own refusal as cannot_represent');
+    check(!isset($gapRows['tables.liftable']),
+        'an expressible shape is NOT reported as a gap (a gap report listing non-gaps would have to be read before it could be used)');
+    // Deliberately unnamed: classifying the demand against the ledger's closed
+    // primitive vocabulary is a review judgement, and inventing one per report is
+    // exactly how duplicate demand would stop being countable.
+    // `??` cannot express this: it treats a present null exactly like an absent
+    // key, and "the key is present and null" is the whole assertion.
+    $nopkRow = $gapRows['tables.nopk'] ?? [];
+    check(array_key_exists('primitive_required', $nopkRow)
+        && $nopkRow['primitive_required'] === null
+        && str_contains((string) ($nopkRow['question'] ?? ''), 'closed'),
+        'the emitted row names NO primitive and carries the question that sends it to the ledger vocabulary');
+    check(($gapReport['summary']['gaps'] ?? -1) === count($gapRows)
+        && ($gapReport['summary']['checked'] ?? 0) > count($gapRows),
+        'the summary counts gaps against every proposal checked, not only the refused ones');
+    $lastLib = glob($lib . '/*');
+    check($before === $lastLib, '--gap-report writes NOTHING live either');
+
+    $both = duo(['adapter-draft', "$t/repo", '--name=chk-draft', '--check-proposals', '--gap-report', '--format=json'], $lib);
+    check($both['exit'] === 2 && str_contains($both['stderr'], 'two reports over one lift'),
+        'asking for both reports at once is refused rather than silently answering one of the two questions');
 }
 
 echo "\n== 8. guardrails: no PHP stubs; secret dropped to a question; no reserved top-level key ==\n";

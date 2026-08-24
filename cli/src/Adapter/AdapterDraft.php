@@ -76,6 +76,9 @@ final class AdapterDraft {
     /** Envelope of the `--check-proposals` report. */
     public const CHECK_FORMAT = 'duo-adapter-draft-check/v1';
 
+    /** Envelope of the `--gap-report` emission: draft engine-gap ledger rows, primitive unnamed. */
+    public const GAP_REPORT_FORMAT = 'duo-adapter-draft-gap-report/v1';
+
     /**
      * Constraint B: the four blind-walk trigger keys and their inert draft spellings.
      * A candidate fragment is stored with the RIGHT column; `--check-proposals` maps
@@ -151,6 +154,7 @@ final class AdapterDraft {
         $force = false;
         $json = false;
         $checkProposals = false;
+        $gapReport = false;
 
         // A repeated flag is refused rather than last-wins — the same posture
         // manifest-validate takes: a silently replaced flag validates a request
@@ -168,6 +172,8 @@ final class AdapterDraft {
                 $json = true;
             } elseif ($arg === '--check-proposals') {
                 $checkProposals = true;
+            } elseif ($arg === '--gap-report') {
+                $gapReport = true;
             } elseif ($arg === '--force') {
                 $force = true;
             } elseif (str_starts_with($arg, '--out=')) {
@@ -203,6 +209,14 @@ final class AdapterDraft {
 
         if ($repoArg === null) {
             return self::fail('a <site-repo> argument is required (the directory holding site.duo.json)');
+        }
+        // Two report modes over the same lift, answering different questions —
+        // "which proposals can I promote" and "which observed shapes the grammar
+        // cannot express at all". Refusing the pair is the same posture the
+        // duplicate-flag guard above takes: silently printing one of the two
+        // reports answers a question nobody asked.
+        if ($checkProposals && $gapReport) {
+            return self::fail('--check-proposals and --gap-report are two reports over one lift; ask for one');
         }
         if ($name === null) {
             return self::fail('--name=<manifest-name> is required');
@@ -319,6 +333,9 @@ final class AdapterDraft {
 
         if ($checkProposals) {
             return self::emit_check($manifest, $json);
+        }
+        if ($gapReport) {
+            return self::emit_gap_report($manifest, $name, $json);
         }
 
         if ($outPath !== null) {
@@ -2273,6 +2290,44 @@ final class AdapterDraft {
      * throwaway manifest lives only in a temp directory removed on return.
      */
     private static function emit_check(array $manifest, bool $json): int {
+        $results = self::lift_results($manifest);
+
+        $liftable = 0;
+        foreach ($results as $r) {
+            $liftable += $r['liftable'] ? 1 : 0;
+        }
+        $report = [
+            'format' => self::CHECK_FORMAT,
+            'spec_version' => DUO_SPEC_VERSION,
+            'results' => $results,
+            'summary' => ['checked' => count($results), 'liftable' => $liftable, 'refused' => count($results) - $liftable],
+        ];
+        if ($json) {
+            echo rtrim(Canon::encode($report)) . "\n";
+        } else {
+            echo "adapter-draft --check-proposals (throwaway lift; nothing written live):\n";
+            foreach ($results as $r) {
+                echo '  [' . ($r['liftable'] ? 'liftable' : 'refused') . '] ' . $r['target'] . "\n";
+                if ($r['message'] !== null) {
+                    echo '          ' . $r['message'] . "\n";
+                }
+            }
+            echo "\nsummary: {$report['summary']['checked']} checked, {$report['summary']['liftable']} liftable, "
+                . "{$report['summary']['refused']} refused\n";
+        }
+        return 0;
+    }
+
+    /**
+     * Every proposal's grammar verdict, computed once through the REAL validators.
+     *
+     * Extracted from emit_check() so `--gap-report` reads the same verdicts rather
+     * than a second lookalike lift: the two modes disagreeing about whether a shape
+     * is expressible is exactly the failure a shared computation makes impossible.
+     *
+     * @return list<array{target:string,liftable:bool,message:?string}>
+     */
+    private static function lift_results(array $manifest): array {
         $draft = $manifest['_draft'] ?? [];
         $proposals = (array) ($draft['proposals'] ?? []);
         $results = [];
@@ -2299,29 +2354,66 @@ final class AdapterDraft {
                 self::rrmdir($tmp);
             }
         }
+        return $results;
+    }
 
-        $liftable = 0;
-        foreach ($results as $r) {
-            $liftable += $r['liftable'] ? 1 : 0;
+    /**
+     * Emit the REFUSED proposals as draft rows for the engine-gap ledger
+     * (tools/engine-gaps.json).
+     *
+     * The ledger's stated failure mode is rotting into a memory-fed wishlist: a
+     * shape nobody wrote down on the day it was found is a shape nobody counts.
+     * This is the tool-fed half. A `liftable:false` verdict is not a bug report
+     * about the draft — it is the real `Policy::load()` grammar refusing a shape
+     * observed in a real site's captured state, which is precisely the ledger's
+     * subject. Liftable proposals are omitted: a shape the grammar accepts is not
+     * a gap, and a report that listed them would need reading before it could be
+     * used.
+     *
+     * `primitive_required` is emitted as null ON PURPOSE. Naming the missing
+     * primitive is a review judgement about which EXISTING vocabulary entry this
+     * demand collapses into, and inventing one per report is how duplicate demand
+     * would stop being countable — the one property the ledger exists for. So the
+     * row lands incomplete by construction, and tools/engine-gap-doc.php refuses
+     * it ("the closed vocabulary does not declare") until a human classifies it.
+     */
+    private static function emit_gap_report(array $manifest, string $name, bool $json): int {
+        $results = self::lift_results($manifest);
+        $rows = [];
+        foreach ($results as $result) {
+            if ($result['liftable']) {
+                continue;
+            }
+            $rows[] = [
+                'coordinate' => $result['target'],
+                'cannot_represent' => (string) ($result['message'] ?? 'the grammar refused this shape'),
+                'primitive_required' => null,
+                'question' => 'name the primitive this demand collapses into from the engine-gap ledger\'s closed '
+                    . 'vocabulary (tools/engine-gaps.json `primitives`), or add one there, before this row is filed',
+            ];
         }
         $report = [
-            'format' => self::CHECK_FORMAT,
+            'format' => self::GAP_REPORT_FORMAT,
             'spec_version' => DUO_SPEC_VERSION,
-            'results' => $results,
-            'summary' => ['checked' => count($results), 'liftable' => $liftable, 'refused' => count($results) - $liftable],
+            'adapter' => $name,
+            'rows' => $rows,
+            'summary' => ['checked' => count($results), 'gaps' => count($rows)],
         ];
         if ($json) {
             echo rtrim(Canon::encode($report)) . "\n";
-        } else {
-            echo "adapter-draft --check-proposals (throwaway lift; nothing written live):\n";
-            foreach ($results as $r) {
-                echo '  [' . ($r['liftable'] ? 'liftable' : 'refused') . '] ' . $r['target'] . "\n";
-                if ($r['message'] !== null) {
-                    echo '          ' . $r['message'] . "\n";
-                }
-            }
-            echo "\nsummary: {$report['summary']['checked']} checked, {$report['summary']['liftable']} liftable, "
-                . "{$report['summary']['refused']} refused\n";
+            return 0;
+        }
+        echo "adapter-draft --gap-report (throwaway lift; nothing written live):\n";
+        foreach ($rows as $row) {
+            echo '  ' . $row['coordinate'] . "\n";
+            echo '          ' . $row['cannot_represent'] . "\n";
+        }
+        echo "\nsummary: {$report['summary']['checked']} proposals checked, {$report['summary']['gaps']} "
+            . "with no expressible shape\n";
+        if ($rows !== []) {
+            echo "\nEach row above is a DRAFT ledger row with no primitive named. Classify it against\n"
+                . "tools/engine-gaps.json's closed primitive vocabulary before filing it; the ledger's\n"
+                . "projector refuses a row whose primitive is not in that vocabulary.\n";
         }
         return 0;
     }
