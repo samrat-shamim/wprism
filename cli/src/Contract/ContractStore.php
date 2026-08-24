@@ -6,6 +6,7 @@ namespace Duo\Orchestrator;
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/ApplicationContract.php';
+require_once __DIR__ . '/ContractAttestation.php';
 
 use Duo\Canon;
 use Duo\CommandRefusalException;
@@ -35,7 +36,7 @@ use Duo\CommandRefusalException;
  * That is why the three proposal methods take the environment as a REQUIRED
  * argument: a default would let the shared slot back in by omission.
  *
- * Two mechanics are the reason this is a class rather than three
+ * Three mechanics are the reason this is a class rather than three
  * `file_put_contents()` calls.
  *
  * **Write-then-rename.** `rename(2)` within one directory is atomic, so a
@@ -53,6 +54,19 @@ use Duo\CommandRefusalException;
  * silently discarding the other writer's review. A refusal here is cheap —
  * re-run assess — while a lost reviewed declaration is exactly the kind of
  * unknown MUP §1.6 exists to keep out of production.
+ *
+ * **The attestation boundary.** `attestation.state` is validated as a shape by
+ * `ApplicationContract` and decided as a fact here, because writing and
+ * reading are where a trust root can actually be consulted. There are two
+ * doors and they are not interchangeable: `writeContract()` — the accept path
+ * — refuses every signed document with `attestation_signing_unsupported`, and
+ * `writeAttestedContract()` opens only for bytes `ContractAttestation::verify()`
+ * accepts under a key the operator provisioned in
+ * `.duo/contract/authorities.json`. `readContract()` re-verifies on the way
+ * out, once, for every consumer, so a contract whose bytes moved under a
+ * signature drops the claim at all of them rather than degrading at some.
+ * Nothing here can mint on a site with no trust root, and no shipped site has
+ * one — the file is created by `duo contract <env> attest` and by nothing else.
  */
 final class ContractStore {
     public const DIRECTORY = '.duo/contract';
@@ -115,8 +129,52 @@ final class ContractStore {
         return $this->directory() . '/' . self::PROJECTION_FILE;
     }
 
-    /** The accepted contract, validated, or null when the site has none yet. */
-    public function readContract(): ?array {
+    /**
+     * The accepted contract, validated — and VERIFIED when it claims to be
+     * signed — or null when the site has none yet.
+     *
+     * This is the single reader every consumer goes through
+     * (ContractCommand::show():114, VerifyCommand:158, AssessCommand:174,
+     * ReleaseCommand:257), which is why the attestation check belongs here and
+     * not at each call site: a byte edited under a signed contract must DROP
+     * the claim at every consumer at once, not degrade it at some of them.
+     * The check is gated on `state === 'signed'`, so the unsigned path — every
+     * shipped site — does exactly the same work, the same I/O and the same
+     * refusals it did before this existed.
+     *
+     * @param string|null $manifestDir the manifest library to re-bind the
+     *        attested platform boundary against; null is this checkout's own
+     */
+    public function readContract(?string $manifestDir = null): ?array {
+        $raw = $this->readIfPresent($this->contractPath());
+        if ($raw === null) {
+            return null;
+        }
+        $document = ApplicationContract::parse($raw);
+        if (($document['attestation']['state'] ?? null) === 'signed') {
+            ContractAttestation::verify($document, $this->siteRepo, $manifestDir);
+        }
+
+        return $document;
+    }
+
+    /**
+     * The stored contract, shape-validated but NOT attestation-verified.
+     *
+     * Exactly one caller: `duo contract <env> attest`. Every verification
+     * refusal this build can raise — a moved platform boundary, an expired
+     * attestation, a revoked key — has re-attesting as its remedy, so the verb
+     * that re-attests has to be able to read the document it is about to
+     * re-sign. Making it go through `readContract()` would mean the only
+     * command that can fix the state is the one command the state locks out.
+     *
+     * Nothing is loosened by that: `writeAttestedContract()` verifies the
+     * OUTPUT before it lands, so the bytes that reach disk are still bytes a
+     * reader will accept.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function readContractUnverified(): ?array {
         $raw = $this->readIfPresent($this->contractPath());
 
         return $raw === null ? null : ApplicationContract::parse($raw);
@@ -177,6 +235,54 @@ final class ContractStore {
                 'accept the proposal unchanged; signed attestation arrives with the certification gate'
             );
         }
+
+        $current = $this->currentDigest();
+        if ($current !== $expectedDigest) {
+            throw new CommandRefusalException(
+                'contract_digest_stale',
+                'the stored application contract changed since it was read',
+                're-run duo assess and duo contract propose, review the fresh proposal, then accept it',
+                [['expected' => $expectedDigest ?? 'none', 'stored' => $current ?? 'none']]
+            );
+        }
+
+        $this->writeAtomic($this->contractPath(), Canon::encode($document));
+    }
+
+    /**
+     * The ONE door a `signed` contract enters by.
+     *
+     * `writeContract()` above refuses every signed document and keeps
+     * refusing: accepting a reviewed proposal is not an act that can produce a
+     * signature, and the refusal it raises still means exactly what it says.
+     * This method is the attest verb's, and it verifies its own input through
+     * the same `ContractAttestation::verify()` that every later read will run
+     * — the `AdapterCertify::certify()` precedent (:340-348), where a producer
+     * that trusted its own bytes would put the one document nobody checked
+     * into the repository.
+     *
+     * @param array<string,mixed> $document a signed, validated contract
+     * @param string|null $expectedDigest the CAS token, as writeContract()
+     * @param string|null $manifestDir the manifest library to bind against
+     */
+    public function writeAttestedContract(
+        array $document,
+        ?string $expectedDigest,
+        ?string $manifestDir = null
+    ): void {
+        ApplicationContract::validate($document);
+        if (($document['attestation']['state'] ?? null) !== 'signed') {
+            // Not a fallback into writeContract(): a caller that reached this
+            // door with an unsigned document is a caller whose intent and
+            // whose bytes disagree, and silently writing the unsigned one
+            // would report success for an attestation that never happened.
+            throw new CommandRefusalException(
+                'contract_attestation_signature_invalid',
+                'this entry point writes a signed contract attestation only',
+                'accept an unsigned contract with duo contract <env> accept, or attest a signed one'
+            );
+        }
+        ContractAttestation::verify($document, $this->siteRepo, $manifestDir);
 
         $current = $this->currentDigest();
         if ($current !== $expectedDigest) {

@@ -43,7 +43,7 @@ duo code-resolve  <env> [--dry-run] [--offline] [--cache-dir=<path>]
 duo code-import <archive.zip> [--component=<slug>] [--root=plugins|themes] [--cache-dir=<path>] [--format=json]
 duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
 duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
-duo contract <env> show|propose|accept [--format=json]
+duo contract <env> show|propose|accept|attest [--format=json]
 duo rehearse <env> --from <production-env> [--branch <ref>] [--create] [--ttl <seconds>] [--limit=<1..200>] [--format=json]
 duo rehearse <env> --reap [--format=json]
 duo release <env> [--from=<ref>] [--plan-only] [--profile=<p>] [--accept-weaker-recovery] [--with-deletes] [--yes] [--limit=<1..200>] [--format=json]
@@ -552,7 +552,7 @@ are rejected when the registry is loaded.
   assessment itself refuses.
   See [docs/guides/assess.md](../docs/guides/assess.md).
 
-- **`duo contract <env> show|propose|accept [--format=json]`** — the per-site
+- **`duo contract <env> show|propose|accept|attest [--format=json]`** — the per-site
   application contract as one reviewed object under `.duo/contract/`.
   `propose` regenerates `.duo/contract/<env>/proposed.json` from a fresh
   assessment; a proposal is never authority, and its generated external-effect
@@ -565,8 +565,23 @@ are rejected when the registry is loaded.
   (`contract_proposal_stale`) rather than reconciling either, writes
   `contract.json` + `projection.json` canonically under
   compare-and-swap, and stages them; it never commits, because the commit is
-  the reviewer's signature. The attestation this profile writes is always
-  `unsigned`, so every site-scoped claim projects `Uncertified`.
+  the reviewer's signature. `accept` writes `attestation.state: unsigned` and
+  always will.
+  `attest --secret-key-file=<path> --principal=<who> --policy-version=<v>
+  [--expires=<ISO8601>] [--key-id=<id>] [--reason=<text>]` is the only verb
+  that writes `signed`: it signs the already-accepted contract under an Ed25519
+  key registered in this repository's own `.duo/contract/authorities.json`,
+  contacts nothing, verifies its own output before it writes, and force-stages
+  the contract and the trust root. That trust root ships with no key, so on an
+  untouched site attest refuses `contract_attestation_unsigned_anchor` before
+  it reads a byte — the mechanism ships inert, and the honesty line every
+  assessment prints stays literally true until an organization provisions one.
+  A signed contract is re-verified on every read, so an edited byte refuses at
+  all four consumers (`contract_attestation_signature_invalid`) instead of
+  quietly reading as unsigned; an expired attestation
+  (`contract_attestation_expired`) and one bound to a superseded agent
+  capability boundary (`contract_attestation_platform_moved`) refuse by their
+  own names, and the remedy for both is to attest again.
 
 - **`duo rehearse <env> --from <production-env> [--branch <ref>] [--create]
   [--ttl <seconds>]`** — `duo env materialize` plus a preview: the same option

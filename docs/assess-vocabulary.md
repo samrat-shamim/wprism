@@ -161,9 +161,12 @@ Said plainly, because the words above are easy to over-read:
    trust root the repository or the agent owns. It means customer-organization
    approval, explicitly not a Duo endorsement; the signed bundle records
    `exercised: false` beside its grammar verdict, so it never implies the
-   adapter was tested against a live site. The **contract's** attestation is
-   still `unsigned`, which the human view says on the same line: `certified by
-   <principal> (<root> trust root); contract attestation unsigned`.
+   adapter was tested against a live site. The **contract's** attestation is a
+   separate signature under a separate, operator-provisioned trust root, and
+   until one exists the human view says so on the same line: `certified by
+   <principal> (<root> trust root); contract attestation unsigned`. After `duo
+   contract <env> attest` the same line reads `…; contract attested by
+   <principal> (site trust root, expires <when>)`.
 3. **Rollback restores bytes, not consequences.** The list of what a profile
    does *not* restore is printed before you authorize and again before you
    recover, and it is the literal truth — which is what `irreversible` in §1.6

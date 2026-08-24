@@ -66,6 +66,16 @@ final class GapActions {
         'certify adapter',
         'provision env value',
         'exclude',
+        // Last before `nothing — supported`, and required rather than
+        // decorative: forSurfaceDetailed() (:112-118) reduces over URGENCY and
+        // refuses `assess_gap_action_invalid` for any ACTIONS member missing
+        // from it, so a word in the closed set with no rank here is a latent
+        // orchestrator defect the moment anything emits it. It ranks below
+        // `exclude` because attesting a contract is an organizational act
+        // under a provisioned signing key, not a repair: every surface it
+        // could apply to is already Ready, and nothing this build emits
+        // reaches for it (ProjectionVocabulary::GAP_ACTIONS).
+        'attest contract',
         'nothing — supported',
     ];
 

@@ -45,8 +45,11 @@ on a human's reviewed disposition and on conformance suites that are re-run
 rather than sealed — weaker in kind than a bound record, and honest about it.
 What remains unclaimed: no third-party production site has adopted, no field
 evidence yet shows a real target qualifying for the automatic verified profile,
-contract-level attestation is still deferred (every application contract writes
-`attestation.state: unsigned`), and there is no public registry.
+the contract attestation signer ships with an EMPTY trust root (`duo contract
+<env> attest` signs under a key an operator provisions in
+`.duo/contract/authorities.json`; no site ships with one, so every application
+contract in the field still writes `attestation.state: unsigned`), and there is
+no public registry.
 
 ## Horizons
 
@@ -89,10 +92,13 @@ foundation under it. The sequence is:
 1. **Field grounding and adoptability** — H2's calibration and validation
    cohorts; close internal-ID, undocumented-command, raw-recovery, and
    unbounded-output leaks; freeze outcome, cost, and attention thresholds.
-2. **Site certification** — composed application contracts, contract-level
-   attestation signed under a named trust root (the adapter-level Ed25519
-   certificate ships and binds exact bytes; the contract still writes
-   `attestation.state: unsigned`), generated per-site capability projections,
+2. **Site certification** — composed application contracts, the RULING on
+   which trust root may attest a contract (the mechanism ships: an Ed25519
+   signer under the site root, verified at every read, refusing to mint
+   without an operator-provisioned key — what is deferred is whether a
+   platform root may ever attest one, which refuses by name today as
+   `contract_attestation_trust_root_unsupported`), generated per-site
+   capability projections,
    semantic oracles, exact dependency invalidation, and the production launch
    gate defined by the spec.
 3. **Safe scale** — more precise bounded requalification, fleet policy reuse
@@ -153,8 +159,9 @@ launch gate passes.
   status is separate and exists only in a generated per-site projection backed
   by reviewed declarations, conformance suites re-run against that site's pair,
   a certificate signed under a named trust root and pinned to exact adapter
-  bytes, and environment bindings. The adapter-level certificate ships (T6);
-  contract-level attestation is H3 work.
+  bytes, and environment bindings. The adapter-level certificate ships (T6) and
+  so does the contract attestation signer, under the SITE trust root only and
+  with that root empty by default; the platform-root ruling is H3 work.
 - Capability *reduction* is a legitimate certification outcome: working but
   unprovable behavior is removed and refused, not shipped under-proven
   (DUO-3225: Woo product deletion → fail-closed boundary).
