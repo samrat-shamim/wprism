@@ -9,6 +9,7 @@ sandbox/tmp/
 # sandbox/ — never committed, since the paths it holds are host- and
 # checkout-specific.
 sandbox/.env
+sandbox/.duo-db-client.cnf
 /.duo-envs.json
 /.duo/
 .claude/worktrees/
