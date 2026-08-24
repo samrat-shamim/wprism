@@ -3174,24 +3174,32 @@ foreach (['get_option', 'wp_load_alloptions', 'update_option', 'add_option', 'sa
 }
 $tecServiceSources172 = $optionHookFixture['tec_service_sources']['6.17.2'] ?? [];
 $tecServiceSources173 = $optionHookFixture['tec_service_sources']['6.17.3'] ?? [];
-$widgetProviderPath = 'src/Tribe/Views/V2/Widgets/Service_Provider.php';
-duo_check(
-    is_array($tecServiceSources172)
-        && is_array($tecServiceSources173)
-        && ($tecServiceSources172[$widgetProviderPath] ?? null)
-            !== ($tecServiceSources173[$widgetProviderPath] ?? null),
-    'the exact 6.17.3 legacy-widget security delta changes the state-bearing widget provider bytes'
-);
-unset($tecServiceSources172[$widgetProviderPath], $tecServiceSources173[$widgetProviderPath]);
+foreach ([
+    'the-events-calendar.php' => 'plugin header',
+    'src/Tribe/Main.php' => 'native version constant',
+    'src/Tribe/Views/V2/Widgets/Service_Provider.php' => 'state-bearing widget provider',
+] as $versionSpecificPath => $versionSpecificLabel) {
+    duo_check(
+        is_array($tecServiceSources172)
+            && is_array($tecServiceSources173)
+            && ($tecServiceSources172[$versionSpecificPath] ?? null)
+                !== ($tecServiceSources173[$versionSpecificPath] ?? null),
+        "the exact 6.17.3 delta changes the $versionSpecificLabel bytes"
+    );
+    unset($tecServiceSources172[$versionSpecificPath], $tecServiceSources173[$versionSpecificPath]);
+}
 duo_check_same(
     $tecServiceSources172,
     $tecServiceSources173,
-    'every other source in the reviewed TEC state-service union is byte-identical across both pins'
+    'every other source in the reviewed TEC state-service and lifecycle union is byte-identical across both pins'
 );
 duo_check_same(
     [
+        'the-events-calendar.php',
+        'uninstall.php',
         'build/js/customizer-views-v2-controls.js',
         'build/js/customizer-views-v2-live-preview.js',
+        'common/src/Tribe/Abstract_Deactivation.php',
         'common/src/Tribe/Cache.php',
         'common/src/Tribe/Cache_Listener.php',
         'common/src/Tribe/Container.php',
@@ -3207,11 +3215,20 @@ duo_check_same(
         'src/Events/Category_Colors/CSS/Controller.php',
         'src/Events/Category_Colors/CSS/Generator.php',
         'src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php',
+        'src/Events/Custom_Tables/V1/Activation.php',
         'src/Events/Custom_Tables/V1/Models/Event.php',
         'src/Events/Custom_Tables/V1/Models/Occurrence.php',
         'src/Events/Custom_Tables/V1/Models/Builder.php',
         'src/Events/Custom_Tables/V1/Events/Occurrences/Occurrences_Generator.php',
+        'src/Events/Custom_Tables/V1/Provider.php',
         'src/Tribe/Aggregator.php',
+        'src/Tribe/Aggregator/Record/Queue_Processor.php',
+        'src/Tribe/Aggregator/Records.php',
+        'src/Tribe/Capabilities.php',
+        'src/Tribe/Deactivation.php',
+        'src/Tribe/Event_Cleaner_Scheduler.php',
+        'src/Tribe/Main.php',
+        'src/Tribe/Updater.php',
         'src/Tribe/Views/V2/Customizer/Hooks.php',
         'src/Tribe/Views/V2/Customizer/Section/Events_Bar.php',
         'src/Tribe/Views/V2/Customizer/Section/Global_Elements.php',
@@ -3226,7 +3243,7 @@ duo_check_same(
         'src/Tribe/Views/V2/Widgets/Widget_QR_Code.php',
     ],
     array_keys($optionHookFixture['tec_service_sources']['6.17.3'] ?? []),
-    'the source fixture binds every exact native CSS/cache and custom-table derived service'
+    'the source fixture binds every exact native CSS/cache, custom-table, and lifecycle service'
 );
 foreach ([
     'tec-root',
@@ -3256,12 +3273,61 @@ foreach ([
     'enable_rendering_widget_copied',
     'is_safe_widget_instance',
     'allowed_classes',
+    'register_activation_hook',
+    'register_deactivation_hook',
+    'clear_ct1_activation_state',
+    'lifecycle schema-version reset drifted',
+    'tribe_schedule_transient_purge',
+    'tribe_aggregator_single_process_insert_records',
+    'WP_UNINSTALL_PLUGIN guard only; no state mutation',
+    'source-derived TEC lifecycle boundary',
 ] as $serviceVerifierEvidence) {
     duo_check(
         str_contains($optionHookVerifier, $serviceVerifierEvidence),
         "the exact-source verifier binds native service evidence $serviceVerifierEvidence"
     );
 }
+$lifecycleBoundary = $optionHookFixture['lifecycle_boundary'] ?? null;
+duo_check(is_array($lifecycleBoundary), 'the exact fixture carries the TEC lifecycle boundary');
+duo_check_same(
+    [
+        'tribe_schedule_transient_purge',
+        'tribe_trash_event_cron',
+        'tribe_del_event_cron',
+        'tribe_aggregator_process_insert_records',
+    ],
+    $lifecycleBoundary['deactivation']['clears_cron_hooks'] ?? null,
+    'deactivation classifies every exact native recurring cron cleanup'
+);
+duo_check_same(
+    ['tribe_aggregator_single_process_insert_records'],
+    $lifecycleBoundary['deactivation']['retains_cron_hooks'] ?? null,
+    'the native one-shot Aggregator queue is explicit target-owned deactivation residue'
+);
+duo_check_same(
+    '5.16.0',
+    $lifecycleBoundary['deactivation']['schema_version_reset'] ?? null,
+    'deactivation records the exact env-owned mixed-option schema-version transition'
+);
+duo_check_same(
+    false,
+    $lifecycleBoundary['deactivation']['custom_table_clean_registered'] ?? null,
+    'native deactivation leaves the derived custom tables intact instead of invoking the dormant clean method'
+);
+duo_check_same(
+    [
+        'bytes' => 60,
+        'sha256' => '767dc6e504b10dc655a44396e7e91c9726379edd302621eacd439c446e5e183d',
+        'behavior' => 'WP_UNINSTALL_PLUGIN guard only; no state mutation',
+    ],
+    $lifecycleBoundary['uninstall'] ?? null,
+    'both exact artifacts bind the identical guard-only uninstall surface'
+);
+duo_check_same(
+    $optionHookFixture['tec_service_sources']['6.17.2']['uninstall.php'] ?? null,
+    $optionHookFixture['tec_service_sources']['6.17.3']['uninstall.php'] ?? null,
+    'the two exact uninstall files are byte-identical'
+);
 $legacyWidgetBoundary = $optionHookFixture['legacy_widget_boundary'] ?? null;
 duo_check(is_array($legacyWidgetBoundary), 'the exact fixture carries the TEC legacy-widget state boundary');
 duo_check_same(
@@ -4763,12 +4829,21 @@ foreach ([
 }
 
 foreach ([
+    'tec_deactivate_reactivate_cycle "${TEC_EXPECTED_VERSION:-6.17.3}"',
+    'schema_version == "5.16.0"',
+    'tribe_aggregator_single_process_insert_records',
+    'duo_tec_lifecycle_neighbor_cron',
+    '__duo_env_schema_version__',
     'LIFECYCLE_BEFORE=$(tec_target_storage_fingerprint)',
-    'TEC exact-code reactivation mutated authored, derived, Customizer, settings, or Category Colors rows',
+    'TEC deactivation mutated authored, derived, Customizer, settings, or Category Colors rows',
+    'TEC deactivation did not write the exact env-owned schema-version transition',
     'TEC empty native uninstall mutated authored, derived, Customizer, settings, or Category Colors rows',
+    'TEC guard-only uninstall mutated exact inactive runtime residue',
     'missing-code compatibility refusal mutated retained TEC rows',
     'missing-code compatibility refusal mutated canonical target state',
     'TEC_SHA=2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687',
+    'TEC exact reinstall did not restore the native capability set',
+    'TEC exact reinstall did not converge the exact mixed settings row',
     'diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-tec-final"',
 ] as $lifecycleEvidence) {
     duo_check(

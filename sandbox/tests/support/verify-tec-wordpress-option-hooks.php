@@ -429,6 +429,231 @@ if ($tecRoot !== '' || $tecVersion !== '') {
         }
         $tecSources[$relative] = $bytes;
     }
+    $compactPhp = static fn(string $source): string => (string) preg_replace('/\s+/', '', $source);
+
+    $bootstrap = $compactPhp($tecSources['the-events-calendar.php'] ?? '');
+    $main = $tecSources['src/Tribe/Main.php'] ?? '';
+    $mainActivate = $compactPhp(tec_option_function_body($main, 'activate'));
+    $mainDeactivate = $compactPhp(tec_option_function_body($main, 'deactivate'));
+    $mainClearCt1 = $compactPhp(tec_option_function_body($main, 'clear_ct1_activation_state'));
+    foreach ([
+        [
+            $bootstrap,
+            "register_activation_hook(TRIBE_EVENTS_FILE,['Tribe__Events__Main','activate']);",
+            'activation hook',
+        ],
+        [
+            $bootstrap,
+            "register_deactivation_hook(TRIBE_EVENTS_FILE,['Tribe__Events__Main','deactivate']);",
+            'deactivation hook',
+        ],
+        [
+            $mainActivate,
+            "set_transient('_tribe_events_delayed_flush_rewrite_rules','yes',0);",
+            'delayed rewrite activation transient',
+        ],
+        [
+            $mainActivate,
+            "set_transient('_tribe_events_activation_redirect',1,30);",
+            'single-site activation redirect transient',
+        ],
+        [$mainActivate, 'self::clear_ct1_activation_state();', 'activation CT1 reset'],
+        [$mainDeactivate, 'self::clear_ct1_activation_state();', 'deactivation CT1 reset'],
+        [
+            $mainDeactivate,
+            "\$hook_name='tribe_schedule_transient_purge';",
+            'deactivation transient-purge cron identity',
+        ],
+        [$mainDeactivate, 'wp_clear_scheduled_hook($hook_name);', 'deactivation transient-purge clear'],
+        [
+            $mainDeactivate,
+            "add_action('shutdown',[\$deactivation,'deactivate']);",
+            'shutdown deactivation dispatch',
+        ],
+        [
+            $mainClearCt1,
+            "\$transient_key='tec_custom_tables_v1_initialized';",
+            'legacy CT1 transient identity',
+        ],
+        [$mainClearCt1, 'delete_transient($transient_key);', 'legacy CT1 transient deletion'],
+        [$mainClearCt1, 'wp_cache_delete($transient_key);', 'legacy CT1 cache deletion'],
+    ] as [$body, $needle, $label]) {
+        if (!str_contains($body, $needle)) {
+            tec_option_usage("TEC $tecVersion lifecycle source lost exact $label");
+        }
+    }
+
+    $abstractDeactivation = $tecSources['common/src/Tribe/Abstract_Deactivation.php'] ?? '';
+    $abstractDispatch = $compactPhp(tec_option_function_body($abstractDeactivation, 'deactivate'));
+    $abstractRewrite = $compactPhp(tec_option_function_body($abstractDeactivation, 'flush_rewrite_rules'));
+    $deactivation = $tecSources['src/Tribe/Deactivation.php'] ?? '';
+    $setFlags = $compactPhp(tec_option_function_body($deactivation, 'set_flags'));
+    $clearCapabilities = $compactPhp(tec_option_function_body($deactivation, 'clear_capabilities'));
+    $blogDeactivate = $compactPhp(tec_option_function_body($deactivation, 'blog_deactivate'));
+    foreach ([
+        [$abstractDispatch, '$this->blog_deactivate();', 'single-blog deactivation dispatch'],
+        [$abstractRewrite, "delete_option('rewrite_rules');", 'rewrite runtime deletion'],
+        [$setFlags, '$updater->reset();', 'schema-version reset dispatch'],
+        [$clearCapabilities, '$capabilities->remove_all_caps();', 'TEC capability removal'],
+        [$blogDeactivate, '$this->set_flags();', 'single-blog update reset'],
+        [$blogDeactivate, '$this->clear_capabilities();', 'single-blog capability cleanup'],
+        [$blogDeactivate, '$this->flush_rewrite_rules();', 'single-blog rewrite cleanup'],
+        [$blogDeactivate, "do_action('tribe_events_blog_deactivate');", 'single-blog runtime cleanup action'],
+    ] as [$body, $needle, $label]) {
+        if (!str_contains($body, $needle)) {
+            tec_option_usage("TEC $tecVersion lifecycle source lost exact $label");
+        }
+    }
+
+    $updater = $tecSources['src/Tribe/Updater.php'] ?? '';
+    $updaterReset = $compactPhp(tec_option_function_body($updater, 'reset'));
+    if (!str_contains($compactPhp($updater), "protected\$version_option='schema-version';")
+        || !str_contains($compactPhp($updater), "protected\$reset_version='5.16.0';")
+        || !str_contains($updaterReset, '$this->update_version_option($this->reset_version);')) {
+        tec_option_usage("TEC $tecVersion lifecycle schema-version reset drifted");
+    }
+
+    $capabilities = $tecSources['src/Tribe/Capabilities.php'] ?? '';
+    $capabilitiesCompact = $compactPhp($capabilities);
+    $removeAllCaps = $compactPhp(tec_option_function_body($capabilities, 'remove_all_caps'));
+    foreach (['administrator', 'editor', 'author', 'contributor', 'subscriber'] as $role) {
+        if (!str_contains($capabilitiesCompact, "'$role'")) {
+            tec_option_usage("TEC $tecVersion lifecycle role registry lost $role");
+        }
+    }
+    foreach ([
+        'Tribe__Events__Main::POSTTYPE',
+        'Tribe__Events__Main::VENUE_POST_TYPE',
+        'Tribe__Events__Main::ORGANIZER_POST_TYPE',
+        'Tribe__Events__Aggregator__Records::$post_type',
+    ] as $postTypeReference) {
+        if (!str_contains($removeAllCaps, "\$this->remove_post_type_caps($postTypeReference,\$role);")) {
+            tec_option_usage("TEC $tecVersion lifecycle capability registry lost $postTypeReference");
+        }
+    }
+    if (!str_contains(
+        $compactPhp($tecSources['src/Tribe/Aggregator/Records.php'] ?? ''),
+        "publicstatic\$post_type='tribe-ea-record';"
+    )) {
+        tec_option_usage("TEC $tecVersion lifecycle Aggregator post type drifted");
+    }
+
+    $cleaner = $tecSources['src/Tribe/Event_Cleaner_Scheduler.php'] ?? '';
+    $cleanerHooks = $compactPhp(tec_option_function_body($cleaner, 'add_hooks'));
+    $cleanerTrash = $compactPhp(tec_option_function_body($cleaner, 'trash_clear_scheduled_task'));
+    $cleanerDelete = $compactPhp(tec_option_function_body($cleaner, 'delete_clear_scheduled_task'));
+    foreach ([
+        [$compactPhp($cleaner), "publicstatic\$del_cron_hook='tribe_del_event_cron';", 'delete cron identity'],
+        [$compactPhp($cleaner), "publicstatic\$trash_cron_hook='tribe_trash_event_cron';", 'trash cron identity'],
+        [
+            $cleanerHooks,
+            "add_action('tribe_events_blog_deactivate',[\$this,'trash_clear_scheduled_task']);",
+            'trash-cron deactivation callback',
+        ],
+        [
+            $cleanerHooks,
+            "add_action('tribe_events_blog_deactivate',[\$this,'delete_clear_scheduled_task']);",
+            'delete-cron deactivation callback',
+        ],
+        [$cleanerTrash, 'wp_clear_scheduled_hook(self::$trash_cron_hook);', 'trash cron clear'],
+        [$cleanerDelete, 'wp_clear_scheduled_hook(self::$del_cron_hook);', 'delete cron clear'],
+    ] as [$body, $needle, $label]) {
+        if (!str_contains($body, $needle)) {
+            tec_option_usage("TEC $tecVersion lifecycle source lost exact $label");
+        }
+    }
+
+    $queue = $tecSources['src/Tribe/Aggregator/Record/Queue_Processor.php'] ?? '';
+    $queueCompact = $compactPhp($queue);
+    $queueManage = $compactPhp(tec_option_function_body($queue, 'manage_scheduled_task'));
+    $queueClear = $compactPhp(tec_option_function_body($queue, 'clear_scheduled_task'));
+    foreach ([
+        [$queueCompact, "publicstatic\$scheduled_key='tribe_aggregator_process_insert_records';", 'Aggregator cron identity'],
+        [
+            $queueCompact,
+            "publicstatic\$scheduled_single_key='tribe_aggregator_single_process_insert_records';",
+            'Aggregator one-shot cron identity',
+        ],
+        [
+            $queueManage,
+            "add_action('tribe_events_blog_deactivate',[\$this,'clear_scheduled_task']);",
+            'Aggregator deactivation callback',
+        ],
+        [$queueClear, 'wp_clear_scheduled_hook(self::$scheduled_key);', 'Aggregator recurring cron clear'],
+    ] as [$body, $needle, $label]) {
+        if (!str_contains($body, $needle)) {
+            tec_option_usage("TEC $tecVersion lifecycle source lost exact $label");
+        }
+    }
+    if (str_contains($queueClear, 'self::$scheduled_single_key')) {
+        tec_option_usage("TEC $tecVersion unexpectedly clears the reviewed Aggregator one-shot residue");
+    }
+
+    $customTableActivation = $tecSources['src/Events/Custom_Tables/V1/Activation.php'] ?? '';
+    $customTableDeactivate = $compactPhp(tec_option_function_body($customTableActivation, 'deactivate'));
+    $customTableProvider = $compactPhp($tecSources['src/Events/Custom_Tables/V1/Provider.php'] ?? '');
+    if (!str_contains($customTableDeactivate, '$services->make(Schema_Builder::class)->clean();')
+        || !str_contains($customTableProvider, "add_action('init',[Activation::class,'init']);")
+        || str_contains($customTableProvider, "[Activation::class,'deactivate']")) {
+        tec_option_usage("TEC $tecVersion Custom Tables lifecycle registration drifted");
+    }
+
+    $uninstall = $tecSources['uninstall.php'] ?? '';
+    $expectedUninstall = "<?php\n\nif ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {\n\tdie;\n}\n\n";
+    if (!hash_equals(hash('sha256', $expectedUninstall), hash('sha256', $uninstall))
+        || strlen($uninstall) !== 60) {
+        tec_option_usage("TEC $tecVersion uninstall surface is not the exact guard-only file");
+    }
+
+    $lifecycleFixture = [
+        'activation_hook' => 'Tribe__Events__Main::activate',
+        'deactivation_hook' => 'Tribe__Events__Main::deactivate',
+        'activation' => [
+            'single_site_transients' => [
+                '_tribe_events_delayed_flush_rewrite_rules' => ['yes', 0],
+                '_tribe_events_activation_redirect' => [1, 30],
+            ],
+            'clears_legacy_ct1_transient' => 'tec_custom_tables_v1_initialized',
+        ],
+        'deactivation' => [
+            'dispatch' => 'shutdown',
+            'schema_version_reset' => '5.16.0',
+            'clears_legacy_ct1_transient' => 'tec_custom_tables_v1_initialized',
+            'clears_cron_hooks' => [
+                'tribe_schedule_transient_purge',
+                'tribe_trash_event_cron',
+                'tribe_del_event_cron',
+                'tribe_aggregator_process_insert_records',
+            ],
+            'retains_cron_hooks' => ['tribe_aggregator_single_process_insert_records'],
+            'deletes_options' => ['rewrite_rules'],
+            'removes_post_type_capabilities' => [
+                'tribe_events',
+                'tribe_venue',
+                'tribe_organizer',
+                'tribe-ea-record',
+            ],
+            'roles' => ['administrator', 'editor', 'author', 'contributor', 'subscriber'],
+            'action' => 'tribe_events_blog_deactivate',
+            'custom_table_clean_registered' => false,
+        ],
+        'uninstall' => [
+            'bytes' => 60,
+            'sha256' => '767dc6e504b10dc655a44396e7e91c9726379edd302621eacd439c446e5e183d',
+            'behavior' => 'WP_UNINSTALL_PLUGIN guard only; no state mutation',
+        ],
+        'persistent_state' => [
+            'authored event/venue/organizer/category graph',
+            'tec_events and tec_occurrences derived rows',
+            'tribe_customizer and tribe_events_pro_customizer',
+            'tribe_events_calendar_options except env schema-version transition',
+            'tec_events_category_color_css',
+        ],
+    ];
+    if (($fixture['lifecycle_boundary'] ?? null) !== $lifecycleFixture) {
+        tec_option_usage('source-derived TEC lifecycle boundary disagrees with the reviewed fixture');
+    }
+
     $widgetProvider = $tecSources['src/Tribe/Views/V2/Widgets/Service_Provider.php'] ?? '';
     $widgetRegisterCompatibility = (string) preg_replace(
         '/\s+/',
@@ -578,7 +803,6 @@ if ($tecRoot !== '' || $tecVersion !== '') {
     $customizerFallback = tec_option_function_body($customizer, 'maybe_fallback_get_option');
     $customizerGet = tec_option_function_body($customizer, 'get_option');
     $customizerActive = tec_option_function_body($customizer, 'is_active');
-    $compactPhp = static fn(string $source): string => (string) preg_replace('/\s+/', '', $source);
     $constructorCompact = $compactPhp($customizerConstructor);
     $fallbackCompact = $compactPhp($customizerFallback);
     $getCompact = $compactPhp($customizerGet);
@@ -837,6 +1061,7 @@ fwrite(STDOUT, json_encode([
     'shared_paths' => $derived,
     'last_save_paths' => $lastSaveDerived,
     'legacy_widget_boundary' => $legacyBoundary,
+    'lifecycle_boundary' => $fixture['lifecycle_boundary'] ?? null,
     'customizer_fallback' => $fixture['customizer_fallback'] ?? null,
     'customizer_sections' => $fixture['customizer_sections'] ?? null,
     'tec_version' => $tecVersion === '' ? null : $tecVersion,

@@ -506,7 +506,10 @@ tec_target_hash() {
 
 # Lifecycle commands run with TEC inactive or absent, so the witness must use
 # physical rows only. Hash the complete portable graph, its deterministic
-# projections, and the mixed settings/CSS rows that uninstall must retain.
+# projections, and every settings/CSS byte uninstall must retain. Exact source
+# proves deactivation alone rewrites the env-owned schema-version subkey to
+# 5.16.0, so normalize only that value while retaining its presence and every
+# authored/target-owned sibling in the mixed row.
 tec_target_storage_fingerprint() {
   wp_conf2 eval '
     global $wpdb;
@@ -520,8 +523,7 @@ tec_target_storage_fingerprint() {
       "tec_events" => "SELECT * FROM {$wpdb->prefix}tec_events ORDER BY event_id",
       "tec_occurrences" => "SELECT * FROM {$wpdb->prefix}tec_occurrences ORDER BY occurrence_id",
       "options" => $wpdb->prepare(
-        "SELECT option_id,option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (%s,%s,%s,%s) ORDER BY option_id",
-        "tribe_events_calendar_options",
+        "SELECT option_id,option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (%s,%s,%s) ORDER BY option_id",
         "tribe_customizer",
         "tribe_events_pro_customizer",
         "tec_events_category_color_css"
@@ -539,8 +541,199 @@ tec_target_storage_fingerprint() {
         "sha256" => hash("sha256", serialize($rows)),
       ];
     }
+    $wpdb->last_error = "";
+    $mainRows = $wpdb->get_results($wpdb->prepare(
+      "SELECT option_id,option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name=%s",
+      "tribe_events_calendar_options"
+    ), ARRAY_A);
+    if (!is_array($mainRows) || count($mainRows) !== 1 || $wpdb->last_error !== "") {
+      throw new RuntimeException("TEC lifecycle main-option read failed");
+    }
+    $main = maybe_unserialize($mainRows[0]["option_value"]);
+    if (!is_array($main) || !array_key_exists("schema-version", $main)) {
+      throw new RuntimeException("TEC lifecycle main-option schema marker is absent or malformed");
+    }
+    $main["schema-version"] = "__duo_env_schema_version__";
+    $mainRows[0]["option_value"] = serialize($main);
+    $fingerprint["main_option"] = [
+      "count" => 1,
+      "sha256" => hash("sha256", serialize($mainRows)),
+    ];
     echo hash("sha256", wp_json_encode($fingerprint, JSON_UNESCAPED_SLASHES));
   '
+}
+
+tec_seed_lifecycle_runtime() {
+  wp_conf2 eval '
+    foreach (["administrator", "editor", "author", "contributor", "subscriber"] as $roleName) {
+      $role = get_role($roleName);
+      if (!$role instanceof WP_Role) {
+        throw new RuntimeException("TEC lifecycle role is missing");
+      }
+      $role->add_cap("duo_tec_lifecycle_neighbor");
+    }
+    $hooks = [
+      "tribe_schedule_transient_purge",
+      "tribe_trash_event_cron",
+      "tribe_del_event_cron",
+      "tribe_aggregator_single_process_insert_records",
+      "duo_tec_lifecycle_neighbor_cron",
+    ];
+    foreach ($hooks as $offset => $hook) {
+      wp_clear_scheduled_hook($hook);
+      if (!wp_schedule_single_event(time() + 7200 + $offset, $hook)) {
+        throw new RuntimeException("TEC lifecycle cron seed failed");
+      }
+    }
+    update_option("rewrite_rules", ["duo-tec-lifecycle" => "runtime"]);
+    set_transient("tec_custom_tables_v1_initialized", "duo-lifecycle", 0);
+  ' >/dev/null
+}
+
+tec_lifecycle_state() {
+  wp_conf2 eval '
+    global $wpdb;
+    $main = get_option("tribe_events_calendar_options", null);
+    if (!is_array($main)) {
+      throw new RuntimeException("TEC lifecycle main option is malformed");
+    }
+    $cron = _get_cron_array();
+    if (!is_array($cron)) {
+      throw new RuntimeException("TEC lifecycle cron storage is malformed");
+    }
+    $countHook = static function (string $hook) use ($cron): int {
+      $count = 0;
+      foreach ($cron as $timestampHooks) {
+        if (!is_array($timestampHooks) || !isset($timestampHooks[$hook])) {
+          continue;
+        }
+        if (!is_array($timestampHooks[$hook])) {
+          throw new RuntimeException("TEC lifecycle cron hook is malformed");
+        }
+        $count += count($timestampHooks[$hook]);
+      }
+      return $count;
+    };
+    $postTypes = ["tribe_events", "tribe_venue", "tribe_organizer", "tribe-ea-record"];
+    $roles = [];
+    foreach (["administrator", "editor", "author", "contributor", "subscriber"] as $roleName) {
+      $role = get_role($roleName);
+      if (!$role instanceof WP_Role) {
+        throw new RuntimeException("TEC lifecycle role is missing");
+      }
+      $pluginCaps = [];
+      foreach ($role->capabilities as $capability => $granted) {
+        foreach ($postTypes as $postType) {
+          if (str_contains((string) $capability, $postType)) {
+            $pluginCaps[(string) $capability] = (bool) $granted;
+            break;
+          }
+        }
+      }
+      ksort($pluginCaps, SORT_STRING);
+      $roles[$roleName] = [
+        "neighbor" => $role->has_cap("duo_tec_lifecycle_neighbor"),
+        "plugin_caps" => $pluginCaps,
+      ];
+    }
+    $rewriteCount = (int) $wpdb->get_var($wpdb->prepare(
+      "SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name=%s",
+      "rewrite_rules"
+    ));
+    echo wp_json_encode([
+      "schema_version" => $main["schema-version"] ?? null,
+      "legacy_ct1_transient" => get_transient("tec_custom_tables_v1_initialized"),
+      "rewrite_rules_rows" => $rewriteCount,
+      "cron" => [
+        "transient_purge" => $countHook("tribe_schedule_transient_purge"),
+        "trash" => $countHook("tribe_trash_event_cron"),
+        "delete" => $countHook("tribe_del_event_cron"),
+        "aggregator" => $countHook("tribe_aggregator_process_insert_records"),
+        "aggregator_single" => $countHook("tribe_aggregator_single_process_insert_records"),
+        "neighbor" => $countHook("duo_tec_lifecycle_neighbor_cron"),
+      ],
+      "roles" => $roles,
+    ], JSON_UNESCAPED_SLASHES);
+  '
+}
+
+tec_target_main_option_raw_hash() {
+  wp_conf2 eval '
+    global $wpdb;
+    $wpdb->last_error = "";
+    $rows = $wpdb->get_results($wpdb->prepare(
+      "SELECT option_id,option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name=%s",
+      "tribe_events_calendar_options"
+    ), ARRAY_A);
+    if (!is_array($rows) || count($rows) !== 1 || $wpdb->last_error !== "") {
+      throw new RuntimeException("TEC lifecycle raw main-option read failed");
+    }
+    echo hash("sha256", serialize($rows));
+  '
+}
+
+tec_deactivate_reactivate_cycle() { # <exact-version>
+  local expected_version="$1" before before_caps before_fingerprint before_raw
+  local inactive inactive_fingerprint inactive_raw reactivated reactivated_caps
+  local reactivate
+  tec_seed_lifecycle_runtime
+  before=$(tec_lifecycle_state)
+  require_observed_nonempty "TEC $expected_version active lifecycle state" "$before"
+  printf '%s\n' "$before" | jq -e --arg version "$expected_version" '
+    .schema_version == $version and .legacy_ct1_transient == "duo-lifecycle" and
+    .rewrite_rules_rows == 1 and
+    .cron == {
+      transient_purge:1, trash:1, delete:1, aggregator:0,
+      aggregator_single:1, neighbor:1
+    } and
+    ([.roles[].neighbor] | all) and
+    ([.roles[].plugin_caps | length] | add) > 0
+  ' >/dev/null || fail "TEC $expected_version active lifecycle premise is malformed: $before"
+  before_caps=$(printf '%s\n' "$before" | jq -c '.roles | with_entries(.value = .value.plugin_caps)')
+  before_fingerprint=$(tec_target_storage_fingerprint)
+  before_raw=$(tec_target_main_option_raw_hash)
+  require_observed_nonempty "TEC $expected_version lifecycle storage baseline" "$before_fingerprint"
+  require_observed_nonempty "TEC $expected_version lifecycle raw-option baseline" "$before_raw"
+
+  wp_conf2 plugin deactivate the-events-calendar >/dev/null
+  wp_conf2 plugin is-active the-events-calendar >/dev/null 2>&1 \
+    && fail "TEC $expected_version deactivation premise did not land"
+  inactive=$(tec_lifecycle_state)
+  require_observed_nonempty "TEC $expected_version inactive lifecycle state" "$inactive"
+  printf '%s\n' "$inactive" | jq -e '
+    .schema_version == "5.16.0" and .legacy_ct1_transient == false and
+    .rewrite_rules_rows == 0 and
+    .cron == {
+      transient_purge:0, trash:0, delete:0, aggregator:0,
+      aggregator_single:1, neighbor:1
+    } and
+    ([.roles[].neighbor] | all) and
+    ([.roles[].plugin_caps | length] | add) == 0
+  ' >/dev/null || fail "TEC $expected_version native deactivation effects drifted: $inactive"
+  inactive_fingerprint=$(tec_target_storage_fingerprint)
+  inactive_raw=$(tec_target_main_option_raw_hash)
+  [ "$inactive_fingerprint" = "$before_fingerprint" ] \
+    || fail "TEC $expected_version deactivation mutated persistent authored/derived state"
+  [ "$inactive_raw" != "$before_raw" ] \
+    || fail "TEC $expected_version deactivation did not expose its exact env schema-version transition"
+
+  reactivate=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+  require_duo_answered "TEC $expected_version deploy after deactivation" json "$reactivate"
+  wp_conf2 plugin is-active the-events-calendar >/dev/null \
+    || fail "Duo deploy did not reactivate exact TEC $expected_version code"
+  reactivated=$(tec_lifecycle_state)
+  require_observed_nonempty "TEC $expected_version reactivated lifecycle state" "$reactivated"
+  reactivated_caps=$(printf '%s\n' "$reactivated" | jq -c '.roles | with_entries(.value = .value.plugin_caps)')
+  printf '%s\n' "$reactivated" | jq -e --arg version "$expected_version" '
+    .schema_version == $version and ([.roles[].neighbor] | all)
+  ' >/dev/null || fail "TEC $expected_version reactivation did not restore native env state: $reactivated"
+  [ "$reactivated_caps" = "$before_caps" ] \
+    || fail "TEC $expected_version reactivation did not restore the exact native capability set"
+  [ "$(tec_target_storage_fingerprint)" = "$before_fingerprint" ] \
+    || fail "TEC $expected_version exact-code reactivation mutated authored or derived state"
+  [ "$(tec_target_main_option_raw_hash)" = "$before_raw" ] \
+    || fail "TEC $expected_version reactivation did not converge the exact mixed settings row"
+  pass "TEC $expected_version deactivation clears only reviewed runtime and exact-code deploy restores native state"
 }
 
 tec_derived_hash() {
@@ -1117,6 +1310,11 @@ printf '%s\n' "$TEC_COLOR_BOUNDARY_JSON" | jq -e '
   .native_one_page_rows == 500 and .native_second_page_refused == true
 ' >/dev/null || fail "TEC exact Category Colors boundary returned malformed evidence: $TEC_COLOR_BOUNDARY_OUT"
 pass "exact Category Colors services bind equal-priority semantics, read-only cache recovery, and the native 500/501 query frontier"
+
+# Both official patch boundaries execute the real deactivate/deploy-reactivate
+# path before the matrix returns. Source-proved env transitions are observed
+# separately from the normalized authored/derived fingerprint.
+tec_deactivate_reactivate_cycle "${TEC_EXPECTED_VERSION:-6.17.3}"
 
 if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]; then
   pass "TEC exact-boundary native round trip is clean"
@@ -1751,17 +1949,31 @@ pass "competing TEC applies serialize and leave one exact idempotent native resu
 # rows/options/tables. Missing code must refuse, then the exact cached artifact
 # reinstalls and deploy reactivates without overwriting target-owned siblings.
 wp_conf2 option update duo_tec_neighbor 'target-neighbor-preserved' >/dev/null
+tec_seed_lifecycle_runtime
 LIFECYCLE_BEFORE=$(tec_target_storage_fingerprint)
+LIFECYCLE_RAW_BEFORE=$(tec_target_main_option_raw_hash)
+LIFECYCLE_ACTIVE=$(tec_lifecycle_state)
+LIFECYCLE_CAPS_BEFORE=$(printf '%s\n' "$LIFECYCLE_ACTIVE" | jq -c '.roles | with_entries(.value = .value.plugin_caps)')
 require_observed_nonempty "TEC lifecycle physical baseline" "$LIFECYCLE_BEFORE"
+require_observed_nonempty "TEC lifecycle raw mixed-option baseline" "$LIFECYCLE_RAW_BEFORE"
 wp_conf2 plugin deactivate the-events-calendar >/dev/null
 wp_conf2 plugin is-active the-events-calendar >/dev/null 2>&1 && fail "TEC deactivation premise did not land"
-REACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "TEC deploy after deactivation" json "$REACTIVATE"
-wp_conf2 plugin is-active the-events-calendar >/dev/null || fail "Duo deploy did not reactivate exact TEC code"
+LIFECYCLE_INACTIVE=$(tec_lifecycle_state)
+printf '%s\n' "$LIFECYCLE_INACTIVE" | jq -e '
+  .schema_version == "5.16.0" and .legacy_ct1_transient == false and
+  .rewrite_rules_rows == 0 and
+  .cron == {
+    transient_purge:0, trash:0, delete:0, aggregator:0,
+    aggregator_single:1, neighbor:1
+  } and
+  ([.roles[].neighbor] | all) and
+  ([.roles[].plugin_caps | length] | add) == 0
+' >/dev/null || fail "TEC pre-uninstall deactivation effects drifted: $LIFECYCLE_INACTIVE"
 [ "$(tec_target_storage_fingerprint)" = "$LIFECYCLE_BEFORE" ] \
-  || fail "TEC exact-code reactivation mutated authored, derived, Customizer, settings, or Category Colors rows"
-ROWS_BEFORE_UNINSTALL=$(wp_conf2 post list --post_type=tribe_events --format=count)
-wp_conf2 plugin deactivate the-events-calendar >/dev/null
+  || fail "TEC deactivation mutated authored, derived, Customizer, settings, or Category Colors rows"
+[ "$(tec_target_main_option_raw_hash)" != "$LIFECYCLE_RAW_BEFORE" ] \
+  || fail "TEC deactivation did not write the exact env-owned schema-version transition"
+ROWS_BEFORE_UNINSTALL=$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_posts WHERE post_type="tribe_events"' --skip-column-names)
 wp_conf2 plugin uninstall the-events-calendar >/dev/null
 wp_conf2 plugin is-installed the-events-calendar >/dev/null 2>&1 && fail "TEC uninstall left plugin code installed"
 [ "$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_posts WHERE post_type="tribe_events"' --skip-column-names)" = "$ROWS_BEFORE_UNINSTALL" ] \
@@ -1770,6 +1982,13 @@ wp_conf2 plugin is-installed the-events-calendar >/dev/null 2>&1 && fail "TEC un
   || fail "TEC uninstall mutated an unrelated target option"
 [ "$(tec_target_storage_fingerprint)" = "$LIFECYCLE_BEFORE" ] \
   || fail "TEC empty native uninstall mutated authored, derived, Customizer, settings, or Category Colors rows"
+UNINSTALLED_STATE=$(tec_lifecycle_state)
+printf '%s\n' "$UNINSTALLED_STATE" | jq -e '
+  .schema_version == "5.16.0" and
+  .cron.aggregator_single == 1 and .cron.neighbor == 1 and
+  ([.roles[].neighbor] | all) and
+  ([.roles[].plugin_caps | length] | add) == 0
+' >/dev/null || fail "TEC guard-only uninstall mutated exact inactive runtime residue: $UNINSTALLED_STATE"
 MISSING_STORAGE_BEFORE=$(tec_target_storage_fingerprint)
 MISSING_REPO_BEFORE=$(git -C "$CONF_REPO2" status --porcelain=v1 --untracked-files=all -- state)
 MISSING_RC=0
@@ -1790,6 +2009,17 @@ wp_conf2 plugin install "$TEC_ARTIFACT" --force >/dev/null
   || fail "TEC exact reinstall reported wrong version"
 REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "TEC deploy after exact reinstall" json "$REINSTALL_DEPLOY"
+REINSTALLED_STATE=$(tec_lifecycle_state)
+REINSTALLED_CAPS=$(printf '%s\n' "$REINSTALLED_STATE" | jq -c '.roles | with_entries(.value = .value.plugin_caps)')
+printf '%s\n' "$REINSTALLED_STATE" | jq -e '
+  .schema_version == "6.17.3" and ([.roles[].neighbor] | all)
+' >/dev/null || fail "TEC exact reinstall did not restore native env state: $REINSTALLED_STATE"
+[ "$REINSTALLED_CAPS" = "$LIFECYCLE_CAPS_BEFORE" ] \
+  || fail "TEC exact reinstall did not restore the native capability set"
+[ "$(tec_target_storage_fingerprint)" = "$LIFECYCLE_BEFORE" ] \
+  || fail "TEC exact reinstall mutated persistent authored or derived state"
+[ "$(tec_target_main_option_raw_hash)" = "$LIFECYCLE_RAW_BEFORE" ] \
+  || fail "TEC exact reinstall did not converge the exact mixed settings row"
 REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "TEC apply after residue-preserving reinstall" json "$REINSTALL_APPLY"
 jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$REINSTALL_APPLY" >/dev/null \
