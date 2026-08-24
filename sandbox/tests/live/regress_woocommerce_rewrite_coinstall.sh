@@ -208,16 +208,25 @@ $customOrders=$container->get("Automattic\\WooCommerce\\Internal\\DataStores\\Or
 foreach([[$features,"Automattic\\WooCommerce\\Internal\\Features\\FeaturesController"],[$synchronizer,"Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer"],[$customOrders,"Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController"]]as[$service,$class]){if(!is_object($service)||get_class($service)!==$class){throw new RuntimeException("WooCommerce option service identity differs from normal boot");}}
 $rewrite=$GLOBALS["wp_rewrite"]??null;
 if(!is_object($rewrite)||!class_exists("Yoast_Dynamic_Rewrites")||!is_callable(["Yoast_Dynamic_Rewrites","instance"])){throw new RuntimeException("Yoast dynamic rewrite singleton is unavailable");}
+// The Yoast resolver registers both rewrite callbacks when its slot is empty;
+// observe that private slot first so this verifier cannot manufacture a pass.
+$yoastSlot=new ReflectionProperty("Yoast_Dynamic_Rewrites","instance");
+$registeredYoast=$yoastSlot->getValue();
+if(!is_object($registeredYoast)){throw new RuntimeException("Yoast dynamic rewrite singleton was not registered by normal boot");}
 $yoast=Yoast_Dynamic_Rewrites::instance();
-if(!is_object($yoast)||get_class($yoast)!=="Yoast_Dynamic_Rewrites"||!property_exists($yoast,"wp_rewrite")||$yoast->wp_rewrite!==$rewrite){throw new RuntimeException("Yoast dynamic rewrite singleton differs from the canonical WordPress rewrite runtime");}
+if($yoast!==$registeredYoast||get_class($yoast)!=="Yoast_Dynamic_Rewrites"||!property_exists($yoast,"wp_rewrite")||$yoast->wp_rewrite!==$rewrite){throw new RuntimeException("Yoast dynamic rewrite singleton differs from the canonical WordPress rewrite runtime");}
 $exact("option_rewrite_rules",[[$yoast,"filter_rewrite_rules_option",10,1]]);
 $exact("sanitize_option_rewrite_rules",[[$yoast,"sanitize_rewrite_rules_option",10,1]]);
 if(!class_exists("Tribe__Cache_Listener")||!class_exists("Tribe__Settings_Manager")||!class_exists("Tribe__Events__Aggregator")||!function_exists("tribe")){throw new RuntimeException("The Events Calendar option services are unavailable");}
 $listener=Tribe__Cache_Listener::instance();$manager=Tribe__Settings_Manager::instance();$aggregator=Tribe__Events__Aggregator::instance();$views=tribe("Tribe\\Events\\Views\\V2\\Hooks");
 foreach([[$listener,"Tribe__Cache_Listener"],[$manager,"Tribe__Settings_Manager"],[$aggregator,"Tribe__Events__Aggregator"],[$views,"Tribe\\Events\\Views\\V2\\Hooks"]]as[$service,$class]){if(!is_object($service)||get_class($service)!==$class){throw new RuntimeException("The Events Calendar option service identity differs from normal boot");}}
 if(!class_exists("Tribe__Events__Rewrite")||!is_callable(["Tribe__Events__Rewrite","instance"])){throw new RuntimeException("The Events Calendar rewrite singleton is unavailable");}
+// The public inherited slot must likewise have been populated by TEC normal
+// boot; the resolver below is only safe after that zero-construction witness.
+$registeredTecRewrite=Tribe__Events__Rewrite::$instance;
+if(!is_object($registeredTecRewrite)){throw new RuntimeException("The Events Calendar rewrite singleton was not registered by normal boot");}
 $tecRewrite=Tribe__Events__Rewrite::instance();
-if(!is_object($tecRewrite)||get_class($tecRewrite)!=="Tribe__Events__Rewrite"){throw new RuntimeException("The Events Calendar rewrite singleton differs from normal boot");}
+if($tecRewrite!==$registeredTecRewrite||get_class($tecRewrite)!=="Tribe__Events__Rewrite"){throw new RuntimeException("The Events Calendar rewrite singleton differs from normal boot");}
 $listenerGeneration=array_values(array_filter($records("generate_rewrite_rules"),static fn(array $record):bool=>$record["priority"]===10&&$record["args"]===1&&$record["function"]===[$listener,"generate_rewrite_rules"]));
 if(count($listenerGeneration)!==1){throw new RuntimeException("The Events Calendar rewrite-generation callback differs from the cache-listener singleton");}
 $tecGeneration=array_values(array_filter($records("generate_rewrite_rules"),static fn(array $record):bool=>$record["priority"]===10&&$record["args"]===1&&$record["function"]===[$tecRewrite,"filter_generate"]));
