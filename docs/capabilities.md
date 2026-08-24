@@ -298,7 +298,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## the-events-calendar
 
-**Status: experimental.** Experimental while the production-readiness candidate is integrated and rerun. Deterministic offline coverage exists for the reviewed free-plugin grammar, canonical/legacy Customizer precedence and sparse materialization, ordered organizer grammar, registered metadata, event status/map wires, Category Colors, Custom Tables V1 verification, settings inventory, malformed inputs, and loud extension boundaries, but the checked repeated-meta seam plus final candidate-bound 6.17.2/6.17.3 clean/dirty, deletion atomicity, rollback/retry, concurrency, lifecycle, native render/API, data-boundary, optional-runtime, and multisite evidence remain open. The adapter cannot certify or promote until every ledger family is green on one clean shipped SHA.
+**Status: experimental.** Experimental while the production-readiness candidate is integrated and rerun. Deterministic offline coverage exists for the reviewed free-plugin grammar, canonical/legacy Customizer precedence and sparse materialization, ordered organizer capture/apply/rollback/concurrency, registered metadata, event status/map wires, Category Colors, Custom Tables V1 verification, settings inventory, malformed inputs, and loud extension boundaries, but final candidate-bound 6.17.2/6.17.3 clean/dirty, deletion atomicity, rollback/retry, concurrency, lifecycle, native render/API, data-boundary, optional-runtime, and multisite evidence remain open. The adapter cannot certify or promote until every ledger family is green on one clean shipped SHA.
 
 - **Plugin:** `the-events-calendar/the-events-calendar.php`
 - **Version range:** >=6.17.2 <6.17.4

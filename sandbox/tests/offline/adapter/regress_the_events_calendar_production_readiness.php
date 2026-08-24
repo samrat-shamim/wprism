@@ -2261,6 +2261,410 @@ duo_check_same(
     $policy->post_meta_rule('_EventOrganizerID')['cast'] ?? null,
     'organizer row refs restore TEC native digit-string postmeta bytes'
 );
+
+$savedOrganizerDb = $GLOBALS['wpdb'] ?? null;
+$organizerSourceId = 6100000001;
+$sourceOrganizerIds = [700000001, 800000003];
+$targetOrganizerIds = [900000001, 37];
+$organizerSourceDb = new FakeWpdb();
+$organizerSourceDb->seedTable($organizerSourceDb->postmeta, [
+    [
+        'meta_id' => 11,
+        'post_id' => $organizerSourceId,
+        'meta_key' => '_EventOrganizerID',
+        'meta_value' => (string) $sourceOrganizerIds[0],
+    ],
+    [
+        'meta_id' => 12,
+        'post_id' => $organizerSourceId,
+        'meta_key' => '_EventOrganizerID',
+        'meta_value' => (string) $sourceOrganizerIds[1],
+    ],
+    [
+        'meta_id' => 13,
+        'post_id' => $organizerSourceId,
+        'meta_key' => '_preview_organizers',
+        'meta_value' => serialize($sourceOrganizerIds),
+    ],
+]);
+$organizerSourceDb->seedTable($organizerSourceDb->prefix . 'duo_map', [
+    [
+        'uuid' => TEC_ORGANIZER_UUID,
+        'entity_type' => 'post',
+        'id_kind' => 'post',
+        'local_id' => $sourceOrganizerIds[0],
+    ],
+    [
+        'uuid' => TEC_ORGANIZER_TWO_UUID,
+        'entity_type' => 'post',
+        'id_kind' => 'post',
+        'local_id' => $sourceOrganizerIds[1],
+    ],
+]);
+$GLOBALS['wpdb'] = $organizerSourceDb;
+$organizerCaptureCheckpoints = 0;
+$organizerTokens = new Tokens('https://source.example', 'https://source.example/uploads');
+$organizerCapture = new EntityMetaCapture(
+    $policy,
+    $organizerTokens,
+    static function (mixed ...$_unused): void {},
+    static function () use (&$organizerCaptureCheckpoints): void {
+        ++$organizerCaptureCheckpoints;
+    },
+    static function (mixed ...$_unused): void {}
+);
+$sourceOrganizerByKey = $organizerCapture->postMetaByKey($organizerSourceId);
+$sourceOrganizerFlat = array_map(
+    static fn(array $values): mixed => $values[0] ?? null,
+    $sourceOrganizerByKey
+);
+[$storeOrganizerRows, $capturedOrganizerRows] = $organizerCapture->classifyValue(
+    '_EventOrganizerID',
+    $sourceOrganizerByKey['_EventOrganizerID'] ?? [],
+    $sourceOrganizerFlat,
+    'TEC source event',
+    'post_meta'
+);
+duo_check_same(true, $storeOrganizerRows, 'TEC capture stores the declared repeated organizer row set');
+duo_check_same(
+    [
+        '{{post:' . TEC_ORGANIZER_UUID . '}}',
+        '{{post:' . TEC_ORGANIZER_TWO_UUID . '}}',
+    ],
+    $capturedOrganizerRows,
+    'TEC capture tokenizes divergent large organizer IDs in exact physical order'
+);
+duo_check_same(
+    3,
+    $organizerCaptureCheckpoints,
+    'TEC repeated-row capture checkpoints bounded size, hash and value reads independently'
+);
+
+$organizerTargetInner = new FakeWpdb();
+$organizerTargetDb = new LockingFakeWpdb($organizerTargetInner);
+$organizerTargetDb
+    ->addInnoDbTable($organizerTargetDb->postmeta)
+    ->addIndex($organizerTargetDb->postmeta, 'post_id', 'post_id');
+$organizerTargetInner->seedTable($organizerTargetInner->postmeta, [
+    [
+        'meta_id' => 21,
+        'post_id' => $organizerSourceId,
+        'meta_key' => '_EventOrganizerID',
+        'meta_value' => (string) $targetOrganizerIds[1],
+    ],
+    [
+        'meta_id' => 22,
+        'post_id' => $organizerSourceId,
+        'meta_key' => '_EventOrganizerID',
+        'meta_value' => 'stale-extra',
+    ],
+    [
+        'meta_id' => 23,
+        'post_id' => $organizerSourceId,
+        'meta_key' => '_EventOrganizerID',
+        'meta_value' => (string) $targetOrganizerIds[0],
+    ],
+    [
+        'meta_id' => 24,
+        'post_id' => $organizerSourceId,
+        'meta_key' => '_preview_organizers',
+        'meta_value' => "runtime\0preview",
+    ],
+]);
+$organizerTargetInner->seedTable($organizerTargetInner->prefix . 'duo_map', [
+    [
+        'uuid' => TEC_ORGANIZER_UUID,
+        'entity_type' => 'post',
+        'id_kind' => 'post',
+        'local_id' => $targetOrganizerIds[0],
+    ],
+    [
+        'uuid' => TEC_ORGANIZER_TWO_UUID,
+        'entity_type' => 'post',
+        'id_kind' => 'post',
+        'local_id' => $targetOrganizerIds[1],
+    ],
+]);
+
+/** @return ?Throwable */
+$applyOrganizerRows = static function (
+    LockingFakeWpdb $database,
+    Policy $policy,
+    int $eventId,
+    array $desired
+): ?Throwable {
+    $savedDb = $GLOBALS['wpdb'] ?? null;
+    $GLOBALS['wpdb'] = $database;
+    $materializer = new \Duo\ApplyFieldMaterializer(
+        $policy,
+        new Tokens('https://target.example', 'https://target.example/uploads')
+    );
+    $transactionStarted = false;
+    $cacheStarted = false;
+    $failure = null;
+    try {
+        \Duo\Db::start_repeatable_read('TEC organizer repeated-row product fixture');
+        $transactionStarted = true;
+        $materializer->begin_authored_transaction();
+        \Duo\CacheInvalidationTransaction::begin();
+        $cacheStarted = true;
+        $materializer->reconcile_authored_meta($eventId, $desired, "TEC event $eventId");
+        \Duo\Db::commit('TEC organizer repeated-row product fixture commit');
+        $transactionStarted = false;
+        \Duo\CacheInvalidationTransaction::finish();
+    } catch (Throwable $caught) {
+        $failure = $caught;
+        if ($transactionStarted) {
+            \Duo\Db::rollback('TEC organizer repeated-row product fixture rollback');
+            $transactionStarted = false;
+        }
+        if ($cacheStarted) {
+            try {
+                \Duo\CacheInvalidationTransaction::finish();
+            } catch (Throwable $cacheFailure) {
+                $failure = $cacheFailure;
+            }
+        }
+    } finally {
+        $materializer->end_authored_transaction();
+        if ($cacheStarted) {
+            \Duo\CacheInvalidationTransaction::end();
+        }
+        $GLOBALS['wpdb'] = $savedDb;
+    }
+    return $failure;
+};
+$organizerPhysicalValues = static function (FakeWpdb $database, int $eventId): array {
+    return array_values(array_map(
+        static fn(array $row): string => (string) $row['meta_value'],
+        array_filter(
+            $database->rows($database->postmeta),
+            static fn(array $row): bool => (int) ($row['post_id'] ?? 0) === $eventId
+                && ($row['meta_key'] ?? null) === '_EventOrganizerID'
+        )
+    ));
+};
+
+$GLOBALS['tec_readiness_wp_cache']['post_meta'][$organizerSourceId] = 'stale-organizer-cache';
+$organizerApplyFailure = $applyOrganizerRows(
+    $organizerTargetDb,
+    $policy,
+    $organizerSourceId,
+    ['_EventOrganizerID' => $capturedOrganizerRows]
+);
+duo_check_same(null, $organizerApplyFailure, 'TEC repeated organizer rows apply through the shared locked product path');
+duo_check_same(
+    array_map('strval', $targetOrganizerIds),
+    $organizerPhysicalValues($organizerTargetInner, $organizerSourceId),
+    'TEC apply replaces stale organizer rows with rebased target IDs in exact canonical order'
+);
+duo_check_same(
+    "runtime\0preview",
+    array_values(array_filter(
+        $organizerTargetInner->rows($organizerTargetInner->postmeta),
+        static fn(array $row): bool => ($row['meta_key'] ?? null) === '_preview_organizers'
+    ))[0]['meta_value'] ?? null,
+    'TEC repeated organizer replacement preserves byte-exact editor-runtime metadata'
+);
+duo_check(
+    !array_key_exists($organizerSourceId, $GLOBALS['tec_readiness_wp_cache']['post_meta'] ?? []),
+    'TEC repeated organizer materialization purges stale same-process post-meta cache bytes'
+);
+
+$rowsAfterFirstOrganizerApply = $organizerTargetInner->rows($organizerTargetInner->postmeta);
+duo_check_same(
+    null,
+    $applyOrganizerRows(
+        $organizerTargetDb,
+        $policy,
+        $organizerSourceId,
+        ['_EventOrganizerID' => $capturedOrganizerRows]
+    ),
+    'an exact TEC organizer retry succeeds idempotently'
+);
+duo_check_same(
+    $rowsAfterFirstOrganizerApply,
+    $organizerTargetInner->rows($organizerTargetInner->postmeta),
+    'an exact TEC organizer retry performs no physical row churn'
+);
+
+$GLOBALS['wpdb'] = $organizerTargetDb;
+$targetOrganizerCapture = new EntityMetaCapture(
+    $policy,
+    new Tokens('https://target.example', 'https://target.example/uploads'),
+    static function (mixed ...$_unused): void {},
+    static function (): void {},
+    static function (mixed ...$_unused): void {}
+);
+$targetOrganizerByKey = $targetOrganizerCapture->postMetaByKey($organizerSourceId);
+$targetOrganizerFlat = array_map(
+    static fn(array $values): mixed => $values[0] ?? null,
+    $targetOrganizerByKey
+);
+[$recaptureOrganizerRows, $recapturedOrganizerTokens] = $targetOrganizerCapture->classifyValue(
+    '_EventOrganizerID',
+    $targetOrganizerByKey['_EventOrganizerID'] ?? [],
+    $targetOrganizerFlat,
+    'TEC target event',
+    'post_meta'
+);
+$GLOBALS['wpdb'] = $savedOrganizerDb;
+duo_check_same(true, $recaptureOrganizerRows, 'TEC target recapture retains its repeated organizer set');
+duo_check_same(
+    $capturedOrganizerRows,
+    $recapturedOrganizerTokens,
+    'TEC target recapture is canonical-byte coherent across divergent physical organizer IDs'
+);
+
+foreach ([
+    'empty list' => [],
+    'duplicate list' => [$capturedOrganizerRows[0], $capturedOrganizerRows[0]],
+] as $label => $invalidOrganizerRows) {
+    $beforeInvalidOrganizerRows = $organizerTargetInner->rows($organizerTargetInner->postmeta);
+    $invalidOrganizerFailure = $applyOrganizerRows(
+        $organizerTargetDb,
+        $policy,
+        $organizerSourceId,
+        ['_EventOrganizerID' => $invalidOrganizerRows]
+    );
+    duo_check(
+        $invalidOrganizerFailure instanceof RuntimeException,
+        "a TEC organizer $label refuses through the shared repeated-row product grammar"
+    );
+    duo_check_same(
+        $beforeInvalidOrganizerRows,
+        $organizerTargetInner->rows($organizerTargetInner->postmeta),
+        "the refused TEC organizer $label preserves exact target physical rows"
+    );
+}
+
+$beforeOrganizerInsertFailure = $organizerTargetInner->rows($organizerTargetInner->postmeta);
+$organizerTargetInner->failNextQuery(
+    'injected organizer insert failure',
+    'INSERT INTO `wp_postmeta`',
+    1
+);
+$reversedOrganizerTokens = array_reverse($capturedOrganizerRows);
+$organizerInsertFailure = $applyOrganizerRows(
+    $organizerTargetDb,
+    $policy,
+    $organizerSourceId,
+    ['_EventOrganizerID' => $reversedOrganizerTokens]
+);
+duo_check(
+    $organizerInsertFailure instanceof \Duo\DatabaseMutationException,
+    'an injected TEC organizer row insertion failure is loud and bounded'
+);
+duo_check_same(
+    $beforeOrganizerInsertFailure,
+    $organizerTargetInner->rows($organizerTargetInner->postmeta),
+    'TEC organizer insertion failure rolls every physical row back atomically'
+);
+duo_check_same(
+    null,
+    $applyOrganizerRows(
+        $organizerTargetDb,
+        $policy,
+        $organizerSourceId,
+        ['_EventOrganizerID' => $reversedOrganizerTokens]
+    ),
+    'same-process retry converges after the organizer insertion failure'
+);
+duo_check_same(
+    array_map('strval', array_reverse($targetOrganizerIds)),
+    $organizerPhysicalValues($organizerTargetInner, $organizerSourceId),
+    'the organizer retry materializes a reorder-only change exactly'
+);
+
+$organizerSizeReads = 0;
+$organizerTargetInner->onQuery(static function (
+    string $sql,
+    string $method,
+    FakeWpdb $database
+) use (&$organizerSizeReads, $organizerSourceId): null {
+    if ($method !== 'get_results'
+        || !str_contains($sql, 'OCTET_LENGTH(meta_key)')
+        || !str_contains($sql, "`post_id` = $organizerSourceId")) {
+        return null;
+    }
+    ++$organizerSizeReads;
+    if ($organizerSizeReads !== 2) {
+        return null;
+    }
+    $rows = $database->rows($database->postmeta);
+    $positions = [];
+    foreach ($rows as $position => $row) {
+        if ((int) ($row['post_id'] ?? 0) === $organizerSourceId
+            && ($row['meta_key'] ?? null) === '_EventOrganizerID') {
+            $positions[] = $position;
+        }
+    }
+    if (count($positions) === 2) {
+        [$first, $second] = $positions;
+        [$rows[$first]['meta_value'], $rows[$second]['meta_value']] = [
+            $rows[$second]['meta_value'],
+            $rows[$first]['meta_value'],
+        ];
+        $database->seedTable($database->postmeta, $rows);
+    }
+    $database->onQuery(null);
+    return null;
+});
+$beforeOrganizerDrift = $organizerTargetInner->rows($organizerTargetInner->postmeta);
+$organizerDriftFailure = $applyOrganizerRows(
+    $organizerTargetDb,
+    $policy,
+    $organizerSourceId,
+    ['_EventOrganizerID' => $capturedOrganizerRows]
+);
+duo_check(
+    $organizerDriftFailure instanceof RuntimeException
+        && str_contains($organizerDriftFailure->getMessage(), 'failed exact locked readback'),
+    'same-count same-length organizer drift after replacement refuses from terminal physical readback'
+);
+duo_check_same(
+    $beforeOrganizerDrift,
+    $organizerTargetInner->rows($organizerTargetInner->postmeta),
+    'terminal organizer drift rolls the complete owner-range mutation back'
+);
+duo_check_same(
+    null,
+    $applyOrganizerRows(
+        $organizerTargetDb,
+        $policy,
+        $organizerSourceId,
+        ['_EventOrganizerID' => $capturedOrganizerRows]
+    ),
+    'same-process retry converges after terminal organizer drift stops'
+);
+
+duo_check_same(
+    null,
+    $applyOrganizerRows($organizerTargetDb, $policy, $organizerSourceId, []),
+    'omitting TEC organizer metadata deletes every owned physical organizer row'
+);
+duo_check_same(
+    [],
+    $organizerPhysicalValues($organizerTargetInner, $organizerSourceId),
+    'TEC organizer omission has an exact zero-row postcondition'
+);
+duo_check_same(
+    null,
+    $applyOrganizerRows(
+        $organizerTargetDb,
+        $policy,
+        $organizerSourceId,
+        ['_EventOrganizerID' => [$capturedOrganizerRows[0]]]
+    ),
+    'a one-organizer TEC event materializes after the zero-row state'
+);
+duo_check_same(
+    [(string) $targetOrganizerIds[0]],
+    $organizerPhysicalValues($organizerTargetInner, $organizerSourceId),
+    'the one-organizer product path writes exactly one rebased physical row'
+);
+$GLOBALS['wpdb'] = $savedOrganizerDb;
+
 $runtimeCapture = new EntityMetaCapture(
     $policy,
     new stdClass(),
