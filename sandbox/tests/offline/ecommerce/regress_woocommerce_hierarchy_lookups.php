@@ -32,6 +32,11 @@ $artifactLock = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
+$settingsInventory = json_decode(
+    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-settings.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
 duo_check_same('duo-woocommerce-rewrite-coinstall-topology/v1', $coinstallTopology['format'] ?? null,
     'the mixed rewrite fixture has the reviewed source-topology format');
 foreach ((array) ($coinstallTopology['artifacts'] ?? []) as $slug => $artifact) {
@@ -60,6 +65,25 @@ duo_check_same([
     ['plugin' => 'the-events-calendar', 'path' => 'src/Tribe/Main.php', 'sha256' => '3f7b3c50960071a350077ee1c72bd342ebe4613c374913522361371ca30aaa94'],
 ], $coinstallTopology['source_files'] ?? null,
     'mixed rewrite topology binds each installed extension callback to its exact audited source bytes');
+$wooVersion = (string) ($coinstallTopology['artifacts']['woocommerce']['version'] ?? '');
+$wooSourceAuthority = (array) ($settingsInventory['source_files'] ?? []);
+foreach ((array) ($settingsInventory['version_specific_source_files'] ?? []) as $path => $versions) {
+    if (is_array($versions) && array_key_exists($wooVersion, $versions)) {
+        $wooSourceAuthority[$path] = $versions[$wooVersion];
+    }
+}
+$unboundWooSources = [];
+foreach ((array) ($coinstallTopology['source_files'] ?? []) as $source) {
+    if (($source['plugin'] ?? null) !== 'woocommerce') {
+        continue;
+    }
+    $path = $source['path'] ?? null;
+    if (!is_string($path) || ($wooSourceAuthority[$path] ?? null) !== ($source['sha256'] ?? null)) {
+        $unboundWooSources[] = $path;
+    }
+}
+duo_check_same([], $unboundWooSources,
+    'every Woo rewrite callback source is bound to the exact source inventory for the installed 11.0.1 artifact');
 duo_check_same([
     ['hook' => 'rewrite_rules_array', 'callback' => 'wc_fix_rewrite_rules', 'priority' => 10, 'accepted_args' => 1],
     ['hook' => 'updated_option', 'callback' => 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_updated_option', 'priority' => 999, 'accepted_args' => 3],
