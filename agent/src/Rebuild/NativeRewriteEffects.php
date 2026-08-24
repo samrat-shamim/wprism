@@ -368,6 +368,7 @@ final class NativeRewriteEffects {
         $tecRewrite = null;
         $aggregator = null;
         $views = null;
+        $viewsRewrite = null;
         $kitchenSink = null;
         $manager = null;
         $viewRegistrations = [];
@@ -390,6 +391,15 @@ final class NativeRewriteEffects {
                 'tribe_events_pre_rewrite',
                 'on_tribe_events_pre_rewrite'
             );
+            // Hooks::filter_rewrite_i18n_slugs_raw() resolves this exact,
+            // stateless service at call time. Its reviewed 6.17.2/6.17.3
+            // implementation only transforms the rule bases later covered by
+            // rewrite.flush's durable/runtime hashes; it owns no companion
+            // storage or request-local state.
+            $viewsRewrite = self::exact_container_value_service(
+                'Tribe\\Events\\Views\\V2\\Rewrite',
+                'filter_raw_i18n_slugs'
+            );
             // Hooks::on_tribe_events_pre_rewrite() resolves this second
             // singleton at call time. Binding only the outer Hooks callback
             // would let a container override execute foreign code and return
@@ -405,7 +415,7 @@ final class NativeRewriteEffects {
                 'tribe_events_pre_rewrite',
                 'add_qr_rules'
             );
-            self::assert_tec_inner_topology($qrRoutes);
+            self::assert_tec_inner_topology($qrRoutes, $views);
         }
         $yoast = self::resolve_yoast($wp_rewrite);
         $polylang = self::resolve_polylang();
@@ -471,6 +481,7 @@ final class NativeRewriteEffects {
             'tec_rewrite' => $tecRewrite,
             'aggregator' => $aggregator,
             'views' => $views,
+            'views_rewrite' => $viewsRewrite,
             'kitchen_sink' => $kitchenSink,
             'view_manager' => $manager,
             'view_registrations' => $viewRegistrations,
@@ -609,7 +620,7 @@ final class NativeRewriteEffects {
         return $resolved;
     }
 
-    private static function assert_tec_inner_topology(object $qrRoutes): void {
+    private static function assert_tec_inner_topology(object $qrRoutes, object $views): void {
         foreach ([
             'tribe_cache_expiration',
             'tribe_events_category_slug',
@@ -617,7 +628,6 @@ final class NativeRewriteEffects {
             'tribe_events_rewrite_i18n_domains',
             'tribe_events_rewrite_base_slugs',
             'tribe_events_rewrite_i18n_languages',
-            'tribe_events_rewrite_i18n_slugs_raw',
             'tribe_events_rewrite_i18n_slugs',
             'tec_events_qr_route_base',
             'tec_events_qr_route_prefix',
@@ -626,6 +636,9 @@ final class NativeRewriteEffects {
         ] as $hookName) {
             self::assert_exact_hook($hookName, []);
         }
+        self::assert_exact_hook('tribe_events_rewrite_i18n_slugs_raw', [
+            [$views, 'filter_rewrite_i18n_slugs_raw', 50, 2],
+        ]);
 
         try {
             $base = (new \ReflectionProperty('TEC\\Events\\QR\\Routes', 'route_base'))->getValue($qrRoutes);

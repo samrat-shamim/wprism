@@ -111,9 +111,30 @@ namespace Tribe\Events\Views\V2 {
         }
     }
 
+    final class Rewrite {
+        /** @param array<string,list<string>> $bases @return array<string,list<string>> */
+        public function filter_raw_i18n_slugs(array $bases, mixed $method): array {
+            if ($method !== 'regex') {
+                return $bases;
+            }
+            foreach ($bases as &$group) {
+                foreach ($group as $value) {
+                    $encoded = urlencode(strtolower($value));
+                    if ($encoded !== $value) {
+                        $group[] = $encoded;
+                    }
+                }
+                $group = array_values(array_unique($group));
+            }
+            unset($group);
+            return $bases;
+        }
+    }
+
     final class Hooks {
         public function __construct() {
             \add_action('tribe_events_pre_rewrite', [$this, 'on_tribe_events_pre_rewrite'], 10, 1);
+            \add_filter('tribe_events_rewrite_i18n_slugs_raw', [$this, 'filter_rewrite_i18n_slugs_raw'], 50, 2);
             \add_action('updated_option', [$this, 'action_save_wplang'], 10, 3);
         }
 
@@ -123,6 +144,11 @@ namespace Tribe\Events\Views\V2 {
         }
 
         public function action_save_wplang(string $option, mixed $old, mixed $value): void {}
+
+        /** @param array<string,list<string>> $bases @return array<string,list<string>> */
+        public function filter_rewrite_i18n_slugs_raw(array $bases, mixed $method): array {
+            return \tribe(Rewrite::class)->filter_raw_i18n_slugs($bases, $method);
+        }
     }
 }
 
@@ -276,6 +302,12 @@ final class Tribe__Events__Rewrite {
     public function filter_generate(object $wpRewrite): void {
         do_action('tribe_pre_rewrite', $this);
         do_action('tribe_events_pre_rewrite', $this);
+        $bases = apply_filters(
+            'tribe_events_rewrite_i18n_slugs_raw',
+            ['events' => ['events', 'événements']],
+            'regex'
+        );
+        $wpRewrite->tecViewsV2EncodedRule = '^' . end($bases['events']) . '/?$';
         apply_filters('tribe_events_rewrite_rules_custom', [], $this, $wpRewrite);
         $GLOBALS['tec_readiness_rewrite_calls'][] = [__METHOD__, 'generate'];
     }
@@ -571,6 +603,7 @@ final class TecReadinessRewriteRuntime {
     public mixed $rules = null;
     public int $flushCalls = 0;
     public bool $malformedAfterGenerate = false;
+    public ?string $tecViewsV2EncodedRule = null;
     /** @var array<string,array{}> */
     public array $extra_permastructs = ['product' => [], 'product_cat' => []];
 
@@ -583,6 +616,9 @@ final class TecReadinessRewriteRuntime {
         $generated = $this->malformedAfterGenerate
             ? 'malformed-after-generate'
             : ['^events/?$' => 'index.php?post_type=tribe_events'];
+        if (is_array($generated) && is_string($this->tecViewsV2EncodedRule)) {
+            $generated[$this->tecViewsV2EncodedRule] = 'index.php?post_type=tribe_events&tec_view=v2';
+        }
         $this->rules = is_array($generated)
             ? apply_filters('rewrite_rules_array', $generated)
             : $generated;
@@ -1322,6 +1358,7 @@ function tribe(?string $class = null): object {
         'customizer' => $GLOBALS['tec_readiness_customizer'],
         'cache' => $GLOBALS['tec_readiness_container_cache'],
         'Tribe\\Events\\Views\\V2\\Hooks' => $GLOBALS['tec_readiness_views_hooks'],
+        'Tribe\\Events\\Views\\V2\\Rewrite' => $GLOBALS['tec_readiness_views_rewrite'],
         'Tribe\\Events\\Views\\V2\\Kitchen_Sink' => $GLOBALS['tec_readiness_kitchen_sink'],
         'Tribe\\Events\\Views\\V2\\Manager' => $GLOBALS['tec_readiness_views_manager'],
         'TEC\\Events\\QR\\Routes' => $GLOBALS['tec_readiness_qr_routes'],
@@ -4159,7 +4196,9 @@ $tecRewriteSourceHashes = array_intersect_key(
         'common/src/Tribe/Rewrite.php',
         'common/src/Tribe/Deprecation.php',
         'src/Tribe/Rewrite.php',
+        'src/Tribe/Views/V2/Hooks.php',
         'src/Tribe/Views/V2/Manager.php',
+        'src/Tribe/Views/V2/Rewrite.php',
         'src/Tribe/Views/V2/View_Register.php',
         'src/Tribe/Views/V2/Kitchen_Sink.php',
         'src/Tribe/Views/V2/Service_Provider.php',
@@ -4177,10 +4216,14 @@ duo_check_same(
             '13970bae6bc23da3db24a44c14194568c7baf25f46b6b62166972c63b3e89acf',
         'src/Tribe/Rewrite.php' =>
             '2f447a4120a349d5f596c834192b17a5b911c6c94e8a62cfaee58af89cc86aab',
+        'src/Tribe/Views/V2/Hooks.php' =>
+            'd746a05d4e7979a0bbdae0938f009d0012e550d605c4a331a1cd288e7b746b5f',
         'src/Tribe/Views/V2/Kitchen_Sink.php' =>
             '9f26d8aed55135352eb89107b5851517a6955b761831db264275e325505e578f',
         'src/Tribe/Views/V2/Manager.php' =>
             'c7138bf36ebd78bf2c749ed6b6548255064710559e31a9716f4fc8af86dde353',
+        'src/Tribe/Views/V2/Rewrite.php' =>
+            '10ad020cac5de505fe0874135a3783422b1e1f88223d4bc65156a4877b5f2377',
         'src/Tribe/Views/V2/Service_Provider.php' =>
             '29e613ac58ae57ece7206f9db697749c41a5370d491088f5833a45d8f0f593b1',
         'src/Tribe/Views/V2/View_Register.php' =>
@@ -4196,7 +4239,6 @@ $exactTecInnerHooks = [
     'tribe_events_rewrite_i18n_domains',
     'tribe_events_rewrite_base_slugs',
     'tribe_events_rewrite_i18n_languages',
-    'tribe_events_rewrite_i18n_slugs_raw',
     'tribe_events_rewrite_i18n_slugs',
     'tec_events_qr_route_base',
     'tec_events_qr_route_prefix',
@@ -4212,6 +4254,17 @@ duo_check_same(
     ['tribe_pre_rewrite'],
     $optionHookFixture['rewrite_generation']['normal_empty_hooks'] ?? null,
     'both exact TEC artifacts bind the opt-in predecessor hook as empty during normal boot'
+);
+duo_check_same(
+    [[
+        'accepted_args' => 2,
+        'class' => 'Tribe\\Events\\Views\\V2\\Hooks',
+        'hook' => 'tribe_events_rewrite_i18n_slugs_raw',
+        'method' => 'filter_rewrite_i18n_slugs_raw',
+        'priority' => 50,
+    ]],
+    $optionHookFixture['rewrite_generation']['normal_callbacks'] ?? null,
+    'both exact TEC artifacts bind the Views V2 raw-slug callback identity and order'
 );
 $staticRewriteCallbacks = [];
 foreach (($wooRewriteTopology['static_callbacks'] ?? []) as $callback) {
@@ -4231,6 +4284,9 @@ foreach ([
     ],
     'sanitize_option_rewrite_rules' => [
         'Yoast_Dynamic_Rewrites::sanitize_rewrite_rules_option',
+    ],
+    'tribe_events_rewrite_i18n_slugs_raw' => [
+        'Tribe\\Events\\Views\\V2\\Hooks::filter_rewrite_i18n_slugs_raw',
     ],
 ] as $hookName => $callbacks) {
     foreach ($callbacks as $callback) {
@@ -4426,6 +4482,7 @@ duo_check_same(
         'src/Tribe/Views/V2/Customizer/Section/Single_Event.php',
         'src/Tribe/Views/V2/Customizer/Service_Provider.php',
         'src/Tribe/Views/V2/Hooks.php',
+        'src/Tribe/Views/V2/Rewrite.php',
         'src/Tribe/Views/V2/Kitchen_Sink.php',
         'src/Tribe/Views/V2/Manager.php',
         'src/Tribe/Views/V2/View_Register.php',
@@ -4447,6 +4504,9 @@ foreach ([
     'wp-includes/blocks/legacy-widget.php',
     'wp-includes/blocks/legacy-widget/block.json',
     'src/Tribe/Views/V2/Widgets/Service_Provider.php',
+    'src/Tribe/Views/V2/Rewrite.php',
+    'filter_rewrite_i18n_slugs_raw',
+    'filter_raw_i18n_slugs',
     'src/Tribe/Event_Cleaner.php',
     'fix_all_day_events',
     'permanently_delete_old_events',
@@ -6387,6 +6447,7 @@ $GLOBALS['tec_readiness_cache_listener'] = Tribe__Cache_Listener::instance();
 $GLOBALS['tec_readiness_events_rewrite'] = Tribe__Events__Rewrite::instance();
 $GLOBALS['tec_readiness_aggregator'] = Tribe__Events__Aggregator::instance();
 $GLOBALS['tec_readiness_views_manager'] = new \Tribe\Events\Views\V2\Manager();
+$GLOBALS['tec_readiness_views_rewrite'] = new \Tribe\Events\Views\V2\Rewrite();
 $GLOBALS['tec_readiness_views_hooks'] = new \Tribe\Events\Views\V2\Hooks();
 $GLOBALS['tec_readiness_kitchen_sink'] = new \Tribe\Events\Views\V2\Kitchen_Sink();
 $GLOBALS['tec_readiness_qr_routes'] = new \TEC\Events\QR\Routes();
@@ -6768,6 +6829,7 @@ $foreignViewsRefusal = tec_readiness_materialize_mixed_option(
 );
 remove_action('updated_option', [$foreignViews, 'action_save_wplang'], 10);
 remove_action('tribe_events_pre_rewrite', [$foreignViews, 'on_tribe_events_pre_rewrite'], 10);
+remove_filter('tribe_events_rewrite_i18n_slugs_raw', [$foreignViews, 'filter_rewrite_i18n_slugs_raw'], 50);
 duo_check(
     $foreignViewsRefusal['failure'] instanceof RuntimeException
         && str_contains($foreignViewsRefusal['failure']->getMessage(), 'option mutation hook topology'),
@@ -7888,11 +7950,100 @@ duo_check_same(
 );
 remove_action('tribe_pre_rewrite', [$optInDeprecation, 'deprecated_action_message'], 10);
 remove_action('tribe_events_pre_rewrite', [$optInDeprecation, 'deprecated_action_message'], 10);
+
+$viewsHooks = $GLOBALS['tec_readiness_views_hooks'];
+$rawSlugCallback = [$viewsHooks, 'filter_rewrite_i18n_slugs_raw'];
+remove_filter('tribe_events_rewrite_i18n_slugs_raw', $rawSlugCallback, 50);
+$missingRawSlugPreimage = $rewriteRefusalState();
+$missingRawSlugFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $missingRawSlugFailure = $failure;
+}
+duo_check(
+    $missingRawSlugFailure instanceof RuntimeException
+        && str_contains(
+            $missingRawSlugFailure->getMessage(),
+            "incomplete 'tribe_events_rewrite_i18n_slugs_raw' callbacks"
+        ),
+    'a missing canonical Views V2 raw-slug callback refuses before native rewrite generation'
+);
+duo_check_same(
+    $missingRawSlugPreimage,
+    $rewriteRefusalState(),
+    'the missing raw-slug callback refusal preserves durable rows, runtime rules, and purge state'
+);
+
+$substitutedViewsHooks = new \Tribe\Events\Views\V2\Hooks();
+remove_action('tribe_events_pre_rewrite', [$substitutedViewsHooks, 'on_tribe_events_pre_rewrite'], 10);
+remove_action('updated_option', [$substitutedViewsHooks, 'action_save_wplang'], 10);
+$substitutedRawSlugPreimage = $rewriteRefusalState();
+$substitutedRawSlugFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $substitutedRawSlugFailure = $failure;
+}
+duo_check(
+    $substitutedRawSlugFailure instanceof RuntimeException
+        && str_contains(
+            $substitutedRawSlugFailure->getMessage(),
+            "extended or substituted 'tribe_events_rewrite_i18n_slugs_raw' callbacks"
+        ),
+    'a same-class non-container Views V2 raw-slug callback refuses before native generation'
+);
+duo_check_same(
+    $substitutedRawSlugPreimage,
+    $rewriteRefusalState(),
+    'the substituted raw-slug callback refusal preserves durable rows, runtime rules, and purge state'
+);
+remove_filter(
+    'tribe_events_rewrite_i18n_slugs_raw',
+    [$substitutedViewsHooks, 'filter_rewrite_i18n_slugs_raw'],
+    50
+);
+add_filter('tribe_events_rewrite_i18n_slugs_raw', $rawSlugCallback, 50, 2);
+
+$extendedRawSlugCalls = 0;
+$extendedRawSlug = static function (array $bases) use (&$extendedRawSlugCalls): array {
+    ++$extendedRawSlugCalls;
+    return $bases;
+};
+add_filter('tribe_events_rewrite_i18n_slugs_raw', $extendedRawSlug, 999, 1);
+$extendedRawSlugPreimage = $rewriteRefusalState();
+$extendedRawSlugFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $extendedRawSlugFailure = $failure;
+}
+remove_filter('tribe_events_rewrite_i18n_slugs_raw', $extendedRawSlug, 999);
+duo_check(
+    $extendedRawSlugFailure instanceof RuntimeException
+        && str_contains(
+            $extendedRawSlugFailure->getMessage(),
+            "extended or substituted 'tribe_events_rewrite_i18n_slugs_raw' callbacks"
+        ),
+    'an extra Views V2 raw-slug callback refuses before native rewrite generation'
+);
+duo_check_same(0, $extendedRawSlugCalls, 'the refused extra raw-slug callback never executes');
+duo_check_same(
+    $extendedRawSlugPreimage,
+    $rewriteRefusalState(),
+    'the extra raw-slug callback refusal preserves durable rows, runtime rules, and purge state'
+);
 $nativeRewriteReceipt = $nativeRewriteChild->invoke(null);
 duo_check_same(
     true,
     $nativeRewriteReceipt['verified'] ?? null,
     'removing the opt-in deprecation callbacks permits same-process checked retry'
+);
+duo_check(
+    is_array($GLOBALS['wp_rewrite']->rules)
+        && ($GLOBALS['wp_rewrite']->rules['^%C3%A9v%C3%A9nements/?$'] ?? null)
+            === 'index.php?post_type=tribe_events&tec_view=v2',
+    'the canonical raw-slug callback output is bound into the checked generated-rule receipt'
 );
 duo_check_same(1, $GLOBALS['wp_rewrite']->flushCalls, 'TEC-active native rewrite invokes the fresh soft flush exactly once');
 duo_check(

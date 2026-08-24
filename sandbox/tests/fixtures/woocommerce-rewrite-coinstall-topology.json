@@ -101,6 +101,11 @@
     },
     {
       "plugin": "the-events-calendar",
+      "path": "src/Tribe/Views/V2/Rewrite.php",
+      "sha256": "10ad020cac5de505fe0874135a3783422b1e1f88223d4bc65156a4877b5f2377"
+    },
+    {
+      "plugin": "the-events-calendar",
       "path": "src/Tribe/Views/V2/Kitchen_Sink.php",
       "sha256": "9f26d8aed55135352eb89107b5851517a6955b761831db264275e325505e578f"
     },
@@ -167,6 +172,7 @@
     {"hook": "updated_option", "callback": "Tribe__Cache_Listener::update_last_save_post", "priority": 10, "accepted_args": 3},
     {"hook": "updated_option", "callback": "Tribe__Events__Aggregator::action_purge_transients", "priority": 10, "accepted_args": 1},
     {"hook": "updated_option", "callback": "Tribe\\Events\\Views\\V2\\Hooks::action_save_wplang", "priority": 10, "accepted_args": 3},
+    {"hook": "tribe_events_rewrite_i18n_slugs_raw", "callback": "Tribe\\Events\\Views\\V2\\Hooks::filter_rewrite_i18n_slugs_raw", "priority": 50, "accepted_args": 2},
     {"hook": "generate_rewrite_rules", "callback": "Tribe__Events__Rewrite::filter_generate", "priority": 10, "accepted_args": 1},
     {"hook": "rewrite_rules_array", "callback": "Tribe__Events__Rewrite::filter_rewrite_rules_array", "priority": 25, "accepted_args": 1}
   ],
@@ -234,7 +240,6 @@
     "tribe_events_rewrite_i18n_domains",
     "tribe_events_rewrite_base_slugs",
     "tribe_events_rewrite_i18n_languages",
-    "tribe_events_rewrite_i18n_slugs_raw",
     "tribe_events_rewrite_i18n_slugs",
     "tec_events_qr_route_base",
     "tec_events_qr_route_prefix",

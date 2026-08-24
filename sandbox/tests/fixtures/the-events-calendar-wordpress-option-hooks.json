@@ -135,6 +135,15 @@
     ]
   },
   "rewrite_generation": {
+    "normal_callbacks": [
+      {
+        "accepted_args": 2,
+        "class": "Tribe\\Events\\Views\\V2\\Hooks",
+        "hook": "tribe_events_rewrite_i18n_slugs_raw",
+        "method": "filter_rewrite_i18n_slugs_raw",
+        "priority": 50
+      }
+    ],
     "normal_empty_hooks": [
       "tribe_pre_rewrite"
     ],
@@ -226,6 +235,7 @@
       "src/Tribe/Views/V2/Customizer/Section/Single_Event.php": "95106057402611b0d403f0c3e395b6288429aad217c29e1f367e77f170c8597c",
       "src/Tribe/Views/V2/Customizer/Service_Provider.php": "02dcb4d6d6f28558499f9a4dddafad0b448e2d265c515f2eb5008ff01157d3d6",
       "src/Tribe/Views/V2/Hooks.php": "d746a05d4e7979a0bbdae0938f009d0012e550d605c4a331a1cd288e7b746b5f",
+      "src/Tribe/Views/V2/Rewrite.php": "10ad020cac5de505fe0874135a3783422b1e1f88223d4bc65156a4877b5f2377",
       "src/Tribe/Views/V2/Kitchen_Sink.php": "9f26d8aed55135352eb89107b5851517a6955b761831db264275e325505e578f",
       "src/Tribe/Views/V2/Manager.php": "c7138bf36ebd78bf2c749ed6b6548255064710559e31a9716f4fc8af86dde353",
       "src/Tribe/Views/V2/View_Register.php": "1a6d490cb4627fb282fd8fb1c9312c06308af87c3fa99be268b50db53cf3ac9f",
@@ -285,6 +295,7 @@
       "src/Tribe/Views/V2/Customizer/Section/Single_Event.php": "95106057402611b0d403f0c3e395b6288429aad217c29e1f367e77f170c8597c",
       "src/Tribe/Views/V2/Customizer/Service_Provider.php": "02dcb4d6d6f28558499f9a4dddafad0b448e2d265c515f2eb5008ff01157d3d6",
       "src/Tribe/Views/V2/Hooks.php": "d746a05d4e7979a0bbdae0938f009d0012e550d605c4a331a1cd288e7b746b5f",
+      "src/Tribe/Views/V2/Rewrite.php": "10ad020cac5de505fe0874135a3783422b1e1f88223d4bc65156a4877b5f2377",
       "src/Tribe/Views/V2/Kitchen_Sink.php": "9f26d8aed55135352eb89107b5851517a6955b761831db264275e325505e578f",
       "src/Tribe/Views/V2/Manager.php": "c7138bf36ebd78bf2c749ed6b6548255064710559e31a9716f4fc8af86dde353",
       "src/Tribe/Views/V2/View_Register.php": "1a6d490cb4627fb282fd8fb1c9312c06308af87c3fa99be268b50db53cf3ac9f",

@@ -351,6 +351,13 @@ $pluginRewriteHooks = [
     'pll_modify_rewrite_rule',
 ];
 $rewriteGeneration = [
+    'normal_callbacks' => [[
+        'accepted_args' => 2,
+        'class' => 'Tribe\\Events\\Views\\V2\\Hooks',
+        'hook' => 'tribe_events_rewrite_i18n_slugs_raw',
+        'method' => 'filter_rewrite_i18n_slugs_raw',
+        'priority' => 50,
+    ]],
     // Common defines an opt-in deprecation singleton for this predecessor
     // hook, but both exact free-plugin artifacts leave it unresolved during
     // normal boot. Native rewrite generation must therefore see no callback.
@@ -620,6 +627,26 @@ if ($tecRoot !== '' || $tecVersion !== '') {
     }
     if ($deprecationBootCalls !== 0 || $scannedPhpFiles < 1) {
         tec_option_usage("TEC $tecVersion normal boot now resolves the opt-in deprecation singleton");
+    }
+
+    $viewsHooks = $compactPhp($tecSources['src/Tribe/Views/V2/Hooks.php'] ?? '');
+    $viewsRewrite = $compactPhp($tecSources['src/Tribe/Views/V2/Rewrite.php'] ?? '');
+    foreach ([
+        "add_filter('tribe_events_rewrite_i18n_slugs_raw',"
+            . "[\$this,'filter_rewrite_i18n_slugs_raw'],50,2);",
+        "remove_filter('tribe_events_rewrite_i18n_slugs_raw',"
+            . "[\$this,'filter_rewrite_i18n_slugs_raw'],50);",
+        "return\$this->container->make(Rewrite::class)"
+            . "->filter_raw_i18n_slugs(\$bases,\$method);",
+    ] as $needle) {
+        if (!str_contains($viewsHooks, $needle)) {
+            tec_option_usage("TEC $tecVersion Views V2 rewrite callback source drifted");
+        }
+    }
+    if (!str_contains($viewsRewrite, "if(\$method!=='regex'){return\$bases;}")
+        || !str_contains($viewsRewrite, '$bases=$this->add_url_encoded_slugs($bases);return$bases;')
+        || preg_match('/(?:apply_filters|do_action|update_option|delete_option|wp_cache_)/', $viewsRewrite) === 1) {
+        tec_option_usage("TEC $tecVersion Views V2 raw-slug transformer is no longer a pure rule projection");
     }
 
     $bootstrap = $compactPhp($tecSources['the-events-calendar.php'] ?? '');
