@@ -916,6 +916,36 @@ namespace {
         'populated WPML registry refuses through the closed unreviewed-option boundary',
         'contains an unreviewed row'
     );
+    $artifactLock = json_decode(
+        (string) file_get_contents(dirname(__DIR__, 3) . '/conformance/artifacts.lock.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    duo_check_same(
+        [
+            'url' => 'https://downloads.wordpress.org/plugin/polylang.3.8.7.zip',
+            'sha256' => 'bdb1e8d929410b3083f0884e6a356f91d659159771cc63893c9c06e83daddcb0',
+            'role' => 'certified-boundary',
+        ],
+        $artifactLock['plugins']['polylang']['3.8.7'] ?? null,
+        'official Polylang 3.8.7 archive is digest-pinned as the admitted upper boundary'
+    );
+    $versionMatrix = (string) file_get_contents(dirname(__DIR__, 2) . '/certify/certify_version_matrix.sh');
+    duo_check(
+        str_contains($versionMatrix, 'for POLYLANG_VERSION in 3.8 3.8.7; do')
+            && str_contains($versionMatrix, 'fetch_artifact polylang 3.8.7 cli1')
+            && str_contains($versionMatrix, "[ \"\$(wp1 plugin get polylang --field=version)\" = '3.8.7' ]"),
+        'version matrix installs and exercises the exact official admitted upper boundary'
+    );
+    duo_check(
+        str_contains($versionMatrix, 'synthetic Polylang 3.8.8')
+            && str_contains($versionMatrix, 'Version:           3.8.8')
+            && str_contains($versionMatrix, 'outside_version_range')
+            && str_contains($versionMatrix, 'POLY_SYNTHETIC_HEAD_BEFORE')
+            && str_contains($versionMatrix, 'did not restore exact 3.8.7 artifact bytes'),
+        'version matrix creates only the real header-parser 3.8.8 control, proves refusal/no ref mutation, and restores the exact artifact'
+    );
     $nativeBefore = [
         'force_lang' => 1,
         'domains' => ['en' => 'https://target.example.test'],
