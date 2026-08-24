@@ -14,7 +14,9 @@
       "legacy_widget_php_sha256": "60d2b63a888f03cc416d00356c25fae2bd90e62692462c60f685a6e28fcd6e08",
       "legacy_widget_block_json_sha256": "30a6efdd317d6d830ccfe9f917585a80514d65f94e3a9f40ccb5a370b4708376",
       "rest_widget_types_php_sha256": "25c5b174877aa1cf1d4e3a13836066512e4f6be74e64b6146628e5fbece9c739",
-      "rest_widgets_php_sha256": "1316bf57deae5b9a26a65b74d0153fbe65f0fd0fcf39a43991196d5e786e2739"
+      "rest_widgets_php_sha256": "1316bf57deae5b9a26a65b74d0153fbe65f0fd0fcf39a43991196d5e786e2739",
+      "blocks_php_sha256": "f57261605c65b8edf5df141a9ace86cd208334bff6eff87a6e9a0f33e3aa0d20",
+      "layout_php_sha256": "674761b734efd05d5946771f6cf2b2508dbb80f815e80ef588b89810ea8b4a36"
     },
     "7.0.3": {
       "option_php_sha256": "d1daad9a1d19ee438eb6e3b6698b42a3682f6f7ab9626be02f2157a238ea3e2f",
@@ -27,7 +29,9 @@
       "legacy_widget_php_sha256": "60d2b63a888f03cc416d00356c25fae2bd90e62692462c60f685a6e28fcd6e08",
       "legacy_widget_block_json_sha256": "30a6efdd317d6d830ccfe9f917585a80514d65f94e3a9f40ccb5a370b4708376",
       "rest_widget_types_php_sha256": "a74bbb9fd067e78616a4d791c5b2bcd8472090794d60b7629901e6974d6fc904",
-      "rest_widgets_php_sha256": "fcdd417e2aea0998a6cca9a37326582131a734352d9814b64f74ee617fcd34d6"
+      "rest_widgets_php_sha256": "fcdd417e2aea0998a6cca9a37326582131a734352d9814b64f74ee617fcd34d6",
+      "blocks_php_sha256": "b8b44cb18d6ae7526a36fd3a5fd08c411f3af6c07aba85b3feb34563ed0ad321",
+      "layout_php_sha256": "eb0dc2c4b42a02b330c143f22b867eec1061d6e1291839bb749c80c9d85547ff"
     },
     "7.1": {
       "option_php_sha256": "fe3f0b7e115b2a50c31162ed6428abe4088c080b0f71b9678d84806168fe90d0",
@@ -40,7 +44,9 @@
       "legacy_widget_php_sha256": "60d2b63a888f03cc416d00356c25fae2bd90e62692462c60f685a6e28fcd6e08",
       "legacy_widget_block_json_sha256": "30a6efdd317d6d830ccfe9f917585a80514d65f94e3a9f40ccb5a370b4708376",
       "rest_widget_types_php_sha256": "d9e58e213eec93eb402c730d834e859a8127f8f7c3c9c8f6fb6db7d1d1ac66cf",
-      "rest_widgets_php_sha256": "fcdd417e2aea0998a6cca9a37326582131a734352d9814b64f74ee617fcd34d6"
+      "rest_widgets_php_sha256": "fcdd417e2aea0998a6cca9a37326582131a734352d9814b64f74ee617fcd34d6",
+      "blocks_php_sha256": "99de93fa9afbf4576d5a34d1e46365980d510de59f565bece9f4db178625a460",
+      "layout_php_sha256": "4c0cf2784ad07bb4004ba3660ad44919c5c20f72700b91d480774a3ad3dd9d3f"
     }
   },
   "local_object_cache_boundary": {
@@ -453,6 +459,20 @@
       "rest_pre_dispatch": "enable_widget_copy_paste",
       "rest_dispatch_request": "enable_saving_widget_copied",
       "render_block_data": "enable_rendering_widget_copied"
+    },
+    "render_filter_contract": {
+      "arguments": ["parsed_block", "source_block", "parent_block"],
+      "top_level_parent": null,
+      "core_callback": {
+        "callback": "wp_add_parent_layout_to_parsed_block",
+        "priority": 10,
+        "accepted_args": 3
+      },
+      "tec_callback": {
+        "callback": "enable_rendering_widget_copied",
+        "priority": 10,
+        "accepted_args": 1
+      }
     },
     "version_delta": {
       "6.17.2": "decodes and re-signs without recursive object refusal",

@@ -186,6 +186,8 @@ $paths = [
     'legacy_widget_block_json_sha256' => 'wp-includes/blocks/legacy-widget/block.json',
     'rest_widget_types_php_sha256' => 'wp-includes/rest-api/endpoints/class-wp-rest-widget-types-controller.php',
     'rest_widgets_php_sha256' => 'wp-includes/rest-api/endpoints/class-wp-rest-widgets-controller.php',
+    'blocks_php_sha256' => 'wp-includes/blocks.php',
+    'layout_php_sha256' => 'wp-includes/block-supports/layout.php',
 ];
 $sources = [];
 foreach ($paths as $digestKey => $relative) {
@@ -211,6 +213,26 @@ $autoloadValues = tec_option_function_body($option, 'wp_autoload_values_to_autol
 $determineAutoload = tec_option_function_body($option, 'wp_determine_option_autoload_value');
 $isLargeOption = tec_option_function_body($option, 'wp_filter_default_autoload_value_via_option_size');
 $sanitize = tec_option_function_body($formatting, 'sanitize_option');
+$renderBlock = (string) preg_replace(
+    '/\s+/',
+    '',
+    tec_option_function_body($sources['wp-includes/blocks.php'], 'render_block')
+);
+$layoutSource = (string) preg_replace(
+    '/\s+/',
+    '',
+    $sources['wp-includes/block-supports/layout.php']
+);
+tec_option_require_call(
+    $renderBlock,
+    "apply_filters('render_block_data',\$parsed_block,\$source_block,\$parent_block)",
+    'three-argument render-block-data filter'
+);
+tec_option_require_call(
+    $layoutSource,
+    "add_filter('render_block_data','wp_add_parent_layout_to_parsed_block',10,3);",
+    'three-argument parent-layout callback registration'
+);
 
 foreach ([
     [$get, 'apply_filters( "pre_option_{$option}"', 'dynamic pre-option filter'],
@@ -1233,6 +1255,20 @@ if ($tecRoot !== '' || $tecVersion !== '') {
             'rest_pre_dispatch' => 'enable_widget_copy_paste',
             'rest_dispatch_request' => 'enable_saving_widget_copied',
             'render_block_data' => 'enable_rendering_widget_copied',
+        ]
+        || ($legacyBoundary['render_filter_contract'] ?? null) !== [
+            'arguments' => ['parsed_block', 'source_block', 'parent_block'],
+            'top_level_parent' => null,
+            'core_callback' => [
+                'callback' => 'wp_add_parent_layout_to_parsed_block',
+                'priority' => 10,
+                'accepted_args' => 3,
+            ],
+            'tec_callback' => [
+                'callback' => 'enable_rendering_widget_copied',
+                'priority' => 10,
+                'accepted_args' => 1,
+            ],
         ]) {
         tec_option_usage("TEC $tecVersion legacy-widget identity fixture drifted");
     }

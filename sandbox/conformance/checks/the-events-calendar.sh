@@ -345,7 +345,7 @@ $qr_widget_instance = $widget_instance('widget_tribe-widget-events-qr-code');
 $safe_serialized = serialize(['title' => 'native-safe-probe', 'limit' => 5]);
 $object_serialized = serialize(['title' => (object) ['hostile' => true]]);
 $native_filter_probe = static function (string $serialized): array {
-    return apply_filters('render_block_data', [
+    $parsed_block = [
         'blockName' => 'core/legacy-widget',
         'attrs' => [
             'idBase' => 'tribe-widget-events-list',
@@ -357,7 +357,8 @@ $native_filter_probe = static function (string $serialized): array {
         'innerBlocks' => [],
         'innerContent' => [],
         'innerHTML' => '',
-    ]);
+    ];
+    return apply_filters('render_block_data', $parsed_block, $parsed_block, null);
 };
 $safe_probe = $native_filter_probe($safe_serialized);
 $object_probe = $native_filter_probe($object_serialized);

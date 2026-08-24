@@ -4829,6 +4829,24 @@ duo_check_same(
     'the state-bearing copy/save/render callback topology is closed'
 );
 duo_check_same(
+    [
+        'arguments' => ['parsed_block', 'source_block', 'parent_block'],
+        'top_level_parent' => null,
+        'core_callback' => [
+            'callback' => 'wp_add_parent_layout_to_parsed_block',
+            'priority' => 10,
+            'accepted_args' => 3,
+        ],
+        'tec_callback' => [
+            'callback' => 'enable_rendering_widget_copied',
+            'priority' => 10,
+            'accepted_args' => 1,
+        ],
+    ],
+    $legacyWidgetBoundary['render_filter_contract'] ?? null,
+    'the widget product probe crosses the exact core three-argument filter and native TEC callback roster'
+);
+duo_check_same(
     true,
     $legacyWidgetBoundary['duo_status']['portable'] ?? null,
     'the source audit promotes legacy-widget only with the shipped bounded target-rebinding codec'
@@ -8041,6 +8059,14 @@ duo_check(
     str_contains($deletionCheck, "grep -Fq 'non-plain serialized data (PHP object)'")
         && !str_contains($deletionCheck, "grep -Fq 'contains a PHP object'"),
     'the exact live object-graph probe matches the canonical PlainData refusal without weakening no-publication'
+);
+duo_check_same(
+    1,
+    substr_count(
+        $deletionCheck,
+        "apply_filters('render_block_data', \$parsed_block, \$parsed_block, null)"
+    ),
+    'the exact widget probe supplies parsed, source, and nullable top-level parent arguments to every normal callback'
 );
 
 $versionMatrix = (string) file_get_contents(
