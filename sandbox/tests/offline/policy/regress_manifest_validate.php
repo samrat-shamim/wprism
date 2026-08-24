@@ -1339,18 +1339,24 @@ check(
 $window = $schema['spec_window'] ?? [];
 check(
     ($window['engine_supported'] ?? null) === DUO_SPEC_VERSION
-        && ($window['accepted'] ?? null) === [DUO_SPEC_VERSION]
-        && ($window['n_minus_1_accepted'] ?? null) === false,
-    'spec_window reports this engine accepting exactly {' . DUO_SPEC_VERSION . '}, with N-1 explicitly NOT accepted'
+        && ($window['accepted'] ?? null) === [DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION]
+        && ($window['n_minus_1_accepted'] ?? null) === true,
+    'spec_window reports this engine accepting {' . (DUO_SPEC_VERSION - 1) . ', ' . DUO_SPEC_VERSION
+        . '} — WP-4.2\'s acceptance window, reported here because it is MEASURED and not restated'
 );
 check(
     ($window['probed'] ?? null) === [DUO_SPEC_VERSION - 2, DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION, DUO_SPEC_VERSION + 1],
     'and publishes the probed range, so "refused" is distinguishable from "never asked" (' . implode(', ', (array) ($window['probed'] ?? [])) . ')'
 );
 check(
-    str_contains((string) ($window['status'] ?? ''), 'NOT enforced')
-        && str_contains((string) ($window['status'] ?? ''), 'WP-4.2'),
-    'the window block says the N/N-1 acceptance window is specified and NOT enforced here, naming its rider'
+    ($window['probed'][0] ?? null) === DUO_SPEC_VERSION - 2
+        && !in_array(DUO_SPEC_VERSION - 2, (array) ($window['accepted'] ?? []), true),
+    'and N-2 was ASKED and refused, which is what makes "the floor is exactly N-1" a measurement rather than an assumption'
+);
+check(
+    str_contains((string) ($window['status'] ?? ''), 'is ENFORCED here')
+        && str_contains((string) ($window['status'] ?? ''), '§ v3.1'),
+    'the window block says the N/N-1 acceptance window IS enforced here, naming the section that specifies it'
 );
 
 /** Copy one shipped tree into the scratch root, file by file. */
@@ -1447,26 +1453,24 @@ check(
 file_put_contents($certFile, $certSource);
 check(emit_from($mutantRoot) === $baseline, 'restoring the constant restores the document exactly');
 
-// MUTATION 2 — the shipped window itself is widened to N-1. This is the case a
-// restated `[DUO_SPEC_VERSION]` could never pass, and it is WP-4.2's rule
-// rehearsed against a copy rather than against the engine anyone ships.
+// MUTATION 2 — the shipped window itself is NARROWED back to exact equality.
+// Before WP-4.2 this mutation ran the other way (widen and watch the document
+// widen); now that the window is the shipped behaviour, the case a restated
+// `[DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION]` in the emitter could never pass is
+// the narrowing. Same claim, exercised from the side the engine is now on.
 $grammarFile = $mutantRoot . '/agent/src/Adapter/AdapterContractGrammar.php';
 $grammarSource = (string) file_get_contents($grammarFile);
-$windowAnchor = 'if (!is_int($spec) || $spec !== $supported) {';
-check(str_contains($grammarSource, $windowAnchor), 'the spec-version comparison anchor is present in the copied engine');
-file_put_contents($grammarFile, str_replace(
-    $windowAnchor,
-    'if (!is_int($spec) || ($spec !== $supported && $spec !== $supported - 1)) {',
-    $grammarSource
-));
-$widened = emit_from($mutantRoot);
+$windowAnchor = 'return [$supported - 1, $supported];';
+check(str_contains($grammarSource, $windowAnchor), 'the accepted-window return is present in the copied engine');
+file_put_contents($grammarFile, str_replace($windowAnchor, 'return [$supported];', $grammarSource));
+$narrowed = emit_from($mutantRoot);
 check(
-    ($widened['spec_window']['accepted'] ?? null) === [DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION]
-        && ($widened['spec_window']['n_minus_1_accepted'] ?? null) === true,
-    'MUTATION 2: widening the shipped comparison to N-1 widens the emitted `accepted` set — the window is MEASURED by running the refusal, never restated'
+    ($narrowed['spec_window']['accepted'] ?? null) === [DUO_SPEC_VERSION]
+        && ($narrowed['spec_window']['n_minus_1_accepted'] ?? null) === false,
+    'MUTATION 2: narrowing the shipped window back to exact equality narrows the emitted `accepted` set — the window is MEASURED by running the refusal, never restated'
 );
 check(
-    ($widened['top_level_keys'] ?? null) === ($baseline['top_level_keys'] ?? null),
+    ($narrowed['top_level_keys'] ?? null) === ($baseline['top_level_keys'] ?? null),
     'and the partition block is untouched by it'
 );
 file_put_contents($grammarFile, $grammarSource);
@@ -1484,8 +1488,8 @@ $bumped = emit_from($mutantRoot);
 check(
     ($bumped['spec_version'] ?? null) === DUO_SPEC_VERSION + 5
         && ($bumped['spec_window']['engine_supported'] ?? null) === DUO_SPEC_VERSION + 5
-        && ($bumped['spec_window']['accepted'] ?? null) === [DUO_SPEC_VERSION + 5],
-    'MUTATION 3: moving DUO_SPEC_VERSION in the copy moves the document\'s version, its supported integer and its accepted set together'
+        && ($bumped['spec_window']['accepted'] ?? null) === [DUO_SPEC_VERSION + 4, DUO_SPEC_VERSION + 5],
+    'MUTATION 3: moving DUO_SPEC_VERSION in the copy moves the document\'s version, its supported integer and its whole accepted window together — the window travels WITH N, which is why the flip re-stamps no manifest'
 );
 file_put_contents($duoFile, $duoSource);
 check(emit_from($mutantRoot) === $baseline, 'and restoring the define restores the document exactly');

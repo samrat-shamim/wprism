@@ -1,6 +1,6 @@
 # Duo Site-Repo Format
 
-*Status: **normative** — the authoritative contract for site repositories; where narrative documents (README, DESIGN.md) and this spec disagree, this spec wins. The wire-format grammar version is the `spec_version` integer in `site.duo.json` — currently `2` — which must equal the engine's own `DUO_SPEC_VERSION` exactly (see "Adapter compatibility contract" below). The "spec v1"/"spec v0.x" markers throughout are this document's own draft-history labels — they record when a rule was introduced and are NOT the wire version. The "Spec v3" section near the end is the one part of this document that is **specified and not yet enforced**: it states the next wire version's rules, each carrying the work package that implements it and what the engine does today, and nothing in it is in force while `DUO_SPEC_VERSION` is `2`.*
+*Status: **normative** — the authoritative contract for site repositories; where narrative documents (README, DESIGN.md) and this spec disagree, this spec wins. The wire-format grammar version is the `spec_version` integer in `site.duo.json` — currently `2` — which must equal the engine's own `DUO_SPEC_VERSION` exactly (see "Adapter compatibility contract" below). The "spec v1"/"spec v0.x" markers throughout are this document's own draft-history labels — they record when a rule was introduced and are NOT the wire version. The "Spec v3" section near the end is the one part of this document that is **specified and only partly enforced**: it states the next wire version's rules, each carrying the work package that implements it and an `Enforced today:` line saying what the engine actually does. Two of those rules — the manifest acceptance window and the `engine_features` channel (§ v3.1, § v3.2) — are in force now, deliberately ahead of the version bump; the rest are not, and `DUO_SPEC_VERSION` stays `2` until § v3.12's flip.*
 
 A **site repo** is a git repository holding the branchable partition of one WordPress site: code, canonical state, media, and policy. Environments (any WP install with the Duo agent) materialize it; their runtime data never enters it.
 
@@ -739,7 +739,7 @@ alternates never remain in canonical state.
 | provider argument TYPE names (`bool`/`int`/`string`/`list<string>`/`list<object>`) and engine batch channel names (`deletions`/`reparents`/`retry`/`always_on_write`) | engine | engine change + spec bump — each names evidence the engine itself assembles or validates, so a capability may opt in but never mint one | negotiation before first mutation |
 | effect `kind`, `mode`, `selector.scope`, `selector.type`, member placeholders | engine | engine change + spec bump; `provider_resource` + a provider is the adapter-side path | load-time |
 | interpreter and regenerator names | **adapter** (code ships with the manifest) | ship the file with the manifest artifact | load time for the name, first use for the class contract |
-| `spec_version` | engine (`DUO_SPEC_VERSION`) | the engine's own bump; a manifest states which grammar it was authored against and may never widen it | load-time; absent and declared-wrong are the same failure |
+| `spec_version` | engine (`DUO_SPEC_VERSION`) | the engine's own bump; a manifest states which grammar it was authored against and may never widen it | load-time; the accepted window is {N-1, N} (§ v3.1), an integer outside it refuses wholesale naming the window, and absent/non-integer keeps its own older refusal |
 | `providers[].source` (`manifest`/`plugin`) | engine | engine change + spec bump — the two values name the two code-loading paths the engine implements, not a location an adapter may invent | load-time |
 | manifest disposition `status` (`certified`/`experimental`/`excluded`) and profile statuses | engine, in a file no manifest can reach (`manifests/dispositions.json`) | the external review process, never a manifest field — declaration must not be able to imply certification | load-time for the disposition registry; `wp duo capabilities` for the claim |
 | `actions[].triggers` values (`(post\|term\|table\|option\|entity):<name>`) | engine owns the SHAPE (`Policy::SURFACE_PATTERN`); the `<name>` half is deliberately **open** | ordinary manifest declaration — any adapter may name any surface, including another adapter's | load-time for the shape only |
@@ -755,22 +755,27 @@ Three precedence families exist, and they are not interchangeable. A new vocabul
 
 Adapter-owned extension may never grant one adapter authority over another's state. The rule for the four bulk **named-declaration** surfaces — `post_types.<t>`, `tables.<t>`, `taxonomies.<t>`, `widgets.<t>` — is **one owner per name**: two pinned manifests (including `core`) declaring the same name refuse at load unless their declarations are byte-identical, since a redundant restatement has no winner to pick. There is no composition grammar for these surfaces in v1 (`taxonomies.<t>`'s description_refs/object_type/class lookups are all first-pin-wins with no precedence layer, so it carries the identical hazard); reclassifying an individual FIELD of another adapter's surface is what the family-1 precedence layers exist for, never a whole-declaration takeover. The post-type surface additionally keeps a per-KEY contradiction guard, which fires first because it can name the exact contradicting key (`post_types.<t>.body` and so on) instead of only the name. `site.duo.json`'s own `policy.tables` is exempt from the rule, because it is the site's own last-word authority over its own state rather than a second adapter reaching into the first. The other load-time guards in the same family: one owner per option namespace, per plugin/theme version claim, per provider id, and per table `id_kind`; a provider-kind action may only name a provider its OWN manifest declares; an adapter widens the ref-kind vocabulary only by declaring a table it owns; and the two surfaces that name a `duo_map` keyspace directly (`deletions[].guards[].id_kind`/`source_id_kind`, `option_name_refs[].id_kind`) are closed against the ledger's own long spellings plus the declared table kinds.
 
-## Spec v3 — the windowed format (SPECIFIED HERE, NOT YET IN FORCE)
+## Spec v3 — the windowed format (SPECIFIED HERE; THE WINDOW IS IN FORCE, THE REST IS NOT)
 
-*Status of this whole section: **normative text with zero enforcement behind it***. `DUO_SPEC_VERSION` is
-`2` (`agent/duo.php:13`), `manifests/capabilities/platform.json` restates that `2`, and every rule below
-is refused by nothing today. This section exists so that the engine change which turns each rule on is a
-review against written text rather than a design decision taken inside a diff. Nothing here changes what
-this engine accepts, what any command prints, or one byte of any shipped manifest.
+*Status of this whole section: **normative text, with the first two rules now in force and the rest
+refused by nothing***. `DUO_SPEC_VERSION` is `2` (`agent/duo.php:13`), `manifests/capabilities/platform.json`
+restates that `2`, and neither moves until § v3.12's flip. What § v3.1 and § v3.2 changed is what this
+engine ACCEPTS — the window and the declaration channel ride ahead of the version bump, deliberately, since
+an engine that installs the window only on the day it needs it has already had the flag day. Nothing in
+this section moves one byte of any shipped manifest or one adapter digest. Each remaining rule stays here
+so that the engine change which turns it on is a review against written text rather than a design decision
+taken inside a diff.
 
-**Why a v3 at all, and why it is meant to be the last one.** The wire version is checked by exact
-equality — `if (!is_int($spec) || $spec !== $supported)` (`agent/src/Adapter/AdapterContractGrammar.php:23-32`) —
-so an absent declaration and a declaration one version behind produce the identical refusal, and every
-format change is therefore a flag day for every adapter anyone has authored. v3's first rule (§ v3.1)
-installs an acceptance window; every later format change stages through that window or through the
-per-adapter feature channel (§ v3.2), one adapter at a time, and needs no further bump. The measured
-cost of getting this wrong is in `sandbox/tests/offline/policy/regress_spec_v3_dry_run.php`, which
-evaluates each candidate rule against the whole shipped library before any of them is enabled.
+**Why a v3 at all, and why it is meant to be the last one.** The wire version WAS checked by exact
+equality — `if (!is_int($spec) || $spec !== $supported)` — so an absent declaration and a declaration one
+version behind produced the identical refusal, and every format change was therefore a flag day for every
+adapter anyone had authored. v3's first rule (§ v3.1) installs an acceptance window
+(`agent/src/Adapter/AdapterContractGrammar.php`, `accepted_window()` and `validate_adapter_contract()`);
+every later format change stages through that window or through the per-adapter feature channel (§ v3.2),
+one adapter at a time, and needs no further bump. The measured cost of getting this wrong is in
+`sandbox/tests/offline/policy/regress_spec_v3_dry_run.php`, which evaluates each candidate rule against the
+whole shipped library before it is enabled, and the window's own behaviour is pinned at both spec eras in
+`sandbox/tests/offline/policy/regress_spec_window.php`.
 
 **How to read a v3 subsection.** Each one carries a `Rider:` line naming the work package that implements
 it and an `Enforced today:` line naming what the engine actually does now. That is the deferred-rows
@@ -781,8 +786,8 @@ evidence before this line changes.
 
 | § | rule | rider | enforced today |
 |---|---|---|---|
-| v3.1 | N/N-1 acceptance window, per-section refusal by name | WP-4.2 | no — exact equality only |
-| v3.2 | `engine_features` declaration channel | WP-4.2 | no — the key is inert |
+| v3.1 | N/N-1 acceptance window, per-section refusal by name | WP-4.2 | yes — {N-1, N}, floor gated at release |
+| v3.2 | `engine_features` declaration channel | WP-4.2 | yes — one implemented feature, no shipped declarer |
 | v3.3 | closed top-level key set and its growth rule | WP-4.3 | signing only, never the validator |
 | v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | no — one monolith, one whole-document hash |
 | v3.5 | per-adapter environment narrowing | WP-4.6 | no — one global copy into every claim |
@@ -798,22 +803,37 @@ is WP-4.12 and is described in § v3.12.
 
 ### v3.1 The acceptance window: N and N-1
 
-**Rider: WP-4.2. Enforced today: no.** `validate_adapter_contract()` accepts exactly `DUO_SPEC_VERSION`.
+**Rider: WP-4.2. Enforced today: yes.** `validate_adapter_contract()` accepts `spec_version` ∈ {N-1, N},
+and `php tools/wire-surface.php --check` — a `make release-gate` step — refuses the release unless the
+measured floor is exactly `DUO_SPEC_VERSION - 1` (register row R-18).
 
-A v3 engine accepts a manifest declaring `spec_version` ∈ {N, N-1}, where N is the engine's own
+An engine accepts a manifest declaring `spec_version` ∈ {N, N-1}, where N is the engine's own
 `DUO_SPEC_VERSION`. The floor is exactly N-1 and never deeper: the release gate asserts the equality, so
 N-2 can never accumulate by inattention, and closing the window is its own dated decision (§ v3.12), not
-a side effect of the next release.
+a side effect of the next release. At `DUO_SPEC_VERSION` 2 the window is therefore {1, 2}, and it becomes
+{2, 3} on the flip — which is the whole point: no manifest is re-stamped, because the engine that arrives
+already accepts the version every manifest already declares.
 
 Three refusals, and the difference between them is the whole point of the window:
 
-- an absent or non-integer `spec_version` keeps today's refusal, byte for byte. It is not a version, so
+- an absent or non-integer `spec_version` keeps the older refusal, byte for byte. It is not a version, so
   there is no window to be inside;
 - a version outside {N, N-1} refuses **wholesale**, naming the window it is outside;
 - a manifest inside the window that declares a section the engine only implements at a HIGHER version
-  refuses **per section, by name**, and the refusal is scoped to that adapter. The rest of the pin set
-  loads. This is the same `SCOPE_ADAPTER` posture the plugin-bundled source already uses so that one
-  third party's defect cannot take an installation down (see "Plugin-bundled adapters" above).
+  refuses **per section, by name**. `engine_features` (§ v3.2) is the first such section and is what makes
+  the rule live rather than hypothetical.
+
+**What "scoped to that adapter" delivers, stated exactly.** The refusal names the ADAPTER and the SECTION,
+never only "this engine requires spec_version N", because those are the two facts that decide whether an
+operator edits a manifest or moves an engine. Its blast radius is the blast radius the SOURCE already
+grants and no more: `duo manifest-validate` loads every manifest on its own and prints a verdict per
+manifest, so the rest of a pin set is judged and reported in the same run;
+`AdapterSources::grammar_verdict()` judges one adapter at a time for the survey; and a plugin-bundled
+adapter is refused per adapter, the walk continuing, which is the `SCOPE_ADAPTER` posture that exists so
+one third party's defect cannot take an installation down (see "Plugin-bundled adapters" above). A PINNED
+adapter still refuses the load, exactly as every other manifest grammar refusal does and exactly as a
+pinned plugin-bundled refusal already does — dropping a pinned adapter silently would BE the state loss
+this rule exists to prevent.
 
 A window is not tolerance. It is a staging channel with an expiry, and a v3-only section inside a v2
 manifest is refused by name — never ignored, never silently defaulted. The failure this rule exists to
@@ -823,17 +843,32 @@ letter drops a plugin's authored rows out of canonical state.
 
 ### v3.2 `engine_features` — the declaration channel
 
-**Rider: WP-4.2. Enforced today: no.** Nothing in `agent/`, `cli/` or `recovery/` reads the key, and no
-shipped manifest declares it (measured in `regress_spec_v3_dry_run.php` under rule V3-FEAT).
+**Rider: WP-4.2. Enforced today: yes.** `AdapterContractGrammar::IMPLEMENTED_FEATURES` is the engine-owned
+vocabulary, `validate_adapter_contract()` refuses a declared name it does not carry, and register row R-19
+records what a name costs once one is declared. No shipped manifest declares the key — that is § v3.12's
+no-restamp rule, not an empty channel: the key is a v3-only section (§ v3.1), so it is declarable exactly
+when a manifest can declare `spec_version` 3, which is the flip.
 
-A manifest may declare `"engine_features": ["<feature>", …]`, a sorted list of the engine features its
-declarations depend on. An engine that implements every listed feature loads the adapter; an engine that
-lacks one refuses **that adapter, naming the feature and the adapter**, and loads the rest of the pin set.
+A manifest may declare `"engine_features": ["<feature>", …]`, a sorted, duplicate-free, non-empty list of
+the engine features its declarations depend on. An engine that implements every listed feature loads the
+adapter; an engine that lacks one refuses **that adapter, naming the feature and the adapter**, with the
+same blast radius § v3.1 states exactly.
 
 This is what keeps the closed key set (§ v3.3) from becoming the next flag day. A post-v3 primitive ships
 as: an engine feature name, a manifest key the feature claims, and a refusal for the engine that does not
 have it. An older v3 engine meeting a manifest that uses the primitive says so by name instead of
-mis-reading the declaration, and no version integer moves anywhere.
+mis-reading the declaration, and no version integer moves anywhere. The three facts a feature decides —
+its name, the first `spec_version` its sections exist at, and the top-level keys it claims — are ONE
+constant in the engine, because a feature that is implemented while its section is unknown (or the
+reverse) is precisely the silent mis-read the channel exists to remove.
+
+The feature this engine implements today is **`spec-window/v1`**: the acceptance window of § v3.1 and this
+channel itself, claiming the `engine_features` key from `spec_version` 3. It is a real entry, not a
+placeholder — the channel's own requirement is that one feature the engine IMPLEMENTS exists on the day it
+ships, so that "declared and implemented admits the claimed key" is a path something walks rather than an
+argument about admissibility. That path is walked in
+`sandbox/tests/offline/policy/regress_spec_window.php` against a synthetic `spec_version` 3 engine, which
+is the only place it can be walked before the flip.
 
 Feature names are engine-owned: an adapter may declare one, never mint one. A name nothing implements is
 refused as unimplemented rather than admitted as forward-looking — the honest-refusal posture, which is
@@ -880,7 +915,7 @@ partition against every key in use and found the difference in both directions. 
 as follows, and a rider implementing § v3.3 implements these with it:
 
 1. **`theme_version_range` JOINS the partition, as a non-surface key.** The partition knows `theme` but
-   not its mandatory companion, while `validate_adapter_contract()` (`AdapterContractGrammar.php:45`)
+   not its mandatory companion, while `validate_adapter_contract()` (`AdapterContractGrammar.php:178`)
    refuses a `theme` declared without a `theme_version_range` and `ArtifactPolicyIdentity` folds the range
    into the adapter identity row (`agent/src/Policy/ArtifactPolicyIdentity.php:167-168`). A theme adapter
    therefore validates and is then unsignable — the partition is incomplete against the shipped grammar by

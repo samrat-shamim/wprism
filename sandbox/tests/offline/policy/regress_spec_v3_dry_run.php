@@ -68,7 +68,7 @@
  *       So rule V3-KEYS would refuse zero shipped adapters — the flag day is
  *       clean for this rule, which is the fact the program was assuming.
  *   F2  The one unused partition key is `theme`, and it is UNUSABLE as
- *       shipped: `AdapterContractGrammar::validate_adapter_contract()` (:45)
+ *       shipped: `AdapterContractGrammar::validate_adapter_contract()` (:178)
  *       demands a `theme_version_range` beside every `theme`, and
  *       `ArtifactPolicyIdentity` folds that key into the adapter identity row
  *       (:152-153) — yet `theme_version_range` is in NO arm of the partition.
@@ -480,15 +480,34 @@ $featureDeclarers = array_values(array_filter(
 ));
 
 $report('shipped manifests declaring `engine_features`: ' . count($featureDeclarers));
-$report('shipped code reading `engine_features`: ' . ($featureReaders === [] ? '(none — the implemented feature set is empty)' : implode(', ', $featureReaders)));
+$report('shipped code reading `engine_features`: ' . ($featureReaders === [] ? '(none)' : implode(', ', $featureReaders)));
+$report('engine features this engine implements: '
+    . implode(', ', \Duo\AdapterContractGrammar::implemented_features()));
 
 duo_check_same([], $featureDeclarers, 'V3-FEAT: no shipped manifest declares `engine_features`, so the channel starts empty and moves no digest');
-duo_check_same([], $featureReaders, 'V3-FEAT: nothing in agent/, cli/ or recovery/ reads `engine_features` — the implemented feature set is the empty set today');
+// THE FLIP (WP-4.2). This suite's header states that a rider landing a rule
+// moves the assertion that measured its absence and NOT the fixtures. This is
+// that assertion for V3-FEAT: the channel acquired exactly one shipped reader,
+// the grammar that owns the vocabulary, and `fixture:engine-features` below is
+// unchanged.
 duo_check_same(
-    null,
-    $validatorVerdict($fixtures['fixture:engine-features']),
-    'V3-FEAT: a manifest declaring `engine_features` is INERT under the shipped grammar — no refusal, no effect. That silence is what WP-4.2 replaces with a named per-adapter refusal'
+    ['agent/src/Adapter/AdapterContractGrammar.php'],
+    $featureReaders,
+    'V3-FEAT: the channel has exactly one shipped reader — the contract grammar, which owns the one definition of a feature name, its first spec_version and the keys it claims'
 );
+duo_check_same(
+    ['spec-window/v1'],
+    \Duo\AdapterContractGrammar::implemented_features(),
+    'V3-FEAT: and the vocabulary is non-empty, so an engine that lacks a declared name has something to compare against'
+);
+$featureFixtureVerdict = $validatorVerdict($fixtures['fixture:engine-features']);
+duo_check(
+    is_string($featureFixtureVerdict) && str_contains($featureFixtureVerdict, "the section 'engine_features'")
+        && str_contains($featureFixtureVerdict, 'implements only at spec_version 3'),
+    'V3-FEAT: the same fixture that was INERT under the pre-window grammar now refuses BY SECTION NAME at spec_version '
+        . DUO_SPEC_VERSION . ' — the silence WP-4.2 replaced'
+);
+duo_check_detail('V3-FEAT section refusal: ' . (string) $featureFixtureVerdict);
 
 // The coupling WP-4.2 and WP-4.3 must land together or not at all: the channel
 // is a new top-level key, and the closed key set does not know it.

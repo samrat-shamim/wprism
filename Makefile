@@ -8,7 +8,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-offline-all regress-offline-corpus regress-offline-diagnostics
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform regress-core-scope-database
-.PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document
+.PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window
 .PHONY: regress-cli-json-refusals regress-fleet-census regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-migration-preflight regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
@@ -398,6 +398,16 @@ regress-spec-v3-dry-run:
 # cannot land enforcement without moving this suite's expectations.
 regress-spec-v3-document:
 	php sandbox/tests/offline/policy/regress_spec_v3_document.php
+
+# WP-4.2: the spec_version acceptance window (§ v3.1) and the engine_features
+# channel (§ v3.2). Probes ONE set of manifests against two engines -- this
+# process at the shipped DUO_SPEC_VERSION, and a child process that defines N+1
+# -- because a spec version is a define() and a PHP process holds one of those,
+# and because the channel's admitting half is only reachable at N+1 before the
+# flip. Also runs the release-gate floor check against a mutated copy, so the
+# gate that forbids an N-2 window is proven to bite.
+regress-spec-window:
+	php sandbox/tests/offline/policy/regress_spec_window.php
 
 regress-adapter-sources:
 	bash sandbox/tests/offline/adapter/regress_adapter_sources.sh
