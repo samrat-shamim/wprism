@@ -3521,6 +3521,72 @@ duo_check(
     'both exact TEC boundary artifacts execute Category Colors equal-priority/cache/pagination evidence'
 );
 
+$versionMatrix = (string) file_get_contents(
+    $root . '/sandbox/tests/certify/certify_version_matrix.sh'
+);
+foreach ([
+    'seed_the_events_calendar_content() {' => 'native seed helper',
+    'postdeploy_the_events_calendar_content() {' => 'hostile target helper',
+    'check_the_events_calendar_boundary_content() {' => 'product-path boundary helper',
+    'for TEC_VERSION in 6.17.2 6.17.3; do' => 'exact supported-artifact loop',
+] as $matrixNeedle => $matrixLabel) {
+    duo_check_same(
+        1,
+        substr_count($versionMatrix, $matrixNeedle),
+        "the exact matrix has one unshadowed TEC $matrixLabel"
+    );
+}
+foreach ([
+    'local TEC_BOUNDARY_ONLY=1',
+    '"taxonomies": ["category", "post_tag", "tribe_events_cat"]',
+    'TEC_UPGRADE_DEPLOY_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1)',
+    'wp2 duo deploy --repo=/siterepo --force-code-drift',
+    'TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content',
+    'TEC_OUT_OF_RANGE_ARTIFACT=$(fetch_artifact the-events-calendar 6.17.1 cli1)',
+] as $matrixEvidence) {
+    duo_check(
+        str_contains($versionMatrix, $matrixEvidence),
+        "the single exact TEC matrix retains evidence $matrixEvidence"
+    );
+}
+
+foreach ([
+    'LIFECYCLE_BEFORE=$(tec_target_storage_fingerprint)',
+    'TEC exact-code reactivation mutated authored, derived, Customizer, settings, or Category Colors rows',
+    'TEC empty native uninstall mutated authored, derived, Customizer, settings, or Category Colors rows',
+    'missing-code compatibility refusal mutated retained TEC rows',
+    'missing-code compatibility refusal mutated canonical target state',
+    "TEC_SHA=2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687",
+    'diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-tec-final"',
+] as $lifecycleEvidence) {
+    duo_check(
+        str_contains($deletionCheck, $lifecycleEvidence),
+        "the standalone TEC lifecycle retains physical/canonical evidence $lifecycleEvidence"
+    );
+}
+duo_check(
+    strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]')
+        < strpos($deletionCheck, 'LIFECYCLE_BEFORE=$(tec_target_storage_fingerprint)'),
+    'patch-boundary runs stop before the one latest-artifact destructive lifecycle leg'
+);
+$multisiteRefusal = (string) file_get_contents(
+    $root . '/sandbox/tests/live/regress_multisite_refusal.sh'
+);
+duo_check(
+    str_contains($multisiteRefusal, 'wp1 core multisite-convert')
+        && str_contains($multisiteRefusal, 'wp1 duo capture --repo=/siterepo')
+        && str_contains($multisiteRefusal, 'duo_multisite_refusal_canary'),
+    'the adapter-independent platform proof reaches a real network capture and checks zero authored mutation'
+);
+duo_check(
+    in_array(
+        'Duo v1 refuses multisite; TEC network/global behavior is outside this single-site adapter.',
+        array_column($disposition['unsupported'] ?? [], 'reason'),
+        true
+    ),
+    'TEC binds the platform-wide pre-policy network refusal instead of inventing adapter-local multisite behavior'
+);
+
 $regenerator = new TheEventsCalendarRegenerator($policy);
 $GLOBALS['tec_readiness_settings_manager'] = Tribe__Settings_Manager::instance();
 duo_check_throws(

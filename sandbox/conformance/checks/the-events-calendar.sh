@@ -402,6 +402,45 @@ tec_target_hash() {
   '
 }
 
+# Lifecycle commands run with TEC inactive or absent, so the witness must use
+# physical rows only. Hash the complete portable graph, its deterministic
+# projections, and the mixed settings/CSS rows that uninstall must retain.
+tec_target_storage_fingerprint() {
+  wp_conf2 eval '
+    global $wpdb;
+    $queries = [
+      "posts" => "SELECT * FROM {$wpdb->posts} WHERE post_type IN (\"tribe_events\",\"tribe_venue\",\"tribe_organizer\") ORDER BY ID",
+      "postmeta" => "SELECT pm.* FROM {$wpdb->postmeta} pm INNER JOIN {$wpdb->posts} p ON p.ID=pm.post_id WHERE p.post_type IN (\"tribe_events\",\"tribe_venue\",\"tribe_organizer\") ORDER BY pm.meta_id",
+      "terms" => "SELECT t.* FROM {$wpdb->terms} t INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id=t.term_id WHERE tt.taxonomy=\"tribe_events_cat\" ORDER BY t.term_id",
+      "term_taxonomy" => "SELECT * FROM {$wpdb->term_taxonomy} WHERE taxonomy=\"tribe_events_cat\" ORDER BY term_taxonomy_id",
+      "termmeta" => "SELECT tm.* FROM {$wpdb->termmeta} tm INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id=tm.term_id WHERE tt.taxonomy=\"tribe_events_cat\" ORDER BY tm.meta_id",
+      "term_relationships" => "SELECT tr.* FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tt.taxonomy=\"tribe_events_cat\" ORDER BY tr.object_id,tr.term_taxonomy_id",
+      "tec_events" => "SELECT * FROM {$wpdb->prefix}tec_events ORDER BY event_id",
+      "tec_occurrences" => "SELECT * FROM {$wpdb->prefix}tec_occurrences ORDER BY occurrence_id",
+      "options" => $wpdb->prepare(
+        "SELECT option_id,option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (%s,%s,%s,%s) ORDER BY option_id",
+        "tribe_events_calendar_options",
+        "tribe_customizer",
+        "tribe_events_customizer",
+        "tec_events_category_color_css"
+      ),
+    ];
+    $fingerprint = [];
+    foreach ($queries as $name => $sql) {
+      $wpdb->last_error = "";
+      $rows = $wpdb->get_results($sql, ARRAY_A);
+      if (!is_array($rows) || $wpdb->last_error !== "") {
+        throw new RuntimeException("TEC lifecycle fingerprint read failed for $name");
+      }
+      $fingerprint[$name] = [
+        "count" => count($rows),
+        "sha256" => hash("sha256", serialize($rows)),
+      ];
+    }
+    echo hash("sha256", wp_json_encode($fingerprint, JSON_UNESCAPED_SLASHES));
+  '
+}
+
 tec_derived_hash() {
   wp_conf2 eval '
     global $wpdb;
@@ -1561,11 +1600,15 @@ pass "competing TEC applies serialize and leave one exact idempotent native resu
 # rows/options/tables. Missing code must refuse, then the exact cached artifact
 # reinstalls and deploy reactivates without overwriting target-owned siblings.
 wp_conf2 option update duo_tec_neighbor 'target-neighbor-preserved' >/dev/null
+LIFECYCLE_BEFORE=$(tec_target_storage_fingerprint)
+require_observed_nonempty "TEC lifecycle physical baseline" "$LIFECYCLE_BEFORE"
 wp_conf2 plugin deactivate the-events-calendar >/dev/null
 wp_conf2 plugin is-active the-events-calendar >/dev/null 2>&1 && fail "TEC deactivation premise did not land"
 REACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "TEC deploy after deactivation" json "$REACTIVATE"
 wp_conf2 plugin is-active the-events-calendar >/dev/null || fail "Duo deploy did not reactivate exact TEC code"
+[ "$(tec_target_storage_fingerprint)" = "$LIFECYCLE_BEFORE" ] \
+  || fail "TEC exact-code reactivation mutated authored, derived, Customizer, settings, or Category Colors rows"
 ROWS_BEFORE_UNINSTALL=$(wp_conf2 post list --post_type=tribe_events --format=count)
 wp_conf2 plugin deactivate the-events-calendar >/dev/null
 wp_conf2 plugin uninstall the-events-calendar >/dev/null
@@ -1574,11 +1617,19 @@ wp_conf2 plugin is-installed the-events-calendar >/dev/null 2>&1 && fail "TEC un
   || fail "TEC empty native uninstall unexpectedly deleted authored event rows"
 [ "$(wp_conf2 option get duo_tec_neighbor)" = 'target-neighbor-preserved' ] \
   || fail "TEC uninstall mutated an unrelated target option"
+[ "$(tec_target_storage_fingerprint)" = "$LIFECYCLE_BEFORE" ] \
+  || fail "TEC empty native uninstall mutated authored, derived, Customizer, settings, or Category Colors rows"
+MISSING_STORAGE_BEFORE=$(tec_target_storage_fingerprint)
+MISSING_REPO_BEFORE=$(git -C "$CONF_REPO2" status --porcelain=v1 --untracked-files=all -- state)
 MISSING_RC=0
 MISSING_OUT=$(wp_conf2 duo deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
 require_duo_answered "TEC deploy with code absent" human "$MISSING_OUT"
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing TEC code did not refuse at compatibility: $MISSING_OUT"
+[ "$(tec_target_storage_fingerprint)" = "$MISSING_STORAGE_BEFORE" ] \
+  || fail "missing-code compatibility refusal mutated retained TEC rows"
+[ "$(git -C "$CONF_REPO2" status --porcelain=v1 --untracked-files=all -- state)" = "$MISSING_REPO_BEFORE" ] \
+  || fail "missing-code compatibility refusal mutated canonical target state"
 TEC_SHA=2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687
 TEC_ARTIFACT="/artifacts-cache/plugin-the-events-calendar-6.17.3-${TEC_SHA}.zip"
 [ "$(wp_conf2 eval "echo hash_file('sha256', '$TEC_ARTIFACT');")" = "$TEC_SHA" ] \
@@ -1611,4 +1662,5 @@ wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-final >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-tec-final" || fail "TEC final recovered state was not byte-identical"
 rm -rf "$CONF_REPO2/.tmp-tec-final"
 rm -f "$SOURCE_IDS_FILE" "$TARGET_IDS_FILE"
+unset -f tec_target_storage_fingerprint
 pass "deactivate/reactivate, residue-preserving uninstall, absent-code refusal, exact reinstall, native readback, and final recapture are clean"
