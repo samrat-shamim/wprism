@@ -31,6 +31,12 @@ claiming the same thing.
 by `../../bin/adapter-boundary.sh` as probes complete. It accumulates; re-running
 the loop replays what is already recorded and only probes what is missing.
 
+**No file here may carry `last_verified`, `stale`, `releases_behind` or
+`freshness`.** Those are DERIVED by `duo adapter proposals`, which reads this
+whole directory and projects each adapter's newest green probe; a recorded input
+allowed to state its own freshness would let the adapter nobody has probed
+declare itself current. The command refuses such a document by name.
+
 Nothing here is a manifest input. The range in `manifests/<name>.json` and its
 Canon-byte-equal restatement in `manifests/dispositions.json` stay one reviewed
 human edit (`agent/src/Policy/ManifestDispositions.php:632-637`).

@@ -1,5 +1,5 @@
 {
-    "class_count": 381,
+    "class_count": 382,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -21899,6 +21899,48 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "readOutcomeTable": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "slug",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "readReleaseList": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "run": {
                     "abstract": false,
                     "final": false,
@@ -22196,6 +22238,134 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\AdapterProposals": {
+            "abstract": false,
+            "constants": {
+                "DERIVED_ONLY_KEYS": {
+                    "value_repr": [
+                        "last_verified",
+                        "stale",
+                        "releases_behind",
+                        "freshness"
+                    ]
+                },
+                "EXIT_OK": {
+                    "value_repr": 0
+                },
+                "EXIT_REFUSED": {
+                    "value_repr": 1
+                },
+                "EXIT_USAGE": {
+                    "value_repr": 2
+                },
+                "FORMAT": {
+                    "value_repr": "duo-adapter-boundary-proposals/v1"
+                },
+                "FRESHNESS_CLASSES": {
+                    "value_repr": [
+                        "unrecorded",
+                        "unverified",
+                        "behind",
+                        "current"
+                    ]
+                },
+                "OUTCOMES_SUFFIX": {
+                    "value_repr": ".outcomes.json"
+                },
+                "RELEASES_SUFFIX": {
+                    "value_repr": ".releases.json"
+                },
+                "VERBS": {
+                    "value_repr": [
+                        "proposals"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "project": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "library",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "ledger",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "readLedger": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "dir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "readLibrary": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "dir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
                     "static": true,
                     "visibility": "public"
                 }
@@ -28423,6 +28593,14 @@
                 "FORMAT": {
                     "value_repr": "duo-fleet-census/v1"
                 },
+                "FRESHNESS_CLASSES": {
+                    "value_repr": [
+                        "unrecorded",
+                        "unverified",
+                        "behind",
+                        "current"
+                    ]
+                },
                 "FUNNEL_STAGES": {
                     "value_repr": [
                         "no_adapter",
@@ -28430,6 +28608,9 @@
                         "adapter_unpinned",
                         "adapter_pinned"
                     ]
+                },
+                "HEALTH_FORMAT": {
+                    "value_repr": "duo-adapter-boundary-proposals/v1"
                 },
                 "INVENTORY_FORMAT": {
                     "value_repr": "duo-assess-inventory/v1"
@@ -28479,6 +28660,14 @@
                             "default": null,
                             "has_default": false,
                             "name": "library",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "health",
                             "type": "array",
                             "variadic": false
                         }

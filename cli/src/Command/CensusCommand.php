@@ -36,7 +36,7 @@ require_once __DIR__ . '/../Assess/FleetCensus.php';
  * shell.
  */
 final class CensusCommand {
-    private const FLAGS = ['--site', '--dir', '--manifests', '--format', '--limit'];
+    private const FLAGS = ['--site', '--dir', '--manifests', '--format', '--limit', '--health'];
 
     /** Human rows only; the JSON document is never truncated. */
     private const DEFAULT_LIMIT = 20;
@@ -56,6 +56,10 @@ final class CensusCommand {
                 FleetCensus::EXIT_USAGE,
                 'invalid_arguments',
                 $e->getMessage(),
+                // Byte-identical to what it has always been (AGENTS.md rule 8):
+                // `--health` is optional, and the line already omits `--limit`
+                // for the same reason — a usage remediation names the shape of
+                // the call, not every flag.
                 'run `duo census --site=<label>=<inventory.json> [--dir=<dir>] [--manifests=<dir>] [--format=json]`'
             );
         }
@@ -179,6 +183,37 @@ final class CensusCommand {
             echo 'demand: ' . (count($demand) - $shown) . " further row(s) in --format=json\n";
         }
 
+        // Health prints only when a health document was supplied. The block is
+        // always in the JSON with its own disclosure, but a terminal line
+        // saying "0 stale" when nothing was measured would be the silence this
+        // whole verb exists to remove.
+        $health = (array) ($document['fleet_health'] ?? []);
+        if (($health['source'] ?? 'not-supplied') !== 'not-supplied') {
+            echo 'health: ' . (int) $health['stale'] . ' stale of ' . (int) $health['adapters']
+                . ' adapter(s), ' . (int) $health['open_proposals'] . " open range proposal(s)\n";
+            $shownHealth = 0;
+            foreach ((array) $health['rows'] as $row) {
+                $row = (array) $row;
+                if ($shownHealth >= $limit) {
+                    break;
+                }
+                if ($row['stale'] !== true) {
+                    continue;
+                }
+                $shownHealth++;
+                $proposal = $row['open_proposal'] ?? null;
+                echo 'stale ' . (string) $row['adapter'] . ': ' . (string) $row['freshness_class']
+                    . ' last_verified=' . ($row['last_verified'] === null ? 'none' : (string) $row['last_verified'])
+                    . ' behind=' . (int) $row['releases_behind']
+                    . ' pinned=' . (int) $row['sites_pinning'] . '/' . (int) $row['sites_installed']
+                    . ' exposure=' . (int) $row['exposure_score']
+                    . (is_array($proposal)
+                        ? ' proposal=' . (string) $proposal['min'] . '..' . (string) $proposal['max']
+                        : '')
+                    . "\n";
+            }
+        }
+
         $unattributed = (array) $document['unattributed'];
         if ((int) $unattributed['surfaces'] > 0) {
             // Named rather than folded into a plugin: Coverage::attribute() is
@@ -207,11 +242,12 @@ final class CensusCommand {
      * census it could express.
      *
      * @param list<string> $args
-     * @return array{sites:array<string,string>,manifests:string,format:string,limit:int}
+     * @return array{sites:array<string,string>,manifests:string,format:string,limit:int,health:?string}
      */
     private static function options(array $args): array {
         $sites = [];
         $manifests = null;
+        $health = null;
         $format = 'human';
         $limit = self::DEFAULT_LIMIT;
         $dirs = [];
@@ -246,6 +282,15 @@ final class CensusCommand {
                     }
                     $manifests = $value;
                     break;
+                case '--health':
+                    // Refused rather than last-wins, exactly like --manifests:
+                    // a second health document silently replacing the first
+                    // would rank a freshness record the operator did not name.
+                    if ($health !== null) {
+                        throw new \RuntimeException('duplicate flag \'--health\'');
+                    }
+                    $health = $value;
+                    break;
                 case '--format':
                     if ($value !== 'json') {
                         throw new \RuntimeException('--format must be json');
@@ -279,6 +324,11 @@ final class CensusCommand {
             'manifests' => $manifests ?? dirname(__DIR__, 3) . '/manifests',
             'format' => $format,
             'limit' => $limit,
+            // No default path. The freshness document is DERIVED and this
+            // process writes nothing, so there is no location this command may
+            // assume one was left at — an assumed default that happened to be
+            // stale would rank yesterday's backlog as today's.
+            'health' => $health,
         ];
     }
 

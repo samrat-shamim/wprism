@@ -195,6 +195,40 @@ Canon-byte-equal, remains one reviewed human edit; every proposed endpoint is a
 release that probed green, and a recorded failure inside the proposed window
 blocks the proposal rather than narrowing it by guess.
 
+### Keeping the range true after upstream ships
+
+The range you found is a claim with an expiry date nobody writes down. `duo
+adapter proposals` is the scheduled job that reads it out of the evidence
+instead:
+
+```bash
+duo adapter proposals --ledger=sandbox/conformance/boundary --format=json > health.json
+duo census --dir=<inventories> --health=health.json
+```
+
+It re-runs the bisection above for **every** pinned plugin that has a recorded
+ledger, deriving each adapter's anchor from its own newest green probe rather
+than from a flag, and emits two things.
+
+The first is a proposed range bump as **both** edits — `version_range` in the
+manifest and `supported_versions` in `manifests/dispositions.json` — built from
+one value, so they agree on the canonical bytes
+`ManifestDispositions::validate_entry()` compares. It is a review packet, never
+a commit: a byte under `manifests/` is adapter identity, so a job that widened a
+range on a schedule would refuse every deployed site holding a compiled
+artifact. `max` moves only as far as the next **recorded** release after the
+evidenced ceiling — exclusive, so it admits nothing unprobed — and a bisection
+that never reached green is refused rather than proposed, as is a range that
+would contain a release the record says fails.
+
+The second is a derived `last_verified` per adapter: the newest release that
+probed green, the same shape `manifests/capabilities/platform.json` uses per
+axis. It lives **outside** `manifests/` on purpose — stored beside a manifest it
+would move every adapter digest on every re-verification — and it cannot be
+hand-asserted: a ledger document carrying its own `last_verified` is refused.
+`duo census --health=` ranks those rows beside the demand rank, by sites pinning
+an adapter times releases it is behind.
+
 ### The caveat that catches everyone
 
 CF7's own notes carry it: `wpcf7_contact_form` **must** be in the site's

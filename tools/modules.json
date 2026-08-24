@@ -1417,7 +1417,7 @@
       },
       "Adapter": {
         "layer": "adapter",
-        "purpose": "Authoring-side adapter tooling: catalog, draft, observation, manifest validation against the agent's policy, the operator's own Ed25519 certification authority (keygen/certify/pin), `lint-tree` -- the WordPress-free half of the suspicious-reference linter, which replays a recorded lint environment into the engine's own Lint::scan_tree() -- and `boundary`, the version-range bisector, which reads a recorded release list plus an accumulating probe-outcome table and emits artifacts.lock.json rows as EVIDENCE, never a manifest edit.",
+        "purpose": "Authoring-side adapter tooling: catalog, draft, observation, manifest validation against the agent's policy, the operator's own Ed25519 certification authority (keygen/certify/pin), `lint-tree` -- the WordPress-free half of the suspicious-reference linter, which replays a recorded lint environment into the engine's own Lint::scan_tree() -- `boundary`, the version-range bisector, which reads a recorded release list plus an accumulating probe-outcome table and emits artifacts.lock.json rows as EVIDENCE, never a manifest edit, and `proposals`, the scheduled job around that planner: it re-bisects every pinned plugin from its own recorded ledger, emits the range bump as BOTH edits in the Canon-byte-equal shape ManifestDispositions.php:632-637 demands, and derives a per-adapter last_verified that deliberately lives outside manifests/ (a byte there is adapter identity, so storing freshness beside a manifest would re-pin the fleet on every re-verification).",
         "status": "populated",
         "entry_points": [
           "AdapterBoundary",
@@ -1425,6 +1425,7 @@
           "AdapterCertify",
           "AdapterDraft",
           "AdapterObservation",
+          "AdapterProposals",
           "LintTree",
           "ManifestValidate"
         ],
@@ -1440,13 +1441,14 @@
           "agent:Review"
         ],
         "exceptions": [],
-        "file_count": 7,
+        "file_count": 8,
         "files": [
           "AdapterBoundary.php",
           "AdapterCatalog.php",
           "AdapterCertify.php",
           "AdapterDraft.php",
           "AdapterObservation.php",
+          "AdapterProposals.php",
           "LintTree.php",
           "ManifestValidate.php"
         ]

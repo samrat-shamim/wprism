@@ -102,12 +102,51 @@ final class FleetCensusRefusal extends \RuntimeException {
  * documents. `basis.sample_class` says which of `one-site`, `narrow` or
  * `fleet` this run is, from the eligible count alone, and `basis.caveat`
  * carries the sentence a reader needs before quoting a rank derived from it.
+ *
+ * ## Fleet health rides here because this is where the operator already looks
+ *
+ * `duo adapter proposals` derives, per adapter, the newest release that probed
+ * green (`last_verified`, the shape `manifests/capabilities/platform.json`
+ * already uses per axis) and how many recorded releases are newer than it. That
+ * fact deliberately lives OUTSIDE `manifests/`: stored beside a manifest it
+ * would be a rule-2 identity input, and every re-verification would move an
+ * `adapter_digest` and every `site.duo.json` content pin in the fleet.
+ *
+ * So it arrives here as a document, and `fleet_health` joins it to what this
+ * census already knows — how many sites install and pin each adapter — because
+ * "this adapter is four releases behind" and "eleven of your sites pin it" are
+ * one decision, and the operator reads the census, not a second report. The
+ * join is on the ADAPTER NAME, the same key `demand[].covering_adapter`
+ * carries.
+ *
+ * `health_row()` is a WHITELIST projection for exactly the reason
+ * `submission()` is: the health document is produced by a different verb whose
+ * future fields nobody scoped for a pooled document, so this census reads names
+ * and counts out of it and nothing else. A `--health` document carrying a site
+ * URL contributes no key at all.
  */
 final class FleetCensus {
     public const FORMAT = 'duo-fleet-census/v1';
 
     /** The one document this verb consumes (agent/src/Assess/AssessInventory.php:68). */
     public const INVENTORY_FORMAT = 'duo-assess-inventory/v1';
+
+    /**
+     * The optional second input: the derived adapter-freshness document
+     * `duo adapter proposals` emits (cli/src/Adapter/AdapterProposals.php).
+     * Optional because the census answers its own questions without it, and a
+     * verb that refused without a document produced by a different verb would
+     * make the demand rank hostage to a ledger nobody has recorded yet.
+     */
+    public const HEALTH_FORMAT = 'duo-adapter-boundary-proposals/v1';
+
+    /**
+     * The freshness vocabulary, restated so the census's own reader is closed
+     * over it: a class this list does not name is dropped rather than ranked,
+     * because a health document from a newer build must not smuggle an
+     * uninterpreted verdict into a pooled document.
+     */
+    public const FRESHNESS_CLASSES = ['unrecorded', 'unverified', 'behind', 'current'];
 
     /**
      * The exit-code contract, identical to the env-free verb family's
@@ -160,9 +199,10 @@ final class FleetCensus {
      *
      * @param list<array{label:string,inventory:array<string,mixed>}> $submissions
      * @param array{adapters:array<string,array<string,mixed>>,reviewed:int,sha256:string,site_mode:string} $library
+     * @param array<string,mixed> $health a `duo-adapter-boundary-proposals/v1` document, or `[]`
      * @return array<string,mixed> a `duo-fleet-census/v1` document
      */
-    public static function project(array $submissions, array $library): array {
+    public static function project(array $submissions, array $library, array $health = []): array {
         $eligible = [];
         $excluded = [];
         $seenLabels = [];
@@ -217,13 +257,145 @@ final class FleetCensus {
             'demand' => $demand,
             'unattributed' => $unattributed,
             'funnel' => self::funnel($demand),
+            'fleet_health' => self::fleet_health($health, $demand),
+        ];
+    }
+
+    /**
+     * The fleet-health rows: derived adapter freshness, ranked by the exposure
+     * this fleet actually has to it.
+     *
+     * The rank is `sites_pinning x releases_behind`, and both halves are
+     * load-bearing. An adapter nobody pins is a backlog item; one eleven sites
+     * pin whose proof is four releases old is the next upstream release away
+     * from eleven blocked deploys, which is the whole reason
+     * `AdapterContractGrammar.php:73-79` forbids an unbounded range. An adapter
+     * with a recorded ledger and no green probe at all ranks by
+     * `sites_pinning` alone, because `releases_behind` is 0 for it and zero
+     * would sort a wholly unproven adapter to the bottom.
+     *
+     * @param array<string,mixed> $health
+     * @param list<array<string,mixed>> $demand
+     * @return array<string,mixed>
+     */
+    private static function fleet_health(array $health, array $demand): array {
+        $exposure = [];
+        foreach ($demand as $row) {
+            $adapter = $row['covering_adapter'] ?? null;
+            if (!is_string($adapter) || $adapter === '') {
+                continue;
+            }
+            $exposure[$adapter] ??= ['sites_installed' => 0, 'sites_pinning' => 0];
+            $exposure[$adapter]['sites_installed'] += (int) $row['sites_installed'];
+            $exposure[$adapter]['sites_pinning'] += (int) $row['sites_pinning'];
+        }
+
+        $block = [
+            'source' => 'not-supplied',
+            'adapters' => 0,
+            'stale' => 0,
+            'open_proposals' => 0,
+            'rows' => [],
+            // The count is the signal (GapActions.php:152-156): a census with
+            // no health document says so, rather than leaving a reader to read
+            // an absent key as "nothing is stale".
+            'disclosure' => 'no --health document was supplied, so no adapter freshness is known here; '
+                . 'derive one with `duo adapter proposals --format=json`',
+        ];
+        if ($health === []) {
+            return $block;
+        }
+        if (($health['format'] ?? null) !== self::HEALTH_FORMAT) {
+            throw new FleetCensusRefusal(
+                'census_health_unsupported',
+                'the --health document is not a ' . self::HEALTH_FORMAT . ' document',
+                'derive one with `duo adapter proposals --format=json`, then pass it to --health'
+            );
+        }
+
+        $open = [];
+        foreach ((array) ($health['proposals'] ?? []) as $proposal) {
+            if (!is_array($proposal) || !is_string($proposal['adapter'] ?? null)) {
+                continue;
+            }
+            $range = is_array($proposal['proposed_range'] ?? null) ? $proposal['proposed_range'] : [];
+            $open[$proposal['adapter']] = [
+                'min' => is_string($range['min'] ?? null) ? (string) $range['min'] : null,
+                'max' => is_string($range['max'] ?? null) ? (string) $range['max'] : null,
+            ];
+        }
+
+        $rows = [];
+        $stale = 0;
+        foreach ((array) ($health['freshness'] ?? []) as $row) {
+            $projected = self::health_row(is_array($row) ? $row : [], $exposure, $open);
+            if ($projected === null) {
+                continue;
+            }
+            if ($projected['stale'] === true) {
+                $stale++;
+            }
+            $rows[] = $projected;
+        }
+        usort($rows, static function (array $a, array $b): int {
+            return $b['exposure_score'] <=> $a['exposure_score']
+                ?: $b['releases_behind'] <=> $a['releases_behind']
+                ?: $b['sites_pinning'] <=> $a['sites_pinning']
+                ?: strcmp($a['adapter'], $b['adapter']);
+        });
+
+        $block['source'] = self::HEALTH_FORMAT;
+        $block['adapters'] = count($rows);
+        $block['stale'] = $stale;
+        $block['open_proposals'] = count($open);
+        $block['rows'] = $rows;
+        $block['disclosure'] = 'freshness is DERIVED from recorded probe outcomes and names the newest release '
+            . 'that probed green; an upstream release nobody recorded is invisible to it';
+        return $block;
+    }
+
+    /**
+     * One health row, whitelisted. Every field this census can ever read out of
+     * the health document is named here — the same posture `submission()`
+     * takes, and for the same reason: the producing verb's future fields were
+     * never scoped for a document meant to be pooled across operators.
+     *
+     * @param array<string,mixed> $row
+     * @param array<string,array{sites_installed:int,sites_pinning:int}> $exposure
+     * @param array<string,array{min:?string,max:?string}> $open
+     * @return array<string,mixed>|null
+     */
+    private static function health_row(array $row, array $exposure, array $open): ?array {
+        $adapter = $row['adapter'] ?? null;
+        $class = $row['freshness_class'] ?? null;
+        if (!is_string($adapter) || $adapter === ''
+            || !is_string($class) || !in_array($class, self::FRESHNESS_CLASSES, true)) {
+            return null;
+        }
+        $sites = $exposure[$adapter] ?? ['sites_installed' => 0, 'sites_pinning' => 0];
+        $behind = is_int($row['releases_behind'] ?? null) ? (int) $row['releases_behind'] : 0;
+        return [
+            'adapter' => $adapter,
+            'freshness_class' => $class,
+            'last_verified' => is_string($row['last_verified'] ?? null) ? (string) $row['last_verified'] : null,
+            'newest_recorded_release' => is_string($row['newest_recorded_release'] ?? null)
+                ? (string) $row['newest_recorded_release']
+                : null,
+            'releases_behind' => $behind,
+            'unprobed_newer' => is_int($row['unprobed_newer'] ?? null) ? (int) $row['unprobed_newer'] : 0,
+            'probes_recorded' => is_int($row['probes_recorded'] ?? null) ? (int) $row['probes_recorded'] : 0,
+            'stale' => ($row['stale'] ?? null) === true,
+            'sites_installed' => $sites['sites_installed'],
+            'sites_pinning' => $sites['sites_pinning'],
+            'open_proposal' => isset($open[$adapter]) ? $open[$adapter] : null,
+            'exposure_score' => $sites['sites_pinning'] * $behind,
         ];
     }
 
     /**
      * Read one census over inventory files named on the command line.
      *
-     * @param array{sites:array<string,string>,manifests:string} $options
+     * @param array{sites:array<string,string>,manifests:string,health:?string} $options
      * @return array<string,mixed>
      */
     public static function run(array $options): array {
@@ -244,7 +416,46 @@ final class FleetCensus {
                 'pass at least one --site=<label>=<inventory.json> or a --dir=<directory> holding them'
             );
         }
-        return self::project($submissions, $library);
+        $health = ($options['health'] ?? null) === null ? [] : self::read_health((string) $options['health']);
+        return self::project($submissions, $library, $health);
+    }
+
+    /**
+     * The derived freshness document, read exactly as an inventory is: it is
+     * another document produced elsewhere on this machine, and the failure
+     * modes are the same three.
+     *
+     * @return array<string,mixed>
+     */
+    private static function read_health(string $path): array {
+        if (!is_file($path)) {
+            throw new FleetCensusRefusal(
+                'census_health_unreadable',
+                'the --health document does not exist',
+                'derive one with `duo adapter proposals --format=json > <path>`, then pass it to --health',
+                $path
+            );
+        }
+        try {
+            $decoded = \Duo\Canon::decode((string) file_get_contents($path));
+        } catch (\Throwable $t) {
+            throw new FleetCensusRefusal(
+                'census_health_unreadable',
+                'the --health document is not valid JSON',
+                'rederive it with `duo adapter proposals --format=json` and pass the output unmodified',
+                $path . ': ' . $t->getMessage(),
+                $t
+            );
+        }
+        if (!is_array($decoded) || array_is_list($decoded)) {
+            throw new FleetCensusRefusal(
+                'census_health_unreadable',
+                'the --health document does not decode to an object',
+                'rederive it with `duo adapter proposals --format=json` and pass the output unmodified',
+                $path
+            );
+        }
+        return $decoded;
     }
 
     /**
