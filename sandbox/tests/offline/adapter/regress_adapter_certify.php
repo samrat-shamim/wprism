@@ -411,6 +411,76 @@ duo_check_same(
     . 'reviewed conformance run, which is the collapse `exercised: false` exists to prevent'
 );
 
+// A verified certificate produced under a different PHP environment is not
+// reusable. Build that exact signed state rather than mocking verification:
+// the live verifier accepts it, then sign_site() must compare the full current
+// candidate and rotate it back to this process's PHP evidence.
+$environmentRepo = cert_site($root, 'environment-site', $rich);
+cert_private('registerAuthority', [
+    $environmentRepo, $signKeyId, $signPublic, 'acme-catalog', AdapterSources::TIER_DECLARATIVE,
+]);
+$environmentCertificate = AdapterCertification::sign_site(
+    Policy::manifests_dir(),
+    $environmentRepo,
+    'acme-catalog',
+    $signKeyId,
+    base64_encode($signSecret),
+    $reason
+);
+$environmentCertificatePath = AdapterCertify::writeCertificate(
+    $environmentRepo,
+    'acme-catalog',
+    $environmentCertificate
+);
+$foreignEnvironment = json_decode($environmentCertificate, true, 512, JSON_THROW_ON_ERROR);
+$foreignSummary = $foreignEnvironment['statement']['bundle']['environment_summary'];
+$foreignSummary['php'] = '8.3.0-fixture';
+$foreignEnvironmentRaw = Canon::encode($foreignSummary);
+$foreignEnvironment['statement']['bundle']['environment_summary'] = $foreignSummary;
+$foreignEnvironment['statement']['bundle']['environment'] = [
+    'path' => 'environment.json',
+    'sha256' => hash('sha256', $foreignEnvironmentRaw),
+    'size' => strlen($foreignEnvironmentRaw),
+];
+$bundleDigestMethod = new ReflectionMethod(AdapterCertification::class, 'bundleDigest');
+$foreignEnvironment['statement']['bundle']['bundle_digest'] = $bundleDigestMethod->invoke(
+    null,
+    $foreignEnvironment['statement']['bundle']
+);
+$signatureBytesMethod = new ReflectionMethod(AdapterCertification::class, 'signatureBytes');
+$foreignEnvironment['signature'] = base64_encode(sodium_crypto_sign_detached(
+    $signatureBytesMethod->invoke(null, $foreignEnvironment['statement']),
+    $signSecret
+));
+$foreignEnvironmentBytes = Canon::encode($foreignEnvironment);
+Canon::write_file($environmentCertificatePath, $foreignEnvironmentBytes);
+$foreignVerified = AdapterCertification::verifyFile(
+    Policy::manifests_dir(),
+    $environmentRepo,
+    'acme-catalog',
+    $rich,
+    $environmentCertificatePath
+);
+duo_check_same(
+    'certified',
+    $foreignVerified['claim']['status'] ?? null,
+    'fixture premise: the different-PHP certificate is a valid current signed certificate'
+);
+$currentEnvironmentCertificate = AdapterCertification::sign_site(
+    Policy::manifests_dir(),
+    $environmentRepo,
+    'acme-catalog',
+    $signKeyId,
+    base64_encode($signSecret),
+    $reason
+);
+duo_check(
+    !hash_equals($foreignEnvironmentBytes, $currentEnvironmentCertificate)
+        && (json_decode($currentEnvironmentCertificate, true)['statement']['bundle']['environment_summary']['php'] ?? null)
+            === PHP_VERSION,
+    'a changed PHP/environment input rotates the certificate instead of reusing a verified old timestamp'
+);
+
 // An AGENT-owned key routed through this entry point is refused by name. The
 // relaxation follows the trust ROOT, not the caller, so this is the boundary
 // that keeps `site_signed` and `third_party_signed` separable at all.
@@ -989,12 +1059,19 @@ duo_check_same(
     . 'declared by the adapter that was just certified, even though the rule that classified it is the site\'s own'
 );
 $freshBytes = (string) file_get_contents($freshRepo . '/site.duo.json');
+$freshCertificatePath = $freshRepo . '/adapters/certifications/acme-catalog.json';
+$freshCertificateBytes = (string) file_get_contents($freshCertificatePath);
 duo_check(
     str_contains($freshBytes, '"options": {}') && str_contains($freshBytes, '"term_meta": {}'),
     'the write is typed: init\'s empty policy sections are still JSON objects, not lists the engine refuses'
 );
 
 // (2) Rerunning decides nothing twice: no rule, no byte, and it says so.
+// Cross a real UTC-second boundary: siteBundle.created_at used to mint a new
+// signature here, which moved the adapter digest and rewrote site.duo.json.
+// A fixed sleep just over one second is bounded and makes the prior defect
+// deterministic without exposing a production clock injection seam.
+usleep(1100000);
 $freshAgain = cert_run(['certify', $freshRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
     '--key-id=' . $signKeyId, '--reason=' . $reason, '--pin']);
 duo_check(
@@ -1002,6 +1079,55 @@ duo_check(
         && str_contains($freshAgain['out'], "scope: every surface this adapter declares is already in site.duo.json's authored scope")
         && hash_equals($freshBytes, (string) file_get_contents($freshRepo . '/site.duo.json')),
     'a second certify --pin writes no scope rule and no byte — adoption is idempotent'
+);
+duo_check(
+    hash_equals($freshCertificateBytes, (string) file_get_contents($freshCertificatePath)),
+    'a second semantically identical certify reuses the verified certificate across a UTC-second boundary'
+);
+
+// Reuse is exact candidate equality, not timestamp pinning. Every signed input
+// still rotates the certificate and therefore the repository pin when it
+// changes: reason, authority/key and raw+canonical manifest bytes are three
+// independent witnesses for the full deterministic comparison.
+$reasonRotated = cert_run(['certify', $freshRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
+    '--key-id=' . $signKeyId, '--reason=Acme Ltd performed a second catalog review.', '--pin']);
+duo_check_same(0, $reasonRotated['exit'], 'certify succeeds when the signed reason changes');
+$reasonCertificateBytes = (string) file_get_contents($freshCertificatePath);
+$reasonPinBytes = (string) file_get_contents($freshRepo . '/site.duo.json');
+duo_check(
+    !hash_equals($freshCertificateBytes, $reasonCertificateBytes)
+        && !hash_equals($freshBytes, $reasonPinBytes),
+    'a changed reason rotates both certificate and digest pin instead of reusing the old timestamp'
+);
+
+$nextKeypair = sodium_crypto_sign_keypair();
+$nextSecret = sodium_crypto_sign_secretkey($nextKeypair);
+$nextPublic = sodium_crypto_sign_publickey($nextKeypair);
+$nextKeyId = 'site-' . substr(hash('sha256', $nextPublic), 0, 12);
+$nextSecretPath = $keyDir . '/sign-next.key';
+file_put_contents($nextSecretPath, base64_encode($nextSecret) . "\n");
+chmod($nextSecretPath, 0600);
+$keyRotated = cert_run(['certify', $freshRepo, '--name=acme-catalog', '--secret-key-file=' . $nextSecretPath,
+    '--key-id=' . $nextKeyId, '--reason=Acme Ltd performed a second catalog review.', '--pin']);
+duo_check_same(0, $keyRotated['exit'], 'certify succeeds under a newly registered scoped authority');
+$keyCertificateBytes = (string) file_get_contents($freshCertificatePath);
+$keyPinBytes = (string) file_get_contents($freshRepo . '/site.duo.json');
+duo_check(
+    !hash_equals($reasonCertificateBytes, $keyCertificateBytes)
+        && !hash_equals($reasonPinBytes, $keyPinBytes),
+    'a changed authority/key rotates both certificate and digest pin'
+);
+
+$changedRich = $rich;
+$changedRich['version_range']['max'] = '3.1.0';
+Canon::write_file($freshRepo . '/adapters/acme-catalog.json', Canon::encode($changedRich));
+$manifestRotated = cert_run(['certify', $freshRepo, '--name=acme-catalog', '--secret-key-file=' . $nextSecretPath,
+    '--key-id=' . $nextKeyId, '--reason=Acme Ltd performed a second catalog review.', '--pin']);
+duo_check_same(0, $manifestRotated['exit'], 'certify succeeds after the site adapter manifest changes');
+duo_check(
+    !hash_equals($keyCertificateBytes, (string) file_get_contents($freshCertificatePath))
+        && !hash_equals($keyPinBytes, (string) file_get_contents($freshRepo . '/site.duo.json')),
+    'changed raw/canonical manifest inputs rotate both certificate and digest pin'
 );
 
 // (3) The walkthrough proper: init already recorded the type as runtime.

@@ -414,6 +414,12 @@ final class AdapterCertification {
      * refuses to be signed with the loader's own message. A certificate for
      * bytes no command can use would be the emptiest possible claim.
      *
+     * Repeating the same certification preserves the timestamp of an existing
+     * certificate only after the live verifier accepts its exact bytes and a
+     * deterministic re-sign of every current input is byte-identical. Thus
+     * `created_at` records when this claim changed, not how often an idempotent
+     * command was invoked; any changed signed input mints a fresh statement.
+     *
      * @param string $reason the operator's stated basis, signed and reported
      * @return string canonical duo-adapter-certification/v1 bytes
      */
@@ -463,7 +469,130 @@ final class AdapterCertification {
         $grammar = self::siteGrammarVerdict($manifestDir, $repo, $name);
         $ratification = self::siteRatification($name, $manifest, $reason);
         $ratificationRaw = Canon::encode($ratification);
-        $bundle = self::siteBundle($name, $adapterRaw, $ratificationRaw, $grammar, $reason);
+        $authorityBinding = [
+            'fingerprint' => hash('sha256', $configured),
+            'key_id' => $keyId,
+            'record' => $authority,
+            'record_sha256' => $authorityDigest,
+            'trust_root' => $trustRoot,
+        ];
+        $freshCreatedAt = gmdate('Y-m-d\TH:i:s\Z');
+        $existing = self::verifiedExistingSiteCertificate(
+            $manifestDir,
+            $root,
+            $name,
+            $manifest,
+            $root . '/' . self::CERTIFICATE_DIR . '/' . $name . '.json'
+        );
+        if ($existing !== null) {
+            $candidate = self::siteCertificateCandidate(
+                $manifestDir,
+                $name,
+                $manifest,
+                $adapterRaw,
+                $tier,
+                $authorityBinding,
+                $trustRoot,
+                $grammar,
+                $ratificationRaw,
+                $reason,
+                $secret,
+                $existing['created_at']
+            );
+            // Ed25519 signatures are deterministic. Equality here therefore
+            // binds every signed input (including authority record, adapter
+            // bytes, platform, PHP environment, grammar, reason and derived
+            // ratification), rather than maintaining a second semantic
+            // comparison beside the verifier. Only a certificate that passed
+            // the live verifier above may lend its timestamp.
+            if (hash_equals($existing['raw'], $candidate)) {
+                return $existing['raw'];
+            }
+        }
+
+        return self::siteCertificateCandidate(
+            $manifestDir,
+            $name,
+            $manifest,
+            $adapterRaw,
+            $tier,
+            $authorityBinding,
+            $trustRoot,
+            $grammar,
+            $ratificationRaw,
+            $reason,
+            $secret,
+            $freshCreatedAt
+        );
+    }
+
+    /**
+     * @return null|array{raw:string,created_at:string}
+     */
+    private static function verifiedExistingSiteCertificate(
+        string $manifestDir,
+        string $root,
+        string $name,
+        array $manifest,
+        string $path
+    ): ?array {
+        if (!is_file($path) || is_link($path)) {
+            return null;
+        }
+        try {
+            $verified = self::verifyFile($manifestDir, $root, $name, $manifest, $path);
+            $envelope = $verified['envelope'] ?? null;
+            $encoded = is_array($envelope) ? ($envelope['certificate_json'] ?? null) : null;
+            $digest = is_array($envelope) ? ($envelope['certificate_sha256'] ?? null) : null;
+            $raw = is_string($encoded) ? base64_decode($encoded, true) : false;
+            if ($raw === false || !is_string($digest)
+                || !hash_equals($digest, hash('sha256', $raw))) {
+                return null;
+            }
+            [, , $certificate] = self::parseCanonicalObject($raw, 'verified site adapter certification');
+            $createdAt = $certificate['statement']['bundle']['created_at'] ?? null;
+            if (!is_string($createdAt)) {
+                return null;
+            }
+            return ['raw' => $raw, 'created_at' => $createdAt];
+        } catch (\Throwable) {
+            // A superseded, malformed, revoked or otherwise unverifiable
+            // certificate has no authority over the next signature's time.
+            // The ordinary signing path below still validates every current
+            // input and replaces it, preserving certify's existing repair
+            // behavior without reusing untrusted bytes.
+            return null;
+        }
+    }
+
+    /**
+     * Build and verify the exact site-profile candidate before Ed25519.
+     *
+     * @param array<string,mixed> $manifest
+     * @param array<string,mixed> $authorityBinding
+     */
+    private static function siteCertificateCandidate(
+        string $manifestDir,
+        string $name,
+        array $manifest,
+        string $adapterRaw,
+        string $tier,
+        array $authorityBinding,
+        string $trustRoot,
+        string $grammar,
+        string $ratificationRaw,
+        string $reason,
+        string $secret,
+        string $createdAt
+    ): string {
+        $bundle = self::siteBundle(
+            $name,
+            $adapterRaw,
+            $ratificationRaw,
+            $grammar,
+            $reason,
+            $createdAt
+        );
 
         // Verify the freshly built bundle through the SAME validator that will
         // re-verify it at every load. A producer that trusted its own output
@@ -501,13 +630,7 @@ final class AdapterCertification {
             $manifest,
             $adapterRaw,
             $tier,
-            [
-                'fingerprint' => hash('sha256', $configured),
-                'key_id' => $keyId,
-                'record' => $authority,
-                'record_sha256' => $authorityDigest,
-                'trust_root' => $trustRoot,
-            ],
+            $authorityBinding,
             $bundleTyped,
             $ratificationTyped,
             $secret
@@ -673,7 +796,8 @@ final class AdapterCertification {
         string $adapterRaw,
         string $ratificationRaw,
         string $grammar,
-        string $reason
+        string $reason,
+        string $createdAt
     ): array {
         $environment = [
             'exercised' => false,
@@ -688,7 +812,7 @@ final class AdapterCertification {
                 'sha256' => hash('sha256', $adapterRaw),
                 'size' => strlen($adapterRaw),
             ]],
-            'created_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'created_at' => $createdAt,
             'environment' => [
                 'path' => 'environment.json',
                 'sha256' => hash('sha256', $environmentRaw),
