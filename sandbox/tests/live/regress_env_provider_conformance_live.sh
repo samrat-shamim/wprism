@@ -21,6 +21,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+# Absolute self-path, captured BEFORE the cd below: a relative $0 (the normal
+# way this suite is launched, `cd sandbox && bash tests/live/...`) dangles the
+# moment the working directory moves to $ROOT, and the preflight's
+# `bash -n "$SELF"` would report "No such file or directory" as a parse
+# failure — which is exactly how this suite's first run died.
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$ROOT"
 
 PAIR=envprovcheck
@@ -133,7 +139,7 @@ write_provider_config() { # write_provider_config <withheld,ids>
 }
 
 say "preflight — the harness script parses and the pair budget allows one pair"
-bash -n "$0" || fail "this suite does not parse"
+bash -n "$SELF" || fail "this suite does not parse"
 [ -x "$DUO" ] || fail "cli/duo is not executable"
 [ -f "$PROVIDER" ] || fail "tools/reference-env-provider.php is missing"
 command -v docker >/dev/null || fail "docker is required for this live suite"
