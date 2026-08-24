@@ -74,8 +74,8 @@ woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inve
     'the source-audited settings inventory uses the exact reviewed schema');
 woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 147,
     'the exact 11.0.0/11.0.1 literal settings scan freezes all 147 source ids');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 77,
-    'the inventory binds all seventy-seven exact settings, gateway, email, pickup, scheduler, stock-notification, launch, and image-regeneration sources');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 79,
+    'the inventory binds all seventy-nine byte-identical settings, gateway, email, pickup, scheduler, stock-notification, launch, and image-regeneration sources');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''
@@ -83,6 +83,20 @@ foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $s
         "$sourceFile carries one exact shared 11.0.0/11.0.1 source digest"
     );
 }
+woo_ok(
+    ($settingsInventory['source_files']['src/Internal/CustomerEmailVerification/CustomerEmailVerification.php'] ?? null)
+        === '612b2808300ffdc219f2c8764602311ceacb0fdf6cd240501c1f5783905c8cdf'
+        && ($settingsInventory['version_specific_source_files']['includes/class-woocommerce.php'] ?? null) === [
+            '11.0.0' => '5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4',
+            '11.0.1' => '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7',
+        ],
+    'both exact bootstrap paths always resolve and register the customer verification email subsystem'
+);
+woo_ok(
+    ($settingsInventory['source_files']['src/Internal/CustomerEmailVerification/Emails/CustomerVerifyEmail.php'] ?? null)
+        === 'bd48b0c99038d9e43affe9aee1f406117930ac4af79bf49e4cd9c69b758f171f',
+    'the always-registered customer verification email source is byte-identical across both exact artifacts'
+);
 $schedulerSources = [
     'includes/queue/class-wc-action-queue.php' => 'bb0a9a15659fa8cf8ddf7281a214dd12d7ef6c4b8c266711c1bcc24f46e14f10',
     'packages/action-scheduler/classes/ActionScheduler_ActionFactory.php' => '9316e8fc027e7eca88eb53918288d6b6dafbfc50a59db7c31aa2c4ea16dcf776',
@@ -213,12 +227,19 @@ woo_ok(array_keys($gatewayRecords) === [
     'woocommerce_cod_settings',
 ], 'the source union enumerates every built-in gateway-owned settings record');
 foreach ($gatewayRecords as $optionName => $record) {
+    if ($optionName === 'woocommerce_bacs_accounts') {
+        woo_ok(($policy->option_rule($optionName)['class'] ?? null) === 'env',
+            "$optionName is an exact target-environment secret record");
+        woo_ok(($record['boundary'] ?? null) === 'target_environment_secret_record',
+            "$optionName never becomes a universal capture blocker");
+        continue;
+    }
     woo_ok($policy->option_rule((string) $optionName) === null
         && ($policy->option_namespace((string) $optionName)['owner'] ?? null) === 'woocommerce',
-        "$optionName is an explicit populated-source fail-closed boundary");
-    woo_ok(is_string($record['boundary'] ?? null) && str_contains((string) $record['boundary'], 'fail_closed')
-        || ($record['boundary'] ?? null) === 'secret_target_owned',
-        "$optionName records why opaque transport is not authorized");
+        "$optionName stays fail-closed until shared closed-subkey dispatch lands");
+    woo_ok(is_string($record['boundary'] ?? null)
+        && str_contains((string) $record['boundary'], 'pending_shared_dispatch'),
+        "$optionName has an adapter-native contract awaiting only shared dispatch");
 }
 woo_ok(($gatewayRecords['woocommerce_bacs_accounts']['fields'] ?? null) === [
     'account_name', 'account_number', 'bank_name', 'sort_code', 'iban', 'bic',
@@ -253,9 +274,10 @@ woo_ok(array_keys($emailRecords) === [
     'woocommerce_customer_stock_notification_settings',
     'woocommerce_customer_stock_notification_verified_settings',
     'woocommerce_customer_stock_notification_verify_settings',
+    'woocommerce_customer_verify_email_settings',
     'woocommerce_failed_order_settings',
     'woocommerce_new_order_settings',
-], 'WC_Emails and the optional stock-notification manager freeze all twenty-four distinct core settings option records by exact id');
+], 'WC_Emails, customer verification, and the optional stock-notification manager freeze all twenty-five distinct core settings option records by exact id');
 woo_ok($emailFieldClasses === [
     'additional_content' => 'authored',
     'automated' => 'authored',

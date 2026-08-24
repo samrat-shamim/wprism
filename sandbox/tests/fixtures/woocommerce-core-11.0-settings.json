@@ -71,6 +71,8 @@
     "src/Internal/DataStores/Orders/DataSynchronizer.php": "a10ff8e2e5820deeb5a032cccfc2ffca09a5134e3e87e388e0262a89a8805234",
     "src/Internal/ComingSoon/ComingSoonCacheInvalidator.php": "2122decc0e5ac2701acb778ef79cd6cfcbdc2c5408c107e9ccc5a4f20be3d59c",
     "src/Internal/ComingSoon/ComingSoonHelper.php": "10ba25e60f3fa2cbb55fc56f47bc2ef7ea424a7f77d3925f8faeafccac5309f7",
+    "src/Internal/CustomerEmailVerification/CustomerEmailVerification.php": "612b2808300ffdc219f2c8764602311ceacb0fdf6cd240501c1f5783905c8cdf",
+    "src/Internal/CustomerEmailVerification/Emails/CustomerVerifyEmail.php": "bd48b0c99038d9e43affe9aee1f406117930ac4af79bf49e4cd9c69b758f171f",
     "src/Internal/Features/FeaturesController.php": "c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2",
     "src/Internal/StockNotifications/Admin/NotificationsPage.php": "aba93820fd3748f4054888ba9f16f4ff306213790c25c7968bfb631388e6463f",
     "src/Internal/StockNotifications/AsyncTasks/CycleStateService.php": "45e80f1de78a8dfb5004dd16f37b02532cfbd3d205df0539dfa261e1b7d6fb82",
@@ -82,6 +84,12 @@
     "src/Internal/StockNotifications/Emails/EmailManager.php": "e0af8812884aafac662aaa06e8c363585af73440f57c5479ee10ddfcb710a463",
     "src/StoreApi/Schemas/V1/ImageAttachmentSchema.php": "ee557f57b75fe8849fb97002a08e5b779be98b721c770a95cad06d6d98979df9",
     "src/StoreApi/Utilities/LocalPickupUtils.php": "5c7057ed826e3aa79993f117d3b969ef7a6a78e57826e521f148bd451a86a81a"
+  },
+  "version_specific_source_files": {
+    "includes/class-woocommerce.php": {
+      "11.0.0": "5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4",
+      "11.0.1": "2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7"
+    }
   },
   "literal_ids": {
     "wc_admin": "ui",
@@ -238,7 +246,7 @@
     "current_theme_supports_woocommerce": "env",
     "pickup_location_pickup_locations": "authored",
     "wc_customer_stock_notifications_admin_notice": "runtime",
-    "woocommerce_bacs_accounts": "fail_closed_secret_record",
+    "woocommerce_bacs_accounts": "env",
     "woocommerce_bacs_settings": "fail_closed_mixed_record",
     "woocommerce_category_archive_display": "authored",
     "woocommerce_cheque_settings": "fail_closed_native_record",
@@ -274,25 +282,33 @@
   "closed_records": {
     "gateway_settings": {
       "woocommerce_bacs_accounts": {
-        "boundary": "secret_target_owned",
+        "boundary": "target_environment_secret_record",
+        "target_class": "env",
         "fields": ["account_name", "account_number", "bank_name", "sort_code", "iban", "bic"]
       },
       "woocommerce_bacs_settings": {
         "authored_fields": ["enabled", "title", "description", "instructions"],
+        "derived_fields": {"account_details": "native_empty_ui_placeholder"},
         "secret_legacy_fields": ["account_name", "account_number", "bank_name", "sort_code", "iban", "bic"],
-        "boundary": "mixed_record_fail_closed"
+        "field_types": {"enabled": "checkbox", "title": "safe_text", "description": "textarea", "instructions": "textarea", "account_details": "derived_empty", "account_name": "env_text", "account_number": "env_text", "bank_name": "env_text", "sort_code": "env_text", "iban": "env_text", "bic": "env_text"},
+        "boundary": "adapter_native_closed_sub_keys_pending_shared_dispatch"
       },
       "woocommerce_cheque_settings": {
         "authored_fields": ["enabled", "title", "description", "instructions"],
-        "boundary": "native_record_fail_closed"
+        "field_types": {"enabled": "checkbox", "title": "safe_text", "description": "textarea", "instructions": "textarea"},
+        "boundary": "adapter_native_closed_sub_keys_pending_shared_dispatch"
       },
       "woocommerce_cod_settings": {
         "authored_fields": ["enabled", "title", "description", "instructions", "enable_for_virtual"],
         "reference_fields": {"enable_for_methods": "wc_zone_method[]"},
-        "boundary": "reference_record_fail_closed"
+        "field_types": {"enabled": "checkbox", "title": "safe_text", "description": "textarea", "instructions": "textarea", "enable_for_methods": "cod_methods", "enable_for_virtual": "checkbox"},
+        "canonical_reference_shape": {"method_wide": {"method_id": "core-shipping-method-slug"}, "instance": {"method_id": "core-shipping-method-slug", "instance_id": "wc_zone_method ref"}},
+        "native_storage_shape": "method_id or method_id:instance_id",
+        "boundary": "adapter_native_projected_closed_sub_keys_pending_shared_dispatch"
       }
     },
     "email_settings": {
+      "boundary": "adapter_native_closed_sub_keys_pending_shared_dispatch",
       "field_classes": {
         "additional_content": "authored",
         "automated": "authored",
@@ -312,6 +328,26 @@
         "subject_full": "authored",
         "subject_paid": "authored",
         "subject_partial": "authored"
+      },
+      "field_types": {
+        "additional_content": "textarea",
+        "automated": "checkbox",
+        "bcc": "text",
+        "cc": "text",
+        "delay_days": "delay_days",
+        "email_type": "email_type",
+        "enabled": "checkbox",
+        "heading": "text",
+        "heading_full": "text",
+        "heading_paid": "text",
+        "heading_partial": "text",
+        "intro_content": "textarea",
+        "preheader": "text",
+        "recipient": "env_text",
+        "subject": "text",
+        "subject_full": "text",
+        "subject_paid": "text",
+        "subject_partial": "text"
       },
       "conditional_fields": {
         "woocommerce_feature_block_email_editor_enabled": ["preheader"],
@@ -340,11 +376,23 @@
         "woocommerce_customer_stock_notification_settings": {"availability": "constant:WOOCOMMERCE_BIS_ALPHA_ENABLED", "fields": ["enabled", "subject", "heading", "intro_content", "additional_content", "email_type", "cc", "bcc", "preheader"]},
         "woocommerce_customer_stock_notification_verified_settings": {"availability": "constant:WOOCOMMERCE_BIS_ALPHA_ENABLED", "fields": ["enabled", "subject", "heading", "intro_content", "additional_content", "email_type", "cc", "bcc", "preheader"]},
         "woocommerce_customer_stock_notification_verify_settings": {"availability": "constant:WOOCOMMERCE_BIS_ALPHA_ENABLED", "fields": ["enabled", "subject", "heading", "intro_content", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_verify_email_settings": {"availability": "always:CustomerEmailVerification", "fields": ["enabled", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
         "woocommerce_failed_order_settings": {"availability": "always", "fields": ["enabled", "recipient", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
         "woocommerce_new_order_settings": {"availability": "always", "fields": ["enabled", "recipient", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]}
       },
       "unknown_email_ids": "fail_closed",
       "unknown_fields": "fail_closed"
+    },
+    "native_materialization_contract": {
+      "interpreter_methods": ["normalize_captured_option_sub_keys", "materialize_option_sub_keys", "project_materialized_option_sub_keys"],
+      "native_validator": "WC_Settings_API",
+      "native_validator_abstract": true,
+      "native_validator_methods": ["validate_checkbox_field", "validate_safe_text_field", "validate_select_field", "validate_text_field", "validate_textarea_field"],
+      "max_record_bytes": 1048576,
+      "max_text_bytes": 262144,
+      "target_owned_siblings": "preserve_exactly",
+      "absent_authored_siblings": "delete",
+      "unknown_siblings": "fail_closed_redacted"
     },
     "target_environment_side_effect_options": {
       "coming_soon": {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Interpreters;
 
 use Duo\Canon;
+use Duo\PlainData;
 use Duo\Policy;
 
 /**
@@ -142,6 +143,89 @@ final class Woocommerce {
     private const MAX_PICKUP_LOCATIONS = 256;
     private const MAX_PICKUP_BYTES = 1048576;
 
+    private const MAX_MIXED_OPTION_BYTES = 1048576;
+    private const MAX_MIXED_TEXT_BYTES = 262144;
+    private const MAX_COD_METHODS = 256;
+
+    private const GATEWAY_OPTION_FIELDS = [
+        'woocommerce_bacs_settings' => [
+            'enabled' => 'checkbox',
+            'title' => 'safe_text',
+            'description' => 'textarea',
+            'instructions' => 'textarea',
+            'account_details' => 'derived_empty',
+            'account_name' => 'env_text',
+            'account_number' => 'env_text',
+            'bank_name' => 'env_text',
+            'sort_code' => 'env_text',
+            'iban' => 'env_text',
+            'bic' => 'env_text',
+        ],
+        'woocommerce_cheque_settings' => [
+            'enabled' => 'checkbox',
+            'title' => 'safe_text',
+            'description' => 'textarea',
+            'instructions' => 'textarea',
+        ],
+        'woocommerce_cod_settings' => [
+            'enabled' => 'checkbox',
+            'title' => 'safe_text',
+            'description' => 'textarea',
+            'instructions' => 'textarea',
+            'enable_for_methods' => 'cod_methods',
+            'enable_for_virtual' => 'checkbox',
+        ],
+    ];
+
+    private const EMAIL_FIELD_TYPES = [
+        'additional_content' => 'textarea',
+        'automated' => 'checkbox',
+        'bcc' => 'text',
+        'cc' => 'text',
+        'delay_days' => 'delay_days',
+        'email_type' => 'email_type',
+        'enabled' => 'checkbox',
+        'heading' => 'text',
+        'heading_full' => 'text',
+        'heading_paid' => 'text',
+        'heading_partial' => 'text',
+        'intro_content' => 'textarea',
+        'preheader' => 'text',
+        'recipient' => 'env_text',
+        'subject' => 'text',
+        'subject_full' => 'text',
+        'subject_paid' => 'text',
+        'subject_partial' => 'text',
+    ];
+
+    private const EMAIL_OPTION_FIELDS = [
+        'woocommerce_admin_payment_gateway_enabled_settings' => ['enabled', 'recipient', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_cancelled_order_settings' => ['enabled', 'recipient', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_abandoned_cart_recovery_settings' => ['enabled', 'automated', 'subject', 'heading', 'additional_content', 'email_type'],
+        'woocommerce_customer_cancelled_order_settings' => ['enabled', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_completed_order_settings' => ['enabled', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_failed_order_settings' => ['enabled', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_fulfillment_created_settings' => ['enabled', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_fulfillment_deleted_settings' => ['enabled', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_fulfillment_updated_settings' => ['enabled', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_invoice_settings' => ['subject', 'heading', 'subject_paid', 'heading_paid', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_new_account_settings' => ['enabled', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_note_settings' => ['enabled', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_on_hold_order_settings' => ['enabled', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_pos_completed_order_settings' => ['subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc'],
+        'woocommerce_customer_pos_refunded_order_settings' => ['subject_full', 'subject_partial', 'heading_full', 'heading_partial', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_processing_order_settings' => ['enabled', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_refunded_order_settings' => ['enabled', 'subject_full', 'subject_partial', 'heading_full', 'heading_partial', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_reset_password_settings' => ['enabled', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_review_request_settings' => ['enabled', 'delay_days', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_stock_notification_settings' => ['enabled', 'subject', 'heading', 'intro_content', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_stock_notification_verified_settings' => ['enabled', 'subject', 'heading', 'intro_content', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_stock_notification_verify_settings' => ['enabled', 'subject', 'heading', 'intro_content', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_customer_verify_email_settings' => ['enabled', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_failed_order_settings' => ['enabled', 'recipient', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+        'woocommerce_new_order_settings' => ['enabled', 'recipient', 'subject', 'heading', 'additional_content', 'email_type', 'cc', 'bcc', 'preheader'],
+    ];
+
     private const PRODUCT_VISIBILITY_TERMS = [
         'exclude-from-search',
         'exclude-from-catalog',
@@ -155,6 +239,544 @@ final class Woocommerce {
     ];
 
     public function __construct(private readonly Policy $policy) {}
+
+    /**
+     * Normalize only the reviewed portable siblings before the engine's
+     * ordinary token codec runs. COD is the exceptional composite shape:
+     * Woo stores `method_id[:instance_id]`, while only instance_id is local.
+     *
+     * @return array<string,mixed>
+     */
+    public function normalize_captured_option_sub_keys(
+        string $name,
+        array $captured,
+        array $subKeys,
+        array $rawOptionSnapshot
+    ): array {
+        $fields = $this->mixed_option_fields($name);
+        if ($fields === null) {
+            return $captured;
+        }
+        $this->assert_mixed_sub_key_contract($name, $fields, $subKeys);
+        if (!array_key_exists($name, $rawOptionSnapshot)) {
+            if ($captured !== []) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name' absent raw storage disagrees with authored capture"
+                );
+            }
+            return [];
+        }
+        $raw = $rawOptionSnapshot[$name];
+        if (!is_string($raw) || strlen($raw) > self::MAX_MIXED_OPTION_BYTES) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name' has missing or oversized raw capture bytes"
+            );
+        }
+        $decoded = PlainData::decode_serialized($raw, "WooCommerce mixed option '$name' source storage");
+        if (!is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name' source storage is not an exact named record"
+            );
+        }
+        $this->assert_mixed_record_keys($name, $decoded, $fields, 'source');
+
+        $rawAuthored = [];
+        foreach ($decoded as $key => $value) {
+            $type = $fields[(string) $key];
+            if ($this->is_target_owned_mixed_type($type)) {
+                $this->assert_target_owned_mixed_field(
+                    $name,
+                    (string) $key,
+                    $type,
+                    $value,
+                    'target-owned source'
+                );
+                continue;
+            }
+            $rawAuthored[(string) $key] = $value;
+        }
+        $expectedCaptured = $rawAuthored;
+        ksort($expectedCaptured, SORT_STRING);
+        $actualCaptured = $captured;
+        ksort($actualCaptured, SORT_STRING);
+        if ($actualCaptured !== $expectedCaptured) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name' authored capture disagrees with exact raw storage"
+            );
+        }
+
+        $api = $this->native_settings_api();
+        foreach ($rawAuthored as $key => $value) {
+            if ($fields[$key] === 'cod_methods') {
+                $captured[$key] = $this->canonical_cod_methods($value, 'source');
+                continue;
+            }
+            $this->assert_native_mixed_field($api, $name, $key, $fields[$key], $value, 'source');
+        }
+        ksort($captured, SORT_STRING);
+        return $captured;
+    }
+
+    /**
+     * Persist the native record shape while leaving target-owned siblings
+     * byte-for-byte sovereign. Engine callbacks own the one SQL write, raw
+     * readback, cache transaction, and rollback; this stateless validator
+     * registers a no-op runtime restore before that write.
+     */
+    public function materialize_option_sub_keys(
+        string $name,
+        array $captured,
+        array $subKeys,
+        string $autoload,
+        ?array $targetValue,
+        \Closure $lockTargetOption,
+        \Closure $finalizeStorage,
+        \Closure $restoreStorage,
+        ?\Closure $registerRuntimeRestore = null,
+        ?\Closure $writeStorage = null
+    ): bool {
+        $fields = $this->mixed_option_fields($name);
+        if ($fields === null) {
+            return false;
+        }
+        if ($registerRuntimeRestore === null || $writeStorage === null) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name' requires engine-owned storage and rollback callbacks"
+            );
+        }
+        $this->assert_mixed_sub_key_contract($name, $fields, $subKeys);
+        $this->assert_mixed_record_keys($name, $captured, $fields, 'repository');
+
+        $api = $this->native_settings_api();
+        $nativeAuthored = [];
+        foreach ($captured as $key => $value) {
+            $type = $fields[(string) $key];
+            if ($this->is_target_owned_mixed_type($type)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name' repository contains target-owned sibling '$key'"
+                );
+            }
+            if ($type === 'cod_methods') {
+                $nativeAuthored[(string) $key] = $this->native_cod_methods($value, 'target');
+                continue;
+            }
+            $this->assert_native_mixed_field($api, $name, (string) $key, $type, $value, 'repository');
+            $nativeAuthored[(string) $key] = $value;
+        }
+
+        $targetValue ??= [];
+        $this->assert_mixed_record_keys($name, $targetValue, $fields, 'target');
+        $next = [];
+        foreach ($fields as $key => $type) {
+            if (!$this->is_target_owned_mixed_type($type) || !array_key_exists($key, $targetValue)) {
+                continue;
+            }
+            $this->assert_target_owned_mixed_field(
+                $name,
+                $key,
+                $type,
+                $targetValue[$key],
+                'target-owned target'
+            );
+            $next[$key] = $targetValue[$key];
+        }
+        foreach ($fields as $key => $type) {
+            if ($this->is_target_owned_mixed_type($type) || !array_key_exists($key, $nativeAuthored)) {
+                continue;
+            }
+            $next[$key] = $nativeAuthored[$key];
+        }
+        PlainData::assert($next, "WooCommerce mixed option '$name' native materialization");
+        $wire = serialize($next);
+        if (strlen($wire) > self::MAX_MIXED_OPTION_BYTES) {
+            throw new \RuntimeException("duo: WooCommerce mixed option '$name' exceeds its native storage bound");
+        }
+
+        $registerRuntimeRestore(static function (): void {
+            // WC_Settings_API validation is stateless; the engine owns and
+            // restores storage/cache state if the enclosing transaction fails.
+        });
+        $writeStorage($next);
+        $row = $finalizeStorage();
+        if (!is_array($row)
+            || array_keys($row) !== ['option_name', 'option_value', 'autoload']
+            || ($row['option_name'] ?? null) !== $name
+            || !is_string($row['option_value'] ?? null)
+            || strlen($row['option_value']) > self::MAX_MIXED_OPTION_BYTES
+            || ($row['autoload'] ?? null) !== $autoload) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name' final raw storage witness is malformed"
+            );
+        }
+        $stored = PlainData::decode_serialized(
+            $row['option_value'],
+            "WooCommerce mixed option '$name' finalized storage"
+        );
+        if ($stored !== $next) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name' finalized storage disagrees with its native projection"
+            );
+        }
+        return true;
+    }
+
+    /**
+     * Map finalized native authored siblings back to the engine's materialized
+     * comparison shape. The engine separately proves an identical key set and
+     * plain-data result before accepting this adapter-owned projection.
+     *
+     * @return array<string,mixed>
+     */
+    public function project_materialized_option_sub_keys(
+        string $name,
+        array $rawAuthored,
+        array $subKeys
+    ): array {
+        $fields = $this->mixed_option_fields($name);
+        if ($fields === null) {
+            return $rawAuthored;
+        }
+        $this->assert_mixed_sub_key_contract($name, $fields, $subKeys);
+        $this->assert_mixed_record_keys($name, $rawAuthored, $fields, 'finalized authored storage');
+        $api = $this->native_settings_api();
+        $projected = [];
+        foreach ($rawAuthored as $key => $value) {
+            $type = $fields[(string) $key];
+            if ($this->is_target_owned_mixed_type($type)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name' projection received target-owned sibling '$key'"
+                );
+            }
+            if ($type === 'cod_methods') {
+                $projected[(string) $key] = $this->canonical_cod_methods($value, 'finalized target');
+                continue;
+            }
+            $this->assert_native_mixed_field(
+                $api,
+                $name,
+                (string) $key,
+                $type,
+                $value,
+                'finalized target'
+            );
+            $projected[(string) $key] = $value;
+        }
+        ksort($projected, SORT_STRING);
+        return $projected;
+    }
+
+    /** @return ?array<string,string> */
+    private function mixed_option_fields(string $name): ?array {
+        if (isset(self::GATEWAY_OPTION_FIELDS[$name])) {
+            return self::GATEWAY_OPTION_FIELDS[$name];
+        }
+        $emailFields = self::EMAIL_OPTION_FIELDS[$name] ?? null;
+        if ($emailFields === null) {
+            return null;
+        }
+        $fields = [];
+        foreach ($emailFields as $field) {
+            $fields[$field] = self::EMAIL_FIELD_TYPES[$field];
+        }
+        return $fields;
+    }
+
+    private function assert_mixed_sub_key_contract(string $name, array $fields, array $subKeys): void {
+        $expected = [];
+        foreach ($fields as $key => $type) {
+            if ($type === 'cod_methods') {
+                $expected[$key] = [
+                    'class' => 'authored',
+                    'json_refs' => [[
+                        'path' => '$.*.instance_id',
+                        'kind' => 'wc_zone_method',
+                    ]],
+                ];
+                continue;
+            }
+            if ($type === 'env_text') {
+                $expected[$key] = ['class' => 'env'];
+                continue;
+            }
+            if ($type === 'derived_empty') {
+                $expected[$key] = ['class' => 'derived', 'native_default_completion' => true];
+                continue;
+            }
+            $expected[$key] = ['class' => 'authored'];
+        }
+        if ($subKeys !== $expected) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name' sub-key contract disagrees with the exact 11.0.x registry"
+            );
+        }
+    }
+
+    private function assert_mixed_record_keys(string $name, array $value, array $fields, string $where): void {
+        if ($value !== [] && array_is_list($value)) {
+            throw new \RuntimeException("duo: WooCommerce mixed option '$name' $where is not a named record");
+        }
+        foreach ($value as $key => $_value) {
+            if (!is_string($key) || !array_key_exists($key, $fields)) {
+                $fingerprint = 'key:' . strlen((string) $key) . ':'
+                    . substr(hash('sha256', (string) $key), 0, 16);
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name' $where contains an unknown sibling ($fingerprint)"
+                );
+            }
+        }
+    }
+
+    private function native_settings_api(): object {
+        if (!class_exists('WC_Settings_API', false)) {
+            throw new \RuntimeException('duo: WooCommerce mixed option validation requires WC_Settings_API');
+        }
+        $reflection = new \ReflectionClass('WC_Settings_API');
+        if (!$reflection->isAbstract()) {
+            throw new \RuntimeException('duo: WooCommerce WC_Settings_API is not the exact abstract native authority');
+        }
+        foreach ([
+            'validate_checkbox_field',
+            'validate_safe_text_field',
+            'validate_select_field',
+            'validate_text_field',
+            'validate_textarea_field',
+        ] as $method) {
+            if (!$reflection->hasMethod($method)
+                || $reflection->getMethod($method)->getDeclaringClass()->getName() !== 'WC_Settings_API') {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option validation requires exact WC_Settings_API::$method()"
+                );
+            }
+        }
+        // Exact Woo 11.0.0/11.0.1 declares WC_Settings_API abstract even
+        // though its five validators are concrete. An anonymous subclass
+        // exercises those inherited native bytes without constructing a
+        // gateway/email service and crossing its hooks or target state.
+        return new class extends \WC_Settings_API {};
+    }
+
+    private function assert_native_mixed_field(
+        object $api,
+        string $name,
+        string $key,
+        string $type,
+        mixed $value,
+        string $where
+    ): void {
+        $this->assert_bounded_mixed_text($name, $key, $value, $where);
+        if ($type === 'checkbox') {
+            if (!in_array($value, ['yes', 'no'], true)
+                || $api->validate_checkbox_field($key, $value === 'yes' ? '1' : null) !== $value) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name.$key' $where is not exact native yes/no state"
+                );
+            }
+            return;
+        }
+        if ($type === 'email_type' && !in_array($value, ['plain', 'html', 'multipart'], true)) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name.$key' $where is outside the native email type set"
+            );
+        }
+        if ($type === 'delay_days'
+            && (preg_match('/^(?:[1-9]|[1-5][0-9]|60)$/D', $value) !== 1)) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name.$key' $where must be whole days from 1 through 60"
+            );
+        }
+        // WC_Settings_API validators receive WordPress-slashed request bytes.
+        // Re-slash stored state before replaying that exact boundary so a
+        // legitimate authored backslash is not mistaken for noncanonical data.
+        $submitted = addslashes($value);
+        $canonical = match ($type) {
+            'safe_text' => $api->validate_safe_text_field($key, $submitted),
+            'email_type' => $api->validate_select_field($key, $submitted),
+            'textarea' => $api->validate_textarea_field($key, $submitted),
+            'text', 'delay_days' => $api->validate_text_field($key, $submitted),
+            default => throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name.$key' has an unsupported native field type"
+            ),
+        };
+        if (!is_string($canonical) || !hash_equals($value, $canonical)) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name.$key' $where is not canonical native storage"
+            );
+        }
+    }
+
+    private function assert_bounded_mixed_text(
+        string $name,
+        string $key,
+        mixed $value,
+        string $where
+    ): void {
+        if (!is_string($value)
+            || strlen($value) > self::MAX_MIXED_TEXT_BYTES
+            || preg_match('//u', $value) !== 1) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name.$key' $where must be bounded UTF-8 text"
+            );
+        }
+    }
+
+    private function is_target_owned_mixed_type(string $type): bool {
+        return in_array($type, ['env_text', 'derived_empty'], true);
+    }
+
+    private function assert_target_owned_mixed_field(
+        string $name,
+        string $key,
+        string $type,
+        mixed $value,
+        string $where
+    ): void {
+        if ($type === 'derived_empty') {
+            if ($value !== '') {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name.$key' $where is not the native empty derived placeholder"
+                );
+            }
+            return;
+        }
+        $this->assert_bounded_mixed_text($name, $key, $value, $where);
+    }
+
+    /** @return list<array{method_id:string,instance_id?:int}> */
+    private function canonical_cod_methods(mixed $value, string $where): array {
+        if ($value === '') {
+            return [];
+        }
+        if (!is_array($value) || !array_is_list($value) || count($value) > self::MAX_COD_METHODS) {
+            throw new \RuntimeException(
+                "duo: WooCommerce COD $where shipping restrictions must be a bounded native list"
+            );
+        }
+        $out = [];
+        $seen = [];
+        foreach ($value as $entry) {
+            if (!is_string($entry) || strlen($entry) > 128) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce COD $where shipping restriction has malformed native bytes"
+                );
+            }
+            if (preg_match('/^([a-z][a-z0-9_]{0,63})(?::([1-9][0-9]*))?$/D', $entry, $match) !== 1
+                || !array_key_exists($match[1], $this->core_shipping_method_classes())) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce COD $where shipping restriction is not an exact core method identity"
+                );
+            }
+            if (isset($seen[$entry])) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce COD $where shipping restrictions contain a duplicate identity"
+                );
+            }
+            $seen[$entry] = true;
+            if (isset($match[2])) {
+                $instanceId = Policy::strict_positive_local_id($match[2]);
+                if ($instanceId === null || (string) $instanceId !== $match[2]) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce COD $where shipping restriction has a noncanonical instance identity"
+                    );
+                }
+                $this->assert_native_shipping_method($instanceId, $match[1], $where);
+                // Canon sorts object keys; return that same order so the
+                // post-write projection can be compared strictly to the
+                // token codec's materialized repository object.
+                $row = ['instance_id' => $instanceId, 'method_id' => $match[1]];
+            } else {
+                $row = ['method_id' => $match[1]];
+            }
+            $out[] = $row;
+        }
+        return $out;
+    }
+
+    /** @return list<string>|string */
+    private function native_cod_methods(mixed $value, string $where): array|string {
+        if (!is_array($value) || !array_is_list($value) || count($value) > self::MAX_COD_METHODS) {
+            throw new \RuntimeException(
+                "duo: WooCommerce COD $where repository restrictions must be a bounded canonical list"
+            );
+        }
+        if ($value === []) {
+            return '';
+        }
+        $out = [];
+        $seen = [];
+        foreach ($value as $row) {
+            if (!is_array($row)
+                || ($row !== [] && array_is_list($row))
+                || !isset($row['method_id'])
+                || !is_string($row['method_id'])
+                || !array_key_exists($row['method_id'], $this->core_shipping_method_classes())) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce COD $where repository restriction has malformed method identity"
+                );
+            }
+            $keys = array_keys($row);
+            sort($keys, SORT_STRING);
+            $expectedKeys = array_key_exists('instance_id', $row)
+                ? ['instance_id', 'method_id']
+                : ['method_id'];
+            if ($keys !== $expectedKeys) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce COD $where repository restriction contains unknown fields"
+                );
+            }
+            $native = $row['method_id'];
+            if (array_key_exists('instance_id', $row)) {
+                $instanceId = $row['instance_id'];
+                if (!is_int($instanceId) || $instanceId <= 0) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce COD $where repository restriction has malformed instance identity"
+                    );
+                }
+                $this->assert_native_shipping_method($instanceId, $row['method_id'], $where);
+                $native .= ':' . $instanceId;
+            }
+            if (isset($seen[$native])) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce COD $where repository restrictions contain a duplicate identity"
+                );
+            }
+            $seen[$native] = true;
+            $out[] = $native;
+        }
+        return $out;
+    }
+
+    /** @return array<string,string> */
+    private function core_shipping_method_classes(): array {
+        return [
+            'flat_rate' => 'WC_Shipping_Flat_Rate',
+            'free_shipping' => 'WC_Shipping_Free_Shipping',
+            'local_pickup' => 'WC_Shipping_Local_Pickup',
+            'legacy_flat_rate' => 'WC_Shipping_Legacy_Flat_Rate',
+            'legacy_free_shipping' => 'WC_Shipping_Legacy_Free_Shipping',
+            'legacy_international_delivery' => 'WC_Shipping_Legacy_International_Delivery',
+            'legacy_local_delivery' => 'WC_Shipping_Legacy_Local_Delivery',
+            'legacy_local_pickup' => 'WC_Shipping_Legacy_Local_Pickup',
+        ];
+    }
+
+    private function assert_native_shipping_method(int $instanceId, string $methodId, string $where): void {
+        if (!class_exists('WC_Shipping_Zones', false)
+            || !is_callable(['WC_Shipping_Zones', 'get_shipping_method'])) {
+            throw new \RuntimeException('duo: WooCommerce COD validation requires WC_Shipping_Zones');
+        }
+        $method = \WC_Shipping_Zones::get_shipping_method($instanceId);
+        $expectedClass = $this->core_shipping_method_classes()[$methodId] ?? null;
+        if (!is_object($method)
+            || $expectedClass === null
+            || get_class($method) !== $expectedClass
+            || ($method->id ?? null) !== $methodId
+            || !is_callable([$method, 'get_instance_id'])
+            || $method->get_instance_id() !== $instanceId) {
+            throw new \RuntimeException(
+                "duo: WooCommerce COD $where instance does not resolve to its exact core shipping method"
+            );
+        }
+    }
 
     public function post_meta_rule(string $key, array $allMeta): ?array {
         // Woo 11's optional Variation Gallery consumes the legacy extension

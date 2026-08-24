@@ -25,6 +25,73 @@ if (!function_exists('get_taxonomy')) {
     }
 }
 
+if (!class_exists('WC_Settings_API', false)) {
+    abstract class WC_Settings_API {
+        private function canonical(string $key, string $value): string {
+            $GLOBALS['wooMixedNativeCalls'][] = $key;
+            $value = trim(stripslashes($value));
+            if (($GLOBALS['wooMixedMutateField'] ?? null) === $key) {
+                $value .= '-native-drift';
+            }
+            return $value;
+        }
+
+        public function validate_text_field($key, $value): string {
+            return $this->canonical((string) $key, (string) ($value ?? ''));
+        }
+
+        public function validate_safe_text_field(string $key, ?string $value): string {
+            $GLOBALS['wooMixedNativeCalls'][] = $key;
+            $value = strip_tags(stripslashes((string) $value), '<br><img><p><span>');
+            if (($GLOBALS['wooMixedMutateField'] ?? null) === $key) {
+                $value .= '-native-drift';
+            }
+            return $value;
+        }
+
+        public function validate_textarea_field($key, $value): string {
+            return $this->canonical((string) $key, strip_tags((string) ($value ?? ''), '<a><br><em><p><span><strong>'));
+        }
+
+        public function validate_checkbox_field($key, $value): string {
+            $GLOBALS['wooMixedNativeCalls'][] = (string) $key;
+            return $value === null ? 'no' : 'yes';
+        }
+
+        public function validate_select_field($key, $value): string {
+            return $this->canonical((string) $key, strip_tags((string) ($value ?? '')));
+        }
+    }
+}
+
+if (!class_exists('WooOptionalShippingMethod', false)) {
+    class WooOptionalShippingMethod {
+        public function __construct(public string $id, private readonly int $instanceId) {}
+
+        public function get_instance_id(): int {
+            return $this->instanceId;
+        }
+    }
+
+    class WC_Shipping_Flat_Rate extends WooOptionalShippingMethod {}
+    class WC_Shipping_Free_Shipping extends WooOptionalShippingMethod {}
+    class WC_Shipping_Local_Pickup extends WooOptionalShippingMethod {}
+    class WC_Shipping_Legacy_Flat_Rate extends WooOptionalShippingMethod {}
+    class WC_Shipping_Legacy_Free_Shipping extends WooOptionalShippingMethod {}
+    class WC_Shipping_Legacy_International_Delivery extends WooOptionalShippingMethod {}
+    class WC_Shipping_Legacy_Local_Delivery extends WooOptionalShippingMethod {}
+    class WC_Shipping_Legacy_Local_Pickup extends WooOptionalShippingMethod {}
+
+    class WC_Shipping_Zones {
+        /** @var array<int,object> */
+        public static array $methods = [];
+
+        public static function get_shipping_method(int $instanceId): object|false {
+            return self::$methods[$instanceId] ?? false;
+        }
+    }
+}
+
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
@@ -199,12 +266,773 @@ duo_check_same('capture', $unsupported['post_types.woo_email'] ?? null,
 duo_check_same('capture', $unsupported['options.woocommerce_email_templates_*_post_id'] ?? null,
     'the reviewed disposition names the target-local Block Email Editor mapping boundary');
 foreach ([
-    'options.woocommerce_bacs_accounts|woocommerce_bacs_settings|woocommerce_cheque_settings|woocommerce_cod_settings',
+    'options.woocommerce_bacs_settings|woocommerce_cheque_settings|woocommerce_cod_settings',
     'options.woocommerce_<core-email-id>_settings',
 ] as $surface) {
     duo_check_same('capture', $unsupported[$surface] ?? null,
         "$surface is a reviewed populated-source fail-closed boundary");
 }
+duo_check_same(
+    'env',
+    $policy->option_rule('woocommerce_bacs_accounts')['class'] ?? null,
+    'the separate BACS bank-detail list is target-environment-owned rather than a universal capture blocker'
+);
+
+$nativeContract = (array) ($settingsInventory['closed_records']['native_materialization_contract'] ?? []);
+duo_check_same(
+    ['normalize_captured_option_sub_keys', 'materialize_option_sub_keys', 'project_materialized_option_sub_keys'],
+    $nativeContract['interpreter_methods'] ?? null,
+    'the exact settings inventory binds capture normalization, native apply, and finalized-storage projection'
+);
+duo_check_same(
+    [1048576, 262144],
+    [$nativeContract['max_record_bytes'] ?? null, $nativeContract['max_text_bytes'] ?? null],
+    'mixed settings records and text carry explicit aggregate bounds'
+);
+duo_check(
+    ($nativeContract['native_validator'] ?? null) === 'WC_Settings_API'
+        && ($nativeContract['native_validator_abstract'] ?? null) === true
+        && (new ReflectionClass('WC_Settings_API'))->isAbstract()
+        && ($nativeContract['native_validator_methods'] ?? null) === [
+            'validate_checkbox_field',
+            'validate_safe_text_field',
+            'validate_select_field',
+            'validate_text_field',
+            'validate_textarea_field',
+        ],
+    'both exact artifacts bind the abstract WC_Settings_API authority and all inherited native validators'
+);
+
+$woocommerceInterpreter = $policy->interpreters()['woocommerce'] ?? null;
+duo_check(is_object($woocommerceInterpreter), 'the digest-bound WooCommerce interpreter is available');
+foreach ((array) ($nativeContract['interpreter_methods'] ?? []) as $method) {
+    duo_check(method_exists($woocommerceInterpreter, (string) $method), "$method is implemented by shipped Woo bytes");
+}
+
+$mixedRules = static function (string $name) use ($settingsInventory): array {
+    $gateway = $settingsInventory['closed_records']['gateway_settings'][$name] ?? null;
+    if (is_array($gateway) && is_array($gateway['field_types'] ?? null)) {
+        $fieldTypes = $gateway['field_types'];
+    } else {
+        $email = $settingsInventory['closed_records']['email_settings']['records'][$name] ?? null;
+        if (!is_array($email)) {
+            throw new RuntimeException("missing mixed option fixture for $name");
+        }
+        $allTypes = (array) $settingsInventory['closed_records']['email_settings']['field_types'];
+        $fieldTypes = [];
+        foreach ((array) ($email['fields'] ?? []) as $field) {
+            $fieldTypes[(string) $field] = $allTypes[(string) $field] ?? null;
+        }
+    }
+    $rules = [];
+    foreach ($fieldTypes as $field => $type) {
+        if ($type === 'cod_methods') {
+            $rules[(string) $field] = [
+                'class' => 'authored',
+                'json_refs' => [['path' => '$.*.instance_id', 'kind' => 'wc_zone_method']],
+            ];
+            continue;
+        }
+        if ($type === 'derived_empty') {
+            $rules[(string) $field] = ['class' => 'derived', 'native_default_completion' => true];
+            continue;
+        }
+        $rules[(string) $field] = ['class' => $type === 'env_text' ? 'env' : 'authored'];
+    }
+    return $rules;
+};
+
+$materializeMixed = static function (
+    string $name,
+    array $captured,
+    array $subKeys,
+    string $autoload,
+    ?array $targetValue
+) use ($woocommerceInterpreter): array {
+    $written = null;
+    $writeCalls = 0;
+    $finalizeCalls = 0;
+    $runtimeRestore = null;
+    $handled = $woocommerceInterpreter->materialize_option_sub_keys(
+        $name,
+        $captured,
+        $subKeys,
+        $autoload,
+        $targetValue,
+        static function (string $companion): ?array {
+            throw new RuntimeException("unexpected companion lock $companion");
+        },
+        static function () use ($name, $autoload, &$written, &$finalizeCalls): array {
+            ++$finalizeCalls;
+            return [
+                'option_name' => $name,
+                'option_value' => serialize($written),
+                'autoload' => $autoload,
+            ];
+        },
+        static function (): ?array {
+            throw new RuntimeException('unexpected immediate storage restoration');
+        },
+        static function (Closure $restore) use (&$runtimeRestore): void {
+            $runtimeRestore = $restore;
+        },
+        static function (array $value) use (&$written, &$writeCalls): void {
+            ++$writeCalls;
+            $written = $value;
+        }
+    );
+    $rawAuthored = [];
+    foreach ($subKeys as $field => $rule) {
+        if (($rule['class'] ?? null) === 'authored' && array_key_exists((string) $field, (array) $written)) {
+            $rawAuthored[(string) $field] = $written[(string) $field];
+        }
+    }
+    $projected = $woocommerceInterpreter->project_materialized_option_sub_keys(
+        $name,
+        $rawAuthored,
+        $subKeys
+    );
+    return [
+        'handled' => $handled,
+        'written' => $written,
+        'projected' => $projected,
+        'write_calls' => $writeCalls,
+        'finalize_calls' => $finalizeCalls,
+        'runtime_restore' => $runtimeRestore,
+    ];
+};
+
+$emailTypeValues = [
+    'checkbox' => 'yes',
+    'delay_days' => '14',
+    'email_type' => 'multipart',
+    'env_text' => 'target-admin@example.test',
+    'text' => 'مرحبا \\ merchant ✓',
+    'textarea' => '<p>Merchant <strong>content</strong> ✓</p>',
+];
+$GLOBALS['wooMixedNativeCalls'] = [];
+$emailRecords = (array) ($settingsInventory['closed_records']['email_settings']['records'] ?? []);
+$emailFieldTypes = (array) ($settingsInventory['closed_records']['email_settings']['field_types'] ?? []);
+foreach ($emailRecords as $optionName => $record) {
+    $rawRecord = [];
+    $captured = [];
+    foreach ((array) ($record['fields'] ?? []) as $field) {
+        $type = (string) ($emailFieldTypes[$field] ?? '');
+        $value = $emailTypeValues[$type] ?? null;
+        $rawRecord[(string) $field] = $value;
+        if (($settingsInventory['closed_records']['email_settings']['field_classes'][$field] ?? null) === 'authored') {
+            $captured[(string) $field] = $value;
+        }
+    }
+    $rules = $mixedRules((string) $optionName);
+    $absent = $woocommerceInterpreter->normalize_captured_option_sub_keys(
+        (string) $optionName,
+        [],
+        $rules,
+        []
+    );
+    duo_check_same([], $absent, "$optionName admits a never-saved clean-install source row");
+    $normalized = $woocommerceInterpreter->normalize_captured_option_sub_keys(
+        (string) $optionName,
+        $captured,
+        $rules,
+        [(string) $optionName => serialize($rawRecord)]
+    );
+    $expected = $captured;
+    ksort($expected, SORT_STRING);
+    duo_check_same($expected, $normalized, "$optionName normalizes every portable native email field exactly");
+
+    $target = [];
+    foreach ($rules as $field => $rule) {
+        if (($rule['class'] ?? null) === 'env') {
+            $target[(string) $field] = 'target-recipient-DO_NOT_ECHO@example.test';
+        }
+    }
+    $absentExpected = [];
+    foreach ($rules as $field => $rule) {
+        if (($rule['class'] ?? null) === 'env' && array_key_exists((string) $field, $rawRecord)) {
+            $absentExpected[(string) $field] = $rawRecord[(string) $field];
+        }
+    }
+    $absentResult = $materializeMixed((string) $optionName, $absent, $rules, 'on', $rawRecord);
+    duo_check_same(
+        $absentExpected,
+        $absentResult['written'],
+        "$optionName removes stale authored siblings while preserving a target-owned recipient on source absence"
+    );
+    $result = $materializeMixed((string) $optionName, $normalized, $rules, 'on', $target);
+    duo_check(
+        $result['handled'] === true
+            && $result['write_calls'] === 1
+            && $result['finalize_calls'] === 1
+            && $result['runtime_restore'] instanceof Closure
+            && $result['projected'] === $normalized,
+        "$optionName uses one engine-owned write/finalization and an exact native projection"
+    );
+    if (isset($rules['recipient'])) {
+        duo_check_same(
+            'target-recipient-DO_NOT_ECHO@example.test',
+            $result['written']['recipient'] ?? null,
+            "$optionName preserves target recipient identity"
+        );
+    }
+}
+duo_check(count($GLOBALS['wooMixedNativeCalls']) >= count($emailRecords),
+    'every exact email record crosses WC_Settings_API native validation');
+
+$partialEmail = ['enabled' => 'yes'];
+$partialEmailRules = $mixedRules('woocommerce_new_order_settings');
+$partialEmailNormalized = $woocommerceInterpreter->normalize_captured_option_sub_keys(
+    'woocommerce_new_order_settings',
+    $partialEmail,
+    $partialEmailRules,
+    ['woocommerce_new_order_settings' => serialize($partialEmail)]
+);
+$partialEmailResult = $materializeMixed(
+    'woocommerce_new_order_settings',
+    $partialEmailNormalized,
+    $partialEmailRules,
+    'yes',
+    ['recipient' => 'target@example.test', 'subject' => 'delete-stale-subject']
+);
+duo_check_same(
+    ['recipient' => 'target@example.test', 'enabled' => 'yes'],
+    $partialEmailResult['written'],
+    'a valid partial native email record preserves its target recipient and removes omitted authored fields'
+);
+$partialEmailRepeat = $materializeMixed(
+    'woocommerce_new_order_settings',
+    $partialEmailNormalized,
+    $partialEmailRules,
+    'yes',
+    $partialEmailResult['written']
+);
+duo_check_same($partialEmailResult['written'], $partialEmailRepeat['written'],
+    'partial email materialization is byte-stable on repeat');
+
+$gatewayRules = [
+    'woocommerce_bacs_settings' => $mixedRules('woocommerce_bacs_settings'),
+    'woocommerce_cheque_settings' => $mixedRules('woocommerce_cheque_settings'),
+    'woocommerce_cod_settings' => $mixedRules('woocommerce_cod_settings'),
+];
+duo_check_same(
+    ['account_details' => 'native_empty_ui_placeholder'],
+    $settingsInventory['closed_records']['gateway_settings']['woocommerce_bacs_settings']['derived_fields'] ?? null,
+    'BACS inventory includes the exact empty account_details placeholder persisted by its native admin save'
+);
+$absentGatewayTargets = [
+    'woocommerce_bacs_settings' => [
+        'enabled' => 'yes',
+        'title' => 'Stale',
+        'account_details' => '',
+        'account_name' => 'TARGET-BANK-SECRET-DO_NOT-ECHO',
+    ],
+    'woocommerce_cheque_settings' => ['enabled' => 'yes', 'title' => 'Stale'],
+    'woocommerce_cod_settings' => ['enabled' => 'yes', 'enable_for_methods' => ['flat_rate']],
+];
+foreach ($gatewayRules as $optionName => $rules) {
+    $absent = $woocommerceInterpreter->normalize_captured_option_sub_keys($optionName, [], $rules, []);
+    duo_check_same([], $absent, "$optionName admits a never-saved clean-install source row");
+    $absentResult = $materializeMixed(
+        $optionName,
+        $absent,
+        $rules,
+        'no',
+        $absentGatewayTargets[$optionName]
+    );
+    $expected = $optionName === 'woocommerce_bacs_settings'
+        ? ['account_details' => '', 'account_name' => 'TARGET-BANK-SECRET-DO_NOT-ECHO']
+        : [];
+    duo_check_same(
+        $expected,
+        $absentResult['written'],
+        "$optionName materializes source absence as authored deletion without erasing target-owned state"
+    );
+}
+duo_check_throws(
+    static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
+        'woocommerce_cheque_settings',
+        ['enabled' => 'yes'],
+        $gatewayRules['woocommerce_cheque_settings'],
+        []
+    ),
+    RuntimeException::class,
+    'an absent raw row cannot disagree with nonempty captured authored siblings'
+);
+duo_check_same(
+    [],
+    $woocommerceInterpreter->normalize_captured_option_sub_keys(
+        'woocommerce_cheque_settings',
+        [],
+        $gatewayRules['woocommerce_cheque_settings'],
+        ['woocommerce_cheque_settings' => serialize([])]
+    ),
+    'a present canonical empty record remains distinguishable from source-row absence'
+);
+$bacsSource = [
+    'enabled' => 'yes',
+    'title' => '<span>BACS \\ transfer</span>',
+    'description' => '<p>Bank transfer</p>',
+    'account_details' => '',
+    'account_name' => 'SOURCE-BANK-SECRET-DO_NOT-ECHO',
+];
+$bacsCaptured = array_intersect_key($bacsSource, array_filter(
+    $gatewayRules['woocommerce_bacs_settings'],
+    static fn(array $rule): bool => ($rule['class'] ?? null) === 'authored'
+));
+$bacsNormalized = $woocommerceInterpreter->normalize_captured_option_sub_keys(
+    'woocommerce_bacs_settings',
+    $bacsCaptured,
+    $gatewayRules['woocommerce_bacs_settings'],
+    ['woocommerce_bacs_settings' => serialize($bacsSource)]
+);
+$bacsResult = $materializeMixed(
+    'woocommerce_bacs_settings',
+    $bacsNormalized,
+    $gatewayRules['woocommerce_bacs_settings'],
+    'yes',
+    [
+        'enabled' => 'no',
+        'title' => 'Stale',
+        'instructions' => 'delete-me',
+        'account_details' => '',
+        'account_name' => 'TARGET-BANK-SECRET-DO_NOT-ECHO',
+    ]
+);
+duo_check_same('TARGET-BANK-SECRET-DO_NOT-ECHO', $bacsResult['written']['account_name'] ?? null,
+    'BACS materialization preserves the target bank identity instead of copying source secrets');
+duo_check(!array_key_exists('instructions', (array) $bacsResult['written']),
+    'a source-absent authored BACS sibling deletes stale target content');
+duo_check_same('', $bacsResult['written']['account_details'] ?? null,
+    'BACS preserves only the exact target-local derived account-details placeholder');
+$bacsRepeat = $materializeMixed(
+    'woocommerce_bacs_settings',
+    $bacsNormalized,
+    $gatewayRules['woocommerce_bacs_settings'],
+    'yes',
+    $bacsResult['written']
+);
+duo_check_same($bacsResult['written'], $bacsRepeat['written'],
+    'BACS authored/target-owned materialization is byte-stable on repeat');
+
+$malformedBacsPlaceholder = $bacsSource;
+$malformedBacsPlaceholder['account_details'] = 'not-native-empty';
+duo_check_throws(
+    static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
+        'woocommerce_bacs_settings',
+        $bacsCaptured,
+        $gatewayRules['woocommerce_bacs_settings'],
+        ['woocommerce_bacs_settings' => serialize($malformedBacsPlaceholder)]
+    ),
+    RuntimeException::class,
+    'a nonempty BACS account_details placeholder refuses as non-native derived state'
+);
+duo_check_throws(
+    static fn() => $materializeMixed(
+        'woocommerce_bacs_settings',
+        ['enabled' => 'no'],
+        $gatewayRules['woocommerce_bacs_settings'],
+        'no',
+        ['account_details' => 'not-native-empty']
+    ),
+    RuntimeException::class,
+    'a dirty target cannot carry a nonempty BACS account_details placeholder through materialization'
+);
+
+$chequeResult = $materializeMixed(
+    'woocommerce_cheque_settings',
+    ['enabled' => 'no', 'title' => '<span>Cheque</span>'],
+    $gatewayRules['woocommerce_cheque_settings'],
+    'off',
+    ['enabled' => 'yes', 'title' => 'Old', 'description' => 'remove', 'instructions' => 'remove']
+);
+duo_check_same(
+    ['enabled' => 'no', 'title' => '<span>Cheque</span>'],
+    $chequeResult['written'],
+    'cheque native materialization removes every absent authored sibling and preserves exact inline safe text'
+);
+
+WC_Shipping_Zones::$methods = [
+    17 => new WC_Shipping_Flat_Rate('flat_rate', 17),
+    19 => new WC_Shipping_Free_Shipping('free_shipping', 19),
+];
+$codSource = [
+    'enabled' => 'yes',
+    'title' => '<span>Cash</span>',
+    'description' => '<p>Pay on delivery</p>',
+    'enable_for_methods' => ['flat_rate', 'flat_rate:17', 'free_shipping:19'],
+    'enable_for_virtual' => 'no',
+];
+$codNormalized = $woocommerceInterpreter->normalize_captured_option_sub_keys(
+    'woocommerce_cod_settings',
+    $codSource,
+    $gatewayRules['woocommerce_cod_settings'],
+    ['woocommerce_cod_settings' => serialize($codSource)]
+);
+duo_check_same(
+    [
+        ['method_id' => 'flat_rate'],
+        ['instance_id' => 17, 'method_id' => 'flat_rate'],
+        ['instance_id' => 19, 'method_id' => 'free_shipping'],
+    ],
+    $codNormalized['enable_for_methods'] ?? null,
+    'COD capture separates stable method-wide identities from typed instance references'
+);
+
+WC_Shipping_Zones::$methods = [
+    117 => new WC_Shipping_Flat_Rate('flat_rate', 117),
+    119 => new WC_Shipping_Free_Shipping('free_shipping', 119),
+];
+$codRebound = $codNormalized;
+$codRebound['enable_for_methods'][1]['instance_id'] = 117;
+$codRebound['enable_for_methods'][2]['instance_id'] = 119;
+$codResult = $materializeMixed(
+    'woocommerce_cod_settings',
+    $codRebound,
+    $gatewayRules['woocommerce_cod_settings'],
+    'auto-off',
+    ['enabled' => 'no', 'title' => 'Stale', 'enable_for_methods' => ['local_pickup']]
+);
+duo_check_same(
+    ['flat_rate', 'flat_rate:117', 'free_shipping:119'],
+    $codResult['written']['enable_for_methods'] ?? null,
+    'COD native storage rebuilds exact target-local method_id:instance_id bytes'
+);
+duo_check_same($codRebound, $codResult['projected'],
+    'COD finalized native bytes project back to the exact materialized typed-reference shape');
+$codRepeat = $materializeMixed(
+    'woocommerce_cod_settings',
+    $codRebound,
+    $gatewayRules['woocommerce_cod_settings'],
+    'auto-off',
+    $codResult['written']
+);
+duo_check_same($codResult['written'], $codRepeat['written'],
+    'COD typed-reference materialization is byte-stable on repeat');
+
+$emptyCod = $codSource;
+$emptyCod['enable_for_methods'] = '';
+$emptyNormalized = $woocommerceInterpreter->normalize_captured_option_sub_keys(
+    'woocommerce_cod_settings',
+    $emptyCod,
+    $gatewayRules['woocommerce_cod_settings'],
+    ['woocommerce_cod_settings' => serialize($emptyCod)]
+);
+$emptyResult = $materializeMixed(
+    'woocommerce_cod_settings',
+    $emptyNormalized,
+    $gatewayRules['woocommerce_cod_settings'],
+    'no',
+    null
+);
+duo_check_same('', $emptyResult['written']['enable_for_methods'] ?? null,
+    'COD empty restrictions normalize canonically and return to the exact native empty writer shape');
+
+foreach ([
+    'addon method id' => ['table_rate:117'],
+    'duplicate identity' => ['flat_rate:117', 'flat_rate:117'],
+    'leading-zero instance' => ['flat_rate:0117'],
+    'missing instance' => ['flat_rate:999'],
+    'method-instance mismatch' => ['free_shipping:117'],
+] as $label => $methods) {
+    $hostile = $codSource;
+    $hostile['enable_for_methods'] = $methods;
+    duo_check_throws(
+        static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
+            'woocommerce_cod_settings',
+            $hostile,
+            $gatewayRules['woocommerce_cod_settings'],
+            ['woocommerce_cod_settings' => serialize($hostile)]
+        ),
+        RuntimeException::class,
+        "COD $label refuses before canonical publication"
+    );
+}
+
+$codExtra = $codRebound;
+$codExtra['enable_for_methods'][1]['extension_data'] = 'secret-DO_NOT-ECHO';
+duo_check_throws(
+    static fn() => $materializeMixed(
+        'woocommerce_cod_settings',
+        $codExtra,
+        $gatewayRules['woocommerce_cod_settings'],
+        'no',
+        []
+    ),
+    RuntimeException::class,
+    'COD canonical rows refuse extension-owned fields without echoing them',
+    'unknown fields'
+);
+
+$GLOBALS['wooMixedMutateField'] = 'subject';
+$mutatedEmail = ['enabled' => 'yes', 'subject' => 'marker-DO_NOT-ECHO'];
+$newOrderRules = $mixedRules('woocommerce_new_order_settings');
+duo_check_throws(
+    static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
+        'woocommerce_new_order_settings',
+        $mutatedEmail,
+        $newOrderRules,
+        ['woocommerce_new_order_settings' => serialize($mutatedEmail)]
+    ),
+    RuntimeException::class,
+    'a native sanitizer drift cannot be blessed as portable state'
+);
+unset($GLOBALS['wooMixedMutateField']);
+
+$unknownMarker = 'UNKNOWN-SIBLING-SECRET-DO_NOT-ECHO';
+$unknownBacs = $bacsSource + [$unknownMarker => 'payload'];
+try {
+    $woocommerceInterpreter->normalize_captured_option_sub_keys(
+        'woocommerce_bacs_settings',
+        $bacsCaptured,
+        $gatewayRules['woocommerce_bacs_settings'],
+        ['woocommerce_bacs_settings' => serialize($unknownBacs)]
+    );
+    duo_check(false, 'unknown mixed-record siblings refuse atomically');
+} catch (RuntimeException $failure) {
+    duo_check(!str_contains($failure->getMessage(), $unknownMarker)
+        && !str_contains($failure->getMessage(), 'payload'),
+        'unknown mixed-record sibling diagnostics contain only a bounded key fingerprint');
+}
+
+$tooDeepMixed = 'leaf';
+for ($depth = 0; $depth < 300; ++$depth) {
+    $tooDeepMixed = [$tooDeepMixed];
+}
+$hostileMixedStorage = [
+    'non-string present row' => null,
+    'object with wakeup hook' => serialize(new WooOptionalWakeupCanary()),
+    'trailing serialized bytes' => serialize(['enabled' => 'yes']) . 'trailing',
+    'recursive reference graph' => 'a:1:{s:7:"enabled";R:1;}',
+    'over-deep plain-data graph' => serialize($tooDeepMixed),
+    'over-bound raw row' => str_repeat('x', 1048577),
+];
+foreach ($hostileMixedStorage as $label => $wire) {
+    duo_check_throws(
+        static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
+            'woocommerce_cheque_settings',
+            [],
+            $gatewayRules['woocommerce_cheque_settings'],
+            ['woocommerce_cheque_settings' => $wire]
+        ),
+        RuntimeException::class,
+        "mixed option $label refuses at the safe raw-storage boundary"
+    );
+}
+duo_check_same(0, WooOptionalWakeupCanary::$wakeups,
+    'mixed option native normalization executes no object wakeup hooks');
+
+foreach ([
+    'invalid checkbox alias' => ['woocommerce_new_order_settings', ['enabled' => '1']],
+    'invalid email type' => ['woocommerce_new_order_settings', ['email_type' => 'amp']],
+    'zero review delay' => ['woocommerce_customer_review_request_settings', ['delay_days' => '0']],
+    'over-bound review delay' => ['woocommerce_customer_review_request_settings', ['delay_days' => '61']],
+    'noncanonical review delay' => ['woocommerce_customer_review_request_settings', ['delay_days' => '1e1']],
+    'invalid UTF-8 text' => ['woocommerce_new_order_settings', ['subject' => "bad\xFF"]],
+    'over-bound text' => ['woocommerce_new_order_settings', ['subject' => str_repeat('x', 262145)]],
+] as $label => [$optionName, $record]) {
+    duo_check_throws(
+        static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
+            $optionName,
+            $record,
+            $mixedRules($optionName),
+            [$optionName => serialize($record)]
+        ),
+        RuntimeException::class,
+        "$label refuses before canonical publication"
+    );
+}
+
+$nativeDriftCalls = ['restore' => 0, 'write' => 0, 'finalize' => 0];
+$GLOBALS['wooMixedMutateField'] = 'subject';
+duo_check_throws(
+    static function () use ($woocommerceInterpreter, $mixedRules, &$nativeDriftCalls): void {
+        $woocommerceInterpreter->materialize_option_sub_keys(
+            'woocommerce_new_order_settings',
+            ['subject' => 'marker-DO_NOT-ECHO'],
+            $mixedRules('woocommerce_new_order_settings'),
+            'no',
+            [],
+            static fn(string $companion): ?array => null,
+            static function () use (&$nativeDriftCalls): array {
+                ++$nativeDriftCalls['finalize'];
+                return [];
+            },
+            static fn(): ?array => null,
+            static function (Closure $restore) use (&$nativeDriftCalls): void {
+                ++$nativeDriftCalls['restore'];
+            },
+            static function (array $value) use (&$nativeDriftCalls): void {
+                ++$nativeDriftCalls['write'];
+            }
+        );
+    },
+    RuntimeException::class,
+    'native validator drift refuses repository materialization before mutation'
+);
+unset($GLOBALS['wooMixedMutateField']);
+duo_check_same(
+    ['restore' => 0, 'write' => 0, 'finalize' => 0],
+    $nativeDriftCalls,
+    'native validator refusal reaches no runtime restore, storage write, or finalization callback'
+);
+
+$mutationCalls = ['restore' => 0, 'write' => 0, 'finalize' => 0];
+$nativeCallsBeforeInvalidRepository = count($GLOBALS['wooMixedNativeCalls']);
+duo_check_throws(
+    static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
+        'woocommerce_new_order_settings',
+        ['subject' => ['not' => 'text']],
+        $mixedRules('woocommerce_new_order_settings'),
+        'no',
+        [],
+        static fn(string $companion): ?array => null,
+        static function () use (&$mutationCalls): array {
+            ++$mutationCalls['finalize'];
+            return [];
+        },
+        static fn(): ?array => null,
+        static function (Closure $restore) use (&$mutationCalls): void {
+            ++$mutationCalls['restore'];
+        },
+        static function (array $value) use (&$mutationCalls): void {
+            ++$mutationCalls['write'];
+        }
+    ),
+    RuntimeException::class,
+    'invalid repository coercion refuses without emitting a PHP warning or reaching native mutation'
+);
+duo_check_same(
+    [
+        'calls' => ['restore' => 0, 'write' => 0, 'finalize' => 0],
+        'native_delta' => 0,
+    ],
+    [
+        'calls' => $mutationCalls,
+        'native_delta' => count($GLOBALS['wooMixedNativeCalls']) - $nativeCallsBeforeInvalidRepository,
+    ],
+    'repository type validation completes before runtime restore, storage write, finalization, or native string coercion'
+);
+
+duo_check_throws(
+    static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
+        'woocommerce_cheque_settings',
+        ['enabled' => 'no'],
+        $gatewayRules['woocommerce_cheque_settings'],
+        'no',
+        [],
+        static fn(string $companion): ?array => null,
+        static fn(): array => [],
+        static fn(): ?array => null
+    ),
+    RuntimeException::class,
+    'mixed option materialization refuses without both engine-owned rollback/write callbacks'
+);
+
+$failedWriteCalls = ['restore' => 0, 'write' => 0, 'finalize' => 0];
+duo_check_throws(
+    static function () use ($woocommerceInterpreter, $gatewayRules, &$failedWriteCalls): void {
+        $woocommerceInterpreter->materialize_option_sub_keys(
+            'woocommerce_cheque_settings',
+            ['enabled' => 'no'],
+            $gatewayRules['woocommerce_cheque_settings'],
+            'no',
+            [],
+            static fn(string $companion): ?array => null,
+            static function () use (&$failedWriteCalls): array {
+                ++$failedWriteCalls['finalize'];
+                return [];
+            },
+            static fn(): ?array => null,
+            static function (Closure $restore) use (&$failedWriteCalls): void {
+                ++$failedWriteCalls['restore'];
+            },
+            static function (array $value) use (&$failedWriteCalls): void {
+                ++$failedWriteCalls['write'];
+                throw new RuntimeException('injected storage write failure');
+            }
+        );
+    },
+    RuntimeException::class,
+    'an injected engine storage failure stays loud for outer rollback/retry'
+);
+duo_check_same(
+    ['restore' => 1, 'write' => 1, 'finalize' => 0],
+    $failedWriteCalls,
+    'a failed storage write registers rollback exactly once and never finalizes partial state'
+);
+
+duo_check_throws(
+    static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
+        'woocommerce_cheque_settings',
+        ['enabled' => 'no'],
+        $gatewayRules['woocommerce_cheque_settings'],
+        'no',
+        [],
+        static fn(string $companion): ?array => null,
+        static fn(): array => [
+            'option_name' => 'woocommerce_cheque_settings',
+            'option_value' => serialize(['enabled' => 'yes']),
+            'autoload' => 'no',
+        ],
+        static fn(): ?array => null,
+        static function (Closure $restore): void {},
+        static function (array $value): void {}
+    ),
+    RuntimeException::class,
+    'same-shape finalized storage drift cannot be accepted after the engine-owned write'
+);
+
+foreach ($hostileMixedStorage as $label => $wire) {
+    duo_check_throws(
+        static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
+            'woocommerce_cheque_settings',
+            ['enabled' => 'no'],
+            $gatewayRules['woocommerce_cheque_settings'],
+            'no',
+            [],
+            static fn(string $companion): ?array => null,
+            static fn(): array => [
+                'option_name' => 'woocommerce_cheque_settings',
+                'option_value' => $wire,
+                'autoload' => 'no',
+            ],
+            static fn(): ?array => null,
+            static function (Closure $restore): void {},
+            static function (array $value): void {}
+        ),
+        RuntimeException::class,
+        "final mixed option $label refuses at the bounded safe-storage boundary"
+    );
+}
+duo_check_same(0, WooOptionalWakeupCanary::$wakeups,
+    'final mixed-option verification executes no object wakeup hooks');
+
+$aggregateTarget = [];
+foreach (['account_name', 'account_number', 'bank_name', 'sort_code'] as $field) {
+    $aggregateTarget[$field] = str_repeat('x', 262144);
+}
+$aggregateWriteCalls = 0;
+duo_check_throws(
+    static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
+        'woocommerce_bacs_settings',
+        ['enabled' => 'no'],
+        $gatewayRules['woocommerce_bacs_settings'],
+        'no',
+        $aggregateTarget,
+        static fn(string $companion): ?array => null,
+        static fn(): array => [],
+        static fn(): ?array => null,
+        static function (Closure $restore): void {},
+        static function (array $value) use (&$aggregateWriteCalls): void {
+            ++$aggregateWriteCalls;
+        }
+    ),
+    RuntimeException::class,
+    'aggregate target-owned mixed-record bytes refuse before an oversized native write'
+);
+duo_check_same(0, $aggregateWriteCalls,
+    'the aggregate record bound is enforced before engine-owned mutation');
 
 foreach ((array) ($inventory['families']['fulfillments']['runtime_tables'] ?? []) as $table) {
     duo_check_same('runtime', $manifest['tables'][$table]['class'] ?? null, "$table remains runtime fulfillment state");
@@ -364,7 +1192,7 @@ $pending = $captureResult['unclassified'];
 sort($pending, SORT_STRING);
 $expectedPendingNames = array_merge(
     ['wc_migrator_credentials_bad/slash', 'wc_stock_notifications_cycle_state_01', 'woocommerce_email_templates_addon_gateway_post_id', 'woocommerce_email_templates_new_order_post_id'],
-    array_keys($gatewayRecords),
+    array_values(array_diff(array_keys($gatewayRecords), ['woocommerce_bacs_accounts'])),
     array_keys($emailRecords),
     [$addonEmailOption]
 );

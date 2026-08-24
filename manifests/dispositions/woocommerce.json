@@ -83,8 +83,8 @@
         },
         {
             "operation": "capture",
-            "reason": "Built-in BACS, cheque, and COD settings are plugin-managed records with secret bank fields or shipping-zone method references; populated records fail closed until the reviewed closed-subkey and typed-reference contract can preserve only portable fields.",
-            "surface": "options.woocommerce_bacs_accounts|woocommerce_bacs_settings|woocommerce_cheque_settings|woocommerce_cod_settings"
+            "reason": "Built-in BACS, cheque, and COD settings are plugin-managed records with target-owned legacy bank fields or shipping-zone method references; populated records fail closed until the reviewed closed-subkey and typed-reference contract can preserve only portable fields. The separate woocommerce_bacs_accounts bank-detail list is already target-environment-owned and never enters canonical state.",
+            "surface": "options.woocommerce_bacs_settings|woocommerce_cheque_settings|woocommerce_cod_settings"
         },
         {
             "operation": "capture",
