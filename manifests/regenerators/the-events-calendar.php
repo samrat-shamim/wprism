@@ -655,6 +655,7 @@ final class TheEventsCalendar {
         foreach ([
             'add_action',
             'has_filter',
+            'is_file',
             'remove_action',
             'tribe_cache',
             'tribe_get_var',
@@ -673,17 +674,7 @@ final class TheEventsCalendar {
                 );
             }
         }
-        $externalCache = wp_using_ext_object_cache();
-        if (!is_bool($externalCache)) {
-            throw new \RuntimeException(
-                'duo: TEC derived-state regeneration rejected a malformed external object-cache signal'
-            );
-        }
-        if ($externalCache) {
-            throw new \RuntimeException(
-                'duo: TEC derived-state regeneration does not admit an external object-cache topology'
-            );
-        }
+        $this->assertLocalObjectCacheTopology();
         $supportsGroupFlush = wp_cache_supports('flush_group');
         if (!is_bool($supportsGroupFlush) || !$supportsGroupFlush) {
             throw new \RuntimeException(
@@ -1910,12 +1901,7 @@ final class TheEventsCalendar {
         }
         $this->assertNativeHookTopology(true, $nativeRuntime['listener']);
         $this->assertTransactionSession($connectionId, true, "after $call");
-        $externalCache = wp_using_ext_object_cache();
-        if (!is_bool($externalCache) || $externalCache) {
-            throw new \RuntimeException(
-                "duo: TEC derived-state external object-cache topology changed during $call; recovery_required"
-            );
-        }
+        $this->assertLocalObjectCacheTopology($call);
         if (!hash_equals(
             $sourceWitness,
             $this->sourceWitness($localId, $postsTable, $postMetaTable, $postMetaIndex)
@@ -1939,6 +1925,46 @@ final class TheEventsCalendar {
         // the exact server session after them so an automatic reconnect
         // cannot turn the next native write into an unlocked operation.
         $this->assertTransactionSession($connectionId, true, "after $call witness");
+    }
+
+    /**
+     * Stock WordPress leaves `_wp_using_ext_object_cache` null after starting
+     * its built-in cache: wp_start_object_cache() treats null as false and
+     * calls wp_cache_init(), but never writes false back (pinned load.php).
+     * The signal alone is therefore insufficient. Bind it to the exact core
+     * cache class and absence of the object-cache drop-in before admitting
+     * either normal null or an explicit false, and repeat the composite proof
+     * after every plugin call while the authored transaction is active.
+     */
+    private function assertLocalObjectCacheTopology(?string $call = null): void {
+        $externalCache = wp_using_ext_object_cache();
+        global $wp_object_cache;
+        $local = ($externalCache === null || $externalCache === false)
+            && defined('WP_CONTENT_DIR')
+            && is_object($wp_object_cache)
+            && get_class($wp_object_cache) === 'WP_Object_Cache'
+            && !is_file(WP_CONTENT_DIR . '/object-cache.php');
+        if ($local) {
+            return;
+        }
+        if ($call !== null) {
+            throw new \RuntimeException(
+                "duo: TEC derived-state local object-cache topology changed during $call; recovery_required"
+            );
+        }
+        if ($externalCache === true) {
+            throw new \RuntimeException(
+                'duo: TEC derived-state regeneration does not admit an external object-cache topology'
+            );
+        }
+        if ($externalCache !== null && $externalCache !== false) {
+            throw new \RuntimeException(
+                'duo: TEC derived-state regeneration rejected a malformed external object-cache signal'
+            );
+        }
+        throw new \RuntimeException(
+            'duo: TEC derived-state regeneration requires the exact local WordPress object-cache topology'
+        );
     }
 
     /** @param array<string,mixed> $eventData @return array<string,string> */

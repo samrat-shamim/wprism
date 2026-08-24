@@ -168,6 +168,14 @@ namespace Tribe\Log {
 }
 
 namespace {
+class WP_Object_Cache {}
+
+final class TecReadinessForeignObjectCache extends WP_Object_Cache {}
+
+if (!defined('WP_CONTENT_DIR')) {
+    define('WP_CONTENT_DIR', dirname(__DIR__, 3) . '/tmp/tec-readiness-wp-content');
+}
+
 final class WP_Hook {
     /** @var array<int,array<string,array{function:callable,accepted_args:int}>> */
     public array $callbacks = [];
@@ -606,6 +614,14 @@ function tec_readiness_native_boundary(string $boundary): void {
     }
     if ($action === 'external_cache') {
         $GLOBALS['tec_readiness_external_object_cache'] = true;
+        return;
+    }
+    if ($action === 'malformed_cache') {
+        $GLOBALS['tec_readiness_external_object_cache'] = 'false';
+        return;
+    }
+    if ($action === 'local_cache_substitute') {
+        $GLOBALS['wp_object_cache'] = new TecReadinessForeignObjectCache();
         return;
     }
     if ($action === 'cache_delete_throw') {
@@ -1375,7 +1391,9 @@ function tribe_get_option(string $name, mixed $default = false): mixed {
 }
 
 function wp_using_ext_object_cache(): mixed {
-    return $GLOBALS['tec_readiness_external_object_cache'] ?? false;
+    return array_key_exists('tec_readiness_external_object_cache', $GLOBALS)
+        ? $GLOBALS['tec_readiness_external_object_cache']
+        : false;
 }
 
 /** @return mixed */
@@ -3900,6 +3918,7 @@ $GLOBALS['tec_readiness_tribe_options'] = ['category-color-show-hidden-categorie
 $GLOBALS['tec_readiness_filters'] = [];
 $GLOBALS['tec_readiness_has_filter_calls'] = [];
 $GLOBALS['tec_readiness_external_object_cache'] = false;
+$GLOBALS['wp_object_cache'] = new WP_Object_Cache();
 $GLOBALS['tec_readiness_cache_busts'] = 0;
 $GLOBALS['tec_readiness_cache_reads'] = 0;
 $GLOBALS['tec_readiness_cache_sets'] = 0;
@@ -4253,6 +4272,16 @@ duo_check_same(
     'the CSS option topology is source-bound to every exact admitted WordPress core artifact'
 );
 duo_check_same(
+    [
+        'admitted_signal_values' => [null, false],
+        'cache_class' => 'WP_Object_Cache',
+        'drop_in' => 'wp-content/object-cache.php',
+        'group_flush_capability' => 'flush_group',
+    ],
+    $optionHookFixture['local_object_cache_boundary'] ?? null,
+    'the reviewed WordPress source fixture closes the exact nullable local-cache topology'
+);
+duo_check_same(
     'php sandbox/tests/support/verify-tec-wordpress-option-hooks.php '
         . '--wordpress-root=/usr/src/wordpress --version=<version>',
     $optionHookFixture['reproduce'] ?? null,
@@ -4273,6 +4302,12 @@ foreach (['get_option', 'wp_load_alloptions', 'update_option', 'add_option', 'sa
         str_contains($optionHookVerifier, "tec_option_function_body(\$option, '$function')")
             || str_contains($optionHookVerifier, "tec_option_function_body(\$formatting, '$function')"),
         "the exact-source verifier derives hook topology from WordPress function $function"
+    );
+}
+foreach (['wp_using_ext_object_cache', 'wp_start_object_cache'] as $function) {
+    duo_check(
+        str_contains($optionHookVerifier, "tec_option_function_body(\n    \$sources['wp-includes/load.php'],\n    '$function'"),
+        "the exact-source verifier derives the nullable local-cache boundary from WordPress $function"
     );
 }
 $tecServiceSources172 = $optionHookFixture['tec_service_sources']['6.17.2'] ?? [];
@@ -8885,6 +8920,7 @@ $resetTecDerived = static function () use (
     $tecDb->onQuery(null)->clearTransactionOutcomes();
     $tecDb->resetLog();
     $GLOBALS['tec_readiness_external_object_cache'] = false;
+    $GLOBALS['wp_object_cache'] = new WP_Object_Cache();
     $GLOBALS['tec_readiness_container_bindings'] = [];
     $GLOBALS['tec_readiness_container_binding_signals'] = [];
     $GLOBALS['tec_readiness_configuration'] = [];
@@ -9217,6 +9253,56 @@ duo_check_same(
     'a non-boolean external object-cache signal refuses before transaction or native service use'
 );
 duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'malformed object-cache topology precedes plugin code');
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_external_object_cache'] = null;
+$regenerator->regenerate($tecEventId);
+duo_check(
+    count($GLOBALS['tec_readiness_event_data_calls']) > 0,
+    'stock WordPress null cache signal plus the exact local cache topology reaches every native boundary'
+);
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_external_object_cache'] = true;
+duo_check_same(
+    'duo: TEC derived-state regeneration does not admit an external object-cache topology',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an explicit external-cache signal refuses before transaction or native service use'
+);
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'external cache refusal precedes plugin code');
+
+$resetTecDerived();
+$GLOBALS['wp_object_cache'] = new TecReadinessForeignObjectCache();
+duo_check_same(
+    'duo: TEC derived-state regeneration requires the exact local WordPress object-cache topology',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a same-API foreign object-cache implementation refuses before transaction or native service use'
+);
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'substituted local cache refusal precedes plugin code');
+
+$resetTecDerived();
+if (!is_dir(WP_CONTENT_DIR) && !mkdir(WP_CONTENT_DIR, 0777, true) && !is_dir(WP_CONTENT_DIR)) {
+    throw new RuntimeException('TEC object-cache drop-in fixture directory could not be created');
+}
+$objectCacheDropIn = WP_CONTENT_DIR . '/object-cache.php';
+if (file_put_contents($objectCacheDropIn, "<?php\n// deterministic hostile drop-in fixture\n") === false) {
+    throw new RuntimeException('TEC object-cache drop-in fixture could not be created');
+}
+try {
+    duo_check_same(
+        'duo: TEC derived-state regeneration requires the exact local WordPress object-cache topology',
+        $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+        'a populated object-cache drop-in path refuses even when the signal claims local cache'
+    );
+    duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'drop-in cache refusal precedes plugin code');
+} finally {
+    @unlink($objectCacheDropIn);
+}
+$regenerator->regenerate($tecEventId);
+duo_check(
+    count($GLOBALS['tec_readiness_event_data_calls']) > 0,
+    'removing the hostile cache drop-in permits same-process retry'
+);
 
 $resetTecDerived();
 $nativeListener = Tribe__Cache_Listener::instance();
@@ -9813,6 +9899,33 @@ foreach (['commit', 'rollback', 'reconnect'] as $nativeTransactionAction) {
                 "native $nativeTransactionAction at $nativeTransactionBoundary restores the exact physical preimage"
             );
         }
+    }
+}
+
+foreach ([
+    'external_cache' => 'external signal',
+    'malformed_cache' => 'malformed signal',
+    'local_cache_substitute' => 'substituted local cache',
+] as $cacheDriftAction => $cacheDriftLabel) {
+    foreach ($nativeTransactionBoundaries as $cacheDriftBoundary) {
+        $resetTecDerived();
+        $beforeCacheDrift = $tecPhysicalState();
+        $GLOBALS['tec_readiness_native_disruption'] = [
+            'boundary' => $cacheDriftBoundary,
+            'action' => $cacheDriftAction,
+        ];
+        $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+        duo_check(
+            str_contains($failure, 'local object-cache topology changed during')
+                && str_contains($failure, 'recovery_required')
+                && strlen($failure) < 300,
+            "$cacheDriftLabel drift at $cacheDriftBoundary refuses from the repeated composite proof"
+        );
+        duo_check_same(
+            $beforeCacheDrift,
+            $tecPhysicalState(),
+            "$cacheDriftLabel drift at $cacheDriftBoundary rolls back exact source, derived, option, and autoload bytes"
+        );
     }
 }
 

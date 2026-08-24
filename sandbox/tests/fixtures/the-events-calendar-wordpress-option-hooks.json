@@ -7,6 +7,7 @@
       "option_php_sha256": "cde15dc93f943de5884c87b26f0786011c6e43b93440cde1792428029ced9e37",
       "rewrite_php_sha256": "85c31ed09005f1a3bc5190a9da34cc18b01a433a9ba4ef9cd3198baa4f315755",
       "formatting_php_sha256": "fe6f3c7a4b312f257b3cebee374d8c07d5c3f4df4203d58ee42fd8ae8320b1ce",
+      "load_php_sha256": "b325cc9ca88816577966c25002363cc1df3fff0b4d235a8ccc71dd3387795afb",
       "cache_php_sha256": "a219c2b57cc9990b560c6b497c877db443b7e29239645a6a79b2d76839c46e19",
       "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0",
       "legacy_widget_php_sha256": "60d2b63a888f03cc416d00356c25fae2bd90e62692462c60f685a6e28fcd6e08",
@@ -18,6 +19,7 @@
       "option_php_sha256": "d1daad9a1d19ee438eb6e3b6698b42a3682f6f7ab9626be02f2157a238ea3e2f",
       "rewrite_php_sha256": "e197e1f2a78b4b6ffffd1687bdedf0c254d2a8cf013f6d8c8e55c0ac53facd3e",
       "formatting_php_sha256": "4e6d1740465e06fc2bbf6deaf666792e60f8c71964d5e5f7b9a6400261144a79",
+      "load_php_sha256": "3efd0934bd8a454a8d7076fbbd21504ea097a753125a48e64b8a1dad380d357a",
       "cache_php_sha256": "a219c2b57cc9990b560c6b497c877db443b7e29239645a6a79b2d76839c46e19",
       "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0",
       "legacy_widget_php_sha256": "60d2b63a888f03cc416d00356c25fae2bd90e62692462c60f685a6e28fcd6e08",
@@ -29,6 +31,7 @@
       "option_php_sha256": "fe3f0b7e115b2a50c31162ed6428abe4088c080b0f71b9678d84806168fe90d0",
       "rewrite_php_sha256": "e197e1f2a78b4b6ffffd1687bdedf0c254d2a8cf013f6d8c8e55c0ac53facd3e",
       "formatting_php_sha256": "69b5e5acd15fc70582e7edd09c6e201ffdd7f5ab4c5a0b481a9963a0acd604f8",
+      "load_php_sha256": "3efd0934bd8a454a8d7076fbbd21504ea097a753125a48e64b8a1dad380d357a",
       "cache_php_sha256": "a219c2b57cc9990b560c6b497c877db443b7e29239645a6a79b2d76839c46e19",
       "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0",
       "legacy_widget_php_sha256": "60d2b63a888f03cc416d00356c25fae2bd90e62692462c60f685a6e28fcd6e08",
@@ -36,6 +39,12 @@
       "rest_widget_types_php_sha256": "d9e58e213eec93eb402c730d834e859a8127f8f7c3c9c8f6fb6db7d1d1ac66cf",
       "rest_widgets_php_sha256": "fcdd417e2aea0998a6cca9a37326582131a734352d9814b64f74ee617fcd34d6"
     }
+  },
+  "local_object_cache_boundary": {
+    "admitted_signal_values": [null, false],
+    "cache_class": "WP_Object_Cache",
+    "drop_in": "wp-content/object-cache.php",
+    "group_flush_capability": "flush_group"
   },
   "shared_paths": {
     "get_option": [

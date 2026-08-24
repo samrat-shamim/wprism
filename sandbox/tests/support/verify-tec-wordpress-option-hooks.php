@@ -178,6 +178,7 @@ $paths = [
     'option_php_sha256' => 'wp-includes/option.php',
     'rewrite_php_sha256' => 'wp-includes/class-wp-rewrite.php',
     'formatting_php_sha256' => 'wp-includes/formatting.php',
+    'load_php_sha256' => 'wp-includes/load.php',
     'cache_php_sha256' => 'wp-includes/cache.php',
     'object_cache_php_sha256' => 'wp-includes/class-wp-object-cache.php',
     'legacy_widget_php_sha256' => 'wp-includes/blocks/legacy-widget.php',
@@ -409,6 +410,39 @@ foreach (['wp_cache_get', 'wp_cache_set', 'wp_cache_delete'] as $function) {
     if (str_contains($body, 'apply_filters(') || str_contains($body, 'do_action(')) {
         tec_option_usage("stock WordPress cache wrapper $function gained callback topology");
     }
+}
+
+$usingExternalCache = tec_option_function_body(
+    $sources['wp-includes/load.php'],
+    'wp_using_ext_object_cache'
+);
+$startObjectCache = tec_option_function_body(
+    $sources['wp-includes/load.php'],
+    'wp_start_object_cache'
+);
+foreach ([
+    [$usingExternalCache, '$current_using = $_wp_using_ext_object_cache;', 'nullable cache-signal preimage'],
+    [$usingExternalCache, 'return $current_using;', 'nullable cache-signal return'],
+    [$startObjectCache, "file_exists( WP_CONTENT_DIR . '/object-cache.php' )", 'object-cache drop-in branch'],
+    [$startObjectCache, 'wp_using_ext_object_cache( true );', 'external-cache positive signal'],
+    [$startObjectCache, 'if ( ! wp_using_ext_object_cache() )', 'null-or-false local-cache branch'],
+    [$startObjectCache, "require_once ABSPATH . WPINC . '/cache.php';", 'core local-cache load'],
+    [$startObjectCache, "function_exists( 'wp_cache_init' )", 'core cache initialization'],
+] as [$body, $needle, $label]) {
+    tec_option_require_call($body, $needle, $label);
+}
+if (str_contains($usingExternalCache, '$_wp_using_ext_object_cache = false')
+    || !str_contains($sources['wp-includes/class-wp-object-cache.php'], 'class WP_Object_Cache')) {
+    tec_option_usage("WordPress $version local object-cache identity or nullable signal drifted");
+}
+$localObjectCacheBoundary = [
+    'admitted_signal_values' => [null, false],
+    'cache_class' => 'WP_Object_Cache',
+    'drop_in' => 'wp-content/object-cache.php',
+    'group_flush_capability' => 'flush_group',
+];
+if (($fixture['local_object_cache_boundary'] ?? null) !== $localObjectCacheBoundary) {
+    tec_option_usage('source-derived local object-cache boundary disagrees with the reviewed fixture');
 }
 
 $legacyBlockSchemaBytes = $sources['wp-includes/blocks/legacy-widget/block.json'];

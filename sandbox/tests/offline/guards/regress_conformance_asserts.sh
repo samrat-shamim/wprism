@@ -127,6 +127,49 @@ expect_infrastructure 'compose container-creation chatter' human "$COMPOSE_DEATH
 expect_infrastructure 'an empty capture' human ''
 pass "require_duo_answered accepts every shape a live duo answer takes (json: object OR array; human: wp-cli/duo/PHP framing) and only fires on a capture with no answer in it"
 
+capture_probe() { # <success|refusal|dead>
+  (
+    fail() { printf '%s\n' "$*"; exit 1; }
+    . "$FRAGMENT"
+    fake_duo() {
+      case "$1" in
+        success)
+          printf 'compose prelude\n{"canary":"clean"}\n'
+          ;;
+        refusal)
+          printf '{"format":"duo-command-refusal/v1","ok":false,"command":"apply"}\n'
+          return 7
+          ;;
+        dead)
+          printf '%s\n' "$COMPOSE_DEATH"
+          return 9
+          ;;
+      esac
+    }
+    RESULT=unset
+    capture_duo_json_success RESULT 'unit Duo apply' fake_duo "$1"
+    printf 'RESULT=%s\n' "$RESULT"
+  ) 2>&1
+}
+CAPTURE_SUCCESS=$(capture_probe success)
+[ "$CAPTURE_SUCCESS" = 'RESULT={"canary":"clean"}' ] \
+  || fail "capture_duo_json_success did not return the exact final success envelope: $CAPTURE_SUCCESS"
+CAPTURE_REFUSAL=$(capture_probe refusal) && CAPTURE_REFUSAL_RC=0 || CAPTURE_REFUSAL_RC=$?
+[ "$CAPTURE_REFUSAL_RC" -ne 0 ] \
+  && grep -Fq '"format":"duo-command-refusal/v1"' <<<"$CAPTURE_REFUSAL" \
+  && grep -Fq 'unit Duo apply failed with exit 7' <<<"$CAPTURE_REFUSAL" \
+  || fail "capture_duo_json_success swallowed or misclassified a nonzero Duo envelope: $CAPTURE_REFUSAL"
+CAPTURE_DEAD=$(capture_probe dead) && CAPTURE_DEAD_RC=0 || CAPTURE_DEAD_RC=$?
+[ "$CAPTURE_DEAD_RC" -ne 0 ] \
+  && grep -Fq 'infrastructure failure: unit Duo apply was never answered' <<<"$CAPTURE_DEAD" \
+  && ! grep -Fq 'unit Duo apply failed with exit 9' <<<"$CAPTURE_DEAD" \
+  || fail "capture_duo_json_success accused the engine after a dead transport: $CAPTURE_DEAD"
+grep -q '^capture_duo_json_success ' conformance/run.sh \
+  || fail "conformance apply does not use the refusal-preserving JSON command wrapper"
+! grep -q 'APPLY_JSON=.*duo apply.*| tail -1' conformance/run.sh \
+  || fail "conformance apply still discards a nonzero refusal through its old tail pipeline"
+pass "conformance apply preserves answered refusal envelopes, separates dead transport, and publishes only successful JSON"
+
 # A mode typo must be a caller bug, never an infrastructure verdict: it may not
 # borrow the prefix operators grep to route a failure away from the engine.
 TYPO_OUT=$(probe jsonn "$REFUSAL_ENVELOPE") && TYPO_RC=0 || TYPO_RC=$?

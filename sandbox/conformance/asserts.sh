@@ -130,3 +130,22 @@ require_duo_answered() { # require_duo_answered <what> <human|json> <captured ou
       ;;
   esac
 }
+
+# Execute one machine-output Duo command without letting `set -e`, a command
+# substitution, or `tail` discard its refusal envelope. The command's complete
+# capture is retained through exit classification; only a successful
+# command publishes its last JSON line into the caller-named variable.
+capture_duo_json_success() { # <OUT_VAR> <what> <command> [args...]
+  local out_var="$1" what="$2" capture rc=0 last
+  shift 2
+  [[ "$out_var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+    || fail "capture_duo_json_success: malformed output variable"
+  capture=$("$@" 2>&1) || rc=$?
+  require_duo_answered "$what" json "$capture"
+  if [ "$rc" -ne 0 ]; then
+    printf '%s\n' "$capture" >&2
+    fail "$what failed with exit $rc"
+  fi
+  last=$(awk 'NF { line=$0 } END { print line }' <<<"$capture")
+  printf -v "$out_var" '%s' "$last"
+}

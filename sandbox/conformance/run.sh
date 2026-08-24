@@ -505,7 +505,11 @@ ADOPT_BY_SLUG=terms,posts
 if [ "$MANIFEST" = core ]; then
   ADOPT_BY_SLUG=terms,posts,menus
 fi
-APPLY_JSON=$(wp_conf2 duo apply --repo=/siterepo --adopt-by-slug="$ADOPT_BY_SLUG" --default-author=admin --revision="$REV" --json | tail -1)
+capture_duo_json_success \
+  APPLY_JSON \
+  "conf2 duo apply" \
+  wp_conf2 duo apply --repo=/siterepo --adopt-by-slug="$ADOPT_BY_SLUG" \
+  --default-author=admin --revision="$REV" --json
 export APPLY_JSON
 echo "$APPLY_JSON" | jq .
 [ "$(echo "$APPLY_JSON" | jq -r '.canary')" = "clean" ] || fail "side-effect canary was not clean during apply"
