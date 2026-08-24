@@ -796,8 +796,9 @@ if ($woo !== null) {
             'provider:woocommerce-scheduler-settings/reconcile_stock_notification_retention',
             'provider:woocommerce-product-lookups/rebuild_product_lookups',
             'native:rewrite.flush',
+            'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes',
         ],
-        'WooCommerce declares the exact transient, hierarchy/route, fulfillment, scheduler, product lookup, and review-route actions in order'
+        'WooCommerce declares the exact transient, hierarchy/route, fulfillment, scheduler, product lookup, product-permalink, and review-route actions in order'
     );
     // DUO-3342 added the second declaration by MIGRATING a dispatch rather than
     // by adding a repair: the product lookup rebuild reached the same adapter
@@ -811,7 +812,7 @@ if ($woo !== null) {
     );
     foreach ([
         'woocommerce-cache' => ['version' => '1.0.0', 'capabilities' => ['invalidate_cache_groups']],
-        'woocommerce-hierarchy-lookups' => ['version' => '1.0.0', 'capabilities' => ['rebuild_hierarchy_lookups']],
+        'woocommerce-hierarchy-lookups' => ['version' => '2.0.0', 'capabilities' => ['rebuild_hierarchy_lookups', 'rebuild_product_permalink_routes']],
         'woocommerce-fulfillment-prerequisites' => ['version' => '1.0.0', 'capabilities' => ['verify_fulfillment_prerequisites']],
         'woocommerce-scheduler-settings' => ['version' => '1.0.0', 'capabilities' => ['reconcile_analytics_import_schedule', 'reconcile_stock_notification_retention']],
         'woocommerce-product-lookups' => ['version' => '3.0.0', 'capabilities' => ['rebuild_product_lookups']],
