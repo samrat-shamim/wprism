@@ -387,8 +387,10 @@ final class AssessCommand {
      *
      * The projection is regenerated either way, and only when a contract has
      * already been accepted — MUP §3.4's "refresh" row. It is unaffected by
-     * the mismatch: both sides of its comparison are the target's own number
-     * (`ContractProjection::staleRegistry()`), so it stays honest under skew,
+     * the mismatch: both sides of every one of its comparisons are the
+     * target's own numbers — the pinned `registry_sha256` and each pinned
+     * `adapter_digest` against what that same target reports now
+     * (`ContractProjection::invalidation()`) — so it stays honest under skew,
      * and an assess that left a stale projection beside a fresh assessment
      * would let a reviewer read expired readiness out of a committed file.
      *
@@ -484,7 +486,19 @@ final class AssessCommand {
             SurfaceCatalog::projectionFacts(
                 $catalog,
                 $result['operations'],
-                (string) $report['evidence']['registry_sha256']
+                (string) $report['evidence']['registry_sha256'],
+                // The observed adapter pins, read from the SAME derivation the
+                // contract's own `declarations.manifest_pins` came from:
+                // `AssessReport::proposalSeed()` (`cli/src/Assess/AssessReport.php:447-472`)
+                // is what `ContractProposal::fromAssessReport()` copies them
+                // out of (`cli/src/Contract/ContractProposal.php:155`). Reusing
+                // it rather than recomputing is the point — two derivations of
+                // "which adapters does this site load, at which digest" could
+                // disagree, and a false disagreement here would flip surfaces
+                // that nothing moved.
+                is_array($result['seed']['manifest_pins'] ?? null)
+                    ? $result['seed']['manifest_pins']
+                    : []
             ),
             ['wordpress' => (string) $report['target']['wordpress'], 'php' => (string) $report['target']['php']],
             $result['inventory'],

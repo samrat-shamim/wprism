@@ -286,20 +286,35 @@ topology is judged once, by `duo assess` refusing the whole assessment, not
 per surface.
 
 **`Requalification required` has exactly one entrance, and the agent cannot
-produce it.** An accepted application contract pins one number,
+produce it.** An accepted application contract pins two things: one number,
 `evidence_pins.registry_sha256` — the content address of the reviewed
-dispositions the verdict was read from. Three commands regenerate the
+dispositions the verdict was read from — and one row per adapter,
+`declarations.manifest_pins[].adapter_digest`. Three commands regenerate the
 projection from current facts — `duo assess`, `duo contract accept` and
 `duo release` (`duo contract show` renders what is on disk and contacts
-nothing) — and when the observed hash differs from the pin, the reviewed
-document this contract was accepted against is not the document answering now.
+nothing) — and when the observed evidence differs from the pin, the reviewed
+library this contract was accepted against is not the library answering now.
 `ContractProjection` **synthesizes** the blocker
-`evidence_not_current` into every surface's fact vector so the readiness word
-still comes from the table above rather than being minted somewhere new, and
-`projection.json` records the fact as `evidence_pins.stale_registry`. The flip
-is deliberately blunt — whole-surface, not per-adapter — because the pin
-addresses the whole reviewed document: any authored change to any subject's
-status, boundary or reason moves it. The row prints the gap action
+`evidence_not_current` into the affected surfaces' fact vectors so the
+readiness word still comes from the table above rather than being minted
+somewhere new.
+
+*How many surfaces "affected" means is decided by what can be proved, and
+`projection.json` says which of the two happened in
+`evidence_pins.invalidation`.* Each `adapter_digest` folds that manifest's own
+disposition entry — `ArtifactPolicyIdentity::manifest_rows()` puts the
+disposition inside the row it hashes
+(`agent/src/Policy/ArtifactPolicyIdentity.php:68`, hashed at `:147`) — so
+editing one subject in `manifests/dispositions.json` moves `registry_sha256`
+**and** exactly that adapter's digest. That makes the moved set a proof, and
+the flip `exact`: it reaches only the surfaces those adapters govern, which
+each row names in `governed_by`, and `evidence_pins.stale_adapters` lists them.
+When the registry hash moved but no *pinned* adapter's digest did — a subject
+for an adapter this site does not load, or a document-level field — nothing can
+prove which capability is affected, so the flip is `whole-contract` and every
+surface goes. A moved `adapter_digest` under an unchanged `registry_sha256`
+(adapter bytes that no longer match their pin) is drift on its own and flips
+the surfaces that adapter governs. The row prints the gap action
 `certify adapter` and the remediation `re-certify the pinned evidence, then
 re-run assess`, which is literal for a site adapter you sign yourself. For a
 shipped adapter, the move you have to make is the review: read what changed in

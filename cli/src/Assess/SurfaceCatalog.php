@@ -261,7 +261,19 @@ final class SurfaceCatalog {
                 $liveEffects
             );
             $rows[] = $row;
-            $facts[$id] = $vectors;
+            // `governed_by` is the manifest that DECLARED this surface, and it
+            // is what `ContractProjection::invalidation()` intersects with the
+            // adapters whose `adapter_digest` moved to decide which surfaces
+            // flip. `declared_by` is set at `:350` for a policy surface group
+            // and `:443` for a registry-only surface, and is null exactly for
+            // a surface no adapter governs — an undeclared live table — which
+            // is why the empty list is a real answer and not a hole.
+            $facts[$id] = [
+                'governed_by' => is_string($identity['declared_by'] ?? null) && $identity['declared_by'] !== ''
+                    ? [$identity['declared_by']]
+                    : [],
+                'operations' => $vectors,
+            ];
         }
         usort($rows, static fn (array $a, array $b): int => strcmp((string) $a['id'], (string) $b['id']));
 
@@ -281,17 +293,25 @@ final class SurfaceCatalog {
      * @param list<string> $operations
      * @param string $registrySha256 the content address of the reviewed
      *        dispositions the target answered from, observed now
+     * @param list<array<string,mixed>> $observedPins the adapter pin rows
+     *        (`{name, source, adapter_digest}`) the target reports NOW, in the
+     *        same shape `contract.declarations.manifest_pins` holds. Supplying
+     *        them is what lets `ContractProjection` narrow the evidence flip
+     *        from the whole contract to the adapters whose digest actually
+     *        moved; `[]` keeps the blunt whole-contract flip, which is the
+     *        honest answer when nothing observed the pins.
      * @return array<string,mixed>
      */
     public static function projectionFacts(
         array $catalog,
         array $operations,
-        string $registrySha256
+        string $registrySha256,
+        array $observedPins = []
     ): array {
         $surfaces = [];
         foreach ($catalog['rows'] as $row) {
             $id = (string) $row['id'];
-            $vectors = $catalog['facts'][$id] ?? [];
+            $vectors = $catalog['facts'][$id]['operations'] ?? [];
             $entries = [];
             foreach ($operations as $operation) {
                 if (!isset($vectors[$operation])) {
@@ -302,14 +322,26 @@ final class SurfaceCatalog {
                     'expiry_and_dependencies' => $vectors[$operation]['expiry_and_dependencies'],
                 ];
             }
-            $surfaces[$id] = ['operations' => $entries];
+            $surfaces[$id] = [
+                'governed_by' => $catalog['facts'][$id]['governed_by'] ?? [],
+                'operations' => $entries,
+            ];
         }
 
-        return [
+        $facts = [
             'operations' => array_values($operations),
             'registry_sha256' => $registrySha256,
             'surfaces' => $surfaces,
         ];
+        if ($observedPins !== []) {
+            // Emitted only when there is something to emit: the key is opt-in
+            // in `ContractProjection::generate()`, and an empty list would
+            // read as "this site loads no adapters" — an exact flip against
+            // nothing — rather than "the pins were not observed".
+            $facts['manifest_pins'] = array_values($observedPins);
+        }
+
+        return $facts;
     }
 
     /**

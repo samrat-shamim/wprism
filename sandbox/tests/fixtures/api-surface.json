@@ -22645,6 +22645,15 @@
                 "FORMAT": {
                     "value_repr": "duo-site-capability-projection/v1"
                 },
+                "INVALIDATION_EXACT": {
+                    "value_repr": "exact"
+                },
+                "INVALIDATION_NONE": {
+                    "value_repr": "none"
+                },
+                "INVALIDATION_WHOLE_CONTRACT": {
+                    "value_repr": "whole-contract"
+                },
                 "STALE_EVIDENCE_BLOCKER": {
                     "value_repr": "evidence_not_current"
                 }
@@ -32588,6 +32597,14 @@
                             "has_default": false,
                             "name": "registrySha256",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "observedPins",
+                            "type": "array",
                             "variadic": false
                         }
                     ],
