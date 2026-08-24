@@ -396,7 +396,7 @@ final class NativeRewriteEffects {
             // implementation only transforms the rule bases later covered by
             // rewrite.flush's durable/runtime hashes; it owns no companion
             // storage or request-local state.
-            $viewsRewrite = self::exact_container_value_service(
+            $viewsRewrite = self::exact_lazy_container_value_service(
                 'Tribe\\Events\\Views\\V2\\Rewrite',
                 'filter_raw_i18n_slugs'
             );
@@ -616,6 +616,39 @@ final class NativeRewriteEffects {
             || get_class($resolved) !== $class
             || !is_callable([$resolved, $method])) {
             throw new \RuntimeException('duo: native rewrite found a substituted TEC rewrite service');
+        }
+        return $resolved;
+    }
+
+    /**
+     * Views V2 Hooks resolves Rewrite only when its raw-slug filter runs; the
+     * exact 6.17.2/6.17.3 class is therefore absent from the normal WP-CLI
+     * boot class table. Resolve through TEC's already-bound container first,
+     * then prove that the ordinary lazy autoload produced one stable exact
+     * service before native generation can execute it.
+     */
+    private static function exact_lazy_container_value_service(string $class, string $method): object {
+        try {
+            $resolved = self::call_function('tribe', $class);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException('duo: native rewrite could not resolve a lazy TEC rewrite service', 0, $failure);
+        }
+        if (!class_exists($class, false)
+            || !is_object($resolved)
+            || get_class($resolved) !== $class
+            || !is_callable([$resolved, $method])) {
+            throw new \RuntimeException('duo: native rewrite found a substituted lazy TEC rewrite service');
+        }
+        try {
+            $reresolved = self::call_function('tribe', $class);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException('duo: native rewrite could not re-resolve a lazy TEC rewrite service', 0, $failure);
+        }
+        if (!is_object($reresolved)
+            || get_class($reresolved) !== $class
+            || !is_callable([$reresolved, $method])
+            || $reresolved !== $resolved) {
+            throw new \RuntimeException('duo: native rewrite found an unstable lazy TEC rewrite service');
         }
         return $resolved;
     }

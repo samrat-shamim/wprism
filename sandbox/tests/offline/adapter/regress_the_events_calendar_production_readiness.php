@@ -1353,12 +1353,27 @@ function tribe(?string $class = null): object {
     ], true)) {
         return $GLOBALS['tec_readiness_native_container']->make($class);
     }
+    if ($class === 'Tribe\\Events\\Views\\V2\\Rewrite') {
+        ++$GLOBALS['tec_readiness_views_rewrite_resolution_calls'];
+        if (($GLOBALS['tec_readiness_views_rewrite_resolution_failure'] ?? false) === true) {
+            throw new \RuntimeException('synthetic Views Rewrite resolution failure');
+        }
+        $sequence = $GLOBALS['tec_readiness_views_rewrite_resolution_sequence'] ?? null;
+        if (is_array($sequence) && $sequence !== []) {
+            $resolved = array_shift($sequence);
+            $GLOBALS['tec_readiness_views_rewrite_resolution_sequence'] = $sequence;
+            if (!is_object($resolved)) {
+                throw new \RuntimeException('synthetic malformed Views Rewrite resolution');
+            }
+            return $resolved;
+        }
+        return $GLOBALS['tec_readiness_views_rewrite'];
+    }
     return match ($class) {
         'tec.event-cleaner' => $GLOBALS['tec_readiness_event_cleaner'],
         'customizer' => $GLOBALS['tec_readiness_customizer'],
         'cache' => $GLOBALS['tec_readiness_container_cache'],
         'Tribe\\Events\\Views\\V2\\Hooks' => $GLOBALS['tec_readiness_views_hooks'],
-        'Tribe\\Events\\Views\\V2\\Rewrite' => $GLOBALS['tec_readiness_views_rewrite'],
         'Tribe\\Events\\Views\\V2\\Kitchen_Sink' => $GLOBALS['tec_readiness_kitchen_sink'],
         'Tribe\\Events\\Views\\V2\\Manager' => $GLOBALS['tec_readiness_views_manager'],
         'TEC\\Events\\QR\\Routes' => $GLOBALS['tec_readiness_qr_routes'],
@@ -7953,6 +7968,87 @@ remove_action('tribe_events_pre_rewrite', [$optInDeprecation, 'deprecated_action
 
 $viewsHooks = $GLOBALS['tec_readiness_views_hooks'];
 $rawSlugCallback = [$viewsHooks, 'filter_rewrite_i18n_slugs_raw'];
+$lazyRewritePreimage = $rewriteRefusalState();
+$GLOBALS['tec_readiness_views_rewrite_resolution_calls'] = 0;
+$GLOBALS['tec_readiness_views_rewrite_resolution_failure'] = true;
+$lazyRewriteFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $lazyRewriteFailure = $failure;
+}
+unset($GLOBALS['tec_readiness_views_rewrite_resolution_failure']);
+duo_check(
+    $lazyRewriteFailure instanceof RuntimeException
+        && str_contains($lazyRewriteFailure->getMessage(), 'could not resolve a lazy TEC rewrite service'),
+    'a failed normal lazy Views Rewrite resolution refuses before native generation'
+);
+duo_check_same(
+    $lazyRewritePreimage,
+    $rewriteRefusalState(),
+    'the failed lazy Views Rewrite resolution preserves durable rows, runtime rules, and purge state'
+);
+duo_check_same(
+    1,
+    $GLOBALS['tec_readiness_views_rewrite_resolution_calls'],
+    'a failed first lazy Views Rewrite resolution never reaches re-resolution'
+);
+
+$canonicalViewsRewrite = $GLOBALS['tec_readiness_views_rewrite'];
+$GLOBALS['tec_readiness_views_rewrite_resolution_calls'] = 0;
+$GLOBALS['tec_readiness_views_rewrite'] = new stdClass();
+$substitutedViewsRewritePreimage = $rewriteRefusalState();
+$substitutedViewsRewriteFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $substitutedViewsRewriteFailure = $failure;
+}
+$GLOBALS['tec_readiness_views_rewrite'] = $canonicalViewsRewrite;
+duo_check(
+    $substitutedViewsRewriteFailure instanceof RuntimeException
+        && str_contains($substitutedViewsRewriteFailure->getMessage(), 'substituted lazy TEC rewrite service'),
+    'a container-substituted lazy Views Rewrite service refuses before native generation'
+);
+duo_check_same(
+    $substitutedViewsRewritePreimage,
+    $rewriteRefusalState(),
+    'the substituted lazy Views Rewrite service preserves durable rows, runtime rules, and purge state'
+);
+duo_check_same(
+    1,
+    $GLOBALS['tec_readiness_views_rewrite_resolution_calls'],
+    'a substituted first lazy Views Rewrite resolution never invokes the container twice'
+);
+
+$GLOBALS['tec_readiness_views_rewrite_resolution_calls'] = 0;
+$GLOBALS['tec_readiness_views_rewrite_resolution_sequence'] = [
+    $canonicalViewsRewrite,
+    new \Tribe\Events\Views\V2\Rewrite(),
+];
+$driftedViewsRewritePreimage = $rewriteRefusalState();
+$driftedViewsRewriteFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $driftedViewsRewriteFailure = $failure;
+}
+unset($GLOBALS['tec_readiness_views_rewrite_resolution_sequence']);
+duo_check(
+    $driftedViewsRewriteFailure instanceof RuntimeException
+        && str_contains($driftedViewsRewriteFailure->getMessage(), 'unstable lazy TEC rewrite service'),
+    'same-class lazy Views Rewrite re-resolution drift refuses before native generation'
+);
+duo_check_same(
+    $driftedViewsRewritePreimage,
+    $rewriteRefusalState(),
+    'the unstable lazy Views Rewrite service preserves durable rows, runtime rules, and purge state'
+);
+duo_check_same(
+    2,
+    $GLOBALS['tec_readiness_views_rewrite_resolution_calls'],
+    'same-class lazy Views Rewrite drift is detected by exactly one stable re-resolution'
+);
 remove_filter('tribe_events_rewrite_i18n_slugs_raw', $rawSlugCallback, 50);
 $missingRawSlugPreimage = $rewriteRefusalState();
 $missingRawSlugFailure = null;
@@ -8037,7 +8133,7 @@ $nativeRewriteReceipt = $nativeRewriteChild->invoke(null);
 duo_check_same(
     true,
     $nativeRewriteReceipt['verified'] ?? null,
-    'removing the opt-in deprecation callbacks permits same-process checked retry'
+    'restoring canonical lazy Views Rewrite and hook topology permits same-process checked retry'
 );
 duo_check(
     is_array($GLOBALS['wp_rewrite']->rules)

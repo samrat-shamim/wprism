@@ -643,9 +643,14 @@ if ($tecRoot !== '' || $tecVersion !== '') {
             tec_option_usage("TEC $tecVersion Views V2 rewrite callback source drifted");
         }
     }
-    if (!str_contains($viewsRewrite, "if(\$method!=='regex'){return\$bases;}")
+    if (!str_contains($viewsRewrite, 'classRewrite{')
+        || str_contains($viewsRewrite, 'function__construct(')
+        || !str_contains($viewsRewrite, "if(\$method!=='regex'){return\$bases;}")
         || !str_contains($viewsRewrite, '$bases=$this->add_url_encoded_slugs($bases);return$bases;')
-        || preg_match('/(?:apply_filters|do_action|update_option|delete_option|wp_cache_)/', $viewsRewrite) === 1) {
+        || preg_match(
+            '/(?:add_filter|add_action|apply_filters|do_action|update_option|delete_option|wp_cache_|tribe\()/',
+            $viewsRewrite
+        ) === 1) {
         tec_option_usage("TEC $tecVersion Views V2 raw-slug transformer is no longer a pure rule projection");
     }
 
