@@ -413,6 +413,14 @@ regress-adapter-survey-scale:
 regress-site-adapter-certification:
 	php sandbox/tests/offline/adapter/regress_site_adapter_certification.php
 
+# WP-4.8 / spec/repo-format.md § v3.7: the authority record v2 grammar --
+# fingerprint-derived key ids, the mandatory validity window and its named
+# clock, the <vendor>-* namespace, and the self-signed envelope. Gated on the
+# authorities DOCUMENT format, so the v1 control at the head of the suite is
+# what proves the four rules did not leak out of their gate.
+regress-authority-record-v2:
+	php sandbox/tests/offline/adapter/regress_authority_record_v2.php
+
 # Product release gate: every generated artifact must still agree with the
 # source it was generated from -- the public capability prose with the
 # manifest dispositions it describes, the published branch-environment

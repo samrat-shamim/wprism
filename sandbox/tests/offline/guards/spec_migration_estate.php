@@ -864,8 +864,13 @@ function rehearsal_probes(string $estate, string $state): array {
 
     $malformedRoot = $scratch . '/authority-malformed';
     rehearsal_copy_tree($certSite, $malformedRoot);
+    // WP-4.8 made `duo-adapter-authorities/v2` a REAL format (the authority
+    // record v2 grammar), so this probe moved to a version that is still
+    // nobody's: what it owns is the unknown-root refusal, not one specific
+    // version integer. A v2 document is exercised where its grammar lives,
+    // sandbox/tests/offline/adapter/regress_authority_record_v2.php.
     rehearsal_write_canon($malformedRoot . '/adapters/authorities.json', [
-        'format' => 'duo-adapter-authorities/v2',
+        'format' => 'duo-adapter-authorities/v9',
         'keys' => (object) $keptKeys,
     ]);
     $probe(

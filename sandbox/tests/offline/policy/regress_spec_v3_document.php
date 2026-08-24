@@ -1,7 +1,7 @@
 <?php
 /**
  * The spec-v3 section of `spec/repo-format.md`, held against the tree it
- * describes — and held to describing nothing this engine enforces yet.
+ * describes — rule by rule, each against its own `Enforced today:` line.
  *
  * WHY THIS SUITE EXISTS
  * ---------------------
@@ -12,19 +12,22 @@
  * cannot be GENERATED — it is a design argument, and the argument is the
  * deliverable — so it gets the other available discipline instead: every
  * measurable claim it makes is re-measured here from the shipped tree, and
- * every rule it states is asserted to be UNENFORCED, because WP-4.1's scope
- * boundary is spec text and schema emission only.
+ * every rule it states is asserted to match what the engine ACTUALLY does.
  *
  * The two halves are deliberately different in kind:
  *
- *   PART 1 — THE SCOPE BOUNDARY. Eleven facts about the shipped engine that
- *   together say "v3 is not in force": the define is still 2, the window still
+ *   PART 1 — THE SCOPE BOUNDARY. The facts about the shipped engine that say,
+ *   per rule, whether it is in force: the define is still 2, the window still
  *   refuses N-1, `engine_features` is read by nothing, the validator still
  *   admits an invented section, the disposition monolith is still one file, the
- *   signature domain is still /v1, the statement is still five members, the
- *   platform trust root is still empty, and no shipped manifest declares v3.
- *   A rider that lands enforcement without moving this suite's expectations is
- *   a rider that landed silently, which is the failure this half prevents.
+ *   certification signature domain is still /v1, the statement is still five
+ *   members, the platform trust root is still empty, and no shipped manifest
+ *   declares v3. A rider that lands enforcement without moving this suite's
+ *   expectations is a rider that landed silently, which is the failure this
+ *   half prevents — so when a rule DOES land, its assertions flip here rather
+ *   than staying vacuously true. § v3.7 (WP-4.8) is the one that has: its
+ *   assertions below check the enforcement, and check that the v1 grammar every
+ *   document in the field uses is untouched beside it.
  *
  *   PART 2 — THE DOCUMENT. Every number and name the section states is read
  *   back out of the engine, the manifests, and the platform boundary: the
@@ -68,7 +71,7 @@ $section = static function (string $id) use ($spec): string {
     return (string) preg_replace('/\s+/', ' ', $m[0]);
 };
 
-echo "\nPART 1 — THE SCOPE BOUNDARY: v3 is specified and NOT enforced\n";
+echo "\nPART 1 — THE SCOPE BOUNDARY: the v3 WIRE is not in force, rule by rule\n";
 
 // ---------------------------------------------------------------------------
 // The defines. WP-4.1 changes neither, and AGENTS.md rule 8 binds them to
@@ -233,12 +236,47 @@ duo_check_same(
     (string) $cert->getConstant('SIGNATURE_DOMAIN'),
     'v3.6 NOT enforced: SIGNATURE_DOMAIN is still /v1, so no certificate anywhere has moved wire'
 );
+// v3.7 IS enforced (WP-4.8) — the one exception, and the assertions flip with
+// it rather than staying silently true. What must remain true is the SHAPE of
+// the exception: v2 is a second format verified beside v1, gated on the
+// authorities document rather than on `spec_version`, so nothing a v1 document
+// says is read differently than it is today.
 duo_check_same(
     'duo-adapter-authorities/v1',
     (string) $cert->getConstant('AUTHORITIES_FORMAT'),
-    'v3.7 NOT enforced: the authority record envelope is still duo-adapter-authorities/v1'
+    'v3.7 ENFORCED, and v1 is untouched: the v1 envelope constant is still duo-adapter-authorities/v1, so '
+    . 'every document in the field keeps today\'s grammar'
+);
+duo_check_same(
+    'duo-adapter-authorities/v2',
+    (string) $cert->getConstant('AUTHORITIES_FORMAT_V2'),
+    'and v2 is a SECOND format verified beside it, never a widened v1 — the extension channel R-10 names'
+);
+duo_check_same(
+    "duo-adapter-authorities-signature/v1\0",
+    (string) $cert->getConstant('SIGNATURE_DOMAIN_AUTHORITIES'),
+    'the v2 envelope signature is its own domain-separated statement type, NUL-terminated like both others '
+    . '(register rows R-01/R-04), never an arm inside the certification verifier'
+);
+$v37Body = $section('v3.7');
+duo_check(
+    str_contains($v37Body, 'Enforced today: YES'),
+    'and § v3.7 says so in its own Enforced-today line: a rider that landed enforcement without moving this '
+    . 'line would have landed silently, which is exactly what PART 1 exists to prevent'
 );
 $certSource = (string) file_get_contents($repo . '/agent/src/Adapter/AdapterCertification.php');
+duo_check(
+    str_contains($certSource, 'private static function assertAuthorityWindow(')
+        && str_contains($certSource, '$now ?? time()')
+        && str_contains($certSource, 'refuses rather than resurrecting an expired record'),
+    'v3.7 change (b) is shipped code: a window judged against the host\'s own `$now ?? time()`, with the '
+    . 'implausible-clock refusal the section states'
+);
+duo_check(
+    !str_contains($certSource, 'hash_equals(Canon::encode($authority), Canon::encode($embedded'),
+    'v3.7 change (e) is shipped: the whole-record platform binding is gone, so both roots bind the key '
+    . 'identity and a growing trust root no longer invalidates its own earlier certificates'
+);
 duo_check(
     str_contains($certSource, "self::assertExactKeys(\$statement, ['adapter', 'authority', 'bundle', 'platform', 'ratification'], 'site adapter certification statement');"),
     'v3.6/v3.10 NOT enforced: the signed statement is still exactly its five members, so no reserved member was added to the wire'

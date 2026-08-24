@@ -182,6 +182,30 @@ const REHEARSAL_GAPS = [
     'cli/src/Refresh/RefreshPlan.php::assertProductionCodeMatches' =>
         'needs a git production ref and a refresh plan built against it. Exercised by '
         . 'sandbox/tests/offline/refresh/regress_refresh_orchestration.php.',
+    // WP-4.8's four authority-record-v2 gates. Every authorities document this
+    // estate builds is a well-formed `duo-adapter-authorities/v1` one — which
+    // is the point of the estate, since the flag day must not move a v1 byte —
+    // so none of the four v2 rules has a subject here. They are exercised, rule
+    // by rule and against a v1 CONTROL that proves each one is gated, by
+    // sandbox/tests/offline/adapter/regress_authority_record_v2.php.
+    'agent/src/Adapter/AdapterCertification.php::validateAuthorityRecord' =>
+        'the record grammar\'s own refusals. This estate drives it on every load (authorityKeys() calls it for '
+        . 'every key in every root it builds) but never REFUSES through it: its authority probes corrupt the '
+        . 'document format and the key map, which authorityKeys() answers first. Its two closed key sets and '
+        . 'the by-version refusal are exercised by '
+        . 'sandbox/tests/offline/adapter/regress_authority_record_v2.php.',
+    'agent/src/Adapter/AdapterCertification.php::assertKeyIdBindsKeyMaterial' =>
+        'reads only a record that declared `record_version: 2`, and this estate has none by construction. '
+        . 'Exercised — squatted id, swapped key material, and the producer-side refusal — by '
+        . 'sandbox/tests/offline/adapter/regress_authority_record_v2.php.',
+    'agent/src/Adapter/AdapterCertification.php::assertAuthoritiesEnvelope' =>
+        'unreachable for a v1 document, which carries no envelope signature at all. Exercised — unsigned, '
+        . 'tampered, appended-to, foreign-signer and revoked-signer — by '
+        . 'sandbox/tests/offline/adapter/regress_authority_record_v2.php.',
+    'agent/src/Adapter/AdapterCertification.php::signAuthorities' =>
+        'the v2 registry PRODUCER, and this estate mints no registry: it copies the shipped root and edits it. '
+        . 'Exercised by sandbox/tests/offline/adapter/regress_authority_record_v2.php, which signs through it '
+        . 'and then reads every document back through the shipped reader.',
     'recovery/CheckpointBundle.php::validatePriorVerification' =>
         'reached only through a receipt-authorized recovery provider call (RecoveryExecutor::configuration plus a '
         . 'signed rollback-control request), and manifest_inputs_sha256 is MINTED BY THE PROVIDER rather than '

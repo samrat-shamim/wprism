@@ -1,6 +1,6 @@
 # Duo Site-Repo Format
 
-*Status: **normative** — the authoritative contract for site repositories; where narrative documents (README, DESIGN.md) and this spec disagree, this spec wins. The wire-format grammar version is the `spec_version` integer in `site.duo.json` — currently `2` — which must equal the engine's own `DUO_SPEC_VERSION` exactly (see "Adapter compatibility contract" below). The "spec v1"/"spec v0.x" markers throughout are this document's own draft-history labels — they record when a rule was introduced and are NOT the wire version. The "Spec v3" section near the end is the one part of this document that is **specified and not yet enforced**: it states the next wire version's rules, each carrying the work package that implements it and what the engine does today, and nothing in it is in force while `DUO_SPEC_VERSION` is `2`.*
+*Status: **normative** — the authoritative contract for site repositories; where narrative documents (README, DESIGN.md) and this spec disagree, this spec wins. The wire-format grammar version is the `spec_version` integer in `site.duo.json` — currently `2` — which must equal the engine's own `DUO_SPEC_VERSION` exactly (see "Adapter compatibility contract" below). The "spec v1"/"spec v0.x" markers throughout are this document's own draft-history labels — they record when a rule was introduced and are NOT the wire version. The "Spec v3" section near the end states the next wire version's rules, each carrying the work package that implements it and an `Enforced today:` line that is the authority on whether the engine keeps it: no v3 rule is reached through `spec_version`, which is still `2`, and the one rule already enforced (§ v3.7) is gated on a document format of its own rather than on the wire version.*
 
 A **site repo** is a git repository holding the branchable partition of one WordPress site: code, canonical state, media, and policy. Environments (any WP install with the Duo agent) materialize it; their runtime data never enters it.
 
@@ -757,11 +757,21 @@ Adapter-owned extension may never grant one adapter authority over another's sta
 
 ## Spec v3 — the windowed format (SPECIFIED HERE, NOT YET IN FORCE)
 
-*Status of this whole section: **normative text with zero enforcement behind it***. `DUO_SPEC_VERSION` is
-`2` (`agent/duo.php:13`), `manifests/capabilities/platform.json` restates that `2`, and every rule below
-is refused by nothing today. This section exists so that the engine change which turns each rule on is a
-review against written text rather than a design decision taken inside a diff. Nothing here changes what
-this engine accepts, what any command prints, or one byte of any shipped manifest.
+*Status of this whole section: **the v3 WIRE is not in force, and each subsection's own `Enforced today:`
+line is the authority on that rule***. `DUO_SPEC_VERSION` is `2` (`agent/duo.php:13`),
+`manifests/capabilities/platform.json` restates that `2`, and no manifest anywhere is read against a
+different grammar than it is today. This section exists so that the engine change which turns each rule on
+is a review against written text rather than a design decision taken inside a diff.
+
+**One subsection is already enforced, and the exception is structural rather than a leak.** § v3.7's
+authority record v2 is gated on the AUTHORITIES DOCUMENT's own `format` value, not on `spec_version`, so it
+turns on for a document that opts in and changes nothing for the `duo-adapter-authorities/v1` documents that
+exist today. It landed ahead of the flag day because one of its five changes cannot land after: a trust root
+chooses whether its certificates bind the whole authority record or only the key identity at the moment its
+first certificate is signed, and never again (irreversibility register R-08). The platform root has signed
+none, and `manifests/capabilities/adapter-authorities.json` is `{"keys":{}}` — a state the release gate
+re-checks on every run. Every OTHER rule below is still refused by nothing, and no rule anywhere in this
+section changes one byte of a shipped manifest.
 
 **Why a v3 at all, and why it is meant to be the last one.** The wire version is checked by exact
 equality — `if (!is_int($spec) || $spec !== $supported)` (`agent/src/Adapter/AdapterContractGrammar.php:23-32`) —
@@ -787,7 +797,7 @@ evidence before this line changes.
 | v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | no — one monolith, one whole-document hash |
 | v3.5 | per-adapter environment narrowing | WP-4.6 | no — one global copy into every claim |
 | v3.6 | certificates bind exercised axes; in-statement version; domain `/v2` | WP-4.7 | no — whole-`platform.json` byte equality |
-| v3.7 | authority record v2, and the platform root's identity-only binding | WP-4.8 | no — 6-key record, whole-record platform binding |
+| v3.7 | authority record v2, and the platform root's identity-only binding | WP-4.8 | YES — v2 records enforce; v1 unchanged; both roots bind identity |
 | v3.8 | depth-1 delegation and typed revocation | WP-4.9 | no — no chain, one `status` word per key |
 | v3.9 | namespace grammar and the closed grandfather list | WP-4.10 | no — one flat identity grammar |
 | v3.10 | reserved-but-refusing slots | WP-4.11 | partly — the graduated verdict already shipped |
@@ -984,42 +994,105 @@ PHP patch adds coverage and invalidates nothing; changing a bound axis invalidat
 
 ### v3.7 Authority record v2, and the platform root's identity-only binding
 
-**Rider: WP-4.8. Enforced today: no.** The shipped record is exactly six keys — `adapter_names`,
-`algorithm`, `public_key`, `scope`, `status`, `trust_tiers` (`AdapterCertification::validateAuthorityRecord()`,
-`:1541`) — under the `duo-adapter-authorities/v1` envelope (`:124`), with no expiry vocabulary anywhere on
-the certification path (irreversibility register R-14) and revocation expressed as one `status` word per
-key (R-15). `manifests/capabilities/adapter-authorities.json` is `{"keys":{}}` and stays empty through the
-flag day: issuing one key freezes this wire format in a stranger's hands.
+**Rider: WP-4.8. Enforced today: YES — this is the one v3 subsection with enforcement behind it, and it
+is gated on the AUTHORITIES DOCUMENT, never on `spec_version`.** A `duo-adapter-authorities/v1` document
+keeps today's behaviour byte for byte: six-member records (`adapter_names`, `algorithm`, `public_key`,
+`scope`, `status`, `trust_tiers`), exact adapter names, no window, no envelope signature, and a key id held
+to nothing but the shared identity slug grammar. A document declaring `duo-adapter-authorities/v2` accepts
+all five rules below at once. `manifests/capabilities/adapter-authorities.json` is `{"keys":{}}` and stays
+empty through the flag day: issuing one key freezes this wire format in a stranger's hands.
+
+WP-4.8 rides the flag day rather than the first enrollment because of change (5): a trust root chooses its
+record binding at the moment its first certificate is signed and never after (R-08), so the platform root's
+binding is fixable exactly while that file is empty and not one hour later.
+
+**Why the DOCUMENT format is the gate, not `spec_version`.** An authority record has no manifest around it
+to carry a wire version, and on the frozen path it has no document around it either — `verifyFrozen()`
+re-binds a site certificate to the record its own SIGNATURE covers, which arrives with no `format` line
+above it. So v2 states its version twice: `duo-adapter-authorities/v2` on the envelope and
+`record_version: 2` inside every record, with a disagreement between the two REFUSED in either direction.
+The in-record member is what makes a grammar this engine does not implement refuse BY VERSION rather than
+read as corruption — the same member § v3.6 adds inside the certification statement, for the same reason —
+and it is what stops a tamperer downgrading a record by DELETING bytes.
 
 Five changes, one grammar:
 
 1. **Key ids are fingerprint-derived by grammar, not by keygen default.** `keyId()` is nothing but the
-   shared identity slug check (`:1214`), while the host side already DERIVES
+   shared identity slug check, while the host side already DERIVES
    `site-<first 12 hex of sha256(public key)>` as a default an operator may override
-   (`cli/src/Adapter/AdapterCertify.php:1240-1242`). At v3 the derivation
-   is the grammar: an id that does not match its own key material is refused, so a squatted or misleading
-   id is unrepresentable rather than merely discouraged. Existing certificates keep verifying under
-   whatever id they were signed with, because `key_id` is already inside the signature.
+   (`cli/src/Adapter/AdapterCertify.php:1241`). At v2 the derivation IS the grammar: a key id must END in
+   `-<first 12 hex of sha256(its own public_key)>`, so a squatted or misleading id is unrepresentable
+   rather than merely discouraged, and swapping the key under a legitimate id is the same refusal read
+   from the other end. The label half stays free — `<anything the slug grammar allows>-<fingerprint>` —
+   because the fingerprint is what has to be honest, not the noun in front of it; 12 hex is the length
+   `duo adapter keygen` already emits, so v2 mints no second convention. 48 bits is a selector, not a
+   signature, and is not asked to be one: the `key_id` inside the statement is what a signature binds.
+   Existing certificates keep verifying under whatever id they were signed with, because `key_id` is
+   already inside the signature and this rule reads only a record that declared `record_version: 2`.
 2. **`not_after`, with a NAMED clock source and a stated implausible-clock posture.** The clock is the
-   verifying host's own wall clock, named in the refusal. There is no skew allowance in either direction —
-   the same posture contract attestation already ships (R-14) — and an implausible clock (one before the
-   record's own issuance instant) REFUSES rather than resurrecting an expired record. Expiry introduces a
-   date-bricking failure mode into a protocol that has never had one, so it is reported as fleet health
-   well before it fires: approaching expiry is a census row, not a surprise on a Tuesday.
+   verifying host's own wall clock — literally `$now ?? time()`, the same expression the contract root is
+   judged against (R-14) — and the refusal names it and prints what it read. There is no skew allowance in
+   either direction, and the comparison is `>=`, so a record refuses AT its `not_after` and not one second
+   later. An implausible clock — one reading before the record's own issuance instant — REFUSES, and that
+   test runs FIRST, because a backwards clock would otherwise find every already-retired record inside its
+   window: the expiry test alone would RESURRECT it.
+   *Resolved here:* the issuance instant is a member, `not_before`, and both ends are MANDATORY at v2. The
+   spec text named an issuance instant without naming a member; without one the implausible-clock refusal
+   is inexpressible, and an optional member has no honest home in a key set that refuses missing and
+   unknown alike (R-05's `assertExactKeys()` posture). Both parse strictly at `Y-m-d\TH:i:s\Z`, checked
+   at both ends so "expired" is never a parse accident, and `not_before` must be strictly less than
+   `not_after`. A holder that wants no expiry keeps its record at v1, where there is none. The window is
+   enforced in the same seat as revocation (`assertAuthorityScope()`), so an expired key refuses wherever a
+   revoked one does — signing, live verification, and the frozen path — and revocation still answers first.
+   *Deferred, and named rather than assumed:* approaching expiry as a fleet-health census row is NOT in
+   this rider. No v2 record exists anywhere yet, so the row would report on an empty set; it rides with the
+   first enrollment (WP-5.1), which is also the first moment it has a subject.
 3. **`adapter_names` admits a namespace PATTERN beside exact names**, evaluated at the same live scope
-   check the shipped code performs (`assertAuthorityScope()`, `:1598`). A pattern may only narrow what an
-   authority can certify relative to what it was granted; scope can never widen through a pattern.
-4. **The authorities document gains a signed envelope**, byte-checked by `make release-gate` the way the
-   generated capability document and the classmap already are. An unsigned or tampered authorities file
-   refuses.
-5. **The platform root adopts the site root's identity-only record binding.** Today the site branch binds
-   `authorityIdentity()` — everything but the scope lists (`:1666`, used at `:1640`) — because the site
-   trust root is a living registry: binding the whole record would invalidate every earlier certificate
-   under that key the moment a second adapter is certified. The platform branch binds the whole record
-   (`:1651`), justified by a premise enrollment falsifies — that the shipped file never grows under an
-   operator's hand. It will grow, once per enrolled vendor, and each growth would silently re-sign the
-   fleet's certificates. The platform root therefore binds identity too, and the second-enrollment case is
-   a named regression rather than an inference.
+   check the shipped code performs (`assertAuthorityScope()`). `acme-*` covers `acme-forms` and anything
+   deeper; it does not cover `acme` itself, and it does not cover `acmex-forms`.
+   *Resolved here:* "scope can never widen through a pattern" is enforced as a GRAMMAR restriction rather
+   than a review rule, because at the record level a pattern IS the grant and there is no delegator to
+   narrow against (that is § v3.8's job). The wildcard must therefore bind a non-empty vendor namespace:
+   `<vendor>-*` and nothing else, with the vendor half held to the one shared identity grammar every
+   adapter name is held to. A bare `*`, a bare suffix `*-forms`, an interior `acme-*-pro` and a doubled
+   `acme-**` are each refused by name. A wildcard binding no prefix is exactly the widening this rule
+   forbids, so the grammar cannot express it at all.
+4. **The authorities document gains a signed envelope**, checked by `make release-gate` the way the
+   generated capability document and the classmap already are. The signature is its own domain-separated
+   statement type — `duo-adapter-authorities-signature/v1\0` prepended to `Canon::encode({format, keys})`,
+   the document minus its own signature — never an arm inside the certification verifier (R-01/R-04), and
+   it is made by a key the document ITSELF carries. What that proves is exact: a signed registry cannot be
+   PARTIALLY edited, so nobody without the signing key can append a key, widen a scope list, move a window
+   or flip a status in it — which is the property enrollment needs, because enrollment is the moment this
+   file starts growing under a hand other than a reviewer's. What it does not prove, stated so nobody reads
+   more into it: it is not a chain to an off-document root. Delegation is § v3.8's own signed statement
+   type. The signer must be `trusted`; its own window is deliberately NOT applied, because bricking every
+   other vendor's key in the file when one signer's window lapses is a blast radius this section exists to
+   remove rather than add.
+   *Resolved here:* an EMPTY registry needs no signature — because an empty v2 registry is
+   **unrepresentable**. The envelope signature names a key inside the document, so a registry with no keys
+   has nothing that could sign it, and a signature over an empty key set would prove nothing about any key.
+   An empty registry stays `duo-adapter-authorities/v1`; v2 is the ENROLLED format. That is precisely what
+   lets `manifests/capabilities/adapter-authorities.json` stay `{"keys":{}}`, byte-identical, through the
+   flag day. The release gate accordingly admits exactly two states for that file — the empty v1 registry
+   byte for byte, or a v2 document that verifies through the SHIPPED reader — and refuses everything else.
+5. **The platform root adopts the site root's identity-only record binding.** The site branch binds
+   `authorityIdentity()` — everything but the scope lists — because the site trust root is a living
+   registry: binding the whole record would invalidate every earlier certificate under that key the moment
+   a second adapter is certified. The platform branch bound the whole record, justified by a premise
+   enrollment falsifies — that the shipped file never grows under an operator's hand. It will grow, once
+   per enrolled vendor, and each growth would invalidate every certificate already issued under that key,
+   silently and all at once. The platform root therefore binds identity too, and the second-enrollment case
+   is a named regression rather than an inference: certify adapter A under a platform key, enroll adapter B
+   on the same key, and A's certificate still verifies
+   (`sandbox/tests/offline/adapter/regress_site_adapter_certification.php`).
+   Nothing is laundered by the narrowing, and the suite asserts both halves: the two scope lists are
+   enforced LIVE against the current record (a key narrowed out of an adapter still refuses, by name), and
+   `authorityIdentity()` drops the scope lists and NOTHING ELSE — so a moved `status`, `public_key`,
+   `record_version` or window is still an identity move that refuses. The proof digest every repository pin
+   binds now follows the record the certificate was SIGNED over under both roots, which is the identical
+   value for every certificate that verified before this change: the old platform branch REQUIRED
+   `record_sha256` to equal the installed record's digest, so the two were equal by construction.
 
 Per R-08, a future root chooses one of the two bindings at the moment its first certificate is signed and
 never after. This change is possible only because the platform root has never signed one.

@@ -57,12 +57,28 @@
  ],
  "sites": [
   {
+   "site": "agent/src/Adapter/AdapterCertification.php::assertAuthoritiesEnvelope",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "refuses \"envelope signature does not verify under key '<id>'\" for a duo-adapter-authorities/v2 document: the signature covers {format, keys} whole, so appending a key, widening a scope list or moving a window in a signed registry refuses. Unreachable for a v1 document, which carries no envelope signature at all."
+  },
+  {
    "site": "agent/src/Adapter/AdapterCertification.php::assertAuthorityBinding",
    "axes": [
     "authority"
    ],
    "verdict": "gate",
-   "note": "refuses \"certification authority/key/fingerprint/trust root does not match the current <root> authority record\"; the platform root binds the WHOLE record, the site root only the key identity, because the site file grows under the operator's hand."
+   "note": "refuses \"certification authority/key/fingerprint/trust root does not match the current <root> authority record\"; BOTH roots bind the key IDENTITY (everything but adapter_names/trust_tiers) since WP-4.8, because a trust root grows under an operator's hand at every enrollment and whole-record binding would re-invalidate every earlier certificate under that key. The two scope lists are enforced live by assertAuthorityScope() instead."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::assertKeyIdBindsKeyMaterial",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "refuses a v2 key id that does not end in the first 12 hex of sha256(its own public_key). It is the authority axis read from the identity end: the id and the key material are one fact, so swapping either refuses. v1 records never reach it."
   },
   {
    "site": "agent/src/Adapter/AdapterCertification.php::assertKeyIdNotPlatformOwned",
@@ -106,6 +122,14 @@
    "note": "the mint path resolves the key through authority() and binds currentPlatform() before Ed25519 runs, so a revoked key or a moved boundary refuses to produce a certificate at all."
   },
   {
+   "site": "agent/src/Adapter/AdapterCertification.php::signAuthorities",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the one shipped producer of a signed duo-adapter-authorities/v2 registry. Validates every record through validateAuthorityRecord() and refuses a key the document does not carry, or a private key that is not that record's own, before a signature byte exists — so a registry that could not be READ can never be signed."
+  },
+  {
    "site": "agent/src/Adapter/AdapterCertification.php::sign_site",
    "axes": [
     "authority",
@@ -113,6 +137,14 @@
    ],
    "verdict": "gate",
    "note": "same mint gate for the site trust root; additionally refuses an empty operator reason, because a site claim with no stated basis is the thing the site root exists to avoid."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::validateAuthorityRecord",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the record grammar itself, with two closed key sets selected by the record's own record_version: the shipped six at v1, the nine of R-18 at v2. Refuses a record version this agent does not implement BY VERSION rather than reading it as a v2 record with unexpected members."
   },
   {
    "site": "agent/src/Adapter/AdapterCertification.php::verifyCertificate",

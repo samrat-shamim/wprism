@@ -122,11 +122,37 @@ final class AdapterCertification {
     // is no weaker second envelope protocol to accidentally accept.
     public const ENVELOPE_FORMAT = self::FORMAT;
     public const AUTHORITIES_FORMAT = 'duo-adapter-authorities/v1';
+    /**
+     * The AUTHORITY RECORD v2 envelope (spec/repo-format.md § v3.7, WP-4.8).
+     *
+     * A second format value rather than a widened v1, because R-10 records the
+     * v1 envelope key set as closed in both directions: `{format, keys}` refuses
+     * a missing AND an unknown member with one message, so the envelope
+     * signature could never have been added to it for anyone holding today's
+     * agent. A v1 document therefore keeps today's behaviour byte for byte —
+     * six-member records, exact adapter names, no window, no signature — and a
+     * document opting into v2 accepts all five v2 rules at once. The two are
+     * verified beside each other; neither is a fallback for the other.
+     */
+    public const AUTHORITIES_FORMAT_V2 = 'duo-adapter-authorities/v2';
     public const BUNDLE_FORMAT = 'duo-site-adapter-certification-bundle/v1';
     public const RATIFICATION_FORMAT = 'duo-manifest-dispositions/v1';
 
     /** Kept independent from JSON framing so this signature cannot verify elsewhere. */
     public const SIGNATURE_DOMAIN = "duo-site-adapter-certification-signature/v1\0";
+
+    /**
+     * The v2 authorities-document envelope signature domain.
+     *
+     * Its own domain, not an arm inside SIGNATURE_DOMAIN's verifier: R-01/R-04
+     * state the rule this obeys — a statement of one kind must not be able to
+     * verify as a statement of another, and the trailing NUL is what stops one
+     * domain being a prefix of a longer one. The bytes signed are
+     * `domain || Canon::encode({format, keys})` — the document with its own
+     * `signature` member removed, because a signature is never inside its own
+     * input (the same exclusion ContractAttestation's `attested_digest` makes).
+     */
+    public const SIGNATURE_DOMAIN_AUTHORITIES = "duo-adapter-authorities-signature/v1\0";
 
     private const AUTHORITIES_RELATIVE = 'capabilities/adapter-authorities.json';
     /**
@@ -151,6 +177,72 @@ final class AdapterCertification {
     public const TRUST_ROOT_PLATFORM = 'platform';
     /** Held by the customer organization, in its own site repository. */
     public const TRUST_ROOT_SITE = 'site';
+
+    /**
+     * The two authority record key sets, and the member that tells them apart.
+     *
+     * `record_version` is REQUIRED at v2 and absent at v1, and it is what makes
+     * a record self-describing away from its envelope: the frozen path re-binds
+     * a site certificate to the record its own SIGNATURE covers
+     * (verifyCertificate()), and that embedded record arrives with no `format`
+     * line above it. Without an in-record version the verifier would have to
+     * infer the grammar from which optional members happened to be present,
+     * which is a downgrade a tamperer performs by DELETING bytes. With it, a
+     * grammar this engine does not implement is refused BY VERSION rather than
+     * read as corruption — the same member § v3.6 adds inside the certification
+     * statement, for the same reason.
+     */
+    private const AUTHORITY_RECORD_KEYS = [
+        'adapter_names', 'algorithm', 'public_key', 'scope', 'status', 'trust_tiers',
+    ];
+    /**
+     * v2 = v1 + `record_version` + the mandatory validity window.
+     *
+     * The window is mandatory rather than optional because `assertExactKeys()`
+     * is closed in both directions and an optional member has no honest home in
+     * it — and because a v2 record's whole purpose is to be enrollable, which
+     * is the case where an unbounded grant is the wrong default. A holder that
+     * wants no expiry keeps its record at v1, where there is none.
+     */
+    private const AUTHORITY_RECORD_V2_KEYS = [
+        'adapter_names', 'algorithm', 'not_after', 'not_before', 'public_key', 'record_version',
+        'scope', 'status', 'trust_tiers',
+    ];
+    private const AUTHORITIES_ENVELOPE_KEYS = ['format', 'keys'];
+    private const AUTHORITIES_ENVELOPE_V2_KEYS = ['format', 'keys', 'signature'];
+    private const AUTHORITIES_SIGNATURE_KEYS = ['key_id', 'value'];
+
+    /**
+     * One timestamp grammar, checked at both ends, and it is deliberately the
+     * same string ContractAttestation::EXPIRES_FORMAT is
+     * (`cli/src/Contract/ContractAttestation.php:149`): a hand-written
+     * `2027-13-01T00:00:00Z` that parsed loosely would make "expired" a
+     * property of the parser rather than of the clock, and two spellings of one
+     * instant across two roots would be a second grammar to get wrong.
+     */
+    private const AUTHORITY_WINDOW_FORMAT = 'Y-m-d\TH:i:s\Z';
+
+    /**
+     * The fingerprint prefix length a v2 key id must carry, in hex characters.
+     *
+     * 12 because that is already the id `duo adapter keygen` hands an operator
+     * by default — `'site-' . substr(hash('sha256', $public), 0, 12)`
+     * (`cli/src/Adapter/AdapterCertify.php:1241`) — so v2 makes the shipped
+     * default THE RULE rather than minting a second convention nobody's tooling
+     * emits. 48 bits of second-preimage room is not a signature and is not
+     * asked to be one: the id is a map key and a selector, and the signature
+     * over `key_id` inside the statement is what actually binds it.
+     */
+    private const AUTHORITY_KEY_FINGERPRINT_LENGTH = 12;
+
+    /**
+     * The verifying host's clock, injectable for regression only.
+     *
+     * No production setter, exactly like $testVerifiedBundleAssetReadHook
+     * below: the offline suite reaches it through Reflection so an expiry
+     * boundary can be asserted at the second rather than waited for.
+     */
+    private static ?\Closure $testAuthorityClock = null;
 
     /**
      * The manifest's own top-level vocabulary, partitioned the way a
@@ -1102,15 +1194,15 @@ final class AdapterCertification {
             // namespace, and that check needs no repository at all.
             self::validateAuthorityRecord(
                 $embeddedRecord,
-                "site adapter certification key '$selectedAuthority'"
+                "site adapter certification key '$selectedAuthority'",
+                $selectedAuthority
             );
             self::assertKeyIdNotPlatformOwned($manifestDir, self::keyId($selectedAuthority));
             $authority = $embeddedRecord;
             $keyId = self::keyId($selectedAuthority);
-            $authorityDigest = self::canonicalHash($embeddedRecord);
             $trustRoot = self::TRUST_ROOT_SITE;
         } else {
-            [$authority, $keyId, $authorityDigest, $trustRoot] = self::authority(
+            [$authority, $keyId, , $trustRoot] = self::authority(
                 $manifestDir,
                 $selectedAuthority,
                 $repoRoot
@@ -1119,24 +1211,24 @@ final class AdapterCertification {
         self::assertAuthorityBinding(
             $authority,
             $keyId,
-            $authorityDigest,
             $trustRoot,
             $statementAuthority,
             $name,
             $tier
         );
         // The proof (and through it the adapter digest every repository pin
-        // binds) records the authority record the certificate was SIGNED
-        // over. Under the site root that is the embedded record's digest, not
-        // the current file's: the site trust root grows with every certified
-        // adapter, and a proof that followed the current file would move the
-        // pinned digest of every earlier adapter each time — the frozen path
-        // below already re-derives exactly this digest from the embedded
-        // record, so live and frozen now say the same thing. The platform
-        // root binds the whole record, so there the two digests are equal.
-        if ($trustRoot === self::TRUST_ROOT_SITE) {
-            $authorityDigest = (string) $statementAuthority['record_sha256'];
-        }
+        // binds) records the authority record the certificate was SIGNED over —
+        // under BOTH roots now, not the current file's digest under either. A
+        // trust root grows with every certified adapter, and a proof that
+        // followed the current file would move the pinned digest of every
+        // earlier adapter each time; the frozen path re-derives exactly this
+        // digest from the embedded record, so live and frozen say one thing.
+        // Reached only after the binding above proved this digest is the
+        // embedded record's own, so it is never an unverified input. For every
+        // certificate that verified before WP-4.8 this is the identical value:
+        // the platform branch used to REQUIRE record_sha256 to equal the
+        // installed record's digest, so the two were equal by construction.
+        $authorityDigest = (string) $statementAuthority['record_sha256'];
         $signature = base64_decode((string) $certificate['signature'], true);
         if ($signature === false || strlen($signature) !== SODIUM_CRYPTO_SIGN_BYTES
             || !sodium_crypto_sign_verify_detached(
@@ -1490,11 +1582,35 @@ final class AdapterCertification {
             throw new \RuntimeException("duo: $label must be an ordinary regular file: $file");
         }
         [, $typed, $data] = self::readCanonicalObjectFile($file, $label);
-        self::assertExactKeys($data, ['format', 'keys'], $label);
-        if (($data['format'] ?? null) !== self::AUTHORITIES_FORMAT
+        // The envelope key set is decided BEFORE the format is judged, and by
+        // the format the document claims: `{format, keys}` at v1 (unchanged
+        // bytes for every document in the field) and `{format, keys, signature}`
+        // at v2, where the signature is not optional. A document claiming a
+        // format this engine does not implement still lands on the v1 key set
+        // and is then refused by the root check below with today's sentence.
+        if (($data['format'] ?? null) !== self::AUTHORITIES_FORMAT_V2) {
+            self::assertExactKeys($data, self::AUTHORITIES_ENVELOPE_KEYS, $label);
+        } else {
+            self::assertExactKeys($data, self::AUTHORITIES_ENVELOPE_V2_KEYS, $label);
+        }
+        if (!in_array($data['format'] ?? null, [self::AUTHORITIES_FORMAT, self::AUTHORITIES_FORMAT_V2], true)
             || !is_array($data['keys'] ?? null)
             || !isset($typed->keys) || !is_object($typed->keys)) {
             throw new \RuntimeException("duo: $label have an unsupported or malformed root");
+        }
+        // An EMPTY v2 registry is unrepresentable, and that is what lets the
+        // shipped `manifests/capabilities/adapter-authorities.json` stay the
+        // byte-identical `{"format": "duo-adapter-authorities/v1", "keys": {}}`
+        // through the flag day: the envelope signature names a key INSIDE the
+        // document, so a registry with no keys has nothing that could sign it,
+        // and a signature over an empty key set proves nothing about any key.
+        // An empty registry stays v1; v2 is the enrolled format.
+        if (($data['format'] ?? null) === self::AUTHORITIES_FORMAT_V2 && $data['keys'] === []) {
+            throw new \RuntimeException(
+                "duo: $label carry no keys, so the " . self::AUTHORITIES_FORMAT_V2
+                . ' envelope signature has nothing to sign with; an empty registry stays '
+                . self::AUTHORITIES_FORMAT
+            );
         }
         $keys = [];
         foreach ($data['keys'] as $keyId => $record) {
@@ -1511,8 +1627,25 @@ final class AdapterCertification {
             if (!isset($typed->keys->{$keyId}) || !is_object($typed->keys->{$keyId})) {
                 throw new \RuntimeException("duo: adapter certification key '$keyId' must be a JSON object");
             }
-            self::validateAuthorityRecord($record, "adapter certification key '$keyId'");
+            self::validateAuthorityRecord($record, "adapter certification key '$keyId'", $keyId);
+            // The document's format and each record's own `record_version` are
+            // two statements of one fact, and a disagreement is refused rather
+            // than resolved: a v1 envelope holding a windowed record would put
+            // an unenforced expiry in front of a reader who thinks it is
+            // enforced, and a v2 envelope holding a v1 record would sign over a
+            // grant nothing narrowed.
+            $declaredV2 = ($record['record_version'] ?? null) !== null;
+            if ($declaredV2 !== (($data['format'] ?? null) === self::AUTHORITIES_FORMAT_V2)) {
+                throw new \RuntimeException(
+                    "duo: adapter certification key '$keyId' declares record_version "
+                    . ($declaredV2 ? '2' : 'nothing') . " inside a $label document declaring format "
+                    . (string) ($data['format'] ?? '') . ' — the envelope and the record must state one grammar'
+                );
+            }
             $keys[$keyId] = $record;
+        }
+        if (($data['format'] ?? null) === self::AUTHORITIES_FORMAT_V2) {
+            self::assertAuthoritiesEnvelope($data, $typed, $keys, $label);
         }
         return $keys;
     }
@@ -1538,10 +1671,28 @@ final class AdapterCertification {
         }
     }
 
-    private static function validateAuthorityRecord(array $record, string $label): void {
-        self::assertExactKeys($record, [
-            'adapter_names', 'algorithm', 'public_key', 'scope', 'status', 'trust_tiers',
-        ], $label);
+    /**
+     * One record grammar with two closed key sets, selected by the record.
+     *
+     * $keyId is the map key (or, on the frozen path, the `key_id` inside the
+     * signed statement) the record answers for. v1 does not read it — its
+     * grammar is the shared identity slug and nothing more — and v2 binds it to
+     * the record's own key material (§ v3.7 change (a)).
+     */
+    private static function validateAuthorityRecord(array $record, string $label, string $keyId): void {
+        $version = $record['record_version'] ?? null;
+        if ($version === null) {
+            self::assertExactKeys($record, self::AUTHORITY_RECORD_KEYS, $label);
+        } else {
+            self::assertExactKeys($record, self::AUTHORITY_RECORD_V2_KEYS, $label);
+            if ($version !== 2) {
+                throw new \RuntimeException(
+                    "duo: $label declares authority record_version " . var_export($version, true)
+                    . ', which this agent does not implement — a record version is refused by version, never'
+                    . ' read as a v2 record with unexpected members'
+                );
+            }
+        }
         if (($record['algorithm'] ?? null) !== 'ed25519'
             || ($record['scope'] ?? null) !== 'site_adapter_certification') {
             throw new \RuntimeException("duo: $label must declare algorithm ed25519 and scope site_adapter_certification");
@@ -1551,7 +1702,11 @@ final class AdapterCertification {
         }
         $names = self::stringList($record['adapter_names'] ?? null, "$label.adapter_names", false);
         foreach ($names as $name) {
-            self::adapterName($name);
+            if ($version === null) {
+                self::adapterName($name);
+            } else {
+                self::assertScopeEntry($name, "$label.adapter_names");
+            }
         }
         $tiers = self::stringList($record['trust_tiers'] ?? null, "$label.trust_tiers", false);
         foreach ($tiers as $tier) {
@@ -1569,7 +1724,311 @@ final class AdapterCertification {
                 throw new \RuntimeException("duo: $label names unsupported site adapter trust tier '$tier'");
             }
         }
-        self::publicKey($record);
+        $public = self::publicKey($record);
+        if ($version !== null) {
+            self::assertKeyIdBindsKeyMaterial($keyId, $public, $label);
+            self::assertWindowShape($record, $label);
+        }
+    }
+
+    /**
+     * v2 change (a): the key id must be derived from its own key material.
+     *
+     * `keyId()` is nothing but the shared identity slug grammar (:1214), so at
+     * v1 an operator may name a key anything legal — `wordpress-security-team`
+     * over a key nobody at WordPress holds. The host side already DERIVES
+     * `site-<first 12 hex of sha256(public key)>` as the default an operator
+     * may override (`cli/src/Adapter/AdapterCertify.php:1241`); v2 makes that
+     * derivation the RULE, so a squatted or misleading id is unrepresentable
+     * rather than merely discouraged. The label half stays free — the id is
+     * `<anything the slug grammar allows>-<fingerprint>` — because the
+     * fingerprint is what has to be honest, not the noun in front of it.
+     *
+     * Existing certificates are untouched by construction: `key_id` is INSIDE
+     * the signed statement, so a v1-rooted certificate keeps verifying under
+     * whatever id it was signed with, and this rule only ever reads a record
+     * that declared `record_version: 2`.
+     */
+    private static function assertKeyIdBindsKeyMaterial(string $keyId, string $public, string $label): void {
+        $id = self::keyId($keyId);
+        $fingerprint = substr(hash('sha256', $public), 0, self::AUTHORITY_KEY_FINGERPRINT_LENGTH);
+        if (!str_ends_with($id, '-' . $fingerprint)) {
+            throw new \RuntimeException(
+                "duo: $label is named '$id', which does not derive from its own key material — a "
+                . self::AUTHORITIES_FORMAT_V2 . " key id must end in '-$fingerprint', the first "
+                . self::AUTHORITY_KEY_FINGERPRINT_LENGTH . ' hex characters of sha256(public_key)'
+            );
+        }
+    }
+
+    /**
+     * v2 change (c): an `adapter_names` entry is an exact name or a namespace.
+     *
+     * `<vendor>-*` and nothing else. A bare `*`, an interior wildcard and a
+     * bare-suffix `*-forms` are all refused, and the reason is the one § v3.7
+     * states: scope can never WIDEN through a pattern. A wildcard that binds no
+     * vendor prefix is exactly the widening — it would grant an authority every
+     * adapter name that exists and every one that ever will — so the pattern
+     * grammar cannot express it at all rather than relying on review to catch
+     * it. `acme-*` covers `acme-forms`; it does not cover `acme` itself (the
+     * hyphen is inside the pattern) and it does not cover `acmex-forms`.
+     */
+    private static function assertScopeEntry(string $entry, string $label): void {
+        if (!str_contains($entry, '*')) {
+            self::adapterName($entry);
+            return;
+        }
+        if (!str_ends_with($entry, '-*') || substr_count($entry, '*') !== 1) {
+            throw new \RuntimeException(
+                "duo: $label entry '$entry' is neither an exact adapter name nor a '<vendor>-*' namespace"
+            );
+        }
+        // The vendor half is held to the one shared identity grammar every
+        // adapter name is held to, so a namespace can only ever name a prefix
+        // an adapter name could actually have.
+        self::adapterName(substr($entry, 0, -2));
+    }
+
+    /** True when an authority's scope list covers this exact adapter name. */
+    private static function scopeCoversName(array $names, string $name): bool {
+        foreach ($names as $entry) {
+            if (!is_string($entry)) {
+                continue;
+            }
+            if ($entry === $name) {
+                return true;
+            }
+            if (str_ends_with($entry, '-*') && str_starts_with($name, substr($entry, 0, -1))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * v2 change (b), grammar half: the record states one validity window.
+     *
+     * Both ends are mandatory at v2 and both parse strictly, because the
+     * implausible-clock refusal below is only expressible against a stated
+     * issuance instant: without `not_before` a host whose clock reads 1999
+     * would find every expired record "not yet expired", which is the
+     * resurrection this rule exists to refuse.
+     */
+    private static function assertWindowShape(array $record, string $label): void {
+        $before = self::instant($record['not_before'] ?? null, "$label.not_before");
+        $after = self::instant($record['not_after'] ?? null, "$label.not_after");
+        if ($before >= $after) {
+            throw new \RuntimeException(
+                "duo: $label declares not_before " . (string) $record['not_before'] . ' at or after not_after '
+                . (string) $record['not_after'] . ' — a window that has never been open certifies nothing'
+            );
+        }
+    }
+
+    /** @param mixed $value @return int the UTC epoch second the instant names */
+    private static function instant($value, string $label): int {
+        $parsed = is_string($value)
+            ? \DateTimeImmutable::createFromFormat(self::AUTHORITY_WINDOW_FORMAT, $value, new \DateTimeZone('UTC'))
+            : false;
+        if ($parsed === false || $parsed->format(self::AUTHORITY_WINDOW_FORMAT) !== $value) {
+            throw new \RuntimeException(
+                "duo: $label must be one unambiguous ISO-8601 UTC instant (YYYY-MM-DDTHH:MM:SSZ)"
+            );
+        }
+        return $parsed->getTimestamp();
+    }
+
+    /**
+     * THE NAMED CLOCK: the verifying host's own wall clock, and nothing else.
+     *
+     * The same expression `ContractAttestation::verify()` is judged against
+     * (`cli/src/Contract/ContractAttestation.php:436`, register row R-14), so
+     * the two roots that carry an expiry read one clock and there is no second
+     * time source to disagree with. There is no skew allowance in either
+     * direction: a wrong operator clock refuses rather than accepts, which is
+     * the safe failure and is the posture holders already depend on.
+     */
+    private static function now(): int {
+        $now = self::$testAuthorityClock === null ? null : (int) (self::$testAuthorityClock)();
+
+        return $now ?? time();
+    }
+
+    private static function stamp(int $epoch): string {
+        return gmdate(self::AUTHORITY_WINDOW_FORMAT, $epoch);
+    }
+
+    /**
+     * v2 change (b), enforcement half: the window, judged at scope time.
+     *
+     * Here rather than in the record grammar because expiry is a fact about
+     * what a key may DO, not about whether its bytes are well formed: a record
+     * whose window has closed must still parse, still report, and still be
+     * distinguishable from a malformed one. This is the same seat revocation
+     * already occupies (assertAuthorityScope()), so an expired key refuses
+     * everywhere a revoked key refuses — signing, live verification, and the
+     * frozen path where the record inside the signature is the authority.
+     *
+     * v1 records return immediately: they carry no window, and none is
+     * invented for them.
+     */
+    private static function assertAuthorityWindow(array $authority, string $keyId): void {
+        if (($authority['record_version'] ?? null) === null) {
+            return;
+        }
+        $now = self::now();
+        $issued = self::instant($authority['not_before'] ?? null, "authority key '$keyId'.not_before");
+        $expires = self::instant($authority['not_after'] ?? null, "authority key '$keyId'.not_after");
+        // IMPLAUSIBLE CLOCK FIRST, and that order is the rule. A host reading
+        // before the record's own issuance instant would find every expired
+        // record inside its window, so testing expiry first would let a wrong
+        // clock RESURRECT a record its issuer has already retired.
+        if ($now < $issued) {
+            throw new \RuntimeException(
+                "duo: this host's own wall clock reads " . self::stamp($now) . ", before authority key '$keyId'"
+                . ' was issued at ' . self::stamp($issued)
+                . ' — an implausible clock refuses rather than resurrecting an expired record'
+            );
+        }
+        if ($now >= $expires) {
+            throw new \RuntimeException(
+                "duo: authority key '$keyId' expired at " . self::stamp($expires) . ', judged against this'
+                . " host's own wall clock, which reads " . self::stamp($now)
+                . ' — there is no skew allowance in either direction'
+            );
+        }
+    }
+
+    /**
+     * v2 change (d): the document attests to itself, or it does not verify.
+     *
+     * WHAT THIS PROVES, EXACTLY. The signature names a key inside the document
+     * and covers `{format, keys}` whole, so a signed registry cannot be
+     * PARTIALLY edited: nobody without the signing key can append a key, widen
+     * a scope list, move a window or flip a status in it. That is precisely the
+     * property enrollment needs, because enrollment is the moment this file
+     * starts growing under a hand other than a reviewer's.
+     *
+     * WHAT IT DOES NOT PROVE, stated so nobody reads more into it: it is not a
+     * chain to an external root. A party who can rewrite the file wholesale can
+     * self-sign their own registry — and every certificate that verified under
+     * the old one then stops verifying, because the certificate binds the
+     * signing key's IDENTITY inside its own signature (assertAuthorityBinding()).
+     * Delegation to an off-document root is § v3.8's own signed statement type,
+     * deliberately not an arm inside this one.
+     *
+     * The signer must be `trusted`; its WINDOW is deliberately not applied. A
+     * lapsed window says a key may no longer certify adapters, and bricking
+     * every other vendor's key in the file because one signer's window closed
+     * is a blast radius § v3.7 exists to remove, not to add.
+     *
+     * @param array<string,array<string,mixed>> $authorityRecords the validated record map
+     */
+    private static function assertAuthoritiesEnvelope(
+        array $data,
+        object $typed,
+        array $authorityRecords,
+        string $label
+    ): void {
+        self::assertSodium();
+        $signature = $data['signature'] ?? null;
+        if (!is_array($signature) || array_is_list($signature)
+            || !isset($typed->signature) || !is_object($typed->signature)) {
+            throw new \RuntimeException("duo: $label envelope signature must be a JSON object");
+        }
+        self::assertExactKeys($signature, self::AUTHORITIES_SIGNATURE_KEYS, "$label envelope signature");
+        $signer = $signature['key_id'] ?? null;
+        if (!is_string($signer) || !isset($authorityRecords[$signer])) {
+            throw new \RuntimeException(
+                "duo: $label envelope signature names key " . var_export($signer, true)
+                . ' — a v2 registry is signed by a key it carries itself'
+            );
+        }
+        if (($authorityRecords[$signer]['status'] ?? null) !== 'trusted') {
+            throw new \RuntimeException(
+                "duo: $label envelope signature was made by revoked key '$signer'"
+            );
+        }
+        $encoded = $signature['value'] ?? null;
+        $bytes = is_string($encoded) ? base64_decode($encoded, true) : false;
+        if ($bytes === false || !is_string($encoded) || !self::isCanonicalBase64($encoded, $bytes)
+            || strlen($bytes) !== SODIUM_CRYPTO_SIGN_BYTES
+            || !sodium_crypto_sign_verify_detached(
+                $bytes,
+                self::authoritiesSignatureBytes((string) $data['format'], $typed->keys),
+                self::publicKey($authorityRecords[$signer])
+            )) {
+            throw new \RuntimeException(
+                "duo: $label envelope signature does not verify under key '$signer'; an unsigned or tampered"
+                . ' authorities document is refused, never read as an absent trust root'
+            );
+        }
+    }
+
+    /** The exact bytes a v2 authorities envelope signature covers. */
+    private static function authoritiesSignatureBytes(string $format, object $keys): string {
+        // Typed rather than the decoded array, for the reason currentPlatform()
+        // states at its own site: an array projection re-encodes an empty
+        // object as `[]` and would hash different bytes than the document has.
+        return self::SIGNATURE_DOMAIN_AUTHORITIES . Canon::encode((object) ['format' => $format, 'keys' => $keys]);
+    }
+
+    /**
+     * Sign a v2 authorities document, returning its canonical signed bytes.
+     *
+     * The producer lives beside the grammar for the reason sign_site() states
+     * about the bundle: a signer in the host would be a second copy of this
+     * file's rules in a different language of the same repository, drifting
+     * silently on the side where nothing re-verifies. Every record is validated
+     * before the private key is touched, so a registry that could not be READ
+     * cannot be signed either.
+     *
+     * @param string $documentRaw canonical `{format, keys}` bytes, signed or not
+     * @return string canonical duo-adapter-authorities/v2 bytes
+     */
+    public static function signAuthorities(string $documentRaw, string $keyId, string $secretKey): string {
+        self::assertSodium();
+        [, $typed, $data] = self::parseCanonicalObject($documentRaw, 'adapter certification authorities');
+        if (($data['format'] ?? null) !== self::AUTHORITIES_FORMAT_V2) {
+            throw new \RuntimeException(
+                'duo: only a ' . self::AUTHORITIES_FORMAT_V2 . ' authorities document carries an envelope'
+                . ' signature; ' . self::AUTHORITIES_FORMAT . ' documents have no signed envelope at all'
+            );
+        }
+        if (!is_array($data['keys'] ?? null) || $data['keys'] === []
+            || !isset($typed->keys) || !is_object($typed->keys)) {
+            throw new \RuntimeException(
+                'duo: a ' . self::AUTHORITIES_FORMAT_V2 . ' authorities document must carry at least the key'
+                . ' that signs it'
+            );
+        }
+        $id = self::keyId($keyId);
+        foreach ($data['keys'] as $mapKey => $record) {
+            if (!is_string($mapKey) || !is_array($record) || array_is_list($record)) {
+                throw new \RuntimeException('duo: adapter certification authority key map is malformed');
+            }
+            self::validateAuthorityRecord($record, "adapter certification key '$mapKey'", $mapKey);
+        }
+        if (!isset($data['keys'][$id])) {
+            throw new \RuntimeException(
+                "duo: authority key '$id' is not carried by the document it would sign"
+            );
+        }
+        $secret = self::secretKey($secretKey);
+        $public = sodium_crypto_sign_publickey_from_secretkey($secret);
+        if (!hash_equals(self::publicKey($data['keys'][$id]), $public)) {
+            throw new \RuntimeException("duo: private key does not match authority key '$id'");
+        }
+        $signature = sodium_crypto_sign_detached(
+            self::authoritiesSignatureBytes(self::AUTHORITIES_FORMAT_V2, $typed->keys),
+            $secret
+        );
+
+        return Canon::encode((object) [
+            'format' => self::AUTHORITIES_FORMAT_V2,
+            'keys' => $typed->keys,
+            'signature' => (object) ['key_id' => $id, 'value' => base64_encode($signature)],
+        ]);
     }
 
     private static function publicKey(array $authority): string {
@@ -1599,7 +2058,12 @@ final class AdapterCertification {
         if (($authority['status'] ?? null) !== 'trusted') {
             throw new \RuntimeException("duo: authority key '$keyId' is revoked and cannot certify adapters");
         }
-        if (!in_array($name, $authority['adapter_names'], true)) {
+        // Directly after revocation, because expiry is revocation with a date
+        // on it and the two must refuse in the same seat: signing, live
+        // verification and the frozen path all pass through here. A v1 record
+        // returns from this immediately (§ v3.7 change (b)).
+        self::assertAuthorityWindow($authority, $keyId);
+        if (!self::scopeCoversName($authority['adapter_names'], $name)) {
             throw new \RuntimeException("duo: authority key '$keyId' is not scoped to site adapter '$name'");
         }
         if (!in_array($tier, $authority['trust_tiers'], true)) {
@@ -1612,44 +2076,47 @@ final class AdapterCertification {
     private static function assertAuthorityBinding(
         array $authority,
         string $keyId,
-        string $authorityDigest,
         string $trustRoot,
         array $statementAuthority,
         string $name,
         string $tier
     ): void {
-        $embedded = $statementAuthority['record'] ?? null;
+        $embeddedAuthorityRecord = $statementAuthority['record'] ?? null;
         $recordDigest = $statementAuthority['record_sha256'] ?? null;
-        if ($trustRoot === self::TRUST_ROOT_SITE) {
-            // The site trust root is a LIVING registry: `duo adapter certify`
-            // appends every newly certified name (and its tier) to the key's
-            // record, so binding the whole record would invalidate every
-            // earlier certificate under that key the moment a second adapter
-            // is certified (seen: certifying an override made the certified
-            // wpforms adapter `certificate_invalid`). The certificate binds
-            // the key's IDENTITY — id, algorithm, public key, scope, status,
-            // fingerprint, trust root — and self-consistently the record it
-            // was signed over; the record's scope lists (adapter_names,
-            // trust_tiers) are enforced LIVE against the current record by
-            // assertAuthorityScope() below, and revocation with them. The
-            // platform root keeps whole-record binding: that file is
-            // reviewed and shipped, and never grows under an operator's hand.
-            $bound = is_array($embedded)
-                && self::sha($recordDigest)
-                && hash_equals((string) $recordDigest, self::canonicalHash($embedded))
-                && hash_equals(
-                    Canon::encode(self::authorityIdentity($authority)),
-                    Canon::encode(self::authorityIdentity($embedded))
-                );
-        } else {
-            // The embedded record is compared canonically, not by digest
-            // alone: record_sha256 is what the frozen path re-derives FROM the
-            // embedded bytes, so a digest-only check would let those two agree
-            // with each other while disagreeing with the installed root.
-            $bound = self::sha($recordDigest)
-                && hash_equals((string) $recordDigest, $authorityDigest)
-                && hash_equals(Canon::encode($authority), Canon::encode($embedded));
-        }
+        // BOTH TRUST ROOTS BIND THE KEY IDENTITY — everything but the scope
+        // lists (§ v3.7 change (e), WP-4.8). The site root has always done so,
+        // because it is a LIVING registry: `duo adapter certify` appends every
+        // newly certified name and tier to the key's record, so binding the
+        // whole record invalidated every earlier certificate under that key the
+        // moment a second adapter was certified (seen: certifying an override
+        // made the certified wpforms adapter `certificate_invalid`).
+        //
+        // The platform branch used to bind the whole record, justified by a
+        // premise ENROLLMENT FALSIFIES: that the shipped file never grows under
+        // an operator's hand. It grows once per enrolled vendor, and each
+        // growth would silently re-sign nothing while invalidating every
+        // certificate already issued under that key — a cost that would only
+        // surface after external authors existed, which is why this rides the
+        // flag day rather than the first enrollment. Per register row R-08 a
+        // root chooses one binding at the moment its first certificate is
+        // signed and never after; this change is possible only because the
+        // platform root has never signed one (`manifests/capabilities/
+        // adapter-authorities.json` is `{"keys":{}}`).
+        //
+        // Nothing is laundered by the narrowing. The certificate still binds
+        // the record it was signed over, self-consistently by digest; the scope
+        // lists (adapter_names, trust_tiers) are enforced LIVE against the
+        // CURRENT record by assertAuthorityScope() below, and revocation and
+        // expiry with them. An identity edit — algorithm, public key, scope,
+        // status, record_version, window — still refuses, because
+        // authorityIdentity() drops only the two scope lists.
+        $bound = is_array($embeddedAuthorityRecord)
+            && self::sha($recordDigest)
+            && hash_equals((string) $recordDigest, self::canonicalHash($embeddedAuthorityRecord))
+            && hash_equals(
+                Canon::encode(self::authorityIdentity($authority)),
+                Canon::encode(self::authorityIdentity($embeddedAuthorityRecord))
+            );
         if (($statementAuthority['key_id'] ?? null) !== $keyId
             || ($statementAuthority['trust_root'] ?? null) !== $trustRoot
             || ($statementAuthority['fingerprint'] ?? null) !== hash('sha256', self::publicKey($authority))

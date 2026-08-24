@@ -27,15 +27,18 @@ use PHPUnit\Framework\TestCase;
  *     closed key sets are read out of the `assertExactKeys()` call sites;
  *   - a new `sodium_crypto_sign_detached()` call site fails the completeness
  *     gate, so a fourth signed surface cannot ship unregistered;
- *   - expiry vocabulary appearing in AdapterCertification fails the gate that
- *     backs row R-14, which records the ABSENCE of expiry as the shipped
- *     decision — the one class of claim nothing else would contradict.
+ *   - a THIRD expiry member appearing in AdapterCertification fails the gate
+ *     that backs row R-14, which records the certification engine's expiry
+ *     vocabulary as EXACTLY `not_after`/`not_before` (WP-4.8 turned that row
+ *     from an absence into a bounded presence; the ratchet is the same one, and
+ *     it is the one class of claim nothing else would contradict).
  *
- * The fixture is a real copy of `agent/`, `cli/`, `recovery/` and `docs/`
- * (everything --root reads) built once for the class; each case restores the
- * file it edited. Mutating in place under the repo is not an option —
- * AGENTS.md rule 3 forbids scratch under agent/, and pair.sh refuses on an
- * untracked file there.
+ * The fixture is a real copy of `agent/`, `cli/`, `recovery/`, `docs/` and
+ * `manifests/` (everything --root reads — the last one because gate 6 checks
+ * the shipped platform trust root) built once for the class; each case restores
+ * the file it edited. Mutating in place under the repo is not an option —
+ * AGENTS.md rule 3 forbids scratch under agent/ and manifests/, and pair.sh
+ * refuses on an untracked file there.
  */
 final class WireSurfaceTest extends TestCase
 {
@@ -54,7 +57,7 @@ final class WireSurfaceTest extends TestCase
         if (!mkdir($fixture, 0700) && !is_dir($fixture)) {
             self::fail("could not create the fixture root at $fixture");
         }
-        foreach (['agent', 'cli', 'recovery', 'docs'] as $tree) {
+        foreach (['agent', 'cli', 'recovery', 'docs', 'manifests'] as $tree) {
             $status = 0;
             $output = [];
             exec(
@@ -186,7 +189,7 @@ final class WireSurfaceTest extends TestCase
         self::assertStringContainsString('every signing surface needs a register row', $result['stderr']);
     }
 
-    public function testExpiryVocabularyInTheCertificationEngineFailsTheReservedAbsenceGate(): void
+    public function testAThirdExpiryMemberInTheCertificationEngineFailsTheR14Gate(): void
     {
         $result = self::withMutation(
             'agent/src/Adapter/AdapterCertification.php',
@@ -196,8 +199,57 @@ final class WireSurfaceTest extends TestCase
                 $source
             )
         );
-        self::assertSame(1, $result['status'], 'expiry vocabulary must fail the gate row R-14 stands on');
-        self::assertStringContainsString('row R-14 records its ABSENCE', $result['stderr']);
+        self::assertSame(1, $result['status'], 'a third expiry member must fail the gate row R-14 stands on');
+        self::assertStringContainsString(
+            'expiry vocabulary is now {expires_at, not_after, not_before}',
+            $result['stderr']
+        );
+    }
+
+    /**
+     * The other half of the same ratchet: R-14 also claims BOTH expiry-bearing
+     * roots read one clock, and a second time source would make that sentence
+     * wrong with nothing else contradicting it.
+     */
+    public function testASecondClockSourceInTheCertificationEngineFailsTheR14Gate(): void
+    {
+        $result = self::withMutation(
+            'agent/src/Adapter/AdapterCertification.php',
+            static fn(string $source): string => str_replace(
+                'return $now ?? time();',
+                'return $now ?? (int) hrtime(true);',
+                $source
+            )
+        );
+        self::assertSame(1, $result['status'], 'a second clock source must fail the gate row R-14 stands on');
+        self::assertStringContainsString('no longer judges its window against', $result['stderr']);
+    }
+
+    /**
+     * Gate 6, and it is the reason `manifests/` joined the fixture: the shipped
+     * platform trust root has exactly two legal states, and a populated one
+     * that does not verify must never reach a site. Register row R-08 rests on
+     * that file being empty, so this is that gate under an argument rather than
+     * a tidy-up.
+     */
+    public function testAPopulatedUnsignedPlatformTrustRootFailsTheShippedAuthoritiesGate(): void
+    {
+        $result = self::withMutation(
+            'manifests/capabilities/adapter-authorities.json',
+            static fn(string $source): string => json_encode([
+                'format' => 'duo-adapter-authorities/v1',
+                'keys' => ['acme-000000000000' => [
+                    'adapter_names' => ['acme-forms'],
+                    'algorithm' => 'ed25519',
+                    'public_key' => base64_encode(str_repeat("\x01", 32)),
+                    'scope' => 'site_adapter_certification',
+                    'status' => 'trusted',
+                    'trust_tiers' => ['declarative_manifest'],
+                ]],
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"
+        );
+        self::assertSame(1, $result['status'], 'a populated v1 platform trust root must fail the register check');
+        self::assertStringContainsString('neither the empty duo-adapter-authorities/v1 registry', $result['stderr']);
     }
 
     /**
