@@ -358,8 +358,21 @@ $platform = [
     'agent_version' => DUO_AGENT_VERSION,
     'branchable_state' => 'only exact certified registry surfaces and operations',
     'compatibility' => [
-        'database' => ['engine' => 'MariaDB', 'max' => '12.0.0', 'min' => '11.0.0', 'note' => 'fixture'],
-        'php' => ['max' => '8.4.0', 'min' => '8.3.0', 'note' => 'fixture'],
+        // The shipped boundary's own shapes: a per-engine database map and a
+        // range-plus-exercised-series php axis. A certification fixture that
+        // kept the retired single-engine/bare-range shapes would still hash
+        // and verify (AdapterCertification only requires `compatibility` be an
+        // object), and would therefore stop being evidence that
+        // platform_sha256 binds the boundary a site actually ships.
+        'database' => [
+            'engines' => [
+                'MariaDB' => ['max' => '12.0.0', 'min' => '11.0.0'],
+                'MySQL' => ['max' => '8.5.0', 'min' => '8.4.0'],
+            ],
+            'note' => 'fixture',
+        ],
+        'php' => ['max' => '8.5.0', 'min' => '8.3.0', 'note' => 'fixture',
+            'verified' => ['8.3' => '8.3.33', '8.4' => '8.4.24']],
         'wordpress' => ['last_verified' => '7.0.2', 'note' => 'fixture'],
     ],
     'plugin_execution' => 'unmodified',

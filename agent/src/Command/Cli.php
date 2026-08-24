@@ -2270,7 +2270,15 @@ final class Cli {
             WP_CLI::success('no pending unclassified state');
             return;
         }
-        foreach ($items as $it) {
+        // DUO-3521: the review queue on a first-adoption site is the largest
+        // listing this agent prints, and it was the one human listing with no
+        // ceiling at all — `coverage` and `scope` have been bounded through
+        // scope_listing() at Coverage::LARGE_LISTING_THRESHOLD since DUO-3290.
+        // The SAME helper and the SAME threshold, never a second constant:
+        // one bound is a rule an operator learns once. The success line below
+        // still counts $items, so the number stays exact.
+        $shown = self::scope_listing($items, 'pending item(s)');
+        foreach ($shown as $it) {
             $ev = $it['evidence'];
             $evParts = [];
             if (isset($ev['entities'])) {
@@ -2560,6 +2568,8 @@ final class Cli {
      * @return list<array<string,mixed>>
      */
     private static function scope_listing(array $rows, string $noun): array {
+        // Also the bound for pending() above (DUO-3521); the name is scope's
+        // by history, the discipline is the whole agent's.
         if (count($rows) <= Coverage::LARGE_LISTING_THRESHOLD) {
             return $rows;
         }

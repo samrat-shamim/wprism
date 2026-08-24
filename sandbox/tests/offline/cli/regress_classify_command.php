@@ -192,6 +192,49 @@ function classify_item(string $section, string $key, ?string $proposal = null, ?
     ];
 }
 
+// -- the bounded skipped-item listing (DUO-3521) ------------------------------
+//
+// `--accept-proposals` prints one line per item it refused to accept, and
+// before DUO-3521 that listing had no ceiling: on a first classification pass
+// the secret-flagged set can be the size of the whole queue, which is the
+// unbounded-output leak docs/product-spec.md:776-777 names. It is written
+// with fwrite(STDERR, ...), which ob_start() does not intercept, so the run
+// happens in a child re-exec of THIS file — same source, same fixture driver,
+// same ClassifyCommand::run() entry point.
+const CLASSIFY_SECRET_ROWS = 4;
+if (($argv[1] ?? '') === '--secret-skipped-view') {
+    $secretItems = [];
+    for ($i = 0; $i < CLASSIFY_SECRET_ROWS; $i++) {
+        $secretItems[] = classify_item('options', "secret_key_$i", 'authored', 'hard:api-key');
+    }
+    ob_start();
+    ClassifyCommand::run(new ClassifyCommandDriver($secretItems), ['--accept-proposals', '--limit=1']);
+    ob_end_clean();
+    exit(0);
+}
+$secretViewFile = tempnam(sys_get_temp_dir(), 'classify-secret-view');
+if (!is_string($secretViewFile)) fail_classify_command('could not stage the skipped-listing capture file');
+exec(
+    escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' --secret-skipped-view'
+        . ' >/dev/null 2>' . escapeshellarg($secretViewFile),
+    $classifyIgnored,
+    $classifyChildExit
+);
+$secretView = (string) file_get_contents($secretViewFile);
+@unlink($secretViewFile);
+assert_classify_command(
+    str_contains($secretView, 'skipped ' . CLASSIFY_SECRET_ROWS . ' secret-flagged item(s)'),
+    'the skipped-item sentence keeps the TRUE total even when the listing under it is cut'
+);
+assert_classify_command(
+    substr_count($secretView, "\n  - ") === 1,
+    '--limit=1 prints exactly one skipped row'
+);
+assert_classify_command(
+    str_contains($secretView, '  ' . (CLASSIFY_SECRET_ROWS - 1) . ' more (use --format=json)'),
+    'the cut listing ends in the shared tail naming what was withheld and where to get it'
+);
+
 // -- flag parsing refusals --------------------------------------------------
 
 $noItems = new ClassifyCommandDriver([]);

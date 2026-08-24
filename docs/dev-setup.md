@@ -245,7 +245,7 @@ neither writes to a target.
 
 ```bash
 duo assess <env> [--operation=<csv>] [--limit=<1..200>] [--format=json]
-duo contract <env> show|propose|accept [--format=json]
+duo contract <env> show|propose|accept|attest [--format=json]
 ```
 
 `duo assess` composes, in this order and with each step gating the next:
@@ -273,8 +273,10 @@ Three things about it are easy to get wrong when reading the output:
 - **`containment: unknown — not enforced in this profile` is the honest value,
   not a bug.** MUP ships no egress control, so only apply's hook-free window is
   structurally provable. `sandboxed` and `compensatable` are never emitted. The
-  contract itself still carries an `unsigned` attestation — contract signing is
-  deferred — but adapter claims are not stuck at `Uncertified`: since round-3 T6
+  contract itself carries an `unsigned` attestation until someone runs `duo
+  contract <env> attest` under a key they provisioned in
+  `.duo/contract/authorities.json` — the signer ships, the trust root ships
+  empty — but adapter claims are not stuck at `Uncertified`: since round-3 T6
   an operator-signed adapter reads `Site-certified` and a shipped reviewed one
   reads `Platform-certified` (`cli/src/Contract/ProjectionVocabulary.php:805`,
   `:824`). A site-signed adapter that is not exactly pinned still reads

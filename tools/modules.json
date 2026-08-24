@@ -1262,9 +1262,10 @@
       },
       "Plan": {
         "layer": "kernel",
-        "purpose": "The plan wire contract and its operator/JSON renderings, with no I/O of its own.",
+        "purpose": "The plan wire contract and its operator/JSON renderings, with no I/O of its own, plus `HumanViewLimit` -- the one `--limit=<1..200>` grammar and `N more (use --format=json)` tail every human view shares (DUO-3521). It sits at this rung because `cli:Plan` is the lowest one: `cli:Assess`, `cli:Release` and `cli:Rehearse` are engine and reference downward to it, where a shared class in the surface module `cli:Command` would have made all three reference upward (rule 3).",
         "status": "populated",
         "entry_points": [
+          "HumanViewLimit",
           "PlanContract",
           "PlanSummary",
           "PlanView"
@@ -1273,8 +1274,9 @@
           "Plan"
         ],
         "exceptions": [],
-        "file_count": 3,
+        "file_count": 4,
         "files": [
+          "HumanViewLimit.php",
           "PlanContract.php",
           "PlanSummary.php",
           "PlanView.php"
@@ -1285,6 +1287,7 @@
         "purpose": "The B/P/W refresh planner, field diff and local state materializer that reconciles git, production and working state.",
         "status": "populated",
         "entry_points": [
+          "MergeCheck",
           "Refresh",
           "RefreshFieldDiff"
         ],
@@ -1298,8 +1301,9 @@
           "agent:Scope"
         ],
         "exceptions": [],
-        "file_count": 4,
+        "file_count": 5,
         "files": [
+          "MergeCheck.php",
           "Refresh.php",
           "RefreshFieldDiff.php",
           "RefreshPlan.php",
@@ -1321,9 +1325,10 @@
           "Transport"
         ],
         "exceptions": [],
-        "file_count": 2,
+        "file_count": 3,
         "files": [
           "EnvironmentLifecycle.php",
+          "EnvironmentProviderProtocol.php",
           "Registry.php"
         ]
       },
@@ -1468,7 +1473,7 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 28,
+        "file_count": 30,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
@@ -1486,7 +1491,9 @@
           "EnvironmentCommandOptions.php",
           "EnvironmentCommandPreflight.php",
           "EnvironmentListCommand.php",
+          "EnvironmentProviderCheckCommand.php",
           "InitCommand.php",
+          "MergeCheckCommand.php",
           "PassthroughCommand.php",
           "PendingCommand.php",
           "PromoteCommand.php",
@@ -1587,6 +1594,7 @@
         "status": "populated",
         "entry_points": [
           "ApplicationContract",
+          "ContractAttestation",
           "ContractProjection",
           "ContractProposal",
           "ContractStore",
@@ -1600,9 +1608,10 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 5,
+        "file_count": 6,
         "files": [
           "ApplicationContract.php",
+          "ContractAttestation.php",
           "ContractProjection.php",
           "ContractProposal.php",
           "ContractStore.php",

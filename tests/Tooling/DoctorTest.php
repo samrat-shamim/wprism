@@ -150,11 +150,17 @@ final class DoctorTest extends TestCase
 
     /**
      * The PHP version line is asserted separately because it is legitimately
-     * either colour: `ok` inside the certified 8.3.0-<8.4 window from
-     * docs/compatibility-baseline.json, or `WARN` on a local 8.4/8.5 engine,
+     * either colour: `ok` inside the certified 8.3.0-<8.5 window from
+     * docs/compatibility-baseline.json, or `WARN` on a local 8.5 engine,
      * which is forward coverage rather than the pinned target. What must never
      * happen is silence -- an unreported engine version is how a Deprecated
      * that only the newer engine emits reaches the diagnostics guard unexplained.
+     *
+     * The bounds are read out of docs/compatibility-baseline.json rather than
+     * restated, because a literal window here is a test that silently changes
+     * meaning the next time the claim widens: this host runs 8.5.6 against a
+     * new max of 8.5.0, a margin of 0.0.6, and a literal would have kept
+     * asserting WARN long after the claim stopped meaning it.
      */
     public function testPhpVersionIsAlwaysReported(): void
     {
@@ -162,7 +168,14 @@ final class DoctorTest extends TestCase
 
         self::assertNotNull($line, 'doctor.sh did not report the running PHP version');
         self::assertMatchesRegularExpression('/^(ok|WARN)\s/', $line);
-        if (version_compare(PHP_VERSION, '8.3.0', '>=') && version_compare(PHP_VERSION, '8.4.0', '<')) {
+        $baseline = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 2) . '/docs/compatibility-baseline.json'),
+            true,
+            flags: JSON_THROW_ON_ERROR
+        );
+        $min = (string) $baseline['php']['min'];
+        $max = (string) $baseline['php']['max'];
+        if (version_compare(PHP_VERSION, $min, '>=') && version_compare(PHP_VERSION, $max, '<')) {
             self::assertStringStartsWith('ok', $line, 'a certified-range engine must not warn');
         } else {
             self::assertStringStartsWith('WARN', $line, 'an out-of-range engine must warn');

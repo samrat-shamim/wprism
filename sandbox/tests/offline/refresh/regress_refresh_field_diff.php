@@ -948,5 +948,265 @@ try {
     @unlink($tmp);
 }
 
+// ---------------------------------------------------------------------------
+// DUO-3494: block-structural post-body composition.
+//
+// Before this, every changed body was one `body_changed` record choice, so the
+// canonical WordPress conflict -- two editors on one page -- resolved as an
+// ours/theirs coin flip over the whole document no matter how far apart the
+// two edits were. Composition here is a whole-top-level-block byte swap and
+// nothing else: DESIGN.md:125 keeps ordered structures record-atomic, so the
+// three refusals below are as much of the contract as the composition is.
+
+$blockBody = static function (string $one, string $two, string $three): string {
+    return "<!-- wp:paragraph -->\n<p>$one</p>\n<!-- /wp:paragraph -->\n\n"
+        . "<!-- wp:heading {\"level\":3} -->\n<h3>$two</h3>\n<!-- /wp:heading -->\n\n"
+        . "<!-- wp:separator /-->\n\n"
+        . "<!-- wp:list -->\n<ul><!-- wp:list-item -->\n<li>$three</li>\n<!-- /wp:list-item --></ul>\n<!-- /wp:list -->\n";
+};
+$bodyPost = static fn(string $body): string => $post('"body title"', '"body excerpt"', '"draft"', $body);
+$recordOf = static function (array $diff): array {
+    return $diff['records'][0] ?? [];
+};
+// Composition failures must REPORT, not abort: every refusal below is part of
+// the same contract, and an apply() regression that threw would hide them.
+$composeOrNull = static function (array $composePlan, array $composeBundle, array $composeDiff, array $composeChoices = []): ?array {
+    try {
+        return RefreshFieldDiff::apply($composePlan, $composeBundle, RefreshFieldDiff::resolution($composeDiff, $composeChoices));
+    } catch (Throwable) {
+        return null;
+    }
+};
+$projectBody = static function (string $label, string $base, string $production, string $branch)
+    use ($singlePostPlan, $policy): array {
+    $bodyPlan = $singlePostPlan($label, $base, $production, $branch);
+    return [
+        'plan' => $bodyPlan,
+        'projection' => RefreshFieldDiff::project($bodyPlan, [
+            'base' => $policy(), 'production' => $policy(), 'branch' => $policy(),
+        ]),
+    ];
+};
+
+// 1. The headline: production edits the first block, branch edits the last,
+//    and the composed document is byte-exactly "both edits", not either side.
+$disjointBase = $bodyPost($blockBody('base one', 'base two', 'base three'));
+$disjointProduction = $bodyPost($blockBody('PRODUCTION one', 'base two', 'base three'));
+$disjointBranch = $bodyPost($blockBody('base one', 'base two', 'BRANCH three'));
+$disjoint = $projectBody('body-blocks-disjoint', $disjointBase, $disjointProduction, $disjointBranch);
+$disjointDiff = $disjoint['projection']['diff'];
+$disjointRecord = $recordOf($disjointDiff);
+$disjointFields = $publicFields($disjointDiff);
+sort($disjointFields, SORT_STRING);
+$check(($disjointRecord['mode'] ?? null) === 'fields'
+    && ($disjointRecord['reason'] ?? null) === 'eligible_engine_fields'
+    && $disjointFields === ['post.body.branch_blocks', 'post.body.production_blocks']
+    && ($disjointDiff['summary']['conflicting_choices'] ?? null) === 0,
+    'two branches editing disjoint top-level blocks of one post decompose into automatic body partitions');
+$disjointCategories = [];
+foreach ($disjointRecord['changes'] as $change) $disjointCategories[$change['field']] = $change['category'];
+$check(($disjointCategories['post.body.production_blocks'] ?? null) === 'production-only'
+    && ($disjointCategories['post.body.branch_blocks'] ?? null) === 'branch-only',
+    'each body partition carries the one automatic category its label declares');
+$disjointApplied = $composeOrNull($disjoint['plan'], $disjoint['projection']['bundle'], $disjointDiff) ?? [];
+$disjointComposed = $bodyPost($blockBody('PRODUCTION one', 'base two', 'BRANCH three'));
+$check(($disjointApplied['entries'][0]['selected']['content'] ?? null) === $disjointComposed
+    && ($disjointApplied['entries'][0]['selected_source'] ?? null) === 'field-resolution'
+    && !array_key_exists('hash', (array) ($disjointApplied['entries'][0]['selected'] ?? ['hash' => null])),
+    'composition splices production block bytes into the branch scaffold and keeps every other byte, including the unchanged blocks and separators');
+
+// 2. The refusal that is the feature. Today this same shape resolved as one
+//    ours/theirs record choice under `body_changed`; a coin flip inside a body
+//    neither the diff nor the resolution may show is exactly the quiet
+//    best-effort DESIGN.md:29 forbids.
+$overlap = $projectBody(
+    'body-blocks-overlap',
+    $disjointBase,
+    $bodyPost($blockBody('PRODUCTION one', 'base two', 'base three')),
+    $bodyPost($blockBody('BRANCH one', 'base two', 'base three'))
+);
+$overlapRecord = $recordOf($overlap['projection']['diff']);
+$check(($overlapRecord['mode'] ?? null) === 'record'
+    && ($overlapRecord['reason'] ?? null) === 'body_block_overlap'
+    && ($overlapRecord['changes'][0]['category'] ?? null) === 'conflicting',
+    'one top-level block edited differently on both sides refuses composition by name and returns the whole record to one choice');
+$overlapPartial = $projectBody(
+    'body-blocks-overlap-with-composable-siblings',
+    $disjointBase,
+    $bodyPost($blockBody('PRODUCTION one', 'PRODUCTION two', 'base three')),
+    $bodyPost($blockBody('BRANCH one', 'base two', 'BRANCH three'))
+);
+$check(($recordOf($overlapPartial['projection']['diff'])['reason'] ?? null) === 'body_block_overlap',
+    'a single overlapping block sends the whole body back to record authority rather than composing its composable siblings');
+
+// 3. Position is the only alignment this slice has, so every sequence edit is
+//    a refusal rather than a guess about which block moved where.
+$structureCases = [
+    'body-blocks-inserted' => [
+        $bodyPost($blockBody('base one', 'base two', 'base three')
+            . "\n<!-- wp:paragraph -->\n<p>appended</p>\n<!-- /wp:paragraph -->\n"),
+        $bodyPost($blockBody('base one', 'BRANCH two', 'base three')),
+        'an inserted top-level block',
+    ],
+    'body-blocks-retyped' => [
+        $bodyPost(str_replace('wp:paragraph', 'wp:verse', $blockBody('base one', 'base two', 'base three'))),
+        $bodyPost($blockBody('base one', 'BRANCH two', 'base three')),
+        'a retyped top-level block',
+    ],
+    'body-blocks-regapped' => [
+        $bodyPost(str_replace("<!-- /wp:paragraph -->\n\n", "<!-- /wp:paragraph -->\n\n\n", $blockBody('base one', 'base two', 'base three'))),
+        $bodyPost($blockBody('base one', 'BRANCH two', 'base three')),
+        'reflowed inter-block gap bytes',
+    ],
+];
+foreach ($structureCases as $label => [$structureProduction, $structureBranch, $description]) {
+    $structure = $projectBody($label, $disjointBase, $structureProduction, $structureBranch);
+    $check(($recordOf($structure['projection']['diff'])['mode'] ?? null) === 'record'
+        && ($recordOf($structure['projection']['diff'])['reason'] ?? null) === 'body_structure_changed',
+        "$description keeps the record atomic under the closed body_structure_changed reason");
+}
+
+// 4. A body this reader cannot name stays exactly where it was: the reason
+//    this file already published for every changed body.
+$classicCases = [
+    'body-blocks-classic' => ["base text\n", "production text\n", "branch text\n", 'a classic non-block body'],
+    'body-blocks-freeform' => [
+        "<!-- wp:paragraph -->\n<p>base one</p>\n<!-- /wp:paragraph -->\nloose text\n",
+        "<!-- wp:paragraph -->\n<p>production one</p>\n<!-- /wp:paragraph -->\nloose text\n",
+        "<!-- wp:paragraph -->\n<p>base one</p>\n<!-- /wp:paragraph -->\nbranch loose text\n",
+        'freeform content outside a top-level block',
+    ],
+    'body-blocks-unterminated' => [
+        "<!-- wp:paragraph -->\n<p>base one</p>\n",
+        "<!-- wp:paragraph -->\n<p>production one</p>\n",
+        "<!-- wp:paragraph -->\n<p>branch one</p>\n",
+        'an unterminated block delimiter',
+    ],
+];
+foreach ($classicCases as $label => [$classicBase, $classicProduction, $classicBranch, $description]) {
+    $classic = $projectBody($label, $bodyPost($classicBase), $bodyPost($classicProduction), $bodyPost($classicBranch));
+    $check(($recordOf($classic['projection']['diff'])['mode'] ?? null) === 'record'
+        && ($recordOf($classic['projection']['diff'])['reason'] ?? null) === 'body_changed',
+        "$description keeps the pre-existing body_changed record-atomic answer");
+}
+
+// 5. The attribute object is scanned as JSON, so a `-->` inside an attribute
+//    string cannot end a delimiter early and silently move a block boundary.
+$attrBody = static fn(string $one): string =>
+    "<!-- wp:html {\"note\":\"arrow --> inside\"} -->\n<p>$one</p>\n<!-- /wp:html -->\n\n"
+    . "<!-- wp:paragraph -->\n<p>tail</p>\n<!-- /wp:paragraph -->\n";
+$attrs = $projectBody(
+    'body-blocks-attribute-arrow',
+    $bodyPost($attrBody('base one')),
+    $bodyPost($attrBody('PRODUCTION one')),
+    $bodyPost($attrBody('base one'))
+);
+$attrsApplied = $composeOrNull($attrs['plan'], $attrs['projection']['bundle'], $attrs['projection']['diff']) ?? [];
+$check(($recordOf($attrs['projection']['diff'])['mode'] ?? null) === 'fields'
+    && $publicFields($attrs['projection']['diff']) === ['post.body.production_blocks']
+    && ($attrsApplied['entries'][0]['selected']['content'] ?? null) === $bodyPost($attrBody('PRODUCTION one')),
+    'a block attribute string containing --> is scanned as JSON rather than ending its delimiter early');
+
+// 6. Both sides making the identical block edit is agreement, not conflict,
+//    and agreement keeps the branch scaffold byte-for-byte.
+$compatibleBody = $bodyPost($blockBody('SAME one', 'base two', 'base three'));
+$compatible = $projectBody('body-blocks-compatible', $disjointBase, $compatibleBody, $compatibleBody);
+$compatibleApplied = $composeOrNull($compatible['plan'], $compatible['projection']['bundle'], $compatible['projection']['diff']) ?? [];
+$check($publicFields($compatible['projection']['diff']) === ['post.body.compatible_blocks']
+    && ($compatibleApplied['entries'][0]['selected']['content'] ?? null) === $compatibleBody,
+    'an identical block edit on both sides is one compatible partition that preserves exact branch bytes');
+
+// 7. Mixed run: a manual scalar choice and automatic body partitions resolve
+//    together, which is what keeps composition from needing its own verb.
+$mixed = $projectBody(
+    'body-blocks-mixed-with-scalar-conflict',
+    $post('"base"', '"body excerpt"', '"draft"', $blockBody('base one', 'base two', 'base three')),
+    $post('"production"', '"body excerpt"', '"draft"', $blockBody('PRODUCTION one', 'base two', 'base three')),
+    $post('"branch"', '"body excerpt"', '"draft"', $blockBody('base one', 'base two', 'BRANCH three'))
+);
+$mixedDiff = $mixed['projection']['diff'];
+$mixedTitle = null;
+foreach ($recordOf($mixedDiff)['changes'] as $change) {
+    if ($change['field'] === 'post.title') $mixedTitle = $change;
+}
+$mixedApplied = $composeOrNull($mixed['plan'], $mixed['projection']['bundle'], $mixedDiff, [[
+    'choice' => 'theirs',
+    'field_selector_sha256' => (string) ($mixedTitle['field_selector_sha256'] ?? ''),
+    'record_selector_sha256' => (string) ($mixedTitle['record_selector_sha256'] ?? ''),
+    'scope' => 'field',
+]]) ?? [];
+$check(is_array($mixedTitle) && ($mixedTitle['category'] ?? null) === 'conflicting'
+    && ($mixedDiff['summary']['conflicting_choices'] ?? null) === 1
+    && ($mixedApplied['entries'][0]['selected']['content'] ?? null)
+        === $post('"production"', '"body excerpt"', '"draft"', $blockBody('PRODUCTION one', 'base two', 'BRANCH three')),
+    'one field resolution run carries a manual scalar choice and automatic body partitions into the same spliced record');
+
+// 8. The redaction contract (RefreshFieldDiff.php:7-17) is unchanged by the
+//    new surface: body composition happens over verified private bytes while
+//    the public diff still publishes no block content, position, or count.
+$disjointEncoded = Canon::encode($disjointDiff);
+$check(!str_contains($disjointEncoded, 'PRODUCTION one') && !str_contains($disjointEncoded, 'BRANCH three')
+    && !str_contains($disjointEncoded, 'wp:paragraph') && !str_contains($disjointEncoded, 'block:')
+    && !str_contains($disjointEncoded, 'body title') && $containsOnlyRedactedPublicData($disjointDiff),
+    'the public body partitions publish no block bytes, block index, or block count');
+
+// 9. Discovered members mean no const member list to check a bundle against,
+//    so the assert path re-derives the whole partition from the entry's own
+//    B/P/W bytes. Each tamper below is one thing that re-derivation catches.
+$tamperTargets = [];
+foreach ($disjoint['projection']['bundle']['records'] as $selector => $tamperRecord) {
+    foreach ($tamperRecord['fields'] as $fieldIndex => $tamperField) {
+        if (($tamperField['label'] ?? '') === 'post.body.production_blocks') {
+            $tamperTargets[] = [$selector, $fieldIndex];
+        }
+    }
+}
+$check(count($tamperTargets) === 1, 'the private bundle names exactly one production body partition to tamper with');
+[$tamperSelector, $tamperIndex] = $tamperTargets[0] ?? ['', 0];
+$tamperApply = static function (callable $mutate) use ($disjoint, $tamperSelector, $tamperIndex, $disjointDiff): void {
+    $bundle = $disjoint['projection']['bundle'];
+    $bundle['records'][$tamperSelector]['fields'][$tamperIndex] =
+        $mutate($bundle['records'][$tamperSelector]['fields'][$tamperIndex]);
+    RefreshFieldDiff::apply($disjoint['plan'], $bundle, RefreshFieldDiff::resolution($disjointDiff, []));
+};
+$refuses(static fn() => $tamperApply(static function (array $field): array {
+    $member = array_key_first($field['spans']['branch']);
+    $field['spans']['branch'][$member]['end'] += 8;
+    return $field;
+}), 'a widened branch body span refuses before any splice');
+$refuses(static fn() => $tamperApply(static function (array $field): array {
+    $member = array_key_first($field['values']['production']);
+    $field['values']['production'][$member] = "<!-- wp:paragraph -->\n<p>smuggled</p>\n<!-- /wp:paragraph -->";
+    return $field;
+}), 'substituted production body bytes refuse rather than reaching the branch scaffold');
+$refuses(static fn() => $tamperApply(static function (array $field): array {
+    $field['values']['production']['block:99'] = $field['values']['production'][array_key_first($field['values']['production'])];
+    $field['spans']['production']['block:99'] = $field['spans']['production'][array_key_first($field['spans']['production'])];
+    return $field;
+}), 'an invented body block member refuses rather than widening the partition');
+$refuses(static fn() => $tamperApply(static function (array $field): array {
+    $field['category'] = 'branch-only';
+    return $field;
+}), 'a relabelled body partition category refuses because the label declares exactly one category');
+
+// 10. Body partitions are automatic, so an operator with nothing but a
+//     composable body is told there is nothing to choose rather than prompted.
+$disjointIn = fopen('php://temp', 'r+');
+$disjointOut = fopen('php://temp', 'r+');
+$disjointInteractive = RefreshFieldDiff::interactiveResolution($disjointDiff, $disjointIn, $disjointOut);
+rewind($disjointOut);
+$disjointTranscript = (string) stream_get_contents($disjointOut);
+fclose($disjointIn);
+fclose($disjointOut);
+$check(is_array($disjointInteractive) && ($disjointInteractive['choices'] ?? null) === []
+    && str_contains($disjointTranscript, '0 manual choices; continuing')
+    && str_contains($disjointTranscript, 'post.body.production_blocks production-only eligible_engine_fields')
+    && str_contains($disjointTranscript, 'post.body.branch_blocks branch-only eligible_engine_fields')
+    && str_contains($disjointTranscript, 'auto=production') && str_contains($disjointTranscript, 'auto=branch')
+    && !str_contains($disjointTranscript, 'branch or production?')
+    && !str_contains($disjointTranscript, 'PRODUCTION one') && !str_contains($disjointTranscript, 'BRANCH three')
+    && !str_contains($disjointTranscript, 'wp:paragraph'),
+    'the local interactive preview names each body partition and its automatic outcome without prompting or revealing block bytes');
+
 echo $failures === 0 ? "PASS: refresh field diff\n" : "FAIL: $failures refresh field diff assertion(s)\n";
 exit($failures === 0 ? 0 : 1);

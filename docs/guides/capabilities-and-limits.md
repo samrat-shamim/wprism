@@ -286,20 +286,35 @@ topology is judged once, by `duo assess` refusing the whole assessment, not
 per surface.
 
 **`Requalification required` has exactly one entrance, and the agent cannot
-produce it.** An accepted application contract pins one number,
+produce it.** An accepted application contract pins two things: one number,
 `evidence_pins.registry_sha256` — the content address of the reviewed
-dispositions the verdict was read from. Three commands regenerate the
+dispositions the verdict was read from — and one row per adapter,
+`declarations.manifest_pins[].adapter_digest`. Three commands regenerate the
 projection from current facts — `duo assess`, `duo contract accept` and
 `duo release` (`duo contract show` renders what is on disk and contacts
-nothing) — and when the observed hash differs from the pin, the reviewed
-document this contract was accepted against is not the document answering now.
+nothing) — and when the observed evidence differs from the pin, the reviewed
+library this contract was accepted against is not the library answering now.
 `ContractProjection` **synthesizes** the blocker
-`evidence_not_current` into every surface's fact vector so the readiness word
-still comes from the table above rather than being minted somewhere new, and
-`projection.json` records the fact as `evidence_pins.stale_registry`. The flip
-is deliberately blunt — whole-surface, not per-adapter — because the pin
-addresses the whole reviewed document: any authored change to any subject's
-status, boundary or reason moves it. The row prints the gap action
+`evidence_not_current` into the affected surfaces' fact vectors so the
+readiness word still comes from the table above rather than being minted
+somewhere new.
+
+*How many surfaces "affected" means is decided by what can be proved, and
+`projection.json` says which of the two happened in
+`evidence_pins.invalidation`.* Each `adapter_digest` folds that manifest's own
+disposition entry — `ArtifactPolicyIdentity::manifest_rows()` puts the
+disposition inside the row it hashes
+(`agent/src/Policy/ArtifactPolicyIdentity.php:68`, hashed at `:147`) — so
+editing one subject in `manifests/dispositions.json` moves `registry_sha256`
+**and** exactly that adapter's digest. That makes the moved set a proof, and
+the flip `exact`: it reaches only the surfaces those adapters govern, which
+each row names in `governed_by`, and `evidence_pins.stale_adapters` lists them.
+When the registry hash moved but no *pinned* adapter's digest did — a subject
+for an adapter this site does not load, or a document-level field — nothing can
+prove which capability is affected, so the flip is `whole-contract` and every
+surface goes. A moved `adapter_digest` under an unchanged `registry_sha256`
+(adapter bytes that no longer match their pin) is drift on its own and flips
+the surfaces that adapter governs. The row prints the gap action
 `certify adapter` and the remediation `re-certify the pinned evidence, then
 re-run assess`, which is literal for a site adapter you sign yourself. For a
 shipped adapter, the move you have to make is the review: read what changed in
@@ -356,10 +371,15 @@ the certificate itself is what says so.
 
 Three things it does not do:
 
-- It does not sign your **contract**. `attestation.state` is still written
-  `unsigned`, which is why assess prints `certified by <principal>
-  (<root> trust root); contract attestation unsigned`. A certified adapter and
-  a signed contract are different documents and this release ships the first.
+- It does not sign your **contract**. That is a separate verb, `duo contract
+  <env> attest`, under a separate trust root (`.duo/contract/authorities.json`)
+  that ships with no key — so until your organization provisions one,
+  `attestation.state` stays `unsigned` and assess prints `certified by
+  <principal> (<root> trust root); contract attestation unsigned`. Once you do
+  attest, that second half names the principal and the expiry instead, and
+  every read re-verifies the signature: an edited contract drops the claim
+  rather than degrading it, and an agent upgrade moves the platform boundary
+  the attestation binds, so you attest again.
 - It does not become `Platform-certified` under the agent-owned trust root. A
   certificate about a *site adapter* reads `Site-certified` whichever root
   signed it; only the named root changes. A signed override of a shipped
@@ -666,11 +686,15 @@ holds those two copies equal so they cannot drift into two truths.
 
 Be precise about who enforces which half. The agent pre-policy gate and `duo
 doctor` compare live PHP and database facts against the baseline and **block**
-outside either range; a different database engine is genuinely untested, not
-merely unpinned. WordPress is a bounded range narrowed to the exercised
-series named in `verified` — a core is admitted only when it is inside
-`[min, max)` *and* its MAJOR.MINOR is one of those series, so a minor line
-inside the window that nobody ran is still refused rather than claimed. The
+outside it. WordPress **and PHP** are each a bounded range narrowed to the
+exercised series named in that axis's own `verified` map — a version is
+admitted only when it is inside `[min, max)` *and* its MAJOR.MINOR is one of
+those series, so a minor line inside the window that nobody ran is still
+refused rather than claimed. The database axis is per-engine instead:
+`database.engines` maps each claimed engine to its own version line, an engine
+the map does not name is refused outright (genuinely untested, not merely
+unpinned), and a version is measured against the range belonging to the engine
+actually observed — never against another product's numbers. The
 *capability report* still enforces none of the three per surface: with the
 measured evidence record gone, `AdapterRegistry::target_reasons()` does not
 re-derive global compatibility as adapter-local reasons. The adapter plugin
@@ -805,10 +829,20 @@ rather than working around it.
   only closed B/P/W presence/equality relations. `--interactive` is the narrow
   TTY-only local reveal exception: a bounded C0/DEL-safe authored title/name or
   path fallback may be shown beside its selector in memory only, never in a
-  machine artifact. The only field-eligible engine
-  surface is ordinary post scalar groups and term name/description/parent; body,
-  attachment/media, menus, sidebars, options, user-meta, typed tables,
-  tombstones, scoped plans, and opaque containers remain atomic. A live B
+  machine artifact. The field-eligible engine
+  surface is ordinary post scalar groups, term name/description/parent, and
+  (DUO-3494) whole top-level blocks of a post body; attachment/media, menus,
+  sidebars, options, user-meta, typed tables,
+  tombstones, scoped plans, and opaque containers remain atomic. Body
+  composition is a byte swap of whole top-level blocks and nothing else: it
+  requires all three sides to be pure block documents with equal block counts,
+  the same block name at every position, and identical bytes between blocks,
+  and it refuses by name outside that — `body_changed` for a body it cannot
+  read as blocks, `body_structure_changed` for a changed block sequence, and
+  `body_block_overlap` when both sides changed the same block differently.
+  Nothing merges inside a block, no block moves, and no body partition is ever
+  a choice, so a composable body adds no prompt and an uncomposable one keeps
+  the whole-record authority it already had. A live B
   record with P or W absent refuses field mode before a selectable diff;
   absence stays with the legacy whole-record resolver. Scalar relation evidence
   is canonical but exact source token bytes stay private, and containers are

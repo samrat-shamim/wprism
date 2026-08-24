@@ -36,6 +36,38 @@ final class RefreshPlan {
         return $raw;
     }
 
+    /**
+     * Every worktree role this planner will compile.
+     *
+     * `base`, `branch`, `production-code` and `candidate` are Refresh's four
+     * (Refresh.php:347-349, :189). The three `merge-check-*` roles are the
+     * same three positions assembled entirely from Git by
+     * `MergeCheck::run()` — B, W (`--ref`) and P (`--against`) — and they are
+     * a separate tag rather than a reuse of the refresh names on purpose:
+     * every artifact this planner emits records its `label` (:219), that
+     * label is what a worker failure names in its diagnostic (:111), and an
+     * advisory merge-check artifact must never read in a log or a stack trace
+     * as though a live refresh had produced it.
+     *
+     * @var list<string>
+     */
+    private const WORKTREE_ROLES = [
+        'base', 'branch', 'production-code', 'candidate',
+        'merge-check-base', 'merge-check-left', 'merge-check-right',
+    ];
+
+    /**
+     * The roles compiled with `compile_for_diff()` rather than `compile()`.
+     *
+     * B is the merge base: it supplies the "what did both sides start from"
+     * comparison only, never bytes anyone materializes, which is why refresh
+     * has always compiled it in the cheaper diff mode (:148-150). A
+     * merge-check base is that same position, so it takes that same mode.
+     *
+     * @var list<string>
+     */
+    private const DIFF_ONLY_ROLES = ['base', 'merge-check-base'];
+
     /** Compile each ref in a fresh process so provider classes cannot leak between refs. */
     public static function compileGitWorktree(
         string $path,
@@ -44,7 +76,7 @@ final class RefreshPlan {
         ?array $scopeContract = null,
         bool $completeMedia = false
     ): array {
-        if (!in_array($label, ['base', 'branch', 'production-code', 'candidate'], true)) {
+        if (!in_array($label, self::WORKTREE_ROLES, true)) {
             throw new \RuntimeException("cannot compile unknown '$label' Git worktree role");
         }
         $worker = __DIR__ . '/RefreshPlanCompile.php';
@@ -101,7 +133,7 @@ final class RefreshPlan {
         self::loadCompiler();
         $root = realpath($path);
         if (!self::isCommit($commit) || $root === false || !is_file($root . '/site.duo.json')
-            || !in_array($label, ['base', 'branch', 'production-code', 'candidate'], true)) {
+            || !in_array($label, self::WORKTREE_ROLES, true)) {
             throw new \RuntimeException("cannot compile $label Git worktree");
         }
         $head = self::runProcess(['git', '-C', $root, 'rev-parse', '--verify', 'HEAD^{commit}']);
@@ -113,7 +145,7 @@ final class RefreshPlan {
         try {
             $policy = \Duo\Policy::load($root);
             $fieldDiffPolicy = self::fieldDiffPolicyProjection($policy);
-            $compiled = $label === 'base'
+            $compiled = in_array($label, self::DIFF_ONLY_ROLES, true)
                 ? \Duo\RepositoryCompiler::compile_for_diff($root, $policy)
                 : \Duo\RepositoryCompiler::compile($root, $policy);
             if ($scopeMode === 'candidate' || $scopePath !== null) {

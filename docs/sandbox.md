@@ -98,19 +98,37 @@ it, so exporting only inside `up` would let a later `pair.sh stop
 <mysql-pair>` put `duo-shared-db` back into the file the next subprocess
 compose call reads. (Exactly the failure `DUO_AGENT_SRC` hit in DUO-3277.)
 
-**Bringing this server up claims nothing.**
-`manifests/capabilities/platform.json` still declares
-`compatibility.database.engine = "MariaDB"`, and
-`agent/src/Policy/PlatformCompatibility.php:117` still compares the probed
-engine with `!==`, so every `wp duo ...` on a pair pointed at
-`duo-shared-mysql` refuses with reason code `platform_unsupported` and
-diagnostic `platform_database_engine_unsupported`, mutating nothing. That
-refusal is the lane's first datum — it proves the harness reaches a real
-MySQL server end to end. Widening the claim requires the live matrix and its
-own commit (platform.json, `docs/compatibility-baseline.json`, the
-regenerated `docs/capabilities.md`, the live platform suite's `MariaDB`
-assertions, and a recompile + `wp duo manifest-pin` for every deployed site
-holding a compiled artifact — AGENTS.md rule 2).
+**What this server now proves — and what it does not yet.**
+`manifests/capabilities/platform.json`'s database axis is an engine-keyed map
+(`compatibility.database.engines`) that names `MySQL [8.4.0, 8.5.0)` beside
+`MariaDB [11.0.0, 12.0.0)`, so a pair pointed at `duo-shared-mysql` is no
+longer refused on the engine axis: `wp duo ...` runs, and this lane is what
+decides whether it should. Until the live matrix has run, the claim's own
+database note says PENDING in as many words, and the remedy on failure is
+named there — drop the MySQL entry and restore a MariaDB-only engines map,
+never a fallback or a widened bound around the failure. The dialect audit
+that made the widening reviewable at all is
+[docs/mysql-dialect-audit.md](mysql-dialect-audit.md); its five probe groups
+are `sandbox/tests/live/regress_core_scope_database.sh`'s assertions, and §5
+(the `caching_sha2_password` handshake) runs FIRST because the whole lane is
+blocked before any dialect question is reachable if it fails.
+
+Moving those bytes is a fleet-visible act, in three separate ways, and all
+three belong in the same commit as the claim:
+
+- every deployed site holding a compiled artifact needs a recompile and a new
+  `wp duo manifest-pin` (AGENTS.md rule 2);
+- `docs/compatibility-baseline.json` and the regenerated `docs/capabilities.md`
+  are byte-compared against platform.json by `make release-gate`, so they move
+  with it or the gate refuses;
+- **every site-adapter certificate already signed in the field is
+  invalidated.** `agent/src/Adapter/AdapterCertification.php` canonical-hashes
+  the whole platform object into `platform_sha256` inside every signed
+  statement, and verification refuses with *"certification platform boundary
+  disagrees with the current agent-owned platform"* the instant those bytes
+  move. No certificates are committed in this tree (the fixtures sign at
+  runtime), so nothing here needs re-signing — but a fleet carrying signed
+  site adapters does, and the PR that moves the boundary must say so.
 
 **Bring it down when the matrix is not running**
 (`docker compose -p duo-db-mysql -f db.mysql.yml down -v`). It adds a second

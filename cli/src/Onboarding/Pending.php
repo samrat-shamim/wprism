@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+require_once dirname(__DIR__) . '/Plan/HumanViewLimit.php';
+
 /**
  * Renders the JSON from `wp duo pending --format=json` (agent-side
  * Pending::scan(), agent/src/Review/Pending.php — task #12) into `duo pending`'s
@@ -31,10 +33,20 @@ namespace Duo\Orchestrator;
  * which is ASCII-only for the same reason.
  */
 final class Pending {
-    /** @param list<array<string, mixed>> $items @return array{lines: list<string>, ok: bool} */
-    public static function render(array $items): array {
+    /**
+     * DUO-3521: bounded like every other human view. The review queue on a
+     * real site is the largest listing `duo` prints — one row per
+     * unclassified option/meta key — and it was the last host-rendered one
+     * with no ceiling at all. The count line below stays the TRUE total: a
+     * truncated sample is honest, a truncated count is a lie about the site.
+     *
+     * @param list<array<string, mixed>> $items
+     * @return array{lines: list<string>, ok: bool}
+     */
+    public static function render(array $items, int $limit = HumanViewLimit::DEFAULT_LIMIT): array {
+        $total = count($items);
         $rows = [];
-        foreach ($items as $it) {
+        foreach (array_slice($items, 0, max(1, $limit)) as $it) {
             $section = self::str($it['section'] ?? null, '?');
             $key = self::str($it['key'] ?? null, '?');
             $evidence = is_array($it['evidence'] ?? null) ? $it['evidence'] : [];
@@ -61,9 +73,12 @@ final class Pending {
             }
             $lines[] = $line;
         }
+        $cut = HumanViewLimit::cut($total, count($rows));
+        if ($cut !== null) {
+            $lines[] = $cut;
+        }
         $lines[] = '';
-        $n = count($rows);
-        $lines[] = "$n item(s) in the review queue. Run \`duo classify <env>\` to triage.";
+        $lines[] = "$total item(s) in the review queue. Run \`duo classify <env>\` to triage.";
 
         return ['lines' => $lines, 'ok' => true];
     }

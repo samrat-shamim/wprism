@@ -13,15 +13,18 @@ name: duo-db-mysql
 # `docker compose -p duo-db-mysql -f db.mysql.yml` have disjoint blast radii,
 # and a pair selects between them with DUO_DB_ENGINE (sandbox/bin/pair.sh).
 #
-# THIS FILE CLAIMS NOTHING. manifests/capabilities/platform.json still declares
-# `compatibility.database.engine = "MariaDB"` and
-# agent/src/Policy/PlatformCompatibility.php:117 still compares the probed
-# engine with `!==`, so every `wp duo ...` invocation against a pair on this
-# server refuses with reason_code `platform_unsupported` and diagnostic code
-# `platform_database_engine_unsupported`. That refusal is the lane's FIRST
-# datum, not a defect: it proves the harness reaches a real MySQL server before
-# any contract is widened. Widening the claim requires the live matrix, and the
-# claim moves only in a commit that carries the evidence.
+# THIS FILE STILL CLAIMS NOTHING BY ITSELF -- but the contract it used to be
+# refused by has moved. manifests/capabilities/platform.json's database axis is
+# now an engine-keyed map (`compatibility.database.engines`) naming
+# MySQL [8.4.0, 8.5.0) beside MariaDB [11.0.0, 12.0.0), so a pair on this
+# server is no longer answered with `platform_database_engine_unsupported`
+# before it does anything: `wp duo ...` runs, and this lane is what decides
+# whether it should have. The claim's own note carries a PENDING saying the
+# live proof has NOT run and names the remedy if it fails (drop the MySQL
+# entry, restore a MariaDB-only map -- never widen around a failure). The
+# assertions that turn that PENDING into evidence are
+# sandbox/tests/live/regress_core_scope_database.sh's, drawn verbatim from
+# docs/mysql-dialect-audit.md.
 #
 # Network: attach-only. db.yml:37-39 is the sole creator of `duo-shared` (it
 # declares the network WITHOUT `external: true`); every other file in this
@@ -60,6 +63,21 @@ services:
     image: mysql:8.4
     container_name: duo-shared-mysql
     networks: [duo-shared]
+    # --mysql-native-password=ON: the wordpress:cli image's MariaDB 11.8 shell
+    # client ships NO caching_sha2_password client plugin (measured 2026-08-24:
+    # "Plugin caching_sha2_password could not be loaded ... No such file or
+    # directory" on every connect attempt, TLS on or off, verification on or
+    # off), so MySQL 8.4's default account plugin is unreachable for every
+    # `wp db *` call in this estate. 8.4 still ships mysql_native_password
+    # behind this deprecated-but-present server flag (9.x removes it); the
+    # lane's app account is created WITH mysql_native_password
+    # (lib/pair_db.sh), and bin/db-client-shim.sh adds --skip-ssl on this lane
+    # so the 11.4+ client's TLS-verify default cannot refuse the self-signed
+    # cert first. WordPress itself (mysqlnd) speaks caching_sha2 natively and
+    # never needed any of this. Recorded PRODUCT finding, not papered over:
+    # a real MySQL 8.4 target driven from a MariaDB-client host cannot run the
+    # checkpoint path against default-plugin accounts.
+    command: ["--mysql-native-password=ON"]
     environment:
       # mysql:8.4's own variable name; MARIADB_ROOT_PASSWORD (db.yml:50) is
       # read by the MariaDB entrypoint only and would leave this server with

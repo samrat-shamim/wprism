@@ -81,6 +81,20 @@ Computed from one `AdapterRegistry::report()` call (named
 | claim `status` in {`excluded`, `unsupported`}, blocker `surface_explicitly_unsupported` or `deletion_unsupported`, or the surface named in `deletion_semantics.unsupported` for a delete operation | `Unsupported` |
 | a `Providers::diagnose()` negotiation problem (`missing_plugin`, `inactive_plugin`, `missing_plugin_provider`, `missing_capability`, `undeclared_provider`, `provider_code_unavailable`, `outside_version_range`, `identity_mismatch`, `contract_shape`, …) | `Ready with conditions` whose condition is **unmet** — blocks, and names the negotiation code |
 
+The mutation-gate re-run in that second row is code, not a promise:
+`AdapterRegistry::target_reasons()` attaches `subject`, `check` and `observed`
+to each condition reason; `SurfaceCatalog::conditionRows()` mints the row
+`{check, code, manifest, observed, rechecked_at, satisfied, subject}` from
+them; the frozen authorization plan carries those rows and digests them as
+`inputs_digest.conditions_sha256`; and `AuthorizationPlan::recheckConditions()`
+re-observes every one against a fresh `wp duo capabilities` read immediately
+before the mutating call (`cli/src/Command/ReleaseCommand.php`, step 6). A
+condition that MOVED refuses `release_condition_changed`; a condition that
+cannot be re-observed at all — its claim absent from the fresh report, or the
+row carrying no subject — refuses `release_condition_uncheckable`. Both carry
+the failure class `capability_expired` and the next action `requalify`. An
+uncheckable condition blocks; it is never treated as satisfied.
+
 *Six codes in the rows above were written against the generated evidence record
 and left with it (#477–#480); the table now names what the shipped vocabulary
 actually holds, and `cli/src/Contract/ProjectionVocabulary.php:216-245` carries
@@ -91,7 +105,10 @@ raises `plugin_version_mismatch` and `plugin_not_active` and nothing else
 (`agent/src/Adapter/AdapterRegistry.php:559-579`). `revision_not_certified` and
 `profile_evidence_not_current` left `BLOCKERS_REQUALIFICATION`, which now holds
 exactly `evidence_not_current`, synthesized by
-`ContractProjection::withStaleEvidence()`. `multisite_unsupported` left the
+`ContractProjection::withStaleEvidence()` into the surfaces the observed drift
+reaches — every surface when the moved subject cannot be attributed to a pinned
+adapter, and only the surfaces that adapter governs when it can
+(`ContractProjection::invalidation()`). `multisite_unsupported` left the
 `Unsupported` row because topology is judged once, by `AssessCommand::assess()`
 refusing the whole assessment, not per surface. `missing_registry_entry` is now
 `missing_disposition_entry`. The `Experimental` row lost its second route for a
@@ -161,9 +178,12 @@ Said plainly, because the words above are easy to over-read:
    trust root the repository or the agent owns. It means customer-organization
    approval, explicitly not a Duo endorsement; the signed bundle records
    `exercised: false` beside its grammar verdict, so it never implies the
-   adapter was tested against a live site. The **contract's** attestation is
-   still `unsigned`, which the human view says on the same line: `certified by
-   <principal> (<root> trust root); contract attestation unsigned`.
+   adapter was tested against a live site. The **contract's** attestation is a
+   separate signature under a separate, operator-provisioned trust root, and
+   until one exists the human view says so on the same line: `certified by
+   <principal> (<root> trust root); contract attestation unsigned`. After `duo
+   contract <env> attest` the same line reads `…; contract attested by
+   <principal> (site trust root, expires <when>)`.
 3. **Rollback restores bytes, not consequences.** The list of what a profile
    does *not* restore is printed before you authorize and again before you
    recover, and it is the literal truth — which is what `irreversible` in §1.6

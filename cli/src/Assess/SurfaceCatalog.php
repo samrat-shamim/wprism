@@ -139,6 +139,18 @@ final class SurfaceCatalog {
     ];
 
     /**
+     * The one instant word a condition row carries, and the whole point of the
+     * split above: a condition is the thing that is re-observed against the
+     * live target immediately before the mutating call
+     * (`ReleaseCommand::execute()`), not at freeze time. It is a constant
+     * rather than a clock so the row stays inside `plan_digest` — a timestamp
+     * there would give one unchanged authorization a new identity every second
+     * (`AuthorizationPlan::digest()`), and the actual instant is recorded once,
+     * on the outcome, as `conditions_rechecked.at`.
+     */
+    public const CONDITION_RECHECKED_AT = 'mutation gate';
+
+    /**
      * Registry operations that structurally contain other registry
      * operations, so a boundary declared about the inner one is a boundary
      * about the outer one too.
@@ -218,7 +230,15 @@ final class SurfaceCatalog {
      *        operations, default all six) and `provider_negotiation` (a
      *        manifest name -> list of `Providers::diagnose()` codes map;
      *        empty in this profile, see AssessCommand)
-     * @return array{rows: list<array<string,mixed>>, facts: array<string,array<string,mixed>>}
+     * @return array{
+     *     rows: list<array<string,mixed>>,
+     *     facts: array<string,array{
+     *         governed_by: list<string>,
+     *         operations: array<string,array<string,mixed>>
+     *     }>
+     * } `facts` is keyed by surface id and its entry is the FACT RECORD
+     *   documented on `factVectors()` — read it through that method and
+     *   `factGovernedBy()`, never by indexing the record by hand.
      */
     public static function catalog(
         array $inventory,
@@ -249,11 +269,110 @@ final class SurfaceCatalog {
                 $liveEffects
             );
             $rows[] = $row;
-            $facts[$id] = $vectors;
+            // `governed_by` is the manifest that DECLARED this surface, and it
+            // is what `ContractProjection::invalidation()` intersects with the
+            // adapters whose `adapter_digest` moved to decide which surfaces
+            // flip. `declared_by` is set at `:350` for a policy surface group
+            // and `:443` for a registry-only surface, and is null exactly for
+            // a surface no adapter governs — an undeclared live table — which
+            // is why the empty list is a real answer and not a hole.
+            $facts[$id] = [
+                'governed_by' => is_string($identity['declared_by'] ?? null) && $identity['declared_by'] !== ''
+                    ? [$identity['declared_by']]
+                    : [],
+                'operations' => $vectors,
+            ];
         }
         usort($rows, static fn (array $a, array $b): int => strcmp((string) $a['id'], (string) $b['id']));
 
         return ['rows' => $rows, 'facts' => $facts];
+    }
+
+    /**
+     * The operation-keyed fact vectors for ONE surface of a `catalog()`
+     * result — the only reader of the fact record's `operations` half.
+     *
+     * The fact record is `{governed_by, operations}` (`:270-282`). It has not
+     * always been: it was the bare operation-keyed map until the exact
+     * dependency flip needed to know which adapter governs a surface, and it
+     * gained the envelope then. `projectionFacts()` moved with it;
+     * `ReleaseCommand::capabilities()` did not, because it indexed the record
+     * by operation with its own `?? []` and so kept parsing, kept running, and
+     * silently produced an EMPTY `conditions` list and an EMPTY `manifest` for
+     * every capability row in the frozen authorization plan. That is not a
+     * cosmetic loss: a plan naming no condition and no manifest gives
+     * `AuthorizationPlan::recheckConditions()` nothing to re-observe, so a
+     * plugin downgraded or deactivated inside the operator's confirmation
+     * window passed the mutation gate and authorized a production mutation —
+     * the exact defect the gate exists to stop, reintroduced by a shape change
+     * three files away.
+     *
+     * Two hand-written indexings of one shape are what made that possible, so
+     * there is one indexing now and both callers go through it. A surface id
+     * ABSENT from `facts` answers `[]`, which is a real answer rather than a
+     * hole: `ContractProjection::generate()` projects contract-declared
+     * surfaces this site does not have through `defaultFacts()`
+     * (ContractProjection.php:386-389), and those legitimately have no catalog
+     * fact record. A record that is PRESENT but not the documented shape is
+     * the drift above and refuses out loud instead.
+     *
+     * @param array<string,mixed> $catalog a `catalog()` result
+     * @return array<string,array<string,mixed>> vectors keyed by MUP operation
+     */
+    public static function factVectors(array $catalog, string $surfaceId): array {
+        $record = self::factRecord($catalog, $surfaceId);
+        if ($record === null) {
+            return [];
+        }
+
+        return is_array($record['operations']) ? $record['operations'] : [];
+    }
+
+    /**
+     * The manifests that GOVERN one surface — the fact record's other half,
+     * read the same single way for the same reason.
+     *
+     * @param array<string,mixed> $catalog a `catalog()` result
+     * @return list<string>
+     */
+    public static function factGovernedBy(array $catalog, string $surfaceId): array {
+        $record = self::factRecord($catalog, $surfaceId);
+        if ($record === null) {
+            return [];
+        }
+
+        return is_array($record['governed_by']) ? array_values($record['governed_by']) : [];
+    }
+
+    /**
+     * One surface's fact record, or null when the catalog holds none for it.
+     *
+     * @param array<string,mixed> $catalog
+     * @return array<string,mixed>|null
+     */
+    private static function factRecord(array $catalog, string $surfaceId): ?array {
+        $facts = is_array($catalog['facts'] ?? null) ? $catalog['facts'] : [];
+        if (!array_key_exists($surfaceId, $facts)) {
+            return null;
+        }
+        $record = $facts[$surfaceId];
+        if (!is_array($record)
+            || !array_key_exists('governed_by', $record)
+            || !array_key_exists('operations', $record)
+        ) {
+            // Loud, because the silent version of this shipped: see
+            // `factVectors()`. A caller holding a catalog whose fact record is
+            // not the documented one is reading a document some other build
+            // wrote, and every downstream answer derived from it — the frozen
+            // plan's conditions included — would be empty rather than wrong,
+            // which is the failure mode that reads as success.
+            throw self::refuse(
+                'assess_surface_facts_malformed',
+                'a catalog fact record is not the documented {governed_by, operations} shape'
+            );
+        }
+
+        return $record;
     }
 
     /**
@@ -269,17 +388,25 @@ final class SurfaceCatalog {
      * @param list<string> $operations
      * @param string $registrySha256 the content address of the reviewed
      *        dispositions the target answered from, observed now
+     * @param list<array<string,mixed>> $observedPins the adapter pin rows
+     *        (`{name, source, adapter_digest}`) the target reports NOW, in the
+     *        same shape `contract.declarations.manifest_pins` holds. Supplying
+     *        them is what lets `ContractProjection` narrow the evidence flip
+     *        from the whole contract to the adapters whose digest actually
+     *        moved; `[]` keeps the blunt whole-contract flip, which is the
+     *        honest answer when nothing observed the pins.
      * @return array<string,mixed>
      */
     public static function projectionFacts(
         array $catalog,
         array $operations,
-        string $registrySha256
+        string $registrySha256,
+        array $observedPins = []
     ): array {
         $surfaces = [];
         foreach ($catalog['rows'] as $row) {
             $id = (string) $row['id'];
-            $vectors = $catalog['facts'][$id] ?? [];
+            $vectors = self::factVectors($catalog, $id);
             $entries = [];
             foreach ($operations as $operation) {
                 if (!isset($vectors[$operation])) {
@@ -290,14 +417,26 @@ final class SurfaceCatalog {
                     'expiry_and_dependencies' => $vectors[$operation]['expiry_and_dependencies'],
                 ];
             }
-            $surfaces[$id] = ['operations' => $entries];
+            $surfaces[$id] = [
+                'governed_by' => self::factGovernedBy($catalog, $id),
+                'operations' => $entries,
+            ];
         }
 
-        return [
+        $facts = [
             'operations' => array_values($operations),
             'registry_sha256' => $registrySha256,
             'surfaces' => $surfaces,
         ];
+        if ($observedPins !== []) {
+            // Emitted only when there is something to emit: the key is opt-in
+            // in `ContractProjection::generate()`, and an empty list would
+            // read as "this site loads no adapters" — an exact flip against
+            // nothing — rather than "the pins were not observed".
+            $facts['manifest_pins'] = array_values($observedPins);
+        }
+
+        return $facts;
     }
 
     /**
@@ -583,7 +722,20 @@ final class SurfaceCatalog {
                 'gap_action' => ProjectionVocabulary::gapAction($projection),
                 'expiry_and_dependencies' => $expiry,
             ];
-            $vectors[$operation] = ['facts' => $vector, 'expiry_and_dependencies' => $expiry];
+            // A THIRD key beside the two `projectionFacts()` copies (:284-291
+            // copies exactly `facts` and `expiry_and_dependencies`), so
+            // `projection.json` and every `duo assess` byte are unmoved by
+            // this. `manifest` is carried at the vector level because a
+            // surface whose claim raises NO condition today still has to be
+            // attributable to its manifest at the gate — otherwise a
+            // condition that APPEARS during the confirmation window has no
+            // frozen row to appear against.
+            $vectors[$operation] = [
+                'conditions' => self::conditionRows($manifest),
+                'expiry_and_dependencies' => $expiry,
+                'facts' => $vector,
+                'manifest' => is_string($manifest['name'] ?? null) ? $manifest['name'] : '',
+            ];
         }
 
         if (count($stateClasses) > 1) {
@@ -634,6 +786,94 @@ final class SurfaceCatalog {
         }
 
         return $stateClass === 'unclassified' ? 'unresolved' : 'platform-default';
+    }
+
+    /**
+     * The machine-checkable condition rows for one claim — the ONE producer.
+     *
+     * `registryFacts()` below flattens the same reasons to their prose
+     * `message` (`$conditions[] = (string) ($reason['message'] ?? …)`), which
+     * is what `projection.json`, `duo assess` and MUP §1.3's readiness word
+     * read and what they must keep reading. That flattening is also exactly
+     * why a frozen authorization plan could not re-check its own conditions:
+     * the code and the subject were dropped, so `plugin_version_mismatch` and
+     * `plugin_not_active` re-hashed to their frozen values by construction and
+     * a plugin deactivated during the operator's confirmation window passed
+     * the mutation gate silently.
+     *
+     * The row is `{check, code, manifest, observed, rechecked_at, satisfied,
+     * subject}`. The first four keys are the ones
+     * `AuthorizationPlanRenderer::conditionLine()` (:387-401) has always read
+     * off an ARRAY condition and `docs/guides/release.md:148` has always
+     * printed; `manifest`, `satisfied` and `subject` are the machine keys the
+     * re-probe needs and the renderer ignores.
+     *
+     * A reason from an agent build that carries no `subject` still mints a
+     * row, with `subject` empty. That is deliberate: the gate must be able to
+     * refuse it as UNCHECKABLE (docs/product-spec.md:302-303, "an unmet or
+     * uncheckable condition blocks") rather than skip it and release.
+     *
+     * Every row minted today carries `satisfied: false`, because
+     * `AdapterRegistry::target_reasons()` raises a reason only where the check
+     * FAILED. The key ships anyway so the rule reads in full generality and so
+     * a later satisfied-claim row needs no reshaping.
+     *
+     * @param array<string,mixed>|null $manifest a `report()['manifests'][]` row
+     * @return list<array<string,mixed>>
+     */
+    public static function conditionRows(?array $manifest): array {
+        if ($manifest === null) {
+            return [];
+        }
+        $name = is_string($manifest['name'] ?? null) ? $manifest['name'] : '';
+        $rows = [];
+        foreach (($manifest['verdict']['reasons'] ?? []) as $reason) {
+            if (!is_array($reason) || !is_string($reason['code'] ?? null)) {
+                continue;
+            }
+            if (!in_array($reason['code'], self::CONDITION_CODES, true)) {
+                continue;
+            }
+            $rows[] = [
+                'check' => is_string($reason['check'] ?? null) ? $reason['check'] : '',
+                'code' => (string) $reason['code'],
+                'manifest' => $name,
+                'observed' => is_string($reason['observed'] ?? null) ? $reason['observed'] : '',
+                'rechecked_at' => self::CONDITION_RECHECKED_AT,
+                'satisfied' => false,
+                'subject' => is_string($reason['subject'] ?? null) ? $reason['subject'] : '',
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * The same rows, keyed by manifest name, for a caller that has no surface
+     * join to make one with.
+     *
+     * The mutation gate is exactly that caller: it re-reads ONE
+     * `wp duo capabilities --operation=promote` document and has neither the
+     * inventory nor the contract that `catalog()` needs to attribute a claim
+     * to a surface. Per-manifest is therefore not a convenience, it is the
+     * only projection of a condition the gate can recompute — which is why
+     * `AuthorizationPlan::conditionVector()` groups the frozen rows the same
+     * way before digesting them.
+     *
+     * @param array<string,mixed> $registryReport an `AdapterRegistry::report()` document
+     * @return array<string,list<array<string,mixed>>>
+     */
+    public static function conditionsByManifest(array $registryReport): array {
+        $out = [];
+        foreach (($registryReport['manifests'] ?? []) as $manifest) {
+            if (!is_array($manifest) || !is_string($manifest['name'] ?? null)) {
+                continue;
+            }
+            $out[$manifest['name']] = self::conditionRows($manifest);
+        }
+        ksort($out, SORT_STRING);
+
+        return $out;
     }
 
     /**
@@ -855,9 +1095,23 @@ final class SurfaceCatalog {
             if (is_array($compatibility['php'] ?? null)) {
                 $out[] = 'php ' . self::range($compatibility['php']);
             }
+            // One entry PER CLAIMED ENGINE. The database axis is an
+            // engine-keyed map (agent/src/Policy/PlatformCompatibility.php:
+            // valid_database_axis()), so the single-engine read this replaced
+            // — `is_string($database['engine'])` guarding one range — would
+            // now be false for every claim and silently drop the database
+            // dependency from every projected contract's
+            // expiry_and_dependencies. A published dependency that vanishes
+            // because its shape moved is a narrowing nobody reviewed; sorted
+            // by engine name so the projection is stable against the claim's
+            // own key order.
             $database = $compatibility['database'] ?? null;
-            if (is_array($database) && is_string($database['engine'] ?? null)) {
-                $out[] = $database['engine'] . ' ' . self::range($database);
+            $engines = is_array($database) ? ($database['engines'] ?? null) : null;
+            if (is_array($engines) && !array_is_list($engines)) {
+                ksort($engines, SORT_STRING);
+                foreach ($engines as $engine => $range) {
+                    $out[] = (string) $engine . ' ' . self::range($range);
+                }
             }
         }
 

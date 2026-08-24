@@ -5,6 +5,7 @@ namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/PlanContract.php';
 require_once __DIR__ . '/PlanSummary.php';
+require_once __DIR__ . '/HumanViewLimit.php';
 
 /** A public, static refusal for host-side filtered status preflight. */
 final class PlanViewException extends \RuntimeException {
@@ -30,7 +31,9 @@ final class PlanViewException extends \RuntimeException {
  */
 final class PlanView {
     public const FORMAT = 'duo-plan-view/v1';
-    public const MAX_LIMIT = 200;
+
+    /** MUP §4.6: the one closed ceiling, shared (DUO-3521). */
+    public const MAX_LIMIT = HumanViewLimit::MAX_LIMIT;
 
     private const REDACTION = 'values_omitted';
     private const ORDER = 'fixed_action_then_uuid_byte';
@@ -416,8 +419,8 @@ final class PlanView {
     }
 
     private static function parseLimit(mixed $raw): int {
-        if (!is_string($raw)
-            || preg_match('/^(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)$/D', $raw) !== 1) {
+        // One grammar (`HumanViewLimit::GRAMMAR`), this class's own refusal.
+        if (!is_string($raw) || !HumanViewLimit::valid($raw)) {
             throw self::invalidRequest();
         }
         return (int) $raw;

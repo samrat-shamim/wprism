@@ -25,7 +25,7 @@ declare(strict_types=1);
  *
  * The fake `wp` answers exactly the calls `Doctor::run()`, `Init::proposal()`
  * and `AssessCommand::assess()` make, records every invocation to
- * `$DUO_CALLS` for the composition-order assertion, and honours three
+ * `$DUO_CALLS` for the composition-order assertion, and honours these
  * failure-injection switches:
  *
  *   DUO_DOCTOR_FAIL=1        `core is-installed` fails -> assess must refuse
@@ -42,6 +42,16 @@ declare(strict_types=1);
  *                            read-modify-write window, which is the only
  *                            way to reach ContractStore's compare-and-swap
  *                            from the command line.
+ *   DUO_CAPS_AFTER=<name>    from the Nth `duo capabilities` call onward,
+ *                            answer with `caps-<op>.<name>.json` instead —
+ *                            the target as it is AFTER the operator started
+ *                            reading the authorization page. The window the
+ *                            mutation gate exists to close; the variants and
+ *                            what each one models are documented beside the
+ *                            files they generate.
+ *   DUO_CAPS_AFTER_CALL=<n>  the 1-based call index DUO_CAPS_AFTER starts at
+ *                            (default 2: call 1 is the freeze-time read,
+ *                            call 2 is the gate's own re-probe)
  */
 
 // register_argc_argv is on for the CLI SAPI, but static analysis cannot
@@ -277,7 +287,14 @@ $claim = static function (
         'platform' => ['compatibility' => [
             'wordpress' => ['last_verified' => '7.0.3'],
             'php' => ['min' => '8.3.0', 'max' => '8.4.0'],
-            'database' => ['engine' => 'MariaDB', 'min' => '11.0.0', 'max' => '12.0.0'],
+            // The shipped shape: one range per claimed engine. A fixture left
+            // on the retired `engine` scalar would render NO database
+            // dependency at all through SurfaceCatalog::expiry(), which is
+            // the silent narrowing that shape change had to be checked for.
+            'database' => ['engines' => [
+                'MariaDB' => ['min' => '11.0.0', 'max' => '12.0.0'],
+                'MySQL' => ['min' => '8.4.0', 'max' => '8.5.0'],
+            ]],
         ]],
         'evidence_scope' => 'authored_disposition',
         'source' => [
@@ -336,9 +353,19 @@ $report = static function (string $operation, string $registrySha) use (
     $adapterSurfaces,
     $adapterUnsupported
 ): array {
+    // `check`/`observed`/`subject` ride beside `message`, exactly as
+    // AdapterRegistry::reason() emits them (agent/src/Adapter/AdapterRegistry
+    // .php's target_reasons()). They are what SurfaceCatalog::conditionRows()
+    // mints a machine-checkable condition row from, and therefore what the
+    // mutation gate re-observes; a fixture carrying prose only would let the
+    // gate suite pass against a document no agent produces. `message` bytes
+    // are unchanged, so no assess output moves.
     $adapterReasons = [[
+        'check' => 'sample-adapter in 10.0.0-11.0.0',
         'code' => 'plugin_version_mismatch',
         'message' => 'sample-adapter 10.4.2 is outside the certified range',
+        'observed' => '10.4.2',
+        'subject' => 'sample-adapter',
     ]];
     if ($operation === 'delete') {
         $adapterReasons[] = [
@@ -378,6 +405,72 @@ foreach (['capture', 'plan', 'promote', 'delete'] as $operation) {
     file_put_contents(
         "$dir/fixtures/caps-$operation.skew.json",
         json_encode($report($operation, $skewRegistrySha), JSON_UNESCAPED_SLASHES)
+    );
+}
+
+/**
+ * The target as it is AFTER the operator started reading the authorization
+ * page — the confirmation window the mutation gate exists to close.
+ *
+ * Selected by `DUO_CAPS_AFTER` from the Nth `duo capabilities` call onward
+ * (`DUO_CAPS_AFTER_CALL`, default 2), mirroring the release fixture's own
+ * `DUO_PLAN_AFTER` counter. `promote` only, because that is the one registry
+ * operation `duo release` reads (`SurfaceCatalog::REGISTRY_OPERATION`).
+ *
+ * Each variant is one drift shape the gate must name, and each one RELEASES
+ * against a build whose gate re-probes only plan/HEAD/artifact:
+ *
+ *   moved     the plugin was downgraded: same condition, different `observed`
+ *   inactive  the plugin was deactivated: a `plugin_not_active` row APPEARS
+ *   withdrawn the plugin was upgraded into its window: the row disappears
+ *   gone      the manifest is absent from the report: nothing to re-observe
+ *   blind     the reason carries no machine facts: an uncheckable condition
+ *   skew      handled by caps-promote.skew.json, whose registry_sha256 moved
+ */
+$promote = $report('promote', $hostRegistrySha);
+$sampleIndex = null;
+foreach ($promote['manifests'] as $index => $manifest) {
+    if (($manifest['name'] ?? null) === 'sample-adapter') {
+        $sampleIndex = $index;
+    }
+}
+if ($sampleIndex === null) {
+    fwrite(STDERR, "make-fixture: the promote report names no sample-adapter claim to drift\n");
+    exit(2);
+}
+
+$moved = $promote;
+$moved['manifests'][$sampleIndex]['verdict']['reasons'][0]['observed'] = '9.9.0';
+$moved['manifests'][$sampleIndex]['verdict']['reasons'][0]['message'] =
+    'sample-adapter 9.9.0 is outside the certified range';
+
+$inactive = $promote;
+$inactive['manifests'][$sampleIndex]['verdict']['reasons'][] = [
+    'check' => 'sample-adapter active',
+    'code' => 'plugin_not_active',
+    'message' => 'sample-adapter is not active on the evaluated target',
+    'observed' => 'inactive',
+    'subject' => 'sample-adapter',
+];
+
+$withdrawn = $promote;
+$withdrawn['manifests'][$sampleIndex]['verdict']['reasons'] = [];
+
+$gone = $promote;
+$gone['manifests'] = array_values(array_filter(
+    $gone['manifests'],
+    static fn (array $manifest): bool => ($manifest['name'] ?? null) !== 'sample-adapter'
+));
+
+$blind = $promote;
+foreach (['check', 'observed', 'subject'] as $fact) {
+    unset($blind['manifests'][$sampleIndex]['verdict']['reasons'][0][$fact]);
+}
+
+foreach (compact('moved', 'inactive', 'withdrawn', 'gone', 'blind') as $name => $variant) {
+    file_put_contents(
+        "$dir/fixtures/caps-promote.$name.json",
+        json_encode($variant, JSON_UNESCAPED_SLASHES)
     );
 }
 
@@ -432,10 +525,24 @@ case " $* " in
         cp "$DUO_MUTATE_CONTRACT" "$DUO_SITE_REPO/.duo/contract/contract.json"
         rm -f "$DUO_MUTATE_CONTRACT"
       fi
+      # DUO mutation gate: from the Nth call onward, answer with the target
+      # as it is AFTER the operator started reading the plan. Inert unless
+      # DUO_CAPS_AFTER names a variant that exists for this operation, so
+      # every suite that does not set it sees exactly the base report.
+      caps="caps-$op"
+      if [ -n "${DUO_CAPS_AFTER:-}" ]; then
+        seen=$(cat "$DUO_FIXTURES/caps-calls" 2>/dev/null || echo 0)
+        seen=$((seen + 1))
+        printf '%s' "$seen" > "$DUO_FIXTURES/caps-calls"
+        if [ "$seen" -ge "${DUO_CAPS_AFTER_CALL:-2}" ] \
+          && [ -f "$DUO_FIXTURES/caps-$op.${DUO_CAPS_AFTER}.json" ]; then
+          caps="caps-$op.${DUO_CAPS_AFTER}"
+        fi
+      fi
       if [ "${DUO_LIBRARY_SKEW:-0}" = 1 ]; then
         cat "$DUO_FIXTURES/caps-$op.skew.json"
       else
-        cat "$DUO_FIXTURES/caps-$op.json"
+        cat "$DUO_FIXTURES/$caps.json"
       fi
       exit 0 ;;
   *" duo init "*)

@@ -315,15 +315,26 @@ final class Doctor {
         // treatment above — an environment genuinely outside the tested
         // PHP/database range is exactly the "unproven behavior hidden
         // behind a broad compatibility claim" DESIGN.md's vision invariant
-        // forbids. WordPress is a bounded range narrowed to the exercised
-        // series in `verified` rather than a fabricated open range, and this
-        // row reproduces the agent's predicate exactly — inside [min, max)
-        // AND the observed MAJOR.MINOR present in `verified` (agent/src/
-        // Policy/PlatformCompatibility.php:wordpress_supported()). Both
-        // halves matter here for the same reason they matter there: doctor
-        // must never label a core compatible that the direct product path
-        // refuses, and a bare range would do exactly that for a minor line
-        // inside the window that nobody exercised.
+        // forbids. WordPress and PHP are both bounded ranges narrowed to the
+        // exercised series in their own `verified` map rather than fabricated
+        // open ranges, and these rows reproduce the agent's predicate exactly
+        // — inside [min, max) AND the observed MAJOR.MINOR present in
+        // `verified` (agent/src/Policy/PlatformCompatibility.php:
+        // exercised_supported(), which is one shared implementation for both
+        // axes). Both halves matter here for the same reason they matter
+        // there: doctor must never label a runtime compatible that the direct
+        // product path refuses, and a bare range would do exactly that for a
+        // minor line inside the window that nobody exercised.
+        //
+        // The database row is per-engine for the same honesty reason in a
+        // different shape: `engines` maps each claimed engine to its own
+        // range, so an engine the map does not name is refused outright
+        // rather than measured against another product's numbers, and the
+        // range this row applies is the one belonging to the engine actually
+        // observed (PlatformCompatibility::valid_database_axis()). The
+        // comparison stays case-insensitive because the fact this row reads
+        // is the target's own lower-case `db_engine`, while the claim spells
+        // engines the way their vendors do (MariaDB, MySQL).
         if ($installed) {
             $baseline = self::read_baseline();
             if ($baseline === null) {
@@ -347,23 +358,50 @@ final class Doctor {
                 } else {
                     [$phpVersion, $dbVersion, $dbEngine, $wpVersion] = $parts;
                     $php = $baseline['php'] ?? null;
-                    $phpOk = is_array($php) && self::in_range($phpVersion, (string) $php['min'], (string) $php['max']);
+                    $phpSeries = is_array($php) && is_array($php['verified'] ?? null)
+                        ? array_map('strval', array_keys($php['verified']))
+                        : [];
+                    usort($phpSeries, static fn(string $a, string $b): int => version_compare($a, $b));
+                    // The same dotted-shape guard the WordPress row carries
+                    // below, and for the same reason: the agent refuses an
+                    // observed value that is not a plain dotted version
+                    // (PlatformCompatibility::inside_range()), so a
+                    // pre-release engine ('8.5.0RC1') must not pass here
+                    // while `wp duo` refuses it.
+                    $phpOk = is_array($php)
+                        && preg_match('/^\d+(?:\.\d+){1,3}$/D', $phpVersion) === 1
+                        && self::in_range($phpVersion, (string) $php['min'], (string) $php['max'])
+                        && in_array(self::series($phpVersion), $phpSeries, true);
                     $checks[] = self::check(
                         "PHP version ($phpVersion)", $phpOk,
-                        $phpOk ? '' : 'outside the declared baseline (>=' . ($php['min'] ?? '?') . ' <'
-                            . ($php['max'] ?? '?') . ' — docs/compatibility-baseline.json). Classification and '
-                            . 'apply behavior are only tested inside this range.'
+                        $phpOk ? '' : 'outside the exercised platform matrix (>=' . ($php['min'] ?? '?') . ' <'
+                            . ($php['max'] ?? '?') . ', exercised series '
+                            . ($phpSeries === [] ? '?' : implode(', ', $phpSeries))
+                            . ' — docs/compatibility-baseline.json). Classification and '
+                            . 'apply behavior are only tested inside this matrix.'
                     );
                     $db = $baseline['database'] ?? null;
-                    $dbEngineOk = is_array($db) && strcasecmp((string) ($db['engine'] ?? ''), $dbEngine) === 0;
-                    $dbRangeOk = is_array($db) && self::in_range($dbVersion, (string) $db['min'], (string) $db['max']);
-                    $dbOk = $dbEngineOk && $dbRangeOk;
+                    $dbEngines = is_array($db) && is_array($db['engines'] ?? null) ? $db['engines'] : [];
+                    $dbClaimed = array_map('strval', array_keys($dbEngines));
+                    sort($dbClaimed, SORT_STRING);
+                    $dbRange = null;
+                    $dbClaimedName = '';
+                    foreach ($dbEngines as $engine => $range) {
+                        if (is_array($range) && strcasecmp((string) $engine, $dbEngine) === 0) {
+                            $dbRange = $range;
+                            $dbClaimedName = (string) $engine;
+                        }
+                    }
+                    $dbOk = $dbRange !== null
+                        && self::in_range($dbVersion, (string) ($dbRange['min'] ?? ''), (string) ($dbRange['max'] ?? ''));
                     $checks[] = self::check(
                         "database ($dbEngine $dbVersion)", $dbOk,
-                        $dbOk ? '' : (!$dbEngineOk
-                            ? 'expected ' . ($db['engine'] ?? '?') . ", found $dbEngine — a different database engine is "
+                        $dbOk ? '' : ($dbRange === null
+                            ? 'claimed engines are ' . ($dbClaimed === [] ? '?' : implode(', ', $dbClaimed))
+                                . ", found $dbEngine — a different database engine is "
                                 . 'genuinely untested, not merely unpinned (docs/compatibility-baseline.json).'
-                            : 'outside the declared baseline (>=' . ($db['min'] ?? '?') . ' <' . ($db['max'] ?? '?')
+                            : "outside the declared baseline for $dbClaimedName (>=" . ($dbRange['min'] ?? '?')
+                                . ' <' . ($dbRange['max'] ?? '?')
                                 . ' — docs/compatibility-baseline.json).')
                     );
                     $wordpress = $baseline['wordpress'] ?? null;
@@ -512,13 +550,17 @@ final class Doctor {
     }
 
     /**
-     * The baseline, or null when it cannot state a whole boundary. The
-     * WordPress keys are required alongside PHP's and the database's for the
-     * same reason those two are: a truncated axis must sink the row into
-     * "baseline file missing or malformed" rather than let a missing min/max/
-     * verified evaluate to a silent pass for every core version.
+     * The baseline, or null when it cannot state a whole boundary. Every
+     * axis's narrowing half is required alongside its bounds — `verified` for
+     * PHP and WordPress, `engines` for the database — for the same reason the
+     * bounds themselves are: a truncated axis must sink the row into
+     * "baseline file missing or malformed" rather than let a missing key
+     * evaluate to a silent pass. A missing `php.verified` would leave the
+     * series list empty and refuse everything, which is loud but blames the
+     * runtime instead of the file; a missing `database.engines` would refuse
+     * every engine with the same misdirection.
      *
-     * @return ?array{php:array{min:string,max:string}, database:array{engine:string,min:string,max:string}, wordpress:array{min:string,max:string,verified:array<string,string>,last_verified:string}}
+     * @return ?array{php:array{min:string,max:string,verified:array<string,string>}, database:array{engines:array<string,array{min:string,max:string}>}, wordpress:array{min:string,max:string,verified:array<string,string>,last_verified:string}}
      */
     private static function read_baseline(): ?array {
         $file = dirname(__DIR__, 3) . '/docs/compatibility-baseline.json';
@@ -527,7 +569,9 @@ final class Doctor {
         }
         $data = json_decode((string) file_get_contents($file), true);
         if (!is_array($data)
-            || !isset($data['php']['min'], $data['php']['max'], $data['database']['min'], $data['database']['max'])
+            || !isset($data['php']['min'], $data['php']['max'])
+            || !is_array($data['php']['verified'] ?? null) || $data['php']['verified'] === []
+            || !is_array($data['database']['engines'] ?? null) || $data['database']['engines'] === []
             || !isset($data['wordpress']['min'], $data['wordpress']['max'])
             || !is_array($data['wordpress']['verified'] ?? null) || $data['wordpress']['verified'] === []) {
             return null;

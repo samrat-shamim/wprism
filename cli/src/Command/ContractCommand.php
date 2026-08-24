@@ -6,13 +6,15 @@ namespace Duo\Orchestrator;
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
+require_once __DIR__ . '/../Adapter/AdapterCertify.php';
 require_once __DIR__ . '/../Contract/ApplicationContract.php';
+require_once __DIR__ . '/../Contract/ContractAttestation.php';
 require_once __DIR__ . '/../Contract/ContractProjection.php';
 require_once __DIR__ . '/../Contract/ContractProposal.php';
 require_once __DIR__ . '/../Contract/ContractStore.php';
 require_once __DIR__ . '/../Contract/ProjectionVocabulary.php';
 require_once __DIR__ . '/../Assess/AssessReport.php';
-require_once __DIR__ . '/../Assess/AssessRenderer.php';
+require_once __DIR__ . '/../Plan/HumanViewLimit.php';
 require_once __DIR__ . '/AssessCommand.php';
 require_once __DIR__ . '/CommandOutput.php';
 
@@ -46,6 +48,17 @@ use Duo\CommandRefusalException;
  * them. It never commits: the commit is the human's signature on the
  * review, and a tool that made it would be signing on their behalf.
  *
+ * **`attest`** is the fourth posture and the newest. It signs the ALREADY
+ * ACCEPTED contract under an Ed25519 key the operator provisioned in this
+ * repository's own `.duo/contract/authorities.json`, so the document carries
+ * a machine-checkable statement of who approved it and until when. It
+ * contacts nothing, it never proposes or edits declarations — attest signs
+ * what review produced — and on every site that has not provisioned a key it
+ * refuses with `contract_attestation_unsigned_anchor` before it reads a byte.
+ * The trust root ships empty and no command but this one creates it, which is
+ * why the honesty line every assessment prints (`; contract attestation
+ * unsigned`) stays literally true until an organization decides to hold a key.
+ *
  * ## The staleness bind, stated precisely
  *
  * `proposed.json` records the `assess_digest` of the assessment it was
@@ -69,7 +82,34 @@ use Duo\CommandRefusalException;
  */
 final class ContractCommand {
     /** @var list<string> */
-    public const SUBCOMMANDS = ['show', 'propose', 'accept'];
+    public const SUBCOMMANDS = ['show', 'propose', 'accept', 'attest'];
+
+    /**
+     * The closed option set `attest` accepts, and the reason it is closed at
+     * all: every one of these values ends up inside the signed statement, so a
+     * mistyped `--policy-versoin` that was silently ignored would mint an
+     * attestation stating a policy version nobody chose.
+     *
+     * @var list<string>
+     */
+    private const ATTEST_OPTIONS = [
+        '--secret-key-file', '--principal', '--policy-version', '--expires', '--key-id', '--reason', '--format',
+    ];
+
+    /**
+     * The default expiry window, in days, when the operator names none.
+     *
+     * A year, and finite rather than absent, because the expiry is ENFORCED at
+     * read time (`ContractAttestation::verify()`): an attestation that never
+     * expired would let a review from three agent versions ago keep vouching
+     * for a site nobody has looked at since.
+     */
+    private const DEFAULT_EXPIRY_DAYS = 365;
+
+    /** What the signed document says it is, when the operator states nothing else. */
+    private const DEFAULT_REASON =
+        'attested under an operator-provisioned contract trust root: a customer-organization '
+        . 'statement about this site, explicitly not a Duo endorsement';
 
     /**
      * @param list<string> $extra everything after `<env>`
@@ -87,13 +127,22 @@ final class ContractCommand {
         $json = AssessCommand::wantsJson($extra);
         try {
             $subcommand = self::subcommand($extra);
+            // DUO-3521: `show` was already bounded at a hardcoded 50; what it
+            // lacked was the flag every other bounded view publishes. The
+            // grammar and the refusal are the shared ones, so an operator
+            // learns `--limit=<1..200>` once.
+            $limit = HumanViewLimit::parse(
+                $extra,
+                static fn(): CommandRefusalException => self::refuseLimit()
+            );
             $siteRepo = AssessCommand::siteRepo(getcwd() ?: '.');
             $store = new ContractStore($siteRepo);
 
             $lines = match ($subcommand) {
-                'show' => self::show($store, $json),
+                'show' => self::show($store, $json, $limit),
                 'propose' => self::propose($driver, $sourceRoot, $hostCatalog, $clock, $json),
                 'accept' => self::accept($driver, $store, $siteRepo, $sourceRoot, $hostCatalog, $clock, $json),
+                'attest' => self::attest($store, $siteRepo, $extra, $json),
             };
         } catch (CommandRefusalException $refusal) {
             return AssessCommand::renderRefusal($refusal, $json, 'contract');
@@ -110,7 +159,7 @@ final class ContractCommand {
      *
      * @return list<string>
      */
-    private static function show(ContractStore $store, bool $json): array {
+    private static function show(ContractStore $store, bool $json, int $limit = HumanViewLimit::DEFAULT_LIMIT): array {
         $contract = $store->readContract();
         if ($contract === null) {
             throw new CommandRefusalException(
@@ -124,7 +173,7 @@ final class ContractCommand {
             return [rtrim(Canon::encode(['contract' => $contract, 'projection' => $projection]), "\n")];
         }
 
-        return self::renderContract($contract, $projection);
+        return self::renderContract($contract, $projection, $limit);
     }
 
     /**
@@ -284,6 +333,191 @@ final class ContractCommand {
     }
 
     /**
+     * Sign the accepted contract under a key in this repository's own
+     * contract trust root.
+     *
+     * Contacts nothing, exactly like `show`: the document being signed is a
+     * committed review artifact and the key is on this machine, so asking a
+     * site about it would answer a question nobody asked. `<env>` is verb
+     * grammar only — the contract is per site (ContractStore's "two tiers"
+     * docblock), and an attestation of it is too.
+     *
+     * ## Ordering, and why it is this ordering
+     *
+     * The public key is registered in `.duo/contract/authorities.json` BEFORE
+     * anything is signed, because that file is where `verify()` resolves a key
+     * from and a signature under an unregistered key is a document that cannot
+     * be read back. If signing or writing then fails, the trust root is
+     * restored to exactly the bytes this run found — the same rollback
+     * `AdapterCertify::certify()` performs for the same reason
+     * (AdapterCertify.php:326-334): a failed attest leaves the repository
+     * exactly as it found it.
+     *
+     * ## What it refuses on a shipped site
+     *
+     * `contract_attestation_unsigned_anchor`, before it reads a key or touches
+     * a byte, because no site ships with a trust root. That refusal IS this
+     * feature on every site that has not made the organizational decision to
+     * hold a signing key.
+     *
+     * @param list<string> $extra
+     * @return list<string>
+     */
+    private static function attest(ContractStore $store, string $siteRepo, array $extra, bool $json): array {
+        // Refused before anything is written, as accept does (:195): staging is
+        // part of attest, so a repository that cannot be staged into cannot
+        // attest, and finding that out after the trust root was written would
+        // leave a key registered by a run that produced no attestation.
+        AssessCommand::requireGitWorktreeRoot($siteRepo);
+        $options = self::attestOptions($extra);
+
+        // The unverified read, and the one caller of it. Every verification
+        // refusal (`_expired`, `_platform_moved`, `_key_revoked`) has
+        // re-attesting as its remedy, so this verb has to be able to read the
+        // document it is about to re-sign — see readContractUnverified().
+        $contract = $store->readContractUnverified();
+        if ($contract === null) {
+            throw new CommandRefusalException(
+                'contract_missing',
+                'this site repository has no accepted application contract',
+                'run duo contract <env> propose, review the proposal, then duo contract <env> accept; '
+                    . 'attest signs what review produced, never a fresh document'
+            );
+        }
+        $expectedDigest = $store->currentDigest();
+
+        $secret = self::secretKey($options['--secret-key-file'] ?? '');
+        $public = sodium_crypto_sign_publickey_from_secretkey($secret);
+        // `site-<12 hex of sha256(public key)>` is AdapterCertify's derivation
+        // (AdapterCertify.php:942-944) and the reason is the same one it gives:
+        // an operator who names no id still gets one they can read off two
+        // machines and compare. The prefix says which root the key belongs to,
+        // and `contract-` is not `site-` because these are different files
+        // holding differently-scoped records.
+        $keyId = (string) ($options['--key-id'] ?? ('contract-' . substr(hash('sha256', $public), 0, 12)));
+        $expires = (string) ($options['--expires']
+            ?? gmdate('Y-m-d\TH:i:s\Z', time() + self::DEFAULT_EXPIRY_DAYS * 86400));
+
+        $authoritiesPath = ContractAttestation::authoritiesPath($siteRepo);
+        $authoritiesBefore = is_file($authoritiesPath) ? (string) file_get_contents($authoritiesPath) : null;
+        ContractAttestation::registerAuthority($siteRepo, $keyId, $public);
+        try {
+            $signed = ContractAttestation::sign($contract, $siteRepo, $keyId, $secret, [
+                'approving_principal' => (string) ($options['--principal'] ?? ''),
+                'policy_version' => (string) ($options['--policy-version'] ?? ''),
+                'expires_at' => $expires,
+                'reason' => (string) ($options['--reason'] ?? self::DEFAULT_REASON),
+            ]);
+            // The verifying door: writeAttestedContract() runs the same
+            // verification every later read runs, over the bytes about to land.
+            $store->writeAttestedContract($signed, $expectedDigest);
+        } catch (\Throwable $t) {
+            if ($authoritiesBefore === null) {
+                @unlink($authoritiesPath);
+            } else {
+                file_put_contents($authoritiesPath, $authoritiesBefore, LOCK_EX);
+            }
+            throw $t;
+        }
+
+        $verified = ContractAttestation::verify($signed, $siteRepo);
+        $staged = self::stage($siteRepo, [
+            ContractStore::DIRECTORY . '/' . ContractStore::CONTRACT_FILE,
+            ContractAttestation::AUTHORITIES_RELATIVE,
+        ]);
+
+        if ($json) {
+            return [rtrim(Canon::encode([
+                'format' => 'duo-contract-attest/v1',
+                'contract_digest' => (string) $signed['contract_digest'],
+                'attestation' => $verified,
+                'staged' => $staged,
+            ]), "\n")];
+        }
+
+        return [
+            'attested: ' . ContractStore::DIRECTORY . '/' . ContractStore::CONTRACT_FILE,
+            'principal: ' . self::safe($verified['principal'])
+                . ' (' . self::safe($verified['trust_root']) . ' trust root, key '
+                . self::safe($verified['key_id']) . ')',
+            'policy: ' . self::safe($verified['policy_version'])
+                . ' · expires ' . self::safe($verified['expires_at']),
+            'trust root: ' . ContractAttestation::AUTHORITIES_RELATIVE,
+            $staged
+                ? 'staged for commit; the commit is yours to make — it is your signature on this review'
+                : 'not staged: git could not stage the attestation; add the two files before committing',
+            'an agent upgrade moves the platform boundary this attestation binds, and every consumer '
+                . 'then refuses until you attest again',
+        ];
+    }
+
+    /**
+     * The attest option set, parsed closed.
+     *
+     * @param list<string> $extra
+     * @return array<string,string>
+     */
+    private static function attestOptions(array $extra): array {
+        $options = [];
+        foreach ($extra as $arg) {
+            if (!is_string($arg) || !str_starts_with($arg, '-')) {
+                continue;
+            }
+            $name = str_contains($arg, '=') ? explode('=', $arg, 2)[0] : $arg;
+            if (!in_array($name, self::ATTEST_OPTIONS, true)) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'attest received an option it does not define',
+                    'attest accepts --secret-key-file=<path>, --principal=<who>, --policy-version=<v>, '
+                        . '--expires=<ISO8601>, --key-id=<id>, --reason=<text> and --format=json'
+                );
+            }
+            if ($name !== '--format' && str_contains($arg, '=')) {
+                $options[$name] = explode('=', $arg, 2)[1];
+            }
+        }
+        foreach (['--secret-key-file', '--principal', '--policy-version'] as $required) {
+            if (($options[$required] ?? '') === '') {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    "attest requires $required",
+                    'run duo contract <env> attest --secret-key-file=<path> --principal=<who> '
+                        . '--policy-version=<v>; an attestation that states nothing proves nothing'
+                );
+            }
+        }
+
+        return $options;
+    }
+
+    /**
+     * The operator's private key, as bytes.
+     *
+     * `AdapterCertify::readSecretKey()` is reused rather than re-implemented —
+     * including its 0077 mode check, whose rationale is written there
+     * (AdapterCertify.php:908-915): a key readable by the group or the world
+     * is not a private key, and signing with one would mint an attestation
+     * anybody on the box could forge. Its \RuntimeException carries the path,
+     * so it is converted here into a typed refusal that keeps the path in the
+     * operator-only channel.
+     */
+    private static function secretKey(string $path): string {
+        try {
+            return AdapterCertify::readSecretKey($path);
+        } catch (\RuntimeException $e) {
+            throw new CommandRefusalException(
+                'contract_attestation_key_unreadable',
+                'the attestation secret key file could not be read as an Ed25519 private key',
+                'pass --secret-key-file=<path> to a chmod 600 file holding a base64 or hexadecimal '
+                    . 'Ed25519 secret key, as duo adapter keygen writes',
+                [],
+                $e->getMessage(),
+                $e
+            );
+        }
+    }
+
+    /**
      * One fresh assessment, over every operation.
      *
      * `propose` and `accept` both need the *whole* projection: a contract
@@ -317,7 +551,11 @@ final class ContractCommand {
      * @param array<string,mixed>|null $projection
      * @return list<string>
      */
-    private static function renderContract(array $contract, ?array $projection): array {
+    private static function renderContract(
+        array $contract,
+        ?array $projection,
+        int $limit = HumanViewLimit::DEFAULT_LIMIT
+    ): array {
         $declarations = is_array($contract['declarations'] ?? null) ? $contract['declarations'] : [];
         $attestation = is_array($contract['attestation'] ?? null) ? $contract['attestation'] : [];
         $surfaces = is_array($declarations['surfaces'] ?? null) ? $declarations['surfaces'] : [];
@@ -332,7 +570,22 @@ final class ContractCommand {
             'declared: ' . count($surfaces) . ' surface(s), ' . count($effects)
                 . ' external effect(s), ' . count($journeys) . ' journey(s)',
         ];
-        foreach (array_slice($effects, 0, AssessRenderer::DEFAULT_LIMIT) as $effect) {
+        if (($attestation['state'] ?? null) === 'signed') {
+            // Printed only under `signed`, and only reachable at all because
+            // `readContract()` verified the document on the way in: a
+            // signature that did not verify never becomes a printed principal,
+            // it becomes a refusal. So this line states a checked fact.
+            array_splice($lines, 2, 0, ['attested by: ' . self::safe($attestation['approving_principal'] ?? '?')
+                . ' (' . self::safe($attestation['trust_root'] ?? '?') . ' trust root, key '
+                . self::safe($attestation['key_id'] ?? '?') . ')'
+                . ' · policy ' . self::safe($attestation['policy_version'] ?? '?')
+                . ' · expires ' . self::safe($attestation['expires_at'] ?? '?')]);
+        }
+        // DUO-3521: this slice had NO tail line, so a site with more than 50
+        // declared effects printed a truncated sample that read as complete —
+        // the one failure mode `N more (use --format=json)` exists to prevent.
+        $shownEffects = array_slice($effects, 0, $limit);
+        foreach ($shownEffects as $effect) {
             if (!is_array($effect)) {
                 continue;
             }
@@ -340,6 +593,10 @@ final class ContractCommand {
                 . ': containment ' . self::safe($effect['containment'] ?? '?')
                 . ' · recovery ' . self::safe($effect['effect_recovery_semantics'] ?? '?')
                 . ' · decided by ' . self::safe($effect['decided_by'] ?? '?');
+        }
+        $effectsCut = HumanViewLimit::cut(count($effects), count($shownEffects));
+        if ($effectsCut !== null) {
+            $lines[] = $effectsCut;
         }
         if ($journeys === []) {
             // MUP §2.4's disclosure, said once here rather than only at
@@ -358,7 +615,7 @@ final class ContractCommand {
         $pins = is_array($projection['evidence_pins'] ?? null) ? $projection['evidence_pins'] : [];
         $lines[] = 'projection: ' . count($rows) . ' surface(s) · evidence '
             . (($pins['current'] ?? false) === true ? 'current' : 'stale');
-        $shown = array_slice($rows, 0, AssessRenderer::DEFAULT_LIMIT);
+        $shown = array_slice($rows, 0, $limit);
         foreach ($shown as $row) {
             if (!is_array($row)) {
                 continue;
@@ -437,6 +694,16 @@ final class ContractCommand {
         }
 
         return $found;
+    }
+
+    /** The shared `--limit` grammar, refused in this verb's own words. */
+    private static function refuseLimit(): CommandRefusalException {
+        return new CommandRefusalException(
+            'invalid_arguments',
+            '--limit must be given once as --limit=N with N between 1 and ' . HumanViewLimit::MAX_LIMIT,
+            'rerun with --limit=N in that range, or drop --limit for the default of '
+                . HumanViewLimit::DEFAULT_LIMIT
+        );
     }
 
     private static function usage(): CommandRefusalException {

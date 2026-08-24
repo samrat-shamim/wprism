@@ -8,8 +8,12 @@
 # authorization plan is frozen is an assessment gap and carries a §2.1 gap
 # action (`classify`, `declare in contract`, `qualify in rehearsal`,
 # `exclude`, `install adapter`, `certify adapter`, `provision env value`,
-# `nothing — supported` — T6 §3.6 added the sixth and stopped EMITTING the
-# third, which stays in the set so an older stored projection still validates);
+# `attest contract`, `nothing — supported` — T6 §3.6 added `certify adapter`
+# and stopped EMITTING `qualify in rehearsal`, which stays in the set so an
+# older stored projection still validates; the contract attestation signer
+# added `attest contract`, which is in the set and emitted by NOTHING because
+# the trust root ships empty and attesting is an organizational decision, not
+# a next action);
 # only a failure AFTER the freeze carries a release next action. Mixing them
 # would tell an operator to `retry` a site that needs a contract declaration,
 # or to `declare in contract` a target that is mid-rollback.

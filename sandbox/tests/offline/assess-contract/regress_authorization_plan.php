@@ -363,6 +363,196 @@ foreach ([
     );
 }
 
+// --------------------------------------------- the mutation-gate condition gate
+//
+// The hole this closes: `capabilities` is COPIED into the frozen plan, so
+// before `inputs_digest.conditions_sha256` existed every condition the plan
+// named re-hashed to its own frozen value and `reverify()` could not see a
+// plugin deactivated or downgraded during the operator's confirmation window.
+// Each refusal below therefore RELEASES against the prior defect.
+$condition = static fn (array $overrides = []): array => array_replace([
+    'check' => 'storefront-commerce in 11.0.0-12.0.0',
+    'code' => 'plugin_version_mismatch',
+    'manifest' => 'storefront-commerce',
+    'observed' => '10.4.2',
+    'rechecked_at' => 'mutation gate',
+    'satisfied' => false,
+    'subject' => 'storefront-commerce',
+], $overrides);
+
+$conditioned = release_inputs(['capabilities' => [
+    [
+        'certification_provenance' => 'Platform-certified',
+        'conditions' => [],
+        'manifest' => 'core',
+        'name' => 'pages',
+        'operation' => 'promote',
+        'readiness' => 'Ready',
+    ],
+    [
+        'certification_provenance' => 'Platform-certified',
+        'conditions' => [$condition()],
+        'manifest' => 'storefront-commerce',
+        'name' => 'products',
+        'operation' => 'promote',
+        'readiness' => 'Ready with conditions',
+    ],
+]]);
+$conditionedPlan = AuthorizationPlan::build($conditioned);
+
+duo_check(
+    is_string($conditionedPlan['inputs_digest']['conditions_sha256'] ?? null)
+        && preg_match('/^sha256:[a-f0-9]{64}$/D', (string) $conditionedPlan['inputs_digest']['conditions_sha256']) === 1,
+    'inputs_digest carries a third key, conditions_sha256, over the per-manifest condition vector'
+);
+duo_check_same(
+    $conditionedPlan['inputs_digest']['conditions_sha256'],
+    AuthorizationPlan::build($conditioned)['inputs_digest']['conditions_sha256'],
+    'the condition digest is stable across two identical builds: it is an identity, not an observation time'
+);
+duo_check(
+    $conditionedPlan['inputs_digest']['conditions_sha256']
+        !== AuthorizationPlan::build(release_inputs(['capabilities' => [[
+            'certification_provenance' => 'Platform-certified',
+            'conditions' => [$condition(['observed' => '9.9.0'])],
+            'manifest' => 'storefront-commerce',
+            'name' => 'products',
+            'operation' => 'promote',
+            'readiness' => 'Ready with conditions',
+        ]]]))['inputs_digest']['conditions_sha256'],
+    'the condition digest MOVES when an observed value moves — the whole point of digesting the observation'
+);
+duo_check_same(
+    $conditionedPlan['inputs_digest']['conditions_sha256'],
+    AuthorizationPlan::currentFacts($conditioned)['conditions_sha256'],
+    'currentFacts() computes the same field from the same inputs, so reverify() compares seven scalars, not six'
+);
+duo_check_same(
+    // Keyed by the manifest each CONDITION names, so `core` — which raises
+    // none — contributes no key at all; the digest therefore does not move
+    // when a condition-free surface enters scope. `recheckConditions()` still
+    // re-observes `core`, because it walks the capability rows' own
+    // `manifest`, which is a different question: "is the claim still there".
+    // `rechecked_at` is absent: it is the constant word `mutation gate`, a
+    // label rather than an observation, and two identical rows collapse to one.
+    ['storefront-commerce' => [[
+        'check' => 'storefront-commerce in 11.0.0-12.0.0',
+        'code' => 'plugin_version_mismatch',
+        'observed' => '10.4.2',
+        'satisfied' => false,
+        'subject' => 'storefront-commerce',
+    ]]],
+    AuthorizationPlan::conditionVector([
+        ['conditions' => [], 'manifest' => 'core'],
+        ['conditions' => [$condition(), $condition()], 'manifest' => 'storefront-commerce'],
+    ]),
+    'the vector is grouped per manifest, deduped, and drops rechecked_at (a constant label, not an observation)'
+);
+
+$observedSame = ['core' => [], 'storefront-commerce' => [$condition()]];
+$record = AuthorizationPlan::recheckConditions($conditionedPlan, $observedSame, '2026-08-17T09:15:40Z');
+duo_check_same(
+    ['at' => '2026-08-17T09:15:40Z', 'checked' => 2, 'conditions' => 1,
+        'manifests' => ['core', 'storefront-commerce']],
+    $record,
+    'an unchanged observation is accepted and RECORDED: what, how many, and when'
+);
+
+foreach ([
+    'the plugin was downgraded during the confirmation window (moved)'
+        => ['core' => [], 'storefront-commerce' => [$condition(['observed' => '9.9.0'])]],
+    'the plugin was deactivated, so a second condition appeared'
+        => ['core' => [], 'storefront-commerce' => [$condition(), $condition([
+            'check' => 'storefront-commerce active', 'code' => 'plugin_not_active', 'observed' => 'inactive',
+        ])]],
+    'the condition was withdrawn, so the printed readiness word is no longer the true one'
+        => ['core' => [], 'storefront-commerce' => []],
+] as $what => $observed) {
+    duo_check_refuses(
+        static fn () => AuthorizationPlan::recheckConditions($conditionedPlan, $observed, 'now'),
+        'release_condition_changed',
+        "the mutation gate refuses when $what"
+    );
+}
+
+foreach ([
+    'a plan-named manifest is absent from the fresh report' => ['core' => []],
+    'a re-observed condition names no subject to re-probe'
+        => ['core' => [], 'storefront-commerce' => [$condition(['subject' => ''])]],
+    'a re-observed condition is prose only, from a build that emits no machine facts'
+        => ['core' => [], 'storefront-commerce' => ['storefront-commerce 10.4.2 is outside the certified range']],
+] as $what => $observed) {
+    duo_check_refuses(
+        static fn () => AuthorizationPlan::recheckConditions($conditionedPlan, $observed, 'now'),
+        'release_condition_uncheckable',
+        "an uncheckable condition BLOCKS when $what (product spec: unmet or uncheckable)"
+    );
+}
+
+// The refusal is a public envelope: it names the condition, its subject, its
+// manifest and what happened to it — and never the observed VALUE, the same
+// rule reverify() states about target facts.
+$drift = null;
+try {
+    AuthorizationPlan::recheckConditions(
+        $conditionedPlan,
+        ['core' => [], 'storefront-commerce' => [$condition(['observed' => '9.9.0'])]],
+        'now'
+    );
+} catch (\Duo\CommandRefusalException $refusal) {
+    $drift = $refusal;
+}
+duo_check_same(
+    [['code' => 'plugin_version_mismatch', 'manifest' => 'storefront-commerce',
+        'state' => 'moved', 'subject' => 'storefront-commerce']],
+    $drift?->diagnostics,
+    'the drift refusal names code, subject, manifest and state'
+);
+duo_check(
+    !str_contains(json_encode($drift?->diagnostics), '9.9.0')
+        && !str_contains(json_encode($drift?->diagnostics), '10.4.2'),
+    'and carries no observed version value: a refusal an operator pastes into a ticket is a public envelope'
+);
+
+foreach (['release_condition_changed', 'release_condition_uncheckable'] as $reasonCode) {
+    duo_check_same(
+        NextAction::REQUALIFY,
+        NextAction::forFailure('capability_expired'),
+        "$reasonCode routes through capability_expired to requalify, never to retry"
+    );
+}
+
+// The fail-closed backstop: the frozen rows are REPLACED by the observation,
+// so reverify()'s digest is a real comparison even where the named refusal
+// above missed a shape.
+$observedRows = AuthorizationPlan::withObservedConditions(
+    $conditioned['capabilities'],
+    ['core' => [], 'storefront-commerce' => [$condition(['observed' => '9.9.0'])]]
+);
+duo_check_refuses(
+    static fn () => AuthorizationPlan::reverify(
+        $conditionedPlan,
+        AuthorizationPlan::currentFacts(release_inputs(['capabilities' => $observedRows]))
+    ),
+    'plan_changed',
+    'reverify() itself refuses on a moved condition, so the gate fails closed even without the named refusal'
+);
+
+// A released outcome cannot be recorded without the recheck. That is what
+// makes the gate unskippable rather than a habit of one call site.
+duo_check_refuses(
+    static fn () => ReleaseOutcome::released('production', (string) $first['plan_digest'], []),
+    'release_outcome_shape_invalid',
+    'a released outcome that records no mutation-gate recheck refuses to exist'
+);
+$released = ReleaseOutcome::released('production', (string) $first['plan_digest'], [], $record);
+duo_check_same($record, $released['conditions_rechecked'], 'a released outcome carries the recheck record');
+duo_check_same(
+    ['released to production', '  conditions rechecked at 2026-08-17T09:15:40Z: 1 across 2 adapter claim(s)'],
+    ReleaseOutcome::humanLines($released),
+    'the human view gains exactly ONE bounded line — a count, never an enumeration (MUP §4.6)'
+);
+
 // ------------------------------------------------------------ --profile rule
 $weaker = RecoveryProfileSelection::decide($proof, ['requested_profile' => RecoveryClaim::OPERATOR_DIRECTED]);
 duo_check_same(

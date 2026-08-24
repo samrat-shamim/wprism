@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
-// The only require in this file, and it earns its place: materializeLocked()
-// renders the refresh code-resolve phases through CodeResolveCommand, and this
-// file is loaded directly — without cli/duo's load order — by
+// Two requires, and each earns its place. materializeLocked() renders the
+// refresh code-resolve phases through CodeResolveCommand, and this file is
+// loaded directly — without cli/duo's load order — by
 // sandbox/tests/offline/environment/regress_rehearse_provider.php. Relying on
 // the shell to have loaded the class first made that suite fatal with
 // `Class "Duo\Orchestrator\CodeResolveCommand" not found`, which is exactly
@@ -14,6 +14,11 @@ namespace Duo\Orchestrator;
 // dependency cli/duo plain-`require`s — EnvironmentDriver.php — is already
 // loaded at cli/duo:17, before this file at :18.
 require_once __DIR__ . '/../Command/CodeResolveCommand.php';
+// EnvironmentProviderProtocol is the extracted, published form of the action
+// vocabulary and the closed result key sets enforced below in assertAction()
+// and validateActionResult(). It is pure data with no back-reference into
+// this file, so the require is one-directional and order-free.
+require_once __DIR__ . '/EnvironmentProviderProtocol.php';
 
 /**
  * Optional host-owned lifecycle provider for branch environments.
@@ -160,6 +165,8 @@ final class CommandEnvironmentProvider {
     private const OUTPUT_LIMIT = 1048576;
     /** @var ?array{id:string,protocol:int} */
     private ?array $negotiatedProvider = null;
+    /** @var ?array<string,mixed> */
+    private ?array $lastResponse = null;
 
     /** @param list<string> $command */
     private function __construct(
@@ -205,9 +212,30 @@ final class CommandEnvironmentProvider {
         return $this->environment;
     }
 
+    /**
+     * The last structurally decoded response object, for operator-side
+     * diagnosis only.
+     *
+     * The refusals below deliberately never quote provider output: it may
+     * carry host or production-data diagnostics, and this boundary must not
+     * describe host internals back to an untrusted provider
+     * (assertExactKeys() says only "has missing or unknown fields", :548-556).
+     * `duo env provider-check` sits on the OPERATOR's side of that boundary
+     * and needs to name the field that was wrong, so it re-diagnoses this
+     * object through EnvironmentProviderProtocol::diagnose(), which emits
+     * field names and value SHAPES only — never a provider-supplied value.
+     * Reset on entry to every call() so a refusal can never be attributed to
+     * a previous action's response.
+     *
+     * @return ?array<string,mixed>
+     */
+    public function lastResponse(): ?array {
+        return $this->lastResponse;
+    }
+
     public function capabilities(string $operationId): EnvironmentProviderCapabilityReport {
         $response = $this->call('capabilities', $operationId, []);
-        self::assertExactKeys($response['result'], ['capabilities'], 'capabilities result');
+        self::assertExactKeys($response['result'], EnvironmentProviderProtocol::resultKeys('capabilities'), 'capabilities result');
         $capabilities = $response['result']['capabilities'];
         if (!is_array($capabilities) || !array_is_list($capabilities)) {
             throw new \RuntimeException('environment provider capabilities must be a list');
@@ -253,6 +281,7 @@ final class CommandEnvironmentProvider {
 
     /** @param array<string,mixed> $input @return array<string,mixed> */
     private function call(string $action, string $operationId, array $input): array {
+        $this->lastResponse = null;
         self::assertAction($action);
         self::assertIdentifier($operationId, 'operation id');
         if (array_is_list($input) && $input !== []) {
@@ -325,6 +354,7 @@ final class CommandEnvironmentProvider {
         } catch (\Throwable $e) {
             throw new \RuntimeException('environment provider returned malformed JSON');
         }
+        $this->lastResponse = is_array($response) && !array_is_list($response) ? $response : null;
         if (!is_array($response) || array_is_list($response)
             || EnvironmentLifecycleCanon::encode($response) . "\n" !== $stdout) {
             throw new \RuntimeException('environment provider returned noncanonical evidence');
@@ -356,15 +386,11 @@ final class CommandEnvironmentProvider {
     /** @param array<string,mixed> $result */
     private static function validateActionResult(string $action, array $result): void {
         if ($action === 'capabilities') {
-            self::assertExactKeys($result, ['capabilities'], 'capabilities result');
+            self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys('capabilities'), 'capabilities result');
             return;
         }
-        $identityKeys = [
-            'environment_identity', 'lease_generation', 'lease_id',
-            'ownership_receipt_sha256', 'resource_id', 'url',
-        ];
         if (in_array($action, ['inspect', 'attach', 'create'], true)) {
-            self::assertExactKeys($result, array_merge($identityKeys, ['presence']), "$action result");
+            self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys($action), "$action result");
             self::validateIdentity($result);
             if (!in_array($result['presence'], ['present', 'absent'], true)
                 || in_array($action, ['attach', 'create'], true) && $result['presence'] !== 'present') {
@@ -373,10 +399,7 @@ final class CommandEnvironmentProvider {
             return;
         }
         if ($action === 'snapshot-prepare') {
-            self::assertExactKeys($result, [
-                'lease_generation', 'lease_id', 'lease_receipt_sha256',
-                'snapshot_session_id', 'source_identity',
-            ], 'snapshot-prepare result');
+            self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys($action), 'snapshot-prepare result');
             self::assertPositiveInt($result['lease_generation'] ?? null, 'source snapshot lease generation');
             self::assertIdentifier($result['lease_id'] ?? null, 'source snapshot lease id');
             self::assertHash($result['lease_receipt_sha256'] ?? null, 'source snapshot lease receipt');
@@ -385,15 +408,7 @@ final class CommandEnvironmentProvider {
             return;
         }
         if (in_array($action, ['snapshot-create', 'snapshot-read'], true)) {
-            $keys = [
-                'database_sha256', 'lease_generation', 'lease_id', 'lease_receipt_sha256',
-                'media_sha256', 'retention_receipt_sha256', 'semantic_snapshot_sha256',
-                'snapshot_session_id', 'snapshot_set_id', 'snapshot_set_receipt_sha256', 'source_identity',
-            ];
-            if ($action === 'snapshot-read') {
-                $keys[] = 'immutable';
-            }
-            self::assertExactKeys($result, $keys, "$action result");
+            self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys($action), "$action result");
             self::validateSnapshotSet($result);
             if ($action === 'snapshot-read' && ($result['immutable'] ?? null) !== true) {
                 throw new \RuntimeException('environment provider snapshot-read did not prove immutable readback');
@@ -401,10 +416,7 @@ final class CommandEnvironmentProvider {
             return;
         }
         if ($action === 'snapshot-abort') {
-            self::assertExactKeys($result, [
-                'disposition', 'lease_generation', 'lease_id', 'lease_receipt_sha256',
-                'snapshot_session_id', 'source_identity',
-            ], 'snapshot-abort result');
+            self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys($action), 'snapshot-abort result');
             if (($result['disposition'] ?? null) !== 'aborted') {
                 throw new \RuntimeException('environment provider snapshot-abort returned wrong disposition');
             }
@@ -416,35 +428,31 @@ final class CommandEnvironmentProvider {
             return;
         }
         if ($action === 'snapshot-restore') {
-            self::assertExactKeys($result, array_merge($identityKeys, ['snapshot_set_id']), 'snapshot-restore result');
+            self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys($action), 'snapshot-restore result');
             self::validateIdentity($result);
             self::assertIdentifier($result['snapshot_set_id'] ?? null, 'snapshot set id');
             return;
         }
         if ($action === 'repository-materialize') {
-            self::assertExactKeys($result, array_merge($identityKeys, ['branch_commit', 'repository_receipt_sha256']), 'repository-materialize result');
+            self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys($action), 'repository-materialize result');
             self::validateIdentity($result);
             self::assertGitOid($result['branch_commit'] ?? null);
             self::assertHash($result['repository_receipt_sha256'] ?? null, 'repository receipt');
             return;
         }
         if ($action === 'url-set') {
-            self::assertExactKeys($result, $identityKeys, 'url-set result');
+            self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys($action), 'url-set result');
             self::validateIdentity($result);
             return;
         }
         if (in_array($action, ['mutation-acquire', 'mutation-read', 'mutation-release'], true)) {
-            self::assertExactKeys($result, array_merge($identityKeys, [
-                'mutation_generation', 'mutation_id', 'mutation_owner', 'mutation_receipt_sha256', 'state',
-            ]), "$action result");
+            self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys($action), "$action result");
             self::validateIdentity($result);
             self::validateMutation($result, $action);
             return;
         }
         if (in_array($action, ['ttl-set', 'ttl-read'], true)) {
-            self::assertExactKeys($result, array_merge($identityKeys, [
-                'expires_at', 'ttl_generation', 'ttl_lease_id', 'ttl_receipt_sha256', 'ttl_state',
-            ]), "$action result");
+            self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys($action), "$action result");
             self::validateIdentity($result);
             self::assertTimestamp($result['expires_at'] ?? null);
             self::assertPositiveInt($result['ttl_generation'] ?? null, 'ttl generation');
@@ -456,10 +464,7 @@ final class CommandEnvironmentProvider {
             return;
         }
         if (in_array($action, ['destroy', 'detach'], true)) {
-            self::assertExactKeys($result, [
-                'absence_proof_sha256', 'disposition', 'environment_identity',
-                'lease_generation', 'lease_id', 'ownership_receipt_sha256', 'resource_id',
-            ], "$action result");
+            self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys($action), "$action result");
             foreach (['environment_identity', 'resource_id', 'lease_id'] as $key) {
                 self::assertIdentifier($result[$key] ?? null, str_replace('_', ' ', $key));
             }
@@ -534,12 +539,7 @@ final class CommandEnvironmentProvider {
     }
 
     private static function assertAction(string $action): void {
-        if (!in_array($action, [
-            'capabilities', 'inspect', 'attach', 'create', 'snapshot-prepare', 'snapshot-create', 'snapshot-abort',
-            'snapshot-read', 'snapshot-restore', 'repository-materialize', 'url-set',
-            'mutation-acquire', 'mutation-read', 'mutation-release', 'ttl-set', 'ttl-read',
-            'destroy', 'detach',
-        ], true)) {
+        if (!in_array($action, EnvironmentProviderProtocol::actions(), true)) {
             throw new \RuntimeException("unknown environment provider action '$action'");
         }
     }

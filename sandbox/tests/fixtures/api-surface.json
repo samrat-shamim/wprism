@@ -1,5 +1,5 @@
 {
-    "class_count": 354,
+    "class_count": 361,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -19006,6 +19006,13 @@
                 "ATTESTATION_FORMAT": {
                     "value_repr": "duo-contract-attestation/v1"
                 },
+                "ATTESTATION_SIGNED_ONLY": {
+                    "value_repr": [
+                        "key_id",
+                        "platform_sha256",
+                        "trust_root"
+                    ]
+                },
                 "ATTESTATION_STATES": {
                     "value_repr": [
                         "unsigned",
@@ -19208,6 +19215,31 @@
                             "has_default": false,
                             "name": "options",
                             "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "capabilityReport": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "registryOperation",
+                            "type": "string",
                             "variadic": false
                         }
                     ],
@@ -19827,6 +19859,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "conditionVector": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "capabilities",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "currentFacts": {
                     "abstract": false,
                     "final": false,
@@ -19961,6 +20010,39 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "recheckConditions": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "planDocument",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observedByManifest",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "at",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "refusals": {
                     "abstract": false,
                     "final": false,
@@ -20017,6 +20099,31 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "withObservedConditions": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "capabilities",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observedByManifest",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }
@@ -22049,6 +22156,14 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "lastResponse": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "perform": {
                     "abstract": false,
                     "final": false,
@@ -22232,6 +22347,236 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\ContractAttestation": {
+            "abstract": false,
+            "constants": {
+                "AUTHORITIES_FORMAT": {
+                    "value_repr": "duo-contract-attestation-authorities/v1"
+                },
+                "AUTHORITIES_RELATIVE": {
+                    "value_repr": ".duo/contract/authorities.json"
+                },
+                "SCOPE": {
+                    "value_repr": "contract_attestation"
+                },
+                "SIGNATURE_DOMAIN": {
+                    "value_repr": "duo-contract-attestation-signature/v1\u0000"
+                },
+                "STATEMENT_FORMAT": {
+                    "value_repr": "duo-contract-attestation-statement/v1"
+                },
+                "TRUST_ROOT_SITE": {
+                    "value_repr": "site"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "attestedDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "authorities": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "authoritiesPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "currentPlatformDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "manifestDir",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "registerAuthority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "keyId",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "publicKey",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "sign": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "keyId",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "secret",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "claim",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "manifestDir",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "verify": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "manifestDir",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "now",
+                            "type": "?int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\ContractCommand": {
             "abstract": false,
             "constants": {
@@ -22239,7 +22584,8 @@
                     "value_repr": [
                         "show",
                         "propose",
-                        "accept"
+                        "accept",
+                        "attest"
                     ]
                 }
             },
@@ -22306,6 +22652,15 @@
             "constants": {
                 "FORMAT": {
                     "value_repr": "duo-site-capability-projection/v1"
+                },
+                "INVALIDATION_EXACT": {
+                    "value_repr": "exact"
+                },
+                "INVALIDATION_NONE": {
+                    "value_repr": "none"
+                },
+                "INVALIDATION_WHOLE_CONTRACT": {
+                    "value_repr": "whole-contract"
                 },
                 "STALE_EVIDENCE_BLOCKER": {
                     "value_repr": "evidence_not_current"
@@ -22633,6 +22988,23 @@
                 "readContract": {
                     "abstract": false,
                     "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "manifestDir",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "readContractUnverified": {
+                    "abstract": false,
+                    "final": false,
                     "parameters": [],
                     "return_type": "?array",
                     "static": false,
@@ -22660,6 +23032,39 @@
                         }
                     ],
                     "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "writeAttestedContract": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "expectedDigest",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "manifestDir",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
                     "static": false,
                     "visibility": "public"
                 },
@@ -23445,6 +23850,23 @@
             "kind": "class",
             "methods": {
                 "materialize": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "providerCheck": {
                     "abstract": false,
                     "final": false,
                     "parameters": [
@@ -24270,6 +24692,272 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\EnvironmentProviderCheckCommand": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-branch-environment-provider-check/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetName",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "options",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "envsFileOverride",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\EnvironmentProviderProtocol": {
+            "abstract": false,
+            "constants": {
+                "TYPE_BASE_URL": {
+                    "value_repr": "base-url"
+                },
+                "TYPE_CAPABILITY_LIST": {
+                    "value_repr": "capability-list"
+                },
+                "TYPE_ENUM_PREFIX": {
+                    "value_repr": "enum:"
+                },
+                "TYPE_ENV_NAME": {
+                    "value_repr": "environment-name"
+                },
+                "TYPE_GIT_OID": {
+                    "value_repr": "git-oid"
+                },
+                "TYPE_GIT_REF": {
+                    "value_repr": "git-ref"
+                },
+                "TYPE_IDENTIFIER": {
+                    "value_repr": "identifier"
+                },
+                "TYPE_PATH": {
+                    "value_repr": "absolute-path"
+                },
+                "TYPE_POSITIVE_INT": {
+                    "value_repr": "positive-int"
+                },
+                "TYPE_SHA256": {
+                    "value_repr": "sha256"
+                },
+                "TYPE_TRUE": {
+                    "value_repr": "true"
+                },
+                "TYPE_UTC_SECOND": {
+                    "value_repr": "utc-second"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "actions": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "capabilityFor": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "describeType": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "type",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "diagnose": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "result",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "matchesType": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "type",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "observed": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "requestInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "requirementSets": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "resultFields": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "resultKeys": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\GapActions": {
             "abstract": false,
             "constants": {
@@ -24282,6 +24970,7 @@
                         "provision env value",
                         "install adapter",
                         "certify adapter",
+                        "attest contract",
                         "nothing — supported"
                     ]
                 },
@@ -24301,6 +24990,7 @@
                         "certify adapter",
                         "provision env value",
                         "exclude",
+                        "attest contract",
                         "nothing — supported"
                     ]
                 }
@@ -24382,6 +25072,106 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\HumanViewLimit": {
+            "abstract": false,
+            "constants": {
+                "CUT_SUFFIX": {
+                    "value_repr": " more (use --format=json)"
+                },
+                "DEFAULT_LIMIT": {
+                    "value_repr": 50
+                },
+                "GRAMMAR": {
+                    "value_repr": "/^(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)$/D"
+                },
+                "MAX_LIMIT": {
+                    "value_repr": 200
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "cut": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "total",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "shown",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "  ",
+                            "has_default": true,
+                            "name": "indent",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "parse": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "onInvalid",
+                            "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "valid": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "raw",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
                     "static": true,
                     "visibility": "public"
                 }
@@ -25525,6 +26315,163 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\MergeCheck": {
+            "abstract": false,
+            "constants": {
+                "EXIT_CONFLICTS": {
+                    "value_repr": 3
+                },
+                "EXIT_OK": {
+                    "value_repr": 0
+                },
+                "EXIT_REFUSED": {
+                    "value_repr": 1
+                },
+                "EXIT_USAGE": {
+                    "value_repr": 2
+                },
+                "FORMAT": {
+                    "value_repr": "duo-merge-check/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "options",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\MergeCheckCommand": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\MergeCheckRefusal": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "kind": "class",
+            "methods": {
+                "__construct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "reasonCode",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "message",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "remediation",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "diagnostic",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "previous",
+                            "type": "?Throwable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": "RuntimeException",
+            "properties": {
+                "diagnostic": {
+                    "readonly": false,
+                    "static": false,
+                    "type": "?string",
+                    "visibility": "public"
+                },
+                "reasonCode": {
+                    "readonly": false,
+                    "static": false,
+                    "type": "string",
+                    "visibility": "public"
+                },
+                "remediation": {
+                    "readonly": false,
+                    "static": false,
+                    "type": "string",
+                    "visibility": "public"
+                }
+            },
+            "readonly": false
+        },
         "Duo\\Orchestrator\\NextAction": {
             "abstract": false,
             "constants": {
@@ -26054,6 +27001,14 @@
                             "has_default": false,
                             "name": "items",
                             "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "Duo\\Orchestrator\\HumanViewLimit::DEFAULT_LIMIT",
+                            "has_default": true,
+                            "name": "limit",
+                            "type": "int",
                             "variadic": false
                         }
                     ],
@@ -26622,6 +27577,9 @@
                 "ANNOTATION_RESTORED_BY_PREFIX": {
                     "value_repr": "restored by: "
                 },
+                "ANNOTATION_SITE_CERTIFIED_ATTESTED_SUFFIX": {
+                    "value_repr": "; contract attested by "
+                },
                 "ANNOTATION_SITE_CERTIFIED_PREFIX": {
                     "value_repr": "certified by "
                 },
@@ -26706,6 +27664,7 @@
                         "provision env value",
                         "install adapter",
                         "certify adapter",
+                        "attest contract",
                         "nothing — supported"
                     ]
                 },
@@ -27923,6 +28882,90 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "assertAuthorizingPlan": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plan",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "git": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "cwd",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "gitStdout": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "cwd",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "materializeLockedCode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "worktree",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "rebase": {
                     "abstract": false,
                     "final": false,
@@ -28030,6 +29073,64 @@
                             "has_default": true,
                             "name": "includeFieldDiff",
                             "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "removeWorktree": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "root",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": true,
+                            "has_default": true,
+                            "name": "prune",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "command",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "cwd",
+                            "type": "?string",
                             "variadic": false
                         }
                     ],
@@ -29896,6 +30997,22 @@
                             "name": "failureClass",
                             "type": "string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "conditionsRechecked",
+                            "type": "?array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "refusal",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -29970,6 +31087,14 @@
                             "has_default": true,
                             "name": "verify",
                             "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "conditionsRechecked",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],
@@ -31913,6 +33038,9 @@
                         "plugin_not_active"
                     ]
                 },
+                "CONDITION_RECHECKED_AT": {
+                    "value_repr": "mutation gate"
+                },
                 "DECLARED_POLICY_CLASS": {
                     "value_repr": {
                         "authored": "authored",
@@ -31999,6 +33127,90 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "conditionRows": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "conditionsByManifest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "registryReport",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "factGovernedBy": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "catalog",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "surfaceId",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "factVectors": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "catalog",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "surfaceId",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "projectionFacts": {
                     "abstract": false,
                     "final": false,
@@ -32025,6 +33237,14 @@
                             "has_default": false,
                             "name": "registrySha256",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "observedPins",
+                            "type": "array",
                             "variadic": false
                         }
                     ],

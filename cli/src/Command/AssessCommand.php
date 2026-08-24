@@ -15,6 +15,7 @@ require_once __DIR__ . '/../Assess/GapActions.php';
 require_once __DIR__ . '/../Assess/AssessReport.php';
 require_once __DIR__ . '/../Assess/AssessRenderer.php';
 require_once __DIR__ . '/../Contract/ApplicationContract.php';
+require_once __DIR__ . '/../Contract/ContractAttestation.php';
 require_once __DIR__ . '/../Contract/ContractProjection.php';
 require_once __DIR__ . '/../Contract/ContractProposal.php';
 require_once __DIR__ . '/../Contract/ContractStore.php';
@@ -131,6 +132,12 @@ final class AssessCommand {
         $lines = AssessRenderer::render($result['report'], $limit, [
             'proposal_path' => $proposalPath,
             'contract_present' => $result['contract'] !== null,
+            // No second read and no second opinion: `assess()` already read the
+            // contract through `ContractStore::readContract()`, which VERIFIES
+            // a signed attestation or refuses. So a signed contract in hand is
+            // a verified one, and re-deriving the principal here would be the
+            // renderer computing a fact instead of projecting one.
+            'contract_attestation' => self::contractAttestation($result['contract']),
             'operation' => $viewOperation,
         ]);
         foreach ($lines as $line) {
@@ -268,19 +275,7 @@ final class AssessCommand {
         $composition[] = 'capabilities';
         $registryReports = [];
         foreach (self::registryOperations($operations) as $registryOperation) {
-            $registryReports[$registryOperation] = self::agentJson(
-                $driver,
-                [
-                    // --adoption-preview: on an adoption seed the agent answers
-                    // against the init proposal — the same policy the inventory
-                    // above was projected against — so surfaces and claims join
-                    // (T7 grind A4); on an init-owned repository it is inert.
-                    'duo', 'capabilities', '--repo=' . $driver->repoPath(),
-                    '--operation=' . $registryOperation, '--adoption-preview', '--format=json',
-                ],
-                'assess_registry_unavailable',
-                'the target could not evaluate its reviewed capability claims for this operation'
-            );
+            $registryReports[$registryOperation] = self::capabilityReport($driver, $registryOperation);
         }
 
         $composition[] = 'adapter-catalog';
@@ -340,6 +335,41 @@ final class AssessCommand {
     }
 
     /**
+     * ONE reviewed-capability read from the target, for one registry
+     * operation.
+     *
+     * Extracted from the loop above so the mutation gate can re-observe
+     * through IDENTICAL argv. That is structural, not tidiness: the gate's
+     * whole job is to compare a condition observed at freeze with the same
+     * condition observed now, and two call sites that drifted by one flag
+     * (`--adoption-preview` being the one that matters — on an adoption seed
+     * it decides which policy the claims are answered against, T7 grind A4)
+     * would make the comparison a comparison of two different questions.
+     *
+     * It is a targeted re-probe rather than a fresh `assess()`: no doctor, no
+     * inventory, no bootstrap, no init probe — one `wp duo capabilities` call
+     * standing between the operator's confirmation and the first mutating
+     * call.
+     *
+     * @return array<string,mixed> an `AdapterRegistry::report()` document
+     */
+    public static function capabilityReport(EnvironmentDriver $driver, string $registryOperation): array {
+        return self::agentJson(
+            $driver,
+            [
+                // --adoption-preview: on an adoption seed the agent answers
+                // against the init proposal — the same policy the inventory
+                // was projected against — so surfaces and claims join
+                // (T7 grind A4); on an init-owned repository it is inert.
+                'duo', 'capabilities', '--repo=' . $driver->repoPath(),
+                '--operation=' . $registryOperation, '--adoption-preview', '--format=json',
+            ],
+            'assess_registry_unavailable',
+            'the target could not evaluate its reviewed capability claims for this operation'
+        );
+    }
+
+    /**
      * Write the two local artifacts an assessment owns.
      *
      * The proposal is written whenever it can honestly be written — it is the
@@ -357,8 +387,10 @@ final class AssessCommand {
      *
      * The projection is regenerated either way, and only when a contract has
      * already been accepted — MUP §3.4's "refresh" row. It is unaffected by
-     * the mismatch: both sides of its comparison are the target's own number
-     * (`ContractProjection::staleRegistry()`), so it stays honest under skew,
+     * the mismatch: both sides of every one of its comparisons are the
+     * target's own numbers — the pinned `registry_sha256` and each pinned
+     * `adapter_digest` against what that same target reports now
+     * (`ContractProjection::invalidation()`) — so it stays honest under skew,
      * and an assess that left a stale projection beside a fresh assessment
      * would let a reviewer read expired readiness out of a committed file.
      *
@@ -382,6 +414,40 @@ final class AssessCommand {
             return;
         }
         $store->writeProjection(self::projection($result));
+    }
+
+    /**
+     * The five facts a verified contract attestation carries, or null.
+     *
+     * Null covers the two states that are one state for a reader: no contract
+     * and an unsigned contract. There is no third: a signed attestation with a
+     * missing or empty field never reaches here, because
+     * `ApplicationContract::validateAttestation()` (:433-480) requires all
+     * five as non-empty strings the moment `state` is `signed`, so the `?? ''`
+     * fallbacks below are total-function hygiene and not a real case.
+     *
+     * It never verifies anything itself: `ContractStore::readContract()`
+     * already refused if verification failed, so reaching this function with a
+     * signed contract in hand IS the verification result. A second check here
+     * would be a second answer, which is the defect `AssessRenderer`'s own
+     * docblock ("the human view is a projection of the report, never a second
+     * computation") names.
+     *
+     * @param array<string,mixed>|null $contract
+     * @return array<string,string>|null
+     */
+    private static function contractAttestation(?array $contract): ?array {
+        $attestation = is_array($contract['attestation'] ?? null) ? $contract['attestation'] : [];
+        if (($attestation['state'] ?? null) !== 'signed') {
+            return null;
+        }
+        $facts = [];
+        foreach (['expires_at', 'key_id', 'policy_version', 'trust_root'] as $key) {
+            $facts[$key] = (string) ($attestation[$key] ?? '');
+        }
+        $facts['principal'] = (string) ($attestation['approving_principal'] ?? '');
+
+        return $facts;
     }
 
     /**
@@ -420,7 +486,19 @@ final class AssessCommand {
             SurfaceCatalog::projectionFacts(
                 $catalog,
                 $result['operations'],
-                (string) $report['evidence']['registry_sha256']
+                (string) $report['evidence']['registry_sha256'],
+                // The observed adapter pins, read from the SAME derivation the
+                // contract's own `declarations.manifest_pins` came from:
+                // `AssessReport::proposalSeed()` (`cli/src/Assess/AssessReport.php:447-472`)
+                // is what `ContractProposal::fromAssessReport()` copies them
+                // out of (`cli/src/Contract/ContractProposal.php:155`). Reusing
+                // it rather than recomputing is the point — two derivations of
+                // "which adapters does this site load, at which digest" could
+                // disagree, and a false disagreement here would flip surfaces
+                // that nothing moved.
+                is_array($result['seed']['manifest_pins'] ?? null)
+                    ? $result['seed']['manifest_pins']
+                    : []
             ),
             ['wordpress' => (string) $report['target']['wordpress'], 'php' => (string) $report['target']['php']],
             $result['inventory'],

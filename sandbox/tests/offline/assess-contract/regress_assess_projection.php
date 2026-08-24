@@ -584,7 +584,17 @@ duo_check(
     !isset($gapActionsSeen['qualify in rehearsal']),
     'no projection in the table emits the retired `qualify in rehearsal`'
 );
-foreach (array_diff(V::GAP_ACTIONS, ['qualify in rehearsal']) as $action) {
+// `attest contract` joins the set the same way and for the same structural
+// reason, from the other end of its life: the signer ships
+// (ContractAttestation) but the trust root is empty on every site, so
+// "attest the contract" is a decision to hold an organizational signing key
+// and not a smallest safe next action. It is in the set so a projection
+// written by a build that DOES emit it still validates here.
+duo_check(
+    !isset($gapActionsSeen['attest contract']),
+    'and nothing emits `attest contract` either: it ships in-set and unemitted'
+);
+foreach (array_diff(V::GAP_ACTIONS, ['qualify in rehearsal', 'attest contract']) as $action) {
     duo_check(isset($gapActionsSeen[$action]), "table covers gap action = $action");
 }
 
@@ -789,5 +799,117 @@ duo_check_same(
     $tableCatalog['rows'][0]['state_class'] ?? null,
     'a reviewed declaration still cannot un-know an unclassified TABLE — the exception is plugins only'
 );
+
+// The `expiry_and_dependencies` every projected contract publishes is
+// rendered from the SHIPPED platform block, so this cell drives the real
+// manifests/capabilities/platform.json through the catalog rather than a
+// fixture. It exists because the database axis became an engine-keyed map:
+// the single-engine read this replaced (`is_string($database['engine'])`
+// guarding one range, cli/src/Assess/SurfaceCatalog.php) goes false for every
+// claim under that shape, and the database dependency would simply VANISH
+// from every contract — a published dependency narrowed to nothing by a shape
+// change, which no reviewer would see because nothing else asserts the row.
+$shippedPlatform = json_decode(
+    (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/capabilities/platform.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+)['platform'];
+$shippedCompatibility = $shippedPlatform['compatibility'];
+$expiryCatalog = SurfaceCatalog::catalog(
+    [
+        'policy' => ['surface_groups' => [[
+            'id' => 'post_type:product',
+            'kind' => 'post_type',
+            'class' => 'authored',
+            'declared_by' => 'core',
+        ]]],
+        'coverage' => [],
+    ],
+    // Keyed by the REGISTRY operation, not the MUP one: release reads the
+    // `promote` registry report (SurfaceCatalog::REGISTRY_OPERATION).
+    ['promote' => ['manifests' => [[
+        'name' => 'core',
+        'status' => 'certified',
+        'surfaces' => ['post_types.product'],
+        'platform' => $shippedPlatform,
+    ]]]],
+    null,
+    ['operations' => ['release']]
+);
+$expiry = $expiryCatalog['rows'][0]['operations']['release']['expiry_and_dependencies'] ?? null;
+$expectedExpiry = [
+    'wordpress ' . $shippedCompatibility['wordpress']['last_verified'],
+    'php ' . $shippedCompatibility['php']['min'] . '-' . $shippedCompatibility['php']['max'],
+];
+foreach ($shippedCompatibility['database']['engines'] as $engine => $range) {
+    $expectedExpiry[] = $engine . ' ' . $range['min'] . '-' . $range['max'];
+}
+duo_check(
+    count($shippedCompatibility['database']['engines']) >= 2,
+    'the shipped claim names more than one database engine, so this cell can tell a per-engine render from a single-engine one'
+);
+duo_check_same(
+    $expectedExpiry,
+    $expiry,
+    'a projected contract declares one dependency entry per CLAIMED database engine, derived from the shipped boundary'
+);
+
+// ------------------------- the catalog fact record has ONE shape and ONE reader
+//
+// This exists because the silent version of it shipped. `catalog()['facts']`
+// was the bare operation-keyed vector map until the exact-dependency flip
+// wrapped it as `{governed_by, operations}` to record which adapter governs a
+// surface. `projectionFacts()` moved with the shape;
+// `ReleaseCommand::capabilities()` kept indexing the record by operation with
+// its own `?? []`, so it kept parsing, kept running, and produced an EMPTY
+// `conditions` list and an EMPTY `manifest` for every capability row of the
+// frozen authorization plan. A plan naming no condition and no manifest gives
+// `AuthorizationPlan::recheckConditions()` nothing to re-observe, so a plugin
+// downgraded or deactivated inside the operator's confirmation window passed
+// the mutation gate — the defect that gate exists to stop, reintroduced by a
+// shape change three files away and caught by nothing until the product-path
+// suite ran (regress_release_condition_gate.sh).
+//
+// `factVectors()` and `factGovernedBy()` are now the only readers of that
+// record, and these cases pin the three answers a caller can get.
+$factCatalog = $catalogFor(null);
+$factId = 'plugin:unmanaged-widget';
+duo_check_same(
+    ['governed_by', 'operations'],
+    array_keys($factCatalog['facts'][$factId] ?? []),
+    'the catalog fact record is exactly the documented {governed_by, operations} pair'
+);
+duo_check_same(
+    ['release'],
+    array_keys(SurfaceCatalog::factVectors($factCatalog, $factId)),
+    'factVectors() unwraps the envelope and answers the operation-keyed vectors'
+);
+duo_check(
+    array_key_exists('conditions', SurfaceCatalog::factVectors($factCatalog, $factId)['release'] ?? []),
+    'the vector it answers is the one carrying the machine-checkable condition rows the mutation gate re-observes'
+);
+duo_check_same([], SurfaceCatalog::factGovernedBy($factCatalog, $factId), 'an ungoverned surface names no manifest');
+// A real answer, not a hole: `ContractProjection::generate()` projects
+// contract-declared surfaces this site does not have through `defaultFacts()`,
+// and those legitimately have no catalog fact record.
+duo_check_same([], SurfaceCatalog::factVectors($factCatalog, 'table:absent'), 'a surface absent from facts answers []');
+duo_check_same([], SurfaceCatalog::factGovernedBy($factCatalog, 'table:absent'), 'and governs nothing');
+// PRESENT but not the documented shape is the drift above, and it refuses out
+// loud rather than answering an empty list that reads as success.
+foreach ([
+    'the pre-envelope bare vector map' => ['release' => ['conditions' => []]],
+    'a record missing governed_by' => ['operations' => []],
+    'a record missing operations' => ['governed_by' => []],
+    'a record that is not an array' => 'operations',
+] as $what => $malformed) {
+    duo_check_refuses(
+        static fn (): array => SurfaceCatalog::factVectors(
+            ['rows' => [], 'facts' => [$factId => $malformed]],
+            $factId
+        ),
+        'assess_surface_facts_malformed',
+        "$what refuses instead of silently answering no conditions"
+    );
+}
 
 duo_check_summary('regress_assess_projection');

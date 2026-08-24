@@ -17,11 +17,16 @@
 # the lane resolves at all; the refusal case proves a typo cannot silently
 # produce MariaDB evidence an operator would record as MySQL.
 #
-# Selecting the MySQL engine CLAIMS NOTHING about MySQL support:
-# manifests/capabilities/platform.json still declares MariaDB only and
-# agent/src/Policy/PlatformCompatibility.php:117 still compares the probed
-# engine with `!==`, so a pair on that server refuses platform_unsupported.
-# This suite deliberately asserts nothing about the shipped contract.
+# Selecting the MySQL engine still CLAIMS NOTHING about MySQL support, and this
+# suite still deliberately asserts nothing about the shipped contract -- its
+# subject is the harness, not the claim. What changed underneath it: that
+# contract's database axis is now an engine-keyed map naming MySQL 8.4 beside
+# MariaDB 11 (agent/src/Policy/PlatformCompatibility.php's
+# valid_database_axis()), with a PENDING live proof, so a pair on that server
+# is no longer answered by platform_database_engine_unsupported. The
+# assertions below are unchanged by that on purpose: a harness suite that
+# tracked the claim would fail every time the claim moved, for no reason
+# connected to what it tests.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"

@@ -219,17 +219,34 @@ $compatibilityCase = static function (array $override): array {
     return ['exit' => $exit, 'output' => (string) ob_get_clean(), 'driver' => $driver];
 };
 
-// Doctor's WordPress predicate is an independent host-side copy of the
-// agent's (Doctor.php's own read_baseline()/in_range() comment records why
-// cli/ and agent/src/ do not share code), so it needs its own coverage of the
-// same two conditions or the two halves drift silently: a core doctor calls
-// compatible that the direct product path refuses is the exact failure the
-// DUO-3222 rationale comment above the check forbids.
+// Doctor's WordPress and PHP predicates are independent host-side copies of
+// the agent's (Doctor.php's own read_baseline()/in_range() comment records why
+// cli/ and agent/src/ do not share code), so each needs its own coverage of
+// the same two conditions or the two halves drift silently: a runtime doctor
+// calls compatible that the direct product path refuses is the exact failure
+// the DUO-3222 rationale comment above the check forbids.
+//
+// One asymmetry with the agent-side suite is deliberate and worth naming:
+// doctor reads the REAL docs/compatibility-baseline.json off disk, so no cell
+// here can hole an axis the way sandbox/tests/offline/policy/
+// regress_platform_compatibility.php does with an in-memory fixture. The
+// series half of the PHP predicate is therefore proven agent-side only; what
+// these cells prove is that doctor's answer agrees with the agent's on every
+// value the shipped claim actually admits or refuses.
 foreach ([
     'PHP inclusive minimum' => [['php' => '8.3.0'], ''],
     'PHP value below the exclusive maximum' => [['php' => '8.3.99'], ''],
+    // 8.4.0 was a blocking FAIL until the claim widened to [8.3.0, 8.5.0):
+    // these two cells fail against the prior boundary.
+    'PHP inclusive minimum of the newly exercised 8.4 series' => [['php' => '8.4.0'], '[PASS] PHP version (8.4.0)'],
+    'PHP proof patch of the newly exercised 8.4 series' => [['php' => '8.4.24'], '[PASS] PHP version (8.4.24)'],
     'MariaDB inclusive minimum' => [['db_version' => '11.0.0'], ''],
     'MariaDB value below the exclusive maximum' => [['db_version' => '11.99.99'], ''],
+    // The engines map is what makes this a PASS: it was the '[FAIL] database
+    // (mysql ...)' cell below until MySQL got its own claimed range. The
+    // engine name arrives from the target lower-cased, so this also pins that
+    // doctor's lookup stays case-insensitive against a claim spelled MySQL.
+    'claimed MySQL engine inside its own range' => [['db_engine' => 'mysql', 'db_version' => '8.4.3'], '[PASS] database (mysql 8.4.3)'],
     'WordPress older exercised series' => [['wp' => '6.9.2'], '[PASS] WordPress core (6.9.2)'],
     'WordPress inclusive minimum' => [['wp' => '6.9.0'], '[PASS] WordPress core (6.9.0)'],
     'WordPress unrun patch inside an exercised series' => [['wp' => '7.0.4'], '[PASS] WordPress core (7.0.4)'],
@@ -252,10 +269,23 @@ foreach ([
 
 foreach ([
     'PHP below minimum' => [['php' => '8.2.99'], '[FAIL] PHP version (8.2.99)'],
-    'PHP exact exclusive maximum' => [['php' => '8.4.0'], '[FAIL] PHP version (8.4.0)'],
+    'PHP exact exclusive maximum' => [['php' => '8.5.0'], '[FAIL] PHP version (8.5.0)'],
+    // The agent refuses an observed value that is not a plain dotted version
+    // (PlatformCompatibility::inside_range()); doctor's PHP row carries the
+    // same guard the WordPress row already did, or it would call a
+    // pre-release engine compatible that `wp duo` refuses.
+    'PHP pre-release runtime inside an exercised series' => [['php' => '8.4.0RC1'], '[FAIL] PHP version (8.4.0RC1)'],
     'MariaDB below minimum' => [['db_version' => '10.11.0'], '[FAIL] database (mariadb 10.11.0)'],
     'MariaDB exact exclusive maximum' => [['db_version' => '12.0.0'], '[FAIL] database (mariadb 12.0.0)'],
-    'different database engine' => [['db_engine' => 'mysql'], '[FAIL] database (mysql 11.8.8)'],
+    // MySQL is measured against ITS OWN range, never MariaDB's: 11.8.8 is
+    // comfortably inside the MariaDB claim and inside no MySQL claim at all.
+    'claimed MySQL engine below its own minimum' => [['db_engine' => 'mysql', 'db_version' => '8.3.9'], '[FAIL] database (mysql 8.3.9)'],
+    'claimed MySQL engine at its own exclusive maximum' => [['db_engine' => 'mysql', 'db_version' => '8.5.0'], '[FAIL] database (mysql 8.5.0)'],
+    'claimed MySQL engine carrying a MariaDB-shaped version' => [['db_engine' => 'mysql'], '[FAIL] database (mysql 11.8.8)'],
+    // The engine-refusal cell is REPLACED, not deleted: with two claimed
+    // engines it takes an engine the map does not name at all to reach
+    // doctor's fail-closed engine path.
+    'engine the claim does not name' => [['db_engine' => 'postgres'], '[FAIL] database (postgres 11.8.8)'],
     'WordPress below minimum' => [['wp' => '6.8.3'], '[FAIL] WordPress core (6.8.3)'],
     'WordPress exact exclusive maximum' => [['wp' => '7.2.0'], '[FAIL] WordPress core (7.2.0)'],
     // Inside [min, max) and still unexercised: 6.10 is a minor line the
@@ -343,6 +373,36 @@ assert_doctor_command(
     !str_contains($unclaimedCore['output'], 'A wider claim requires a real core-version matrix'),
     'doctor no longer tells an operator the core matrix does not exist'
 );
+
+// The same standard for the two rows this claim reshaped. The PHP detail
+// gained the exercised series for the same reason the WordPress one carries
+// them — a bare range would name a window wider than what ran — and the
+// engine detail names EVERY claimed engine, because with a per-engine map
+// 'expected MariaDB' would be a false statement about the contract.
+$unclaimedPhp = $compatibilityCase(['php' => '8.5.0']);
+assert_doctor_command(str_contains(
+    $unclaimedPhp['output'],
+    '[FAIL] PHP version (8.5.0) — outside the exercised platform matrix (>=8.3.0 <8.5.0, exercised series 8.3, 8.4'
+        . ' — docs/compatibility-baseline.json). Classification and apply behavior are only tested inside this matrix.'
+), 'the PHP FAIL detail names the declared range and every exercised series');
+
+$unclaimedEngine = $compatibilityCase(['db_engine' => 'postgres']);
+assert_doctor_command(str_contains(
+    $unclaimedEngine['output'],
+    '[FAIL] database (postgres 11.8.8) — claimed engines are MariaDB, MySQL, found postgres — a different database'
+        . ' engine is genuinely untested, not merely unpinned (docs/compatibility-baseline.json).'
+), 'the database engine FAIL detail names every claimed engine, not one of them');
+assert_doctor_command(
+    !str_contains($unclaimedEngine['output'], 'expected MariaDB'),
+    'and never restates the retired single-engine claim'
+);
+
+$outOfRangeMysql = $compatibilityCase(['db_engine' => 'mysql', 'db_version' => '11.8.8']);
+assert_doctor_command(str_contains(
+    $outOfRangeMysql['output'],
+    '[FAIL] database (mysql 11.8.8) — outside the declared baseline for MySQL (>=8.4.0 <8.5.0'
+        . ' — docs/compatibility-baseline.json).'
+), 'a version refusal names the engine whose range it applied, because the range is now a function of the engine');
 
 // A baseline whose wordpress axis cannot state the matrix must sink the whole
 // compatibility block into "baseline file missing or malformed" — the widened

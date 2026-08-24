@@ -207,8 +207,21 @@ assert_checkpoint() {
   [[ "$checkpoint" == "$SITE/.duo/checkpoints/"* ]] \
     || fail "checkpoint was not isolated below the target operational directory"
 }
+# The recovery guidance a post-checkpoint failure owes an operator.
+#
+# Until DUO-3525 this asserted four numbered `wp` instructions — abort,
+# re-begin, isolated `wp db import`, mandatory final abort. That recipe is
+# precisely what docs/product-spec.md:556-557 says normal operation never
+# depends on and what regress_mup_leak_audit.sh part (c) forbids in every
+# guide, so the product stopped printing it: the remedy is now the ONE verb
+# that drives those same four steps in the same order from the same
+# `CodeDeploy` builders (RecoverCommand::ORDERED_STEPS,
+# cli/src/Command/RecoverCommand.php:114), with the final abort in a `finally`
+# (:497-507). The isolated fatal-safe bootstrap this used to check on step 3
+# is unchanged; it just executes inside that verb now, and is pinned where it
+# executes by regress_recover_ordering.sh.
 assert_code_recovery_guidance() {
-  local out="$1" import_step
+  local out="$1" remedy forbidden
   has "$out" 'code may be staged or partially finalized' \
     || fail "code-enabled failure did not warn that code must be recovered first"
   has "$out" 'first reconcile or restore code to a known pre-promotion revision' \
@@ -217,22 +230,17 @@ assert_code_recovery_guidance() {
     || fail "code-enabled failure did not explain the checkpoint lease row"
   has "$out" 'external maintenance/exclusion' \
     || fail "code-enabled failure omitted the external recovery exclusion"
-  has "$out" '1\..*duo.*promotion-abort.*--artifact-hash=' \
-    || fail "code-enabled failure omitted expired/original lease cleanup"
-  has "$out" '2\..*duo.*promotion-begin.*--artifact-hash=' \
-    || fail "code-enabled failure omitted recovery lease begin"
-  has "$out" '3\..*db.*import' \
-    || fail "code-enabled failure omitted database import in recovery order"
-  import_step="$(sed -n 's/^  3\. //p' <<<"$out")"
-  [[ "$import_step" == *"--exec="* \
-    && "$import_step" == *"DUO_CONTROL_PLANE"* \
-    && "$import_step" == *"--skip-plugins"* \
-    && "$import_step" == *"--skip-themes"* ]] \
-    || fail "checkpoint import recovery did not use the isolated fatal-safe bootstrap"
-  has "$out" '4\..*duo.*promotion-abort.*--artifact-hash=' \
-    || fail "code-enabled failure omitted post-import lease abort"
-  has "$out" 'run step 4 even if the database import fails' \
-    || fail "code-enabled failure did not require final cleanup after import failure"
+  remedy="$(sed -n 's/^duo: promote: once that exclusion is in place, recover with: //p' <<<"$out")"
+  [ -n "$remedy" ] || fail "code-enabled failure named no recovery exit path: $out"
+  [[ "$remedy" == "duo recover unit --restore=promote-"*" --writers-excluded --operator-directed" ]] \
+    || fail "the recovery remedy is not the documented duo recover form: $remedy"
+  has "$out" 'releases the lease row the import reinstates, including when the import' \
+    || fail "code-enabled failure dropped the mandatory-final-abort safety fact"
+  for forbidden in 'wp duo promotion-abort' 'wp duo promotion-begin' 'wp db import'; do
+    if grep -Fq -- "$forbidden" <<<"$out"; then
+      fail "the failure view still publishes the retired raw-recovery step '$forbidden'"
+    fi
+  done
   if has "$out" '^restore with:'; then
     fail "code-enabled failure incorrectly advertised a database-only rollback"
   fi
@@ -413,14 +421,15 @@ has "$OUT" 'checkpoint contains its temporary promotion lease row' \
   || fail "legacy apply failure omitted checkpoint lease recovery explanation"
 has "$OUT" 'external maintenance/exclusion' \
   || fail "legacy apply failure omitted external recovery exclusion"
-has "$OUT" '1\..*promotion-abort.*--artifact-hash=' \
-  || fail "legacy apply failure omitted original lease cleanup"
-has "$OUT" '2\..*promotion-begin.*--artifact-hash=' \
-  || fail "legacy apply failure omitted recovery lease begin"
-has "$OUT" '3\..*db.*import' \
-  || fail "legacy apply failure omitted database import in recovery order"
-has "$OUT" '4\..*promotion-abort.*--artifact-hash=' \
-  || fail "legacy apply failure omitted post-import lease abort"
+# Same DUO-3525 substitution as assert_code_recovery_guidance above: the
+# legacy arm shares the one chokepoint, so it gets the one verb too.
+has "$OUT" '^duo: promote: once that exclusion is in place, recover with: duo recover unit --restore=promote-.* --writers-excluded --operator-directed$' \
+  || fail "legacy apply failure named no recovery exit path: $OUT"
+has "$OUT" 'releases the lease row the import reinstates, including when the import' \
+  || fail "legacy apply failure dropped the mandatory-final-abort safety fact"
+if grep -Fq -- 'wp db import' <<<"$OUT"; then
+  fail "the legacy failure view still publishes the retired raw database import"
+fi
 if has "$OUT" 'code may be staged or partially finalized'; then
   fail "legacy apply failure incorrectly received code recovery guidance"
 fi

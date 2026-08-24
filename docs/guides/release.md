@@ -145,7 +145,7 @@ requested scope
 
 capabilities and conditions
   woocommerce / promote: Ready with conditions (Platform-certified)
-    condition: plugin_version_mismatch — woocommerce in 10.0.0–11.0.0 — 10.4.2 — mutation gate
+    condition: plugin_version_mismatch — woocommerce in 10.0.0-11.0.0 — 11.4.2 — mutation gate
   core / promote: Ready (Platform-certified)
 
 what may change
@@ -259,11 +259,50 @@ duo release production --from=main --yes
 Answering `yes` to the question (or passing `--yes`, which confirms the plan
 you were just shown) freezes the plan to
 `.duo/releases/<plan_digest>.json` in your site repository **before any target
-mutation**, then executes through promote. Immediately before the mutating
-call the plan is re-verified against the target as it is at that instant; any
-difference invalidates the authorization and refuses with `plan_changed`,
-having written nothing. `--plan-only` and `--yes` contradict each other and
-are refused together.
+mutation**, then executes through promote. `--plan-only` and `--yes`
+contradict each other and are refused together.
+
+### The mutation gate
+
+Immediately before the mutating call — after your confirmation, so it covers
+exactly the time you spent reading the page — the frozen plan is re-verified
+against the target as it is at that instant. Four things are re-observed:
+
+| re-observed | refuses with | next action |
+|---|---|---|
+| the agent plan envelope, the target `HEAD`, the target artifact hash | `plan_changed` | `retry` |
+| the reviewed capability library's content address | `release_evidence_not_current` | `requalify` |
+| every machine-checkable condition the plan names, per adapter claim | `release_condition_changed` | `requalify` |
+| … and whether each of them can be re-observed at all | `release_condition_uncheckable` | `requalify` |
+
+Every one of these refuses having written **nothing**: they are raised before
+the first production-visible call.
+
+The condition rows are the ones printed under *capabilities and conditions*
+above. `release_condition_changed` covers all three ways an authorization can
+stop being true during the window — the observation moved (a plugin was
+downgraded), a condition appeared (a plugin was deactivated), or one was
+withdrawn (a plugin updated into its certified window, so the readiness word
+you authorized is no longer the true one). `release_condition_uncheckable`
+covers the case the product spec names separately: an adapter claim that is
+absent from the report the target answers with now, or a condition carrying no
+subject to re-probe. **An unmet or uncheckable condition blocks** — it is never
+skipped.
+
+Neither of these is a `retry`. Retrying after a plugin was deactivated walks
+into the identical refusal; the fix is evidence, so both answer `requalify`:
+re-run `duo assess`, read the fresh plan, and confirm that one.
+
+A release that succeeds records what it re-observed:
+
+```text
+released to production
+  conditions rechecked at 2026-08-17T09:15:40Z: 1 across 4 adapter claim(s)
+```
+
+`--format=json` carries the same record as `conditions_rechecked`
+`{at, checked, conditions, manifests}`, and a released outcome without one is
+refused rather than written.
 
 Commit the frozen plan. It is the document `duo recover` matches a checkpoint
 against, which is what makes "the claim you saw at authorization is the claim

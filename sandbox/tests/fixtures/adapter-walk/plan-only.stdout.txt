@@ -22,6 +22,7 @@ release to awalk2? [y/N]
         {
             "certification_provenance": "Site-certified",
             "conditions": [],
+            "manifest": "wpforms",
             "name": "wpforms",
             "operation": "promote",
             "readiness": "Ready"
@@ -47,6 +48,7 @@ release to awalk2? [y/N]
     "format": "duo-authorization-plan/v1",
     "frozen_at": "2026-08-17T09:14:02Z",
     "inputs_digest": {
+        "conditions_sha256": "sha256:37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
         "plan_sha256": "sha256:584648f2727f5256670dc123087c3c36fcfaf83d1a349c5cac54daeba691c399",
         "target_facts_sha256": "sha256:6d7e1e6ba396dce932c29c966679d6eb611377a1d144000f15017ae0b961829b"
     },
@@ -70,7 +72,7 @@ release to awalk2? [y/N]
             "environment-bound state drift (1)"
         ]
     },
-    "plan_digest": "sha256:c9631de5eb7e0487dea7cb18ad9514c77692d5d1ffef29724eec8bd31fda0d45",
+    "plan_digest": "sha256:d9fcd96a9faa6b337c42effeba05ddb300b72105c7ec3a048936a5a57b027a80",
     "recovery_profile": {
         "checkpoint_at": "2026-08-17T09:14:02Z",
         "claim": {

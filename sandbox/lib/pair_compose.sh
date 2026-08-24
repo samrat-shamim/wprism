@@ -87,6 +87,7 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # operator recorded it as MySQL evidence -- wrong-engine evidence is worse
   # than no evidence.
   printf 'DUO_AGENT_SRC=%s\nDUO_MANIFESTS_SRC=%s\nDUO_DB_HOST=%s\n' "$DUO_AGENT_SRC" "$DUO_MANIFESTS_SRC" "$DUO_DB_HOST" > .env
+
 }
 
 pair_compose_live_pairs() { # pair_compose_live_pairs — one live pair name per line

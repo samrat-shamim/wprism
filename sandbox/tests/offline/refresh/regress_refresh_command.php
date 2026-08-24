@@ -89,6 +89,45 @@ assert_refresh_command(is_array($payload)
     && ($payload['ok'] ?? null) === false,
     'refresh command owns the stable machine refusal envelope');
 
+// DUO merge-check slice, brief item (iii): `--format=json` WITHOUT
+// `--field-diff` used to be refused at the argument gate
+// (`($json && !$fieldDiff)`), so a CI job could never read the semantic plan
+// as a document at all. It now reaches Refresh::refresh() and publishes the
+// already-canonical duo-refresh-plan/v1. Against the prior defect this
+// envelope said `invalid_arguments` and the planner was never entered; the
+// reason code is the observable proof the gate moved.
+$planJsonDriver = new RefreshCommandDriver();
+ob_start();
+$planJsonExit = RefreshCommand::run($planJsonDriver, ['--production-ref=v1', '--format=json']);
+$planJson = (string) ob_get_clean();
+$planPayload = json_decode($planJson, true);
+assert_refresh_command($planJsonExit === 1, 'a refusal after the argument gate keeps the established JSON exit');
+assert_refresh_command(is_array($planPayload)
+    && ($planPayload['format'] ?? null) === 'duo-command-refusal/v1'
+    && ($planPayload['command'] ?? null) === 'refresh'
+    && ($planPayload['reason_code'] ?? null) === 'plan_unavailable',
+    '--format=json without --field-diff passes the argument gate and names the artifact that was unavailable');
+assert_refresh_command(!str_contains($planJson, 'invalid_arguments'),
+    'valid arguments are no longer reported as invalid ones');
+
+// The human path for the SAME inputs is deliberately untouched by that
+// change (AGENTS.md rule 8): no envelope, diagnostics on stderr, exit 1.
+$humanPlanDriver = new RefreshCommandDriver();
+ob_start();
+$humanPlanExit = RefreshCommand::run($humanPlanDriver, ['--production-ref=v1']);
+$humanPlan = (string) ob_get_clean();
+assert_refresh_command($humanPlanExit === 1 && $humanPlan === '',
+    'human refresh keeps its stdout-clean, exit-1 refusal shape');
+
+// And the field-diff combination keeps its own reason code, so the new branch
+// did not annex an existing one.
+$fieldJsonDriver = new RefreshCommandDriver();
+ob_start();
+RefreshCommand::run($fieldJsonDriver, ['--production-ref=v1', '--field-diff', '--format=json']);
+$fieldJson = (string) ob_get_clean();
+assert_refresh_command((json_decode($fieldJson, true)['reason_code'] ?? null) === 'field_level_unavailable',
+    '--field-diff --format=json still reports the field-level artifact, not the plan');
+
 $source = file_get_contents(__DIR__ . '/../../../../cli/duo');
 assert_refresh_command(is_string($source)
     && str_contains($source, 'return RefreshCommand::run($t, $extra);')
@@ -148,5 +187,61 @@ assert_refresh_command(str_contains(
     $renderedPlan,
     'conflict option:opaque: semantic divergence'
 ), 'ordinary conflict rendering omits an unavailable label cleanly');
+
+// DUO-3494: the human field-diff renderer keeps its OWN closed vocabularies
+// on purpose -- it must never echo a label the projector did not declare -- so
+// a new field label that reaches the projector and not this list would silently
+// render as `record`, which is a different and wrong statement about what the
+// operator has to decide. This asserts the two lists moved together.
+$renderFieldDiff = new ReflectionMethod(RefreshCommand::class, 'renderFieldDiff');
+$bodyRecordSelector = str_repeat('a', 64);
+$bodyFieldSelector = str_repeat('b', 64);
+$bodyRelation = [
+    'base' => 'present', 'branch' => 'present', 'branch_vs_base' => 'different',
+    'branch_vs_production' => 'different', 'production' => 'present', 'production_vs_base' => 'same',
+];
+ob_start();
+$renderFieldDiff->invoke(null, [
+    'diff_hash' => str_repeat('c', 64),
+    'records' => [[
+        'entity' => 'post',
+        'mode' => 'fields',
+        'reason' => 'eligible_engine_fields',
+        'record_selector_sha256' => $bodyRecordSelector,
+        'changes' => [[
+            'category' => 'branch-only',
+            'field' => 'post.body.branch_blocks',
+            'field_selector_sha256' => $bodyFieldSelector,
+            'hash_status' => 'withheld',
+            'record_selector_sha256' => $bodyRecordSelector,
+            'relation' => $bodyRelation,
+            'scope' => 'field',
+        ]],
+    ], [
+        'entity' => 'post',
+        'mode' => 'record',
+        'reason' => 'body_block_overlap',
+        'record_selector_sha256' => str_repeat('d', 64),
+        'changes' => [[
+            'category' => 'conflicting',
+            'field' => 'record',
+            'field_selector_sha256' => str_repeat('e', 64),
+            'hash_status' => 'withheld',
+            'reason' => 'body_block_overlap',
+            'record_selector_sha256' => str_repeat('d', 64),
+            'relation' => $bodyRelation,
+            'scope' => 'record',
+        ]],
+    ]],
+]);
+$renderedFieldDiff = (string) ob_get_clean();
+assert_refresh_command(
+    str_contains($renderedFieldDiff, 'post.body.branch_blocks branch-only field eligible_engine_fields'),
+    'the human field-diff renderer names a post-body partition instead of collapsing it to `record`'
+);
+assert_refresh_command(
+    str_contains($renderedFieldDiff, ': body_block_overlap'),
+    'the human field-diff renderer names the body-overlap refusal instead of collapsing it to `opaque_record_type`'
+);
 
 echo "PASS: refresh command\n";
