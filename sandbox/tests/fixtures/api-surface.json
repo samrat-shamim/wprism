@@ -51086,6 +51086,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "authored_readback_hash": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observation",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "authority": {
                     "abstract": false,
                     "final": false,
@@ -52264,6 +52281,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "recorded_recovery_phase": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "recover": {
                     "abstract": false,
                     "final": false,
@@ -52770,6 +52795,55 @@
                         }
                     ],
                     "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "assert_authored_recovery_boundary": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authoredState",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authorIntent",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observation",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "currentPlanPreconditionHash",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "currentGuardWitnessesHash",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
                     "static": false,
                     "visibility": "public"
                 },

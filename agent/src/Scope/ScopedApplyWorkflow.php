@@ -67,7 +67,113 @@ final class ScopedApplyWorkflow {
         if ($this->session === null) {
             throw new \RuntimeException('duo: scoped action recovery has no durable authority');
         }
-        ScopedApplyCoordinator::assert_recovery_selection($this->session, $selectedActions, $negotiation);
+        try {
+            ScopedApplyCoordinator::assert_recovery_selection($this->session, $selectedActions, $negotiation);
+        } catch (\RuntimeException $failure) {
+            $this->recover_once('duo:scoped-action-capability-drift');
+            throw $failure;
+        }
+    }
+
+    /**
+     * Recheck the phase-appropriate authored boundary while a retained
+     * recovery witness is still durable. Normal nonterminal retries use this
+     * same path, so a crash immediately after resume cannot bypass it.
+     */
+    public function assert_authored_recovery_boundary(
+        string $authoredState,
+        array $authorIntent,
+        array $observation,
+        string $currentPlanPreconditionHash,
+        string $currentGuardWitnessesHash
+    ): string {
+        if ($this->session === null) {
+            throw new \RuntimeException('duo: scoped authored recovery has no durable authority');
+        }
+        $recordedPhase = $this->session->recorded_recovery_phase();
+        $effectivePhase = $recordedPhase ?? $this->session->phase();
+        $preAuthor = in_array($effectivePhase, [
+            ScopedApplySession::PHASE_PLANNED,
+            ScopedApplySession::PHASE_AUTHORING,
+        ], true);
+        if (!$preAuthor && !in_array($effectivePhase, [
+            ScopedApplySession::PHASE_AUTHORED_COMMITTED,
+            ScopedApplySession::PHASE_EFFECTS_PENDING,
+            ScopedApplySession::PHASE_VERIFYING,
+        ], true)) {
+            $this->recover_once('duo:scoped-authored-phase-invalid');
+            throw new \RuntimeException('duo: scoped apply recovery has no resumable authored boundary');
+        }
+
+        $authority = $this->session->authority();
+        if ($preAuthor && $authoredState === 'before') {
+            if (!hash_equals(
+                (string) ($authority['target']['selected_before_ledger_map_hash'] ?? ''),
+                (string) ($observation['selected_ledger_map_root'] ?? '')
+            )) {
+                $this->recover_once('duo:scoped-selected-ledger-drift');
+                throw new \RuntimeException(
+                    'duo: scoped apply recovery found selected identity-map drift before authored mutation'
+                );
+            }
+            if (!hash_equals(
+                (string) ($authority['plan']['precondition_hash'] ?? ''),
+                $currentPlanPreconditionHash
+            ) || !hash_equals(
+                (string) ($authority['plan']['guard_witnesses_hash'] ?? ''),
+                $currentGuardWitnessesHash
+            )) {
+                $this->recover_once('duo:scoped-plan-or-guard-drift');
+                throw new \RuntimeException(
+                    'duo: scoped apply recovery found changed locked plan or deletion-guard evidence'
+                );
+            }
+            return $effectivePhase;
+        }
+
+        if ($authoredState !== 'desired') {
+            $cause = $preAuthor
+                ? 'duo:scoped-authored-boundary-mixed'
+                : 'duo:scoped-authored-state-regressed';
+            $this->recover_once($cause);
+            throw new \RuntimeException($preAuthor
+                ? 'duo: scoped apply recovery found a mixed authored boundary; no replay was attempted'
+                : 'duo: scoped apply recovery found selected target drift after authored commit');
+        }
+
+        try {
+            $authoredReadbackHash = ScopedApplyCoordinator::authored_readback_hash($observation);
+        } catch (\RuntimeException $failure) {
+            $this->recover_once('duo:scoped-authored-receipt-drift');
+            throw $failure;
+        }
+        $expectedReceipt = $this->receipt($authorIntent, $authoredReadbackHash);
+        $intents = $this->session->intents();
+        $existingIntent = $intents[0] ?? null;
+        if ((!$preAuthor && $existingIntent === null)
+            || ($existingIntent !== null
+                && Canon::encode((array) $existingIntent) !== Canon::encode($authorIntent))) {
+            $this->recover_once('duo:scoped-authored-intent-drift');
+            throw new \RuntimeException('duo: scoped apply recovery author intent no longer matches');
+        }
+        $existingReceipt = $this->receipt_at(1);
+        $missingReceiptMayBeSealed = $effectivePhase === ScopedApplySession::PHASE_AUTHORED_COMMITTED
+            && $existingReceipt === null;
+        if (!$preAuthor && !$missingReceiptMayBeSealed && ($existingReceipt === null
+            || Canon::encode($existingReceipt) !== Canon::encode($expectedReceipt))) {
+            $this->recover_once('duo:scoped-authored-receipt-drift');
+            throw new \RuntimeException(
+                'duo: scoped apply recovery author receipt does not match selected state and identity map'
+            );
+        }
+        if ($preAuthor && $existingReceipt !== null
+            && Canon::encode($existingReceipt) !== Canon::encode($expectedReceipt)) {
+            $this->recover_once('duo:scoped-authored-receipt-drift');
+            throw new \RuntimeException(
+                'duo: scoped apply recovery author receipt does not match selected state and identity map'
+            );
+        }
+        return $effectivePhase;
     }
 
     public function intent(
@@ -102,6 +208,12 @@ final class ScopedApplyWorkflow {
 
     public function core_readback_hash(Policy $policy, array $work, array $tree): string {
         return ScopedApplyCoordinator::core_readback_hash($policy, $work, $tree);
+    }
+
+    private function recover_once(string $cause): void {
+        if ($this->session !== null && !$this->session->is_recovery_required()) {
+            $this->session->recover(hash('sha256', $cause));
+        }
     }
 
 }

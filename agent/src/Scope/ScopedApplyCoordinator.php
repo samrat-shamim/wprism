@@ -170,7 +170,8 @@ final class ScopedApplyCoordinator {
         if ($session === null) {
             return true;
         }
-        if (!in_array($session->phase(), [
+        $effectivePhase = $session->recorded_recovery_phase() ?? $session->phase();
+        if (!in_array($effectivePhase, [
             ScopedApplySession::PHASE_PLANNED,
             ScopedApplySession::PHASE_AUTHORING,
         ], true) || $scopeContract === null) {
@@ -218,6 +219,26 @@ final class ScopedApplyCoordinator {
         }
         self::sort_rows($rows);
         return hash('sha256', Canon::encode($rows));
+    }
+
+    /**
+     * Bind the post-author selected content and its physical ledger ownership.
+     * Content alone is insufficient: a retry can observe the same portable
+     * state after a target-local identity-map substitution.
+     */
+    public static function authored_readback_hash(array $observation): string {
+        $selectedLedgerMapRoot = $observation['selected_ledger_map_root'] ?? null;
+        $selectedStateRoot = $observation['selected_before_root'] ?? null;
+        if (!is_string($selectedLedgerMapRoot)
+            || preg_match('/^[a-f0-9]{64}$/D', $selectedLedgerMapRoot) !== 1
+            || !is_string($selectedStateRoot)
+            || preg_match('/^[a-f0-9]{64}$/D', $selectedStateRoot) !== 1) {
+            throw new \RuntimeException('duo: scoped authored readback has malformed selected roots');
+        }
+        return hash('sha256', Canon::encode([
+            'selected_ledger_map_root' => $selectedLedgerMapRoot,
+            'selected_state_root' => $selectedStateRoot,
+        ]));
     }
 
     public static function assert_recovery_selection(

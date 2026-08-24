@@ -993,8 +993,17 @@ the phases `planned`, `authoring`, `authored_committed`, `effects_pending`,
 the authority, lease generation, ordinal, action, operation, input, effect,
 and before-witness hashes; every receipt repeats that binding and adds an
 after-witness hash. At the authored COMMIT boundary, retry compares a fresh
-target observation: the exact pre-root may execute once, exact desired state
-advances without replay, and any mixed or protected change becomes
+target observation: the exact pre-root plus selected ledger map may execute
+once, while exact desired state advances without replay only when ordinal 1's
+author receipt binds both the selected content root and its physical selected
+ledger-map root. A retained recovery phase stays durable until this
+phase-appropriate check completes. Normal `authored_committed`,
+`effects_pending`, and `verifying` retries repeat the same desired-state and
+receipt check, so a crash immediately after recovery resume cannot bypass it;
+pre-author retries instead repeat the locked plan, guard, pre-root, and
+selected-map checks. Post-author retries do not compare the old guard witness,
+because the authorized deletion transaction can legitimately change that
+target state. Any mixed, protected, or receipt/map change becomes
 `recovery_required`.
 
 Scoped native/provider effects additionally use

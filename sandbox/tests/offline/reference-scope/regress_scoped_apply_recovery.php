@@ -682,6 +682,35 @@ $desiredBeforeRows = [[
     'content_hash' => $desiredHash,
     'state' => 'live',
 ]];
+$desiredObservation = [
+    'selected_before_root' => ScopedApply::hash_rows($desiredBeforeRows),
+    'selected_ledger_map_root' => $hash('selected-map-after-authoring'),
+];
+$authoredReadbackHash = \Duo\ScopedApplyCoordinator::authored_readback_hash($desiredObservation);
+$check(
+    $authoredReadbackHash === hash('sha256', Canon::encode([
+        'selected_ledger_map_root' => $desiredObservation['selected_ledger_map_root'],
+        'selected_state_root' => $desiredObservation['selected_before_root'],
+    ])),
+    'author receipt canonically binds selected content and physical ledger ownership'
+);
+$changedDesiredObservation = $desiredObservation;
+$changedDesiredObservation['selected_ledger_map_root'] = $hash('selected-map-aba-after-authoring');
+$check(
+    !hash_equals(
+        $authoredReadbackHash,
+        \Duo\ScopedApplyCoordinator::authored_readback_hash($changedDesiredObservation)
+    ),
+    'same desired content with a changed selected identity map changes the author receipt'
+);
+$expectThrow(
+    static fn() => \Duo\ScopedApplyCoordinator::authored_readback_hash([
+        'selected_before_root' => 'malformed',
+        'selected_ledger_map_root' => $hash('valid-map'),
+    ]),
+    'malformed selected roots',
+    'author readback refuses malformed roots before receipt publication'
+);
 $check(
     ScopedApply::authored_state(
         $actualDesired,
@@ -737,7 +766,7 @@ if ($reopenedAfterCommit !== null) {
     );
     if ($reopenedState === 'desired') {
         $reopenedAfterCommit->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
-        $reopenedAfterCommit->append_receipt($authorIntent + ['after_hash' => $desiredHash]);
+        $reopenedAfterCommit->append_receipt($authorIntent + ['after_hash' => $authoredReadbackHash]);
     }
 }
 $check(
@@ -746,6 +775,149 @@ $check(
         && $reopenedAfterCommit->phase() === ScopedApplySession::PHASE_AUTHORED_COMMITTED
         && count($reopenedAfterCommit->receipts()) === 1,
     'desired readback after a lost response reconciles the same operation without replay'
+);
+
+$makePostAuthorSession = static function () use ($authority, $authorIntent, $authoredReadbackHash): array {
+    $store = new ScopedRecoveryMemoryStore();
+    $session = ScopedApplySession::begin($store, $authority);
+    $session->transition(ScopedApplySession::PHASE_AUTHORING);
+    $session->append_intent($authorIntent);
+    $session->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
+    $session->append_receipt($authorIntent + ['after_hash' => $authoredReadbackHash]);
+    $session->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
+    return [$store, $session];
+};
+
+$commitReceiptCrashStore = new ScopedRecoveryMemoryStore();
+$commitReceiptCrash = ScopedApplySession::begin($commitReceiptCrashStore, $authority);
+$commitReceiptCrash->transition(ScopedApplySession::PHASE_AUTHORING);
+$commitReceiptCrash->append_intent($authorIntent);
+$commitReceiptCrash->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
+$commitReceiptCrash->recover($hash('commit-receipt-crash'));
+$commitReceiptWorkflow = new \Duo\ScopedApplyWorkflow();
+$commitReceiptWorkflow->session = $commitReceiptCrash;
+$check(
+    $commitReceiptWorkflow->assert_authored_recovery_boundary(
+        'desired',
+        $authorIntent,
+        $desiredObservation,
+        $hash('irrelevant-commit-plan'),
+        $hash('irrelevant-commit-guards')
+    ) === ScopedApplySession::PHASE_AUTHORED_COMMITTED
+        && $commitReceiptCrash->is_recovery_required()
+        && $commitReceiptWorkflow->receipt_at(1) === null,
+    'exact desired readback admits only the authored_committed receipt-CAS crash window before resume'
+);
+$commitReceiptCrash->resume_recorded_recovery();
+$effectsBeforeReceipt = 0;
+if ($commitReceiptWorkflow->receipt_at(1) === null) {
+    $commitReceiptCrash->append_receipt($authorIntent + ['after_hash' => $authoredReadbackHash]);
+}
+if ($commitReceiptWorkflow->receipt_at(1) !== null) {
+    $commitReceiptCrash->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
+    $effectsBeforeReceipt++;
+}
+$check(
+    $effectsBeforeReceipt === 1
+        && $commitReceiptCrash->phase() === ScopedApplySession::PHASE_EFFECTS_PENDING
+        && Canon::encode((array) $commitReceiptWorkflow->receipt_at(1)) === Canon::encode(
+            $authorIntent + ['after_hash' => $authoredReadbackHash]
+        ),
+    'authored_committed crash recovery seals the composite receipt before effects become eligible'
+);
+
+// A retained post-author recovery gate is not cleared until the exact desired
+// content+ledger-map receipt is re-proved. The plan/guard values deliberately
+// differ here: those witnesses belonged to the original locked authoring
+// transaction and deletion can legitimately change them after commit.
+[, $retainedPostAuthor] = $makePostAuthorSession();
+$retainedPostAuthor->recover($hash('post-author-recovery'));
+$postAuthorWorkflow = new \Duo\ScopedApplyWorkflow();
+$postAuthorWorkflow->session = $retainedPostAuthor;
+$check(
+    $postAuthorWorkflow->assert_authored_recovery_boundary(
+        'desired',
+        $authorIntent,
+        $desiredObservation,
+        $hash('changed-post-author-plan'),
+        $hash('changed-post-author-guards')
+    ) === ScopedApplySession::PHASE_EFFECTS_PENDING
+        && $retainedPostAuthor->is_recovery_required(),
+    'post-author recovery re-proves its composite receipt without clearing the durable gate or old guards'
+);
+$retainedPostAuthor->resume_recorded_recovery();
+$check(
+    $retainedPostAuthor->phase() === ScopedApplySession::PHASE_EFFECTS_PENDING,
+    'post-author recovery resumes only after its exact receipt recheck'
+);
+
+// Model a crash immediately after the resume CAS: the normal nonterminal
+// phase must repeat the same composite readback check on the next request.
+$normalPostAuthor = new \Duo\ScopedApplyWorkflow();
+$normalPostAuthor->session = $retainedPostAuthor;
+$effectDispatches = 0;
+$expectThrow(
+    static function () use (
+        $normalPostAuthor,
+        $authorIntent,
+        $changedDesiredObservation,
+        $hash,
+        &$effectDispatches
+    ): void {
+        $normalPostAuthor->assert_authored_recovery_boundary(
+            'desired',
+            $authorIntent,
+            $changedDesiredObservation,
+            $hash('irrelevant-post-author-plan'),
+            $hash('irrelevant-post-author-guards')
+        );
+        $effectDispatches++;
+    },
+    'author receipt does not match',
+    'normal effects_pending retry refuses same-content selected-map drift before dispatch'
+);
+$check(
+    $effectDispatches === 0 && $retainedPostAuthor->is_recovery_required(),
+    'crash-after-resume map drift restores recovery_required and leaves effect dispatch untouched'
+);
+
+[, $changedRecoveryMap] = $makePostAuthorSession();
+$changedRecoveryMap->recover($hash('retained-map-drift-cause'));
+$retainedRecoveryBytes = $changedRecoveryMap->canonical();
+$changedRecoveryWorkflow = new \Duo\ScopedApplyWorkflow();
+$changedRecoveryWorkflow->session = $changedRecoveryMap;
+$expectThrow(
+    static fn() => $changedRecoveryWorkflow->assert_authored_recovery_boundary(
+        'desired',
+        $authorIntent,
+        $changedDesiredObservation,
+        $hash('irrelevant-retained-plan'),
+        $hash('irrelevant-retained-guards')
+    ),
+    'author receipt does not match',
+    'retained effects_pending recovery refuses changed selected map before resume'
+);
+$check(
+    $changedRecoveryMap->canonical() === $retainedRecoveryBytes,
+    'failed post-author recheck preserves the already-active recovery witness byte-for-byte'
+);
+
+$preAuthorMenuStore = new ScopedRecoveryMemoryStore();
+$preAuthorMenuSession = ScopedApplySession::begin($preAuthorMenuStore, $authority);
+$preAuthorMenuSession->transition(ScopedApplySession::PHASE_AUTHORING);
+$preAuthorMenuSession->recover($hash('pre-author-menu-recovery'));
+$check(
+    \Duo\ScopedApplyCoordinator::allows_target_old_menu_items(
+        $preAuthorMenuSession,
+        $contract,
+        $actualBefore
+    )
+        && !\Duo\ScopedApplyCoordinator::allows_target_old_menu_items(
+            $preAuthorMenuSession,
+            $contract,
+            $actualDesired
+        ),
+    'planned/authoring recovery uses its recorded phase only for the exact before-menu inventory premise'
 );
 
 // A selected row can be desired while an excluded row changes: protected
@@ -1941,7 +2113,10 @@ $makeDispatchRecovery = static function (string $label) use (
     $session->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
     $session->append_receipt(\Duo\ScopedApplyCoordinator::receipt(
         $author,
-        $hash('dispatch-author-after-' . $label)
+        \Duo\ScopedApplyCoordinator::authored_readback_hash([
+            'selected_before_root' => $selectedBeforeRoot,
+            'selected_ledger_map_root' => $hash('dispatch-selected-map-after-' . $label),
+        ])
     ));
     $session->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
     $core = \Duo\ScopedApplyCoordinator::intent(
@@ -2033,9 +2208,11 @@ $check(
 [, , $changedSelectionSession] = $makeDispatchRecovery('changed-selection');
 $changedAction = $dispatchAction;
 $changedAction['args'] = ['changed' => true];
+$changedSelectionWorkflow = new \Duo\ScopedApplyWorkflow();
+$changedSelectionWorkflow->session = $changedSelectionSession;
+$retainedSelectionRecovery = $changedSelectionSession->canonical();
 $expectThrow(
-    static fn() => \Duo\ScopedApplyCoordinator::assert_recovery_selection(
-        $changedSelectionSession,
+    static fn() => $changedSelectionWorkflow->assert_recovery_selection(
         [$changedAction],
         $dispatchNegotiation
     ),
@@ -2043,8 +2220,27 @@ $expectThrow(
     'changed selected action evidence refuses before product recovery resume'
 );
 $check(
-    $changedSelectionSession->is_recovery_required(),
-    'a changed action/capability recheck leaves the retained recovery gate untouched'
+    $changedSelectionSession->is_recovery_required()
+        && $changedSelectionSession->canonical() === $retainedSelectionRecovery,
+    'a changed action/capability recheck leaves the retained recovery witness untouched'
+);
+
+[, , $normalSelectionSession] = $makeDispatchRecovery('normal-selection-drift');
+$normalSelectionSession->resume_recorded_recovery();
+$normalSelectionWorkflow = new \Duo\ScopedApplyWorkflow();
+$normalSelectionWorkflow->session = $normalSelectionSession;
+$expectThrow(
+    static fn() => $normalSelectionWorkflow->assert_recovery_selection(
+        [$changedAction],
+        $dispatchNegotiation
+    ),
+    'action/capability evidence changed',
+    'a crash-after-resume normal phase repeats action/capability selection checks'
+);
+$check(
+    $normalSelectionSession->is_recovery_required()
+        && $normalSelectionSession->recorded_recovery_phase() === ScopedApplySession::PHASE_EFFECTS_PENDING,
+    'normal-phase selection mismatch deterministically re-gates the exact active phase'
 );
 
 [$intentStore, $intentAuthority, $intentSession] = $makeDispatchRecovery('intent-only');
@@ -2321,6 +2517,7 @@ $preparationSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyP
 $rebuildCoordinatorSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyRebuildCoordinator.php');
 $batchBuilderSource = (string) file_get_contents($root . '/agent/src/Adapter/ProviderActionBatchBuilder.php');
 $scopedCoordinatorSource = (string) file_get_contents($root . '/agent/src/Scope/ScopedApplyCoordinator.php');
+$scopedWorkflowSource = (string) file_get_contents($root . '/agent/src/Scope/ScopedApplyWorkflow.php');
 $actionDispatcherSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionDispatcher.php');
 $actionNegotiatorSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionNegotiator.php');
 $ledgerFinalizerSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyLedgerFinalizer.php');
@@ -2448,7 +2645,12 @@ $check(
 $codeWitnessCheckAt = strpos($applySource, "'duo:scoped-code-witness-changed'");
 $sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
 $protectedTargetCheckAt = strpos($applySource, "'duo:scoped-protected-target-drift'");
+$authoredBoundaryCheckAt = strpos($applySource, '->assert_authored_recovery_boundary(');
 $recordedRecoveryResumeAt = strpos($applySource, '->resume_recorded_recovery();');
+$authorReceiptSealAt = strpos($applySource, '&& $this->scopedWorkflow->receipt_at(1) === null');
+$authoredExecutorAt = strpos($applySource, '->authored_transaction_executor()->execute(');
+$finalAuthorReadbackAt = strrpos($applySource, 'ScopedApplyCoordinator::authored_readback_hash(');
+$rebuildRenewAt = strpos($applySource, "renew_promotion_lock('apply-rebuild')");
 $selectionRecheckAt = strpos($preparationSource, '->assert_recovery_selection(');
 $check(
     substr_count($applySource . $scopedCoordinatorSource, 'ScopedApply::code_witness_hash(') === 2
@@ -2462,13 +2664,39 @@ $check(
         && $codeWitnessCheckAt !== false
         && $protectedTargetCheckAt !== false
         && $sessionBeginAt !== false
+        && $authoredBoundaryCheckAt !== false
         && $recordedRecoveryResumeAt !== false
+        && $authorReceiptSealAt !== false
+        && $authoredExecutorAt !== false
+        && $finalAuthorReadbackAt !== false
+        && $rebuildRenewAt !== false
         && $preparedAt !== false
         && $preparedAt < $codeWitnessCheckAt
         && $codeWitnessCheckAt < $protectedTargetCheckAt
         && $protectedTargetCheckAt < $sessionBeginAt
-        && $sessionBeginAt < $recordedRecoveryResumeAt,
-    'product recovery resumes the recorded phase only after selected action/capability, code, and protected-root rechecks'
+        && $sessionBeginAt < $authoredBoundaryCheckAt
+        && $authoredBoundaryCheckAt < $recordedRecoveryResumeAt
+        && $recordedRecoveryResumeAt < $authorReceiptSealAt
+        && $authorReceiptSealAt < $authoredExecutorAt
+        && $authoredExecutorAt < $finalAuthorReadbackAt
+        && $finalAuthorReadbackAt < $rebuildRenewAt,
+    'product recovery rechecks selected authority and author receipt before resume, executor, or rebuild'
+);
+$check(
+    substr_count($applySource, '->assert_authored_recovery_boundary(') === 1
+        && str_contains($scopedWorkflowSource, '$recordedPhase ?? $this->session->phase()')
+        && str_contains($scopedWorkflowSource, 'ScopedApplySession::PHASE_EFFECTS_PENDING')
+        && str_contains($scopedWorkflowSource, 'ScopedApplySession::PHASE_VERIFYING')
+        && str_contains($scopedWorkflowSource, 'ScopedApplyCoordinator::authored_readback_hash($observation)')
+        && !str_contains(
+            substr(
+                $scopedWorkflowSource,
+                (int) strpos($scopedWorkflowSource, 'if ($authoredState !== \'desired\')'),
+                2400
+            ),
+            'guard_witnesses_hash'
+        ),
+    'normal post-author phases repeat composite receipt checks without reusing pre-author deletion guards'
 );
 
 if ($failures !== 0) {

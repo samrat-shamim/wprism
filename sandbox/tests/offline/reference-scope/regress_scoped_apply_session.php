@@ -485,10 +485,16 @@ $recordedRecovery->transition(ScopedApplySession::PHASE_AUTHORING);
 $recordedRecovery->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
 $recordedRecovery->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
 $recordedRecovery->recover($h('recorded-recovery-cause'));
+$check(
+    $recordedRecovery->recorded_recovery_phase() === ScopedApplySession::PHASE_EFFECTS_PENDING
+        && $recordedRecovery->phase() === ScopedApplySession::PHASE_RECOVERY_REQUIRED,
+    'read-only recovery phase inspection preserves the durable recovery gate'
+);
 $recordedRecovery->resume_recorded_recovery();
 $check(
     $recordedRecovery->phase() === ScopedApplySession::PHASE_EFFECTS_PENDING
-        && $recordedRecovery->to_array()['recovery'] === null,
+        && $recordedRecovery->to_array()['recovery'] === null
+        && $recordedRecovery->recorded_recovery_phase() === null,
     'product recovery resumes only the exact phase sealed in the retained record'
 );
 $expectThrow(

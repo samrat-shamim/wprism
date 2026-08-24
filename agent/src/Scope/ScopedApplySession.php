@@ -913,6 +913,24 @@ final class ScopedApplySession {
         return (string) $this->current()['phase'];
     }
 
+    /**
+     * Observe the exact durable resume phase without clearing its recovery
+     * witness. Product recovery must finish current target/effect rechecks
+     * before it makes this phase active again.
+     */
+    public function recorded_recovery_phase(): ?string {
+        $record = $this->current();
+        if ((string) $record['phase'] !== self::PHASE_RECOVERY_REQUIRED) {
+            return null;
+        }
+        $recovery = $record['recovery'];
+        $from = is_array($recovery) ? ($recovery['from_phase'] ?? null) : null;
+        if (!is_string($from) || !isset(self::NEXT_PHASE[$from])) {
+            throw new \RuntimeException('duo: scoped apply recovery retained an invalid resume phase');
+        }
+        return $from;
+    }
+
     public function session_id(): string {
         return (string) $this->current()['session_id'];
     }

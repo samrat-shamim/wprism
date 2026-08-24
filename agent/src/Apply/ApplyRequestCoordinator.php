@@ -1202,19 +1202,6 @@ final class ApplyRequestCoordinator {
                 new LedgerScopedApplySessionStorage(),
                 $authority
             );
-            if ($this->scopedWorkflow->session->is_recovery_required()) {
-                // begin() has rebound the exact immutable authority only
-                // after preparation re-proved the selected action/capability
-                // set and this block re-proved code plus protected target
-                // roots. Resume the phase recorded by that durable session;
-                // the downstream authored/effect paths then reconcile their
-                // own exact receipts before deciding whether any operation is
-                // absent and eligible for invocation.
-                $this->scopedWorkflow->session->resume_recorded_recovery();
-            }
-            if ($this->scopedWorkflow->session->phase() === ScopedApplySession::PHASE_PLANNED) {
-                $this->scopedWorkflow->session->transition(ScopedApplySession::PHASE_AUTHORING);
-            }
             $authorIntent = $this->scopedWorkflow->intent(
                 1,
                 'duo-scoped-authored-transaction/v1',
@@ -1232,8 +1219,6 @@ final class ApplyRequestCoordinator {
                 ])),
                 (string) $authority['target']['selected_before_hash']
             );
-            $this->scopedWorkflow->session->append_intent($authorIntent);
-
             $authoredState = ScopedApply::authored_state(
                 $freshActual,
                 $compiled,
@@ -1241,55 +1226,45 @@ final class ApplyRequestCoordinator {
                 $this->scopedWorkflow->scopeContract,
                 (string) $authority['target']['selected_before_hash']
             );
+            $this->scopedWorkflow->assert_authored_recovery_boundary(
+                $authoredState,
+                $authorIntent,
+                $this->scopedWorkflow->observation,
+                ApplyPlanner::plan_precondition_hash($plan),
+                $this->scopedWorkflow->guard_witnesses_hash($executeDeletes ? $deleteWork : [])
+            );
+            if ($this->scopedWorkflow->session->recorded_recovery_phase() !== null) {
+                // Recovery remains durable through the phase-appropriate
+                // target/map/receipt checks above. A crash after this CAS
+                // leaves a normal nonterminal phase, which repeats the same
+                // checks on the next request before effects can resume.
+                $this->scopedWorkflow->session->resume_recorded_recovery();
+            }
+            if ($this->scopedWorkflow->session->phase() === ScopedApplySession::PHASE_PLANNED) {
+                $this->scopedWorkflow->session->transition(ScopedApplySession::PHASE_AUTHORING);
+            }
             $phase = $this->scopedWorkflow->session->phase();
-            if ($authoredState === 'before' && !hash_equals(
-                (string) ($authority['target']['selected_before_ledger_map_hash'] ?? ''),
-                (string) $this->scopedWorkflow->observation['selected_ledger_map_root']
-            )) {
-                $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-selected-ledger-drift'));
-                throw new \RuntimeException(
-                    'duo: scoped apply recovery found selected identity-map drift before authored mutation'
-                );
-            }
-            if ($authoredState === 'before'
-                && (!hash_equals(
-                    (string) ($authority['plan']['precondition_hash'] ?? ''),
-                    ApplyPlanner::plan_precondition_hash($plan)
-                ) || !hash_equals(
-                    (string) ($authority['plan']['guard_witnesses_hash'] ?? ''),
-                    $this->scopedWorkflow->guard_witnesses_hash($executeDeletes ? $deleteWork : [])
-                ))) {
-                $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-plan-or-guard-drift'));
-                throw new \RuntimeException(
-                    'duo: scoped apply recovery found changed locked plan or deletion-guard evidence'
-                );
-            }
             if ($phase === ScopedApplySession::PHASE_AUTHORING) {
+                $this->scopedWorkflow->session->append_intent($authorIntent);
                 if ($authoredState === 'desired') {
                     $performAuthoredTransaction = false;
                     $this->scopedWorkflow->session->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
                     $this->scopedWorkflow->session->append_receipt($this->scopedWorkflow->receipt(
                         $authorIntent,
-                        (string) $this->scopedWorkflow->observation['selected_before_root']
+                        ScopedApplyCoordinator::authored_readback_hash($this->scopedWorkflow->observation)
                     ));
-                } elseif ($authoredState !== 'before') {
-                    $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-authored-boundary-mixed'));
-                    throw new \RuntimeException(
-                        'duo: scoped apply recovery found a mixed authored boundary; no replay was attempted'
-                    );
                 }
             } else {
                 $performAuthoredTransaction = false;
-                if ($authoredState !== 'desired') {
-                    $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-authored-state-regressed'));
-                    throw new \RuntimeException(
-                        'duo: scoped apply recovery found selected target drift after authored commit'
-                    );
-                }
-                if ($phase === ScopedApplySession::PHASE_AUTHORED_COMMITTED) {
+                if ($phase === ScopedApplySession::PHASE_AUTHORED_COMMITTED
+                    && $this->scopedWorkflow->receipt_at(1) === null) {
+                    // The authored transition and receipt are separate durable
+                    // CAS operations. Fresh desired+map readback above closes
+                    // the only admissible crash window before any executor or
+                    // effect path can observe this phase as complete.
                     $this->scopedWorkflow->session->append_receipt($this->scopedWorkflow->receipt(
                         $authorIntent,
-                        (string) $this->scopedWorkflow->observation['selected_before_root']
+                        ScopedApplyCoordinator::authored_readback_hash($this->scopedWorkflow->observation)
                     ));
                 }
             }
@@ -1385,7 +1360,7 @@ final class ApplyRequestCoordinator {
                 $this->scopedWorkflow->session->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
                 $this->scopedWorkflow->session->append_receipt($this->scopedWorkflow->receipt(
                     $authorIntent,
-                    (string) $afterObservation['selected_before_root']
+                    ScopedApplyCoordinator::authored_readback_hash($afterObservation)
                 ));
             }
             if ($this->scopedWorkflow->session->phase() === ScopedApplySession::PHASE_AUTHORED_COMMITTED) {
