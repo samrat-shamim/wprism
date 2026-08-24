@@ -18,6 +18,7 @@ require_once __DIR__ . '/InitialCaptureBoundary.php';
 require_once __DIR__ . '/../Repository/Ledger.php';
 require_once __DIR__ . '/../Promotion/LifecyclePlanner.php';
 require_once __DIR__ . '/../Review/Lint.php';
+require_once __DIR__ . '/../Review/LintTrustGate.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Publication/Publish.php';
 require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
@@ -465,6 +466,14 @@ final class CapturePublicationWorkflow {
                 }
                 $lint = Lint::scan_tree($staging, $c->policy());
                 if ($lint) {
+                    // WP-3.1: the same finding set, read twice. An uncertified
+                    // out-of-tree adapter's finding REFUSES here — an
+                    // under-declared reference is the defect a stranger's
+                    // manifest produces and the one a byte-identical round trip
+                    // cannot see. Everything else keeps the advisory warning
+                    // below, byte for byte, because a shipped adapter's
+                    // declarations are reviewed and digest-bound (rule 2).
+                    LintTrustGate::assert($lint, $c->policy(), $staging);
                     $candidate['warnings'][] = self::lintWarning(
                         count($lint),
                         $c->repo(),

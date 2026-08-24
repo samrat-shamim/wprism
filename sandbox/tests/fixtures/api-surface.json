@@ -1,5 +1,5 @@
 {
-    "class_count": 378,
+    "class_count": 379,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -962,6 +962,31 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "certification_word": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "hasRegistry",
+                            "type": "?bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "claim": {
                     "abstract": false,
                     "final": false,
@@ -1097,6 +1122,23 @@
                     "visibility": "public"
                 },
                 "is_out_of_tree": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "is_uncertified_out_of_tree": {
                     "abstract": false,
                     "final": false,
                     "parameters": [
@@ -18960,6 +19002,94 @@
                             "has_default": false,
                             "name": "findings",
                             "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\LintTrustGate": {
+            "abstract": false,
+            "constants": {
+                "PUBLIC_MESSAGE": {
+                    "value_repr": "capture found suspicious unrewritten references in state declared by an adapter with no reviewed certification"
+                },
+                "REASON": {
+                    "value_repr": "uncertified_adapter_lint_findings"
+                },
+                "REMEDIATION": {
+                    "value_repr": "for each named locator either declare the reference so capture tokenizes it, or record the reviewed exemption `lint_ok: true` on that declaration in the owning manifest; certifying the adapter returns its findings to advisory"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "findings",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stateDir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "blocking": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "findings",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stateDir",
+                            "type": "string",
                             "variadic": false
                         }
                     ],

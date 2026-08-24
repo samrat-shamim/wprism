@@ -128,6 +128,7 @@ return [
     'Duo\\Lint' => 'src/Review/Lint.php',
     'Duo\\LintEnvironment' => 'src/Review/LintEnvironment.php',
     'Duo\\LintFinding' => 'src/Review/LintFinding.php',
+    'Duo\\LintTrustGate' => 'src/Review/LintTrustGate.php',
     'Duo\\ManifestDispositions' => 'src/Policy/ManifestDispositions.php',
     'Duo\\ManifestGrammar' => 'src/Policy/ManifestGrammar.php',
     'Duo\\ManifestValidator' => 'src/Policy/ManifestValidator.php',

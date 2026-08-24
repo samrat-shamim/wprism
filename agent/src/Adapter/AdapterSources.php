@@ -3782,6 +3782,69 @@ final class AdapterSources {
     }
 
     /**
+     * The certification word for ONE adapter — `diagnostics()`'s derivation,
+     * given a name so a caller that is not building a diagnostic row can ask
+     * the same question and be told the same thing.
+     *
+     * Extracted rather than copied for the reason tier_decision() gives about
+     * its own pairing (:3157-3162): two walks of one rule are two rules the
+     * moment either moves, and the one that moved silently would be the one a
+     * refusal quotes. `$hasRegistry` is threaded in so `diagnostics()` still
+     * asks has_reviewed_registry() ONCE for a whole manifest list rather than
+     * once per row; the memo on that method makes repetition cheap, not free.
+     */
+    public function certification_word(string $name, ?bool $hasRegistry = null): ?string {
+        if ($this->provenance($name) === null) {
+            return ($hasRegistry ?? $this->has_reviewed_registry()) ? 'registry' : null;
+        }
+        if (!$this->is_certified($name)) {
+            return 'uncertified';
+        }
+        if (empty($this->explicitPins[$name])) {
+            return 'signed_unpinned';
+        }
+        return $this->trust_root($name) === self::TRUST_ROOT_SITE
+            ? self::CERTIFICATION_SITE_SIGNED
+            : 'third_party_signed';
+    }
+
+    /**
+     * The RISK TIER: an adapter installed out-of-tree that no review vouches
+     * for. WP-3.1's capture-time lint gate blocks here and nowhere else.
+     *
+     * Three states answer true, and each is a deliberate reading:
+     *
+     *  - `uncertified` — nothing was ever signed. The plain case.
+     *  - `uncertified` reached by WITHDRAWAL (WP-1.1). A stale platform
+     *    boundary or a superseded certificate wire leaves NO $certificates /
+     *    $claims entry (:1160-1170 says so in as many words: "every
+     *    certified-only gate treats it as unsigned"), so this predicate cannot
+     *    tell it from the plain case and must not try — a withdrawn claim is
+     *    exactly as unvouched-for as one that never existed, and the record's
+     *    own `reason` is what tells the operator which of the two they are in.
+     *  - `signed_unpinned` — a valid signature the REPOSITORY has not reviewed.
+     *    claim() already collapses this to `status: uncertified` with "valid
+     *    signed third-party evidence is present, but the repository pin does
+     *    not bind both source \"site\" and the final certificate-derived
+     *    digest" (:3644-3652). Certification is an elevation the pin gates, so
+     *    reading an unpinned signature as review here would elevate it in one
+     *    projection and not the other.
+     *
+     * A SHIPPED row is never at this tier whatever its registry status: its
+     * bytes are reviewed with the agent and digest-bound to it (AGENTS.md
+     * rule 2), which is the whole reason the gate can leave that path's
+     * behaviour byte-identical.
+     */
+    public function is_uncertified_out_of_tree(string $name): bool {
+        return $this->is_out_of_tree($name)
+            && !in_array(
+                $this->certification_word($name),
+                [self::CERTIFICATION_SITE_SIGNED, 'third_party_signed'],
+                true
+            );
+    }
+
+    /**
      * Which root vouched for this adapter, and who under it.
      *
      * Projected from the verified provenance the certificate produced, never
@@ -3916,15 +3979,7 @@ final class AdapterSources {
                 // survey() answers for the same row: naming `registry` there
                 // would name a review the consumer would then go looking for.
                 // The two projections of one fact disagreeing was DUO-3486.
-                'certification' => $record === null
-                    ? ($hasRegistry ? 'registry' : null)
-                    : ($signed
-                        ? ($explicit
-                            ? ($trustRoot === self::TRUST_ROOT_SITE
-                                ? self::CERTIFICATION_SITE_SIGNED
-                                : 'third_party_signed')
-                            : 'signed_unpinned')
-                        : 'uncertified'),
+                'certification' => $this->certification_word($name, $hasRegistry),
                 'path' => $this->path($name),
                 // On EVERY row, including the ones where both are trivially
                 // known: a projection that printed `trust_root` only when it
