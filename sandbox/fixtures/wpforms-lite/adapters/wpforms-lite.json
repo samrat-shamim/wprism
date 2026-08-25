@@ -1,0 +1,362 @@
+{
+    "attr_id_codecs": {
+        "wpforms/form-selector": {
+            "formId": {
+                "id_type": "string"
+            }
+        }
+    },
+    "block_attrs": {
+        "wpforms/form-selector": [
+            {
+                "kind": "post",
+                "path": "formId",
+                "type": "int"
+            }
+        ]
+    },
+    "body_refs": {
+        "wpforms": {
+            "json_refs": [
+                {
+                    "cast": "string",
+                    "kind": "post",
+                    "path": "$.settings.confirmations.*.page"
+                }
+            ],
+            "sentinels": {
+                "$.settings.confirmations.*.page": [
+                    "previous_page"
+                ]
+            }
+        }
+    },
+    "declaration_evidence": {
+        "attr_id_codecs.wpforms/form-selector": {
+            "evidence": [
+                {
+                    "locator": "src/Integrations/Gutenberg/FormSelector.php:229",
+                    "observation": "register_block_type() declares formId as ['type' => 'string'].",
+                    "source": "wpforms-lite 2.0.0.5 source"
+                },
+                {
+                    "locator": "src/Admin/FormEmbedWizard.php:393",
+                    "observation": "The embed wizard writes '<!-- wp:wpforms/form-selector {\"formId\":\"%d\"} /-->' — the %d is INSIDE the quotes, so the stored JSON type is string.",
+                    "source": "wpforms-lite 2.0.0.5 source"
+                },
+                {
+                    "locator": "sandbox/tests/fixtures/wpforms-body/contact-page.post_content.html",
+                    "observation": "Two live form-selector blocks on one page, both with a quoted formId; parse_blocks() returned PHP type string for both, and `wp duo lint` reported each as unregistered_block_attr resolving to a real wpforms post before this declaration existed.",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                }
+            ]
+        },
+        "body_refs.wpforms": {
+            "evidence": [
+                {
+                    "locator": "sandbox/tests/fixtures/wpforms-body/form-b.post_content.raw.json ($.settings.confirmations.1.page)",
+                    "observation": "A PAGE post id stored as a JSON STRING — \"page\":\"4\", measured pointing at the page whose local id was 4. The one unambiguously cross-entity reference inside the body.",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                },
+                {
+                    "locator": "sandbox/tests/fixtures/wpforms-body/form-b.post_content.raw.json ($.settings.confirmations.3.page)",
+                    "observation": "The SAME key legitimately holding the non-numeric literal \"previous_page\" on a third confirmation of the same form — which is why the sentinel is declared rather than discovered at capture time.",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                },
+                {
+                    "locator": "includes/class-process.php:1553-1562",
+                    "observation": "The plugin branches on `previous_page` IDENTICALLY before calling get_permalink((int) $confirmation['page']), so coercing this slot to int would repoint the confirmation at post 0.",
+                    "source": "wpforms-lite 2.0.0.5 source"
+                }
+            ]
+        },
+        "deletions.term:wpforms_form_tag": {
+            "evidence": [
+                {
+                    "locator": "wp duo adapter-deletion-feasibility --format=json (duo-deletion-feasibility/v1, feasibility_hash sha256:d22ff8d8be50bbde4b08a7624e48af2336f531fb015f056844c419303aeb1c67, selectors[\"term:wpforms_form_tag\"])",
+                    "observation": "guard term_relationships.term_taxonomy_id → index \"term_taxonomy_id\", leading, reason: null. The guard CAN take its lock on a stock WordPress schema, which is the necessary condition this selector is advertised on.",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                },
+                {
+                    "locator": "wp duo adapter-deletion-feasibility --format=json (the same document, selectors[\"post:wpforms\"])",
+                    "observation": "The counter-measurement that decided the OTHER selector: both reverse-reference guards for post:wpforms — postmeta.meta_value and posts.post_content — return index: null / \"no index leads with this column\". Neither can ever lock on core's schema, so post:wpforms deletion is not advertised here.",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                }
+            ]
+        },
+        "engine_features": {
+            "answered": [
+                {
+                    "answer": "For CAPTURE, yes, and it was: install it at adapters/<name>.json AFTER `duo init` has run without it, then `duo adapter pin --adopt-scope`, which needs no certificate. Measured on the live pair — capture green (9 posts, 3 terms), both block formIds and the confirmation page id tokenised, deterministic recapture byte-identical. For DEPLOY/APPLY, no: that half is closed until the signer can classify a feature-claimed key. `duo capabilities` prints the remediation \"keep it as uncertified support — plan and apply remain available\"; `duo plan` is indeed available (measured on the target: 8 create, 2 update, 4 collision), and apply is not.",
+                    "question": "Can this adapter be used on a real site today?"
+                }
+            ],
+            "evidence": [
+                {
+                    "locator": "duo adapter certify <site-repo> --name=wpforms-lite --secret-key-file=…",
+                    "observation": "Refused, exit 2: \"site adapter 'wpforms-lite' declares 'attr_id_codecs', which this signer cannot classify as an entity or field surface\". The repository was left exactly as found — no adapters/authorities.json, no certificate.",
+                    "source": "dogfood WP-6.6 (pair wpfauth, 2026-08-25, WPForms Lite 2.0.0.5)"
+                },
+                {
+                    "locator": "duo adapter certify … --ratification-file=<authored disposition>",
+                    "observation": "The WP-5.3 authored profile hits the SAME refusal, word for word: siteSurfaceSections() is shared by both profiles, so an author cannot certify an unclassifiable section by naming it in a file.",
+                    "source": "dogfood WP-6.6"
+                },
+                {
+                    "locator": "the same manifest with engine_features, body_refs, attr_id_codecs and declaration_evidence removed and spec_version dropped to 2",
+                    "observation": "CERTIFIES cleanly (\"certified: wpforms-lite (site adapter) … claim: certified\"). So the four feature-claimed keys are the whole blocker, and nothing else about this authoring is.",
+                    "source": "dogfood WP-6.6 — THE CONTROL"
+                },
+                {
+                    "locator": "wp duo init --repo=/siterepo/repo (adapter installed at adapters/wpforms-lite.json)",
+                    "observation": "INIT BLOCKED — \"unsupported: adapter wpforms-lite … uncertified by construction\". --allow-unmanaged-plugins does not change it: the plugin IS managed. So the certification wall is met before a repository even exists.",
+                    "source": "dogfood WP-6.6"
+                },
+                {
+                    "locator": "duo deploy wpfauth2 (host verb, after init-without-adapter then `duo adapter pin --adopt-scope`)",
+                    "observation": "\"deploy: adapter wpforms-lite is unsupported: no reviewed capability claim is bound to this compiled adapter … only certified adapters may enter deployment\". `wp duo apply` then refuses `code_revision_stale`, which is explicitly non-forceable and which only deploy can clear.",
+                    "source": "dogfood WP-6.6"
+                }
+            ]
+        },
+        "options.wpforms_settings": {
+            "evidence": [
+                {
+                    "locator": "wp option get wpforms_settings --format=json, on a fresh 2.0.0.5 activation",
+                    "observation": "a:3:{s:13:\"modern-markup\";s:1:\"1\";s:20:\"modern-markup-is-set\";b:1;s:26:\"modern-markup-hide-setting\";b:1;} — the plugin's settings screen, and the ONLY one of the 14 wpforms-matching options on a fresh install that an operator authors.",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                },
+                {
+                    "locator": "duo pending (13 items, 3 ref_hints)",
+                    "observation": "The pending queue hinted this option as post:1 \"Hello world!\" — a FALSE hint produced by extracting the \"1\" out of s:13:\"modern-markup\";s:1:\"1\". Declaring the option by name is what takes it out of that queue; the hint is recorded as friction, not as evidence.",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                },
+                {
+                    "locator": "wp duo capture --repo=/siterepo/repo, with this adapter pinned and uncertified",
+                    "observation": "The same \"1\" is not merely a bad hint under an out-of-tree adapter — it BLOCKS: \"suspicious unrewritten ref(s) in state declared by an uncertified out-of-tree adapter (loud-and-blocking gate): options/core.json options.wpforms_settings[modern-markup] (bare_id)\". That refusal is what `lint_ok: true` on this declaration answers.",
+                    "source": "dogfood WP-6.6 (pair wpfauth, 2026-08-25, WPForms Lite 2.0.0.5)"
+                }
+            ]
+        },
+        "post_meta.wpforms_form_locations": {
+            "answered": [
+                {
+                    "answer": "DERIVED, and deliberately with no rebuild verb. The invalidate vocabulary reaches an object-cache entry or a cache stored AS a row; this is neither — it is postmeta the plugin rebuilds on its own schedule. Duo's apply writes wp_posts through a direct Db::update() (agent/src/Apply/PostMaterializer.php:229), so none of the eight hooks fires and a target's row stays stale until the plugin's next scan. That bounded staleness is the OPEN ledger coordinate post_meta.wpforms_form_locations (primitive verified_provider_postcondition); this manifest states it in notes rather than implying a postcondition it cannot prove.",
+                    "question": "derived-with-rebuild, or authored serialized refs?"
+                }
+            ],
+            "evidence": [
+                {
+                    "locator": "SELECT post_id, meta_value FROM wp_postmeta WHERE meta_key = 'wpforms_form_locations'",
+                    "observation": "a:1:{i:0;a:6:{…\"form_id\";i:6;\"id\";i:5;\"url\";s:20:\"/recon-contact-page/\";\"title\";s:18:\"Recon Contact Page\";\"status\";s:7:\"publish\";\"type\";s:4:\"page\";}} on form 6 and the same shape on form 14 — the EMBEDDING page's id, permalink, title and status, denormalised onto the form. a:0:{} on form 8, which is embedded nowhere.",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                },
+                {
+                    "locator": "src/Forms/Locator.php:203-216 and src/Tasks/Actions/FormsLocatorScanTask.php:387",
+                    "observation": "Eight hooks maintain the row incrementally and a DAY_IN_SECONDS Action Scheduler task rebuilds it in full from a REGEXP over post_content — the plugin owns the derivation end to end, so no declarative primitive is needed to CAPTURE it.",
+                    "source": "wpforms-lite 2.0.0.5 source"
+                }
+            ]
+        },
+        "post_types.wpforms.body": {
+            "answered": [
+                {
+                    "answer": "No. It is optional and TYPE-VARIANT across the plugin's own three write paths, so any single declared type would refuse two of them (BodyRefGrammar::assert_source_type()). The json body mode rewrites DECLARED PATHS ONLY and re-encodes everything else from the decode, so an undeclared `$.id` survives absent-as-absent, int-as-int and string-as-string. It is also not cross-entity: duplicate() sets it from the NEW post id itself (includes/class-form.php:934), so it tracks the row rather than pointing at another one.",
+                    "question": "Is the top-level `id` a self-reference this adapter must declare and rewrite?"
+                }
+            ],
+            "evidence": [
+                {
+                    "locator": "sandbox/tests/fixtures/wpforms-body/form-a.post_content.raw.json",
+                    "observation": "Write path A — add($title, $args, ['template' => …]) then update() from get(…, content_only): the body is a JSON document and carries NO top-level `id` key at all.",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                },
+                {
+                    "locator": "sandbox/tests/fixtures/wpforms-body/form-pathb.post_content.raw.json",
+                    "observation": "Write path B — add($t, [], ['builder' => false]) (the WP Abilities path, src/Integrations/Abilities/FormMutator.php:94): the same key is present as a bare INTEGER, \"id\":12.",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                },
+                {
+                    "locator": "sandbox/tests/fixtures/wpforms-body/form-pathc.post_content.raw.json",
+                    "observation": "Write path C — the real builder save, replayed call for call through wpforms_prepare_form_data → BuilderSaveForm::process_fields → wpforms_sanitize_form_data → update(): the key is a STRING, \"id\":\"14\".",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                },
+                {
+                    "locator": "includes/admin/ajax-actions.php:36-52",
+                    "observation": "The builder posts a jQuery serializeArray() FLAT input list, not a form_data object, and wpforms_prepare_form_data() rebuilds the nested array from it — which is why every leaf reaching update() from the builder is a string.",
+                    "source": "wpforms-lite 2.0.0.5 source"
+                }
+            ]
+        },
+        "tables.wpforms_analytics_forms": {
+            "evidence": [
+                {
+                    "locator": "SHOW CREATE TABLE wp_wpforms_analytics_forms",
+                    "observation": "PRIMARY KEY (`form_id`,`period_date`) — the only composite, non-surrogate primary key among the six, and the shape that says \"counter bucket\" rather than \"row identity\".",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                },
+                {
+                    "locator": "SHOW TABLES, run immediately after `wp plugin activate wpforms-lite`",
+                    "observation": "All six wp_wpforms_* tables exist immediately after activation and every one held 0 rows after the entire authoring exercise — so no natural-key or identity claim in this manifest could have been measured, and none is made.",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                }
+            ]
+        },
+        "taxonomies.wpforms_form_tag": {
+            "evidence": [
+                {
+                    "locator": "includes/class-form.php:136 (WPForms_Form_Handler::TAGS_TAXONOMY)",
+                    "observation": "Registered in LITE — not Pro-gated — since 1.7.5, with {hierarchical:false, rewrite:false, public:false, show_ui:false, show_in_rest:false} over object_type ['wpforms'].",
+                    "source": "wpforms-lite 2.0.0.5 source"
+                },
+                {
+                    "locator": "wp duo init --format=json (advisory unmanaged_scope_left_local)",
+                    "observation": "UNMANAGED SCOPE taxonomy:wpforms_form_tag — holding 2 term(s), measured live before any adapter existed.",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                },
+                {
+                    "locator": "includes/admin/ajax-actions.php:361-366 with src/Admin/Forms/Ajax/Tags.php:255-270",
+                    "observation": "The representation is DUAL: one handler writes term ids through wp_set_post_terms() AND writes the tag LABELS into $form_data['settings']['form_tags'], so an adapter that declared the post type without the taxonomy would carry half of it.",
+                    "source": "wpforms-lite 2.0.0.5 source"
+                }
+            ]
+        },
+        "version_range": {
+            "evidence": [
+                {
+                    "locator": "sandbox/fixtures/wpforms-lite/wpforms-lite.releases.json (duo-adapter-release-list/v1, 4 fetched-and-hashed releases)",
+                    "observation": "Both sides of the pair were installed from ONE digest-verified 2.0.0.5 ZIP (sha256 b7c424a96481a68d43ab03b6dcad2657675e42cddaa31844eb8ddc20ba08733c, re-verified INSIDE each container before wp plugin install), so the bytes every observation above describes are provably the ones the release list pins.",
+                    "source": "dogfood WP-6.4 (pair wpfrecon, 2026-08-25, WPForms Lite 2.0.0.5)"
+                },
+                {
+                    "locator": "versions_probed: [\"2.0.0.4\", \"2.0.0.5\"]",
+                    "observation": "The engine-gap ledger probed 2.0.0.4 and 2.0.0.5, which is the floor this range takes. The ceiling stops at the next MINOR (2.0.1) rather than the next major: every measured byte comes from the 2.0.0.x series, and a 2.0.1 that reworks the builder's save wire format would move the one path this adapter rewrites.",
+                    "source": "tools/engine-gaps.json (candidate wpforms-lite, versions_probed)"
+                }
+            ]
+        }
+    },
+    "deletions": {
+        "term:wpforms_form_tag": {
+            "cascades": [
+                "termmeta",
+                "term_taxonomy",
+                "term_relationships"
+            ],
+            "guards": [
+                {
+                    "column": "term_taxonomy_id",
+                    "id_kind": "term_taxonomy",
+                    "reason": "forms are still tagged with this form tag",
+                    "table": "term_relationships"
+                }
+            ]
+        }
+    },
+    "engine_features": [
+        "attr-id-codecs/v1",
+        "spec-window/v1",
+        "structured-body-refs/v1",
+        "structured-evidence/v1"
+    ],
+    "name": "wpforms-lite",
+    "notes": [
+        "WHAT THIS ADAPTER IS. A FIXTURE, and the first real spec_version 3 adapter in this tree: it exercises the decentralized authoring path end to end (author → duo manifest-validate → install at adapters/<name>.json → keygen/certify → pin) for WPForms Lite 2.0.0.5, the candidate tools/engine-gaps.json rejected on 2026-08-22. It makes NO product capability claim: manifests/ carries no wpforms entry, manifests/dispositions/ carries no reviewed disposition for it, and no adapter digest moves (AGENTS.md rule 2). docs/capabilities.md says nothing about WPForms and this file does not change that.",
+        "THE FOUR ENGINE FEATURES, AND WHY EACH IS DECLARED. `spec-window/v1` claims `engine_features` itself (spec/repo-format.md § v3.3), so an adapter using the channel declares the channel. `structured-body-refs/v1` gates BOTH halves of the json body — the `post_types.wpforms.body: \"json\"` mode and the `body_refs` section — on one name, which is why neither half appears without the other. `attr-id-codecs/v1` gates the type-preserving formId codec. `structured-evidence/v1` gates `declaration_evidence`, which is where this adapter's measured rows live instead of in prose.",
+        "THE PRICE OF THAT CHANNEL, MEASURED END TO END ON A LIVE PAIR RATHER THAN PREDICTED. All four feature-claimed keys — `engine_features`, `body_refs`, `attr_id_codecs`, `declaration_evidence` — are in NO arm of the signer's top-level key partition (AdapterCertification::ENTITY_SECTIONS / FIELD_SECTIONS / NON_SURFACE_KEYS), and the consequence is not one refusal but three, in the order an author meets them. (1) `duo adapter certify` refuses by name — \"declares 'attr_id_codecs', which this signer cannot classify as an entity or field surface\" — and the WP-5.3 `--ratification-file` authored profile hits the identical wording, because siteSurfaceSections() is shared by both profiles. (2) `wp duo init` then refuses to initialize the site AT ALL while this adapter is installed: \"unsupported: adapter wpforms-lite … uncertified by construction\", which --allow-unmanaged-plugins does not touch because the plugin is managed. (3) `duo deploy` refuses \"only certified adapters may enter deployment\", and `wp duo apply` then refuses `code_revision_stale` — explicitly non-forceable, and clearable only by the deploy that just refused. THE CONTROL that isolates the cause: the same manifest with those four keys removed and spec_version 2 certifies cleanly. So the § v3.2 channel — the mechanism that exists to let grammar ship without a flag day — today closes the whole decentralized deploy path to any adapter that uses it. That trade-off is stated in spec/repo-format.md § v3.3 as \"uncertifiable\"; the init/deploy consequence is stated nowhere, and docs/guides/adapter-authoring.md does not mention it at the point an author picks a spec_version.",
+        "THE HALF THAT DOES WORK, and the exact order it works in, because an operator will otherwise conclude the adapter is unusable. `duo init` WITHOUT the adapter installed goes READY; installing it afterwards at adapters/wpforms-lite.json and running `duo adapter pin <repo> --name=wpforms-lite --source=site --adopt-scope` needs no certificate, writes the content-addressed pin, and flips policy.scope.post_type.wpforms and policy.scope.taxonomy.wpforms_form_tag from the `runtime` init recorded to `authored`. Capture then works: measured 9 posts / 3 terms, both block formIds and the confirmation page id tokenised, and a second capture byte-identical to the first. What stays blocked is deploy/apply and host promotion — which is what `duo capabilities` means by \"keep it as uncertified support\", except that its remediation sentence also promises apply, and apply is not available on any repository whose init proposed code management (which is every repository init creates).",
+        "WHAT AN UNCERTIFIED SITE ADAPTER MEANS FOR CAPTURE, since it follows directly from the paragraph above and this adapter was CHANGED by it: a lint finding on state THIS adapter declared blocks capture with `uncertified_adapter_lint_findings` (docs/guides/adapter-authoring.md § 6). It fired on the first live capture, on `options.wpforms_settings[modern-markup]` — the \"1\" of a boolean flag read as a bare_id — and the reviewed `lint_ok: true` on that option is the answer, written on the declaration rather than on today's collision. That gate is a feature here: the declared surfaces are exactly the ones whose unrewritten ids would be silently environment-bound. An operator installing this fixture should expect refusals to be loud rather than advisory.",
+        "WHAT THE LIVE PAIR ADDED THAT THE CAPTURES ALONE COULD NOT. On 2026-08-25 a second pair (`wpfauth`, ports 9630/9631, both sides installed from the same digest-verified 2.0.0.5 ZIP) re-authored the whole estate through the plugin's own APIs with THIS adapter pinned, and three things only a live run shows came out of it. (a) The capture-side gate above, which changed the manifest. (b) The home-URL warning is not theoretical: capture emitted \"json body of wpforms 'duo-signup-form' contains this environment's home URL outside any declared reference path\", and `wp duo lint` reported it as `escaped_home` — the ESCAPED form, because a json body is wp_json_encode() output and a plain str_replace() would never have matched `http:\\/\\/localhost:9630`. (c) `duo coverage` went from six undeclared wpforms tables and six invisible wpforms option families to `undeclared=0` and no wpforms family at all, and `duo pending` from 13 items to \"no pending unclassified state\" — which is the whole observable difference this adapter makes to an operator.",
+        "THE BODY, AND THE TWO ENVIRONMENT-BOUND VALUES IT STILL CARRIES. `body: \"json\"` rewrites DECLARED PATHS ONLY. Two measured values in the same bodies are NOT declared and cross environments unchanged: `$.settings.confirmations.<n>.redirect` bakes the source site's absolute home URL (\"http:\\/\\/localhost:9620\\/recon-thank-you\\/\" on the recon pair) and `$.settings.notifications.<n>.sender_name` bakes get_bloginfo('name') (\"Duo wpfrecon1\"). Capture WARNS on the first — PostCapture matches both the plain and the slash-escaped home URL, since a json body is wp_json_encode() output — and says nothing about the second. Neither is a reference this grammar can rebind, and declaring them as one would be worse than saying so here.",
+        "WHAT IS DELIBERATELY UNDECLARED INSIDE THE BODY, because each one is a small integer a heuristic would flag: `$.field_id` (the next-field-id ALLOCATOR — measured \"0\" on one write path and an int on two others), `$.fields.<n>.id` (form-LOCAL field ids, present both as the object key and as the member), and field ids embedded in prose smart tags (\"replyto\": \"{field_id=\\\"2\\\"}\"). None is cross-entity; declaring any of them would rewrite a form-internal number into another entity's id.",
+        "ACTION SCHEDULER IS NOT THIS ADAPTER'S TO DECLARE. WPForms Lite bundles vendor/woocommerce/action-scheduler and creates four more live tables — wp_actionscheduler_actions (1 row on the measured install: action_scheduler/migration_hook), _claims (0), _groups (1), _logs (1). They are a SHARED library's tables: WooCommerce, WP Mail SMTP and every other bundling plugin creates the same four, so a per-plugin adapter claiming them would be the first of N adapters fighting over one namespace. They are also invisible to the census that would have proposed them — Action Scheduler registers its tables into $wpdb->tables, and agent/src/Review/Coverage.php:274 treats $wpdb->tables('all', true) as WordPress's own core list and skips every member, so `duo coverage` reported SIX undeclared tables and zero of these four. That gap is recorded as a sibling finding, not papered over here.",
+        "OPTIONS ARE DECLARED BY NAME, NOT BY NAMESPACE, and the six-family measurement is why. `duo coverage` splits this one plugin's options into SIX prefix families — wpforms(3), wpforms_transient(2), wpforms_constant(1), wpforms_forms(1), wpforms_version(1), wpforms_versions(1) — each with probable_owner wpforms-lite, so `duo adapter-draft --seed` would hand an author six option_namespaces proposals plus six blanket runtime option_patterns for one plugin, over a population of nine names. Nine exact declarations are shorter than the namespace claim AND cannot silently swallow a future option nobody has classified. The four core `_transient_*` rows in the census are already derived under manifests/core.json's ^_transient_ pattern; the two `_wpforms_transient_*` rows are not (the prefix differs) and are declared here.",
+        "widget_wpforms-widget IS DELIBERATELY NOT DECLARED. It is a WIDGET surface, not an option surface: CaptureGateScanner.php:78-107 reads widget_<type> options through the `widgets` section and only reports a type once LIVE INSTANCES exist. The recon exercised no widget instance, so a `widgets.wpforms-widget` declaration here would be an unexercised claim and an `options` declaration would be the wrong section for it.",
+        "DELETION: ONE SELECTOR ADVERTISED, ONE REFUSED, BOTH FROM THE SAME MEASUREMENT. `term:wpforms_form_tag` is advertised because its only reverse-reference guard (term_relationships.term_taxonomy_id) has a LEADING index on a stock schema, so it can take the next-key lock a guard needs; the taxonomy is non-hierarchical (includes/class-form.php:136), so core's second guard on term_taxonomy.parent protects against a relationship this plugin can never create and is not declared. `post:wpforms` is NOT advertised: the two guards that would protect a form from being deleted while a page still embeds it — postmeta.meta_value (the wpforms_form_locations reverse reference) and posts.post_content (the block embed) — each return index: null. This is exactly manifests/ninja-forms.json's posture for table:nf3_forms: Duo does not own a schema migration for the unmodified plugin, so it does not advertise a deletion whose guard cannot lock. A site adapter's certificate forces deletion_semantics.supported: [] regardless (AdapterCertification::siteRatification()), so the advertised selector is a load-time capability here, not a certified claim.",
+        "WHAT LITE'S PRO-GATED SURFACES MEAN, STATED HONESTLY. Activation creates all six wp_wpforms_* tables on Lite, but the features that fill three of them (payments, payment_meta, and the analytics pair) are Pro. Every one held 0 rows after the whole authoring exercise, so this adapter's table classes are chosen from what the rows ARE by nature — submitted payments, visitor analytics, a log ring — and never from a measured schema an empty table could not supply. Nothing here claims Pro is supported: on Pro these tables hold live rows this manifest still classifies runtime, which is the honest answer for transaction and traffic data and would need its own exercise to become anything else. `wpforms_payments.transaction_id` is the obvious natural-key candidate and is NOT declared: on an empty table `wp duo adapter-probe --natural-keys=` measures {\"rows\":0,\"distinct\":0,\"unique\":false}, and that false is the absence of an answer.",
+        "THE LEDGER COORDINATE THAT IS STILL OPEN. post_meta.wpforms_form_locations is declared `derived`, which represents the CAPTURE side completely. The apply side is not represented and is not claimed: Duo writes wp_posts with a direct Db::update() (PostMaterializer.php:229), so none of Locator::hooks()' eight hooks fires on a target and its locations meta stays stale until FormsLocatorScanTask next runs (DAY_IN_SECONDS). A scheduled derivation is precisely the bounded postcondition the open primitive `verified_provider_postcondition` is about; an exit code from a rebuild command would not prove it either, which is why this adapter declares no regenerator for it."
+    ],
+    "option_autoload": "preserve",
+    "options": {
+        "_wpforms_transient_existing_tables": {
+            "class": "runtime"
+        },
+        "_wpforms_transient_timeout_existing_tables": {
+            "class": "runtime"
+        },
+        "wpforms_activated": {
+            "class": "runtime"
+        },
+        "wpforms_constant_contact_version": {
+            "class": "runtime"
+        },
+        "wpforms_forms_first_created": {
+            "class": "runtime"
+        },
+        "wpforms_settings": {
+            "class": "authored",
+            "lint_ok": true
+        },
+        "wpforms_version": {
+            "class": "runtime"
+        },
+        "wpforms_version_lite": {
+            "class": "runtime"
+        },
+        "wpforms_versions_lite": {
+            "class": "runtime"
+        }
+    },
+    "plugin": "wpforms-lite/wpforms.php",
+    "post_meta": {
+        "wpforms_form_locations": {
+            "class": "derived",
+            "note": "DERIVED, read out of the plugin rather than inferred from the value: `WPForms\\Forms\\Locator::hooks()` maintains this row on save_post, post_updated, wp_trash_post, untrash_post, delete_post, permalink_structure_changed and three widget-option writes (src/Forms/Locator.php:203-216), and `FormsLocatorScanTask` rebuilds it in FULL from a REGEXP over post_content on a recurring DAY_IN_SECONDS schedule (src/Tasks/Actions/FormsLocatorScanTask.php:153, :184-186, :387). Nothing an operator types reaches it, so capturing it would carry a source-local page id (measured `id => int 5`, the EMBEDDING page) into canonical state under a class that promises portability."
+        }
+    },
+    "post_types": {
+        "wpforms": {
+            "body": "json",
+            "class": "authored"
+        }
+    },
+    "spec_version": 3,
+    "tables": {
+        "wpforms_analytics_forms": {
+            "class": "runtime",
+            "note": "Per-form/per-day counters. The only NON-SURROGATE primary key in the set — PRIMARY KEY (`form_id`,`period_date`) — which is what a counter table looks like: the key IS the bucket, not a row identity anything could reference. 0 rows after the whole recon exercise."
+        },
+        "wpforms_analytics_snapshots": {
+            "class": "runtime",
+            "note": "Per-visit analytics events (idx_session over session_id/form_id/trigger_type, idx_unprocessed over processed/occurred_at). Visitor traffic, never operator-authored. 0 rows."
+        },
+        "wpforms_logs": {
+            "class": "runtime",
+            "note": "The plugin's own log ring. Target-local diagnostics by its own nature; branching it would move one environment's log lines onto another. 0 rows."
+        },
+        "wpforms_payment_meta": {
+            "class": "runtime",
+            "note": "The EAV sidecar of wpforms_payments (KEY payment_id, KEY meta_key(191), KEY meta_value(191)). Runtime because its owner is: payment metadata cannot outlive the payment row it hangs off. Recorded friction rather than a claim: `wp duo adapter-probe` reports `eav_twin: null` for wpforms_payments because AdapterProbe.php:341 tries only `<table>meta`/`<table>_meta` and the real stem is singularised (payment_meta, not payments_meta)."
+        },
+        "wpforms_payments": {
+            "class": "runtime",
+            "note": "Submitted payments — visitor-generated transaction records, the same posture manifests/ninja-forms.json takes for nf_sub. Lite ships the table (activation creates all six) and gates the feature behind Pro, so it was empty on the measured install; the class is chosen from what the rows ARE, not from the row count."
+        },
+        "wpforms_tasks_meta": {
+            "class": "runtime",
+            "note": "Action Scheduler task payloads for this plugin's own queue. Scheduler bookkeeping, regenerated by the plugin whenever it re-queues work."
+        }
+    },
+    "taxonomies": {
+        "wpforms_form_tag": {
+            "class": "authored",
+            "object_type": [
+                "wpforms"
+            ]
+        }
+    },
+    "version_range": {
+        "max": "2.0.1",
+        "min": "2.0.0.4"
+    }
+}
