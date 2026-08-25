@@ -521,6 +521,15 @@ copy(
     $repo . '/manifests/capabilities/adapter-authorities.json',
     $mutantRoot . '/manifests/capabilities/adapter-authorities.json'
 );
+// WP-4.10's gate 7 reads the flat adapter set under --root for the same
+// reason, and for the same cost: without it the copy looks like a library with
+// zero adapters and every --check refuses on the grandfather list's membership
+// before the window gate is reached. The flat `manifests/*.json` glob is
+// exactly what that gate enumerates — no interpreters, providers or
+// regenerators, none of which it reads.
+foreach (glob($repo . '/manifests/*.json') ?: [] as $shippedManifest) {
+    copy($shippedManifest, $mutantRoot . '/manifests/' . basename($shippedManifest));
+}
 
 $baseline = $run([PHP_BINARY, $mutantRoot . '/tools/wire-surface.php', '--check', '--root=' . $mutantRoot]);
 duo_check_same(0, $baseline['exit'], 'the untouched copy passes the same check, so any refusal below is the mutation and nothing else');

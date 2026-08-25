@@ -2611,6 +2611,22 @@ regress-fixture-makers:
 regress-platform-move-gates:
 	php sandbox/tests/offline/guards/regress_platform_move_gates.php
 
+# WP-4.10 / spec/repo-format.md § v3.9: the namespace grammar for the three
+# flat identity spaces, and the CLOSED grandfather list under it. At
+# spec_version 3 an out-of-tree adapter name is <vendor>-<name> and its provider
+# ids sit in that same namespace, which is what gives an authority's
+# `adapter_names: ["<vendor>-*"]` scope (WP-4.8) something to bind; the 16
+# shipped names and 18 id_kinds are enumerated in agent/src, never under
+# manifests/ where rule 2 would make them an adapter-digest input. The suite
+# proves the rule is inert below v3 (DUO_SPEC_VERSION is still 2), that
+# `acme-cache` and `zeta-cache` coexist in one pin set while all 16 shipped
+# names load unchanged, that the uniqueness and case-folding refusals did not
+# move, and -- by driving `tools/wire-surface.php --check` against a fixture
+# library carrying a seventeenth unprefixed name -- that the release gate
+# refuses one. `id_kind` gets no rule at all: R-17 forbids it.
+regress-identity-namespaces:
+	php sandbox/tests/offline/guards/regress_identity_namespaces.php
+
 # WP-2.6: the adapter test kit. Adopt.php:147-150 tars exactly
 # `agent manifests recovery`, so sandbox/ -- where the entire ability to PROVE
 # an adapter lives -- reaches nobody, and a third party reinvents the harness.

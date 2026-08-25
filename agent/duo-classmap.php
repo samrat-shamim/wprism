@@ -99,6 +99,7 @@ return [
     'Duo\\FieldGrammar' => 'src/Grammar/FieldGrammar.php',
     'Duo\\Identity' => 'src/Repository/Identity.php',
     'Duo\\IdentityBackup' => 'src/Repository/IdentityBackup.php',
+    'Duo\\IdentityNamespaces' => 'src/Adapter/IdentityNamespaces.php',
     'Duo\\IdentityNotes' => 'src/Repository/IdentityNotes.php',
     'Duo\\IdentityTokenCodec' => 'src/Kernel/IdentityTokenCodec.php',
     'Duo\\IncompleteApplyMarker' => 'src/Apply/IncompleteApplyMarker.php',

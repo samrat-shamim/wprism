@@ -1,6 +1,13 @@
 <?php
 namespace Duo;
 
+// The § v3.9 namespace grammar is part of the out-of-tree contract below and
+// is required at file scope rather than lazily: IdentityNamespaces requires
+// nothing itself, so it forms no bootstrap cycle, and the one caller
+// (assert_out_of_tree_contract()) is reached from four entry points that do
+// not otherwise share a require.
+require_once __DIR__ . '/IdentityNamespaces.php';
+
 /**
  * Where each pinned adapter came from, and what that origin is allowed to do.
  *
@@ -234,6 +241,26 @@ final class AdapterSources {
      * something nobody checked.
      */
     public const REFUSAL_SOURCE_UNREADABLE = 'source_unreadable';
+
+    /**
+     * WP-4.10 / spec § v3.9: an out-of-tree identity outside its namespace.
+     *
+     * Its own code rather than a case of `out_of_tree_privilege`, because a
+     * refusal row carries a REMEDIATION and the two remediations are opposites:
+     * the privilege row's is "install this adapter into the agent's own
+     * manifest library", which is exactly the wrong instruction for an adapter
+     * whose only fault is that it answers to a name no authority can be scoped
+     * to. The condition itself lives in one place —
+     * IdentityNamespaces::assert_out_of_tree_identity(), inside
+     * assert_out_of_tree_contract() so all four out-of-tree entry points reach
+     * it — and the two scan sites call it first only so the reported row is
+     * this code with this advice.
+     */
+    public const REFUSAL_RESERVED_NAMESPACE = 'reserved_namespace';
+
+    /** The remediation the reserved-namespace rows carry, written once. */
+    public const RESERVED_NAMESPACE_REMEDY = 'rename the adapter, and every provider id it declares, into a '
+        . '<vendor>- namespace an authority you hold is scoped to';
 
     /**
      * A refusal row's blast radius, which two different consumers need and
@@ -1203,6 +1230,28 @@ final class AdapterSources {
             if ($caseCollision) {
                 continue;
             }
+            // The § v3.9 namespace rule, asked here only so the reported row
+            // carries `reserved_namespace` and its own remediation; the
+            // condition is enforced for every out-of-tree entry point inside
+            // assert_out_of_tree_contract() just below. Inert on every manifest
+            // below `spec_version` 3, which is all of them while
+            // DUO_SPEC_VERSION is 2.
+            if (!self::guarded(
+                $collect,
+                $refusals,
+                self::SITE,
+                self::REFUSAL_RESERVED_NAMESPACE,
+                [$relative],
+                self::RESERVED_NAMESPACE_REMEDY,
+                static fn() => IdentityNamespaces::assert_out_of_tree_identity(
+                    $manifest,
+                    $name,
+                    'site adapter',
+                    "'$relative'"
+                )
+            )) {
+                continue;
+            }
             // Prove the data-only boundary before spending any authority on a
             // companion certificate. Policy repeats this after loading the
             // pinned manifest as defense in depth and frozen reconstruction
@@ -2034,6 +2083,30 @@ final class AdapterSources {
             $anchorRow
         )) {
             $refusedNames[(string) $declared] = $anchorRow;
+            return null;
+        }
+
+        // The § v3.9 twin of the site scan's call, for the same reporting
+        // reason: a bundled adapter is exactly as namespaced as a site one, and
+        // an operator reading `out_of_tree_privilege` here would be told to
+        // move code that is not the problem.
+        $namespaceRow = null;
+        if (!self::guarded(
+            true,
+            $refusals,
+            self::PLUGIN,
+            self::REFUSAL_RESERVED_NAMESPACE,
+            [$relative],
+            self::RESERVED_NAMESPACE_REMEDY,
+            static fn() => IdentityNamespaces::assert_out_of_tree_identity(
+                $manifest,
+                (string) $declared,
+                'plugin adapter',
+                self::render($relative)
+            ),
+            $namespaceRow
+        )) {
+            $refusedNames[(string) $declared] = $namespaceRow;
             return null;
         }
 
@@ -3527,6 +3600,19 @@ final class AdapterSources {
         // those paths are `adapters/<slug>.json` and this project's
         // regressions compare them exactly.
         $shown = $renderPath ? self::render($relativePath) : "'$relativePath'";
+        // IDENTITY BEFORE PRIVILEGE (spec/repo-format.md § v3.9, WP-4.10):
+        // whether an adapter may own the name it answers to is a cheaper and
+        // more basic question than what its declarations may do, so it is
+        // asked first. Ordering costs nothing today because the whole rule
+        // returns on any manifest below `spec_version` 3, which is every
+        // manifest in existence while DUO_SPEC_VERSION is 2 — so no shipped
+        // refusal, and no refusal any site can currently produce, moves.
+        // Placed HERE rather than at the two scan sites because this is the
+        // one boundary all four out-of-tree entry points share (the site scan,
+        // the plugin scan, Policy's post-load re-check and frozen
+        // reconstruction); a second copy at the scan would be a second copy of
+        // the rule.
+        IdentityNamespaces::assert_out_of_tree_identity($manifest, $name, $label, $shown);
         $remedy = $inherit === null
             ? "install the adapter into the agent's own manifest library (where its code ships, digest-binds, and "
                 . 'is reviewed with it), or declare a plugin-owned provider whose code the installed plugin already owns'
