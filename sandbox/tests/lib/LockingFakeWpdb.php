@@ -62,15 +62,26 @@ final class LockingFakeWpdb {
         return $this;
     }
 
+    /**
+     * $seq records a composite index's later parts. It exists because a row
+     * LABEL can depend on the whole key, not just its first column:
+     * DeleteGuardReferenceScanner::count() falls back to the PRIMARY key's
+     * full column list when a guard declares no source_pk
+     * (agent/src/Delete/DeleteGuardReferenceScanner.php:122-131), and
+     * wp_term_relationships' PRIMARY is (object_id, term_taxonomy_id) -- a
+     * single-column stand-in would silently shorten every surviving-row label
+     * the forced-delete warning prints.
+     */
     public function addIndex(
         string $table,
         string $name,
         string $column,
-        bool $unique = false
+        bool $unique = false,
+        int $seq = 1
     ): self {
         $this->indexes[$table][] = [
             'Key_name' => $name,
-            'Seq_in_index' => '1',
+            'Seq_in_index' => (string) $seq,
             'Column_name' => $column,
             'Sub_part' => null,
             'Non_unique' => $unique ? '0' : '1',
@@ -114,8 +125,27 @@ final class LockingFakeWpdb {
             usort($rows, static fn(array $a, array $b): int => strcmp($a['TABLE_NAME'], $b['TABLE_NAME']));
             return $rows;
         }
-        if (preg_match('/^SHOW INDEX FROM `([A-Za-z0-9_]{1,64})`$/D', trim($sql), $match) === 1) {
-            return $this->indexes[$match[1]] ?? [];
+        // SHOW KEYS is SHOW INDEX's synonym, and the one caller that uses it
+        // filters: DeleteGuardReferenceScanner::count() reads
+        // `SHOW KEYS FROM \`t\` WHERE Key_name = 'PRIMARY'`
+        // (agent/src/Delete/DeleteGuardReferenceScanner.php:124) to learn a
+        // guard table's row identity when the guard declares no source_pk.
+        // Answering it unfiltered would hand that reader every index and let
+        // it label rows by a secondary key's columns.
+        if (preg_match(
+            '/^SHOW (?:INDEX|KEYS) FROM `([A-Za-z0-9_]{1,64})`'
+            . "(?: WHERE Key_name = '([A-Za-z0-9_]{1,64})')?\$/D",
+            trim($sql),
+            $match
+        ) === 1) {
+            $rows = $this->indexes[$match[1]] ?? [];
+            if (($match[2] ?? '') === '') {
+                return $rows;
+            }
+            return array_values(array_filter(
+                $rows,
+                static fn(array $row): bool => (string) $row['Key_name'] === $match[2]
+            ));
         }
         return $this->forward('get_results', [$this->stripLockSyntax($sql), $output]);
     }

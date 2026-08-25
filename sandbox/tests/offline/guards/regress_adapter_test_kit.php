@@ -304,11 +304,19 @@ if (!is_file($kit . '/lib/FakeWpdb.php')) {
     require_once $kit . '/lib/FakeWpdb.php';
     $wpdb = new \DuoTest\FakeWpdb();
     $wpdb->seedTable('wp_kit_probe', [['id' => 1, 'title' => 'a']]);
+    // The probe is a LEFT JOIN with a TWO-condition ON, and the second
+    // condition is what makes it a probe. A single-condition LEFT equi-join
+    // stopped being uninterpretable when the interpreter grew the one join
+    // form the engine's own term-deletion path needs
+    // (FakeWpdb::parseLeftEquiJoin(); RelationshipMaterializer.php:287-295 is
+    // its only product reader). Everything past that boundary — this shape,
+    // INNER/RIGHT/CROSS, a comma join, UNION — still refuses BY NAME, which is
+    // the property clause D is about: an author's fake must never answer a
+    // statement it did not understand.
+    $probe = 'SELECT f.id FROM wp_kit_probe AS f '
+        . "LEFT JOIN wp_posts AS p ON p.ID = f.id AND p.post_type = 'page'";
     duo_check_throws(
-        static fn(): array => $wpdb->get_results(
-            'SELECT f.id FROM wp_kit_probe AS f LEFT JOIN wp_posts AS p ON p.ID = f.id WHERE p.ID IS NULL',
-            ARRAY_A
-        ),
+        static fn(): array => $wpdb->get_results($probe . ' WHERE p.ID IS NULL', ARRAY_A),
         LogicException::class,
         'the shipped FakeWpdb refuses an uninterpretable statement instead of answering null',
         'unsupported SQL'
@@ -317,7 +325,7 @@ if (!is_file($kit . '/lib/FakeWpdb.php')) {
     // other type is exactly the defect under test, and it must be reported as
     // a failed assertion rather than escape as a fatal.
     try {
-        $wpdb->get_results('SELECT f.id FROM wp_kit_probe AS f LEFT JOIN wp_posts AS p ON p.ID = f.id', ARRAY_A);
+        $wpdb->get_results($probe, ARRAY_A);
         duo_check(false, 'the refusal names the statement it could not interpret');
         duo_check_detail('nothing was thrown — the statement was answered');
     } catch (Throwable $e) {
