@@ -205,6 +205,12 @@ final class Polylang {
                 // is still exact: normalize the historical 0/1 boolean bytes
                 // and run the same closed portable/topology validators before
                 // allowing the ordinary capture codec to proceed.
+                if ($captured === []) {
+                    // A clean target has no primary mixed-option row yet;
+                    // native activation will materialize its reviewed defaults
+                    // later in the lifecycle, so absence is the exact state.
+                    return [];
+                }
                 foreach (self::BOOLEAN_OPTION_KEYS as $key) {
                     if (array_key_exists($key, $captured)
                         && is_int($captured[$key])

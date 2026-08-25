@@ -56,6 +56,17 @@ namespace {
             true
         );
     };
+    $absent = $interpreter->normalize_captured_option_sub_keys(
+        'polylang',
+        [],
+        $subKeys,
+        ['pll_language_from_content_available' => 'target-runtime-sentinel'],
+        true
+    );
+    if ($absent !== []) {
+        fwrite(STDERR, "strict-read-only changed absent Polylang state\n");
+        exit(1);
+    }
     $refusals = 0;
     foreach ([
         ['force_lang' => 2, 'reason' => 'topology-bound mode'],
@@ -75,6 +86,7 @@ namespace {
     echo json_encode([
         'refusals' => $refusals,
         'closed_refusal' => $closedRefusal,
+        'absent' => $absent,
         'browser' => $normalized['browser'] ?? null,
         'media_support' => $normalized['media_support'] ?? null,
         'rewrite' => $normalized['rewrite'] ?? null,
