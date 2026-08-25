@@ -31,4 +31,9 @@ for f in conformance/seeds/polylang.sh conformance/checks/polylang.sh; do
   pass "$f routes failures through the fail helper (no bare echo+exit fail-path)"
 done
 
+if grep -nF "Polylang 3.5 language creation failed" conformance/seeds/polylang.sh >/dev/null; then
+  fail "conformance/seeds/polylang.sh still labels the unsupported pre-3.8 fallback as Polylang 3.5"
+fi
+pass "conformance/seeds/polylang.sh has no stale Polylang 3.5 diagnostic"
+
 echo "REGRESS_POLYLANG_FAIL_HELPER PASSED"

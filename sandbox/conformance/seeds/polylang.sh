@@ -36,7 +36,7 @@ if (isset(PLL()->model->languages)) {
     foreach ($languages as $args) {
         $result = $model->add_language($args);
         if (is_wp_error($result) && $result->has_errors()) {
-            throw new RuntimeException('Polylang 3.5 language creation failed: ' . $result->get_error_message());
+            throw new RuntimeException('Polylang language creation failed: ' . $result->get_error_message());
         }
     }
 }
