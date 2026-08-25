@@ -480,9 +480,9 @@ STRINGS_PREIMAGE=$(wp_conf1 eval "echo wp_json_encode(get_term_meta($LANG_TERM,'
 jq -e '. == [] or . == [""]' <<<"$STRINGS_PREIMAGE" >/dev/null \
   || fail "unexpected Polylang string-translation preimage: $STRINGS_PREIMAGE"
 if jq -e '. == []' <<<"$STRINGS_PREIMAGE" >/dev/null; then
-  wp_conf1 term meta add "$LANG_TERM" _pll_strings_translations 'a:1:{i:0;a:2:{i:0;s:5:"Hello";i:1;s:7:"Bonjour";}}' >/dev/null
+  wp_conf1 eval "if (false === add_term_meta($LANG_TERM, '_pll_strings_translations', [['Hello', 'Bonjour']], true)) throw new RuntimeException('failed to add Polylang string catalog fixture');" >/dev/null
 else
-  wp_conf1 term meta update "$LANG_TERM" _pll_strings_translations 'a:1:{i:0;a:2:{i:0;s:5:"Hello";i:1;s:7:"Bonjour";}}' >/dev/null
+  wp_conf1 eval "if (false === update_term_meta($LANG_TERM, '_pll_strings_translations', [['Hello', 'Bonjour']])) throw new RuntimeException('failed to update Polylang string catalog fixture');" >/dev/null
 fi
 STRINGS_STATE="$CONF_REPO1/.tmp-polylang-strings"
 wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-strings >/dev/null

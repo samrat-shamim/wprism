@@ -55,8 +55,10 @@ done
 printf 'PASS: fail-before-asserts ordering rejects a source-before-fail mutation for every Polylang live fixture\n'
 MS=sandbox/tests/live/regress_polylang_multisite_refusal.sh
 TEC=sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh
+CONF=sandbox/conformance/checks/polylang.sh
 [ -x "$MS" ] || fail "missing executable $MS"
 [ -x "$TEC" ] || fail "missing executable $TEC"
+[ -f "$CONF" ] || fail "missing conformance check $CONF"
 for needle in \
   'fetch_artifact polylang 3.8.6' \
   'core multisite-convert' \
@@ -88,6 +90,12 @@ for needle in \
 done
 if grep -Fq 'file_put_contents($path,$bytes)' "$TEC"; then
   fail 'co-install fixture reintroduced unprivileged/interpolated hostile callback installation'
+fi
+for needle in 'add_term_meta(' 'update_term_meta(' "[['Hello', 'Bonjour']]"; do
+  grep -Fq "$needle" "$CONF" || fail "Polylang string-catalog fixture lost native-value setup: $needle"
+done
+if grep -Eq 'wp_conf1 term meta (add|update).*_pll_strings_translations.*a:[0-9]+:' "$CONF"; then
+  fail 'Polylang string-catalog fixture passes serialized-looking text through maybe_serialize'
 fi
 grep -Fq 'manifests:["core","polylang","the-events-calendar"]' "$TEC" \
   || fail 'co-install fixture widened or dropped its manifest set'
