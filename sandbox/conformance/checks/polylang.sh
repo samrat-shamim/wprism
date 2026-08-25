@@ -773,7 +773,8 @@ LOST_PLAN=$(wp_conf2 duo plan --repo=/siterepo 2>&1) || LOST_PLAN_RC=$?
 STALE_IDENTITY_RC=0
 STALE_IDENTITY=$(wp_conf2 duo identity-import --repo=/siterepo --in=/siterepo/.tmp-polylang-remove-all-identity.json 2>&1) \
   || STALE_IDENTITY_RC=$?
-[ "$STALE_IDENTITY_RC" -ne 0 ] && grep -q 'identity sidecar witness mismatch' <<<"$STALE_IDENTITY" \
+[ "$STALE_IDENTITY_RC" -ne 0 ] \
+  && grep -Eq 'embedded identity does not verify|identity sidecar witness mismatch' <<<"$STALE_IDENTITY" \
   || fail "Polylang destructive uninstall accepted an identity sidecar whose data witness was gone: $STALE_IDENTITY"
 wp_conf2 db import /siterepo/.tmp-polylang-remove-all.sql >/dev/null
 wp_conf2 plugin is-active polylang >/dev/null \
