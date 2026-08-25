@@ -10,7 +10,7 @@ require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Code/Code.php';
 require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
 
-use Duo\CaptureSafetyGates;
+use Duo\CaptureCandidateBuilder;
 use Duo\CommandRefusalException;
 use Duo\Policy;
 
@@ -37,7 +37,105 @@ function woo_ok(bool $condition, string $message): void {
 }
 
 $root = dirname(__DIR__, 4);
+require_once $root . '/sandbox/tests/lib/wp_stubs.php';
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
 require_once $root . '/agent/src/Capture/CaptureSafetyGates.php';
+require_once $root . '/agent/src/Capture/CaptureCandidateBuilder.php';
+if (!function_exists('get_taxonomies')) {
+    /** @return array<string,string> */
+    function get_taxonomies(array|string $args = [], string $output = 'names', string $operator = 'and'): array {
+        $names = ['product_brand', 'product_visibility'];
+        return $output === 'names' ? array_combine($names, $names) : [];
+    }
+}
+if (!function_exists('get_taxonomy')) {
+    function get_taxonomy(string $taxonomy): object|false {
+        return in_array($taxonomy, ['product_brand', 'product_visibility'], true)
+            ? (object) ['object_type' => ['product']]
+            : false;
+    }
+}
+
+/**
+ * FakeWpdb deliberately does not implement arbitrary JOIN/aggregate SQL.
+ * This narrow adapter keeps its seeded table store and only evaluates the
+ * exact two-table term read and empty user-owner checks that the candidate
+ * emits; every other query, including identity, options, and ledger DML,
+ * uses the shared fake intact.
+ */
+final class WooBuilderWpdb {
+    public function __construct(private \DuoTest\FakeWpdb $inner) {}
+
+    public function __get(string $name): mixed {
+        return $this->inner->{$name};
+    }
+
+    public function __set(string $name, mixed $value): void {
+        $this->inner->{$name} = $value;
+    }
+
+    public function __call(string $name, array $arguments): mixed {
+        return $this->inner->{$name}(...$arguments);
+    }
+
+    public function get_results(string $sql, mixed $mode = null): mixed {
+        if (str_contains($sql, 'FROM wp_usermeta um LEFT JOIN wp_users u')
+            || str_contains($sql, 'FROM wp_users a INNER JOIN wp_users b')) {
+            $this->inner->last_error = '';
+            return [];
+        }
+        if (!str_contains($sql, 'FROM wp_terms t JOIN wp_term_taxonomy tt')) {
+            return $this->inner->get_results($sql, $mode);
+        }
+        $this->inner->last_error = '';
+        if (str_contains($sql, "tt.taxonomy = 'nav_menu'")) {
+            return [];
+        }
+        $termsById = [];
+        foreach ($this->inner->rows('wp_terms') as $term) {
+            $termsById[(int) ($term['term_id'] ?? 0)] = $term;
+        }
+        $rows = [];
+        foreach ($this->inner->rows('wp_term_taxonomy') as $taxonomy) {
+            $termId = (int) ($taxonomy['term_id'] ?? 0);
+            if (!isset($termsById[$termId])) {
+                continue;
+            }
+            $rows[] = [
+                'term_id' => $termId,
+                'name' => (string) ($termsById[$termId]['name'] ?? ''),
+                'slug' => (string) ($termsById[$termId]['slug'] ?? ''),
+                'term_group' => (int) ($termsById[$termId]['term_group'] ?? 0),
+                'term_taxonomy_id' => (int) ($taxonomy['term_taxonomy_id'] ?? 0),
+                'taxonomy' => (string) ($taxonomy['taxonomy'] ?? ''),
+                'description' => (string) ($taxonomy['description'] ?? ''),
+                'parent' => (int) ($taxonomy['parent'] ?? 0),
+            ];
+        }
+        usort($rows, static fn(array $left, array $right): int =>
+            [$left['term_id'], $left['term_taxonomy_id']] <=> [$right['term_id'], $right['term_taxonomy_id']]
+        );
+        if (str_contains($sql, 'SELECT COUNT(*) AS row_count')) {
+            $sizes = array_map(static fn(array $row): int =>
+                strlen((string) $row['term_id'])
+                    + strlen($row['name'])
+                    + strlen($row['slug'])
+                    + strlen((string) $row['term_group'])
+                    + strlen((string) $row['term_taxonomy_id'])
+                    + strlen($row['taxonomy'])
+                    + strlen($row['description'])
+                    + strlen((string) $row['parent']),
+                $rows
+            );
+            return [[
+                'row_count' => (string) count($rows),
+                'total_bytes' => (string) array_sum($sizes),
+                'max_row_bytes' => (string) ($sizes === [] ? 0 : max($sizes)),
+            ]];
+        }
+        return array_map(static fn(array $row): object => (object) $row, $rows);
+    }
+}
 $manifest = json_decode((string) file_get_contents($root . '/manifests/woocommerce.json'), true, flags: JSON_THROW_ON_ERROR);
 // One document per subject since WP-4.4 (spec/repo-format.md § v3.4): this
 // suite reads woocommerce's reviewed entry, not the whole library.
@@ -877,17 +975,43 @@ woo_ok(
     'the shipped Woo manifest keeps brand and mixed authored/derived visibility taxonomies authored rather than excluding them'
 );
 
-// This is the exact deterministic pending/capture refusal observed by the
-// candidate-bound conformance run: if either entry disappears from the site
-// policy, the capture safety boundary must expose the real entity count and
-// refuse before publication. Keeping both cases here prevents a future scope
-// edit from turning either taxonomy into an unreviewed silent omission.
+// Exercise the production scope boundary with a real registry and term-table
+// inventory. The old regression called CaptureSafetyGates with a hand-made
+// gap array; that could stay green while ScopeDiscovery stopped seeing a
+// native taxonomy or miscounted it. Here CaptureCandidateBuilder owns the
+// complete path from registry/count discovery to the refusal.
+$termRows = [];
+$termTaxonomyRows = [];
+$termMetaRows = [];
+foreach (range(1, 12) as $id) {
+    $taxonomy = $id <= 3 ? 'product_brand' : 'product_visibility';
+    $termRows[] = [
+        'term_id' => $id,
+        'name' => "Woo term $id",
+        'slug' => "woo-term-$id",
+        'term_group' => 0,
+    ];
+    $termTaxonomyRows[] = [
+        'term_taxonomy_id' => $id,
+        'term_id' => $id,
+        'taxonomy' => $taxonomy,
+        'description' => '',
+        'parent' => 0,
+    ];
+    $termMetaRows[] = [
+        'meta_id' => $id,
+        'term_id' => $id,
+        'meta_key' => '_duo_uuid',
+        'meta_value' => sprintf('11111111-1111-7111-8111-%012d', $id),
+    ];
+}
+$scopeDb = \DuoTest\FakeWpdb::install();
+$scopeDb->seedTable('wp_posts', [])
+    ->seedTable('wp_terms', $termRows)
+    ->seedTable('wp_term_taxonomy', $termTaxonomyRows);
 $wooScopeFailure = null;
 try {
-    (new CaptureSafetyGates('/siterepo'))->assertScopeGaps([
-        'taxonomy:product_brand' => ['entities' => 3],
-        'taxonomy:product_visibility' => ['entities' => 9],
-    ]);
+    (new CaptureCandidateBuilder('/siterepo', $policy))->build(false);
 } catch (CommandRefusalException $failure) {
     $wooScopeFailure = $failure;
 }
@@ -898,8 +1022,71 @@ woo_ok(
         && ($wooScopeFailure->diagnostics ?? [])[0]['entity_count'] === 3
         && ($wooScopeFailure->diagnostics ?? [])[1]['surface'] === 'scope:taxonomy:product_visibility'
         && ($wooScopeFailure->diagnostics ?? [])[1]['entity_count'] === 9,
-    'capture/pending scope evidence refuses the exact brand and nine-term visibility gaps with non-empty counts'
+    'capture/pending scope discovery refuses the exact brand and nine-term visibility gaps with non-empty counts'
 );
+
+// The corrected conformance scope must not merely silence the gate: the same
+// candidate builder must read wp_terms/wp_term_taxonomy, resolve each durable
+// term identity, and emit every term entity. Derive the taxonomy roster from
+// the already-loaded conformance entry so this fixture cannot drift to a
+// hand-authored two-item policy.
+$correctedTaxonomies = (array) ($wooEntry['entry']['taxonomies'] ?? []);
+$coreManifest = json_decode(
+    (string) file_get_contents($root . '/manifests/core.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+$capturePolicy = Policy::from_snapshot([
+    'dispositions' => null,
+    'format' => 'duo-policy-snapshot/v6',
+    'adapter_sources' => ['certificates' => [], 'format' => 'duo-adapter-sources/v2', 'out_of_tree' => []],
+    'manifests' => [],
+    'site' => [
+        'manifests' => [],
+        'policy' => [
+            'options' => [],
+            'post_types' => [],
+            'taxonomies' => $correctedTaxonomies,
+            'post_meta' => [],
+            'term_meta' => ['_duo_uuid' => $coreManifest['term_meta']['_duo_uuid']],
+            'user_meta' => [],
+        ],
+        'spec_version' => DUO_SPEC_VERSION,
+    ],
+]);
+$captureDb = \DuoTest\FakeWpdb::install();
+$captureDb->seedTable('wp_posts', [])
+    ->seedTable('wp_postmeta', [])
+    ->seedTable('wp_terms', $termRows)
+    ->seedTable('wp_term_taxonomy', $termTaxonomyRows)
+    ->seedTable('wp_termmeta', $termMetaRows)
+    ->seedTable('wp_term_relationships', [])
+    ->seedTable('wp_options', [])
+    ->seedTable('wp_users', [])
+    ->seedTable('wp_usermeta', [])
+    ->seedTable('wp_duo_map', [])
+    ->setUniqueKey('wp_duo_map', ['uuid', 'id_kind'])
+    ->setUniqueKey('wp_duo_map', ['id_kind', 'local_id']);
+$GLOBALS['wpdb'] = new WooBuilderWpdb($captureDb);
+$candidate = (new CaptureCandidateBuilder('/siterepo', $capturePolicy))->build(false);
+$termEntities = array_values(array_filter(
+    $candidate['entities'],
+    static fn(array $entity): bool => ($entity['type'] ?? null) === 'term'
+));
+$capturedTaxonomies = [];
+foreach ($termEntities as $entity) {
+    $decoded = \Duo\Canon::decode((string) ($entity['content'] ?? ''));
+    $capturedTaxonomies[] = $decoded['taxonomy'] ?? null;
+}
+$capturedCounts = array_count_values($capturedTaxonomies);
+ksort($capturedCounts, SORT_STRING);
+woo_ok(count($termEntities) === 12, 'the corrected conformance scope captures all twelve real term entities through the candidate builder');
+woo_ok($capturedCounts === ['product_brand' => 3, 'product_visibility' => 9],
+    'the candidate output retains exact three-brand and nine-visibility taxonomy counts');
+woo_ok(count(array_filter(
+    $candidate['entities'],
+    static fn(array $entity): bool => ($entity['type'] ?? null) === 'options'
+)) === 1, 'the candidate completes its downstream options/capture assembly after term discovery');
 
 // The live conformance script is the candidate proof, but this offline pin
 // holds its twelve reviewed families to one source/target/check topology.

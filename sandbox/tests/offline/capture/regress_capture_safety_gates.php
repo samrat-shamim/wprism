@@ -46,18 +46,6 @@ check(($optionRef->diagnostics[0]['code'] ?? null) === 'unresolved_option_refere
 $scope = refusal(static fn() => $gates->assertScopeGaps(['post_type:landing' => ['entities' => 2]]));
 check($scope->reasonCode === 'incomplete_policy_scope', 'scope gaps keep their stable reason');
 check(($scope->diagnostics[0]['entity_count'] ?? null) === 2, 'scope gaps keep entity evidence');
-$wooScope = refusal(static fn() => $gates->assertScopeGaps([
-    'taxonomy:product_brand' => ['entities' => 3],
-    'taxonomy:product_visibility' => ['entities' => 9],
-]));
-check(
-    $wooScope->reasonCode === 'incomplete_policy_scope'
-        && ($wooScope->diagnostics[0]['surface'] ?? null) === 'scope:taxonomy:product_brand'
-        && ($wooScope->diagnostics[0]['entity_count'] ?? null) === 3
-        && ($wooScope->diagnostics[1]['surface'] ?? null) === 'scope:taxonomy:product_visibility'
-        && ($wooScope->diagnostics[1]['entity_count'] ?? null) === 9,
-    'Woo authored brand and nine-term visibility gaps remain explicit, counted capture/pending refusals'
-);
 
 $tokens->unscopedBlockRefs = [[
     'post' => "page 'private'",
