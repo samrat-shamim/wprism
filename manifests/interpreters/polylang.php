@@ -192,12 +192,19 @@ final class Polylang {
         string $name,
         array $captured,
         array $subKeys,
-        array $rawOptionSnapshot
+        array $rawOptionSnapshot,
+        bool $strictReadOnly = false
     ): array {
         if ($name !== 'polylang') {
             return $captured;
         }
         if (!function_exists('PLL')) {
+            if ($strictReadOnly) {
+                // Deploy snapshots the target before lifecycle activation;
+                // raw option bytes are still captured and ref-tokenized, but
+                // native defaults cannot be consulted until Polylang loads.
+                return $captured;
+            }
             throw new \RuntimeException('duo: Polylang native option capture normalization requires PLL()');
         }
         $rawPrimary = $rawOptionSnapshot['polylang'] ?? null;

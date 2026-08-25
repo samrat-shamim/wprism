@@ -2055,13 +2055,18 @@ final class Policy {
      * attempt. Passing it explicitly keeps native normalization attempt-scoped:
      * an interpreter cannot accidentally reuse mutable observations after a
      * transient retry or when the primary mixed-option row is absent.
+     * The final flag marks the lifecycle handoff's strict read-only snapshot:
+     * its target may deliberately have plugin files installed but inactive,
+     * so an interpreter must not require an active plugin runtime merely to
+     * compare pre-lifecycle option bytes.
      */
     public function normalize_captured_option_sub_keys_via_interpreter(
         string $name,
         array $rawAuthored,
         array $effectiveRule,
         ?string $effectiveSource,
-        array $rawOptionSnapshot
+        array $rawOptionSnapshot,
+        bool $strictReadOnly = false
     ): array {
         $candidate = $this->option_sub_key_interpreter_candidate(
             $name,
@@ -2077,7 +2082,8 @@ final class Policy {
             $name,
             $rawAuthored,
             (array) ($effectiveRule['sub_keys'] ?? []),
-            $rawOptionSnapshot
+            $rawOptionSnapshot,
+            $strictReadOnly
         );
         if (!is_array($normalized) || ($normalized !== [] && array_is_list($normalized))) {
             throw new \RuntimeException(
