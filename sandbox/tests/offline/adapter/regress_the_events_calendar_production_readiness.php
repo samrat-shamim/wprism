@@ -8269,6 +8269,19 @@ duo_check(
         && $wrongOwnerCaptureAt < $wrongOwnerCompileAt,
     'TEC wrong-owner block evidence tokenizes a complete isolated tree before the compiler runs the cross-entity interpreter'
 );
+foreach ([
+    "tec_compile_refusal status-malformed 'TEC unknown event status'",
+    "tec_compile_refusal status-reason-malformed 'TEC non-string event status reason'",
+    "tec_compile_refusal impossible-date 'TEC impossible date'",
+    "tec_compile_refusal structured-cost 'TEC structured cost'",
+    'capture_out=$(wp_conf1 duo capture --repo=/siterepo --out="$repo/state"',
+    'compile_out=$(wp_conf1 duo compile --repo="$repo"',
+] as $interpreterFixtureEvidence) {
+    duo_check(
+        str_contains($deletionCheck, $interpreterFixtureEvidence),
+        "TEC malformed authored fixture crosses isolated capture then compilation: $interpreterFixtureEvidence"
+    );
+}
 foreach ([$deletionSeed, $deletionPostdeploy, $deletionCheck] as $widgetFixtureSource) {
     duo_check(
         str_contains($widgetFixtureSource, 'wp_inactive_widgets')

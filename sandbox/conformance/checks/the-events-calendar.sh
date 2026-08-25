@@ -2643,57 +2643,57 @@ wp_conf1 eval '
 ' >/dev/null
 rm -rf "$ORGANIZER_BLOCK_DIR"
 
-STATUS_BAD_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-status-malformed"
-rm -rf "$STATUS_BAD_DIR"
+tec_compile_refusal() { # <scratch-suffix> <evidence-label> <diagnostic-regex>
+  local suffix=$1 label=$2 expected=$3
+  local host="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-${suffix}"
+  local repo="/siterepo/.tmp-tec-${suffix}"
+  local capture_rc=0 capture_out compile_rc=0 compile_out
+  rm -rf "$host"
+  mkdir -p "$host"
+  cp "$CONF_REPO1/site.duo.json" "$host/site.duo.json"
+  chmod -R a+rwX "$host"
+  capture_out=$(wp_conf1 duo capture --repo=/siterepo --out="$repo/state" 2>&1) \
+    || capture_rc=$?
+  require_duo_answered "$label capture" human "$capture_out"
+  [ "$capture_rc" -eq 0 ] && grep -Fq 'Success: captured' <<<"$capture_out" \
+    || fail "$label did not traverse capture/tokenization: $capture_out"
+  compile_out=$(wp_conf1 duo compile --repo="$repo" 2>&1) || compile_rc=$?
+  require_duo_answered "$label compile" human "$compile_out"
+  [ "$compile_rc" -ne 0 ] && grep -Eqi -- "$expected" <<<"$compile_out" \
+    || fail "$label did not refuse through the shipped interpreter: $compile_out"
+  rm -rf "$host"
+}
+
 wp_conf1 eval '
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_tribe_events_status","rescheduled");
 ' >/dev/null
-STATUS_BAD_RC=0
-STATUS_BAD_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-status-malformed 2>&1) \
-  || STATUS_BAD_RC=$?
-require_duo_answered "TEC unknown event status capture" human "$STATUS_BAD_OUT"
-[ "$STATUS_BAD_RC" -ne 0 ] \
-  && grep -Fq 'stored event status must be canceled or postponed' <<<"$STATUS_BAD_OUT" \
-  || fail "TEC unknown event status did not refuse through the shipped interpreter: $STATUS_BAD_OUT"
-[ ! -e "$STATUS_BAD_DIR" ] || fail "TEC unknown status refusal published isolated output"
+tec_compile_refusal status-malformed 'TEC unknown event status' \
+  'stored event status must be canceled or postponed'
 wp_conf1 eval '
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_tribe_events_status",$b["status"]);
   update_post_meta($p->ID,"_tribe_events_status_reason",$b["status_reason"]);
 ' >/dev/null
-rm -rf "$STATUS_BAD_DIR"
 
-STATUS_REASON_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-status-reason-malformed"
-rm -rf "$STATUS_REASON_DIR"
 wp_conf1 eval '
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_tribe_events_status_reason",["not"=>"a string"]);
 ' >/dev/null
-STATUS_REASON_RC=0
-STATUS_REASON_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-status-reason-malformed 2>&1) \
-  || STATUS_REASON_RC=$?
-require_duo_answered "TEC non-string event status reason capture" human "$STATUS_REASON_OUT"
-[ "$STATUS_REASON_RC" -ne 0 ] \
-  && grep -Fq 'event status reason must remain one scalar string' <<<"$STATUS_REASON_OUT" \
-  || fail "TEC structured event status reason did not refuse through the shipped interpreter: $STATUS_REASON_OUT"
-[ ! -e "$STATUS_REASON_DIR" ] || fail "TEC malformed status reason refusal published isolated output"
+tec_compile_refusal status-reason-malformed 'TEC non-string event status reason' \
+  'event status reason must remain one scalar string'
 wp_conf1 eval '
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_tribe_events_status_reason",$b["status_reason"]);
 ' >/dev/null
-rm -rf "$STATUS_REASON_DIR"
 
 wp_conf1 eval '
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_EventStartDate","2026-02-30 01:02:03");
 ' >/dev/null
-DATE_RC=0
-DATE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || DATE_RC=$?
-[ "$DATE_RC" -ne 0 ] && grep -q 'exact real Y-m-d H:i:s date' <<<"$DATE_OUT" \
-  || fail "TEC impossible date did not refuse through the shipped interpreter: $DATE_OUT"
+tec_compile_refusal impossible-date 'TEC impossible date' 'exact real Y-m-d H:i:s date'
 wp_conf1 eval '
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
@@ -2756,15 +2756,13 @@ wp_conf1 eval '
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_EventCost",["future"=>"schema"]);
 ' >/dev/null
-COST_RC=0
-COST_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || COST_RC=$?
-[ "$COST_RC" -ne 0 ] && grep -q 'one scalar string' <<<"$COST_OUT" \
-  || fail "TEC structured cost did not refuse before native consumption: $COST_OUT"
+tec_compile_refusal structured-cost 'TEC structured cost' 'one scalar string'
 wp_conf1 eval '
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_EventCost",$b["cost"]);
 ' >/dev/null
+unset -f tec_compile_refusal
 rm -f "$SCHEMA_BACKUP"
 pass "body warnings redact; authored secrets, malformed status/organizers, dates/scalars, and paid/import/coordinate surfaces refuse atomically"
 
