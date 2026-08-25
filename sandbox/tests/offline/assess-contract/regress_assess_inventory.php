@@ -579,7 +579,7 @@ duo_check(!\Duo\InitPlanner::is_adoption_seed($siteRepo), 'a repository pinning 
 [$seedPolicy, $seedAdoption] = AssessInventory::policy_for_assessment($siteRepo);
 duo_check($seedAdoption === null && $seedPolicy instanceof Policy, 'policy_for_assessment() on an init-owned repository returns its own policy and no adoption block');
 duo_check_same(
-    (string) (json_decode((string) file_get_contents($repoRoot . '/manifests/dispositions.json'), true)['manifests']['core']['status'] ?? ''),
+    (string) (json_decode((string) file_get_contents($repoRoot . '/manifests/dispositions/core.json'), true)['status'] ?? ''),
     $manifestRow['status'],
     'status is the reviewed disposition status, quoted'
 );
@@ -750,9 +750,8 @@ echo "\n== engine-adapter boundary: no plugin name inside agent/src/Assess/ ==\n
 // engine's own baseline manifest, not a third-party plugin.
 $forbidden = [];
 foreach (glob($repoRoot . '/manifests/*.json') ?: [] as $file) {
-    if (basename($file) === 'dispositions.json') {
-        continue;
-    }
+    // No `dispositions.json` skip: WP-4.4 moved the reviewed claim source
+    // into manifests/dispositions/, which this glob does not match.
     $manifest = json_decode((string) file_get_contents($file), true);
     if (!is_array($manifest)) {
         continue;

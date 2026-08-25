@@ -157,7 +157,7 @@ final class AdapterCatalog {
                     . 'are the negotiated answer',
             ],
             [
-                'surface' => 'dispositions.json against a target',
+                'surface' => 'dispositions/ against a target',
                 'check' => 'AdapterRegistry::report()',
                 'why' => 'certification is a reviewed claim evaluated against one target: whether the plugin the '
                     . 'claim is authored for is installed, active, and inside the reviewed version window. The '

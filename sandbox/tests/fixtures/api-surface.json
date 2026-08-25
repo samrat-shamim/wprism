@@ -19314,6 +19314,9 @@
         "Duo\\ManifestDispositions": {
             "abstract": false,
             "constants": {
+                "DIRECTORY": {
+                    "value_repr": "dispositions"
+                },
                 "EVIDENCE_SCHEMA": {
                     "value_repr": "duo-subject-certification-bundle/v1"
                 },

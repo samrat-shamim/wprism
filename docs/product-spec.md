@@ -741,7 +741,7 @@ default.
 
 Multisite and additional transports may be future scopes, but no prose claim
 exists until their exact capabilities are declared in an adapter manifest,
-reviewed into `manifests/dispositions.json`, and projected into the generated
+reviewed into `manifests/dispositions/`, and projected into the generated
 capability document.
 
 ## Privacy and ecosystem evidence
@@ -994,7 +994,7 @@ Ratification of this document makes the following product decisions:
     capabilities enter the generated registry" meant the **claim admission
     path**, which is now three named steps and not an artifact anything writes
     to: declared in an adapter manifest, reviewed into
-    `manifests/dispositions.json` by a human who wrote down the reason, and
+    `manifests/dispositions/` by a human who wrote down the reason, and
     projected into the generated capability document. The sentence's force is
     unchanged — a future scope earns prose by passing those gates, never by
     being written about first.

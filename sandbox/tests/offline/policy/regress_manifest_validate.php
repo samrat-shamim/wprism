@@ -369,14 +369,14 @@ check(
         && (($cf7Manifest['post_types']['wpcf7_contact_form'] ?? null) === []),
     'contact-form-7 declares its non-public wpcf7_contact_form post type for discovery'
 );
-$dispositions = json_decode((string) file_get_contents($repo . '/manifests/dispositions.json'), true);
+// Addressed per subject since WP-4.4 (spec/repo-format.md § v3.4).
+$cf7Disposition = json_decode(
+    (string) file_get_contents($repo . '/manifests/dispositions/contact-form-7.json'),
+    true
+);
 check(
-    is_array($dispositions)
-        && in_array(
-            'post_types',
-            $dispositions['manifests']['contact-form-7']['capabilities']['entity_sections'] ?? [],
-            true
-        ),
+    is_array($cf7Disposition)
+        && in_array('post_types', $cf7Disposition['capabilities']['entity_sections'] ?? [], true),
     'contact-form-7 disposition registers the declared post_types surface'
 );
 // The third link of the chain: the declared type reaches the CAPABILITY CLAIM,
@@ -389,8 +389,8 @@ check(
 // exactly the step a whole-type declaration could silently lose.
 $cf7Claim = \Duo\ManifestDispositions::claim_from_disposition(
     $cf7Manifest,
-    $dispositions['manifests']['contact-form-7'],
-    $dispositions['manifests']['contact-form-7']['evidence'] ?? [],
+    $cf7Disposition,
+    $cf7Disposition['evidence'] ?? [],
     ['compatibility' => []]
 );
 check(
@@ -400,7 +400,7 @@ check(
 );
 check(
     !in_array('dispositions', $shippedNames, true),
-    'dispositions.json is external review state loaded WITH the directory, never validated as a manifest of its own'
+    'the reviewed dispositions are external review state loaded WITH the directory, never validated as a manifest of their own'
 );
 check(
     ($shippedReport['pinned_set']['status'] ?? null) === 'ok'

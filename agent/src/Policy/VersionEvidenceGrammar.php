@@ -55,7 +55,7 @@ namespace Duo;
  * ## What this document can never do
  *
  * It cannot widen a range. `manifests/<name>.json` and its Canon-byte-equal
- * restatement in `manifests/dispositions.json` remain one reviewed human edit
+ * restatement in `manifests/dispositions/<name>.json` remain one reviewed human edit
  * (`ManifestDispositions.php:632-637`), and a byte under `manifests/` is
  * fleet-visible (rule 2). This key lives in the site's own policy envelope,
  * which is exactly the scope of the claim it supports: THIS site has recorded

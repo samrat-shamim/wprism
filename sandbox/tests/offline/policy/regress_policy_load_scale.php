@@ -116,14 +116,21 @@ namespace {
         $policy = Duo\Policy::load(null, $pins);
         $peakAfter = memory_get_peak_usage();
         $usedAfter = memory_get_usage();
+        $libraryPrefix = rtrim($scaleLibrary, '/') . '/';
         $libraryReads = array_values(array_filter(
             DuoScaleProbe::$reads,
-            static fn(string $path): bool => str_starts_with($path, rtrim($scaleLibrary, '/') . '/')
+            static fn(string $path): bool => str_starts_with($path, $libraryPrefix)
         ));
         fwrite(STDOUT, (string) json_encode([
             'decodes' => DuoScaleProbe::$decodes,
             'instrument_alive' => $instrumentAlive,
-            'library_reads' => array_map('basename', $libraryReads),
+            // LIBRARY-RELATIVE, not basename: since WP-4.4 a one-pin load
+            // opens `dispositions/pinned-adapter.json` and `pinned-adapter.json`,
+            // two different files whose basenames are identical.
+            'library_reads' => array_map(
+                static fn(string $path): string => substr($path, strlen($libraryPrefix)),
+                $libraryReads
+            ),
             'manifests' => count($policy->manifests),
             'peak_delta' => $peakAfter - $peakBefore,
             'retained_delta' => $usedAfter - $usedBefore,
@@ -221,12 +228,30 @@ namespace {
             $fillerBytes += strlen($bytes);
             $entries[$name] = scale_disposition_entry();
         }
-        file_put_contents("$dir/dispositions.json", (string) json_encode([
-            'format' => 'duo-manifest-dispositions/v1',
-            'manifests' => $entries,
-            'profiles' => new stdClass(),
-        ]));
+        scale_write_dispositions($dir, $entries);
         return ['dir' => $dir, 'filler_bytes' => $fillerBytes];
+    }
+
+    /**
+     * Publish the reviewed entries in the split layout WP-4.4 shipped: one
+     * `dispositions/<name>.json` per subject (spec/repo-format.md § v3.4). The
+     * directory is rebuilt from scratch so a library can be re-reviewed with a
+     * SMALLER set, which is exactly what the lean-registry measurement below
+     * does over the identical 10,000 manifests.
+     *
+     * @param array<string,array<string,mixed>> $entries
+     */
+    function scale_write_dispositions(string $dir, array $entries): void {
+        $subjects = "$dir/dispositions";
+        if (!is_dir($subjects) && !mkdir($subjects, 0o777, true) && !is_dir($subjects)) {
+            throw new RuntimeException("cannot create the synthetic disposition directory at $subjects");
+        }
+        foreach (glob("$subjects/*.json") ?: [] as $stale) {
+            unlink($stale);
+        }
+        foreach ($entries as $name => $entry) {
+            file_put_contents("$subjects/$name.json", (string) json_encode($entry));
+        }
     }
 
     /**
@@ -293,7 +318,7 @@ namespace {
         // buried the other nineteen.
         $reads = $measurement['library_reads'];
         duo_check(
-            $reads === ['dispositions.json', 'pinned-adapter.json'],
+            $reads === ['pinned-adapter.json', 'dispositions/pinned-adapter.json'],
             "and exactly those two library files are opened at $n manifests: "
             . implode(', ', array_slice($reads, 0, 3))
             . (count($reads) > 3 ? ' … and ' . (count($reads) - 3) . ' more' : '')
@@ -308,9 +333,10 @@ namespace {
     $twoPins = scale_measure($libraries[1000]['dir'], ['pinned-adapter', 'second-adapter']);
     duo_check(
         $twoPins['exit'] === 0
-            && ($twoPins['measurement']['decodes'] ?? null) === 3
+            && ($twoPins['measurement']['decodes'] ?? null) === 4
             && ($twoPins['measurement']['manifests'] ?? null) === 2,
-        'a second pin costs exactly one more decode — the count tracks pins, which is the whole claim ('
+        'a second pin costs exactly two more decodes — its manifest and its own reviewed document, since WP-4.4 '
+        . 'addressed the reviewed source per subject — so the count still tracks PINS, which is the whole claim ('
         . var_export($twoPins['measurement']['decodes'] ?? $twoPins['output'], true) . ')'
     );
     duo_check(
@@ -357,14 +383,10 @@ namespace {
     // sitting in the library, and a covered pin still resolves. The pre-WP-1.2
     // engine could not load this directory at all — it refused the whole
     // library over manifests nobody pinned.
-    file_put_contents($libraries[10000]['dir'] . '/dispositions.json', (string) json_encode([
-        'format' => 'duo-manifest-dispositions/v1',
-        'manifests' => [
-            'pinned-adapter' => scale_disposition_entry(),
-            'second-adapter' => scale_disposition_entry(),
-        ],
-        'profiles' => new stdClass(),
-    ]));
+    scale_write_dispositions($libraries[10000]['dir'], [
+        'pinned-adapter' => scale_disposition_entry(),
+        'second-adapter' => scale_disposition_entry(),
+    ]);
     $lean = scale_measure($libraries[10000]['dir'], ['pinned-adapter']);
     $leanMeasurement = $lean['measurement'];
     duo_check(
@@ -396,11 +418,24 @@ namespace {
         'and the loaded policy retains ' . number_format($leanMeasurement['retained_delta'])
         . ' bytes: those origins, plus ONE decoded manifest per pin — never the library\'s manifest content'
     );
+    // WP-4.4 FLIPPED THIS ONE, and the flip is the measurement worth keeping.
+    // While the reviewed source was one document, load() decoded ALL of it on
+    // every load, so a 10,001-entry registry was a second per-entry term on top
+    // of the adapter-source scan — measured at 10,346,448 bytes against a
+    // 2-entry registry's 7,495,944 over the identical 10,000 manifest files.
+    // Addressed per subject (spec/repo-format.md § v3.4), load() decodes one
+    // entry document per PIN and scans the subject directory only when a
+    // profile has to resolve against it, so the two now measure the same and
+    // the only term left that grows with the library is discover()'s scan,
+    // attributed above. Asserted as a RATIO rather than an equality because
+    // these are allocator figures: what is being pinned is the shape — flat,
+    // not linear — and an entry count 5,000x larger costing 5% more would be a
+    // per-entry term creeping back.
     duo_check(
-        $leanMeasurement['peak_delta'] * 4 < ($measurements[10000]['peak_delta'] ?? 0),
-        'and the reviewed document is a SECOND per-entry term on top of that scan: over the identical 10,000 files a '
-        . '10,001-entry registry costs ' . number_format($measurements[10000]['peak_delta'] ?? 0)
-        . ' bytes against a 2-entry registry\'s ' . number_format($leanMeasurement['peak_delta'])
+        ($measurements[10000]['peak_delta'] ?? PHP_INT_MAX) < $leanMeasurement['peak_delta'] * 1.05,
+        'and the reviewed source is no longer a per-entry term at all: over the identical 10,000 files a '
+        . '10,001-subject reviewed directory costs ' . number_format($measurements[10000]['peak_delta'] ?? 0)
+        . ' bytes against a 2-subject one\'s ' . number_format($leanMeasurement['peak_delta'])
         . ', while the manifests themselves cost the same nothing in both'
     );
 

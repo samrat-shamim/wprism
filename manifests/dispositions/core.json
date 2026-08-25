@@ -1,0 +1,77 @@
+{
+    "capabilities": {
+        "deletion_semantics": {
+            "supported": [
+                "menu:nav_menu",
+                "post:attachment",
+                "post:page",
+                "post:post",
+                "term:category",
+                "term:post_tag"
+            ],
+            "unsupported": [
+                "undeclared post types and taxonomies"
+            ]
+        },
+        "entity_sections": [
+            "tables",
+            "widgets"
+        ],
+        "field_sections": [
+            "options",
+            "option_patterns",
+            "dynamic_options",
+            "post_meta",
+            "post_meta_patterns",
+            "term_meta",
+            "menu_fields",
+            "block_attrs",
+            "shortcode_attrs"
+        ],
+        "lifecycle_phases": [
+            "verify"
+        ],
+        "operations": [
+            "capture",
+            "compile",
+            "plan",
+            "deploy",
+            "apply",
+            "delete",
+            "recapture",
+            "render-api"
+        ]
+    },
+    "default_authored_keyspaces": [],
+    "evidence": {
+        "bundle_schema": "duo-subject-certification-bundle/v1",
+        "tests": [
+            "conformance-core",
+            "multisite-refusal"
+        ]
+    },
+    "reason": "Certified single-site core authored-state surface; the FSE profile is separately named below.",
+    "status": "certified",
+    "supported_versions": {
+        "wordpress": {
+            "source": "bundle.environment_summary.wordpress"
+        }
+    },
+    "unsupported": [
+        {
+            "operation": "capture",
+            "reason": "core/legacy-widget has two environment-bound forms that the generic block codec cannot yet preserve: id addresses a widget instance whose local number diverges, while instance.hash is derived from environment salts. The core data-boundary inventory keeps this limitation explicit until one codec resolves the widget ledger form and re-signs embedded instances with verified target behavior.",
+            "surface": "block_attrs.core/legacy-widget"
+        },
+        {
+            "operation": "all",
+            "reason": "The v1 contract refuses WordPress multisite before policy load or mutation.",
+            "surface": "multisite"
+        },
+        {
+            "operation": "capture",
+            "reason": "Unknown whole-entity and field surfaces remain loud pending items.",
+            "surface": "unclassified.*"
+        }
+    ]
+}

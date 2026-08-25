@@ -465,11 +465,13 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
                 // is a different gate answering a different question.
                 $movedLib = $estate . '/scratch/moved-disposition-lib';
                 rehearsal_copy_tree($estate . '/libs/A', $movedLib);
-                $dispositions = \Duo\Canon::decode(\Duo\Canon::read_file($movedLib . '/dispositions.json'));
-                $dispositions['manifests']['core']['reason'] =
-                    (string) $dispositions['manifests']['core']['reason']
-                    . ' Re-reviewed for the rehearsal estate.';
-                rehearsal_write_canon($movedLib . '/dispositions.json', $dispositions);
+                // One document per subject since WP-4.4: the edit is to
+                // `core`'s own reviewed entry, which is exactly the row
+                // manifest_rows() folds into that adapter's digest.
+                $coreDocument = $movedLib . '/dispositions/core.json';
+                $coreEntry = \Duo\Canon::decode(\Duo\Canon::read_file($coreDocument));
+                $coreEntry['reason'] = (string) $coreEntry['reason'] . ' Re-reviewed for the rehearsal estate.';
+                rehearsal_write_canon($coreDocument, $coreEntry);
                 putenv('DUO_MANIFESTS_DIR=' . $movedLib);
                 $movedPolicy = \Duo\Policy::load($repo);
                 \Duo\RepositoryCompiler::compile($repo, $movedPolicy)->write($holdings . '/artifact.json');

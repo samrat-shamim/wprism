@@ -22,7 +22,7 @@ promotion/capture locks), deletion tombstones with guards, secret scanning,
 version-pinned adapter contracts, and an evidence culture (conformance sweeps,
 grind scenarios, certification matrices) that has repeatedly caught silent-loss
 classes before they shipped. Above it sits the claim model: a manifest declares
-what it covers, a human reviews that into `manifests/dispositions.json` with the
+what it covers, a human reviews that into `manifests/dispositions/` with the
 reason written down, and the named conformance suites exercise it against a live
 pair. The generated capability document (`docs/capabilities.md`, plus the README
 block) is the single projection of that model — `make release-gate` byte-compares

@@ -233,20 +233,15 @@ function fc_library(string $repoRoot, string $dir, array $formsSections): void {
         'tables' => ['fixture_ledger_index' => ['class' => 'runtime']],
     ]);
 
-    fc_write($dir . '/dispositions.json', [
-        'format' => 'duo-manifest-dispositions/v1',
-        'manifests' => [
-            'fixture-forms' => fc_disposition(
-                'fixture-forms/fixture-forms.php',
-                $range,
-                $formsSections['entity'],
-                $formsSections['field']
-            ),
-            'fixture-gallery' => fc_disposition('fixture-gallery/fixture-gallery.php', $range, [], []),
-            'fixture-ledger' => fc_disposition('fixture-ledger/fixture-ledger.php', $range, ['tables'], []),
-        ],
-        'profiles' => new stdClass(),
-    ]);
+    // One document per subject since WP-4.4 (spec/repo-format.md § v3.4).
+    fc_write($dir . '/dispositions/fixture-forms.json', fc_disposition(
+        'fixture-forms/fixture-forms.php',
+        $range,
+        $formsSections['entity'],
+        $formsSections['field']
+    ));
+    fc_write($dir . '/dispositions/fixture-gallery.json', fc_disposition('fixture-gallery/fixture-gallery.php', $range, [], []));
+    fc_write($dir . '/dispositions/fixture-ledger.json', fc_disposition('fixture-ledger/fixture-ledger.php', $range, ['tables'], []));
 
     if (!is_dir($dir . '/capabilities') && !mkdir($dir . '/capabilities', 0777, true)) {
         throw new RuntimeException('could not create the fixture platform directory');

@@ -641,7 +641,7 @@ Verbs:
                           includes artifacts.lock.json rows in that file's own
                           three-role vocabulary. It never writes a manifest:
                           the range and its Canon-byte-equal restatement in
-                          dispositions.json stay one reviewed human edit.
+                          dispositions/<name>.json stay one reviewed human edit.
   adapter proposals       The scheduled job around that planner. Reads every
     [--ledger=<dir>]      <slug>.releases.json / <slug>.outcomes.json in the
     [--manifests=<dir>]   ledger directory, derives each adapter's anchor from

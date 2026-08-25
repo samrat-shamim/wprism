@@ -111,9 +111,6 @@ function gap_load(string $path): array {
 function gap_manifest_sections(string $dir): array {
     $sections = [];
     foreach (glob(rtrim($dir, '/') . '/*.json') ?: [] as $file) {
-        if (basename($file) === 'dispositions.json') {
-            continue;
-        }
         $decoded = json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
         if (is_array($decoded)) {
             foreach (array_keys($decoded) as $key) {
@@ -400,7 +397,7 @@ function gap_preamble(array $ledger): string {
         . 'An entry is a platform boundary, not a plugin-specific branch request: the remedy must be a reusable '
         . "primitive with adversarial coverage before any affected adapter is promoted.\n\n"
         . 'The source probes below used official WordPress.org artifacts on ' . array_key_first($dates) . '. '
-        . 'They are deliberately separate from `manifests/dispositions.json`: a rejected candidate is not shipped '
+        . 'They are deliberately separate from `manifests/dispositions/`: a rejected candidate is not shipped '
         . "adapter identity and makes no capability claim.\n\n"
         . 'Every coordinate names its `primitive_required` from a closed vocabulary in the ledger, so two '
         . 'candidates blocked on the same missing thing are ONE countable primitive rather than two lookalike '
@@ -443,7 +440,7 @@ function gap_candidate_section(array $row): string {
 /**
  * The shipped-but-not-promoted rows share one section because they share one
  * fact: the adapter is in the library, and the withheld operation is named in
- * `manifests/dispositions.json` rather than hidden in a caveat here.
+ * `manifests/dispositions/` rather than hidden in a caveat here.
  */
 function gap_promotion_blocked_section(array $ledger): string {
     $rows = gap_rows($ledger, 'promotion_blocked');
@@ -457,7 +454,7 @@ function gap_promotion_blocked_section(array $ledger): string {
         }
     }
 
-    return $out . "\nThese are explicit promotion blockers in `manifests/dispositions.json`, not silent caveats. "
+    return $out . "\nThese are explicit promotion blockers in `manifests/dispositions/`, not silent caveats. "
         . '`conformance-ecosystem-adapter-batch` exercises their exact artifacts through capture, compile, plan, '
         . 'deterministic recapture, and live plugin readback only. Its `capture-plan` mode stops before target '
         . "mutation, so none of these entries claims apply.\n\n";

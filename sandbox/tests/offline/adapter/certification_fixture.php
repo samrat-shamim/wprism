@@ -108,10 +108,9 @@ function duo_cert_library_bytes(string $manifestDir): array {
 function duo_cert_library_manifests(string $manifestDir): array {
     $out = [];
     foreach (glob(rtrim($manifestDir, '/') . '/*.json') ?: [] as $file) {
-        $name = basename($file, '.json');
-        if ($name !== 'dispositions') {
-            $out[$name] = \Duo\Canon::decode(\Duo\Canon::read_file($file));
-        }
+        // No `dispositions` skip: WP-4.4 moved the reviewed claim source into
+        // manifests/dispositions/, which this glob does not match.
+        $out[basename($file, '.json')] = \Duo\Canon::decode(\Duo\Canon::read_file($file));
     }
     ksort($out, SORT_STRING);
     return $out;

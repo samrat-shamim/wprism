@@ -8,7 +8,7 @@ The matrix itself — which adapters are reviewed for which plugin versions and
 which operations, and every explicitly unsupported boundary — is **generated**
 and lives in [docs/capabilities.md](../capabilities.md). `php
 tools/capability-doc.php generate` writes it from exactly four inputs
-(`manifests/*.json`, `manifests/dispositions.json`,
+(`manifests/*.json`, `manifests/dispositions/*.json`,
 `manifests/capabilities/platform.json`, and `agent/duo.php`'s
 `DUO_AGENT_VERSION`/`DUO_SPEC_VERSION` defines), and `make release-gate` —
 `capability-doc.php --check` then `classmap-generate.php --check` — regenerates
@@ -18,7 +18,7 @@ generator exists to make that impossible rather than merely discouraged.
 
 **Read the narrowing before you read the matrix.** A status in that document
 means three things and no more: the manifest *declares* the surface, a human
-*reviewed* it into `manifests/dispositions.json` and wrote down why, and the
+*reviewed* it into `manifests/dispositions/` and wrote down why, and the
 named live conformance suites under `sandbox/conformance/` *exercise* it. It
 does not mean a bundle digest seals the claim to a run, an artifact set, or a
 closure. That apparatus is gone; what replaces it is four cross-checks
@@ -228,7 +228,7 @@ contract's declarations, and the selected recovery profile's covered inventory
 `duo release`. One implementation produces them, in
 [cli/src/Contract/ProjectionVocabulary.php](../../cli/src/Contract/ProjectionVocabulary.php),
 and a projected word is never written back into a manifest or into
-`dispositions.json`. A declaration cannot certify itself, so readiness is
+`dispositions/`. A declaration cannot certify itself, so readiness is
 recomputed on every run rather than read from a file.
 
 Each dimension is a **closed set**. Anything outside it is a defect, not a new
@@ -309,7 +309,7 @@ somewhere new.
 disposition entry — `ArtifactPolicyIdentity::manifest_rows()` puts the
 disposition inside the row it hashes
 (`agent/src/Policy/ArtifactPolicyIdentity.php:68`, hashed at `:147`) — so
-editing one subject in `manifests/dispositions.json` moves `registry_sha256`
+editing one subject in `manifests/dispositions/` moves `registry_sha256`
 **and** exactly that adapter's digest. That makes the moved set a proof, and
 the flip `exact`: it reaches only the surfaces those adapters govern, which
 each row names in `governed_by`, and `evidence_pins.stale_adapters` lists them.
@@ -322,7 +322,7 @@ the surfaces that adapter governs. The row prints the gap action
 `certify adapter` and the remediation `re-certify the pinned evidence, then
 re-run assess`, which is literal for a site adapter you sign yourself. For a
 shipped adapter, the move you have to make is the review: read what changed in
-`manifests/dispositions.json`, then `duo contract <env> propose`, review, and
+`manifests/dispositions/`, then `duo contract <env> propose`, review, and
 `duo contract <env> accept` — accept re-runs the assessment and refuses a
 stale proposal (`assess_digest_stale`) rather than re-pinning behind your back.
 
@@ -330,7 +330,7 @@ stale proposal (`assess_digest_stale`) rather than re-pinning behind your back.
 one number against itself over time, both halves the *target's*. `duo assess`
 also holds a second pair — the reviewed dispositions your checkout ships and
 the ones the target answered from, which differ for as long as you have pulled
-a revision that edited `manifests/dispositions.json` and not re-adopted the
+a revision that edited `manifests/dispositions/` and not re-adopted the
 site yet. That window is legitimate, so assess completes: it prints
 `MISMATCH: this checkout ships <hash>; the target answered from <hash>` in the
 evidence block, publishes both full hashes as `dispositions` in
@@ -351,7 +351,7 @@ the gate.
 
 | Value | Meaning |
 |---|---|
-| `Platform-certified` | shipped adapter, reviewed into `manifests/dispositions.json` with `status: certified`. The generated matrix in [docs/capabilities.md](../capabilities.md) is the authority, and it means declared + reviewed-with-a-written-reason + exercised by the named conformance suites — not a bundle digest sealing the claim |
+| `Platform-certified` | shipped adapter, reviewed into `manifests/dispositions/` with `status: certified`. The generated matrix in [docs/capabilities.md](../capabilities.md) is the authority, and it means declared + reviewed-with-a-written-reason + exercised by the named conformance suites — not a bundle digest sealing the claim |
 | `Site-certified` | a site adapter whose certificate verified: an Ed25519 signature over that adapter's exact bytes, under a key in a trust root the repository or the agent owns, with an exact `{name,source,digest}` pin. `duo adapter certify` produces one |
 | `Uncertified` | everything else — no certificate, or a certificate whose pin does not bind it (`signed_unpinned`, which the row names) |
 

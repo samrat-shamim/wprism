@@ -263,9 +263,8 @@ function bp_adapter(string $name, array $range, ?array $supported = null): array
 // adapters" would fail on the next adapter rather than on a defect.
 $pinned = 0;
 foreach (glob($repoRoot . '/manifests/*.json') ?: [] as $path) {
-    if (basename($path) === 'dispositions.json') {
-        continue;
-    }
+    // No `dispositions.json` skip: WP-4.4 moved the reviewed claim source into
+    // manifests/dispositions/, which this glob does not match.
     $manifest = Canon::decode((string) file_get_contents($path));
     if (is_array($manifest) && is_string($manifest['plugin'] ?? null)
         && is_array($manifest['version_range'] ?? null)) {
@@ -358,11 +357,15 @@ duo_check_same(
 duo_check_same(2, count($proposal['edits']), 'a range bump is TWO edits, because the range lives in two files');
 duo_check_same('manifests/fixture-forms.json', $proposal['edits'][0]['file'], 'the manifest edit names the manifest');
 duo_check_same('/version_range', $proposal['edits'][0]['pointer'], 'at /version_range');
-duo_check_same('manifests/dispositions.json', $proposal['edits'][1]['file'], 'the second edit names the reviewed restatement');
 duo_check_same(
-    '/manifests/fixture-forms/supported_versions',
+    'manifests/dispositions/fixture-forms.json',
+    $proposal['edits'][1]['file'],
+    'the second edit names the reviewed restatement — that adapter\'s OWN document since WP-4.4'
+);
+duo_check_same(
+    '/supported_versions',
     $proposal['edits'][1]['pointer'],
-    'at that adapter\'s supported_versions'
+    'at a pointer into the entry itself, no longer through a whole-library `/manifests/<name>` prefix'
 );
 duo_check_json_equal(
     Canon::encode($proposal['edits'][0]['proposed']),
@@ -672,18 +675,13 @@ bp_write($library . '/fixture-gallery.json', [
     'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
     'options' => ['fixture_gallery_settings' => ['class' => 'authored']],
 ]);
-bp_write($library . '/dispositions.json', [
-    'format' => 'duo-manifest-dispositions/v1',
-    'manifests' => [
-        'fixture-forms' => bp_entry($range),
-        'fixture-gallery' => (static function (): array {
-            $entry = bp_entry(['min' => '1.0.0', 'max' => '2.0.0']);
-            $entry['supported_versions']['plugin'] = 'fixture-gallery/fixture-gallery.php';
-            return $entry;
-        })(),
-    ],
-    'profiles' => new stdClass(),
-]);
+// One document per subject since WP-4.4 (spec/repo-format.md § v3.4).
+bp_write($library . '/dispositions/fixture-forms.json', bp_entry($range));
+bp_write($library . '/dispositions/fixture-gallery.json', (static function (): array {
+    $entry = bp_entry(['min' => '1.0.0', 'max' => '2.0.0']);
+    $entry['supported_versions']['plugin'] = 'fixture-gallery/fixture-gallery.php';
+    return $entry;
+})());
 // platform.json is COPIED, not written: ManifestDispositions::platform_boundary()
 // refuses a boundary whose agent/spec version disagrees with the loaded agent,
 // and a hand-written one would need editing on every version bump.

@@ -257,7 +257,7 @@ if ($dispKeys !== ["agree","host_registry_sha256","meaning","target_registry_sha
 if ($disp["target_registry_sha256"] !== $d["evidence"]["registry_sha256"]) {
     $fail("the block restates a target hash the evidence pins do not");
 }
-// The fixture computes the target hash from THIS checkout manifests/dispositions.json,
+// The fixture computes the target hash from THIS checkout manifests/dispositions/,
 // exactly as ManifestDispositions::sha256() would on an adopted site, so the
 // agreeing case is the real number and not a fixture convention.
 if ($disp["agree"] !== true) { $fail("an unskewed fixture must report the two libraries agreeing"); }
@@ -265,7 +265,15 @@ if ($disp["host_registry_sha256"] !== $disp["target_registry_sha256"]) {
     $fail("agree is true beside two different hashes");
 }
 require_once $argv[2] . "/agent/src/Kernel/Canon.php";
-$onDisk = hash("sha256", \Duo\Canon::encode(json_decode((string) file_get_contents($argv[2] . "/manifests/dispositions.json"), true)));
+$registry = ["format" => "duo-manifest-dispositions/v1", "manifests" => [], "profiles" => []];
+foreach (glob($argv[2] . "/manifests/dispositions/*.json") ?: [] as $document) {
+    $subject = basename($document, ".json");
+    $decoded = json_decode((string) file_get_contents($document), true);
+    if ($subject === "profiles") { $registry["profiles"] = $decoded; continue; }
+    $registry["manifests"][$subject] = $decoded;
+}
+ksort($registry["manifests"], SORT_STRING);
+$onDisk = hash("sha256", \Duo\Canon::encode($registry));
 if ($disp["host_registry_sha256"] !== $onDisk) {
     $fail("the host half is not the content address of this checkout reviewed dispositions");
 }

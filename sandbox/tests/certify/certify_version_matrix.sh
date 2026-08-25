@@ -57,9 +57,8 @@ PORT2="${VMATRIX_PORT2:-8871}"
 VMATRIX_MANIFEST="${VMATRIX_MANIFEST:-}"
 [[ "$VMATRIX_MANIFEST" =~ ^[a-z][a-z0-9-]*$ ]] \
   || fail "VMATRIX_MANIFEST must name one canonical manifest"
-jq -e --arg name "$VMATRIX_MANIFEST" \
-  '.manifests[$name].evidence.tests | index("exact-artifact-version-matrix") != null' \
-  ../manifests/dispositions.json >/dev/null \
+jq -e '.evidence.tests | index("exact-artifact-version-matrix") != null' \
+  "../manifests/dispositions/$VMATRIX_MANIFEST.json" >/dev/null \
   || fail "manifest '$VMATRIX_MANIFEST' does not declare exact-artifact-version-matrix evidence"
 VMATRIX_CASES=0
 WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
@@ -757,7 +756,7 @@ fi
 #
 # This cell is the evidence the widening depends on, so it only passes once
 # manifests/the-events-calendar.json declares max 6.17.4 and
-# manifests/dispositions.json adds exact-artifact-version-matrix to this
+# manifests/dispositions/<name>.json adds exact-artifact-version-matrix to this
 # manifest's evidence.tests — sandbox/tmp/VERSION_WINDOW_EDITS.md carries
 # both edits verbatim. Run red-first if you want the proof that today's
 # <6.17.3 max really refuses 6.17.3; the range moves WITH this log, never

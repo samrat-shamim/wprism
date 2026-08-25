@@ -299,10 +299,36 @@ duo_check_same(
     'v3.3: and the accessor has three readers — the owner, the enforcing validator, and the emitter that publishes it'
 );
 
-// v3.4 — one monolith, one whole-document hash.
+// v3.4 — the LAYOUT is enforced (WP-4.4); the ADDRESSING is not (WP-4.5).
+// Split into these two assertions on purpose: § v3.4 carries two riders, and a
+// subsection whose "Enforced today:" line says "yes" about one half must not be
+// readable as a claim about the other.
 duo_check(
-    is_file($manifestDir . '/dispositions.json') && !is_dir($manifestDir . '/dispositions'),
-    'v3.4 NOT enforced: the reviewed claim source is still the single manifests/dispositions.json, with no per-adapter directory'
+    is_dir($manifestDir . '/dispositions') && !is_file($manifestDir . '/dispositions.json'),
+    'v3.4 layout ENFORCED (WP-4.4): the reviewed claim source is the per-subject directory manifests/dispositions/, '
+    . 'and the monolith is gone'
+);
+// Measured, not read: `registry_sha256` is still ONE hash over the WHOLE
+// reassembled document, so editing any subject moves the number a contract
+// pins even when it pins no adapter at all. WP-4.5 is the rider that narrows
+// it to per-subject addressing.
+require_once $repo . '/agent/src/Policy/ManifestDispositions.php';
+$wholeRegistry = ['format' => \Duo\ManifestDispositions::FORMAT, 'manifests' => [], 'profiles' => []];
+foreach (glob($manifestDir . '/dispositions/*.json') ?: [] as $document) {
+    $subject = basename($document, '.json');
+    $decoded = (array) json_decode((string) file_get_contents($document), true);
+    if ($subject === 'profiles') {
+        $wholeRegistry['profiles'] = $decoded;
+        continue;
+    }
+    $wholeRegistry['manifests'][$subject] = $decoded;
+}
+ksort($wholeRegistry['manifests'], SORT_STRING);
+duo_check(
+    \Duo\ManifestDispositions::load($manifestDir)?->sha256()
+        === hash('sha256', Canon::encode($wholeRegistry)),
+    'v3.4 addressing NOT enforced (WP-4.5): registry_sha256 is still one hash over the WHOLE reviewed document, so '
+    . 'an edit to any subject still moves what a contract pinning no adapter observes'
 );
 
 // v3.5 — the one rule with shipped enforcement, and the two halves that make
@@ -312,10 +338,10 @@ duo_check(
 require_once $repo . '/agent/src/Policy/ManifestDispositions.php';
 $narrowingPlatform = \Duo\ManifestDispositions::platform_boundary($manifestDir);
 $narrowingSubject = Canon::decode(Canon::read_file($manifestDir . '/classic-editor.json'));
-$narrowingEntry = (array) ((array) json_decode(
-    (string) file_get_contents($manifestDir . '/dispositions.json'),
+$narrowingEntry = (array) json_decode(
+    (string) file_get_contents($manifestDir . '/dispositions/classic-editor.json'),
     true
-)['manifests']['classic-editor']);
+);
 $narrowingEnvironment = static function (array $manifest) use ($narrowingPlatform, $narrowingEntry): array {
     return (array) \Duo\ManifestDispositions::claim_from_disposition(
         $manifest,
@@ -639,23 +665,42 @@ duo_check(
 );
 
 // ---------------------------------------------------------------------------
-// v3.4 — the monolith's measured size, as stated.
+// v3.4 — the SPLIT's measured size, as stated. The monolith's own numbers stay
+// in the subsection as the history they now are, and are no longer measurable
+// from the tree; what has to keep matching is the directory that replaced it.
 // ---------------------------------------------------------------------------
-$dispositionsRaw = (string) file_get_contents($manifestDir . '/dispositions.json');
-$dispositions = json_decode($dispositionsRaw, true);
-$entryCount = count((array) ($dispositions['manifests'] ?? []));
-$profileNames = array_keys((array) ($dispositions['profiles'] ?? []));
+$dispositionDocuments = glob($manifestDir . '/dispositions/*.json') ?: [];
+sort($dispositionDocuments, SORT_STRING);
+$documentCount = count($dispositionDocuments);
+$lineCount = 0;
+$byteCount = 0;
+$entryCount = 0;
+$profileNames = [];
+foreach ($dispositionDocuments as $document) {
+    $raw = (string) file_get_contents($document);
+    $lineCount += substr_count($raw, "\n");
+    $byteCount += strlen($raw);
+    if (basename($document, '.json') === 'profiles') {
+        $profileNames = array_keys((array) json_decode($raw, true));
+        continue;
+    }
+    $entryCount++;
+}
 sort($profileNames, SORT_STRING);
-$lineCount = substr_count($dispositionsRaw, "\n");
-$byteCount = strlen($dispositionsRaw);
 $dispositionBody = $section('v3.4');
 duo_check(
-    str_contains($dispositionBody, (string) $lineCount . ' lines')
-        && str_contains($dispositionBody, number_format($byteCount) . ' bytes')
-        && str_contains($dispositionBody, $entryCount . ' entries'),
-    "v3.4's measurement of the monolith matches the file: $lineCount lines, " . number_format($byteCount) . " bytes, $entryCount entries"
+    str_contains($dispositionBody, $documentCount . ' documents')
+        && str_contains($dispositionBody, number_format($lineCount) . ' lines')
+        && str_contains($dispositionBody, number_format($byteCount) . ' bytes'),
+    "v3.4's measurement of the split source matches the directory: $documentCount documents, "
+    . number_format($lineCount) . ' lines, ' . number_format($byteCount) . ' bytes'
 );
-duo_check_same(['fse'], $profileNames, 'and `profiles` is still the one row the split gives its own document');
+duo_check_same(
+    16,
+    $entryCount,
+    'and the entry count the subsection states for the monolith it replaced is the number of subject documents now'
+);
+duo_check_same(['fse'], $profileNames, 'and `profiles` is the one row the split gave its own document');
 
 // ---------------------------------------------------------------------------
 // v3.6 — the compatibility axes a v3 certificate would bind.

@@ -210,7 +210,7 @@ final class ManifestValidate {
                     . 'runtime',
             ],
             [
-                'surface' => 'dispositions.json',
+                'surface' => 'dispositions/',
                 'check' => 'AdapterRegistry::report()',
                 'why' => 'certification is a reviewed claim evaluated against one target and the plugin version '
                     . 'installed on it. Nothing here says whether a capability is certified, exercised, '

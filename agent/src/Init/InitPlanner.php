@@ -232,8 +232,9 @@ final class InitPlanner {
         // They are core-registered, non-public and _builtin, so the scope
         // gate never names them — a proposal that left them out would let a
         // customised footer stay behind SILENTLY, which T7 grind A2 exists to
-        // catch. The certified core FSE profile (manifests/dispositions.json
-        // profiles.fse) declares exactly that scope: propose it whenever the
+        // catch. The certified core FSE profile (the `fse` row in
+        // manifests/dispositions/profiles.json) declares exactly that scope:
+        // propose it whenever the
         // active theme is a block theme, and say so; when the profile is not
         // certified or the registry is unreadable, say that instead and leave
         // the types to `duo classify`.

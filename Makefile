@@ -9,6 +9,8 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform regress-core-scope-database
 .PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window regress-closed-top-level-keys
+
+.PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window regress-disposition-split
 .PHONY: regress-cli-json-refusals regress-fleet-census regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-migration-preflight regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
@@ -362,6 +364,19 @@ regress-fetch-artifact:
 
 regress-manifest-dispositions:
 	php sandbox/tests/offline/policy/regress_manifest_dispositions.php
+
+# WP-4.4 (spec § v3.4): the reviewed claim source moved from one
+# manifests/dispositions.json to one document per subject under
+# manifests/dispositions/, and NOT ONE ADAPTER DIGEST MOVED. Pins all 16
+# shipped digests, manifest_hash and registry_sha256 as literals captured from
+# the pre-split tree; measures each enumerated Canon-encoding hazard (a nested
+# list re-ordered and a UTF-8 reason re-composed MOVE a digest; map key order
+# does not; int/float is the one a digest cannot catch, so the census asserts
+# the reviewed source holds no number at all); and re-runs every per-entry,
+# root, profile and coverage refusal from the split form in its existing
+# wording.
+regress-disposition-split:
+	php sandbox/tests/offline/policy/regress_disposition_split.php
 
 # WP-4.6 (spec § v3.5): a spec_version 3 adapter narrows its capability claim to
 # the boundary cells it was exercised on; a WIDER cell refuses by name; the key

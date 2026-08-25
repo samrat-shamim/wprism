@@ -5,10 +5,11 @@ namespace Duo;
  * External ratification data for the shipped manifest library.
  *
  * A manifest cannot certify itself merely by existing beside the agent. The
- * separate dispositions document records the reviewed support boundary and
- * its evidence, while this loader makes omissions and malformed claims loud.
- * Custom/test manifest directories without a dispositions document keep their
- * historical policy behavior, but expose no reviewed capability claim.
+ * separate `dispositions/` directory records the reviewed support boundary and
+ * its evidence, one document per subject, while this loader makes omissions
+ * and malformed claims loud. Custom/test manifest directories without a
+ * dispositions directory keep their historical policy behavior, but expose no
+ * reviewed capability claim.
  *
  * These reviewed bytes are the ONLY authored source of a product capability
  * claim: `claim_from_disposition()` below projects one, and AdapterRegistry
@@ -17,6 +18,70 @@ namespace Duo;
  */
 final class ManifestDispositions {
     public const FORMAT = 'duo-manifest-dispositions/v1';
+
+    /**
+     * The reviewed claim source is a DIRECTORY of one document per subject
+     * (spec/repo-format.md § v3.4), not the single `dispositions.json` this
+     * class read until WP-4.4:
+     *
+     *   manifests/dispositions/<name>.json    one adapter's entry, verbatim
+     *   manifests/dispositions/profiles.json  the profiles map
+     *
+     * Each document holds the entry's DECODED array unchanged, which is the
+     * whole reason the relocation is admissible on a flag day at all:
+     * ArtifactPolicyIdentity::manifest_rows() folds each manifest's own
+     * disposition into that adapter's row (`:82`) and the row hashed IS its
+     * `digest` (`:162`), so a one-byte canonical difference in one document
+     * would move that adapter's digest and every `site.duo.json` content pin
+     * naming it. Canon::encode() sorts keys at every level (Canon.php:44,58),
+     * so `format` + the reassembled `manifests`/`profiles` maps re-encode to
+     * the monolith's exact bytes — measured over all 16 shipped entries in
+     * sandbox/tests/offline/policy/regress_disposition_split.php, which pins
+     * the 16 digests as literals captured BEFORE the move rather than
+     * recomputing both sides of an equality that would hold vacuously.
+     *
+     * Reads are per subject, which is what keeps the split from re-imposing
+     * the whole-directory cost WP-1.2 removed one layer up (see load()): a
+     * one-pin load decodes one entry document, not sixteen.
+     */
+    public const DIRECTORY = 'dispositions';
+
+    /**
+     * `profiles` is RESERVED inside that directory: it names the profiles map,
+     * so no adapter can own it. AdapterSources::assert_name() admits it as a
+     * slug, and the monolith could carry a `profiles` key under `manifests`
+     * beside the sibling `profiles` map without ambiguity — the split cannot,
+     * because both would be `dispositions/profiles.json`. Refused by name in
+     * document() below rather than resolved by precedence.
+     */
+    private const PROFILES_DOCUMENT = 'profiles';
+
+    /**
+     * The monolith's own name, kept only to REFUSE it.
+     *
+     * A `dispositions.json` left beside the directory is ratification data the
+     * engine never reads. That is precisely the failure mode AdapterSources
+     * refuses everywhere else — "inert is exactly the failure mode to refuse:
+     * an operator who wrote them believes their adapter is certified"
+     * (AdapterSources.php:868-873) — so a stale monolith is named at load()
+     * instead of being silently ignored.
+     */
+    private const MONOLITH = 'dispositions.json';
+
+    /**
+     * The document-name grammar, which is AdapterSources::assert_name()'s
+     * (`:3156-3157`) restated rather than called: this file is reachable from
+     * partially-loaded offline contexts that never include AdapterSources (the
+     * same reason manifests_dir() below does not hard-call Policy), and a
+     * `require` here would grow the load graph of every context that only
+     * wanted an entry.
+     *
+     * It is also the path guard. A subject name reaches document() straight
+     * from a manifest's declared `name`, and this pattern admits no `/`, no
+     * backslash and neither `.` nor `..` (both fail the mandatory-lowercase
+     * check), so no name can address a file outside the directory.
+     */
+    private const NAME_PATTERN = '/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/D';
 
     /**
      * The agent's own platform/runtime boundary, shipped beside the manifest
@@ -55,10 +120,30 @@ final class ManifestDispositions {
     private const ENVIRONMENT_KEY = 'environment';
     private const ENVIRONMENT_AXES = ['database', 'php', 'site_mode', 'wordpress'];
 
-    private array $data;
+    /**
+     * The subject directory this instance reads, or '' for a frozen snapshot
+     * whose documents are all in hand already and whose bytes must never be
+     * re-resolved against a mutable library.
+     */
+    private string $dir;
 
-    private function __construct(array $data) {
-        $this->data = $data;
+    /** @var array<string, array{0:bool, 1:mixed}> subject => [document present, decoded value] */
+    private array $documents = [];
+
+    /** @var ?list<string> the subjects this source declares, resolved once */
+    private ?array $names;
+
+    /** @var ?array<string,mixed> the profiles map, decoded once */
+    private ?array $profiles;
+
+    /**
+     * @param ?list<string>         $names    prefilled for a frozen snapshot, null to resolve from disk
+     * @param ?array<string,mixed>  $profiles prefilled for a frozen snapshot, null to resolve from disk
+     */
+    private function __construct(string $dir, ?array $names, ?array $profiles) {
+        $this->dir = $dir;
+        $this->names = $names;
+        $this->profiles = $profiles;
     }
 
     /**
@@ -91,16 +176,127 @@ final class ManifestDispositions {
      *     comparison over manifests/ and exits 1 on any difference, and
      *     sandbox/tests/offline/policy/regress_manifest_dispositions.php runs
      *     the real loader over the whole shipped library in the merge gate.
+     *
+     * WP-4.4 moved the source from one document to one per subject, and this
+     * function is where the two costs meet. It decodes NO entry: every entry
+     * document is read lazily, by the caller that names it, so a one-pin
+     * Policy::load() decodes ONE entry where the monolith decoded sixteen —
+     * WP-1.2's own argument (the paragraph above) applied one layer down. The
+     * only work here is the profiles map, which must resolve its `manifest`
+     * references against the subjects this source declares, exactly as
+     * validate_profiles() resolved them against the monolith's `manifests`
+     * keys; a library with no profiles resolves nothing and does not even
+     * enumerate the directory.
      */
     public static function load(string $dir): ?self {
-        $file = rtrim($dir, '/') . '/dispositions.json';
-        if (!is_file($file)) {
+        $library = rtrim($dir, '/');
+        if (is_file($library . '/' . self::MONOLITH)) {
+            throw new \RuntimeException(
+                "duo: manifest library '$library' still carries the pre-split " . self::MONOLITH
+                . '. The reviewed claim source is the per-subject directory ' . self::DIRECTORY
+                . '/ (spec/repo-format.md § v3.4) and that file is no longer read, so leaving it in place would '
+                . 'publish ratification bytes nothing enforces — split it into one document per adapter under '
+                . self::DIRECTORY . '/ and remove it'
+            );
+        }
+        $subjects = $library . '/' . self::DIRECTORY;
+        if (!is_dir($subjects)) {
             return null;
         }
-        $data = Canon::decode(Canon::read_file($file));
-        self::validate_root($data, "manifest disposition registry '$file'");
-        self::validate_profiles($data['profiles'], array_keys($data['manifests']));
-        return new self($data);
+        $self = new self($subjects, null, null);
+        // names() is a directory scan, so it is paid only when something needs
+        // it: the ONLY load-time reader of the declared-subject set is the
+        // profile resolution below, and a library with no profiles has nothing
+        // to resolve. Measured in regress_policy_load_scale.php — over an
+        // identical 10,000-manifest library, a 10,001-subject reviewed source
+        // now costs what a 2-subject one costs, where the monolith's own decode
+        // was a second per-entry term on top of the adapter-source scan.
+        $profiles = $self->profiles();
+        if ($profiles !== []) {
+            self::validate_profiles($profiles, $self->names());
+        }
+        return $self;
+    }
+
+    /**
+     * The subjects this source declares — the directory listing, never a
+     * decode, so the AUTHORING question ("which adapters are reviewed here")
+     * costs one readdir and the RUNTIME question ("is this pin reviewed")
+     * costs one stat.
+     *
+     * A file that is not named for a canonical adapter slug refuses rather
+     * than being skipped: this directory is a closed namespace, and a
+     * `2024.json` or a `NOTES.json` dropped into it is reviewed bytes with no
+     * subject — the authoring half of the same mistake `make release-gate`'s
+     * two-way comparison catches for an entry whose manifest is gone.
+     *
+     * @return list<string>
+     */
+    private function names(): array {
+        if ($this->names !== null) {
+            return $this->names;
+        }
+        $files = glob($this->dir . '/*.json');
+        if ($files === false) {
+            throw new \RuntimeException(
+                "duo: manifest disposition directory '{$this->dir}' could not be enumerated — "
+                . 'Duo refuses to treat unreadable reviewed claim bytes as absent'
+            );
+        }
+        $names = [];
+        foreach ($files as $file) {
+            $name = basename($file, '.json');
+            if ($name === self::PROFILES_DOCUMENT) {
+                continue;
+            }
+            if (!self::is_subject_name($name)) {
+                throw new \RuntimeException(
+                    "duo: manifest disposition document '$file' is not named for a canonical adapter slug; every "
+                    . 'document in ' . self::DIRECTORY . "/ is one adapter's reviewed entry, addressed by its name"
+                );
+            }
+            $names[] = $name;
+        }
+        sort($names, SORT_STRING);
+        return $this->names = $names;
+    }
+
+    /**
+     * One subject's document: [present, decoded]. Present-and-null is a real
+     * state and is NOT absence — see assert_covers() for why the two must stay
+     * distinguishable.
+     *
+     * @return array{0:bool, 1:mixed}
+     */
+    private function document(string $name): array {
+        if (array_key_exists($name, $this->documents)) {
+            return $this->documents[$name];
+        }
+        if ($this->dir === '') {
+            // A frozen snapshot carries every document it will ever have.
+            return $this->documents[$name] = [false, null];
+        }
+        if ($name === self::PROFILES_DOCUMENT) {
+            throw new \RuntimeException(
+                "duo: '" . self::PROFILES_DOCUMENT . "' is the reserved name of the profiles document in "
+                . self::DIRECTORY . '/, so no adapter may be called that'
+            );
+        }
+        if (!self::is_subject_name($name)) {
+            // No document can be addressed by a name outside the grammar, so
+            // this is absence — reported by assert_covers()'s coverage
+            // sentence, not by a second refusal about the shape of a name the
+            // manifest validator already owns.
+            return $this->documents[$name] = [false, null];
+        }
+        $file = $this->dir . '/' . $name . '.json';
+        return $this->documents[$name] = is_file($file)
+            ? [true, Canon::decode(Canon::read_file($file))]
+            : [false, null];
+    }
+
+    private static function is_subject_name(string $name): bool {
+        return preg_match(self::NAME_PATTERN, $name) === 1 && preg_match('/[a-z]/D', $name) === 1;
     }
 
     /**
@@ -138,8 +334,11 @@ final class ManifestDispositions {
             // disposition coverage mismatch; missing=[core]" — an operator
             // sent to add an entry that is already there — where the
             // per-entry validator says exactly what is wrong with it:
-            // "manifest disposition 'core' must be an object".
-            if (!array_key_exists($name, $this->data['manifests'])) {
+            // "manifest disposition 'core' must be an object". Since WP-4.4
+            // the same distinction is a FILE that exists and decodes to null,
+            // which is why document() answers [present, value] rather than a
+            // value that has to double as its own absence sentinel.
+            if (!$this->document($name)[0]) {
                 $missing[] = $name;
             }
         }
@@ -151,7 +350,7 @@ final class ManifestDispositions {
         }
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '');
-            self::validate_entry($name, $this->data['manifests'][$name], $manifest);
+            self::validate_entry($name, $this->document($name)[1], $manifest);
         }
     }
 
@@ -188,7 +387,17 @@ final class ManifestDispositions {
         self::validate_entry($name, $entry, $manifest);
     }
 
-    /** Revalidate frozen bytes without reopening the mutable manifest dir. */
+    /**
+     * Revalidate frozen bytes without reopening the mutable manifest dir.
+     *
+     * The frozen wire is the WHOLE registry document and stays that way
+     * through the split: `Policy::export_snapshot()` carries `dispositions =>
+     * data()` and a compiled artifact binds those bytes, so a snapshot taken
+     * before WP-4.4 and one taken after are byte-identical and validate_root()
+     * keeps its one live reader. There is no directory here to address, which
+     * is why this instance is constructed with an empty $dir: frozen bytes may
+     * never silently re-resolve against a library that has moved on.
+     */
     public static function from_snapshot(array $data, array $manifests): self {
         self::validate_root($data, 'frozen manifest disposition registry');
         foreach ($manifests as $manifest) {
@@ -199,20 +408,67 @@ final class ManifestDispositions {
             self::validate_entry($name, $data['manifests'][$name], $manifest);
         }
         self::validate_profiles($data['profiles'], array_keys($data['manifests']));
-        return new self($data);
+        $names = array_map('strval', array_keys($data['manifests']));
+        sort($names, SORT_STRING);
+        $self = new self('', $names, $data['profiles']);
+        foreach ($data['manifests'] as $name => $entry) {
+            $self->documents[(string) $name] = [true, $entry];
+        }
+        return $self;
     }
 
+    /**
+     * The whole registry, reassembled: `format` plus every subject's decoded
+     * entry plus the profiles map.
+     *
+     * This is the one call that materialises every document, and every caller
+     * of it already walks the whole library — export_snapshot() freezing a
+     * policy, report() rendering the catalog, sha256() addressing the source.
+     * The reassembly is what makes the split invisible downstream: Canon
+     * sorts keys at every level, so these bytes are the monolith's bytes and
+     * `registry_sha256` did not move (WP-4.5 is the rider that narrows that
+     * hash to per-subject addressing; WP-4.4 deliberately leaves it whole).
+     */
     public function data(): array {
-        return $this->data;
+        $manifests = [];
+        foreach ($this->names() as $name) {
+            $manifests[$name] = $this->document($name)[1];
+        }
+        return ['format' => self::FORMAT, 'manifests' => $manifests, 'profiles' => $this->profiles()];
     }
 
     public function entry(string $name): ?array {
-        $entry = $this->data['manifests'][$name] ?? null;
-        return is_array($entry) ? $entry : null;
+        [$present, $entry] = $this->document($name);
+        return $present && is_array($entry) ? $entry : null;
     }
 
+    /**
+     * The profiles map — `dispositions/profiles.json`, keyed independently of
+     * the adapter documents beside it.
+     *
+     * Absent means none. The monolith's root REQUIRED a `profiles` key and
+     * accepted `{}`; a directory has no root to require a key of, so a library
+     * that reviews no profiles now ships no profiles document, and the
+     * refusals that matter (a profile naming an unreviewed manifest, a
+     * malformed profile) are unchanged in validate_profiles().
+     *
+     * @return array<string,mixed>
+     */
     public function profiles(): array {
-        return $this->data['profiles'];
+        if ($this->profiles !== null) {
+            return $this->profiles;
+        }
+        $file = $this->dir . '/' . self::PROFILES_DOCUMENT . '.json';
+        if ($this->dir === '' || !is_file($file)) {
+            return $this->profiles = [];
+        }
+        $decoded = Canon::decode(Canon::read_file($file));
+        if (!is_array($decoded) || (array_is_list($decoded) && $decoded !== [])) {
+            throw new \RuntimeException(
+                "duo: manifest disposition profiles document '$file' must be an object of profile name => profile"
+            );
+        }
+        return $this->profiles = $decoded;
     }
 
     /**
@@ -221,7 +477,7 @@ final class ManifestDispositions {
      * one definition rather than one per report producer.
      */
     public function sha256(): string {
-        return hash('sha256', Canon::encode($this->data));
+        return hash('sha256', Canon::encode($this->data()));
     }
 
     /**

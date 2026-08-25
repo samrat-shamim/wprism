@@ -158,7 +158,12 @@ function cert_agent_library(string $root, string $label, array $adapterNames, ar
     $dir = $root . '/' . $label;
     mkdir($dir . '/capabilities', 0755, true);
     copy($duoRoot . '/manifests/core.json', $dir . '/core.json');
-    copy($duoRoot . '/manifests/dispositions.json', $dir . '/dispositions.json');
+    // Only `core` is copied, so only `core`'s reviewed document is: WP-4.4
+    // addressed the reviewed source per subject (spec/repo-format.md § v3.4),
+    // and a library carrying entries for manifests it does not hold is exactly
+    // what `make release-gate`'s two-way comparison refuses.
+    mkdir($dir . '/dispositions', 0755, true);
+    copy($duoRoot . '/manifests/dispositions/core.json', $dir . '/dispositions/core.json');
 
     // The shipped platform boundary verbatim: `platform_sha256` inside every
     // signed statement is the hash of these exact bytes, so a fixture that

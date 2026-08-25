@@ -496,7 +496,7 @@ final class FleetCensus {
             throw new FleetCensusRefusal(
                 'census_library_unreviewed',
                 'this manifest library ships no dispositions document, so no adapter in it carries a reviewed claim',
-                'point --manifests at a library carrying dispositions.json, or review the adapters in this one'
+                'point --manifests at a library carrying a dispositions/ directory, or review the adapters in this one'
             );
         }
         $siteMode = (string) ($platform['site_mode'] ?? '');

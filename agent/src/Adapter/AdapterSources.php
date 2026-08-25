@@ -106,7 +106,7 @@ require_once __DIR__ . '/IdentityNamespaces.php';
  * 5. **Certification is external, and a bundled adapter cannot hold it.** With
  *    no signed companion a site adapter carries the synthesized `uncertified`
  *    record below — a fourth status word which cannot be pasted into
- *    dispositions.json as self-certification. A companion under
+ *    dispositions/<name>.json as self-certification. A companion under
  *    adapters/certifications is accepted only when its disposition and complete
  *    evidence are signed by a key in the agent-owned authority registry. A
  *    PLUGIN-bundled adapter is `uncertified` by construction and can never be
@@ -544,6 +544,12 @@ final class AdapterSources {
         // enforces.
         $files = array_merge(
             array_values(glob($library . '/*.json') ?: []),
+            // One reviewed entry per file since WP-4.4. The monolith was
+            // matched by the adapter glob above and skipped by name; the
+            // directory is not matched at all, so a memo that did not witness
+            // these bytes would answer with a disposition an operator had
+            // already revised.
+            glob($library . '/dispositions/*.json') ?: [],
             glob($library . '/capabilities/*.json') ?: []
         );
         if ($repo !== null) {
@@ -589,7 +595,16 @@ final class AdapterSources {
      */
     public static function scan_anchors(string $manifestDir, ?string $repo): array {
         $library = rtrim($manifestDir, '/');
-        $anchors = [$library, $library . '/dispositions.json', $library . '/capabilities'];
+        // `dispositions` is a DIRECTORY since WP-4.4 (ManifestDispositions::
+        // DIRECTORY names it; spelled literally here for the reason the two
+        // class_exists() guards below state — this file is reachable in
+        // contexts that never loaded that class), so it anchors the same
+        // way `capabilities` does: its own stat moves when a reviewed subject
+        // is added, removed or renamed, and the per-document content witness
+        // in scan_dependencies() covers an in-place rewrite that churns no
+        // entry. Anchoring the retired `dispositions.json` instead would have
+        // left a memo that never notices a reviewed claim changing.
+        $anchors = [$library, $library . '/dispositions', $library . '/capabilities'];
         if ($repo !== null) {
             $root = rtrim($repo, '/');
             $siteDir = $root . '/' . self::SITE_DIR;
@@ -897,7 +912,18 @@ final class AdapterSources {
         // is exactly the failure mode to refuse: an operator who wrote them
         // believes their adapter is certified, or believes their interpreter
         // will run. Say so instead of ignoring the bytes.
-        foreach (['dispositions.json' => 'certification data', 'capabilities' => 'capability registry data'] as $entry => $what) {
+        // Both spellings of the reviewed claim source are named: WP-4.4 moved
+        // the agent's own from `dispositions.json` to `dispositions/`, and an
+        // operator following that layout into their site source is making
+        // exactly the same claim this refusal exists for. The retired file
+        // name stays in the list because it is what an older copied library
+        // put there, and it must be answered by name rather than ignored.
+        $reserved = [
+            'dispositions.json' => 'certification data',
+            'dispositions' => 'certification data',
+            'capabilities' => 'capability registry data',
+        ];
+        foreach ($reserved as $entry => $what) {
             if (file_exists($siteDir . '/' . $entry)) {
                 self::refuse(
                     $collect,

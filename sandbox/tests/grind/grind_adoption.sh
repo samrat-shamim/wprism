@@ -332,7 +332,7 @@ situation_a2() {
   init_capture_baseline "$S" "${PAIR}1"
   if ! dry; then
     # The FSE profile is core's certified profile for exactly these types
-    # (manifests/dispositions.json profiles.fse.scope). A block theme's
+    # (manifests/dispositions/profiles.json, fse.scope). A block theme's
     # site-editor customisations live in non-public _builtin types the scope
     # gate never names, so init proposes the profile's scope itself and SAYS so
     # — the alternative was a customised footer left behind silently.

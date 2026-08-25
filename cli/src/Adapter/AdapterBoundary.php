@@ -33,7 +33,7 @@ use Duo\Canon;
  * (`sandbox/bin/fetch-artifact.sh:10-45`) accepts it unmodified.
  *
  * It never writes a manifest. The range in `manifests/<name>.json` and its
- * Canon-byte-equal restatement in `manifests/dispositions.json` are ONE
+ * Canon-byte-equal restatement in `manifests/dispositions/<name>.json` are ONE
  * reviewed human edit, because `ManifestDispositions.php:632-637` refuses the
  * pair the instant they disagree ("versions disagree with its manifest
  * contract"), and because AGENTS.md rule 2 makes a byte under `manifests/`
@@ -628,7 +628,7 @@ final class AdapterBoundary {
 
     private const REVIEW_REQUIRED = [
         'manifest_edit' => 'not-performed',
-        'files' => ['manifests/<name>.json', 'manifests/dispositions.json'],
+        'files' => ['manifests/<name>.json', 'manifests/dispositions/<name>.json'],
         'why' => 'The range and its restatement are ONE reviewed human edit. ManifestDispositions.php:632-637 '
             . 'refuses the pair the moment they disagree ("versions disagree with its manifest contract"), and '
             . 'AGENTS.md rule 2 makes any byte under manifests/ fleet-visible: every deployed site holding a '
