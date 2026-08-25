@@ -882,6 +882,29 @@ namespace {
     );
     duo_check_same(
         [
+            '3.7' => [
+                'url' => 'https://downloads.wordpress.org/plugin/polylang.3.7.zip',
+                'sha256' => 'c9df1dd6fe450b977ad922ecc6889fc5fc0cc7babb85cac6104c5357ed8606c6',
+                'role' => 'refusal-fixture',
+            ],
+            // wp.org's first admitted package reports the canonical header
+            // string "3.8"; its nonexistent 3.8.0 URL is not an artifact.
+            '3.8' => [
+                'url' => 'https://downloads.wordpress.org/plugin/polylang.3.8.zip',
+                'sha256' => '44e77a8e5f8cd05da216c22e6b738201639f330afa6a2b468b615d3e091a00af',
+                'role' => 'certified-boundary',
+            ],
+            '3.8.6' => [
+                'url' => 'https://downloads.wordpress.org/plugin/polylang.3.8.6.zip',
+                'sha256' => 'dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa',
+                'role' => 'certified-boundary',
+            ],
+        ],
+        array_intersect_key($artifactLock['plugins']['polylang'] ?? [], array_flip(['3.7', '3.8', '3.8.6'])),
+        'Polylang pins the adjacent lower refusal, canonical official lower boundary, and standalone exact 3.8.6 fixture'
+    );
+    duo_check_same(
+        [
             'url' => 'https://downloads.wordpress.org/plugin/polylang.3.8.7.zip',
             'sha256' => 'bdb1e8d929410b3083f0884e6a356f91d659159771cc63893c9c06e83daddcb0',
             'role' => 'certified-boundary',
@@ -892,9 +915,17 @@ namespace {
     $versionMatrix = (string) file_get_contents(dirname(__DIR__, 2) . '/certify/certify_version_matrix.sh');
     duo_check(
         str_contains($versionMatrix, 'for POLYLANG_VERSION in 3.8 3.8.7; do')
+            && str_contains($versionMatrix, 'fetch_artifact polylang "$POLYLANG_VERSION" cli1')
             && str_contains($versionMatrix, 'fetch_artifact polylang 3.8.7 cli1')
+            && str_contains($versionMatrix, '[ "$INSTALLED_1" = "$POLYLANG_VERSION" ]')
             && str_contains($versionMatrix, "[ \"\$(wp1 plugin get polylang --field=version)\" = '3.8.7' ]"),
-        'version matrix installs and exercises the exact official admitted upper boundary'
+        'version matrix installs and exercises both exact official admitted boundaries'
+    );
+    duo_check(
+        str_contains($versionMatrix, 'negative control: polylang 3.7')
+            && str_contains($versionMatrix, 'fetch_artifact polylang 3.7 cli1')
+            && str_contains($versionMatrix, 'polylang 3.7 (real, installed, immediately below'),
+        'version matrix installs the real adjacent 3.7 lower control and proves its version-gate refusal'
     );
     duo_check(
         str_contains($versionMatrix, 'synthetic Polylang 3.8.8')
@@ -924,6 +955,11 @@ namespace {
         duo_check_canonical_json($entry['entry'] ?? []),
         duo_check_canonical_json($registry['polylang'] ?? []),
         'ordinary Polylang conformance uses the exact standalone fixture, including synced patterns'
+    );
+    duo_check_same(
+        [['slug' => 'polylang', 'version' => '3.8.6']],
+        $registry['polylang']['plugins'] ?? null,
+        'ordinary Polylang conformance is pinned to the exact standalone 3.8.6 artifact'
     );
     duo_check_same(
         ['post', 'page', 'wp_block', 'attachment'],
@@ -978,8 +1014,13 @@ namespace {
             && str_contains($checksScript, 'Polylang native synced-pattern translation map did not bind target-local identities')
             && str_contains($checksScript, 'wp-json/wp/v2/pages/$PAGE_EN_ID')
             && str_contains($checksScript, 'conformance: recapture Polylang private page and scheduled pattern')
-            && str_contains($checksScript, 'Polylang page/pattern recapture retry reran effects'),
-        'Polylang checker proves source-authored status/content, native translation-group id rewrites, hostile target adoption, page routing and recapture idempotence'
+            && str_contains($checksScript, 'Polylang page/pattern recapture retry reran effects')
+            && str_contains($checksScript, '.source == "native:rewrite.flush"')
+            && str_contains($checksScript, '.after.native_catalogs_hash')
+            && str_contains($checksScript, 'populated Polylang string translations were not captured as the reviewed plain-data termmeta shape')
+            && str_contains($checksScript, 'Polylang projection failure ran rewrite generation despite the preceding action refusal')
+            && !str_contains($checksScript, '.after.rewrite_rules_count'),
+        'Polylang checker proves source-authored status/content, native translation-group id rewrites, hostile target adoption, split projection/rewrite receipts, reviewed string catalogs, page routing and recapture idempotence'
     );
     duo_check(
         substr_count($versionMatrix, '"post_types": ["post", "page", "wp_block", "attachment"],') === 2,

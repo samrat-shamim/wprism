@@ -329,11 +329,16 @@ grep -Fq 'polylang-nav-menus@2.0.0' <<<"$PROVIDER_RECEIPT" \
 if jq -e 'type == "object"' <<<"$PROVIDER_RECEIPT" >/dev/null 2>&1; then
   jq -e '
     any(.actions[]?; .source == "provider:polylang-nav-menus/synchronize_runtime" and .verified == true and
-      .after.default_category_language == "en" and .after.nav_menu_locations_count >= 1 and .after.rewrite_rules_count > 0 and
-      (.after.nav_menu_locations_hash | test("^[0-9a-f]{64}$")) and (.after.rewrite_rules_hash | test("^[0-9a-f]{64}$")))
-  ' <<<"$PROVIDER_RECEIPT" >/dev/null || fail 'Polylang provider JSON receipt omitted its closed runtime projection'
+      .after.default_category_language == "en" and .after.nav_menu_locations_count >= 1 and
+      (.after.nav_menu_locations_hash | test("^[0-9a-f]{64}$")) and
+      (.after.native_catalogs_hash | test("^[0-9a-f]{64}$"))) and
+    any(.actions[]?; .source == "native:rewrite.flush" and .verified == true and
+      .after.rules_present == true and .after.rules_count > 0 and
+      (.after.rules_hash | test("^[0-9a-f]{64}$")) and
+      (.after.runtime_rules_hash | test("^[0-9a-f]{64}$")))
+  ' <<<"$PROVIDER_RECEIPT" >/dev/null || fail 'Polylang projection/native rewrite receipts omitted their closed postconditions'
 fi
-pass 'Polylang provider 2.0.0 verifies default category, raw menu locations and native rewrites'
+pass 'Polylang provider 2.0.0 verifies plugin projections; the separate native action verifies rewrites'
 
 for language in en fr ar; do
   URL=$(jq -r --arg language "$language" '.posts[$language].permalink' <<<"$TARGET")
@@ -472,12 +477,14 @@ wp_conf1 eval '
 LANG_TERM=$(jq -r '.language_terms.fr' <<<"$SOURCE_IDS")
 require_fixture_ids LANG_TERM
 wp_conf1 term meta add "$LANG_TERM" _pll_strings_translations 'a:1:{i:0;a:2:{i:0;s:5:"Hello";i:1;s:7:"Bonjour";}}' >/dev/null
-STRINGS_RC=0
-STRINGS_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || STRINGS_RC=$?
-[ "$STRINGS_RC" -ne 0 ] && grep -Fq 'duo-terms/v1 cannot author that surface' <<<"$STRINGS_OUT" \
-  || fail "populated Polylang string translations did not refuse explicitly: $STRINGS_OUT"
+STRINGS_STATE="$CONF_REPO1/.tmp-polylang-strings"
+wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-strings >/dev/null
+jq -s -e 'any(.[]; .meta._pll_strings_translations == [["Hello", "Bonjour"]])' \
+  "$STRINGS_STATE"/terms/language/*.json >/dev/null \
+  || fail 'populated Polylang string translations were not captured as the reviewed plain-data termmeta shape'
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$BASELINE" ] \
-  || fail 'Polylang string-translation refusal partially published canonical state'
+  || fail 'Polylang string-translation probe partially published canonical state'
+rm -rf "$STRINGS_STATE"
 wp_conf1 term meta delete "$LANG_TERM" _pll_strings_translations >/dev/null
 
 DELETE_BACKUP="${CONF_REPO1:-siterepo/conf1}/.tmp-polylang-delete-row.json"
@@ -507,7 +514,7 @@ wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-restored >/d
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-polylang-restored" \
   || fail 'Polylang source did not restore exactly after malformed/secret/strings/deletion probes'
 rm -rf "$CONF_REPO1/.tmp-polylang-restored"
-pass 'malformed groups/language metadata, switcher schema/secrets, unsupported strings and language deletion all refuse atomically'
+pass 'malformed groups/language metadata, switcher schema/secrets and language deletion refuse atomically; reviewed string catalogs capture without publication'
 
 # Managed source and target edits form a true three-way conflict. Unforced
 # apply must be mutation-free; explicit repository authority then converges.
@@ -560,6 +567,8 @@ $COMPOSE run --rm -T --user=0 cli2 sh -c '
 ' || fail 'could not install the Polylang provider fault hook into the disposable target volume'
 rm -f "$FAULT_HOOK"
 FAILURE_REV_BEFORE=$(wp_conf2 eval 'echo (string)\Duo\Ledger::kv_get("applied_revision");')
+FAULT_REWRITE_BEFORE=$(wp_conf2 db query "SELECT SHA2(option_value,256) FROM wp_options WHERE option_name='rewrite_rules'" --skip-column-names)
+require_observed_nonempty 'Polylang provider-fault precondition rewrite fingerprint' "$FAULT_REWRITE_BEFORE"
 FAULT_RC=0
 FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
 require_duo_answered 'Polylang provider retained-write failure' human "$FAULT_OUT"
@@ -573,6 +582,8 @@ require_duo_answered 'Polylang provider retained-write failure' human "$FAULT_OU
   || fail 'Polylang provider failure did not retain post-commit authored intent'
 [ "$(wp_conf2 option get duo_polylang_undeclared_neighbor)" = target-only-preserved ] \
   || fail 'Polylang provider failure crossed the unrelated target option boundary'
+[ "$(wp_conf2 db query "SELECT SHA2(option_value,256) FROM wp_options WHERE option_name='rewrite_rules'" --skip-column-names)" = "$FAULT_REWRITE_BEFORE" ] \
+  || fail 'Polylang projection failure ran rewrite generation despite the preceding action refusal'
 $COMPOSE run --rm -T --user=0 cli2 rm -f \
   /var/www/html/wp-content/.duo-polylang-provider-fault \
   /var/www/html/wp-content/mu-plugins/duo-polylang-provider-fault.php \
@@ -582,12 +593,14 @@ require_duo_answered 'Polylang provider retry after exact repair' json "$RETRY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
   any(.actions[]?; .source == "provider:polylang-nav-menus/synchronize_runtime" and
-    .verified == true and .after.default_category_language == "fr" and .after.rewrite_rules_count > 0)
-' <<<"$RETRY" >/dev/null || fail "Polylang provider retry did not consume durable intent: $RETRY"
+    .verified == true and .after.default_category_language == "fr" and .after.nav_menu_locations_count >= 1) and
+  any(.actions[]?; .source == "native:rewrite.flush" and .verified == true and
+    .after.rules_present == true and .after.rules_count > 0)
+' <<<"$RETRY" >/dev/null || fail "Polylang projection/native rewrite retry did not consume durable intent: $RETRY"
 RETRIED=$(observe_polylang conf2)
 jq -e '.options.default_lang == "fr" and .default_category.language == "fr" and .theme_locations.primary == .menus.fr.id' <<<"$RETRIED" >/dev/null \
   || fail "Polylang provider retry did not converge native projections: $RETRIED"
-pass 'post-commit provider failure retains intent/authority and exact repair retries every derived projection'
+pass 'post-commit projection failure retains intent/authority and exact repair retries plugin and rewrite effects'
 
 # Two apply processes compete over one translated title. At least one must
 # succeed; the other may only stop at the named promotion lock.
