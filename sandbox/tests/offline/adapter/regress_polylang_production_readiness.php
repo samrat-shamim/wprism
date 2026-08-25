@@ -17,6 +17,7 @@ namespace {
     $GLOBALS['pll_child_calls'] = [];
     $GLOBALS['pll_child_throw'] = null;
     $GLOBALS['pll_child_result'] = null;
+    $GLOBALS['pll_execute_fresh_catalog_child'] = false;
     $GLOBALS['pll_cache_deletes'] = [];
     $GLOBALS['pll_cache_delete_result'] = true;
     $GLOBALS['pll_option_cache'] = [];
@@ -202,6 +203,26 @@ namespace {
         return $GLOBALS['pll_term_meta'][$termId][$key] ?? '';
     }
 
+    function wp_json_encode(mixed $value): string|false {
+        return json_encode($value);
+    }
+
+    /** @return array{return_code:int,stdout:string,stderr:string} */
+    function pll_execute_fresh_catalog_child(string $code): array {
+        ob_start();
+        try {
+            eval($code);
+            return [
+                'return_code' => 0,
+                'stdout' => (string) ob_get_clean(),
+                'stderr' => '',
+            ];
+        } catch (\Throwable $failure) {
+            ob_end_clean();
+            throw $failure;
+        }
+    }
+
     function clean_term_cache(int|array $termIds, string $taxonomy = ''): void {
         foreach ((array) $termIds as $termId) {
             $GLOBALS['pll_cleaned_terms'][] = [(int) $termId, $taxonomy];
@@ -334,6 +355,11 @@ namespace {
         public function has_languages(): bool { return $this->languages !== []; }
     }
 
+    final class PLL_MO {
+        public function import_from_db(object $language): void {}
+        public function translate_if_any(string $original): string { return ''; }
+    }
+
     function wp_get_nav_menu_object(int $menuId): object|false {
         return isset($GLOBALS['pll_menus'][$menuId]) ? (object) ['term_id' => $menuId] : false;
     }
@@ -382,6 +408,14 @@ namespace Duo {
             $GLOBALS['pll_child_calls'][] = [$command, $timeoutSeconds, $stdoutLimit, $stderrLimit];
             if ($GLOBALS['pll_child_throw'] instanceof \Throwable) {
                 throw $GLOBALS['pll_child_throw'];
+            }
+            if ($GLOBALS['pll_execute_fresh_catalog_child']) {
+                $quoted = substr($command, strlen('eval '));
+                if (strlen($quoted) < 2 || $quoted[0] !== "'" || substr($quoted, -1) !== "'") {
+                    throw new \RuntimeException('fixture catalog child command is not shell-quoted');
+                }
+                $code = str_replace("'\\''", "'", substr($quoted, 1, -1));
+                return \pll_execute_fresh_catalog_child($code);
             }
             return $GLOBALS['pll_child_result'];
         }
@@ -642,6 +676,7 @@ namespace {
             'stderr' => '',
         ];
         $GLOBALS['pll_child_throw'] = null;
+        $GLOBALS['pll_execute_fresh_catalog_child'] = false;
         $GLOBALS['pll_after_command'] = static function (): void {
             $GLOBALS['pll_options']['rewrite_rules'] = [
                 '^fr/?$' => 'index.php?lang=fr',
@@ -743,6 +778,19 @@ namespace {
     duo_check(
         is_string($published) && !str_contains($published, 'preserve-me') && !str_contains($published, 'index.php'),
         'provider receipt excludes authored, target-owned, and rewrite-rule bytes'
+    );
+
+    $provider = pll_reset();
+    $GLOBALS['pll_runtime'] = (object) [
+        'model' => new PllNativeModel([(object) ['slug' => 'en', 'term_id' => 7]]),
+    ];
+    $GLOBALS['pll_term_meta'][7]['_pll_strings_translations'] = '';
+    $GLOBALS['pll_execute_fresh_catalog_child'] = true;
+    $emptyCatalogReceipt = $provider->invoke('synchronize_runtime', []);
+    duo_check(
+        ($emptyCatalogReceipt['verified'] ?? null) === true
+            && preg_match('/^[0-9a-f]{64}$/D', (string) ($emptyCatalogReceipt['after']['native_catalogs_hash'] ?? '')) === 1,
+        'fresh catalog child normalizes Polylang’s exact empty termmeta sentinel like the parent projection'
     );
 
     $provider = pll_reset();

@@ -372,6 +372,9 @@ if (is_array($languages)) {
             break;
         }
         $raw = get_term_meta($language->term_id, '_pll_strings_translations', true);
+        if ($raw === '') {
+            $raw = array();
+        }
         if (!is_array($raw) || !class_exists('PLL_MO')) {
             $projection = null;
             break;

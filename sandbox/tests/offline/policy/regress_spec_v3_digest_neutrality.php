@@ -156,7 +156,7 @@ const REVIEWED_MOVES = [
         // The reviewed Polylang production-readiness port pins its 3.8.x
         // range, expanded authored surface, interpreter, manifest provider,
         // and per-subject disposition.
-        'polylang' => '0b0e12156f7d3728fccd0767548791ce8afbbadfc0c3419ca78837a066995e2c',
+        'polylang' => '953e84c39d44143be5ee583aaaf626fba51ca8130844753b88eca7fe0d74ae18',
         // manifests/the-events-calendar.json rewritten (block_attrs, widgets,
         // interpreter, option_autoload) AND dispositions/the-events-calendar
         // .json promoted experimental -> certified. Both halves are inside the
@@ -169,10 +169,10 @@ const REVIEWED_MOVES = [
         'the-events-calendar' => '2f9d089a18581383d7dcd2b508b54c34674a4ae1e5fb4f424499e6328010936c',
     ],
     'pin_sets' => [
-        'all-16' => 'cc4375424f6d14f448c14358537eb10cd83ed09a64ea1912d4b05fe0a27222e1',
+        'all-16' => 'f4cd670c575541cc2649c4a4e4722d7820f700e3ad79825721ee01ddcdabe976',
         'core+elementor+yoast+contact-form-7' => '52200323db9516a2eb7b5738540534aa58e9115c04fb3ddf0b182ea4089d27f9',
         'core+paid-memberships-pro+code-snippets' => '9d89e59d838e145cbd64c6b172ad5634886bdae6ea027eb8f41e57bcd1b048dc',
-        'core+polylang+the-events-calendar' => '965f7f063db8f7df89f6b090a280bcd7ae8d7bbb6534a6dddd39fc1268724712',
+        'core+polylang+the-events-calendar' => '19d9d2d078a13a7d68765bf740b90bbc717e49eebda974b1739eafaa2936b35f',
         'core+woocommerce+acf' => '247e7b9f084d050259130eee1d7bbb42aa1732dc9cd410df165a8c36a51f22b3',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
