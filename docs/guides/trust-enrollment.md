@@ -5,6 +5,18 @@
 after a compromise — and you need to know what that key will be able to do, what
 your signature on it actually asserts, and what it costs to take it back.
 
+> **If you only need to certify your OWN site's adapter under your OWN key,
+> you do not need this page.** That path — `adapters/authorities.json`, the
+> **site** trust root, populated by `duo adapter certify` itself — is fully
+> shipped today, needs no gate, and is covered end to end in
+> [adapter-authoring.md § Your organization's own
+> approval](adapter-authoring.md#your-organizations-own-approval-duo-adapter-certify).
+> This page is about the **platform** trust root instead:
+> `manifests/capabilities/adapter-authorities.json`, the one only this project
+> can populate, gated on **G4**, and — as stated below — still empty. None of
+> the G4 gating on this page applies to a site adapter certified under its own
+> key.
+
 This is the operator-and-reviewer half of
 [spec/repo-format.md § v3.7 and § v3.8](../../spec/repo-format.md). The spec says
 what the wire is; this page says what you run, what you must establish before you
