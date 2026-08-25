@@ -226,7 +226,7 @@ duo_check_same(
 );
 // The other half of the same claim, and the one that keeps REVIEWED_MOVES
 // honest: WHICH digests moved, not merely that the overlay reproduces them. A
-// third adapter drifting would satisfy nothing here — it would be a red run
+// fourth adapter drifting would satisfy nothing here — it would be a red run
 // naming itself, which is what an accidental edit under manifests/ has to be.
 $movedNames = [];
 foreach ($observed as $name => $digest) {
