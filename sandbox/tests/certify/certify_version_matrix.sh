@@ -497,6 +497,7 @@ check_the_events_calendar_boundary_content() {
   local CONF2_PORT="$PORT2"
   local COMPOSE="$PAIR_COMPOSE_STRING"
   local TEC_EXPECTED_VERSION="${TEC_VERSION:-6.17.3}"
+  local TEC_PRESERVE_ID_FIXTURES=1
   local TEC_BOUNDARY_ONLY=0
   if [ "$TEC_EXPECTED_VERSION" != 6.17.2 ]; then
     TEC_BOUNDARY_ONLY=1
@@ -1886,6 +1887,7 @@ EOF
     pass "TEC populated 6.17.2 sites upgrade in place to 6.17.3 with exact native behavior, no authored drift, and explicit code-baseline authority"
     TEC_VERSION=6.17.2
   fi
+  rm -f "siterepo/${PAIR}1/.tmp-tec-source-ids.json" "siterepo/${PAIR}2/.tmp-tec-target-ids.json"
 done
 fi
 

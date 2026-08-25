@@ -3237,6 +3237,8 @@ jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] |
 wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-final >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-tec-final" || fail "TEC final recovered state was not byte-identical"
 rm -rf "$CONF_REPO2/.tmp-tec-final"
-rm -f "$SOURCE_IDS_FILE" "$TARGET_IDS_FILE"
+if [ "${TEC_PRESERVE_ID_FIXTURES:-0}" != 1 ]; then
+  rm -f "$SOURCE_IDS_FILE" "$TARGET_IDS_FILE"
+fi
 unset -f tec_target_storage_fingerprint
 pass "deactivate/reactivate, residue-preserving uninstall, absent-code refusal, exact reinstall, native readback, and final recapture are clean"

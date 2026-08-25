@@ -8810,6 +8810,7 @@ foreach ([
     'conf2) wp2 "$@" ;;' => 'the target-side mapping',
     '*) fail "unknown TEC check environment: $env" ;;' => 'the unknown-side refusal',
     'unset -f wp_conf1 wp_conf2 wp_env' => 'the scoped helper cleanup',
+    'local TEC_PRESERVE_ID_FIXTURES=1' => 'matrix ownership of repeated-check identity fixtures',
 ] as $matrixWrapperEvidence => $matrixWrapperLabel) {
     duo_check(
         str_contains($tecMatrixWrapper, $matrixWrapperEvidence),
@@ -8855,6 +8856,20 @@ duo_check(
             < strpos($tecMatrixCase, 'check_the_events_calendar_boundary_content'),
     'the exact matrix proves and removes target-local witnesses after apply and before plugin checks/recapture'
 );
+$tecMatrixFirstCheck = strpos($tecMatrixCase, 'check_the_events_calendar_boundary_content');
+$tecMatrixUpgradeCheck = strpos($tecMatrixCase, 'TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content');
+$tecMatrixIdentityCleanup = strpos(
+    $tecMatrixCase,
+    'rm -f "siterepo/${PAIR}1/.tmp-tec-source-ids.json" "siterepo/${PAIR}2/.tmp-tec-target-ids.json"'
+);
+duo_check(
+    $tecMatrixFirstCheck !== false
+        && $tecMatrixUpgradeCheck !== false
+        && $tecMatrixIdentityCleanup !== false
+        && $tecMatrixFirstCheck < $tecMatrixUpgradeCheck
+        && $tecMatrixUpgradeCheck < $tecMatrixIdentityCleanup,
+    'the matrix retains TEC identity premises through the populated upgrade check and removes them afterward'
+);
 
 foreach ([
     'tec_deactivate_reactivate_cycle "${TEC_EXPECTED_VERSION:-6.17.3}"',
@@ -8878,6 +8893,8 @@ foreach ([
     'TEC exact reinstall did not restore the native capability set',
     'TEC exact reinstall did not converge the exact mixed settings row',
     'diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-tec-final"',
+    'if [ "${TEC_PRESERVE_ID_FIXTURES:-0}" != 1 ]; then',
+    'rm -f "$SOURCE_IDS_FILE" "$TARGET_IDS_FILE"',
 ] as $lifecycleEvidence) {
     duo_check(
         str_contains($deletionCheck, $lifecycleEvidence),
