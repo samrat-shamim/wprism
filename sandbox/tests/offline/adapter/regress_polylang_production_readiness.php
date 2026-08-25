@@ -1155,6 +1155,7 @@ namespace {
             && str_contains($checksScript, '$blockSlugs =')
             && str_contains($checksScript, "'redirect_lang' => is_array(\$option)")
             && str_contains($checksScript, "'rewrite' => is_array(\$option)")
+            && str_contains($checksScript, '.options.media_support == true')
             && str_contains($checksScript, '.pages.fr.status == "private"')
             && str_contains($checksScript, '.blocks.fr.status == "future"')
             && str_contains($checksScript, 'for kind in posts pages blocks attachments terms language_terms menus; do')

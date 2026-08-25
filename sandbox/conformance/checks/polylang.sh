@@ -206,7 +206,7 @@ jq -e --arg version "$POLYLANG_EXPECTED_VERSION" '
   .language_terms.fr.locale == "fr_FR" and .language_terms.fr.name == "Français 東京" and .language_terms.fr.rtl == false and
   .language_terms.ar.locale == "ar" and .language_terms.ar.name == "العربية 🚀" and .language_terms.ar.rtl == true and
   .options.browser == false and .options.default_lang == "en" and .options.force_lang == 1 and
-  .options.hide_default == false and .options.media_support == 1 and
+  .options.hide_default == false and .options.media_support == true and
   .options.post_types == [] and .options.taxonomies == [] and
   .options.redirect_lang == false and .options.rewrite == true and
   .options.sync == ["taxonomies","post_meta","post_date"] and
