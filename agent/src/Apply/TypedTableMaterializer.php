@@ -24,6 +24,9 @@ if (!class_exists(TableGraph::class, false)) {
 if (!class_exists(TableSchema::class, false)) {
     require_once __DIR__ . '/../Kernel/TableSchema.php';
 }
+if (!class_exists(ColumnCodecGrammar::class, false)) {
+    require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
+}
 
 /**
  * Write-side materialization boundary for authored typed tables (DUO-3349).
@@ -49,6 +52,17 @@ final class TypedTableMaterializer {
     private \Closure $metaKeyInKeyspace;
     private \Closure $serializeValue;
     private \Closure $cacheDelete;
+    /**
+     * `(string $table): array<string,array{container:string,leaves:string}>` —
+     * the table's `column_codecs` projection (WP-6.1).
+     *
+     * REQUIRED, not defaulted. A boundary whose codec source may be omitted
+     * would write the canonical container's bytes straight into the column on
+     * any wiring that forgot it, which is the corruption this primitive exists
+     * to prevent, arriving silently through a constructor default. Every
+     * construction site names it.
+     */
+    private \Closure $columnCodecs;
 
     public function __construct(
         \Closure $rowTables,
@@ -59,7 +73,8 @@ final class TypedTableMaterializer {
         \Closure $unpackCompositeId,
         \Closure $metaKeyInKeyspace,
         \Closure $serializeValue,
-        \Closure $cacheDelete
+        \Closure $cacheDelete,
+        \Closure $columnCodecs
     ) {
         $this->rowTables = $rowTables;
         $this->metaTables = $metaTables;
@@ -70,6 +85,25 @@ final class TypedTableMaterializer {
         $this->metaKeyInKeyspace = $metaKeyInKeyspace;
         $this->serializeValue = $serializeValue;
         $this->cacheDelete = $cacheDelete;
+        $this->columnCodecs = $columnCodecs;
+    }
+
+    /**
+     * One authored column's value on the way back to the live row.
+     *
+     * The no-codec arm is byte for byte the treatment every authored column had
+     * before WP-6.1. With a codec the canonical container is opened, its
+     * tokenized leaves rebound for THIS target, and the container re-encoded —
+     * so a `{{site_url}}` that expands to a different byte length leaves the
+     * `s:<n>:` prefixes correct, which is the whole reason the codec exists.
+     *
+     * @param array<string,array{container:string,leaves:string}> $codecs
+     */
+    private static function applyColumn(mixed $value, array $codecs, string $column, object $tokens, string $where): mixed {
+        if (!isset($codecs[$column])) {
+            return is_string($value) ? $tokens->detokenize_text($value) : $value;
+        }
+        return ColumnCodecGrammar::apply_value($value, $codecs[$column], $tokens, $where);
     }
 
     /**
@@ -152,13 +186,20 @@ final class TypedTableMaterializer {
         $pk = $decl['pk'];
         $colTypes = TableSchema::live_column_types($entity['type']) ?? [];
 
+        $codecs = ($this->columnCodecs)($entity['type']);
         $data = [];
         foreach ($decl['columns'] ?? [] as $col => $rule) {
             if (($rule['class'] ?? '') !== 'authored') {
                 continue;
             }
             $value = $front['columns'][$col] ?? null;
-            $data[$col] = is_string($value) ? $tokens->detokenize_text($value) : $value;
+            $data[$col] = self::applyColumn(
+                $value,
+                $codecs,
+                (string) $col,
+                $tokens,
+                "table '{$entity['type']}' column '$col' (row $uuid)"
+            );
         }
         foreach ($decl['refs'] ?? [] as $ref) {
             $col = $ref['column'];
@@ -209,13 +250,20 @@ final class TypedTableMaterializer {
             $localByColumn[$column] = $tokens->token_to_id($token);
         }
 
+        $codecs = ($this->columnCodecs)($entity['type']);
         $authored = [];
         foreach ($decl['columns'] ?? [] as $column => $rule) {
             if (($rule['class'] ?? '') !== 'authored') {
                 continue;
             }
             $value = $front['columns'][$column] ?? null;
-            $authored[$column] = is_string($value) ? $tokens->detokenize_text($value) : $value;
+            $authored[$column] = self::applyColumn(
+                $value,
+                $codecs,
+                (string) $column,
+                $tokens,
+                "table '{$entity['type']}' column '$column' (composite row $uuid)"
+            );
         }
 
         $where = [

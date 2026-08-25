@@ -15,26 +15,22 @@ Every coordinate names its `primitive_required` from a closed vocabulary in the 
 | a provider whose success is a bounded, verified postcondition rather than an exit-code-only callback | 3 (Code Snippets, Redirection, WPS Hide Login) | code-snippets, redirection, wps-hide-login |
 | a generic dynamic derived option-name reference rule | 1 (Custom Post Type UI) | custom-post-type-ui |
 | a verified post-apply type-registration/process boundary | 1 (Custom Post Type UI) | custom-post-type-ui |
-| structured typed-table column codecs that decode, tokenize string leaves, and re-encode canonical PHP serialization | 1 (Redirection) | redirection |
 | an explicit structured-leaf text codec independent of fake reference paths | 1 (Custom Post Type UI) | custom-post-type-ui |
 | structured post-body reference paths | 1 (WPForms Lite) | wpforms |
 | a complete taxonomy/delete-scope exercise | 1 (WPForms Lite) | wpforms |
-| a type-preserving string-id attribute codec | 1 (WPForms Lite) | wpforms |
 
 ## WPForms Lite 2.0.0.4 / 2.0.0.5
 
 - `wpforms` post content is JSON and includes the form's source-local numeric `id`. `body: "verbatim"` preserves the wrong id on a target whose post id differs; it does not provide fidelity.
-- The `wpforms/form-selector` Gutenberg block persists `formId` as a JSON string. The current block-reference codec accepts `int|int[]` and writes an integer back, changing the stored type even if the identity resolves.
 - Forms also use the `wpforms_form_tag` taxonomy. A forms-only post-type draft omits authored plugin state.
 
-Required platform work: structured post-body reference paths, a type-preserving string-id attribute codec, and a complete taxonomy/delete-scope exercise. The WPForms site adapter in `docs/grind/adapter-walk.md` remains an authoring and trust-flow fixture only; it is not a platform support claim.
+Required platform work: structured post-body reference paths and a complete taxonomy/delete-scope exercise. The block-selector coordinate closed in WP-6.1 and its `attr_id_codecs` declaration is exercised end to end by `sandbox/tests/offline/grammar/regress_attr_id_codec_grammar.php`; the two above remain. The WPForms site adapter in `docs/grind/adapter-walk.md` remains an authoring and trust-flow fixture only; it is not a platform support claim.
 
 ## Redirection 5.9.0
 
-- `redirection_items.action_data` can be a PHP-serialized array containing a target URL. Typed-table authored strings currently pass through `tokenize_text()` as opaque bytes. Replacing a source URL can change its byte length without updating PHP serialization length prefixes, producing invalid data on capture.
 - Group/item raw writes also bypass `Red_Module::flush()`, so generated module state needs a bounded postcondition rather than an exit-code-only callback.
 
-Required platform work: structured typed-table column codecs that decode, tokenize string leaves, and re-encode canonical PHP serialization, plus a verified module-flush provider. Until both exist, no Redirection manifest is shipped.
+Required platform work: a verified module-flush provider. The `action_data` coordinate closed in WP-6.1 — `sandbox/tests/offline/grammar/regress_column_codec_grammar.php` authors this candidate end to end as a `column_codecs` fixture adapter that validates, captures and round-trips. Capture is therefore representable; the module-flush postcondition is not, so no Redirection manifest is shipped and none would claim apply if it were.
 
 ## Custom Post Type UI 1.19.3
 
@@ -55,12 +51,25 @@ These are explicit promotion blockers in `manifests/dispositions/`, not silent c
 
 These shipped. They stay in the ledger because the primitive that closed each one is the unit the open table above counts in, and a vocabulary with no closed entries cannot be checked against reality.
 
+Closure is per COORDINATE, so a candidate appears here for the blockers that shipped and above for the ones that have not. A row leaves the blocked sections entirely only when every coordinate is closed.
+
 | Candidate | Grammar coordinate | Primitive shipped | Closed by |
 |---|---|---|---|
+| WPForms Lite 2.0.0.4 / 2.0.0.5 | `block_attrs.wpforms/form-selector` | a type-preserving string-id attribute codec | `agent/src/Grammar/AttrIdCodecGrammar.php`, `sandbox/tests/offline/grammar/regress_attr_id_codec_grammar.php` |
+| Redirection 5.9.0 | `tables.redirection_items.columns.action_data` | structured typed-table column codecs that decode, tokenize string leaves, and re-encode canonical PHP serialization | `agent/src/Grammar/ColumnCodecGrammar.php`, `sandbox/tests/offline/grammar/regress_column_codec_grammar.php` |
 | Paid Memberships Pro 3.8.2 / 3.8.3 | `tables.pmpro_memberships_pages.identity` | join-table identity with no scalar primary key (`identity.mode: composite_ref`) | `agent/src/Policy/ManifestGrammar.php`, `manifests/paid-memberships-pro.json` |
 | WooCommerce 11.0.0 | `option_name_refs[woocommerce-zone-method-settings]` | an option-name reference rule binding a numeric row id captured from the option NAME | `agent/src/Grammar/OptionReferenceGrammar.php`, `manifests/woocommerce.json` |
 | Ninja Forms 3.14.11 | `tables.nf3_forms.invalidate` | a per-row `invalidate` declaration that drops a plugin's own derived cache after every apply-time write | `agent/src/Apply/TypedTableMaterializer.php`, `manifests/ninja-forms.json` |
 | The Events Calendar 6.17.2 | `post_types.tribe_events.regen_dependency` | a declared regenerator that rebuilds derived tables from applied authored state and fails loudly on a stale row | `manifests/regenerators/the-events-calendar.php`, `manifests/the-events-calendar.json` |
+
+What each one could not represent:
+
+- WPForms Lite 2.0.0.4 / 2.0.0.5 — `block_attrs.wpforms/form-selector`: The `wpforms/form-selector` Gutenberg block persists `formId` as a JSON string. The current block-reference codec accepts `int|int[]` and writes an integer back, changing the stored type even if the identity resolves.
+- Redirection 5.9.0 — `tables.redirection_items.columns.action_data`: `redirection_items.action_data` can be a PHP-serialized array containing a target URL. Typed-table authored strings currently pass through `tokenize_text()` as opaque bytes. Replacing a source URL can change its byte length without updating PHP serialization length prefixes, producing invalid data on capture.
+- Paid Memberships Pro 3.8.2 / 3.8.3 — `tables.pmpro_memberships_pages.identity`: `pmpro_memberships_pages` and `pmpro_memberships_categories` are pure join tables: a two-column composite primary key, every identity column a reference, and no scalar row id at all. `identity.mode` admitted only `mapped` and `natural_key`, both of which require a scalar `pk`, so the membership-to-page and membership-to-category relationships stayed honest-intent markers in the manifest rather than declarations.
+- WooCommerce 11.0.0 — `option_name_refs[woocommerce-zone-method-settings]`: A shipping zone method stores its settings in an option whose NAME embeds the local zone-method row id (`woocommerce_<method>_<id>_settings`). Options were addressable only by literal name -- the `options` section is an exact whitelist and `option_patterns` drove no discovery scan -- so an option whose name carries a local reference could be neither discovered nor rebound, and shipping zones had no engine path at all.
+- Ninja Forms 3.14.11 — `tables.nf3_forms.invalidate`: Ninja Forms caches a form's settings and fields in `nf3_upgrades` plus a legacy `nf_form_<id>` option. An apply-time write to a form's own row left that cache stale, so an id-reused form silently served the PREVIOUS form's settings. The grammar could express the row write but not the derived state the plugin's own save path drops, and Ninja Forms ships no rebuild command (`wp help nf` fails) for an exit-code callback to shell out to.
+- The Events Calendar 6.17.2 — `post_types.tribe_events.regen_dependency`: The Events Calendar keeps every event's dates in the derived custom tables `tec_events`/`tec_occurrences`, which capture excludes. Row EXISTENCE was the only postcondition the grammar could state, and an adopted target event can already hold a `tec_occurrences` row whose dates disagree with the applied post meta -- a present-but-stale row that an existence check passes.
 
 - Paid Memberships Pro 3.8.2 / 3.8.3: Closed in DUO-3235 together with the `id_column` meta-table gap from the same round.
 - WooCommerce 11.0.0: Closed in task #93, which graduated shipping zones and tax rates from an intent marker to a declared surface.

@@ -67,14 +67,28 @@ final class AdapterContractGrammar {
      * post_v1` demonstrates, which is declared by nothing across all 16 shipped
      * manifests.
      *
-     * `structured-evidence/v1` is the second, and it is the proof the first was
-     * not self-referential (WP-6.4, spec/repo-format.md § v3.14). It claims
-     * `declaration_evidence`, a genuinely NEW top-level grammar section that
-     * did not exist when v3 was cut — and adding it moved neither define in
-     * `agent/duo.php`, so the whole cost of a new top-level section was ONE row in
-     * this constant and one file that validates its values. That is the entire claim
-     * § v3.12 makes when it says the window may one day close: the replacement
-     * for a flag day has been walked before the flag day is retired.
+     * After `spec-window/v1`, THREE post-v3 features shipped through this
+     * channel in one wave, and together they are the proof § v3.2's claim
+     * holds — each added a genuinely new top-level grammar section with
+     * `DUO_SPEC_VERSION` left at 3, asserted by each one's own suite:
+     *
+     *   - `typed-column-codecs/v1` and `attr-id-codecs/v1` (WP-6.1): how one
+     *     typed-table column's bytes decode, and the JSON type one block
+     *     attribute's resolved id is written back as. Each is a TOP-LEVEL key
+     *     rather than a field nested inside `tables`/`block_attrs` for one
+     *     reason: a nested field cannot be staged — an engine that predates it
+     *     would ignore the field and capture the raw bytes, which is the
+     *     silent mis-read this channel exists to convert into a named refusal.
+     *   - `structured-evidence/v1` (WP-6.4, spec/repo-format.md § v3.14): the
+     *     typed sibling of `notes` that makes the empirical case file
+     *     machine-readable.
+     *
+     * All are keyed at `since` 3 and declared by no shipped manifest, so no
+     * adapter digest moves (AGENTS.md rule 2). The whole cost of each new
+     * section was one row in this constant and one file that validates its
+     * values — the entire claim § v3.12 makes when it says the window may one
+     * day close: the replacement for a flag day has been walked, three times,
+     * before the flag day is retired.
      *
      * Feature names are ENGINE-OWNED: an adapter declares one, never mints one
      * (spec/repo-format.md § v3.2). A name is also permanent, which is why
@@ -86,6 +100,10 @@ final class AdapterContractGrammar {
      * @var array<string,array{since:int,keys:list<string>}>
      */
     private const IMPLEMENTED_FEATURES = [
+        'attr-id-codecs/v1' => [
+            'since' => 3,
+            'keys' => ['attr_id_codecs'],
+        ],
         'spec-window/v1' => [
             'since' => 3,
             'keys' => ['engine_features'],
@@ -104,6 +122,10 @@ final class AdapterContractGrammar {
         'structured-evidence/v1' => [
             'since' => 3,
             'keys' => [StructuredEvidence::SECTION],
+        ],
+        'typed-column-codecs/v1' => [
+            'since' => 3,
+            'keys' => ['column_codecs'],
         ],
     ];
 

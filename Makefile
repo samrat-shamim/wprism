@@ -2055,6 +2055,18 @@ regress-structured-reference-codec:
 regress-url-query-reference-codec:
 	php sandbox/tests/offline/grammar/regress_url_query_reference_codec.php
 
+# WP-6.1's two declarative primitives, each with the previously-rejected
+# engine-gap candidate authored end to end as its sufficiency proof:
+# `column_codecs` (Redirection 5.9.0's PHP-serialized `action_data`) and
+# `attr_id_codecs` (WPForms Lite's string-typed `formId`). Both sections ship
+# post-v3 through `engine_features` with NO version bump, which each suite
+# asserts by pinning DUO_SPEC_VERSION at 3.
+regress-column-codec-grammar:
+	php sandbox/tests/offline/grammar/regress_column_codec_grammar.php
+
+regress-attr-id-codec-grammar:
+	php sandbox/tests/offline/grammar/regress_attr_id_codec_grammar.php
+
 regress-lint-primitives:
 	php sandbox/tests/offline/reference-scope/regress_lint_primitives.php
 

@@ -1407,9 +1407,8 @@ function ws_rows(): array {
             . (string) count(AdapterContractGrammar::admitted_top_level_keys([]))
             . ' top-level keys — the signer\'s three-arm partition, '
             . ws_partition_text() . ' — plus whatever keys its own declared, IMPLEMENTED `engine_features` '
-            . 'values claim (`engine_features` itself, via `'
-            . implode('`, `', AdapterContractGrammar::implemented_features())
-            . '`). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar '
+            . 'values claim (today ' . ws_feature_key_text()
+            . '). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar '
             . '`duo adapter-draft` writes — refuses with its own remedy, to strip it. v2 manifests keep the '
             . 'open behaviour byte for byte, so none of the shipped library changes. Measured here by asking '
             . 'the shipped validator and the shipped signer for their sets and comparing them in both '
@@ -1823,6 +1822,35 @@ function ws_partition_text(): string {
 
     return count($partition['entity_sections']) . ' entity + ' . count($partition['field_sections'])
         . ' field + ' . count($partition['non_surface_keys']) . ' non-surface';
+}
+
+/**
+ * Every feature-claimed top-level key and the feature that claims it, as
+ * "`<key>` via `<feature>`", key order.
+ *
+ * PROJECTED, never listed. This sentence used to name the one implemented
+ * feature beside the one key it claims, which read correctly while those were
+ * the same fact; WP-6.1 added two more features claiming two more keys and the
+ * sentence became a list of every feature beside one key it mostly does not
+ * claim. Asking the shipped grammar which keys each feature admits keeps R-21's
+ * text true however many there are — the row is a decision an external party
+ * may already hold, so it may not describe a growth rule loosely.
+ */
+function ws_feature_key_text(): string {
+    $byKey = [];
+    foreach (AdapterContractGrammar::implemented_features() as $feature) {
+        foreach (AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$feature]]) as $key) {
+            $byKey[$key][] = $feature;
+        }
+    }
+    ksort($byKey, SORT_STRING);
+    $parts = [];
+    foreach ($byKey as $key => $features) {
+        sort($features, SORT_STRING);
+        $parts[] = '`' . $key . '` via `' . implode('`, `', $features) . '`';
+    }
+
+    return implode(', ', $parts);
 }
 
 /**

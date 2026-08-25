@@ -22,6 +22,9 @@ if (!class_exists(Secrets::class, false)) {
 if (!class_exists(Canon::class, false)) {
     require_once __DIR__ . '/../Kernel/Canon.php';
 }
+if (!class_exists(ColumnCodecGrammar::class, false)) {
+    require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
+}
 
 /**
  * Read-side capture boundary for authored typed tables (DUO-3349).
@@ -58,7 +61,15 @@ final class TypedTableCapture {
     /**
      * Capture one validated row table into Capture-compatible entity records.
      *
+     * `$columnCodecs` is the table's own `column_codecs` projection (WP-6.1),
+     * passed explicitly rather than folded into `$decl`: the section is
+     * declared at the manifest's top level so that § v3.2 can stage it, and
+     * merging it into the table declaration here would make a codec
+     * indistinguishable from a field of `tables` that an older engine ignores —
+     * the exact silence the staging exists to remove.
+     *
      * @param array<string,array> $metaDecls attached-meta declarations keyed by table
+     * @param array<string,array{container:string,leaves:string}> $columnCodecs
      * @return array<int,array{uuid:string,type:string,path:string,content:string}>
      */
     public function capture_table(
@@ -67,12 +78,13 @@ final class TypedTableCapture {
         array $metaDecls,
         object $tokens,
         bool $mint,
-        bool $strictReadOnly = false
+        bool $strictReadOnly = false,
+        array $columnCodecs = []
     ): array {
         if (($decl['identity']['mode'] ?? 'mapped') === 'composite_ref') {
             // Composite identities are derived from their refs on every pass;
             // they are neither minted nor attached-meta owners.
-            return $this->capture_composite_table($table, $decl, $tokens, $strictReadOnly);
+            return $this->capture_composite_table($table, $decl, $tokens, $strictReadOnly, $columnCodecs);
         }
 
         global $wpdb;
@@ -99,12 +111,9 @@ final class TypedTableCapture {
                     continue;
                 }
                 $value = $row[$col] ?? null;
-                self::guard_secret(
-                    $value,
-                    !empty($rule['allow_secret']),
-                    "table '$table' column '$col' (row $localId)"
-                );
-                $columns[$col] = is_string($value) ? $tokens->tokenize_text($value) : $value;
+                $context = "table '$table' column '$col' (row $localId)";
+                self::guard_secret($value, !empty($rule['allow_secret']), $context);
+                $columns[$col] = self::capture_column($value, $columnCodecs[$col] ?? null, $tokens, $context);
             }
             foreach ($decl['refs'] ?? [] as $ref) {
                 $col = $ref['column'];
@@ -152,12 +161,17 @@ final class TypedTableCapture {
         return $entities;
     }
 
-    /** Capture a pure join row whose portable identity is its resolved ref tuple. */
+    /**
+     * Capture a pure join row whose portable identity is its resolved ref tuple.
+     *
+     * @param array<string,array{container:string,leaves:string}> $columnCodecs
+     */
     private function capture_composite_table(
         string $table,
         array $decl,
         object $tokens,
-        bool $strictReadOnly
+        bool $strictReadOnly,
+        array $columnCodecs = []
     ): array {
         global $wpdb;
         $idKind = $decl['id_kind'];
@@ -181,12 +195,9 @@ final class TypedTableCapture {
                     continue;
                 }
                 $value = $row[$col] ?? null;
-                self::guard_secret(
-                    $value,
-                    !empty($rule['allow_secret']),
-                    "table '$table' column '$col' (composite row $uuid)"
-                );
-                $columns[$col] = is_string($value) ? $tokens->tokenize_text($value) : $value;
+                $context = "table '$table' column '$col' (composite row $uuid)";
+                self::guard_secret($value, !empty($rule['allow_secret']), $context);
+                $columns[$col] = self::capture_column($value, $columnCodecs[$col] ?? null, $tokens, $context);
             }
 
             $packed = $this->identity->packCompositeId($table, $localByCol);
@@ -304,6 +315,32 @@ final class TypedTableCapture {
             }
         }
         return $out;
+    }
+
+    /**
+     * One authored column's value on the way into canonical state.
+     *
+     * With no codec this is byte for byte the treatment every authored column
+     * had before WP-6.1 — `tokenize_text()` on a string, the raw value
+     * otherwise. With one, the bytes are opened, their string leaves rewritten,
+     * and the container re-encoded with correct length prefixes, which is the
+     * half `tokenize_text()` on serialized storage bytes could never do: a
+     * substituted URL of a different byte length leaves every enclosing `s:<n>:`
+     * prefix stating the old count (tools/engine-gaps.json, primitive
+     * `serialized_column_codec`).
+     *
+     * A non-string value with a codec declared refuses inside
+     * ColumnCodecGrammar rather than being passed through here: the declaration
+     * says these bytes are a container, and a column that holds an integer on
+     * this target is a fact the author needs to see.
+     *
+     * @param array{container:string,leaves:string}|null $codec
+     */
+    private static function capture_column(mixed $value, ?array $codec, object $tokens, string $context): mixed {
+        if ($codec === null) {
+            return is_string($value) ? $tokens->tokenize_text($value) : $value;
+        }
+        return ColumnCodecGrammar::capture_value($value, $codec, $tokens, $context);
     }
 
     /** Portable human-readable suffix for an ordinary row's canonical path. */

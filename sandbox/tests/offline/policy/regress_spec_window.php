@@ -94,7 +94,21 @@ function spec_window_report(int $supported): array {
     $featureSection = 'engine_features';
     $since = $sections[$featureSection] ?? ($supported + 1);
     $implemented = \Duo\AdapterContractGrammar::implemented_features();
-    $first = $implemented[0] ?? 'none/v0';
+    // The feature that claims THIS suite's section, derived rather than taken
+    // as `$implemented[0]`. That index was the same thing while the engine
+    // implemented one feature; WP-6.1 added two more, and the first one
+    // alphabetically now claims a different key entirely — so every probe below
+    // would have declared `engine_features: ["attr-id-codecs/v1"]`, a manifest
+    // whose declared feature does not admit the very key it is written in, and
+    // the suite would have measured the closed key set instead of the channel.
+    $first = 'none/v0';
+    foreach ($implemented as $feature) {
+        $claims = \Duo\AdapterContractGrammar::admitted_feature_keys([$featureSection => [$feature]]);
+        if (in_array($featureSection, $claims, true)) {
+            $first = $feature;
+            break;
+        }
+    }
 
     $verdict = static function (array $manifest): ?string {
         try {
@@ -368,8 +382,8 @@ duo_check(
 duo_check_same(
     null,
     $future['verdicts']['since_implemented'],
-    'DECLARATION + IMPLEMENTATION ADMITS: a spec_version ' . ($N + 1) . ' manifest declaring `engine_features: ["'
-        . $shipped['implemented_features'][0] . '"]` loads'
+    'DECLARATION + IMPLEMENTATION ADMITS: a spec_version ' . ($N + 1)
+        . ' manifest declaring the feature that claims `engine_features` loads'
 );
 duo_check_same(
     ['engine_features'],

@@ -178,18 +178,18 @@ final class EngineGapsTest extends TestCase
         $this->assertRefuses($ledger, 'no candidate demands it');
     }
 
-    public function testRefusesALifecycleDisagreementBetweenRowAndPrimitive(): void
+    public function testRefusesALifecycleDisagreementBetweenCoordinateAndPrimitive(): void
     {
         $ledger = self::ledger();
         foreach ($ledger['candidates'] as $i => $row) {
             if ($row['disposition'] === 'closed') {
-                // The primitive that closed this row is shipped; pointing the
-                // row at an open one claims a gap closed on work not done.
+                // The primitive that closed this coordinate is shipped; pointing
+                // it at an open one claims a gap closed on work not done.
                 $ledger['candidates'][$i]['coordinates'][0]['primitive_required'] = 'structured_leaf_text_codec';
                 break;
             }
         }
-        $this->assertRefuses($ledger, 'a closed row demands a shipped primitive');
+        $this->assertRefuses($ledger, 'a closed coordinate demands a shipped primitive');
     }
 
     public function testRefusesClosureEvidenceThatLeftTheTree(): void
@@ -197,11 +197,84 @@ final class EngineGapsTest extends TestCase
         $ledger = self::ledger();
         foreach ($ledger['candidates'] as $i => $row) {
             if ($row['disposition'] === 'closed') {
-                $ledger['candidates'][$i]['closed_by'] = ['agent/src/Policy/ThisFileMovedYearsAgo.php'];
+                $ledger['candidates'][$i]['coordinates'][0]['closed_by']
+                    = ['agent/src/Policy/ThisFileMovedYearsAgo.php'];
                 break;
             }
         }
         $this->assertRefuses($ledger, 'which is not in the tree');
+    }
+
+    /**
+     * WP-6.1's split: `closed_by` belongs to the COORDINATE whose primitive
+     * shipped. The old row-level spelling is refused by name rather than
+     * ignored, because a ledger carrying both would have two answers to "is
+     * this closed" and the projector reads only one of them.
+     */
+    public function testRefusesTheRetiredRowLevelClosedBy(): void
+    {
+        $ledger = self::ledger();
+        $ledger['candidates'][0]['closed_by'] = ['agent/src/Policy/ManifestGrammar.php'];
+        $this->assertRefuses($ledger, 'carries a row-level closed_by');
+    }
+
+    /**
+     * A candidate's `disposition` is derived from its coordinates and merely
+     * checked. Closing the last open coordinate of a still-blocked row without
+     * moving the word is the drift this catches.
+     */
+    public function testRefusesADispositionThatDisagreesWithItsCoordinates(): void
+    {
+        $ledger = self::ledger();
+        foreach ($ledger['candidates'] as $i => $row) {
+            if ($row['disposition'] === 'closed') {
+                // Every coordinate stays closed and every primitive stays
+                // shipped, so the per-coordinate check above is satisfied and
+                // the ROW's own word is the only thing wrong. That isolation is
+                // the point: the two rules must both exist.
+                $ledger['candidates'][$i]['disposition'] = 'promotion_blocked';
+                break;
+            }
+        }
+        $this->assertRefuses($ledger, "0 open coordinate(s); a row is 'closed'");
+    }
+
+    /**
+     * The property that forced the split, asserted on the real data: a row can
+     * hold a closed coordinate and an open one at the same time, and the open
+     * ranking must count only the open one.
+     */
+    public function testAPartiallyClosedRowCountsOnlyItsOpenCoordinates(): void
+    {
+        $ledger = self::ledger();
+        $partial = null;
+        foreach ($ledger['candidates'] as $row) {
+            $closed = 0;
+            foreach ($row['coordinates'] as $coordinate) {
+                $closed += gap_coordinate_closed($coordinate) ? 1 : 0;
+            }
+            if ($closed > 0 && $closed < count($row['coordinates'])) {
+                $partial = $row;
+                break;
+            }
+        }
+        self::assertNotNull($partial, 'no partially closed candidate; WP-6.1 shipped two of them');
+
+        $demanded = [];
+        foreach (gap_open_demand($ledger) as $entry) {
+            foreach ($entry['candidates'] as $candidate) {
+                $demanded[$candidate][] = $entry['primitive'];
+            }
+        }
+        foreach ($partial['coordinates'] as $coordinate) {
+            $primitive = (string) $coordinate['primitive_required'];
+            $listed = in_array($primitive, $demanded[(string) $partial['candidate']] ?? [], true);
+            self::assertSame(
+                !gap_coordinate_closed($coordinate),
+                $listed,
+                "the open-demand ranking is wrong about '$primitive' for {$partial['candidate']}"
+            );
+        }
     }
 
     public function testRefusesShippedPrimitiveEvidenceThatLeftTheTree(): void

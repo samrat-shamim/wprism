@@ -44,15 +44,37 @@ declare(strict_types=1);
  *     to spell the primitive the way the first one did.
  *   - a declared primitive nothing demands: vocabulary that outlives its
  *     demand is how a ranking rots into an aspiration list.
- *   - an `open` primitive demanded by a `closed` row, or a `shipped` primitive
- *     demanded by a row still blocked: the lifecycle state of a primitive and
- *     of the candidate that wanted it are the same fact stated twice, and a
- *     disagreement means one of them is stale.
+ *   - an `open` primitive demanded by a CLOSED coordinate, or a `shipped`
+ *     primitive demanded by one still open: the lifecycle state of a primitive
+ *     and of the coordinate that wanted it are the same fact stated twice, and
+ *     a disagreement means one of them is stale.
+ *   - a candidate whose `disposition` disagrees with its own coordinates: a row
+ *     is `closed` exactly when every coordinate is, and blocked while any one
+ *     of them is not.
  *   - a `closed_by`/`evidence` path that is not on disk: "closed" is only a
  *     claim if the implementation it names can be opened. This is the same
  *     tripwire tools/provider-protocol-doc.php uses for its refusal catalogue
  *     — assert the cited thing still exists, so a move fails HERE rather than
  *     silently turning the ledger into a story about code that left.
+ *
+ * CLOSURE IS PER COORDINATE, NOT PER CANDIDATE (WP-6.1)
+ * -----------------------------------------------------
+ * It was per candidate until WP-6.1 shipped the first primitive that unblocked
+ * PART of a row: `serialized_column_codec` closes Redirection's `action_data`
+ * coordinate and leaves its `verified_provider_postcondition` coordinate exactly
+ * where it was. Under row-level closure that had two spellings and both were
+ * false — mark the row closed and the ledger claims a provider postcondition
+ * that does not exist, or leave the primitive `open` and the ranking keeps
+ * counting demand that has been met. Neither is a ranking a roadmap can read.
+ *
+ * So `closed_by` moved down one level, onto the coordinate that names the
+ * primitive, and the candidate's `disposition` became derived-and-checked
+ * rather than independently asserted. The projection follows: the open-demand
+ * table counts OPEN COORDINATES, a blocked candidate's section lists only the
+ * coordinates still blocking it, and the closed table lists every closed
+ * coordinate — including those belonging to a candidate that is still blocked,
+ * which is the honest picture of a boundary that moved without the adapter
+ * shipping yet.
  *   - a coordinate whose head is not a real manifest grammar section: the head
  *     is checked against the top-level keys actually present across
  *     manifests/*.json rather than a hardcoded list, so this cannot become a
@@ -124,6 +146,11 @@ function gap_manifest_sections(string $dir): array {
     $names = array_keys($sections);
     sort($names, SORT_STRING);
     return $names;
+}
+
+/** A coordinate is CLOSED exactly when it names the implementation that closed it. */
+function gap_coordinate_closed(array $coordinate): bool {
+    return ($coordinate['closed_by'] ?? null) !== null;
 }
 
 /** `tables.nf3_forms.invalidate` and `option_name_refs[cptui-default-term]` both head at their section. */
@@ -219,20 +246,18 @@ function gap_validate(array $ledger, array $sections, callable $exists): void {
                 || preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/', (string) $row['probed_on']) !== 1)) {
             throw new RuntimeException("candidate '$id' is rejected and must carry a YYYY-MM-DD probed_on");
         }
-        if ($disposition === 'closed') {
-            $closedBy = $row['closed_by'] ?? [];
-            if (!is_array($closedBy) || $closedBy === []) {
-                throw new RuntimeException(
-                    "candidate '$id' is closed but names no closed_by evidence; closure must be openable"
-                );
-            }
-            gap_assert_paths($closedBy, "candidate '$id' closed_by", $exists);
+        if (array_key_exists('closed_by', $row)) {
+            throw new RuntimeException(
+                "candidate '$id' carries a row-level closed_by; since WP-6.1 closure is per COORDINATE, because a "
+                . 'primitive can unblock one coordinate of a row and leave the others exactly where they were'
+            );
         }
 
         $coordinates = $row['coordinates'] ?? null;
         if (!is_array($coordinates) || !array_is_list($coordinates) || $coordinates === []) {
             throw new RuntimeException("candidate '$id' declares no coordinates");
         }
+        $openCoordinates = 0;
         foreach ($coordinates as $j => $coordinate) {
             if (!is_array($coordinate)
                 || !is_string($coordinate['coordinate'] ?? null) || $coordinate['coordinate'] === ''
@@ -255,15 +280,48 @@ function gap_validate(array $ledger, array $sections, callable $exists): void {
                     . '`primitives` or reuse the id an earlier candidate already demanded'
                 );
             }
+            $closedBy = $coordinate['closed_by'] ?? null;
+            $coordinateClosed = $closedBy !== null;
+            if ($coordinateClosed) {
+                if (!is_array($closedBy) || $closedBy === []) {
+                    throw new RuntimeException(
+                        "candidate '$id' coordinate '{$coordinate['coordinate']}' is closed but names no closed_by "
+                        . 'evidence; closure must be openable'
+                    );
+                }
+                gap_assert_paths(
+                    $closedBy,
+                    "candidate '$id' coordinate '{$coordinate['coordinate']}' closed_by",
+                    $exists
+                );
+            } else {
+                $openCoordinates++;
+            }
             $shipped = $primitives[$required]['status'] === 'shipped';
-            if ($shipped !== ($disposition === 'closed')) {
+            if ($shipped !== $coordinateClosed) {
                 throw new RuntimeException(
-                    "candidate '$id' is $disposition but primitive '$required' is "
-                    . $primitives[$required]['status'] . '; a closed row demands a shipped primitive and an open '
-                    . 'row demands an open one'
+                    "candidate '$id' coordinate '{$coordinate['coordinate']}' is "
+                    . ($coordinateClosed ? 'closed' : 'open') . " but primitive '$required' is "
+                    . $primitives[$required]['status'] . '; a closed coordinate demands a shipped primitive and an '
+                    . 'open coordinate demands an open one'
                 );
             }
+            // Recorded whether the coordinate is open or closed: this map
+            // answers "does anything in the ledger demand this primitive", and
+            // a shipped primitive's demand is exactly the closed coordinate it
+            // shipped for. The OPEN half is counted separately, by
+            // gap_open_demand(), which is the ranking.
             $demand[$required][] = $id;
+        }
+        // The candidate's own lifecycle word is DERIVED and merely checked
+        // here: a row is closed exactly when nothing is still blocking it. The
+        // alternative — asserting it independently — is how the ledger would
+        // come to say "closed" beside a coordinate that is not.
+        if (($openCoordinates === 0) !== ($disposition === 'closed')) {
+            throw new RuntimeException(
+                "candidate '$id' is $disposition with $openCoordinates open coordinate(s); a row is 'closed' "
+                . 'exactly when every coordinate carries closed_by, and blocked while any one does not'
+            );
         }
     }
 
@@ -347,10 +405,13 @@ function gap_rows(array $ledger, string $disposition): array {
 function gap_open_demand(array $ledger): array {
     $rows = [];
     foreach ($ledger['candidates'] as $row) {
-        if ($row['disposition'] === 'closed') {
-            continue;
-        }
         foreach ($row['coordinates'] as $coordinate) {
+            // Per COORDINATE since WP-6.1. A candidate one of whose blockers
+            // shipped still appears here for the ones that did not, and stops
+            // inflating the count for the one that did.
+            if (gap_coordinate_closed($coordinate)) {
+                continue;
+            }
             $id = (string) $coordinate['primitive_required'];
             $rows[$id]['candidates'][(string) $row['candidate']] = true;
             foreach ($row['blocked_adapters'] as $adapter) {
@@ -415,13 +476,26 @@ function gap_demand_section(array $ledger): string {
     return $out . "\n";
 }
 
+/**
+ * A still-blocked candidate's section: only the coordinates STILL BLOCKING it.
+ *
+ * A coordinate whose primitive shipped is no longer "required platform work"
+ * and would misread as one; it moves to the closed table, with its own prose,
+ * so the record of the defect survives the fix.
+ */
 function gap_candidate_section(array $row): string {
     $out = '## ' . gap_heading($row) . "\n\n";
+    $open = [];
     foreach ($row['coordinates'] as $coordinate) {
+        if (!gap_coordinate_closed($coordinate)) {
+            $open[] = $coordinate;
+        }
+    }
+    foreach ($open as $coordinate) {
         $out .= '- ' . $coordinate['cannot_represent'] . "\n";
     }
     $phrases = [];
-    foreach ($row['coordinates'] as $coordinate) {
+    foreach ($open as $coordinate) {
         $phrase = (string) ($coordinate['remedy_phrase'] ?? '');
         $phrases[] = $phrase === '' ? '' : $phrase;
     }
@@ -450,6 +524,9 @@ function gap_promotion_blocked_section(array $ledger): string {
     $out = "## Shipped experimental adapters with open apply work\n\n";
     foreach ($rows as $row) {
         foreach ($row['coordinates'] as $coordinate) {
+            if (gap_coordinate_closed($coordinate)) {
+                continue;
+            }
             $out .= '- ' . gap_heading($row) . ': ' . $coordinate['cannot_represent'] . "\n";
         }
     }
@@ -466,28 +543,44 @@ function gap_promotion_blocked_section(array $ledger): string {
  * looking like a permanent complaint rather than a queue with a throughput.
  */
 function gap_closed_section(array $ledger): string {
-    $rows = gap_rows($ledger, 'closed');
-    if ($rows === []) {
+    $closed = [];
+    foreach ($ledger['candidates'] as $row) {
+        foreach ($row['coordinates'] as $coordinate) {
+            if (gap_coordinate_closed($coordinate)) {
+                $closed[] = [$row, $coordinate];
+            }
+        }
+    }
+    if ($closed === []) {
         return '';
     }
     $out = "## Closed engine gaps\n\n"
         . 'These shipped. They stay in the ledger because the primitive that closed each one is the unit the open '
         . "table above counts in, and a vocabulary with no closed entries cannot be checked against reality.\n\n"
+        . 'Closure is per COORDINATE, so a candidate appears here for the blockers that shipped and above for the '
+        . "ones that have not. A row leaves the blocked sections entirely only when every coordinate is closed.\n\n"
         . "| Candidate | Grammar coordinate | Primitive shipped | Closed by |\n|---|---|---|---|\n";
-    foreach ($rows as $row) {
-        foreach ($row['coordinates'] as $coordinate) {
-            $primitive = $ledger['primitives'][(string) $coordinate['primitive_required']];
-            $out .= '| ' . gap_cell(gap_heading($row))
-                . ' | `' . gap_cell((string) $coordinate['coordinate']) . '`'
-                . ' | ' . gap_cell((string) $primitive['title'])
-                . ' | ' . gap_cell(implode(', ', array_map(
-                    static fn(string $path): string => '`' . $path . '`',
-                    array_map('strval', $row['closed_by'])
-                ))) . " |\n";
-        }
+    foreach ($closed as [$row, $coordinate]) {
+        $primitive = $ledger['primitives'][(string) $coordinate['primitive_required']];
+        $out .= '| ' . gap_cell(gap_heading($row))
+            . ' | `' . gap_cell((string) $coordinate['coordinate']) . '`'
+            . ' | ' . gap_cell((string) $primitive['title'])
+            . ' | ' . gap_cell(implode(', ', array_map(
+                static fn(string $path): string => '`' . $path . '`',
+                array_map('strval', $coordinate['closed_by'])
+            ))) . " |\n";
+    }
+    // The defect, kept beside the fix. A closed table that records only what
+    // shipped turns the ledger into a changelog: the sentence a reviewer needs
+    // years later is the one saying what the grammar could not represent, and
+    // it is also the sentence the offline corpus greps for.
+    $out .= "\nWhat each one could not represent:\n\n";
+    foreach ($closed as [$row, $coordinate]) {
+        $out .= '- ' . gap_heading($row) . ' — `' . $coordinate['coordinate'] . '`: '
+            . $coordinate['cannot_represent'] . "\n";
     }
     $out .= "\n";
-    foreach ($rows as $row) {
+    foreach (gap_rows($ledger, 'closed') as $row) {
         $closing = (string) ($row['closing'] ?? '');
         if ($closing !== '') {
             $out .= '- ' . gap_heading($row) . ': ' . $closing . "\n";

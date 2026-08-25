@@ -160,6 +160,14 @@ $shippedFilesNaming = static function (array $tokens) use ($repo): array {
             if (!$file->isFile() || $file->getExtension() !== 'php') {
                 continue;
             }
+            // COMMENTS STRIPPED (WP-6.1): this helper answers "which shipped
+            // files READ this name", and a docblock explaining why a section
+            // rides a channel reads nothing. It was a plain text match while
+            // `engine_features` appeared in one file's prose and code alike;
+            // the first sections to actually ship through the channel put the
+            // phrase in the docblocks of the collaborators that stage through
+            // it, which a text match reports as four readers of a definition
+            // three of them never consult.
             $body = duo_code_without_comments((string) file_get_contents($file->getPathname()));
             foreach ($tokens as $token) {
                 if (str_contains($body, $token)) {

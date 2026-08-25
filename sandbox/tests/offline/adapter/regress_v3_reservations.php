@@ -83,7 +83,18 @@ function v3_reservations_manifest_report(int $supported): array {
     };
     $named = static fn(array $extra = []): array
         => ['name' => 'acme-widget', 'spec_version' => $supported] + $extra;
-    $feature = \Duo\AdapterContractGrammar::implemented_features()[0] ?? 'none/v0';
+    // The feature that claims `engine_features` itself, derived rather than
+    // taken as `[0]`: WP-6.1's two additions sort ahead of it and claim other
+    // keys, and this probe declares `engine_features` — so the wrong feature
+    // would measure the closed key set instead of the growth channel.
+    $feature = 'none/v0';
+    foreach (\Duo\AdapterContractGrammar::implemented_features() as $candidate) {
+        $claims = \Duo\AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$candidate]]);
+        if (in_array('engine_features', $claims, true)) {
+            $feature = $candidate;
+            break;
+        }
+    }
 
     return [
         'engine_supported' => $supported,

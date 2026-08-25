@@ -171,6 +171,16 @@ duo_check(
 // grammar that implements it. A SECOND reader appearing here is the alarm this
 // assertion exists for: it would mean the feature vocabulary acquired a
 // consumer that could disagree with the one definition.
+//
+// COMMENTS ARE STRIPPED BEFORE THE MATCH (WP-6.1). A docblock that explains why
+// a section rides this channel is not a reader — it cannot disagree with the
+// vocabulary, because it never reads it. The scan was a plain str_contains()
+// while `engine_features` appeared in exactly one file's prose and code alike;
+// the first section actually shipped through the channel put the phrase in the
+// docblocks of the collaborators that stage through it, and a text match would
+// then have reported four "readers" and named none of them wrongly except in
+// the only sense that matters. Tokenizing keeps the assertion measuring the
+// thing it was written to measure.
 $featureReaders = [];
 foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
     $walk = new RecursiveIteratorIterator(

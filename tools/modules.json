@@ -290,6 +290,8 @@
           "SubKeyGrammar",
           "UserMetaGrammar",
           "AttributeGrammar",
+          "AttrIdCodecGrammar",
+          "ColumnCodecGrammar",
           "OptionNameReferenceResolver",
           "OptionReferenceGrammar",
           "PostTypeGrammar",
@@ -337,10 +339,12 @@
             ]
           }
         ],
-        "file_count": 24,
+        "file_count": 26,
         "files": [
+          "AttrIdCodecGrammar.php",
           "AttributeGrammar.php",
           "Blocks.php",
+          "ColumnCodecGrammar.php",
           "ContentAttributeRuleResolver.php",
           "DynamicOptionResolver.php",
           "ExactOptionResolver.php",
