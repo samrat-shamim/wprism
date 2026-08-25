@@ -39,15 +39,18 @@ require_once __DIR__ . '/../Policy/Policy.php';
  * WHAT THE JOURNAL CAN AND CANNOT SEE — READ THIS BEFORE TRUSTING A NUMBER
  * -----------------------------------------------------------------------
  * The journal observes `(table, item)` for database writes only
- * (Journal.php:66-100). Of the 187 effect rows `Policy::effects_inventory()`
- * projects for the 16 shipped adapters, 54 carry a `database_checkpoint`
- * selector and are therefore scorable; the remaining 133 select `external`
+ * (Journal.php:66-100). Of the 248 effect rows `Policy::effects_inventory()`
+ * projects for the 16 shipped adapters, 64 carry a `database_checkpoint`
+ * selector and are therefore scorable; the remaining 184 select `external`
  * hooks, cache namespaces and provider resources, which no journal row can
- * confirm or refute. Six adapters (core, elementor, ninja-forms, woocommerce,
- * yoast, yoast-duplicate-post) declare at least one scorable effect; the other
- * ten declare none, so this scorer is SILENT about them and that silence is
- * reported as `scorable => false` rather than as a clean score. Measured on
- * the shipped tree at the commit that introduced this file.
+ * confirm or refute. Eight adapters (core, elementor, ninja-forms, polylang,
+ * the-events-calendar, woocommerce, yoast, yoast-duplicate-post) declare at
+ * least one scorable effect; the other eight declare none, so this scorer is
+ * SILENT about them and that silence is reported as `scorable => false` rather
+ * than as a clean score. #561 added the seventh scorable adapter; the reviewed
+ * Polylang production-readiness port added five effects, two observable, and
+ * the eighth. Measured on the shipped tree at the commit that introduced this
+ * file and re-pinned at each reviewed manifest edit.
  *
  * THE THREE VERDICTS ON AN OBSERVED WRITE
  * ---------------------------------------
