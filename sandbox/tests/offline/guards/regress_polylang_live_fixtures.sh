@@ -77,7 +77,8 @@ for needle in \
   'pll_modify_rewrite_rule' \
   'exec -T --user root wp2' \
   "<<'PHPEOF'" \
-  'recovery_required' \
+  'unsupported open Polylang rewrite filter' \
+  'apply_in_progress' \
   'clean no-op recapture' \
   '(.actions|length)==0'; do
   grep -Fq "$needle" "$TEC" || fail "co-install fixture lost required guard: $needle"
