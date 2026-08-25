@@ -8786,6 +8786,22 @@ foreach ([
         "the private TEC regenerator fixture retains $regenFixtureLabel"
     );
 }
+foreach ([
+    '[ "$STATUS_CLEAN_RC" -eq 0 ]' => 'a zero status exit after recovery',
+    'certified TEC still reports an adapter-disposition blocker after recovery' => 'an explicit stale-blocker refusal',
+    'only optional env value(s) missing — safe to promote' => 'the positive promotion decision',
+    'REGEN_PENDING and adapter-disposition blockers cleared; certified TEC status is safe to promote' => 'the certified recovery result',
+] as $regenStatusEvidence => $regenStatusLabel) {
+    duo_check(
+        str_contains($tecRegenLive, $regenStatusEvidence),
+        "the exact TEC regenerator status proof retains $regenStatusLabel"
+    );
+}
+duo_check(
+    !str_contains($tecRegenLive, "[ \"\$STATUS_CLEAN_RC\" -ne 0 ]")
+        && !str_contains($tecRegenLive, '[authored_state_not_certified]'),
+    'the exact TEC regenerator status proof cannot retain its pre-certification expectation'
+);
 $tecRegenRestoreManifest = strpos($tecRegenLive, 'cp "$SHIPPED_MANIFEST" "$MANIFEST"', strpos($tecRegenLive, 'say "(6d)'));
 $tecRegenDropFaultColumn = strpos($tecRegenLive, 'ALTER TABLE wp_tec_occurrences DROP COLUMN duo_regress_never_matches');
 $tecRegenRetryPlan = strpos($tecRegenLive, 'PLAN3=$(wp2_fault duo plan');
