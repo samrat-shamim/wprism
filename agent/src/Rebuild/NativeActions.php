@@ -411,6 +411,7 @@ final class NativeActions {
         if (!class_exists('\WP_CLI')
             || !function_exists('maybe_unserialize')
             || !function_exists('get_option')
+            || !function_exists('wp_cache_delete')
             || !is_object($wp_rewrite)) {
             throw new \RuntimeException(
                 "duo: native action 'rewrite.flush' requires a loaded WordPress/WP-CLI rewrite runtime; "
@@ -464,6 +465,14 @@ final class NativeActions {
         $desiredHash = hash('sha256', $structure['present'] ? $structure['value'] : '');
         $storedStructure = self::permalink_structure_state();
         $storedRules = self::raw_option_state('rewrite_rules');
+        // The child invalidated its own option cache after persisting the new
+        // rules, not this already-booted process's cache. Earlier actions in a
+        // multi-adapter batch can have populated a stale named/alloptions/
+        // notoptions entry here; discard the complete child-written roster
+        // before effective readback so durable storage remains the witness.
+        foreach (NativeRewriteEffects::parent_option_cache_keys() as $cacheKey) {
+            wp_cache_delete($cacheKey, 'options');
+        }
         $effectiveRules = get_option('rewrite_rules');
         if (!hash_equals($desiredHash, $after['permalink_hash'])
             || $storedStructure['present'] !== $after['permalink_present']
