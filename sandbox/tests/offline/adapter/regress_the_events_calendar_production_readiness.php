@@ -8420,7 +8420,7 @@ foreach ([
     'UPDATE wp_termmeta SET term_id=${COLOR_ABA_NEW_ID}',
     'UPDATE wp_duo_map SET local_id=${COLOR_ABA_NEW_ID}',
     '.author_receipt_after != .current_author_after',
-    'scoped action selection changed after planning; no target mutation attempted',
+    'scoped apply recovery author receipt does not match selected state and identity map',
     'TEC selected-map ABA refusal replayed the Category Colors CSS effect',
     'ALTER TABLE wp_terms AUTO_INCREMENT=${COLOR_ABA_AUTOINCREMENT}',
     '.author_matches == true',

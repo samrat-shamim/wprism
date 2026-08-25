@@ -38,6 +38,7 @@ foreach ([
     'ScopeClosure', 'CanonicalSurfaces', 'Deletion', 'SidebarState', 'Snapshot',
     'RepositoryAuthorization', 'Tokens', 'ScopeContract',
     'ScopedStateOverlay', 'ScopedApplySession', 'CommandRefusal', 'ScopedApply', 'ScopedApplyCoordinator',
+    'ScopedApplyWorkProjector',
     'Providers', 'ProviderActionBatchBuilder', 'RebuildActionDispatcher',
     'Canary', 'Ledger', 'PromotionLock', 'Apply',
 ] as $file) {
@@ -655,6 +656,40 @@ $authority = ScopedApplySession::make_authority(
 $sessionStore = new ScopedRecoveryMemoryStore();
 $session = ScopedApplySession::begin($sessionStore, $authority);
 $session->transition(ScopedApplySession::PHASE_AUTHORING);
+$recoveryPlanner = new \Duo\ApplyPlanner(
+    $policy,
+    [],
+    static fn(string $uuid, string $kind): ?int => null,
+    static fn(string $uuid, string $kind): ?int => null
+);
+$convergedRecoveryWork = \Duo\ScopedApplyWorkProjector::project(
+    [
+        'create' => [],
+        'adopt' => [],
+        'update' => [],
+        'unchanged' => [[
+            'uuid' => $selectedId,
+            'type' => 'post',
+            'path' => 'posts/page/' . $selectedId . '--selected.md',
+        ]],
+        'drift' => [],
+        'conflict' => [],
+        'delete' => [],
+        'delete_conflict' => [],
+        'deleted' => [],
+    ],
+    $compiled,
+    $session,
+    $contract,
+    $recoveryPlanner
+);
+$check(
+    count($convergedRecoveryWork['work']) === 1
+        && ($convergedRecoveryWork['work'][0]['uuid'] ?? null) === $selectedId
+        && $convergedRecoveryWork['delete_work'] === []
+        && $convergedRecoveryWork['rebuild_delete_work'] === [],
+    'a converged authored row remains frozen recovery work while its selected effect is pending'
+);
 $authorIntent = [
     'ordinal' => 1,
     'authority_hash' => $session->authority_hash_value(),
@@ -2795,6 +2830,12 @@ $authoredExecutorAt = strpos($applySource, '->authored_transaction_executor()->e
 $finalAuthorReadbackAt = strrpos($applySource, 'ScopedApplyCoordinator::authored_ledger_map_hash($afterObservation)');
 $rebuildRenewAt = strpos($applySource, "renew_promotion_lock('apply-rebuild')");
 $selectionRecheckAt = strpos($preparationSource, '->assert_recovery_selection(');
+$freshRebuildAt = strpos($preparationSource, '$freshRebuildWork = $this->services->apply_planner()->rebuild_work(');
+$freshRecoveryProjectionAt = strpos(
+    $preparationSource,
+    '$freshRebuildWork = ScopedApplyWorkProjector::project('
+);
+$freshSelectedActionsAt = strpos($preparationSource, '$freshSelectedActions = $this->policy->actions_for(');
 $attachmentSealAt = strpos($authoredExecutorSource, '->seal_authored_transaction();');
 $canaryCheckAt = strpos($authoredExecutorSource, '$violations = Canary::violations();');
 $isolationCheckAt = strpos($authoredExecutorSource, "'authored transaction final commit boundary'");
@@ -2814,6 +2855,12 @@ $check(
 );
 $check(
     $selectionRecheckAt !== false
+        && substr_count($preparationSource, 'ScopedApplyWorkProjector::project(') === 2
+        && $freshRebuildAt !== false
+        && $freshRecoveryProjectionAt !== false
+        && $freshSelectedActionsAt !== false
+        && $freshRebuildAt < $freshRecoveryProjectionAt
+        && $freshRecoveryProjectionAt < $freshSelectedActionsAt
         && $codeWitnessCheckAt !== false
         && $protectedTargetCheckAt !== false
         && $sessionBeginAt !== false

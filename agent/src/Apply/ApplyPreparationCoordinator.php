@@ -275,6 +275,22 @@ final class ApplyPreparationCoordinator {
                 $request->retryingIncompleteApply,
                 $request->scopedPromotion
             );
+            if ($request->recoveringScoped) {
+                if ($this->scopedWorkflow->session === null) {
+                    throw new \RuntimeException('duo: scoped recovery has no durable session selection');
+                }
+                // Authored rows can already be converged while a sealed
+                // provider/native effect remains pending. Re-project the
+                // fresh plan through that frozen selection or the second
+                // pre-mutation check would erase the only retry authority.
+                $freshRebuildWork = ScopedApplyWorkProjector::project(
+                    $freshPlan,
+                    $request->compiled,
+                    $this->scopedWorkflow->session,
+                    $this->scopedWorkflow->scopeContract,
+                    $this->services->apply_planner()
+                );
+            }
             $freshSelectedActions = $this->policy->actions_for(CanonicalSurfaces::for_apply(
                 $freshRebuildWork['work'],
                 $tree,
