@@ -476,7 +476,14 @@ wp_conf1 eval '
 
 LANG_TERM=$(jq -r '.language_terms.fr' <<<"$SOURCE_IDS")
 require_fixture_ids LANG_TERM
-wp_conf1 term meta add "$LANG_TERM" _pll_strings_translations 'a:1:{i:0;a:2:{i:0;s:5:"Hello";i:1;s:7:"Bonjour";}}' >/dev/null
+STRINGS_PREIMAGE=$(wp_conf1 eval "echo wp_json_encode(get_term_meta($LANG_TERM,'_pll_strings_translations',false));" | tail -1)
+jq -e '. == [] or . == [""]' <<<"$STRINGS_PREIMAGE" >/dev/null \
+  || fail "unexpected Polylang string-translation preimage: $STRINGS_PREIMAGE"
+if jq -e '. == []' <<<"$STRINGS_PREIMAGE" >/dev/null; then
+  wp_conf1 term meta add "$LANG_TERM" _pll_strings_translations 'a:1:{i:0;a:2:{i:0;s:5:"Hello";i:1;s:7:"Bonjour";}}' >/dev/null
+else
+  wp_conf1 term meta update "$LANG_TERM" _pll_strings_translations 'a:1:{i:0;a:2:{i:0;s:5:"Hello";i:1;s:7:"Bonjour";}}' >/dev/null
+fi
 STRINGS_STATE="$CONF_REPO1/.tmp-polylang-strings"
 wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-strings >/dev/null
 jq -s -e 'any(.[]; .meta._pll_strings_translations == [["Hello", "Bonjour"]])' \
@@ -485,7 +492,11 @@ jq -s -e 'any(.[]; .meta._pll_strings_translations == [["Hello", "Bonjour"]])' \
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$BASELINE" ] \
   || fail 'Polylang string-translation probe partially published canonical state'
 rm -rf "$STRINGS_STATE"
-wp_conf1 term meta delete "$LANG_TERM" _pll_strings_translations >/dev/null
+if jq -e '. == []' <<<"$STRINGS_PREIMAGE" >/dev/null; then
+  wp_conf1 term meta delete "$LANG_TERM" _pll_strings_translations >/dev/null
+else
+  wp_conf1 term meta update "$LANG_TERM" _pll_strings_translations '' >/dev/null
+fi
 
 DELETE_BACKUP="${CONF_REPO1:-siterepo/conf1}/.tmp-polylang-delete-row.json"
 wp_conf1 eval '
