@@ -30,6 +30,14 @@ final class NativeActions {
     private const SCOPED_OWNER = 'native-actions';
     private const REWRITE_FRESH_FORMAT = 'duo-rewrite-flush-fresh/v1';
     private const REWRITE_FRESH_COMMAND = 'eval \'define("DUO_REWRITE_FLUSH_FRESH_PROCESS", true); $receipt = \\Duo\\NativeActions::execute("rewrite.flush", []); echo json_encode(["format" => "duo-rewrite-flush-fresh/v1", "after" => $receipt["after"]], JSON_THROW_ON_ERROR);\'';
+    private const REWRITE_PARENT_CACHE_KEYS = [
+        'rewrite_rules',
+        'tribe_last_generate_rewrite_rules',
+        'tribe_last_updated_option',
+        'tribe_last_save_post',
+        'alloptions',
+        'notoptions',
+    ];
     /**
      * action name => argument schema (key => {type, required, pattern?}).
      *
@@ -470,7 +478,7 @@ final class NativeActions {
         // multi-adapter batch can have populated a stale named/alloptions/
         // notoptions entry here; discard the complete child-written roster
         // before effective readback so durable storage remains the witness.
-        foreach (NativeRewriteEffects::parent_option_cache_keys() as $cacheKey) {
+        foreach (self::REWRITE_PARENT_CACHE_KEYS as $cacheKey) {
             wp_cache_delete($cacheKey, 'options');
         }
         $effectiveRules = get_option('rewrite_rules');

@@ -50,23 +50,6 @@ final class NativeRewriteEffects {
         'tribe_last_updated_option',
         'tribe_last_save_post',
     ];
-
-    /**
-     * The fresh rewrite child may update each exact option below. Its cache is
-     * process-local, so the already-booted parent must discard both the named
-     * entries and WordPress's aggregate positive/negative caches before it can
-     * compare effective reads with the child's durable evidence.
-     *
-     * @return list<string>
-     */
-    public static function parent_option_cache_keys(): array {
-        return [
-            'rewrite_rules',
-            ...self::MARKER_OPTIONS,
-            'alloptions',
-            'notoptions',
-        ];
-    }
     private const WOO_CONTAINER = 'Automattic\\WooCommerce\\Container';
     private const WOO_FEATURES = 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController';
     private const WOO_SYNCHRONIZER =

@@ -472,8 +472,17 @@ $parentCacheDeletes = array_values(array_map(
         static fn(array $row): bool => $row[0] === 'parent' && $row[2] === 'options'
     )
 ));
+$nativeActionConstants = new ReflectionClass(Duo\NativeActions::class);
+$parentCacheKeys = $nativeActionConstants->getReflectionConstant('REWRITE_PARENT_CACHE_KEYS')?->getValue();
+$rewriteEffectConstants = new ReflectionClass(Duo\NativeRewriteEffects::class);
+$tecMarkerOptions = $rewriteEffectConstants->getReflectionConstant('MARKER_OPTIONS')?->getValue();
 duo_check_same(
-    Duo\NativeRewriteEffects::parent_option_cache_keys(),
+    $tecMarkerOptions,
+    is_array($parentCacheKeys) ? array_slice($parentCacheKeys, 1, 3) : null,
+    'the private parent handoff roster stays exact with the TEC marker options the child may write'
+);
+duo_check_same(
+    $parentCacheKeys,
     array_values(array_unique($parentCacheDeletes)),
     'the parent discards every child-written named and aggregate option cache before parity readback'
 );
