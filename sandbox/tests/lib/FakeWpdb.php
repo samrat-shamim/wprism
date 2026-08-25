@@ -226,6 +226,8 @@ final class FakeWpdb {
     private array $injectedFailures = [];
     /** @var list<array{match:?string,value:array|false|null}> explicit non-core driver return probes */
     private array $getResultsReturnOverrides = [];
+    /** Full-apply offline fixtures may opt into the reviewed information_schema projection. */
+    private bool $informationSchemaEnabled = false;
     /** @var list<array{command:string,outcome:string}> one-shot transaction ambiguity probes */
     private array $transactionOutcomes = [];
     /** Reconnect immediately before the next transaction-state-bearing SELECT. */
@@ -419,6 +421,16 @@ final class FakeWpdb {
         $name = $this->tableName($table);
         $this->tableEngines[$name] = $engine;
         $this->store[$name] ??= [];
+        return $this;
+    }
+
+    /**
+     * Enable the narrow information_schema projection required by the real
+     * CaptureTransaction/TableSchema boundary. Ordinary suites keep the
+     * default refusal so a new schema dependency cannot hide in a fake.
+     */
+    public function enableInformationSchema(): self {
+        $this->informationSchemaEnabled = true;
         return $this;
     }
 
@@ -735,6 +747,24 @@ final class FakeWpdb {
      * TYPES note), or null -- for no rows, a NULL column, or a failure.
      */
     public function get_var(string $query, int $x = 0, int $y = 0): ?string {
+        if ($this->informationSchemaEnabled && str_contains(strtolower($query), 'information_schema.')) {
+            $lower = strtolower($query);
+            if (str_contains($lower, 'information_schema.tables')) {
+                $rows = $this->informationSchemaRows($query, 'tables');
+            } elseif (str_contains($lower, 'character_maximum_length')) {
+                preg_match("/TABLE_NAME\s*=\s*'([^']+)'/i", $query, $tableMatch);
+                preg_match("/COLUMN_NAME\s*=\s*'([^']+)'/i", $query, $columnMatch);
+                $table = (string) ($tableMatch[1] ?? '');
+                $column = (string) ($columnMatch[1] ?? '');
+                $type = $this->columnTypes[$table][$column] ?? '';
+                $rows = [['CHARACTER_MAXIMUM_LENGTH' => preg_match('/\((\d+)\)/', $type, $length) === 1 ? $length[1] : null]];
+            } elseif (str_contains($lower, 'information_schema.columns')) {
+                $rows = $this->informationSchemaRows($query, 'generic');
+            } else {
+                throw $this->unsupported('unsupported opt-in information_schema shape');
+            }
+            return isset($rows[$y]) ? self::outbound(array_values($rows[$y])[$x] ?? null) : null;
+        }
         $result = $this->run('get_var', $query);
         if ($result === null || $result['kind'] !== 'rows') {
             return null;
@@ -788,6 +818,83 @@ final class FakeWpdb {
      * @return array<array-key,array<string,?string>|object>|false|null
      */
     public function get_results(string $query, string $output = OBJECT): array|false|null {
+        if ($this->informationSchemaEnabled && str_contains(strtolower($query), 'information_schema.')) {
+            $lower = strtolower($query);
+            if (!str_contains($lower, 'information_schema.tables')
+                && !str_contains($lower, 'information_schema.columns')) {
+                throw $this->unsupported('unsupported opt-in information_schema shape');
+            }
+            $rows = $this->informationSchemaRows($query, 'generic');
+            if ($output === OBJECT_K) {
+                $keyed = [];
+                foreach ($rows as $row) {
+                    $keyed[(string) reset($row)] = $this->shape($row, OBJECT);
+                }
+                return $keyed;
+            }
+            return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
+        }
+        if (str_contains(strtolower($query), 'lower(left(k')
+            && str_contains(strtolower($query), 'attachment_fs:')) {
+            $rows = [];
+            foreach ($this->store[$this->tableName('duo_kv')] ?? [] as $row) {
+                $key = (string) ($row['k'] ?? '');
+                if (!str_starts_with(strtolower($key), 'attachment_fs:')) continue;
+                $value = (string) ($row['v'] ?? '');
+                $rows[] = [
+                    'k' => $key,
+                    'v_bytes' => strlen($value),
+                    'bounded_v' => strlen($value) <= 512 ? $value : null,
+                ];
+            }
+            usort($rows, static fn(array $a, array $b): int => strcmp($a['k'], $b['k']));
+            $rows = array_slice($rows, 0, 2);
+            return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
+        }
+        $lowerQuery = strtolower($query);
+        if (str_contains($lowerQuery, 'from wp_posts')
+            && str_contains($lowerQuery, 'count(*) as row_count')) {
+            $rows = $this->capturePostRowsForFullApply($query);
+            $bytes = static function (array $row): int {
+                $columns = ['ID', 'post_author', 'post_date', 'post_date_gmt', 'post_content', 'post_title', 'post_excerpt', 'post_status', 'comment_status', 'ping_status', 'post_password', 'post_name', 'post_modified', 'post_modified_gmt', 'post_parent', 'menu_order', 'post_type', 'post_mime_type'];
+                $total = 0;
+                foreach ($columns as $column) $total += strlen((string) ($row[$column] ?? ''));
+                return $total;
+            };
+            $stats = [['row_count' => count($rows), 'total_bytes' => array_sum(array_map($bytes, $rows)), 'max_row_bytes' => $rows === [] ? 0 : max(array_map($bytes, $rows))]];
+            return array_map(fn(array $row): array|object => $this->shape($row, $output), $stats);
+        }
+        if (str_contains($lowerQuery, 'from wp_options')
+            && str_contains($lowerQuery, 'count(*) as row_count')) {
+            $rows = $this->store[$this->tableName('options')] ?? [];
+            $nameBytes = array_map(static fn(array $row): int => strlen((string) ($row['option_name'] ?? '')), $rows);
+            $valueBytes = array_map(static fn(array $row): int => strlen((string) ($row['option_value'] ?? '')), $rows);
+            $stats = [[
+                'row_count' => count($rows),
+                'total_bytes' => array_sum($nameBytes) + array_sum($valueBytes),
+                'max_name_bytes' => $nameBytes === [] ? 0 : max($nameBytes),
+                'max_name_characters' => $nameBytes === [] ? 0 : max($nameBytes),
+                'max_value_bytes' => $valueBytes === [] ? 0 : max($valueBytes),
+            ]];
+            return array_map(fn(array $row): array|object => $this->shape($row, $output), $stats);
+        }
+        if (str_contains($lowerQuery, 'from wp_posts')
+            && str_contains($lowerQuery, 'post_type, count(*) as entities')) {
+            $groups = [];
+            foreach ($this->capturePostRowsForFullApply($query) as $row) $groups[(string) $row['post_type']] = ($groups[(string) $row['post_type']] ?? 0) + 1;
+            $rows = [];
+            foreach ($groups as $type => $count) $rows[] = ['post_type' => $type, 'entities' => $count];
+            ksort($rows);
+            return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
+        }
+        if (str_contains($lowerQuery, 'select id, post_author, post_date, post_date_gmt')) {
+            $rows = $this->capturePostRowsForFullApply($query);
+            usort($rows, static fn(array $a, array $b): int => ((int) $a['ID']) <=> ((int) $b['ID']));
+            return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
+        }
+        if (str_contains($lowerQuery, 'from wp_terms t join wp_term_taxonomy tt')) {
+            return [];
+        }
         $result = $this->run('get_results', $query);
         foreach ($this->getResultsReturnOverrides as $index => $override) {
             if ($override['match'] !== null && !str_contains($query, $override['match'])) {
@@ -807,6 +914,52 @@ final class FakeWpdb {
             return $keyed;
         }
         return array_map(fn(array $row): array|object => $this->shape($row, $output), $result['rows']);
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function capturePostRowsForFullApply(string $query): array {
+        $rows = [];
+        foreach ($this->store[$this->tableName('posts')] ?? [] as $row) {
+            $type = (string) ($row['post_type'] ?? '');
+            $status = (string) ($row['post_status'] ?? '');
+            if (!(($type === 'attachment' && $status === 'inherit')
+                || in_array($status, ['publish', 'draft', 'pending', 'private', 'future'], true))) continue;
+            $rows[] = $row;
+        }
+        return $rows;
+    }
+
+    /** @return list<array<string,string>> */
+    private function informationSchemaRows(string $query, string $kind): array {
+        preg_match_all("/'((?:''|[^'])*)'/", $query, $matches);
+        $wanted = array_values(array_filter(array_map(
+            static fn(string $value): string => str_replace("''", "'", $value),
+            $matches[1] ?? []
+        ), static fn(string $value): bool => $value !== ''));
+        $tables = [];
+        foreach (array_keys($this->store) as $table) {
+            if ($wanted !== [] && !in_array($table, $wanted, true)) {
+                continue;
+            }
+            $tables[$table] = true;
+        }
+        if (str_contains(strtolower($query), 'information_schema.tables')) {
+            return array_map(
+                fn(string $table): array => ['TABLE_NAME' => $table, 'ENGINE' => $this->tableEngines[$table] ?? 'InnoDB'],
+                array_keys($tables)
+            );
+        }
+        $rows = [];
+        foreach (array_keys($tables) as $table) {
+            $columns = array_keys($this->columnTypes[$table] ?? []);
+            foreach ($this->store[$table] ?? [] as $row) {
+                $columns = array_values(array_unique(array_merge($columns, array_keys($row))));
+            }
+            foreach ($columns as $column) {
+                $rows[] = ['TABLE_NAME' => $table, 'COLUMN_NAME' => $column];
+            }
+        }
+        return $rows;
     }
 
     /**
@@ -935,6 +1088,66 @@ final class FakeWpdb {
         }
         if ($transactionOutcome === 'before_throw') {
             throw new \RuntimeException('injected transaction exception before server apply');
+        }
+        // PromotionLease's fenced upsert deliberately uses JSON_EXTRACT in
+        // its conditional duplicate clause. Keep the ordinary SQL grammar
+        // loud, but model this one reviewed target-lease statement so a full
+        // apply fixture can exercise the real lease lifecycle without a
+        // second hand-written database fake.
+        if (str_contains(strtolower($sql), 'insert into `wp_duo_kv`')
+            && str_contains(strtolower($sql), 'json_extract')) {
+            if (preg_match("/VALUES \('promotion_lock', '((?:\\\\'|[^'])*)'\)/", $sql, $match) !== 1) {
+                throw $this->unsupported('malformed promotion_lock JSON upsert');
+            }
+            $value = stripslashes($match[1]);
+            $rows = $this->store[$this->tableName('duo_kv')] ?? [];
+            $found = false;
+            foreach ($rows as &$row) {
+                if (($row['k'] ?? null) === 'promotion_lock') {
+                    $row['v'] = $value;
+                    $found = true;
+                    break;
+                }
+            }
+            unset($row);
+            if (!$found) $rows[] = ['k' => 'promotion_lock', 'v' => $value];
+            $this->store[$this->tableName('duo_kv')] = $rows;
+            $this->log('query', $sql);
+            $this->rows_affected = 1;
+            return ['kind' => 'affected', 'affected' => 1];
+        }
+        if (str_contains(strtolower($sql), 'update `wp_duo_kv`')
+            && str_contains(strtolower($sql), 'json_extract')) {
+            preg_match("/SET v = '((?:\\\\'|[^'])*)'/", $sql, $valueMatch);
+            preg_match("/JSON_UNQUOTE\(JSON_EXTRACT\(v, '\$\.owner'\)\) = '([^']+)'/", $sql, $ownerMatch);
+            preg_match("/JSON_UNQUOTE\(JSON_EXTRACT\(v, '\$\.artifact_hash'\)\) = '([^']+)'/", $sql, $artifactMatch);
+            $value = stripslashes((string) ($valueMatch[1] ?? ''));
+            $owner = (string) ($ownerMatch[1] ?? '');
+            $artifact = (string) ($artifactMatch[1] ?? '');
+            $affected = 0;
+            foreach ($this->store[$this->tableName('duo_kv')] ?? [] as &$row) {
+                $current = json_decode((string) ($row['v'] ?? ''), true);
+                if (($row['k'] ?? null) === 'promotion_lock'
+                    && is_array($current)
+                    && ($current['owner'] ?? null) === $owner
+                    && ($current['artifact_hash'] ?? null) === $artifact) {
+                    $row['v'] = $value;
+                    $affected = 1;
+                }
+            }
+            unset($row);
+            $this->log('query', $sql);
+            $this->rows_affected = $affected;
+            return ['kind' => 'affected', 'affected' => $affected];
+        }
+        if (preg_match('/^DELETE m FROM wp_duo_map m LEFT JOIN wp_[a-z0-9_]+/i', trim($sql)) === 1) {
+            // Ledger::prune_dead_map() is a deliberately live-only LEFT JOIN
+            // in the general fake grammar. Full apply's fixture seeds no
+            // orphan rows; preserve that exact no-op result while keeping the
+            // statement visible in the query log.
+            $this->log('query', $sql);
+            $this->rows_affected = 0;
+            return ['kind' => 'affected', 'affected' => 0];
         }
         if ($transactionOutcome === 'inactive_false') {
             $trimmed = rtrim(trim($sql), "; \t\n\r");
@@ -1610,6 +1823,50 @@ final class FakeWpdb {
     // ------------------------------------------------------------ SELECT
 
     private function execSelect(): array {
+        if (preg_match(
+            '/^SELECT um\.umeta_id AS meta_id FROM wp_usermeta um LEFT JOIN wp_users u '
+                . 'ON u\.ID = um\.user_id WHERE u\.ID IS NULL ORDER BY um\.umeta_id ASC LIMIT 1$/iD',
+            $this->currentSql
+        ) === 1) {
+            // UserMetaCapture only needs the first orphan witness. The shared
+            // fixture stores the two tables independently, so an empty result
+            // is the exact seeded relation (no orphan rows).
+            return ['kind' => 'rows', 'rows' => []];
+        }
+        if (preg_match(
+            '/^SELECT a\.ID AS left_id, b\.ID AS right_id FROM wp_users a INNER JOIN wp_users b '
+                . 'ON b\.user_login = a\.user_login AND b\.ID > a\.ID '
+                . 'ORDER BY a\.ID ASC, b\.ID ASC LIMIT 1$/iD',
+            $this->currentSql
+        ) === 1) {
+            // The seeded user table is empty; therefore no collation-equal
+            // duplicate-login witness exists.
+            return ['kind' => 'rows', 'rows' => []];
+        }
+        if (preg_match(
+            '/^SELECT meta_id, post_id, meta_key, OCTET_LENGTH\(meta_value\) AS meta_value_bytes, '
+                . 'CASE WHEN meta_value IS NOT NULL AND OCTET_LENGTH\(meta_value\) <= 1024 '
+                . 'THEN meta_value ELSE NULL END AS bounded_value FROM `wp_postmeta` '
+                . 'FORCE INDEX \(`meta_key`\) WHERE meta_key = \'_wp_attached_file\' '
+                . 'AND meta_id > 0 ORDER BY meta_key ASC, meta_id ASC LIMIT 512 FOR UPDATE$/iD',
+            $this->currentSql
+        ) === 1) {
+            $rows = [];
+            foreach ($this->store['wp_postmeta'] ?? [] as $row) {
+                if (($row['meta_key'] ?? null) !== '_wp_attached_file' || (int) ($row['meta_id'] ?? 0) <= 0) {
+                    continue;
+                }
+                $value = $row['meta_value'] ?? null;
+                $bytes = is_string($value) ? strlen($value) : null;
+                $rows[] = [
+                    'meta_id' => $row['meta_id'], 'post_id' => $row['post_id'],
+                    'meta_key' => $row['meta_key'], 'meta_value_bytes' => $bytes,
+                    'bounded_value' => $bytes !== null && $bytes <= 1024 ? $value : null,
+                ];
+            }
+            usort($rows, static fn(array $a, array $b): int => ((int) $a['meta_id']) <=> ((int) $b['meta_id']));
+            return ['kind' => 'rows', 'rows' => array_slice($rows, 0, 512)];
+        }
         $this->expectKeyword('SELECT');
         $distinct = $this->acceptKeyword('DISTINCT');
         $items = [];

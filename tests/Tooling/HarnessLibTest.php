@@ -175,6 +175,85 @@ final class HarnessLibTest extends TestCase
         );
     }
 
+    public function testInformationSchemaRemainsClosedUnlessExplicitlyEnabled(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_options', [])->setColumns('wp_options', ['option_name' => 'varchar(191)']);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('schema-qualified table names');
+        $db->get_results('SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES');
+    }
+
+    public function testOptInInformationSchemaProjectsSeededTablesColumnsAndCharacterLength(): void
+    {
+        $db = FakeWpdb::install()->enableInformationSchema();
+        $db->seedTable('wp_options', [])->setColumns(
+            'wp_options',
+            ['option_name' => 'varchar(191)', 'option_value' => 'longtext']
+        )->setTableEngine('wp_options', 'InnoDB');
+        $db->seedTable('wp_users', [])->setColumns('wp_users', ['ID' => 'bigint(20)'])->setTableEngine('wp_users', 'MyISAM');
+
+        self::assertSame(
+            [['TABLE_NAME' => 'wp_options', 'ENGINE' => 'InnoDB']],
+            $db->get_results(
+                "SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('wp_options') ORDER BY TABLE_NAME ASC",
+                ARRAY_A
+            )
+        );
+        self::assertSame(
+            [
+                ['TABLE_NAME' => 'wp_options', 'COLUMN_NAME' => 'option_name'],
+                ['TABLE_NAME' => 'wp_options', 'COLUMN_NAME' => 'option_value'],
+            ],
+            $db->get_results(
+                "SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_options' ORDER BY TABLE_NAME, ORDINAL_POSITION",
+                ARRAY_A
+            )
+        );
+        self::assertSame(
+            '191',
+            $db->get_var(
+                "SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_options' AND COLUMN_NAME = 'option_name'"
+            )
+        );
+    }
+
+    public function testOptInInformationSchemaRefusesUnsupportedOrMalformedShapes(): void
+    {
+        $db = FakeWpdb::install()->enableInformationSchema();
+        $db->seedTable('wp_options', [])->setColumns('wp_options', ['option_name' => 'varchar(191)']);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('unsupported opt-in information_schema shape');
+        $db->get_results('SELECT * FROM information_schema.STATISTICS WHERE TABLE_NAME = \'wp_options\'');
+    }
+
+    public function testWpStubsMirrorNativeHookRegistryForTopologyAudits(): void
+    {
+        if (!class_exists('WP_Hook')) {
+            class_alias(\stdClass::class, 'WP_Hook');
+        }
+
+        $previous = $GLOBALS['wp_filter'] ?? null;
+        $hook = new \WP_Hook();
+        $hook->callbacks = [];
+        $GLOBALS['wp_filter'] = ['wp_generate_attachment_metadata' => $hook];
+        $callback = static fn (mixed $metadata, mixed $attachmentId): mixed => $metadata;
+
+        try {
+            self::assertTrue(add_filter('wp_generate_attachment_metadata', $callback, 10, 2));
+            self::assertSame(
+                [10 => [['function' => $callback, 'accepted_args' => 2]]],
+                $GLOBALS['wp_filter']['wp_generate_attachment_metadata']->callbacks
+            );
+            self::assertTrue(remove_filter('wp_generate_attachment_metadata', $callback, 10));
+            self::assertArrayNotHasKey('wp_generate_attachment_metadata', $GLOBALS['wp_filter']);
+        } finally {
+            $GLOBALS['wp_filter'] = $previous ?? [];
+        }
+    }
+
     public function testSelectLeftCanBindOneBoundedBinaryValueToItsByteLength(): void
     {
         $db = FakeWpdb::install();

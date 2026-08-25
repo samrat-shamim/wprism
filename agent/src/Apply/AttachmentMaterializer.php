@@ -295,6 +295,11 @@ final class AttachmentMaterializer {
     /** Drop a post-commit handoff when no native rebuild will consume it. */
     public function discard_native_rebuild_authority(): void {
         $this->polylangNativeGenerator = null;
+        // The durable journal remains the recovery authority, but this
+        // request no longer owns a native rebuild handoff. Release its
+        // process-local flock so the next public apply can acquire the exact
+        // pending journal in the same PHP process.
+        $this->filesystem->end();
     }
 
     public function end_authored_transaction(bool $retainNativeRebuildAuthority = false): void {

@@ -339,7 +339,7 @@ final class AttachmentFilesystemTransaction {
             $this->journal['rows'][$position]['attachment_id'] = $id;
             $this->journal['rows'][$position]['owned_prior_paths'] = array_keys($owned);
             $this->acquire_journal_locks();
-            $this->assert_prior_inventory($this->journal, false);
+            $this->assert_prior_inventory($this->journal, $this->resumingCommitted);
             $priorByPath = [];
             foreach ($this->journal['rows'][$position]['prior'] as $prior) {
                 $priorByPath[(string) $prior['path']] = $prior;
