@@ -4,10 +4,10 @@
 # closed callback topology, failure-before-effect/retry, and clean no-op.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 . conformance/asserts.sh
 say() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
-fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 
 PAIR="${POLYLANG_TEC_REWRITE_PAIR:-plltec}"
 PORT1="${POLYLANG_TEC_REWRITE_PORT1:-9022}"

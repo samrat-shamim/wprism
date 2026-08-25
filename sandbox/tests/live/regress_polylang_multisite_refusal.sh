@@ -5,11 +5,12 @@
 # authored-state, or plugin bytes can change.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+
+fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 . conformance/asserts.sh
 
 say() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
-fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 
 PAIR="${POLYLANG_MULTISITE_PAIR:-pllms}"
 PORT1="${POLYLANG_MULTISITE_PORT1:-9020}"

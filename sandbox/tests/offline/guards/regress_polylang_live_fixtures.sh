@@ -2,9 +2,57 @@
 # Static contract for the two Polylang evidence sweeps.  Docker is intentionally
 # absent: this pins the live command boundaries and prevents a future fixture
 # from silently widening the exact artifact/topology claim.
+# conformance/asserts.sh rejects callers without fail() at source time, so the
+# ordering is part of each live harness's load contract, not a runtime path.
 set -euo pipefail
 cd "$(dirname "$0")/../../../.."
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+
+LIVE_FILES=(sandbox/tests/live/regress_polylang_*.sh)
+[ -e "${LIVE_FILES[0]}" ] || fail 'no Polylang live fixtures found'
+
+assert_fail_before_asserts() {
+  local file="$1" fail_line source_line
+  fail_line=$(grep -nE '^fail\(\) \{' "$file" | head -1 | cut -d: -f1)
+  source_line=$(grep -nE '^\. conformance/asserts\.sh$' "$file" | head -1 | cut -d: -f1)
+  [ -n "$fail_line" ] || fail "$file does not define fail()"
+  [ -n "$source_line" ] || fail "$file does not source conformance/asserts.sh"
+  [ "$fail_line" -lt "$source_line" ] \
+    || fail "$file sources conformance/asserts.sh before defining fail()"
+}
+
+for file in "${LIVE_FILES[@]}"; do
+  [ -x "$file" ] || fail "missing executable $file"
+  assert_fail_before_asserts "$file"
+done
+printf 'PASS: every Polylang live fixture defines fail() before sourcing shared asserts\n'
+
+# Keep the ordering check mutation-sensitive: if either adjacent declaration is
+# reverted, this temp copy must be rejected without sourcing the live harness.
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/duo-polylang-live-guard.XXXXXX")
+trap 'rm -rf "$TMP"' EXIT
+for file in "${LIVE_FILES[@]}"; do
+  mutated="$TMP/$(basename "$file")"
+  awk '
+    !done && $0 ~ /^fail\(\) \{ printf/ {
+      fail_line=$0
+      if (getline source_line > 0 && source_line == ". conformance/asserts.sh") {
+        print source_line
+        print fail_line
+        done=1
+        next
+      }
+      print fail_line
+      if (source_line != "") print source_line
+      next
+    }
+    { print }
+  ' "$file" > "$mutated"
+  if (fail() { return 1; }; assert_fail_before_asserts "$mutated") >/dev/null 2>&1; then
+    fail "ordering mutation unexpectedly passed for $file"
+  fi
+done
+printf 'PASS: fail-before-asserts ordering rejects a source-before-fail mutation for every Polylang live fixture\n'
 MS=sandbox/tests/live/regress_polylang_multisite_refusal.sh
 TEC=sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh
 [ -x "$MS" ] || fail "missing executable $MS"
