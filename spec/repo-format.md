@@ -900,7 +900,22 @@ mint identities, run the global stale-map pruners, or grant authority over an
 unselected row. Before projection, the complete live target observation is
 strict-compiled and closure-checked, so a target-only declared child, outbound
 dependency, or inbound deletion referrer cannot disappear behind preserved
-source bytes. `all` selects every identity in the associated source artifact;
+source bytes. Portable inactive-widget discovery is narrower still: it scans
+only block posts in the contract's selected root/closure roster, identified by
+their already-resolved post UUIDs, so an unrelated target post cannot grant or
+deny widget ownership. Removing the final selected stored-widget reference may
+omit the old `sidebar/wp_inactive_widgets` canonical row without a tombstone,
+using an unpublished `duo-inactive-overlay-deauthorization/v1` witness that
+binds the exact prior row hash, source revision, and complete sorted selected
+post scan. That omission is admitted only for outbound post closure (or `all`)
+with no excluded inbound owner; a direct sidebar root, incomplete scan,
+remaining stored reference, or excluded referrer refuses. The target inactive
+assignment, widget option, and ledger mapping are never deleted. Because the
+inactive carrier is shared, even a nonempty/subset replacement refuses when
+the frozen contract has an excluded inbound owner; a changed subset is safe
+only when all owners are selected. Active/inactive owner transfer remains an
+explicit scoped-capture refusal rather than being mistaken for deauthorization.
+`all` selects every identity in the associated source artifact;
 it remains the same strict state-only transaction and refuses a target identity
 minted after association rather than falling back to global capture. Media
 authority comes only from a selected attachment record,

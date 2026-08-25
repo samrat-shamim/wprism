@@ -798,6 +798,7 @@ require_once __DIR__ . '/../../../../agent/src/Promotion/Deploy.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/Providers.php';
 require_once __DIR__ . '/../../../../agent/src/Capture/EntityMetaCapture.php';
 require_once __DIR__ . '/../../../../agent/src/Capture/OptionsCapture.php';
+require_once __DIR__ . '/../../../../agent/src/Capture/CaptureCandidateBuilder.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/OptionsMaterializer.php';
@@ -807,6 +808,7 @@ require_once __DIR__ . '/../../../../manifests/regenerators/the-events-calendar.
 
 use Duo\Interpreters\TheEventsCalendar;
 use Duo\Blocks;
+use Duo\CaptureCandidateBuilder;
 use Duo\Deploy;
 use Duo\EntityMetaCapture;
 use Duo\Policy;
@@ -3723,6 +3725,53 @@ $ownerMismatchDb->seedTable($ownerMismatchDb->options, [
     ],
 ]);
 $ownerMismatchOptionPreimage = $ownerMismatchDb->rows($ownerMismatchDb->options);
+$scopedWidgetScanner = new ReflectionMethod(CaptureCandidateBuilder::class, 'portableWidgetReferenceScan');
+$scopedWidgetBuilder = new CaptureCandidateBuilder($root, $coreTecPolicy);
+$selectedWidgetPost = (object) [
+    'ID' => 7001,
+    'post_type' => 'tribe_events',
+    'post_content' => '<!-- wp:paragraph --><p>selected scope A</p><!-- /wp:paragraph -->',
+];
+$unrelatedCoreWidgetPost = (object) [
+    'ID' => 7002,
+    'post_type' => 'tribe_events',
+    'post_content' => tec_readiness_legacy_widget_block(['id' => 'text-8000000077']),
+];
+$unrelatedTecWidgetPost = (object) [
+    'ID' => 7002,
+    'post_type' => 'tribe_events',
+    'post_content' => tec_readiness_legacy_widget_block(['id' => 'tribe-widget-events-list-8000000001']),
+];
+$scopedPostUuids = [7001 => TEC_EVENT_UUID, 7002 => TEC_VENUE_UUID];
+$scopedWidgetMapPreimage = $ownerMismatchDb->rows($ownerMismatchMapTable);
+foreach ([$unrelatedCoreWidgetPost, $unrelatedTecWidgetPost] as $unrelatedPost) {
+    duo_check_same(
+        ['references' => [], 'selected_post_uuids' => [TEC_EVENT_UUID]],
+        $scopedWidgetScanner->invoke(
+            $scopedWidgetBuilder,
+            [$selectedWidgetPost, $unrelatedPost],
+            $scopedPostUuids,
+            [TEC_EVENT_UUID]
+        ),
+        'scoped stored-widget discovery observes only the contract-selected post closure'
+    );
+}
+duo_check_throws(
+    static fn(): array => $scopedWidgetScanner->invoke(
+        $scopedWidgetBuilder,
+        [$selectedWidgetPost, $unrelatedCoreWidgetPost],
+        $scopedPostUuids,
+        [TEC_EVENT_UUID, TEC_VENUE_UUID]
+    ),
+    RuntimeException::class,
+    'the same foreign core widget refuses when its owning post is actually selected',
+    'belongs to a different manifest owner'
+);
+duo_check_same(
+    $scopedWidgetMapPreimage,
+    $ownerMismatchDb->rows($ownerMismatchMapTable),
+    'selected-post pre-scan filtering neither observes nor mints identity for an excluded post'
+);
 foreach (['text' => 8000000077, 'block' => 8000000088] as $coreType => $coreLocalId) {
     duo_check_same(
         'core',

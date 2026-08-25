@@ -6973,6 +6973,14 @@
                             "name": "strictReadOnly",
                             "type": "bool",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "selectedIdentities",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -49955,6 +49963,14 @@
                             "name": "authorizedDeletions",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "authorizedDeauthorizations",
+                            "type": "array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "void",
@@ -53542,6 +53558,39 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "assert_shared_row_mutation_bounded": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "previous",
+                            "type": "Duo\\CompiledRepository",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "contract",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observedEntities",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "discard_media_view": {
                     "abstract": false,
                     "final": false,
@@ -53645,6 +53694,22 @@
                             "name": "selectedDeletions",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "selectedDeauthorizations",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "policy",
+                            "type": "?Duo\\Policy",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -53685,6 +53750,63 @@
                             "has_default": false,
                             "name": "scopeHash",
                             "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "selected_deauthorizations": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "previous",
+                            "type": "Duo\\CompiledRepository",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "contract",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observedEntities",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "selectedDeletions",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "scan",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],

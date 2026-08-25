@@ -80,6 +80,142 @@ final class ScopedStateOverlay {
     }
 
     /**
+     * Seal the one capture-local source-ownership omission v1 can express.
+     * The row is shared, so a narrow direct-sidebar selection and an
+     * excluded inbound post are both refusals. No returned evidence is ever
+     * published as canonical state or interpreted as target deletion.
+     *
+     * @param list<array<string,mixed>> $observedEntities
+     * @param list<array<string,mixed>> $selectedDeletions
+     * @param ?array{selected_post_uuids:list<string>,reference_count:int} $scan
+     * @return list<array<string,mixed>>
+     */
+    public static function selected_deauthorizations(
+        CompiledRepository $previous,
+        array $contract,
+        array $observedEntities,
+        array $selectedDeletions,
+        Policy $policy,
+        ?array $scan
+    ): array {
+        ScopeContract::from_array($contract);
+        $identity = SidebarState::key('wp_inactive_widgets');
+        $selected = array_fill_keys(self::selected_identities($contract), true);
+        $old = $previous->tree()[$identity] ?? null;
+        if (!isset($selected[$identity]) || !is_array($old)) {
+            return [];
+        }
+        $live = self::index_rows($observedEntities, 'deauthorization live observation');
+        $deleted = self::index_rows($selectedDeletions, 'deauthorization deletion observation');
+        if (isset($live[$identity])) {
+            return [];
+        }
+        if (isset($deleted[$identity])) {
+            throw new \RuntimeException('duo: scoped inactive-widget deauthorization cannot carry a deletion');
+        }
+        if (($old['type'] ?? null) !== SidebarState::ENTITY_TYPE
+            || ($old['path'] ?? null) !== SidebarState::path('wp_inactive_widgets')) {
+            throw new \RuntimeException('duo: scoped inactive-widget deauthorization has no exact source carrier');
+        }
+        if (!is_array($scan)
+            || array_keys($scan) !== ['selected_post_uuids', 'reference_count']
+            || !is_array($scan['selected_post_uuids'] ?? null)
+            || !array_is_list($scan['selected_post_uuids'])
+            || !is_int($scan['reference_count'] ?? null)
+            || $scan['reference_count'] !== 0) {
+            throw new \RuntimeException('duo: scoped inactive-widget deauthorization lacks a zero-reference scan');
+        }
+
+        $expectedPosts = [];
+        foreach (['roots', 'closure'] as $field) {
+            foreach ((array) ($contract['live'][$field] ?? []) as $row) {
+                $post = $previous->tree()[(string) ($row['entity'] ?? '')] ?? null;
+                if (is_array($post)
+                    && ($post['type'] ?? null) === 'post'
+                    && $policy->body_mode((string) ($post['data']['type'] ?? '')) === 'blocks') {
+                    $expectedPosts[(string) $row['entity']] = true;
+                }
+            }
+        }
+        ksort($expectedPosts, SORT_STRING);
+        if ($expectedPosts === [] || array_keys($expectedPosts) !== $scan['selected_post_uuids']) {
+            throw new \RuntimeException(
+                'duo: scoped inactive-widget deauthorization did not scan the complete selected block-post closure'
+            );
+        }
+
+        $causalClosure = self::is_all($contract);
+        foreach ((array) ($contract['live']['closure'] ?? []) as $row) {
+            if (($row['entity'] ?? null) === $identity
+                && ($row['type'] ?? null) === SidebarState::ENTITY_TYPE
+                && ($row['provenance']['kind'] ?? null) === 'closure'
+                && ($row['provenance']['reason'] ?? null) === ReferenceGraph::REL_REFERENCE
+                && isset($expectedPosts[(string) ($row['provenance']['from'] ?? '')])) {
+                $causalClosure = true;
+                break;
+            }
+        }
+        if (!$causalClosure) {
+            throw new \RuntimeException(
+                'duo: scoped inactive-widget deauthorization lacks selected-post closure provenance'
+            );
+        }
+        foreach ((array) ($contract['live']['inbound'] ?? []) as $row) {
+            if (($row['target'] ?? null) === $identity) {
+                throw new \RuntimeException(
+                    'duo: scoped inactive-widget deauthorization would discard an excluded inbound reference'
+                );
+            }
+        }
+
+        return [[
+            'format' => 'duo-inactive-overlay-deauthorization/v1',
+            'entity' => $identity,
+            'previous_hash' => (string) $old['hash'],
+            'source_revision' => $previous->revision_hash(),
+            'scanned_selected_post_uuids' => array_keys($expectedPosts),
+        ]];
+    }
+
+    /**
+     * The inactive carrier may contain widgets owned by several posts. A
+     * selected post cannot replace that shared row while an excluded source
+     * post still points into it, even when the observed subset compiles.
+     * Byte-identical observation is harmless; a changed row requires every
+     * inbound owner to be inside the immutable selected closure.
+     *
+     * @param list<array<string,mixed>> $observedEntities
+     */
+    public static function assert_shared_row_mutation_bounded(
+        CompiledRepository $previous,
+        array $contract,
+        array $observedEntities
+    ): void {
+        ScopeContract::from_array($contract);
+        $identity = SidebarState::key('wp_inactive_widgets');
+        if (!in_array($identity, self::selected_identities($contract), true)) {
+            return;
+        }
+        $old = $previous->tree()[$identity] ?? null;
+        if (!is_array($old)) {
+            return;
+        }
+        $live = self::index_rows($observedEntities, 'shared-row live observation');
+        $observed = $live[$identity] ?? null;
+        if (!is_array($observed)
+            || hash_equals((string) ($old['content'] ?? ''), (string) ($observed['content'] ?? ''))) {
+            return;
+        }
+        foreach ((array) ($contract['live']['inbound'] ?? []) as $row) {
+            if (($row['target'] ?? null) === $identity) {
+                throw new \RuntimeException(
+                    'duo: scoped inactive-widget overlay changed a shared row with an excluded inbound owner'
+                );
+            }
+        }
+    }
+
+    /**
      * Projection entrypoint after ScopeContract::assert_associated().
      *
      * @param list<array<string,mixed>> $observedEntities
@@ -90,13 +226,37 @@ final class ScopedStateOverlay {
         CompiledRepository $previous,
         array $contract,
         array $observedEntities,
-        array $selectedDeletions
+        array $selectedDeletions,
+        array $selectedDeauthorizations = [],
+        ?Policy $policy = null
     ): array {
         ScopeContract::from_array($contract);
+        self::assert_shared_row_mutation_bounded($previous, $contract, $observedEntities);
+        if ($selectedDeauthorizations !== []) {
+            if ($policy === null) {
+                throw new \RuntimeException('duo: scoped deauthorization projection requires exact policy evidence');
+            }
+            $scan = $selectedDeauthorizations[0]['scanned_selected_post_uuids'] ?? null;
+            $reproved = self::selected_deauthorizations(
+                $previous,
+                $contract,
+                $observedEntities,
+                $selectedDeletions,
+                $policy,
+                is_array($scan) ? ['selected_post_uuids' => $scan, 'reference_count' => 0] : null
+            );
+            if (Canon::encode($reproved) !== Canon::encode($selectedDeauthorizations)) {
+                throw new \RuntimeException('duo: scoped deauthorization projection evidence changed');
+            }
+        }
         $selected = array_fill_keys(self::selected_identities($contract), true);
         $selectedOptions = array_fill_keys(ScopeContract::option_root_names($contract), true);
         $live = self::index_rows($observedEntities, 'observed live');
         $deleted = self::index_rows($selectedDeletions, 'selected deletion');
+        $deauthorized = [];
+        foreach ($selectedDeauthorizations as $row) {
+            $deauthorized[(string) ($row['entity'] ?? '')] = true;
+        }
         $entities = [];
         $deletions = [];
 
@@ -117,6 +277,8 @@ final class ScopedStateOverlay {
             }
             if (isset($live[$identity])) {
                 $entities[] = $live[$identity];
+            } elseif (isset($deauthorized[$identity])) {
+                continue;
             } elseif (isset($deleted[$identity])) {
                 foreach ((array) ($contract['live']['inbound'] ?? []) as $inbound) {
                     if ((string) ($inbound['target'] ?? '') === $identity) {
