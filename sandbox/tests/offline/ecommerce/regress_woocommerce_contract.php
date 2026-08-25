@@ -870,29 +870,60 @@ $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/chec
 $wooRewriteCoInstallHarness = (string) file_get_contents(
     $root . '/sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh'
 );
-$wooRewriteComposeMutations = [];
-$wooRewriteArtifactResolverLine = null;
-foreach (preg_split('/\R/', $wooRewriteCoInstallHarness) ?: [] as $lineNumber => $line) {
-    $executableLine = trim($line);
-    if ($executableLine === '. bin/fetch-artifact.sh') {
-        $wooRewriteArtifactResolverLine = $lineNumber;
+$wooRewriteComposeHandoffIsExact = static function (string $harness): bool {
+    $mutations = [];
+    $resolverLine = null;
+    foreach (preg_split('/\R/', $harness) ?: [] as $lineNumber => $line) {
+        $executableLine = trim($line);
+        if ($executableLine === '. bin/fetch-artifact.sh') {
+            $resolverLine = $lineNumber;
+        }
+        $arrayMutation = preg_match(
+            '/^(?:COMPOSE|PAIR_COMPOSE)(?:\[[^]]*\])?\+?=/',
+            $executableLine
+        ) === 1;
+        // No unset belongs in this harness. Refusing every executable unset
+        // form also covers Bash's -v/-n/options and quoted variable names;
+        // a target-specific parser could otherwise miss a valid clearing
+        // spelling and let the resolver expand an empty command array.
+        $unsetMutation = preg_match(
+            '/^(?:(?:builtin|command)\s+)?unset(?:\s|$)/',
+            $executableLine
+        ) === 1;
+        if ($arrayMutation || $unsetMutation) {
+            $mutations[] = ['line' => $executableLine, 'number' => $lineNumber];
+        }
     }
-    if (preg_match(
-        '/^(?:(?:COMPOSE|PAIR_COMPOSE)(?:\[[^]]*\])?\+?=|unset\s+(?:COMPOSE|PAIR_COMPOSE)(?:\s|$))/',
-        $executableLine
-    ) === 1) {
-        $wooRewriteComposeMutations[] = ['line' => $executableLine, 'number' => $lineNumber];
-    }
-}
-woo_ok(
-    array_column($wooRewriteComposeMutations, 'line') === [
+    return array_column($mutations, 'line') === [
         'COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)',
         'PAIR_COMPOSE=("${COMPOSE[@]}")',
     ]
-        && $wooRewriteArtifactResolverLine !== null
-        && $wooRewriteComposeMutations[1]['number'] < $wooRewriteArtifactResolverLine,
+        && $resolverLine !== null
+        && $mutations[1]['number'] < $resolverLine;
+};
+woo_ok(
+    $wooRewriteComposeHandoffIsExact($wooRewriteCoInstallHarness),
     'the candidate-bound co-install hands its exact Compose argv to the pinned artifact resolver before loading it'
 );
+foreach ([
+    'a comment cannot impersonate the executable handoff' => str_replace(
+        'PAIR_COMPOSE=("${COMPOSE[@]}")',
+        '# PAIR_COMPOSE=("${COMPOSE[@]}")',
+        $wooRewriteCoInstallHarness
+    ),
+    'a later array overwrite cannot clear the artifact resolver handoff' => str_replace(
+        '. bin/fetch-artifact.sh',
+        "PAIR_COMPOSE=()\n. bin/fetch-artifact.sh",
+        $wooRewriteCoInstallHarness
+    ),
+    'Bash unset -v cannot clear the artifact resolver handoff' => str_replace(
+        '. bin/fetch-artifact.sh',
+        "unset -v PAIR_COMPOSE\n. bin/fetch-artifact.sh",
+        $wooRewriteCoInstallHarness
+    ),
+] as $claim => $invalidHarness) {
+    woo_ok(!$wooRewriteComposeHandoffIsExact($invalidHarness), $claim);
+}
 woo_ok(($wooEntry['manifest'] ?? null) === 'woocommerce'
     && ($wooEntry['entry']['pin'] ?? null) === ['core', 'woocommerce']
     && ($wooEntry['entry']['plugins'] ?? null) === [['slug' => 'woocommerce', 'version' => '11.0.1']]
