@@ -129,12 +129,29 @@
    "note": "refuses \"agent capability platform boundary disagrees with the loaded agent\" on an agent_version/spec_version/site_mode divergence. It hands back BOTH shapes of the boundary: the typed object, whose canonicalHash is what ContractAttestation::currentPlatformDigest() computes, and the decoded array the § v3.6 axis binding and the projected claim read cell by cell."
   },
   {
+   "site": "agent/src/Adapter/AdapterCertification.php::derivedDisposition",
+   "axes": [
+    "authority",
+    "platform"
+   ],
+   "verdict": "derivation",
+   "note": "builds the disposition a verified certificate installs, carrying the authority record digest and the exercised-axes digest verifyCertificate() has already proved. It COMPUTES identity rather than checking it: this object is folded into the adapter digest a site.duo.json pin binds (ArtifactPolicyIdentity::manifest_rows()), so a member added or renamed here moves the pinned digest of every site-certified adapter on every fleet. WP-5.2 (spec/repo-format.md § v3.16) gave it its only operator, and it is a presence test on the optional evidence.reviewer member rather than an identity comparison — the member is OMITTED when a bundle names no reviewer precisely so that every certificate minted before that rider keeps its exact digest. The refusals are upstream: assertPlatformBinding() and assertAuthorityBinding()."
+  },
+  {
    "site": "agent/src/Adapter/AdapterCertification.php::platformStatement",
    "axes": [
     "platform"
    ],
    "verdict": "derivation",
    "note": "WP-4.7. The MINT side of the same rule: it derives statement.platform -- the exercised cells a certificate binds -- out of the current boundary, narrowed through ManifestDispositions::narrowed_environment() so a § v3.5 adapter binds its NARROWED cells and a widening declaration refuses before a signature byte exists. Compares nothing, which is why it is a derivation; but what it derives is inside the signature and inside the adapter digest a pin binds, so a change here moves identity for every certificate minted afterwards."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::projectClaim",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "carrier",
+   "note": "projects the source-scoped claim out of the disposition derivedDisposition() just built, platform_axes_sha256 included, and refuses nothing about it. WP-5.2 added a presence test on the optional certification.reviewer member (spec/repo-format.md § v3.16), which decides whether one fact is emitted and compares no identity value. The refusal is AdapterCertification::verifyCertificate, which has already run by the time this is reached."
   },
   {
    "site": "agent/src/Adapter/AdapterCertification.php::revocations",

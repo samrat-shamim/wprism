@@ -837,8 +837,9 @@ final class AdapterCatalog {
      * engine actually derived is what belongs here.
      *
      * The words come from `AdapterSources`: `registry` (shipped, reviewed),
-     * `uncertified`, `signed_unpinned`, `third_party_signed`, and T6's
-     * `site_signed`. A shipped row keeps printing its disposition status,
+     * `uncertified`, `signed_unpinned`, `third_party_signed`, T6's
+     * `site_signed`, and § v3.16's `reviewer_signed` (a signed bundle that also
+     * named who exercised it). A shipped row keeps printing its disposition status,
      * because for those the reviewed registry IS the certification state and
      * printing `registry` beside it would say the same thing twice.
      *
@@ -1049,6 +1050,16 @@ final class AdapterCatalog {
             echo '    bundle tests:         ' . (($bundle['tests'] ?? []) === []
                 ? '(none)'
                 : implode(', ', array_map('strval', (array) $bundle['tests']))) . "\n";
+            // Printed ONLY when the bundle named one (§ v3.16). Every existing
+            // certificate carries no reviewer member at all, so this row is
+            // absent for them and their output stays byte-identical — AGENTS.md
+            // rule 8 applied to a line an operator's eye and a grep both use.
+            // The label says "exercised by" rather than "reviewer" because the
+            // fact is who RAN it; who vouched is `authority:` three lines up,
+            // and the whole point of the tier is that those are two parties.
+            if (is_string($bundle['reviewer'] ?? null) && $bundle['reviewer'] !== '') {
+                echo '    exercised by:         ' . $bundle['reviewer'] . "\n";
+            }
             // Three answers, not two: a bundle that exercised no named
             // artifact and a certificate whose artifact list could not be
             // decoded are different facts, and only one of them is a clean

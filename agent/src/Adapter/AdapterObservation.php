@@ -58,9 +58,16 @@ final class AdapterObservation {
      * projection refuses the whole observation rather than emit an
      * unrecognised vocabulary, which is exactly the intent for a word nobody
      * downstream knows how to read.
+     *
+     * `reviewer_signed` joined at gate G4 (§ v3.16, WP-5.2), and it had to
+     * join here in the SAME change that let `AdapterSources` mint it: the
+     * derivation and this enum are the emitting half of one wire, so a word the
+     * engine can produce and this list does not carry would refuse the target's
+     * own observation of itself.
      */
     private const CERTIFICATIONS = [
-        'certification_unjudged', 'registry', 'signed_unpinned', 'site_signed', 'third_party_signed', 'uncertified',
+        'certification_unjudged', 'registry', 'reviewer_signed', 'signed_unpinned', 'site_signed',
+        'third_party_signed', 'uncertified',
     ];
     private const CLAIM_STATUSES = ['certified', 'excluded', 'experimental', 'uncertified', 'unsupported'];
     private const VERDICTS = ['blocked', 'certified'];

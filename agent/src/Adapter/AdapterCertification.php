@@ -295,18 +295,29 @@ final class AdapterCertification {
     ];
 
     /**
-     * The RESERVED bundle-evidence member: the reviewer tier's attachment point
-     * (spec/repo-format.md § v3.10, WP-4.11; gate G4).
+     * The bundle-evidence member that names WHO exercised the adapter — the
+     * reviewer tier, OPENED (spec/repo-format.md § v3.16, WP-5.2; gate G4).
      *
-     * Same shape as the statement reservation and for the same reason —
-     * `bundleEvidence()` closes `{exercised, grammar, reason}` with
-     * `assertExactKeys()`, and the evidence object is inside the bundle digest
-     * a certificate binds — so the slot is a named refusal rather than an
-     * admitted key. WP-5.2 is the rider that flips it: `bundleEvidence()` then
-     * ADMITS the member and the claim projects the reviewer-tier word instead
-     * of collapsing into `site_signed`.
+     * It shipped in v3 as a REFUSAL (§ v3.10, WP-4.11) so that the sentence
+     * would already be in the field before any engine minted the tier, and this
+     * rider is the flip that reservation bought: the member is admitted, and a
+     * certificate whose bundle carries it projects `reviewer_signed` instead of
+     * collapsing into `site_signed` (the site owner vouched) or
+     * `third_party_signed` (the platform root vouched). Nothing about
+     * verification relaxed — the proof stays content-addressed, signed,
+     * git-revision-bound and re-verified on every load
+     * (`verifyRatification()` still refuses a disposition citing a test the
+     * bundle does not carry as passing, :4490) — the vocabulary only gained the
+     * ability to say who exercised it.
+     *
+     * OPTIONAL, never required: `bundleEvidence()` still accepts the exact
+     * three-member object, byte for byte, and every certificate signed before
+     * this rider derives the identical disposition. That is what keeps the flip
+     * a policy change rather than a wire generation (R-28): the member is
+     * inside the bundle digest a certificate binds, so admitting it
+     * unconditionally would have moved every pin on the fleet.
      */
-    public const RESERVED_EVIDENCE_REVIEWER = 'reviewer';
+    public const EVIDENCE_REVIEWER = 'reviewer';
 
     /**
      * The v2 `statement.platform` member.
@@ -981,7 +992,13 @@ final class AdapterCertification {
             $name,
             $manifest,
             $adapterRaw,
-            $trustRoot
+            $trustRoot,
+            // The key this mint will sign under, so § v3.16's
+            // reviewer-is-not-the-signer rule refuses at MINT time rather than
+            // producing a certificate that only refuses when a site first loads
+            // it. One rule, one call site — verifyCertificate() reaches the same
+            // check through the same function.
+            $keyId
         );
         return self::signStatement(
             $manifestDir,
@@ -1223,7 +1240,14 @@ final class AdapterCertification {
             $bundleArray,
             'site certification bundle manifest',
             $name,
-            $trustRoot
+            $trustRoot,
+            // siteBundle() names no reviewer and cannot: this profile binds no
+            // evidence repository at all (its `git_revision` is the nil SHA),
+            // so there is no exercise to attribute. The key id is threaded
+            // anyway so this call reaches the identical validator the load path
+            // reaches — a producer that skipped an argument would be the one
+            // place a bundle's grammar was checked by a different rule.
+            (string) $authorityBinding['key_id']
         );
         self::assertBundleSubjectInput($info['bound_inputs'], $name, [
             'raw_sha256' => hash('sha256', $adapterRaw),
@@ -1696,7 +1720,17 @@ final class AdapterCertification {
         [, , $platformRecord] = self::currentPlatform($manifestDir);
         $platformDigest = self::assertPlatformBinding($name, $platformRecord, $statement['platform']);
 
-        $bundle = self::verifyEmbeddedBundle($statementTyped->bundle, $statement['bundle'], $name, $trustRoot);
+        // `$keyId` is the RESOLVED authority id, not the statement's claimed
+        // selector: assertAuthorityBinding() above already proved the two agree,
+        // and § v3.16's reviewer-is-not-the-signer rule has to be judged against
+        // the key the signature actually verified under.
+        $bundle = self::verifyEmbeddedBundle(
+            $statementTyped->bundle,
+            $statement['bundle'],
+            $name,
+            $trustRoot,
+            $keyId
+        );
         self::assertBundleSubjectInput($bundle['bound_inputs'], $name, $adapter);
         [$ratification, $disposition, $ratificationRaw] = self::verifyEmbeddedRatification(
             $statementTyped->ratification,
@@ -3994,12 +4028,20 @@ final class AdapterCertification {
         string $name,
         array $manifest,
         string $adapterRaw,
-        string $trustRoot
+        string $trustRoot,
+        string $authorityKeyId
     ): array {
         [$bundleDir, $bundleFile] = self::bundleFile($bundleInput);
         [$bundleRaw, $bundleTyped, $bundle] = self::readBundleObjectFile($bundleFile, 'certification bundle manifest');
         unset($bundleRaw);
-        $info = self::verifyBundleManifest($bundleTyped, $bundle, 'certification bundle manifest', $name, $trustRoot);
+        $info = self::verifyBundleManifest(
+            $bundleTyped,
+            $bundle,
+            'certification bundle manifest',
+            $name,
+            $trustRoot,
+            $authorityKeyId
+        );
         self::assertBundleSubjectInput($info['bound_inputs'], $name, [
             'raw_sha256' => hash('sha256', $adapterRaw),
             'raw_size' => strlen($adapterRaw),
@@ -4051,14 +4093,15 @@ final class AdapterCertification {
      * signed descriptors and content-addressed bundle manifest without finding
      * an arbitrary external evidence directory.
      *
-     * @return array{tests:array<string,bool>,assets:array<string,array>,bound_inputs:list<array>,ratification_asset:array,summary:array,bundle_digest:string,git_revision:string,exercised:bool,created_at:string}
+     * @return array{tests:array<string,bool>,assets:array<string,array>,bound_inputs:list<array>,ratification_asset:array,summary:array,bundle_digest:string,git_revision:string,exercised:bool,reviewer:?string,created_at:string}
      */
     private static function verifyBundleManifest(
         object $typed,
         array $bundle,
         string $label,
         string $name,
-        string $trustRoot
+        string $trustRoot,
+        string $authorityKeyId
     ): array {
         self::assertExactKeys($bundle, [
             'artifacts', 'bound_inputs', 'bundle_digest', 'created_at', 'environment', 'environment_summary',
@@ -4100,7 +4143,8 @@ final class AdapterCertification {
             throw new \RuntimeException("duo: $label is not an intact passing " . self::BUNDLE_FORMAT . ' manifest');
         }
         self::assertExactKeys($bundle['harness'], ['name', 'version'], "$label.harness");
-        $exercised = self::bundleEvidence($bundle['evidence'], $label, $trustRoot);
+        $evidence = self::bundleEvidence($bundle['evidence'], $label, $trustRoot, $authorityKeyId);
+        $exercised = $evidence['exercised'];
         // An external certificate is not a vehicle for force-flag approval.
         // Binding a non-empty list would make it visible, but still turns an
         // override into a green site claim, which this source never permits.
@@ -4187,6 +4231,11 @@ final class AdapterCertification {
             'bound_inputs' => $bound,
             'created_at' => (string) $bundle['created_at'],
             'exercised' => $exercised,
+            // `null` when the bundle named no reviewing party, which is every
+            // bundle minted before § v3.16 and every one minted after it that
+            // does not claim the tier. derivedDisposition() omits the member
+            // entirely on null, so those certificates keep their exact digest.
+            'reviewer' => $evidence['reviewer'],
             'ratification_asset' => $ratification,
             'summary' => $bundle['ratification_summary'],
             'bundle_digest' => $bundle['bundle_digest'],
@@ -4216,24 +4265,51 @@ final class AdapterCertification {
      * `grammar` must be `ok`: a certificate for a manifest the loader itself
      * refuses would be certifying bytes no command can use.
      *
+     * WP-5.2 ADDS A THIRD SHAPE, the reviewer tier (§ v3.16), and it is the
+     * first two with one optional member rather than a fourth grammar:
+     *
+     *   + reviewer: <party> — a NAMED reviewing party exercised it. The claim
+     *                      then projects `reviewer_signed`, which says who ran
+     *                      the tests rather than only which root vouched.
+     *
+     * Three rules make that word unreachable by relabelling, and each closes a
+     * specific way a third tier could launder an unreviewed claim:
+     *
+     *   1. It requires `exercised: true`. A bundle that declares no exercise
+     *      has no exercise to attribute, and naming a reviewer beside
+     *      `exercised: false` is exactly the sentence the tier must never be
+     *      able to print.
+     *   2. The party is an identity, not free text — `assert_name()`, the same
+     *      grammar an adapter name and an authority key id are held to — so it
+     *      is comparable across certificates and safe as a JSON map key.
+     *   3. It may not BE the signing authority. A bundle whose reviewer is its
+     *      own signer is `site_signed`/`third_party_signed` wearing a third
+     *      word; the tier means two distinct named parties, one who exercised
+     *      and one who vouched, which is strictly more than either existing
+     *      word says.
+     *
      * @param mixed $evidence
+     * @return array{exercised:bool,reviewer:?string}
      */
-    private static function bundleEvidence($evidence, string $label, string $trustRoot): bool {
+    private static function bundleEvidence(
+        $evidence,
+        string $label,
+        string $trustRoot,
+        string $authorityKeyId
+    ): array {
         if (!is_array($evidence) || array_is_list($evidence)) {
             throw new \RuntimeException("duo: $label.evidence must be an object");
         }
-        // The reviewer tier's reserved slot (§ v3.10, WP-4.11), named before
-        // `assertExactKeys()` reaches it. Refused either way — the key set is
-        // closed in both directions — so the verdict does not move; what moves
-        // is that an author holding a bundle minted for the reviewer tier is
-        // told the tier is shut and which gate opens it, rather than being told
-        // their evidence object "must contain exactly exercised, grammar,
-        // reason", which reads as a malformed bundle.
-        if (array_key_exists(self::RESERVED_EVIDENCE_REVIEWER, $evidence)) {
-            throw new \RuntimeException(
-                "duo: $label.evidence declares '" . self::RESERVED_EVIDENCE_REVIEWER
-                . "' — the reviewer evidence member is reserved; it is admitted when the reviewer tier opens at gate G4"
-            );
+        // The optional member is lifted out BEFORE the closed-set check rather
+        // than added to it, so every other unknown member still gets the exact
+        // "must contain exactly exercised, grammar, reason" sentence it got
+        // before this rider. The evidence object is inside the bundle digest a
+        // certificate binds, so a bundle that declares no reviewer reaches the
+        // identical assertExactKeys() call on the identical array.
+        $reviewer = null;
+        if (array_key_exists(self::EVIDENCE_REVIEWER, $evidence)) {
+            $reviewer = $evidence[self::EVIDENCE_REVIEWER];
+            unset($evidence[self::EVIDENCE_REVIEWER]);
         }
         self::assertExactKeys($evidence, ['exercised', 'grammar', 'reason'], "$label.evidence");
         $exercised = $evidence['exercised'] ?? null;
@@ -4245,13 +4321,44 @@ final class AdapterCertification {
                 . "', and a non-empty reason"
             );
         }
+        // THE REVIEWER MEMBER IS JUDGED BEFORE THE ROOT RULE BELOW, and the
+        // ordering is deliberate rather than incidental: `reviewer` beside
+        // `exercised: false` is a contradiction INSIDE the evidence object
+        // under EITHER root, so its author gets the sentence about the
+        // contradiction they wrote and not the one about which roots may
+        // certify an unexercised bundle — which is true, unhelpful, and about a
+        // different mistake. A bundle naming no reviewer skips this block
+        // entirely, so nothing that refused before this rider refuses
+        // differently after it.
+        if ($reviewer !== null) {
+            if (!is_string($reviewer)) {
+                throw new \RuntimeException(
+                    "duo: $label.evidence." . self::EVIDENCE_REVIEWER
+                    . ' must name one reviewing party as a canonical identity string'
+                );
+            }
+            AdapterSources::assert_name($reviewer, "$label.evidence." . self::EVIDENCE_REVIEWER);
+            if (!$exercised) {
+                throw new \RuntimeException(
+                    "duo: $label.evidence names reviewer '$reviewer' beside exercised false — the reviewer tier "
+                    . 'states WHO exercised the adapter, and a bundle declaring no exercise has none to attribute'
+                );
+            }
+            if (hash_equals($authorityKeyId, $reviewer)) {
+                throw new \RuntimeException(
+                    "duo: $label.evidence names reviewer '$reviewer', which is the signing authority itself — the "
+                    . 'reviewer tier names a party OTHER than the key that vouches for it, or it says nothing the '
+                    . 'trust root did not already say'
+                );
+            }
+        }
         if (!$exercised && $trustRoot !== self::TRUST_ROOT_SITE) {
             throw new \RuntimeException(
                 "duo: $label declares no exercise proof, which only a " . self::TRUST_ROOT_SITE
                 . ' trust root may certify — a platform-rooted certificate states a reviewed exercise'
             );
         }
-        return $exercised;
+        return ['exercised' => $exercised, 'reviewer' => $reviewer];
     }
 
     /** @return array{path:string,sha256:string,size:int} */
@@ -4423,19 +4530,21 @@ final class AdapterCertification {
         return [$data, $disposition, $raw];
     }
 
-    /** @return array{tests:array<string,bool>,assets:array<string,array>,bound_inputs:list<array>,ratification_asset:array,summary:array,bundle_digest:string,git_revision:string,exercised:bool} */
+    /** @return array{tests:array<string,bool>,assets:array<string,array>,bound_inputs:list<array>,ratification_asset:array,summary:array,bundle_digest:string,git_revision:string,exercised:bool,reviewer:?string} */
     private static function verifyEmbeddedBundle(
         object $bundleTyped,
         array $bundle,
         string $name,
-        string $trustRoot
+        string $trustRoot,
+        string $authorityKeyId
     ): array {
         return self::verifyBundleManifest(
             $bundleTyped,
             $bundle,
             'signed certification bundle manifest',
             $name,
-            $trustRoot
+            $trustRoot,
+            $authorityKeyId
         );
     }
 
@@ -4582,6 +4691,27 @@ final class AdapterCertification {
         string $statementDigest
     ): array {
         unset($name);
+        // THE REVIEWER MEMBER IS OMITTED WHEN THERE IS NONE, and that is a
+        // digest argument rather than a style one (§ v3.16, AGENTS.md rule 2).
+        // This object is folded into the adapter `digest` a repository pin binds
+        // (`ArtifactPolicyIdentity::manifest_rows()`), so a `reviewer: null`
+        // written unconditionally would have moved the pinned digest of every
+        // site-certified adapter on every fleet the day this rider shipped —
+        // for a tier none of them claims. Present only when a bundle named a
+        // party, which is exactly when the fact exists.
+        $bundleProof = [
+            'digest' => $bundle['bundle_digest'],
+            'exercised' => $bundle['exercised'],
+            'force_hatches' => [],
+            'git_revision' => $bundle['git_revision'],
+            'schema' => self::BUNDLE_FORMAT,
+            'signed_at' => $bundle['created_at'],
+            'tests' => $ratifiedDisposition['evidence']['tests'],
+        ];
+        if (($bundle['reviewer'] ?? null) !== null) {
+            $bundleProof['reviewer'] = (string) $bundle['reviewer'];
+            ksort($bundleProof, SORT_STRING);
+        }
         return [
             'certification' => 'certified',
             'provenance' => [
@@ -4604,15 +4734,7 @@ final class AdapterCertification {
                         // identity and every pin naming the old one refuses.
                         'trust_root' => $authority['trust_root'],
                     ],
-                    'bundle' => [
-                        'digest' => $bundle['bundle_digest'],
-                        'exercised' => $bundle['exercised'],
-                        'force_hatches' => [],
-                        'git_revision' => $bundle['git_revision'],
-                        'schema' => self::BUNDLE_FORMAT,
-                        'signed_at' => $bundle['created_at'],
-                        'tests' => $ratifiedDisposition['evidence']['tests'],
-                    ],
+                    'bundle' => $bundleProof,
                     'certificate_sha256' => $certificateDigest,
                     // RENAMED with its meaning, not quietly redefined under the
                     // old name (§ v3.6): this is the digest of the exercised
@@ -4699,6 +4821,18 @@ final class AdapterCertification {
             'source' => AdapterSources::SITE,
             'trust_root' => $derived['provenance']['proof']['authority']['trust_root'],
         ];
+        // The FIFTH fact, and only when there is one (§ v3.16). `principal`
+        // answers who VOUCHED; a reviewer-tier certificate can also answer who
+        // EXERCISED, and those are two different parties by construction
+        // (`bundleEvidence()` refuses a bundle where they are the same). Added
+        // conditionally for the reason derivedDisposition() states about the
+        // same fact: an unconditional member would move a shape every existing
+        // certificate projects, and this block is what `duo assess` reads to
+        // print `Site-certified` with a principal.
+        if (($derived['provenance']['proof']['bundle']['reviewer'] ?? null) !== null) {
+            $claim['certification']['reviewer'] = (string) $derived['provenance']['proof']['bundle']['reviewer'];
+            ksort($claim['certification'], SORT_STRING);
+        }
         $claim['provenance'] = $derived['provenance'];
         $claim['trust_tier'] = $derived['trust_tier'];
         $claim['provider_code'] = [

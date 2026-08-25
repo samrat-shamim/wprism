@@ -414,46 +414,34 @@ final class AdapterSources {
     public const CERTIFICATION_SITE_SIGNED = 'site_signed';
 
     /**
-     * The RESERVED certification word: the reviewer tier (spec/repo-format.md
-     * § v3.10, WP-4.11; gate G4, flipped by WP-5.2).
+     * The REVIEWER-TIER word (spec/repo-format.md § v3.16, WP-5.2; gate G4).
      *
-     * NO ENGINE MINTS IT. The two derivations that answer this question —
-     * `site_certification()` (:2743) and `certification_word()` (:3990) — both
-     * end in the same ternary over `trust_root()`, so `site_signed` and
-     * `third_party_signed` are the only two words a verified certificate can
-     * reach. The reservation exists anyway, and BEFORE the tier does, for the
-     * reason the closed vocabularies state about themselves: a projection
-     * refuses a WHOLE document on a word it does not know
-     * (`AdapterObservation::CERTIFICATIONS`), so a host at this version reading
-     * a target that has already flipped would refuse the observation on
-     * `invalid enum` — a corruption verdict for a version skew. Naming the word
-     * here turns that into a fact the operator can act on. The verdict does not
-     * move: the document is refused either way.
-     */
-    public const CERTIFICATION_RESERVED_REVIEWER = 'reviewer_signed';
-
-    /**
-     * The pinned refusal for a reserved certification word, or null when the
-     * word is not reserved.
+     * It answers a question neither word above can. `site_signed` and
+     * `third_party_signed` both say which ROOT vouched — the customer
+     * organization's or this project's — and both are silent about who actually
+     * ran the tests, because until this rider the two facts had one producer.
+     * A certificate whose signed bundle names a reviewing party
+     * (`AdapterCertification::EVIDENCE_REVIEWER`) has TWO distinct named
+     * parties in it, and collapsing that into either existing word would print
+     * one of them and delete the other.
      *
-     * ONE definition of the sentence, because the vocabulary has more than one
-     * reader and a second copy of a refusal is the copy that rots. The host
-     * side restates the WORD (cli/src/Adapter/AdapterObservation.php) for the
-     * reason that file already restates the whole vocabulary — it validates an
-     * untrusted target document and must not depend on target-derived code
-     * being loaded — and the suite asserts the two spellings are one string.
+     * IT SHIPPED FIRST AS A REFUSAL, on purpose (§ v3.10, WP-4.11, R-28). A
+     * projection refuses a WHOLE document on a word it does not know
+     * (`AdapterObservation::CERTIFICATIONS`), so an engine that minted this word
+     * before every deployed host had heard of it would have turned a version
+     * skew into an `invalid enum` corruption verdict on the reading side. The
+     * reservation put the name in the field one release ahead of the policy that
+     * mints it; this rider is the flip it bought, and the flip is an edit to
+     * pins that `sandbox/tests/offline/adapter/regress_v3_reservations.php`
+     * fails on until it is made deliberately.
+     *
+     * PRECEDENCE, stated because a ladder word is only as good as its order:
+     * this word is reached only where `site_signed`/`third_party_signed` would
+     * have been — after `certification_unjudged`, `uncertified` and
+     * `signed_unpinned`, which are all about whether there is a reviewed
+     * signature at all and are untouched by who exercised it.
      */
-    public static function reserved_certification_refusal(string $word): ?string {
-        if ($word !== self::CERTIFICATION_RESERVED_REVIEWER) {
-            return null;
-        }
-
-        // The pinned phrase is written CONTIGUOUSLY, never split across a
-        // concatenation, so `grep` and the document suite find the spec's own
-        // sentence in the shipped bytes.
-        return "duo: certification '" . self::CERTIFICATION_RESERVED_REVIEWER
-            . "' is reserved — the reviewer tier opens at gate G4 with an 'evidence.reviewer' bundle, and no engine mints it today";
-    }
+    public const CERTIFICATION_REVIEWER_SIGNED = 'reviewer_signed';
 
     /**
      * A SHIPPED adapter deliberately displaced by an explicit site override
@@ -2839,6 +2827,10 @@ final class AdapterSources {
      *      `third_party_signed` additionally requires the repository pin to
      *      bind both source "site" and the final certificate-derived digest.
      *   3. Elevation is withheld unless this row's own grammar is `ok`.
+     *   4. Only then does WHO decide the word, and the reviewer tier is asked
+     *      FIRST (§ v3.16): a bundle that named a reviewing party carries two
+     *      distinct named parties, and the root ternary below can print only
+     *      one of them.
      *      bind_explicit_pins() checks the digest's SHAPE, not its value; the
      *      engine compares the value (Policy's hash_equals) and refuses the
      *      repository outright when it disagrees. Without this clause a
@@ -2868,7 +2860,11 @@ final class AdapterSources {
         // provenance rather than re-derived: the trust root is inside the
         // signed statement and folded into the adapter digest, so a second
         // derivation here could disagree with the certificate the engine
-        // actually verified.
+        // actually verified. The reviewer is read the same way and from the same
+        // proof, for the same reason.
+        if ($sources->reviewer($name) !== null) {
+            return self::CERTIFICATION_REVIEWER_SIGNED;
+        }
         return $sources->trust_root($name) === self::TRUST_ROOT_SITE
             ? self::CERTIFICATION_SITE_SIGNED
             : 'third_party_signed';
@@ -4113,6 +4109,11 @@ final class AdapterSources {
         if (empty($this->explicitPins[$name])) {
             return 'signed_unpinned';
         }
+        // § v3.16, in the same order site_certification() asks it — the two
+        // derivations are one rule and this method exists so they stay one.
+        if ($this->reviewer($name) !== null) {
+            return self::CERTIFICATION_REVIEWER_SIGNED;
+        }
         return $this->trust_root($name) === self::TRUST_ROOT_SITE
             ? self::CERTIFICATION_SITE_SIGNED
             : 'third_party_signed';
@@ -4149,7 +4150,14 @@ final class AdapterSources {
         return $this->is_out_of_tree($name)
             && !in_array(
                 $this->certification_word($name),
-                [self::CERTIFICATION_SITE_SIGNED, 'third_party_signed'],
+                // `reviewer_signed` belongs here the day the engine can mint it
+                // (§ v3.16): it is the SAME verified, pinned certificate the two
+                // words beside it name, differing only in whether the bundle
+                // also said who exercised it. Omitting it would have made
+                // WP-3.1's capture-time lint gate block an adapter for carrying
+                // MORE evidence, which is the one direction a tier must never
+                // move a gate.
+                [self::CERTIFICATION_SITE_SIGNED, self::CERTIFICATION_REVIEWER_SIGNED, 'third_party_signed'],
                 true
             );
     }
@@ -4175,6 +4183,25 @@ final class AdapterSources {
     public function principal(string $name): ?string {
         $principal = $this->provenance[$name]['provenance']['proof']['authority']['key_id'] ?? null;
         return is_string($principal) && $principal !== '' ? $principal : null;
+    }
+
+    /**
+     * The party the signed bundle says EXERCISED this adapter, or null when it
+     * named none (§ v3.16, WP-5.2).
+     *
+     * Projected out of the same verified proof `trust_root()` and `principal()`
+     * read, never recomputed: the member lives inside the bundle the signature
+     * covers and is folded into the adapter digest a repository pin binds, so a
+     * second derivation here would be an unsigned copy of a signed fact.
+     *
+     * `null` is the answer for every certificate minted before this rider and
+     * for every one after it that claims no tier — `derivedDisposition()` omits
+     * the member rather than writing `null`, which is what keeps those
+     * certificates' digests, and therefore their pins, exactly where they were.
+     */
+    public function reviewer(string $name): ?string {
+        $reviewer = $this->provenance[$name]['provenance']['proof']['bundle']['reviewer'] ?? null;
+        return is_string($reviewer) && $reviewer !== '' ? $reviewer : null;
     }
 
     /**

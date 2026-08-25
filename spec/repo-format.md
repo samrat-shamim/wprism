@@ -1589,11 +1589,20 @@ adding one would be overruling the register rather than implementing this sectio
 
 ### v3.10 Reserved-but-refusing slots
 
-**Rider: WP-4.11. Enforced today: YES — all four slots refuse with the pinned messages below.** The
-manifest slot refuses at `spec_version: 3`, where the key set is closed (§ v3.3), and is therefore inert
-at this engine's `DUO_SPEC_VERSION` 2 exactly as § v3.3 and § v3.5 are; the other three refuse at every
-version, on every certificate and every observation the engine reads today. The fifth line this section
+**Riders: WP-4.11 reserved; WP-5.2 opened the reviewer tier. Enforced today: YES for the three slots that
+remain reserved — they refuse with the pinned messages below. The two reviewer-tier slots are OPEN
+(§ v3.16).** The manifest slot refuses at `spec_version: 3`, where the key set is closed (§ v3.3), and is
+therefore inert at this engine's `DUO_SPEC_VERSION` 2 exactly as § v3.3 and § v3.5 are; the two statement
+members refuse at every version, on every certificate the engine reads today. The fifth line this section
 used to reserve — the graduated verdict — is not a reservation at all and is recorded as delivered below.
+
+**The opening is the point, not an exception to it.** WP-4.11 reserved four slots so that opening one
+later would be a policy flip proven by suite rather than a second flag day, and WP-5.2 is the first
+redemption of that: two slots moved from refusing to admitted, `AdapterCertification::STATEMENT_KEYS` did
+not move, no signature domain moved, and no certificate already in the field changed a byte. What the
+reservation actually bought is visible in the second table below — a host at the previous version still
+answers with the published sentence, so an operator meeting a flipped target reads a version skew instead
+of a corruption verdict.
 
 v3 ships attachment points that REFUSE, each with a pinned message naming the gate that would open it.
 Reserving an attachment point — a member slot or a vocabulary value, never a schema — is what makes each
@@ -1611,13 +1620,22 @@ spelling" or "must contain exactly …", which are false about a document that i
 verdict moves in either direction: every input below was refused before this rider and is refused after
 it, with the same exception and the same failure.
 
+**STILL RESERVED — these three refuse today, with these exact sentences:**
+
 | slot | where it attaches | shipped refusal site | pinned refusal |
 |---|---|---|---|
 | manifest `package` | manifest top level, inside the closed key set | `AdapterContractGrammar::assert_top_level_keys()` | `duo: manifest '<name>' declares 'package' — the executable adapter lane is reserved and shut. It opens only at gate G5 (spec/repo-format.md § v3.11), never by declaring the key` |
 | statement `code_digest` | the signed certification statement | `AdapterCertification::assertStatementShape()` | `duo: site adapter certification statement declares 'code_digest' — a signed binding over adapter code is reserved and shut; it opens with the executable lane at gate G5` |
 | statement `delegated_authority` | the signed certification statement | `AdapterCertification::assertStatementShape()` | `duo: site adapter certification statement declares 'delegated_authority' — delegated authority is verified through its own signed delegation document, not through a member of this statement (spec/repo-format.md § v3.8)` |
-| certification word `reviewer_signed` | the certification vocabulary | `AdapterSources::reserved_certification_refusal()` defines the sentence; the host observer raises it | `duo: certification 'reviewer_signed' is reserved — the reviewer tier opens at gate G4 with an 'evidence.reviewer' bundle, and no engine mints it today` |
-| `evidence.reviewer` | the bundle evidence object | `AdapterCertification::bundleEvidence()` | `duo: <label>.evidence declares 'reviewer' — the reviewer evidence member is reserved; it is admitted when the reviewer tier opens at gate G4` |
+
+**OPENED at gate G4 by WP-5.2 (§ v3.16).** The fourth column is what a reader at the PREVIOUS version
+still answers, and it is recorded rather than deleted because it is live in the field: those bytes ship on
+every host that has not taken this release, and an operator who meets one needs to recognise the sentence.
+
+| slot | where it attaches | state | what a v3-era reader still says | opened by |
+|---|---|---|---|---|
+| certification word `reviewer_signed` | the certification vocabulary | MINTED by `AdapterSources::certification_word()` / `site_certification()`; admitted by both observer vocabularies | `duo: certification 'reviewer_signed' is reserved — the reviewer tier opens at gate G4 with an 'evidence.reviewer' bundle, and no engine mints it today` | WP-5.2 |
+| `evidence.reviewer` | the bundle evidence object | ADMITTED by `AdapterCertification::bundleEvidence()` as an OPTIONAL member; the three-member object is unchanged | `duo: <label>.evidence declares 'reviewer' — the reviewer evidence member is reserved; it is admitted when the reviewer tier opens at gate G4` | WP-5.2 |
 
 Three consequences worth stating. First, the signed statement is still exactly six members — `adapter`,
 `authority`, `bundle`, `platform`, `ratification`, `version` (`AdapterCertification::STATEMENT_KEYS`) —
@@ -1629,16 +1647,20 @@ wire generation (§ v3.6, R-24) rather than something a reservation quietly pre-
 reserved statement members are shut for different reasons and say so: `code_digest` waits on gate G5,
 while `delegated_authority` is shut permanently as a statement member — a delegation is verified through
 its own signed, domain-separated document (§ v3.8), and a member here would be an unsigned second copy of
-a fact a signature already carries. Third, the reviewer word's refusal is enforced at the HOST boundary,
-where a foreign word can actually arrive: no shipped derivation mints anything but `site_signed` or
-`third_party_signed`, so the case the slot exists for is version skew — a host at this version reading a
-target whose agent has flipped gate G4 — and without the slot that reads as document corruption.
+a fact a signature already carries. Third, the reviewer word's refusal was enforced at the HOST boundary,
+where a foreign word can actually arrive, and that placement is exactly what made the flip cheap: the
+sentence shipped one release ahead of the first engine able to mint the word, so a host reading a
+target whose agent has already opened gate G4 answers with a version fact instead of a corruption verdict.
+WP-5.2 supplied the other half — both observer vocabularies now ADMIT the word — and the two halves
+landing in different releases is the whole mechanism, not an accident of scheduling.
 
-`sandbox/tests/offline/adapter/regress_v3_reservations.php` drives all four, pins each message, proves
-that no current verdict moves and that the six-member statement's canonical bytes and signature are
-unchanged. It is also § v3.11 condition 7's evidence: WP-7.1's later opening is a policy flip this suite
-measures, not a format break taken on faith. Register row R-28 records the decision beside the other
-irreversible ones.
+`sandbox/tests/offline/adapter/regress_v3_reservations.php` drives all five slots — the three that still
+refuse against their pinned messages, and the two the flip opened against the behaviour that replaced them
+— proves that no verdict which existed before the reservation moved, and pins the six-member statement's
+canonical bytes and signature. It is also § v3.11 condition 7's evidence, now with one worked example
+behind it: WP-5.2 opened two slots by editing the pins in that file, visibly and in one diff, which is
+what "a policy flip proven by test" was supposed to mean. Register row R-28 records the decision beside
+the other irreversible ones.
 
 **Already delivered, and recorded here so the reservation is not re-taken:** the graduated
 `outside_version_range` verdict shipped as `version_range_graduated` (WP-2.8), a third evidence-bound
@@ -1688,9 +1710,11 @@ substitutable for another:
 6. **Demonstrated parity.** A third party has produced a platform-admissible `exercised: true` bundle
    using the shipped adapter test kit, verified at distance from an evidence repository that is not this
    one.
-7. **Clean reservations.** § v3.10's suite still refuses with its pinned messages, and the full refusal
-   suite for the opened lane is authored and green on a branch — so the flip is a policy change proven by
-   test, not a format break taken on faith.
+7. **Clean reservations.** § v3.10's suite still refuses with its pinned messages for the three slots this
+   lane owns — the manifest `package` key and the two statement members — and the full refusal suite for
+   the opened lane is authored and green on a branch, so the flip is a policy change proven by test, not a
+   format break taken on faith. WP-5.2 has now DONE this once, for the two reviewer-tier slots at gate G4
+   (§ v3.16): the mechanism is no longer a promise, and the three slots above are what remains of it.
 
 If any condition is unmet the lane stays shut and the answer is more declarative primitives, never a
 relaxed gate.
@@ -2022,6 +2046,73 @@ shipped manifest's bytes at runtime and driven through the real `duo manifest-va
 (`sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php`); the shipped manifest is deliberately
 NOT re-stamped, because a byte under `manifests/` is adapter identity and moving it would cost every pin
 and certificate over that adapter for a point already proven.
+
+### v3.16 The reviewer tier: federating the `exercised` leg
+
+**Rider: WP-5.2. Enforced today: yes — `evidence.reviewer` is admitted and `reviewer_signed` is minted.**
+This is the flip of two of the five slots § v3.10 reserved, at gate G4, and it changes no wire: the signed
+statement is the same six members, the signature domain is untouched, and every certificate already in the
+field derives the identical disposition. What moved is a policy and a vocabulary.
+
+**The fact the ladder could not say.** A certification word answers "who vouched for this adapter", and
+until this rider that was the only question it could answer, because the party who VOUCHED and the party
+who EXERCISED were always the same one. `site_signed` means the customer organization vouched for its own
+adapter; `third_party_signed` means a root this project reviews vouched. Neither can say that an
+independent conformance lab produced the run and a root vouched for the lab — two distinct named parties —
+and collapsing that into either word prints one of them and deletes the other.
+
+**What is admitted.** The bundle evidence object gains ONE optional member:
+
+```
+evidence: { exercised: true, grammar: "ok", reason: "…", reviewer: "<party>" }
+```
+
+`reviewer` names one reviewing party as a canonical identity — the same grammar
+(`AdapterSources::assert_name()`) an adapter name and an authority key id are held to, so it is comparable
+across certificates and safe as a JSON object-map key. The three-member object is unchanged and remains
+the common case; the member is optional in the strict sense that a bundle omitting it produces a
+byte-identical disposition, which is what keeps every `site.duo.json` pin binding (AGENTS.md rule 2).
+
+**Three rules make the word unreachable by relabelling**, and each closes one way a third tier could
+launder an unreviewed claim rather than federate a reviewed one:
+
+1. **It requires `exercised: true`.** A bundle declaring no exercise has no exercise to attribute, and
+   "reviewed by X, exercised by nobody" is the one sentence this tier must never be able to print.
+2. **The party is an identity, not prose.** Free text would make two certificates naming the same lab
+   incomparable, which is most of what a tier is for.
+3. **It may not BE the signing authority.** A bundle whose reviewer is its own signer is `site_signed` or
+   `third_party_signed` wearing a third word. The tier means two parties; one party is already covered.
+
+**Nothing about verification relaxed, and that is the whole safety argument.** The proof stays
+content-addressed, signed, git-revision-bound and re-verified on every load. In particular
+`verifyRatification()` still refuses a disposition that CITES a test the bundle does not carry as passing
+— "cites absent or non-passing bundle test" — and `verifyBundleAssets()` still refuses a cited test whose
+RESULT asset records a non-zero exit. What federates is not the checking; it is WHERE the evidence was
+produced. `AdapterCertification::sign()` has always taken an `$evidenceRepo` distinct from the site
+repository, and runtime verification reopens no evidence checkout at all, so a bundle minted from a
+foreign repository verifies on a site that holds none of the cited tests and can never run them.
+
+**Precedence, stated because a ladder word is only as good as its order.** `reviewer_signed` is reached
+exactly where `site_signed`/`third_party_signed` would have been — after `certification_unjudged`,
+`uncertified` and `signed_unpinned`, all of which are about whether a reviewed signature exists at all. A
+named reviewer does not buy past the repository pin: an unpinned reviewer-tier certificate is
+`signed_unpinned`, the same as any other.
+
+**Both observer vocabularies admit the word in this same change**, because a closed enum a target can emit
+and a host cannot read refuses the whole observation. The reading half shipped one release earlier as
+§ v3.10's pinned refusal, which is why an operator whose host is behind gets a version fact rather than
+`invalid enum` — the property R-28 says a reservation on a read surface exists to buy.
+
+`sandbox/tests/offline/adapter/regress_reviewer_evidence_tier.php` is the evidence: a bundle from a
+foreign evidence repository, over a test this repository holds no file and no Makefile target for, signed
+through the shipped verb and then re-verified after that repository is deleted from disk; all three signed
+words minted in one estate; the three refusals above and the three arms of the cited-test rule; and the
+seven-member proof a reviewer-less bundle still produces.
+
+**What this does NOT do:** it does not enroll anyone. `manifests/capabilities/adapter-authorities.json` is
+still the empty v1 registry, and gate G4's condition 7 — a third party ACTUALLY producing an exercised
+bundle — is a fact about the world that no fixture can supply (docs/guides/trust-enrollment.md). This
+rider makes the tier expressible and verifiable; it does not make it populated.
 
 ## Ledger tables (per environment, never in the repo)
 

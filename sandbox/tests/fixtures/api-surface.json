@@ -894,7 +894,7 @@
                 "CERTIFICATION_DIR": {
                     "value_repr": "certifications"
                 },
-                "CERTIFICATION_RESERVED_REVIEWER": {
+                "CERTIFICATION_REVIEWER_SIGNED": {
                     "value_repr": "reviewer_signed"
                 },
                 "CERTIFICATION_SHADOWED_BY_SITE": {
@@ -1541,7 +1541,7 @@
                     "static": true,
                     "visibility": "public"
                 },
-                "reserved_certification_refusal": {
+                "reviewer": {
                     "abstract": false,
                     "final": false,
                     "parameters": [
@@ -1549,13 +1549,13 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "word",
+                            "name": "name",
                             "type": "string",
                             "variadic": false
                         }
                     ],
                     "return_type": "?string",
-                    "static": true,
+                    "static": false,
                     "visibility": "public"
                 },
                 "scan_anchors": {

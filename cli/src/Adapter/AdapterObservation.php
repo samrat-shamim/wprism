@@ -40,34 +40,31 @@ final class AdapterObservation {
      * a word the engine legitimately emits, which is a closed vocabulary
      * failing closed against its own product.
      */
-    private const CERTIFICATIONS = [
-        'certification_unjudged', 'registry', 'signed_unpinned', 'site_signed',
-        'third_party_signed', 'uncertified',
-    ];
     /**
-     * The reserved reviewer-tier word (spec/repo-format.md § v3.10, WP-4.11),
-     * and the pinned refusal that names the gate deciding it.
+     * `reviewer_signed` is ADMITTED here (§ v3.16, WP-5.2), and the two-release
+     * shape of that admission is the point rather than a detail.
      *
-     * THE CASE THIS EXISTS FOR is version skew across the wire, which is the
-     * one case this file's whole design is about: a host at today's version
-     * reading a target whose agent has already flipped gate G4 would refuse the
-     * whole observation on `invalid enum` — the same three words a corrupt
-     * document gets — and an operator would read a version skew as target
-     * corruption. Naming the word turns that into an answerable fact. The
-     * verdict does not move: the document is refused either way, and this host
-     * cannot read a tier it does not implement.
+     * It shipped in this file first as a REFUSAL naming gate G4, because the
+     * case this host has to survive is version skew: a host at a version that
+     * has never heard of a word refuses the whole observation on `invalid enum`
+     * — the same three words a corrupt document gets — and an operator reads a
+     * skew as target corruption. That refusal is now in the field, one release
+     * ahead of the first engine that can mint the word, which is exactly what
+     * R-28 says a reservation on a read surface is for. Admitting it here is
+     * the second half: a host at THIS version reads a reviewer-tier target
+     * correctly instead of refusing it.
      *
-     * Restated here rather than read from `AdapterSources` for the reason the
-     * vocabulary above is restated: cli/duo requires this file at bootstrap
+     * Restated rather than read from `AdapterSources` for the reason the
+     * vocabulary is restated at all: cli/duo requires this file at bootstrap
      * (:68) and loads agent classes lazily, so the validator for an untrusted
      * target document may not depend on an agent class being resident.
      * `sandbox/tests/offline/adapter/regress_v3_reservations.php` asserts this
-     * spelling and `AdapterSources::reserved_certification_refusal()` are one
-     * string, in both directions.
+     * list and the agent's own are the same set, in both directions.
      */
-    private const CERTIFICATION_RESERVED_REVIEWER = 'reviewer_signed';
-    private const CERTIFICATION_RESERVED_REFUSAL = "duo: certification 'reviewer_signed'"
-        . " is reserved — the reviewer tier opens at gate G4 with an 'evidence.reviewer' bundle, and no engine mints it today";
+    private const CERTIFICATIONS = [
+        'certification_unjudged', 'registry', 'reviewer_signed', 'signed_unpinned', 'site_signed',
+        'third_party_signed', 'uncertified',
+    ];
     private const CLAIM_STATUSES = ['certified', 'excluded', 'experimental', 'uncertified', 'unsupported'];
     private const VERDICTS = ['blocked', 'certified'];
     private const BLOCKER_STATUSES = ['blocked', 'unreviewed', 'unsupported'];
@@ -371,9 +368,6 @@ final class AdapterObservation {
                 'certification', 'grammar', 'interpreter', 'manifest_provider_count', 'name', 'regenerator_count',
                 'sha256', 'source', 'trust_tier',
             ]);
-            if ($row['certification'] === self::CERTIFICATION_RESERVED_REVIEWER) {
-                throw new \RuntimeException(self::CERTIFICATION_RESERVED_REFUSAL);
-            }
             if ($row['certification'] !== null) self::enum($row['certification'], self::CERTIFICATIONS);
             self::enum($row['grammar'], self::GRAMMAR);
             if (!is_bool($row['interpreter'])) throw new \RuntimeException('invalid interpreter flag');

@@ -548,6 +548,22 @@ regress-revocation-reachability:
 regress-platform-authority-population:
 	php sandbox/tests/offline/adapter/regress_platform_authority_population.php
 
+# WP-5.2 / spec/repo-format.md SS v3.16: the REVIEWER TIER -- admitting
+# `evidence.reviewer` and minting `reviewer_signed`, the flip of two of the
+# four slots SS v3.10 reserved as refusals. The acceptance is a trust claim, so
+# it is driven end to end: a bundle produced in a FOREIGN evidence repository,
+# over a test this repository holds no file and no target for, signed through
+# the shipped `sign --evidence-repo=` verb, then re-verified after that
+# repository is DELETED from disk. All three signed words are minted in one
+# estate so the tier is measured against its neighbours; the reviewer word is
+# refused to an unexercised bundle, to one whose reviewer is its own signer,
+# and to free text; the cited-test rule is driven in all three arms (absent,
+# manifest-fail, result-asset-fail); and a bundle naming no reviewer still
+# produces the exact seven-member proof, which is what keeps every pin in the
+# field binding (AGENTS.md rule 2).
+regress-reviewer-evidence-tier:
+	php sandbox/tests/offline/adapter/regress_reviewer_evidence_tier.php
+
 # WP-4.12 / spec/repo-format.md § v3.8: the four adapter-side signature domains
 # and the cross-ROOT clause, measured through the VERIFIERS. The corpus already
 # asserted the four domain strings are distinct, NUL-terminated and pairwise

@@ -952,12 +952,14 @@ duo_check(
 // sandbox/tests/offline/adapter/regress_v3_reservations.php.
 // ---------------------------------------------------------------------------
 $reservationBody = $section('v3.10');
+// The three that still refuse. The two reviewer-tier texts left this list when
+// WP-5.2 opened their slots (§ v3.16) and moved to $retired below: a sentence
+// no shipped tree raises any more cannot be asserted as shipped refusal text,
+// and asserting it anyway is how a "reserved" claim quietly becomes false.
 $reserved = [
     'the executable adapter lane is reserved and shut' => 'G5',
     'a signed binding over adapter code is reserved and shut' => 'G5',
     'delegated authority is verified through its own signed delegation document' => 'v3.8',
-    'the reviewer tier opens at gate G4' => 'G4',
-    'the reviewer evidence member is reserved' => 'G4',
 ];
 $reservationGaps = [];
 $missingFromCode = [];
@@ -982,17 +984,51 @@ foreach ($reserved as $text => $gate) {
         $missingFromCode[] = $text;
     }
 }
-duo_check_same([], $reservationGaps, 'v3.10 pins all five reserved refusal texts, each naming the gate that would open it');
+duo_check_same([], $reservationGaps, 'v3.10 pins all three still-reserved refusal texts, each naming the gate that would open it');
 duo_check_same(
     [],
     $missingFromCode,
     'and every one of them is SHIPPED refusal text now (WP-4.11) — a pinned message the spec states and the '
     . 'engine cannot produce would be a reservation an author is told about and the engine never keeps'
 );
+// THE OPPOSITE DIRECTION, and it is the one WP-5.2 made necessary. The two
+// retired sentences must still be PUBLISHED (a v3-era host says them, and an
+// operator meeting one has to recognise the bytes) and must NOT be findable in
+// any shipped tree (this engine admits both slots now). A section that kept the
+// prose while the engine kept the refusal, or vice versa, is the drift this
+// pair of checks exists to catch — in whichever direction it happens.
+$retired = [
+    'the reviewer tier opens at gate G4' => 'G4',
+    'the reviewer evidence member is reserved' => 'G4',
+];
+$retiredGaps = [];
+$stillRefusing = [];
+foreach ($retired as $text => $gate) {
+    if (!str_contains($reservationBody, $text)) {
+        $retiredGaps[] = $text;
+    }
+    if (str_contains($shippedSource, $text)) {
+        $stillRefusing[] = $text;
+    }
+}
+duo_check_same(
+    [],
+    $retiredGaps,
+    'v3.10 still PUBLISHES the two sentences WP-5.2 retired, as what a v3-era reader answers — deleting them '
+    . 'would leave live field bytes undocumented'
+);
+duo_check_same(
+    [],
+    $stillRefusing,
+    'and no shipped tree raises either of them any more: the slots are OPEN (§ v3.16), so a surviving copy '
+    . 'would be an engine still refusing what the spec says it admits'
+);
 duo_check(
-    str_contains($reservationBody, 'Enforced today: YES'),
-    'and § v3.10 says so in its own Enforced-today line: a rider that shipped the reservations without moving '
-    . 'this line would have landed silently, which is exactly what PART 1 exists to prevent'
+    str_contains($reservationBody, 'Enforced today: YES')
+        && str_contains($reservationBody, 'OPENED at gate G4 by WP-5.2'),
+    'and § v3.10 says both halves in its own Enforced-today line: still enforced for what remains reserved, '
+    . 'OPENED for what WP-5.2 flipped — a rider that moved either without moving this line would have landed '
+    . 'silently, which is exactly what PART 1 exists to prevent'
 );
 // THE FLAG-DAY INVARIANT, re-measured on the one surface this rider touched
 // that a stranger already holds bytes of. Reserving a statement member as a
@@ -1012,13 +1048,13 @@ duo_check(
 );
 // The plan WP-4.11 rode listed five reservations; WP-2.8 had already shipped
 // the fifth. The subsection resolves that by pointing at the shipped word, and
-// the count in its own Enforced-today line has to agree with the four slots the
-// table lists — a section that said "five" while shipping four would be the
-// same silent drift the line above exists to catch.
+// it still has to say so: WP-5.2 opened two SLOTS and changed nothing about
+// which word was never a slot at all, so a section that quietly dropped this
+// sentence would re-open the door to re-reserving a shipped verdict.
 duo_check(
-    str_contains($reservationBody, 'all four slots refuse')
-        && str_contains($reservationBody, 'reserved four slots and not five'),
-    'and it states the resulting count in both places: four reserved slots, the fifth delivered as a word'
+    str_contains($reservationBody, 'reserved four slots and not five'),
+    'and it still records WP-4.11\'s own count — four reserved slots, the fifth delivered as a word — which is '
+    . 'a fact about that rider and is not changed by a later one opening two of them'
 );
 duo_check(
     str_contains($register, '### R-28 — The reserved slots are REFUSALS, never admitted members'),
