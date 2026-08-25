@@ -2200,6 +2200,7 @@ tec_scoped_session_evidence() {
     if(!$session instanceof \Duo\ScopedApplySession) throw new RuntimeException("TEC scoped session is absent");
     $canonical=$session->canonical();
     $record=$session->to_array();
+    $authorActionHash=$record["intents"][0]["action_hash"]??null;
     $receipt=$record["receipts"][0]??null;
     $roots=\Duo\ScopedApply::ledger_map_roots(
       (array)($record["authority"]["selection"]["ledger_map_identity_hashes"]??[])
@@ -2212,7 +2213,9 @@ tec_scoped_session_evidence() {
       "recovery_from"=>$session->recorded_recovery_phase(),
       "intent_count"=>count($record["intents"]??[]),
       "receipt_count"=>count($record["receipts"]??[]),
-      "author_action"=>$record["intents"][0]["action"]??null,
+      "author_action_hash"=>$authorActionHash,
+      "author_action_matches"=>is_string($authorActionHash)
+        &&hash_equals(hash("sha256","duo-scoped-authored-transaction/v2"),$authorActionHash),
       "author_receipt_after"=>$receiptAfter,
       "current_author_after"=>$current,
       "author_matches"=>is_string($receiptAfter)&&hash_equals($receiptAfter,$current),
@@ -2342,7 +2345,8 @@ COLOR_ATOMIC_SESSION=$(tec_scoped_session_evidence)
 printf '%s\n' "$COLOR_ATOMIC_SESSION" | jq -e '
   .phase == "authoring" and .recovery_from == null and
   .intent_count == 1 and .receipt_count == 0 and
-  .author_action == "duo-scoped-authored-transaction/v2" and
+  .author_action_hash == "a0b8cb4c1ee6649aa089e3f21cc64471337f0b4d389837ba1219c77479b573c0" and
+  .author_action_matches == true and
   .author_receipt_after == null and .author_matches == false
 ' >/dev/null || fail "TEC failed atomic author receipt did not retain only retryable authoring intent: $COLOR_ATOMIC_SESSION"
 wp_conf2 db query 'ALTER TABLE wp_duo_kv DROP CONSTRAINT duo_tec_fail_scoped_receipt' >/dev/null
@@ -2402,7 +2406,8 @@ COLOR_FAULT_SESSION=$(tec_scoped_session_evidence)
 printf '%s\n' "$COLOR_FAULT_SESSION" | jq -e '
   .phase == "recovery_required" and .recovery_from == "effects_pending" and
   .intent_count >= 3 and .receipt_count >= 2 and
-  .author_action == "duo-scoped-authored-transaction/v2" and .author_matches == true
+  .author_action_hash == "a0b8cb4c1ee6649aa089e3f21cc64471337f0b4d389837ba1219c77479b573c0" and
+  .author_action_matches == true and .author_matches == true
 ' >/dev/null || fail "TEC failed Category Colors provider action did not retain exact scoped recovery authority: $COLOR_FAULT_SESSION"
 wp_conf2 db query 'ALTER TABLE wp_options DROP CONSTRAINT duo_tec_fail_category_css' >/dev/null
 TEC_COLOR_CSS_CONSTRAINT_MAY_EXIST=0
