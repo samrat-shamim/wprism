@@ -3189,19 +3189,25 @@ require_duo_answered "TEC deploy with code absent" human "$MISSING_OUT"
   || fail "missing-code compatibility refusal mutated retained TEC rows"
 [ "$(git -C "$CONF_REPO2" status --porcelain=v1 --untracked-files=all -- state)" = "$MISSING_REPO_BEFORE" ] \
   || fail "missing-code compatibility refusal mutated canonical target state"
-TEC_SHA=2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687
-TEC_ARTIFACT="/artifacts-cache/plugin-the-events-calendar-6.17.3-${TEC_SHA}.zip"
+TEC_LIFECYCLE_VERSION="${TEC_EXPECTED_VERSION:-6.17.3}"
+TEC_ARTIFACT_LOCKFILE="${DUO_ARTIFACT_LOCKFILE:-conformance/artifacts.lock.json}"
+TEC_SHA=$(jq -er --arg version "$TEC_LIFECYCLE_VERSION" '
+  .plugins["the-events-calendar"][$version].sha256
+  | select(type == "string" and test("^[0-9a-f]{64}$"))
+' "$TEC_ARTIFACT_LOCKFILE") \
+  || fail "artifact lock lacks an exact TEC $TEC_LIFECYCLE_VERSION lifecycle digest"
+TEC_ARTIFACT="/artifacts-cache/plugin-the-events-calendar-${TEC_LIFECYCLE_VERSION}-${TEC_SHA}.zip"
 [ "$(wp_conf2 eval "echo hash_file('sha256', '$TEC_ARTIFACT');")" = "$TEC_SHA" ] \
   || fail "cached TEC reinstall artifact digest moved"
 wp_conf2 plugin install "$TEC_ARTIFACT" --force >/dev/null
-[ "$(wp_conf2 plugin get the-events-calendar --field=version)" = '6.17.3' ] \
+[ "$(wp_conf2 plugin get the-events-calendar --field=version)" = "$TEC_LIFECYCLE_VERSION" ] \
   || fail "TEC exact reinstall reported wrong version"
 REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "TEC deploy after exact reinstall" json "$REINSTALL_DEPLOY"
 REINSTALLED_STATE=$(tec_lifecycle_state)
 REINSTALLED_CAPS=$(printf '%s\n' "$REINSTALLED_STATE" | jq -c '.roles | with_entries(.value = .value.plugin_caps)')
-printf '%s\n' "$REINSTALLED_STATE" | jq -e '
-  .schema_version == "6.17.3" and ([.roles[].neighbor] | all)
+printf '%s\n' "$REINSTALLED_STATE" | jq -e --arg version "$TEC_LIFECYCLE_VERSION" '
+  .schema_version == $version and ([.roles[].neighbor] | all)
 ' >/dev/null || fail "TEC exact reinstall did not restore native env state: $REINSTALLED_STATE"
 [ "$REINSTALLED_CAPS" = "$LIFECYCLE_CAPS_BEFORE" ] \
   || fail "TEC exact reinstall did not restore the native capability set"
@@ -3214,8 +3220,8 @@ require_duo_answered "TEC apply after residue-preserving reinstall" json "$REINS
 jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$REINSTALL_APPLY" >/dev/null \
   || fail "TEC exact reinstall did not retain/converge canonical state: $REINSTALL_APPLY"
 RECOVERED=$(observe_tec conf2)
-printf '%s\n' "$RECOVERED" | jq -e '
-  .version == "6.17.3" and .event.content == "Concurrent TEC intent 東京 🚀" and
+printf '%s\n' "$RECOVERED" | jq -e --arg version "$TEC_LIFECYCLE_VERSION" '
+  .version == $version and .event.content == "Concurrent TEC intent 東京 🚀" and
   .event.repository_id == .event.id and
   .event.occurrence.start_date == .event.start and .event.occurrence.end_date == .event.end and
   .category.meta.primary == "#654321" and .category.dropdown.primary == "#654321" and

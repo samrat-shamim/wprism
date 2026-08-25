@@ -8869,7 +8869,12 @@ foreach ([
     'TEC guard-only uninstall mutated exact inactive runtime residue',
     'missing-code compatibility refusal mutated retained TEC rows',
     'missing-code compatibility refusal mutated canonical target state',
-    'TEC_SHA=2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687',
+    'TEC_LIFECYCLE_VERSION="${TEC_EXPECTED_VERSION:-6.17.3}"',
+    'TEC_ARTIFACT_LOCKFILE="${DUO_ARTIFACT_LOCKFILE:-conformance/artifacts.lock.json}"',
+    '.plugins["the-events-calendar"][$version].sha256',
+    'plugin-the-events-calendar-${TEC_LIFECYCLE_VERSION}-${TEC_SHA}.zip',
+    'plugin get the-events-calendar --field=version)" = "$TEC_LIFECYCLE_VERSION"',
+    'jq -e --arg version "$TEC_LIFECYCLE_VERSION"',
     'TEC exact reinstall did not restore the native capability set',
     'TEC exact reinstall did not converge the exact mixed settings row',
     'diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-tec-final"',
@@ -8879,6 +8884,13 @@ foreach ([
         "the standalone TEC lifecycle retains physical/canonical evidence $lifecycleEvidence"
     );
 }
+duo_check(
+    !str_contains($deletionCheck, 'TEC_SHA=2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687')
+        && !str_contains($deletionCheck, 'plugin-the-events-calendar-6.17.3-${TEC_SHA}.zip')
+        && !str_contains($deletionCheck, '.schema_version == "6.17.3"')
+        && !str_contains($deletionCheck, '.version == "6.17.3" and .event.content'),
+    'TEC lifecycle reinstall derives its artifact and native-state assertions from the exact version under test'
+);
 duo_check(
     str_contains($deletionCheck, '"tribe_events_pro_customizer"')
         && !str_contains($deletionCheck, '"tribe_events_customizer"'),
