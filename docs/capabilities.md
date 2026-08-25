@@ -46,7 +46,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [ninja-forms](#ninja-forms) | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [paid-memberships-pro](#paid-memberships-pro) | certified | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.2 <3.8.4 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.5 <4.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
-| [the-events-calendar](#the-events-calendar) | experimental | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.4 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [the-events-calendar](#the-events-calendar) | certified | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.4 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [wps-hide-login](#wps-hide-login) | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [yoast](#yoast) | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -298,7 +298,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## the-events-calendar
 
-**Status: experimental.** Experimental while the production-readiness candidate is integrated and rerun. Deterministic offline coverage exists for the reviewed free-plugin grammar, canonical/legacy Customizer precedence and sparse materialization, ordered organizer capture/apply/rollback/concurrency, registered metadata, event status/map wires, Category Colors, Custom Tables V1 verification, settings inventory, malformed inputs, and loud extension boundaries, but final candidate-bound 6.17.2/6.17.3 clean/dirty, deletion atomicity, rollback/retry, concurrency, lifecycle, native render/API, data-boundary, optional-runtime, and multisite evidence remain open. The adapter cannot certify or promote until every ledger family is green on one clean shipped SHA.
+**Status: certified.** Certified for official free The Events Calendar 6.17.2 and 6.17.3 on single-site WordPress: exact clean/dirty canonical round trips; populated 6.17.2-to-6.17.3 upgrade; native event, venue, organizer, category, settings, Customizer, widget, REST, and frontend behavior; divergent huge identities and ordered repeated organizers; Category Colors and Custom Tables V1 regeneration; scoped receipt-loss and selected-map ABA inverse recovery; database, filter, provider, and transaction failure rollback/retry; competing applies; lifecycle recovery; byte-identical recapture; and official 6.17.1 plus synthetic 6.17.4 refusal controls. Pro/add-on/import/credential/runtime surfaces, plugin-specific deletion, out-of-range releases, and multisite remain explicit loud boundaries.
 
 - **Plugin:** `the-events-calendar/the-events-calendar.php`
 - **Version range:** >=6.17.2 <6.17.4

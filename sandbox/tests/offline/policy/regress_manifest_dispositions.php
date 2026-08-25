@@ -117,8 +117,8 @@ check(
     'PMPro is explicitly certified after its isolated readiness closure'
 );
 check(
-    ($data['manifests']['the-events-calendar']['status'] ?? null) === 'experimental',
-    'The Events Calendar stays experimental while its production-readiness evidence is incomplete'
+    ($data['manifests']['the-events-calendar']['status'] ?? null) === 'certified',
+    'The Events Calendar is explicitly certified after its production-readiness closure'
 );
 $tecManifest = $manifestsByName['the-events-calendar'];
 $tecDisposition = $data['manifests']['the-events-calendar'];
@@ -146,7 +146,7 @@ check(
         && ($tecDisposition['capabilities']['lifecycle_phases'] ?? null) === ['retire', 'activate', 'verify']
         && in_array('deploy', $tecDisposition['capabilities']['operations'] ?? [], true)
         && in_array('render-api', $tecDisposition['capabilities']['operations'] ?? [], true),
-    'The Events Calendar candidate names the native round-trip, exact-boundary, upgrade, refusal, and lifecycle suites that must pass before certification'
+    'The Events Calendar binds the native round-trip, exact-boundary, upgrade, refusal, and lifecycle suites reviewed for certification'
 );
 $pmproManifest = $manifestsByName['paid-memberships-pro'];
 $pmproDisposition = $data['manifests']['paid-memberships-pro'];
@@ -321,15 +321,8 @@ check($pmproBlockers === [], 'the certified PMPro pin contributes no readiness b
 check($pmproPolicy->capability_report()['ready'] === true, 'certified PMPro capability output reports ready');
 $tecPolicy = Policy::load(null, ['the-events-calendar']);
 $tecBlockers = $tecPolicy->adapter_readiness_blockers();
-$tecAuthoredBlockers = array_values(array_filter(
-    $tecBlockers,
-    fn(array $row): bool => ($row['code'] ?? null) === 'authored_state_not_certified'
-));
-check(
-    ($tecAuthoredBlockers[0]['name'] ?? null) === 'the-events-calendar',
-    'the experimental TEC candidate contributes a structured authored-state readiness blocker'
-);
-check($tecPolicy->capability_report()['ready'] === false, 'experimental TEC capability output cannot report ready');
+check($tecBlockers === [], 'the certified TEC pin contributes no readiness blocker');
+check($tecPolicy->capability_report()['ready'] === true, 'certified TEC capability output reports ready');
 $experimentalFixture = sys_get_temp_dir() . '/duo_experimental_disposition_' . bin2hex(random_bytes(5));
 mkdir($experimentalFixture, 0777, true);
 mkdir($experimentalFixture . '/capabilities', 0777, true);

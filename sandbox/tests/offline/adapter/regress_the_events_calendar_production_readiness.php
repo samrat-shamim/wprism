@@ -1834,6 +1834,11 @@ $disposition = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 )['manifests']['the-events-calendar'];
+$readiness = json_decode(
+    (string) file_get_contents($root . '/sandbox/conformance/production-readiness.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+)['adapters']['the-events-calendar'];
 
 duo_check_same(
     ['min' => '6.17.2', 'max' => '6.17.4'],
@@ -1846,8 +1851,11 @@ duo_check_same(
     'the artifact lock carries one real adjacent refusal and both exact boundaries'
 );
 duo_check_same('refusal-fixture', $artifacts['6.17.1']['role'], '6.17.1 is an adjacent refusal artifact');
-duo_check_same('exercise-fixture', $artifacts['6.17.2']['role'], '6.17.2 remains a candidate exercise artifact until final evidence is green');
-duo_check_same('exercise-fixture', $artifacts['6.17.3']['role'], '6.17.3 remains a candidate exercise artifact until final evidence is green');
+duo_check_same('certified-boundary', $artifacts['6.17.2']['role'], '6.17.2 is the certified lower boundary');
+duo_check_same('certified-boundary', $artifacts['6.17.3']['role'], '6.17.3 is the certified upper exercised artifact');
+duo_check_same('certified', $disposition['status'] ?? null, 'the reviewed TEC disposition is certified');
+duo_check_same('ready', $readiness['readiness'] ?? null, 'the TEC production-readiness ledger is closed');
+duo_check_same([], $readiness['gaps'] ?? null, 'the certified TEC ledger retains no applicable gap');
 duo_check_same(
     '2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687',
     $artifacts['6.17.3']['sha256'],
