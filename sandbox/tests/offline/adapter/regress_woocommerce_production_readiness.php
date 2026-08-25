@@ -324,7 +324,7 @@ $visibilityChild = [
     'data' => [
         'type' => 'product_variation',
         'uuid' => $visibilityChildUuid,
-        'parent' => $visibilityParentUuid,
+        'parent' => '{{post:' . $visibilityParentUuid . '}}',
         'slug' => 'visibility-child',
         'meta' => [],
         'terms' => [
@@ -341,7 +341,26 @@ $visibilityTree = array_merge(
 duo_check_same(
     [],
     $interpreter->repository_diagnostics($visibilityTree),
-    'exact mixed featured/catalog/rating/stock and inherited POS visibility crosses repository readiness'
+    'canonical post-token parent resolves while mixed featured/catalog/rating/stock and inherited POS visibility crosses repository readiness'
+);
+
+$rawParentTree = $visibilityTree;
+$rawParentTree[1]['data']['parent'] = $visibilityParentUuid;
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics($rawParentTree))),
+        'exact product parent in the repository'
+    ),
+    'a raw parent UUID is refused instead of being mistaken for a canonical post reference'
+);
+$malformedParentTree = $visibilityTree;
+$malformedParentTree[1]['data']['parent'] = '{{post:not-a-uuid}}';
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics($malformedParentTree))),
+        'exact product parent in the repository'
+    ),
+    'a malformed parent token is refused before parent-type checks'
 );
 
 $missingVisibilityInventory = $visibilityTree;

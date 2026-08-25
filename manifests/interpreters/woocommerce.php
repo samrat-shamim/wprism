@@ -1463,9 +1463,16 @@ final class Woocommerce {
                 );
             }
         } else {
-            $parentUuid = (string) ($front['parent'] ?? '');
-            $parent = is_array($postIndex[$parentUuid] ?? null) ? $postIndex[$parentUuid] : null;
-            if (($parentUuid !== '' || $pos !== [])
+            $parentReference = $front['parent'] ?? '';
+            $parentUuid = null;
+            if (is_string($parentReference)
+                && preg_match('/^\{\{post:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\}\}$/D', $parentReference, $match) === 1) {
+                $parentUuid = $match[1];
+            }
+            $parent = $parentUuid !== null && is_array($postIndex[$parentUuid] ?? null)
+                ? $postIndex[$parentUuid]
+                : null;
+            if (($parentReference !== '' || $pos !== [])
                 && ($parent === null || ($parent['type'] ?? null) !== 'product')) {
                 $out[] = $this->diagnostic(
                     $path,
