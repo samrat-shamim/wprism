@@ -73,12 +73,14 @@
  * SUPPORTED SQL GRAMMAR (everything else throws \LogicException):
  *
  *   SELECT [DISTINCT] <items> [FROM <table> [[AS] alias]]
+ *          [INNER|LEFT [OUTER]] JOIN <table> [[AS] alias] ON <cond>
  *          [WHERE <cond>] [GROUP BY <cols>] [ORDER BY <cols> [ASC|DESC]]
  *          [LIMIT n [OFFSET m] | LIMIT m, n]
  *     items: * | alias.* | COUNT(*) | <literal> | [alias.]col | LENGTH(col)
  *            | OCTET_LENGTH(col) | SHA2(<operand>, 256) | LEFT(<operand>, <length>)
  *            | GET_LOCK(..) | RELEASE_LOCK(..) | IS_USED_LOCK(..)
- *            | CONNECTION_ID() | VERSION()      , each with an optional AS alias
+ *            | CONNECTION_ID() | VERSION() | COALESCE(..) | SUM(..) | MAX(..)
+ *            | CAST(.. AS CHAR), each with an optional AS alias
  *     cond:  AND / OR / parentheses over
  *            <operand> = != <> < <= > >= <operand>
  *            <operand> [NOT] IN (<values>)
@@ -95,18 +97,16 @@
  *   DELETE FROM t [WHERE <cond>] [LIMIT n]
  *   SHOW TABLES LIKE '<pattern>'      -> the table name, or null
  *   SHOW [FULL] COLUMNS FROM t        -> column rows (see setColumns/setColumnDefinitions)
- *   SHOW INDEX FROM t                 -> RECORDED index rows (setIndexes); a
- *                                        table with no fixture declines
+ *   SHOW INDEX FROM t                 -> configured index rows (see setIndexes)
  *   SHOW TABLE STATUS LIKE '<name>'   -> configured engine row (see setTableEngine)
  *   START TRANSACTION | BEGIN | COMMIT | ROLLBACK  (single-level, snapshotting)
  *   SET ...                           (accepted no-op)
  *   CREATE / ALTER / DROP / TRUNCATE  (recorded in ddlLog; DROP/TRUNCATE clear rows)
  *
- * JOINs, subqueries, UNION, HAVING and aggregate functions other than
- * COUNT(*) are deliberately NOT supported. The sole opt-in exception is
- * RelationshipMaterializer's exact owner-range LEFT JOIN, whose fixed row
- * projection lets the menu mutation regression prove post/term id-keyspace
- * separation without teaching this fake a general relational planner.
+ * Simple INNER/LEFT JOINs are supported for bounded, explicit join
+ * predicates; subqueries, UNION, RIGHT/CROSS JOIN, and HAVING remain
+ * unsupported. Aggregate expressions are evaluated only over the bounded
+ * in-memory result set, never over an unbounded synthetic stream.
  *
  * Schema-qualified row inventories (information_schema.COLUMNS /
  * .STATISTICS) remain unsupported -- parseTableRef() refuses the `db.table`
@@ -236,12 +236,6 @@ final class FakeWpdb {
     private array $injectedFailures = [];
     /** @var list<array{match:?string,value:array|false|null}> explicit non-core driver return probes */
     private array $getResultsReturnOverrides = [];
-    /** Full-apply offline fixtures may opt into the reviewed information_schema projection. */
-    private bool $informationSchemaEnabled = false;
-    /** Full-apply offline fixtures may opt into the reviewed apply-only SQL extensions. */
-    private bool $fullApplySqlExtensionsEnabled = false;
-    /** Opt-in for RelationshipMaterializer's exact locked owner-range join. */
-    private bool $relationshipOwnershipJoinEnabled = false;
     /** @var list<array{command:string,outcome:string}> one-shot transaction ambiguity probes */
     private array $transactionOutcomes = [];
     /** Reconnect immediately before the next transaction-state-bearing SELECT. */
@@ -461,41 +455,6 @@ final class FakeWpdb {
         $name = $this->tableName($table);
         $this->store[$name] ??= [];
         $this->tableEngines[$name] = $engine;
-        return $this;
-    }
-
-    /**
-     * Enable the narrow information_schema projection required by the real
-     * CaptureTransaction/TableSchema boundary. Ordinary suites keep the
-     * default refusal so a new schema dependency cannot hide in a fake.
-     */
-    public function enableInformationSchema(): self {
-        $this->informationSchemaEnabled = true;
-        return $this;
-    }
-
-    /**
-     * Enable the small SQL projection set required by the full ApplyRequestCoordinator
-     * fixture. The default interpreter stays loud: a malformed or unrelated SELECT
-     * cannot become fabricated apply statistics merely because it mentions a core table.
-     */
-    public function enableFullApplySqlExtensions(): self {
-        $this->fullApplySqlExtensionsEnabled = true;
-        return $this;
-    }
-
-    /**
-     * Enable the one joined owner-range read RelationshipMaterializer uses.
-     *
-     * The default SQL grammar deliberately rejects JOINs: modelling a broad
-     * relational planner here would make a test prove the fake rather than
-     * MySQL. This exact projection is opt-in because menu ownership must
-     * classify a complete locked raw term_relationships range by its joined
-     * taxonomy, including a Polylang term-keyspace row whose object_id happens
-     * to equal a nav_menu_item post id.
-     */
-    public function enableRelationshipOwnershipJoin(): self {
-        $this->relationshipOwnershipJoinEnabled = true;
         return $this;
     }
 
@@ -863,24 +822,6 @@ final class FakeWpdb {
      * TYPES note), or null -- for no rows, a NULL column, or a failure.
      */
     public function get_var(string $query, int $x = 0, int $y = 0): ?string {
-        if ($this->informationSchemaEnabled && str_contains(strtolower($query), 'information_schema.')) {
-            $lower = strtolower($query);
-            if (str_contains($lower, 'information_schema.tables')) {
-                $rows = $this->informationSchemaRows($query, 'tables');
-            } elseif (str_contains($lower, 'character_maximum_length')) {
-                preg_match("/TABLE_NAME\s*=\s*'([^']+)'/i", $query, $tableMatch);
-                preg_match("/COLUMN_NAME\s*=\s*'([^']+)'/i", $query, $columnMatch);
-                $table = (string) ($tableMatch[1] ?? '');
-                $column = (string) ($columnMatch[1] ?? '');
-                $type = $this->columnTypes[$table][$column] ?? '';
-                $rows = [['CHARACTER_MAXIMUM_LENGTH' => preg_match('/\((\d+)\)/', $type, $length) === 1 ? $length[1] : null]];
-            } elseif (str_contains($lower, 'information_schema.columns')) {
-                $rows = $this->informationSchemaRows($query, 'generic');
-            } else {
-                throw $this->unsupported('unsupported opt-in information_schema shape');
-            }
-            return isset($rows[$y]) ? self::outbound(array_values($rows[$y])[$x] ?? null) : null;
-        }
         $result = $this->run('get_var', $query);
         if ($result === null || $result['kind'] !== 'rows') {
             return null;
@@ -934,78 +875,6 @@ final class FakeWpdb {
      * @return array<array-key,array<string,?string>|object>|false|null
      */
     public function get_results(string $query, string $output = OBJECT): array|false|null {
-        if ($this->informationSchemaEnabled && str_contains(strtolower($query), 'information_schema.')) {
-            $lower = strtolower($query);
-            if (!str_contains($lower, 'information_schema.tables')
-                && !str_contains($lower, 'information_schema.columns')) {
-                throw $this->unsupported('unsupported opt-in information_schema shape');
-            }
-            $rows = $this->informationSchemaRows($query, 'generic');
-            if ($output === OBJECT_K) {
-                $keyed = [];
-                foreach ($rows as $row) {
-                    $keyed[(string) reset($row)] = $this->shape($row, OBJECT);
-                }
-                return $keyed;
-            }
-            return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyAttachmentMarkerQuery($query)) {
-            $rows = [];
-            foreach ($this->store[$this->tableName('duo_kv')] ?? [] as $row) {
-                $key = (string) ($row['k'] ?? '');
-                if (!str_starts_with(strtolower($key), 'attachment_fs:')) continue;
-                $value = (string) ($row['v'] ?? '');
-                $rows[] = [
-                    'k' => $key,
-                    'v_bytes' => strlen($value),
-                    'bounded_v' => strlen($value) <= 512 ? $value : null,
-                ];
-            }
-            usort($rows, static fn(array $a, array $b): int => strcmp($a['k'], $b['k']));
-            $rows = array_slice($rows, 0, 2);
-            return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPostStatsQuery($query)) {
-            $rows = $this->capturePostRowsForFullApply($query);
-            $bytes = static function (array $row): int {
-                $columns = ['ID', 'post_author', 'post_date', 'post_date_gmt', 'post_content', 'post_title', 'post_excerpt', 'post_status', 'comment_status', 'ping_status', 'post_password', 'post_name', 'post_modified', 'post_modified_gmt', 'post_parent', 'menu_order', 'post_type', 'post_mime_type'];
-                $total = 0;
-                foreach ($columns as $column) $total += strlen((string) ($row[$column] ?? ''));
-                return $total;
-            };
-            $stats = [['row_count' => count($rows), 'total_bytes' => array_sum(array_map($bytes, $rows)), 'max_row_bytes' => $rows === [] ? 0 : max(array_map($bytes, $rows))]];
-            return array_map(fn(array $row): array|object => $this->shape($row, $output), $stats);
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyOptionsStatsQuery($query)) {
-            $rows = $this->store[$this->tableName('options')] ?? [];
-            $nameBytes = array_map(static fn(array $row): int => strlen((string) ($row['option_name'] ?? '')), $rows);
-            $valueBytes = array_map(static fn(array $row): int => strlen((string) ($row['option_value'] ?? '')), $rows);
-            $stats = [[
-                'row_count' => count($rows),
-                'total_bytes' => array_sum($nameBytes) + array_sum($valueBytes),
-                'max_name_bytes' => $nameBytes === [] ? 0 : max($nameBytes),
-                'max_name_characters' => $nameBytes === [] ? 0 : max($nameBytes),
-                'max_value_bytes' => $valueBytes === [] ? 0 : max($valueBytes),
-            ]];
-            return array_map(fn(array $row): array|object => $this->shape($row, $output), $stats);
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPostGroupsQuery($query)) {
-            $groups = [];
-            foreach ($this->capturePostRowsForFullApply($query) as $row) $groups[(string) $row['post_type']] = ($groups[(string) $row['post_type']] ?? 0) + 1;
-            $rows = [];
-            foreach ($groups as $type => $count) $rows[] = ['post_type' => $type, 'entities' => $count];
-            ksort($rows);
-            return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPostListQuery($query)) {
-            $rows = $this->capturePostRowsForFullApply($query);
-            usort($rows, static fn(array $a, array $b): int => ((int) $a['ID']) <=> ((int) $b['ID']));
-            return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyTermsQuery($query)) {
-            return [];
-        }
         $result = $this->run('get_results', $query);
         foreach ($this->getResultsReturnOverrides as $index => $override) {
             if ($override['match'] !== null && !str_contains($query, $override['match'])) {
@@ -1025,176 +894,6 @@ final class FakeWpdb {
             return $keyed;
         }
         return array_map(fn(array $row): array|object => $this->shape($row, $output), $result['rows']);
-    }
-
-    private function fullApplySql(string $query): string {
-        $normalized = preg_replace('/\s+/', ' ', trim($query));
-        return is_string($normalized) ? $normalized : trim($query);
-    }
-
-    private function fullApplyPostBytes(): string {
-        return "OCTET_LENGTH(CAST(ID AS CHAR)) + OCTET_LENGTH(CAST(post_author AS CHAR)) "
-            . "+ OCTET_LENGTH(COALESCE(post_date,'')) + OCTET_LENGTH(COALESCE(post_date_gmt,'')) "
-            . "+ OCTET_LENGTH(COALESCE(post_content,'')) + OCTET_LENGTH(COALESCE(post_title,'')) "
-            . "+ OCTET_LENGTH(COALESCE(post_excerpt,'')) + OCTET_LENGTH(COALESCE(post_status,'')) "
-            . "+ OCTET_LENGTH(COALESCE(comment_status,'')) + OCTET_LENGTH(COALESCE(ping_status,'')) "
-            . "+ OCTET_LENGTH(COALESCE(post_password,'')) + OCTET_LENGTH(COALESCE(post_name,'')) "
-            . "+ OCTET_LENGTH(COALESCE(post_modified,'')) + OCTET_LENGTH(COALESCE(post_modified_gmt,'')) "
-            . "+ OCTET_LENGTH(CAST(post_parent AS CHAR)) + OCTET_LENGTH(CAST(menu_order AS CHAR)) "
-            . "+ OCTET_LENGTH(COALESCE(post_type,'')) + OCTET_LENGTH(COALESCE(post_mime_type,''))";
-    }
-
-    private function isFullApplyAttachmentMarkerQuery(string $query): bool {
-        return $this->fullApplySql($query) === 'SELECT k, OCTET_LENGTH(v) AS v_bytes, '
-            . 'CASE WHEN v IS NOT NULL AND OCTET_LENGTH(v) <= 512 THEN v ELSE NULL END AS bounded_v '
-            . 'FROM `' . $this->tableName('duo_kv') . '` WHERE LOWER(LEFT(k, 14)) = \'attachment_fs:\' '
-            . 'ORDER BY BINARY k ASC LIMIT 2';
-    }
-
-    private function isFullApplyPostStatsQuery(string $query): bool {
-        $bytes = $this->fullApplyPostBytes();
-        return $this->fullApplySql($query) === 'SELECT COUNT(*) AS row_count, COALESCE(SUM('
-            . $bytes . '), 0) AS total_bytes, COALESCE(MAX(' . $bytes . '), 0) AS max_row_bytes '
-            . 'FROM ' . $this->tableName('posts') . " WHERE (post_type = 'attachment' AND post_status = 'inherit')";
-    }
-
-    private function isFullApplyOptionsStatsQuery(string $query): bool {
-        return $this->fullApplySql($query) === 'SELECT COUNT(*) AS row_count, '
-            . 'COALESCE(SUM(OCTET_LENGTH(option_name) + OCTET_LENGTH(option_value)), 0) AS total_bytes, '
-            . 'COALESCE(MAX(OCTET_LENGTH(option_name)), 0) AS max_name_bytes, '
-            . 'COALESCE(MAX(CHAR_LENGTH(option_name)), 0) AS max_name_characters, '
-            . 'COALESCE(MAX(OCTET_LENGTH(option_value)), 0) AS max_value_bytes '
-            . 'FROM ' . $this->tableName('options');
-    }
-
-    private function isFullApplyPostGroupsQuery(string $query): bool {
-        return $this->fullApplySql($query) === 'SELECT post_type, COUNT(*) AS entities FROM '
-            . $this->tableName('posts') . " WHERE (post_status IN ('publish','draft','pending','private','future') "
-            . "OR (post_type = 'attachment' AND post_status = 'inherit')) GROUP BY post_type "
-            . 'ORDER BY post_type ASC LIMIT 4097';
-    }
-
-    private function isFullApplyPostListQuery(string $query): bool {
-        return $this->fullApplySql($query) === 'SELECT ID, post_author, post_date, post_date_gmt, '
-            . 'post_content, post_title, post_excerpt, post_status, comment_status, ping_status, post_password, '
-            . 'post_name, post_modified, post_modified_gmt, post_parent, menu_order, post_type, post_mime_type '
-            . 'FROM ' . $this->tableName('posts')
-            . " WHERE (post_type = 'attachment' AND post_status = 'inherit') ORDER BY ID ASC LIMIT 1000001";
-    }
-
-    private function isFullApplyTermsQuery(string $query): bool {
-        return $this->fullApplySql($query) === 'SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, '
-            . 'tt.taxonomy, tt.description, tt.parent FROM ' . $this->tableName('terms')
-            . ' t JOIN ' . $this->tableName('term_taxonomy')
-            . " tt ON tt.term_id = t.term_id WHERE tt.taxonomy = 'nav_menu' ORDER BY t.term_id ASC";
-    }
-
-    private function isFullApplyPromotionInsertQuery(string $query): bool {
-        $normalized = $this->fullApplySql($query);
-        $prefix = "INSERT INTO `{$this->tableName('duo_kv')}` (k, v) VALUES ('promotion_lock', '";
-        $delimiter = "') ON DUPLICATE KEY UPDATE v = IF( ( ";
-        if (!str_starts_with($normalized, $prefix)) return false;
-        $delimiterPosition = strpos($normalized, $delimiter, strlen($prefix));
-        if ($delimiterPosition === false) return false;
-        $payload = json_decode(stripslashes(substr($normalized, strlen($prefix), $delimiterPosition - strlen($prefix))), true);
-        if (!is_array($payload)
-            || array_keys($payload) !== ['owner', 'artifact_hash', 'phase', 'acquired_at', 'expires_at']
-            || !is_string($payload['owner'])
-            || preg_match('/^[a-z0-9-]+$/D', $payload['owner']) !== 1
-            || !is_string($payload['artifact_hash'])
-            || preg_match('/^[a-f0-9]{64}$/D', $payload['artifact_hash']) !== 1
-            || !is_string($payload['phase'])
-            || preg_match('/^[a-z0-9-]+$/D', $payload['phase']) !== 1
-            || !is_int($payload['acquired_at'])
-            || !is_int($payload['expires_at'])) {
-            return false;
-        }
-        $suffix = "CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(v, '$.expires_at')), '0') AS UNSIGNED) <= {$payload['acquired_at']} "
-            . "AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) <> '{$payload['owner']}' ) OR ( "
-            . "CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(v, '$.expires_at')), '0') AS UNSIGNED) > {$payload['acquired_at']} "
-            . "AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = '{$payload['owner']}' "
-            . "AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = '{$payload['artifact_hash']}' ), VALUES(v), v )";
-        return substr($normalized, $delimiterPosition + strlen($delimiter)) === $suffix;
-    }
-
-    private function isFullApplyPromotionUpdateQuery(string $query): bool {
-        $normalized = $this->fullApplySql($query);
-        $prefix = "UPDATE `{$this->tableName('duo_kv')}` SET v = '";
-        $delimiter = "' WHERE k = 'promotion_lock' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = '";
-        if (!str_starts_with($normalized, $prefix)) return false;
-        $delimiterPosition = strpos($normalized, $delimiter, strlen($prefix));
-        if ($delimiterPosition === false) return false;
-        $payload = json_decode(stripslashes(substr($normalized, strlen($prefix), $delimiterPosition - strlen($prefix))), true);
-        if (!is_array($payload)
-            || array_keys($payload) !== ['owner', 'artifact_hash', 'phase', 'acquired_at', 'expires_at']
-            || !is_string($payload['owner'])
-            || preg_match('/^[a-z0-9-]+$/D', $payload['owner']) !== 1
-            || !is_string($payload['artifact_hash'])
-            || preg_match('/^[a-f0-9]{64}$/D', $payload['artifact_hash']) !== 1
-            || !is_string($payload['phase'])
-            || preg_match('/^[a-z0-9-]+$/D', $payload['phase']) !== 1
-            || !is_int($payload['acquired_at'])
-            || !is_int($payload['expires_at'])) {
-            return false;
-        }
-        $suffix = "{$payload['owner']}' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = '{$payload['artifact_hash']}'";
-        return substr($normalized, $delimiterPosition + strlen($delimiter)) === $suffix;
-    }
-
-    private function isFullApplyPruneQuery(string $query): bool {
-        $map = $this->tableName('duo_map');
-        $expected = [
-            "DELETE m FROM $map m LEFT JOIN {$this->tableName('posts')} po ON po.ID = m.local_id WHERE m.id_kind = 'post' AND po.ID IS NULL",
-            "DELETE m FROM $map m LEFT JOIN {$this->tableName('terms')} t ON t.term_id = m.local_id WHERE m.id_kind = 'term' AND t.term_id IS NULL",
-            "DELETE m FROM $map m LEFT JOIN {$this->tableName('term_taxonomy')} tt ON tt.term_taxonomy_id = m.local_id WHERE m.id_kind = 'term_taxonomy' AND tt.term_taxonomy_id IS NULL",
-        ];
-        return in_array($this->fullApplySql($query), $expected, true);
-    }
-
-    /** @return list<array<string,mixed>> */
-    private function capturePostRowsForFullApply(string $query): array {
-        $rows = [];
-        foreach ($this->store[$this->tableName('posts')] ?? [] as $row) {
-            $type = (string) ($row['post_type'] ?? '');
-            $status = (string) ($row['post_status'] ?? '');
-            if (!(($type === 'attachment' && $status === 'inherit')
-                || in_array($status, ['publish', 'draft', 'pending', 'private', 'future'], true))) continue;
-            $rows[] = $row;
-        }
-        return $rows;
-    }
-
-    /** @return list<array<string,string>> */
-    private function informationSchemaRows(string $query, string $kind): array {
-        preg_match_all("/'((?:''|[^'])*)'/", $query, $matches);
-        $wanted = array_values(array_filter(array_map(
-            static fn(string $value): string => str_replace("''", "'", $value),
-            $matches[1] ?? []
-        ), static fn(string $value): bool => $value !== ''));
-        $tables = [];
-        foreach (array_keys($this->store) as $table) {
-            if ($wanted !== [] && !in_array($table, $wanted, true)) {
-                continue;
-            }
-            $tables[$table] = true;
-        }
-        if (str_contains(strtolower($query), 'information_schema.tables')) {
-            return array_map(
-                fn(string $table): array => ['TABLE_NAME' => $table, 'ENGINE' => $this->tableEngines[$table] ?? 'InnoDB'],
-                array_keys($tables)
-            );
-        }
-        $rows = [];
-        foreach (array_keys($tables) as $table) {
-            $columns = array_keys($this->columnTypes[$table] ?? []);
-            foreach ($this->store[$table] ?? [] as $row) {
-                $columns = array_values(array_unique(array_merge($columns, array_keys($row))));
-            }
-            foreach ($columns as $column) {
-                $rows[] = ['TABLE_NAME' => $table, 'COLUMN_NAME' => $column];
-            }
-        }
-        return $rows;
     }
 
     /**
@@ -1343,64 +1042,6 @@ final class FakeWpdb {
         }
         if ($transactionOutcome === 'before_throw') {
             throw new \RuntimeException('injected transaction exception before server apply');
-        }
-        // PromotionLease's fenced upsert deliberately uses JSON_EXTRACT in
-        // its conditional duplicate clause. Keep the ordinary SQL grammar
-        // loud, but model this one reviewed target-lease statement so a full
-        // apply fixture can exercise the real lease lifecycle without a
-        // second hand-written database fake.
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPromotionInsertQuery($sql)) {
-            if (preg_match("/VALUES \('promotion_lock', '((?:\\\\'|[^'])*)'\)/", $sql, $match) !== 1) {
-                throw $this->unsupported('malformed promotion_lock JSON upsert');
-            }
-            $value = stripslashes($match[1]);
-            $rows = $this->store[$this->tableName('duo_kv')] ?? [];
-            $found = false;
-            foreach ($rows as &$row) {
-                if (($row['k'] ?? null) === 'promotion_lock') {
-                    $row['v'] = $value;
-                    $found = true;
-                    break;
-                }
-            }
-            unset($row);
-            if (!$found) $rows[] = ['k' => 'promotion_lock', 'v' => $value];
-            $this->store[$this->tableName('duo_kv')] = $rows;
-            $this->log('query', $sql);
-            $this->rows_affected = 1;
-            return ['kind' => 'affected', 'affected' => 1];
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPromotionUpdateQuery($sql)) {
-            preg_match("/SET v = '((?:\\\\'|[^'])*)'/", $sql, $valueMatch);
-            preg_match("/JSON_UNQUOTE\(JSON_EXTRACT\(v, '\$\.owner'\)\) = '([^']+)'/", $sql, $ownerMatch);
-            preg_match("/JSON_UNQUOTE\(JSON_EXTRACT\(v, '\$\.artifact_hash'\)\) = '([^']+)'/", $sql, $artifactMatch);
-            $value = stripslashes((string) ($valueMatch[1] ?? ''));
-            $owner = (string) ($ownerMatch[1] ?? '');
-            $artifact = (string) ($artifactMatch[1] ?? '');
-            $affected = 0;
-            foreach ($this->store[$this->tableName('duo_kv')] ?? [] as &$row) {
-                $current = json_decode((string) ($row['v'] ?? ''), true);
-                if (($row['k'] ?? null) === 'promotion_lock'
-                    && is_array($current)
-                    && ($current['owner'] ?? null) === $owner
-                    && ($current['artifact_hash'] ?? null) === $artifact) {
-                    $row['v'] = $value;
-                    $affected = 1;
-                }
-            }
-            unset($row);
-            $this->log('query', $sql);
-            $this->rows_affected = $affected;
-            return ['kind' => 'affected', 'affected' => $affected];
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPruneQuery($sql)) {
-            // Ledger::prune_dead_map() is a deliberately live-only LEFT JOIN
-            // in the general fake grammar. Full apply's fixture seeds no
-            // orphan rows; preserve that exact no-op result while keeping the
-            // statement visible in the query log.
-            $this->log('query', $sql);
-            $this->rows_affected = 0;
-            return ['kind' => 'affected', 'affected' => 0];
         }
         if ($transactionOutcome === 'inactive_false') {
             $trimmed = rtrim(trim($sql), "; \t\n\r");
@@ -2246,56 +1887,6 @@ final class FakeWpdb {
     // ------------------------------------------------------------ SELECT
 
     private function execSelect(): array {
-        if ($this->relationshipOwnershipJoinEnabled) {
-            $relationshipOwnershipRows = $this->relationshipOwnershipJoinRows($this->currentSql);
-            if ($relationshipOwnershipRows !== null) {
-                return ['kind' => 'rows', 'rows' => $relationshipOwnershipRows];
-            }
-        }
-        if (preg_match(
-            '/^SELECT um\.umeta_id AS meta_id FROM wp_usermeta um LEFT JOIN wp_users u '
-                . 'ON u\.ID = um\.user_id WHERE u\.ID IS NULL ORDER BY um\.umeta_id ASC LIMIT 1$/iD',
-            $this->currentSql
-        ) === 1) {
-            // UserMetaCapture only needs the first orphan witness. The shared
-            // fixture stores the two tables independently, so an empty result
-            // is the exact seeded relation (no orphan rows).
-            return ['kind' => 'rows', 'rows' => []];
-        }
-        if (preg_match(
-            '/^SELECT a\.ID AS left_id, b\.ID AS right_id FROM wp_users a INNER JOIN wp_users b '
-                . 'ON b\.user_login = a\.user_login AND b\.ID > a\.ID '
-                . 'ORDER BY a\.ID ASC, b\.ID ASC LIMIT 1$/iD',
-            $this->currentSql
-        ) === 1) {
-            // The seeded user table is empty; therefore no collation-equal
-            // duplicate-login witness exists.
-            return ['kind' => 'rows', 'rows' => []];
-        }
-        if (preg_match(
-            '/^SELECT meta_id, post_id, meta_key, OCTET_LENGTH\(meta_value\) AS meta_value_bytes, '
-                . 'CASE WHEN meta_value IS NOT NULL AND OCTET_LENGTH\(meta_value\) <= 1024 '
-                . 'THEN meta_value ELSE NULL END AS bounded_value FROM `wp_postmeta` '
-                . 'FORCE INDEX \(`meta_key`\) WHERE meta_key = \'_wp_attached_file\' '
-                . 'AND meta_id > 0 ORDER BY meta_key ASC, meta_id ASC LIMIT 512 FOR UPDATE$/iD',
-            $this->currentSql
-        ) === 1) {
-            $rows = [];
-            foreach ($this->store['wp_postmeta'] ?? [] as $row) {
-                if (($row['meta_key'] ?? null) !== '_wp_attached_file' || (int) ($row['meta_id'] ?? 0) <= 0) {
-                    continue;
-                }
-                $value = $row['meta_value'] ?? null;
-                $bytes = is_string($value) ? strlen($value) : null;
-                $rows[] = [
-                    'meta_id' => $row['meta_id'], 'post_id' => $row['post_id'],
-                    'meta_key' => $row['meta_key'], 'meta_value_bytes' => $bytes,
-                    'bounded_value' => $bytes !== null && $bytes <= 1024 ? $value : null,
-                ];
-            }
-            usort($rows, static fn(array $a, array $b): int => ((int) $a['meta_id']) <=> ((int) $b['meta_id']));
-            return ['kind' => 'rows', 'rows' => array_slice($rows, 0, 512)];
-        }
         $this->expectKeyword('SELECT');
         $distinct = $this->acceptKeyword('DISTINCT');
         $items = [];
@@ -2305,13 +1896,39 @@ final class FakeWpdb {
 
         $table = null;
         $alias = null;
+        $joins = [];
         if ($this->acceptKeyword('FROM')) {
             $table = $this->parseTableRef();
             $alias = $this->parseAliasOpt();
             $this->skipIndexHint();
-            if (in_array($this->keyword(), ['JOIN', 'INNER', 'LEFT', 'RIGHT', 'CROSS', 'STRAIGHT_JOIN', 'UNION'], true)
+            while (in_array($this->keyword(), ['JOIN', 'INNER', 'LEFT'], true)) {
+                $joinType = 'INNER';
+                if ($this->acceptKeyword('LEFT')) {
+                    $joinType = 'LEFT';
+                    $this->acceptKeyword('OUTER');
+                    $this->expectKeyword('JOIN');
+                } elseif ($this->acceptKeyword('INNER')) {
+                    $this->expectKeyword('JOIN');
+                } else {
+                    $this->expectKeyword('JOIN');
+                }
+                $joinTable = $this->parseTableRef();
+                $joinAlias = $this->parseAliasOpt();
+                $this->skipIndexHint();
+                $this->expectKeyword('ON');
+                $joins[] = [
+                    'type' => $joinType,
+                    'table' => $joinTable,
+                    'alias' => $joinAlias,
+                    'condition' => $this->parseCondition(),
+                ];
+            }
+            if ($this->keyword() === 'RIGHT'
+                || $this->keyword() === 'CROSS'
+                || $this->keyword() === 'STRAIGHT_JOIN'
+                || $this->keyword() === 'UNION'
                 || ($this->peek()['t'] === 'op' && $this->peek()['v'] === ',')) {
-                throw $this->unsupported('multi-table SELECT (JOIN/UNION)');
+                throw $this->unsupported('unsupported multi-table SELECT shape');
             }
         }
         $where = $this->acceptKeyword('WHERE') ? $this->parseCondition() : null;
@@ -2346,17 +1963,84 @@ final class FakeWpdb {
         }
 
         $name = $this->requireTable($table);
-        $ctx = ['table' => $name, 'alias' => $alias, 'columns' => $this->knownColumns($name)];
-        $matched = [];
-        foreach ($this->store[$name] as $row) {
-            if ($where === null || $this->evalCondition($where, $row, $ctx)) {
-                $matched[] = $row;
+        $sources = [[
+            'table' => $name,
+            'alias' => $alias,
+            'short' => str_starts_with($name, $this->prefix)
+                ? substr($name, strlen($this->prefix))
+                : $name,
+            'columns' => $this->knownColumns($name),
+        ]];
+        foreach ($joins as $join) {
+            $joinName = $this->requireTable($join['table']);
+            $sources[] = [
+                'table' => $joinName,
+                'alias' => $join['alias'],
+                'short' => str_starts_with($joinName, $this->prefix)
+                    ? substr($joinName, strlen($this->prefix))
+                    : $joinName,
+                'columns' => $this->knownColumns($joinName),
+            ];
+        }
+        $ctx = [
+            'table' => $name,
+            'alias' => $alias,
+            'columns' => $this->knownColumns($name),
+            'sources' => $joins === [] ? null : $sources,
+        ];
+        if ($joins === []) {
+            $matched = [];
+            foreach ($this->store[$name] as $row) {
+                if ($where === null || $this->evalCondition($where, $row, $ctx)) {
+                    $matched[] = $row;
+                }
+            }
+        } else {
+            $matched = array_map(
+                static fn(array $row): array => ['__join_sources' => [$row]],
+                $this->store[$name]
+            );
+            foreach (array_slice($joins, 0, null, true) as $joinIndex => $join) {
+                $joinName = $sources[$joinIndex + 1]['table'];
+                $next = [];
+                foreach ($matched as $left) {
+                    $found = false;
+                    foreach ($this->store[$joinName] as $right) {
+                        $candidate = [
+                            '__join_sources' => array_merge(
+                                $left['__join_sources'],
+                                [$right]
+                            ),
+                        ];
+                        if ($this->evalCondition($join['condition'], $candidate, $ctx)) {
+                            $next[] = $candidate;
+                            $found = true;
+                        }
+                    }
+                    if (!$found && $join['type'] === 'LEFT') {
+                        $next[] = [
+                            '__join_sources' => array_merge(
+                                $left['__join_sources'],
+                                [null]
+                            ),
+                        ];
+                    }
+                }
+                $matched = $next;
+            }
+            if ($where !== null) {
+                $matched = array_values(array_filter(
+                    $matched,
+                    fn(array $row): bool => $this->evalCondition($where, $row, $ctx)
+                ));
             }
         }
 
         $aggregate = $group !== [];
         foreach ($items as $item) {
-            $aggregate = $aggregate || $item['type'] === 'count';
+            $aggregate = $aggregate
+                || $item['type'] === 'count'
+                || ($item['type'] === 'expr' && $this->containsAggregate($item['expr']));
         }
 
         if ($aggregate) {
@@ -2384,7 +2068,12 @@ final class FakeWpdb {
             $out = $unique;
         }
         if ($aggregate && $order !== []) {
-            $out = $this->sortRows($out, $order, ['table' => $name, 'alias' => $alias, 'columns' => null]);
+            $out = $this->sortRows($out, $order, [
+                'table' => $name,
+                'alias' => $alias,
+                'columns' => null,
+                'sources' => $joins === [] ? null : $sources,
+            ]);
         }
         if ($offset > 0) {
             $out = array_slice($out, $offset);
@@ -2393,67 +2082,6 @@ final class FakeWpdb {
             $out = array_slice($out, 0, $limit);
         }
         return ['kind' => 'rows', 'rows' => array_values($out)];
-    }
-
-    /**
-     * Exact row projection for RelationshipMaterializer::lock_owner_relationships()
-     * after LockingFakeWpdb removes its lock syntax. Keep every other JOIN in
-     * the normal loud-refusal path above.
-     *
-     * @return ?list<array{term_taxonomy_id:mixed,term_order:mixed,taxonomy:mixed}>
-     */
-    private function relationshipOwnershipJoinRows(string $sql): ?array {
-        $relationships = preg_quote($this->term_relationships, '/');
-        $taxonomies = preg_quote($this->term_taxonomy, '/');
-        $pattern = '/^SELECT tr\\.term_taxonomy_id, tr\\.term_order, tt\\.taxonomy '
-            . "FROM $relationships tr LEFT JOIN $taxonomies tt "
-            . 'ON tt\\.term_taxonomy_id = tr\\.term_taxonomy_id '
-            . 'WHERE tr\\.object_id = ([1-9][0-9]*) '
-            . 'ORDER BY tr\\.term_taxonomy_id ASC LIMIT ([1-9][0-9]*)$/D';
-        if (preg_match($pattern, $sql, $match) !== 1) {
-            return null;
-        }
-        $relationshipTable = $this->requireTable($this->term_relationships);
-        $taxonomyTable = $this->requireTable($this->term_taxonomy);
-        $objectId = (int) $match[1];
-        $limit = (int) $match[2];
-        $out = [];
-        foreach ($this->store[$relationshipTable] as $relationship) {
-            if (self::compare($relationship['object_id'] ?? null, $objectId) !== 0) {
-                continue;
-            }
-            $matched = false;
-            foreach ($this->store[$taxonomyTable] as $taxonomy) {
-                if (self::compare(
-                    $taxonomy['term_taxonomy_id'] ?? null,
-                    $relationship['term_taxonomy_id'] ?? null
-                ) !== 0) {
-                    continue;
-                }
-                $out[] = [
-                    'term_taxonomy_id' => $relationship['term_taxonomy_id'] ?? null,
-                    'term_order' => $relationship['term_order'] ?? null,
-                    'taxonomy' => $taxonomy['taxonomy'] ?? null,
-                ];
-                $matched = true;
-            }
-            if (!$matched) {
-                $out[] = [
-                    'term_taxonomy_id' => $relationship['term_taxonomy_id'] ?? null,
-                    'term_order' => $relationship['term_order'] ?? null,
-                    'taxonomy' => null,
-                ];
-            }
-        }
-        usort($out, static function (array $left, array $right): int {
-            $leftId = $left['term_taxonomy_id'];
-            $rightId = $right['term_taxonomy_id'];
-            if ($leftId === null || $rightId === null) {
-                return $leftId === $rightId ? 0 : ($leftId === null ? -1 : 1);
-            }
-            return self::compare($leftId, $rightId) ?? 0;
-        });
-        return array_slice($out, 0, $limit);
     }
 
     /** @return array{type:string,expr?:array,alias:?string,qualifier?:?string} */
@@ -2636,6 +2264,23 @@ final class FakeWpdb {
     private function parseFunction(): array {
         $name = strtoupper((string) $this->peek()['v']);
         $this->tp += 2;
+        if ($name === 'CAST') {
+            $argument = $this->parseOperand();
+            $this->expectKeyword('AS');
+            $type = $this->peek();
+            if (!in_array($type['t'], ['word', 'id'], true)) {
+                throw $this->unsupported('CAST() expected a target type');
+            }
+            $this->tp++;
+            $this->expectOp(')');
+            return [
+                'k' => 'fn',
+                'name' => 'CAST',
+                'args' => [$argument],
+                'cast_type' => strtoupper((string) $type['v']),
+                'label' => 'CAST()',
+            ];
+        }
         $args = [];
         if (!$this->acceptOp(')')) {
             do {
@@ -2647,7 +2292,7 @@ final class FakeWpdb {
             $name,
             [
                 'LENGTH', 'OCTET_LENGTH', 'CHAR_LENGTH', 'LEFT', 'GET_LOCK', 'RELEASE_LOCK', 'IS_FREE_LOCK',
-                'IS_USED_LOCK', 'CONNECTION_ID', 'VERSION', 'SHA2',
+                'IS_USED_LOCK', 'CONNECTION_ID', 'VERSION', 'SHA2', 'COALESCE', 'SUM', 'MAX',
             ],
             true
         )) {
@@ -2876,6 +2521,10 @@ final class FakeWpdb {
         $args = array_map(fn(array $arg): mixed => $this->evalOperand($arg, $row, $ctx), $node['args']);
         return match ($node['name']) {
             'LENGTH', 'OCTET_LENGTH', 'CHAR_LENGTH' => $args[0] === null ? null : strlen((string) $args[0]),
+            'CAST' => $node['cast_type'] === 'CHAR'
+                ? ($args[0] === null ? null : (string) $args[0])
+                : throw $this->unsupported("CAST(... AS {$node['cast_type']})"),
+            'COALESCE' => self::firstNonNull($args),
             'LEFT' => $this->leftFunction(
                 $args,
                 isset($node['args'][0]) && self::isBinary($node['args'][0])
@@ -2893,8 +2542,86 @@ final class FakeWpdb {
             'IS_USED_LOCK' => $this->heldLocks[(string) ($args[0] ?? '')] ?? null,
             'CONNECTION_ID' => $this->connectionId,
             'VERSION' => $this->serverVersion,
+            'SUM', 'MAX' => throw $this->unsupported(
+                "{$node['name']}() is valid only in an aggregate SELECT"
+            ),
             default => throw $this->unsupported('SQL function ' . $node['name']),
         };
+    }
+
+    private static function firstNonNull(array $values): mixed {
+        foreach ($values as $value) {
+            if ($value !== null) {
+                return $value;
+            }
+        }
+        return null;
+    }
+
+    private function containsAggregate(array $node): bool {
+        if (($node['k'] ?? null) === 'fn'
+            && in_array($node['name'] ?? null, ['SUM', 'MAX'], true)) {
+            return true;
+        }
+        foreach (['arg', 'l', 'r'] as $key) {
+            if (is_array($node[$key] ?? null) && $this->containsAggregate($node[$key])) {
+                return true;
+            }
+        }
+        foreach ((array) ($node['args'] ?? []) as $argument) {
+            if (is_array($argument) && $this->containsAggregate($argument)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function evalAggregateOperand(
+        array $node,
+        array $rows,
+        array $ctx
+    ): mixed {
+        if (($node['k'] ?? null) === 'fn') {
+            if ($node['name'] === 'SUM' || $node['name'] === 'MAX') {
+                $values = [];
+                foreach ($rows as $row) {
+                    $value = $this->evalOperand($node['args'][0], $row, $ctx);
+                    if ($value !== null) {
+                        $values[] = $value;
+                    }
+                }
+                if ($values === []) {
+                    return null;
+                }
+                return $node['name'] === 'SUM' ? array_sum($values) : max($values);
+            }
+            if ($node['name'] === 'COALESCE') {
+                $values = [];
+                foreach ($node['args'] as $argument) {
+                    $values[] = $this->containsAggregate($argument)
+                        ? $this->evalAggregateOperand($argument, $rows, $ctx)
+                        : $this->evalOperand($argument, $rows[0] ?? [], $ctx);
+                }
+                return self::firstNonNull($values);
+            }
+            if ($node['name'] === 'CAST') {
+                $value = $this->containsAggregate($node['args'][0])
+                    ? $this->evalAggregateOperand($node['args'][0], $rows, $ctx)
+                    : $this->evalOperand($node['args'][0], $rows[0] ?? [], $ctx);
+                return $node['cast_type'] === 'CHAR'
+                    ? ($value === null ? null : (string) $value)
+                    : throw $this->unsupported("CAST(... AS {$node['cast_type']})");
+            }
+        }
+        if (($node['k'] ?? null) === 'arith') {
+            $left = $this->evalAggregateOperand($node['l'], $rows, $ctx);
+            $right = $this->evalAggregateOperand($node['r'], $rows, $ctx);
+            if ($left === null || $right === null) {
+                return null;
+            }
+            return $node['op'] === '+' ? $left + $right : $left - $right;
+        }
+        return $this->evalOperand($node, $rows[0] ?? [], $ctx);
     }
 
     private function leftFunction(array $args, bool $binary): ?string {
@@ -3004,6 +2731,49 @@ final class FakeWpdb {
 
     private function evalColumn(array $node, array $row, ?array $ctx): mixed {
         $qualifier = $node['q'];
+        if (is_array($ctx['sources'] ?? null)) {
+            $joinedRows = $row['__join_sources'] ?? [];
+            if (!is_array($joinedRows)) {
+                throw $this->unsupported('joined SELECT row has malformed source state');
+            }
+            if ($qualifier !== null) {
+                foreach ($ctx['sources'] as $index => $source) {
+                    if ($qualifier !== $source['alias']
+                        && $qualifier !== $source['table']
+                        && $qualifier !== $source['short']) {
+                        continue;
+                    }
+                    $sourceRow = $joinedRows[$index] ?? null;
+                    if ($sourceRow === null) {
+                        return null;
+                    }
+                    if (array_key_exists($node['name'], $sourceRow)) {
+                        return $sourceRow[$node['name']];
+                    }
+                    if (in_array($node['name'], $source['columns'], true)) {
+                        return null;
+                    }
+                    throw new \LogicException(
+                        "FakeWpdb: unknown column '{$node['name']}' on joined table '{$source['table']}'."
+                    );
+                }
+                throw $this->unsupported("column qualifier '$qualifier' names another table (JOIN)");
+            }
+            $found = false;
+            $value = null;
+            foreach ($ctx['sources'] as $index => $source) {
+                $sourceRow = $joinedRows[$index] ?? null;
+                if ($sourceRow === null || !array_key_exists($node['name'], $sourceRow)) {
+                    continue;
+                }
+                if ($found) {
+                    throw $this->unsupported("ambiguous unqualified joined column '{$node['name']}'");
+                }
+                $found = true;
+                $value = $sourceRow[$node['name']];
+            }
+            return $found ? $value : null;
+        }
         if ($qualifier !== null && $ctx !== null) {
             $short = str_starts_with($ctx['table'], $this->prefix)
                 ? substr($ctx['table'], strlen($this->prefix))
@@ -3105,6 +2875,23 @@ final class FakeWpdb {
         $out = [];
         foreach ($items as $index => $item) {
             if ($item['type'] === 'star') {
+                if (is_array($ctx['sources'] ?? null)) {
+                    foreach ($ctx['sources'] as $index => $source) {
+                        if ($item['qualifier'] !== null
+                            && $item['qualifier'] !== $source['alias']
+                            && $item['qualifier'] !== $source['table']
+                            && $item['qualifier'] !== $source['short']) {
+                            continue;
+                        }
+                        $sourceRow = $row['__join_sources'][$index] ?? null;
+                        foreach ($source['columns'] as $column) {
+                            $out[$column] = is_array($sourceRow)
+                                ? ($sourceRow[$column] ?? null)
+                                : null;
+                        }
+                    }
+                    continue;
+                }
                 $columns = $ctx['columns'] ?? null;
                 foreach ($columns ?? array_keys($row) as $column) {
                     $out[$column] = $row[$column] ?? null;
@@ -3162,7 +2949,9 @@ final class FakeWpdb {
                 if ($item['type'] === 'star') {
                     throw $this->unsupported('SELECT * alongside an aggregate');
                 }
-                $projected[$this->itemName($item, $index)] = $this->evalOperand($item['expr'], $first, $ctx);
+                $projected[$this->itemName($item, $index)] = $this->containsAggregate($item['expr'])
+                    ? $this->evalAggregateOperand($item['expr'], $members, $ctx)
+                    : $this->evalOperand($item['expr'], $first, $ctx);
             }
             $out[] = $projected;
         }
@@ -3457,17 +3246,11 @@ final class FakeWpdb {
             $columns = $definitionMap === [] ? $this->knownColumns($name) : array_keys($definitionMap);
             foreach ($columns as $column) {
                 $definition = $definitionMap[$column] ?? null;
-                $isPrimaryKey = ($this->primaryKeys[$name] ?? null) === $column;
                 $rows[] = [
                     'Field' => $column,
                     'Type' => $definition['Type'] ?? $types[$column] ?? 'longtext',
-                    // MySQL never permits a NULL in a PRIMARY KEY column, so a
-                    // fake that reported one as nullable would be handing a
-                    // reader a shape no server can produce (WP-2.1's rule,
-                    // kept through the #561 merge). An explicit definition
-                    // still wins for every other column.
-                    'Null' => $isPrimaryKey ? 'NO' : ($definition['Null'] ?? 'YES'),
-                    'Key' => $isPrimaryKey ? 'PRI' : '',
+                    'Null' => $definition['Null'] ?? 'YES',
+                    'Key' => ($this->primaryKeys[$name] ?? null) === $column ? 'PRI' : '',
                     'Default' => $definition['Default'] ?? null,
                     'Extra' => $definition['Extra'] ?? '',
                 ];
@@ -3479,21 +3262,7 @@ final class FakeWpdb {
             $table = $this->parseTableRef();
             $this->expectEnd();
             $name = $this->requireTable($table);
-            // A RECORDED index inventory answers; an absent one declines.
-            // Returning [] for a table nobody called setIndexes() on would
-            // report "this table has no indexes" -- a schema fact inferred
-            // from a missing fixture, which is the one thing the contract at
-            // :110-119 forbids ("no schema fact is inferred from stored
-            // rows"). README.md:202-208 states the sanctioned fill: a
-            // duo-adapter-probe/v1 recording off a real server, replayed
-            // through setIndexes(), never this class's own bookkeeping.
-            if (!isset($this->indexes[$name])) {
-                throw $this->unsupported(
-                    "SHOW INDEX FROM `$name` without a recorded index fixture; call setIndexes('$name', ...)"
-                    . ' from a duo-adapter-probe/v1 recording'
-                );
-            }
-            return ['kind' => 'rows', 'rows' => $this->indexes[$name]];
+            return ['kind' => 'rows', 'rows' => $this->indexes[$name] ?? []];
         }
         throw $this->unsupported('SHOW variant');
     }

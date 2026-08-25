@@ -56,86 +56,6 @@ if (!function_exists('get_taxonomy')) {
     }
 }
 
-/**
- * FakeWpdb deliberately does not implement arbitrary JOIN/aggregate SQL.
- * This narrow adapter keeps its seeded table store and only evaluates the
- * exact two-table term read and empty user-owner checks that the candidate
- * emits; every other query, including identity, options, and ledger DML,
- * uses the shared fake intact.
- */
-final class WooBuilderWpdb {
-    public function __construct(private \DuoTest\FakeWpdb $inner) {}
-
-    public function __get(string $name): mixed {
-        return $this->inner->{$name};
-    }
-
-    public function __set(string $name, mixed $value): void {
-        $this->inner->{$name} = $value;
-    }
-
-    public function __call(string $name, array $arguments): mixed {
-        return $this->inner->{$name}(...$arguments);
-    }
-
-    public function get_results(string $sql, mixed $mode = null): mixed {
-        if (str_contains($sql, 'FROM wp_usermeta um LEFT JOIN wp_users u')
-            || str_contains($sql, 'FROM wp_users a INNER JOIN wp_users b')) {
-            $this->inner->last_error = '';
-            return [];
-        }
-        if (!str_contains($sql, 'FROM wp_terms t JOIN wp_term_taxonomy tt')) {
-            return $this->inner->get_results($sql, $mode);
-        }
-        $this->inner->last_error = '';
-        if (str_contains($sql, "tt.taxonomy = 'nav_menu'")) {
-            return [];
-        }
-        $termsById = [];
-        foreach ($this->inner->rows('wp_terms') as $term) {
-            $termsById[(int) ($term['term_id'] ?? 0)] = $term;
-        }
-        $rows = [];
-        foreach ($this->inner->rows('wp_term_taxonomy') as $taxonomy) {
-            $termId = (int) ($taxonomy['term_id'] ?? 0);
-            if (!isset($termsById[$termId])) {
-                continue;
-            }
-            $rows[] = [
-                'term_id' => $termId,
-                'name' => (string) ($termsById[$termId]['name'] ?? ''),
-                'slug' => (string) ($termsById[$termId]['slug'] ?? ''),
-                'term_group' => (int) ($termsById[$termId]['term_group'] ?? 0),
-                'term_taxonomy_id' => (int) ($taxonomy['term_taxonomy_id'] ?? 0),
-                'taxonomy' => (string) ($taxonomy['taxonomy'] ?? ''),
-                'description' => (string) ($taxonomy['description'] ?? ''),
-                'parent' => (int) ($taxonomy['parent'] ?? 0),
-            ];
-        }
-        usort($rows, static fn(array $left, array $right): int =>
-            [$left['term_id'], $left['term_taxonomy_id']] <=> [$right['term_id'], $right['term_taxonomy_id']]
-        );
-        if (str_contains($sql, 'SELECT COUNT(*) AS row_count')) {
-            $sizes = array_map(static fn(array $row): int =>
-                strlen((string) $row['term_id'])
-                    + strlen($row['name'])
-                    + strlen($row['slug'])
-                    + strlen((string) $row['term_group'])
-                    + strlen((string) $row['term_taxonomy_id'])
-                    + strlen($row['taxonomy'])
-                    + strlen($row['description'])
-                    + strlen((string) $row['parent']),
-                $rows
-            );
-            return [[
-                'row_count' => (string) count($rows),
-                'total_bytes' => (string) array_sum($sizes),
-                'max_row_bytes' => (string) ($sizes === [] ? 0 : max($sizes)),
-            ]];
-        }
-        return array_map(static fn(array $row): object => (object) $row, $rows);
-    }
-}
 $manifest = json_decode((string) file_get_contents($root . '/manifests/woocommerce.json'), true, flags: JSON_THROW_ON_ERROR);
 // One document per subject since WP-4.4 (spec/repo-format.md § v3.4): this
 // suite reads woocommerce's reviewed entry, not the whole library.
@@ -983,8 +903,10 @@ woo_ok(
 $termRows = [];
 $termTaxonomyRows = [];
 $termMetaRows = [];
-foreach (range(1, 12) as $id) {
-    $taxonomy = $id <= 3 ? 'product_brand' : 'product_visibility';
+foreach (range(1, 13) as $id) {
+    $taxonomy = $id <= 3
+        ? 'product_brand'
+        : ($id <= 12 ? 'product_visibility' : 'unscoped_fixture_taxonomy');
     $termRows[] = [
         'term_id' => $id,
         'name' => "Woo term $id",
@@ -1067,7 +989,6 @@ $captureDb->seedTable('wp_posts', [])
     ->seedTable('wp_duo_map', [])
     ->setUniqueKey('wp_duo_map', ['uuid', 'id_kind'])
     ->setUniqueKey('wp_duo_map', ['id_kind', 'local_id']);
-$GLOBALS['wpdb'] = new WooBuilderWpdb($captureDb);
 $candidate = (new CaptureCandidateBuilder('/siterepo', $capturePolicy))->build(false);
 $termEntities = array_values(array_filter(
     $candidate['entities'],
