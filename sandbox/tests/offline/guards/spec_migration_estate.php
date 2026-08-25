@@ -143,12 +143,60 @@ function rehearsal_state_versions(string $repoRoot, string $state): array {
 }
 
 /**
+ * A library whose boundary MOVED A BOUND COMPATIBILITY CELL, for the probes
+ * that need a withdrawal to observe.
+ *
+ * WHY THIS EXISTS AT ALL. Until WP-4.7 a certificate bound the whole platform
+ * record byte for byte, so state B — an ordinary minor release, restating the
+ * two `define()`s AGENTS.md rule 8 forces the boundary to restate — withdrew
+ * every certificate in the estate, and the withdrawal probes had nothing to
+ * build. Since spec/repo-format.md § v3.6 a certificate binds the exercised
+ * compatibility CELLS, and state B moves none of them: the cohort's
+ * certificates now HOLD across the release, which is the flag day's own good
+ * news and is asserted as such. The withdrawal machinery still has to be
+ * rehearsed, so it gets a boundary that actually triggers it.
+ *
+ * The mutation is a bound cell's ACCEPTANCE TERMS, not a dropped cell, and the
+ * choice is load-bearing: dropping a cell is asymmetric (rolling back RESTORES
+ * it, and a cell the boundary GAINS refuses nothing under § v3.6), while a
+ * moved engine range disagrees in BOTH directions. That is what lets the
+ * rollback half of this rehearsal still measure a real symmetry instead of
+ * asserting one.
+ *
+ * Both states get one, and they move the range to DIFFERENT values, because two
+ * different jobs need two different disagreements: the gate probes need each
+ * state's own boundary to disagree with a certificate minted against the
+ * shipped one, and the remedy needs A and B to disagree with EACH OTHER so a
+ * certificate minted at B is withdrawn again after the rollback.
+ */
+function rehearsal_cell_moved_library(string $estate, string $state): string
+{
+    $moved = $estate . '/scratch/' . $state . '/libs-cell-moved';
+    if (is_dir($moved)) {
+        return $moved;
+    }
+    rehearsal_copy_tree($estate . '/libs/' . $state, $moved);
+    $document = \Duo\Canon::decode(\Duo\Canon::read_file($moved . '/capabilities/platform.json'));
+    $engines = (array) ($document['platform']['compatibility']['database']['engines'] ?? []);
+    $engine = (string) array_key_last($engines);
+    if ($engine === '') {
+        throw new RuntimeException('rehearsal estate: the boundary declares no database engine to move');
+    }
+    $document['platform']['compatibility']['database']['engines'][$engine]['max']
+        = $state === 'A' ? '9.0.0' : '99.0.0';
+    rehearsal_write_canon($moved . '/capabilities/platform.json', $document);
+
+    return $moved;
+}
+
+/**
  * The platform boundary document a state ships.
  *
  * Built by restating the SHIPPED document's own bytes with the state's two
  * versions substituted, never by authoring a boundary here: a hand-written
  * boundary would stop being evidence about the document certificates actually
- * bind (`platform_sha256` covers this object verbatim).
+ * bind (its compatibility cells are what every certificate's `axes` member
+ * digests, § v3.6).
  */
 function rehearsal_platform_document(string $shippedLib, array $versions): array {
     $document = \Duo\Canon::decode(\Duo\Canon::read_file($shippedLib . '/capabilities/platform.json'));
@@ -792,6 +840,26 @@ function rehearsal_probes(string $estate, string $state): array {
             $other, $certSite, $certName, $certManifest, $certFile
         )['disposition']['certification'] ?? '?')
     );
+    // The § v3.6 binding, driven against a boundary that moved a bound cell.
+    // It cannot be driven against `libs/other`: currentPlatform() refuses that
+    // document on the agent_version disagreement BEFORE any binding is read
+    // (the probe above), so the only way to reach this gate is a boundary that
+    // agrees with the loaded agent and disagrees about an exercised cell.
+    // `static fn` captures $estate/$state from this scope by value, which is
+    // why they need no `use` clause here.
+    $probe(
+        'agent/src/Adapter/AdapterCertification.php::assertPlatformBinding',
+        'AdapterCertification::verifyFile(<boundary with a moved database engine range>, certified-alpha)',
+        "certification binds compatibility axis 'database'",
+        static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
+            rehearsal_cell_moved_library($estate, $state),
+            $certSite,
+            $certName,
+            $certManifest,
+            $certFile
+        )['disposition']['certification'] ?? '?')
+    );
+
     // The shape gate under the boundary reader. `assert_supported()` takes its
     // facts as an argument precisely so a caller can ask the question without a
     // live target, which is what makes this reachable offline while
@@ -826,14 +894,18 @@ function rehearsal_probes(string $estate, string $state): array {
         }
     );
 
-    // --- the certificate boundary (the one fleet-visible consequence) ------
+    // --- the certificate boundary -----------------------------------------
 
+    // WAS "the one fleet-visible consequence", and § v3.6 is why it no longer
+    // is: the release this estate drives moves `agent_version` and no exercised
+    // compatibility cell, so the certificate verifies at BOTH states now. The
+    // probe therefore records `certified` at both — the withdrawal it used to
+    // record is driven, on the same fixture, by the assertPlatformBinding probe
+    // above against a boundary that actually moved a bound cell.
     $probe(
         'agent/src/Adapter/AdapterCertification.php::verifyCertificate',
         'AdapterCertification::verifyFile(libs/' . $state . ', certified-alpha)',
-        $state === 'A'
-            ? 'certified'
-            : 'certification platform boundary disagrees with the current agent-owned platform',
+        'certified',
         static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
             $lib, $certSite, $certName, $certManifest, $certFile
         )['disposition']['certification'] ?? '?')
@@ -1367,13 +1439,13 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
     $probe(
         'cli/src/Transport/CodeDeploy.php::dispositionBlockers',
         'CodeDeploy::dispositionBlockers(<compiled summary carrying certified-beta\'s site adapter>)',
-        // Both branches of this gate, one per state, and the difference IS the
-        // flag day: at A the adapter carries a signed-but-unpinned claim and
-        // the blocker is about the pin shape; at B the certificate is withdrawn,
-        // so the claim is gone and the blocker becomes the missing-claim one.
-        $state === 'A'
-            ? 'the repository pin does not bind both source'
-            : 'no reviewed capability claim is bound to this compiled adapter',
+        // ONE branch at both states since § v3.6: the certificate survives this
+        // release, so the adapter still carries its signed-but-unpinned claim
+        // at B exactly as at A and the blocker stays the pin-shape one. Before
+        // WP-4.7 the bump withdrew the certificate, the claim went with it, and
+        // this gate reported the missing-claim blocker instead — a second
+        // branch that existed only because the flag day destroyed the claim.
+        'the repository pin does not bind both source',
         static function () use ($estate, $lib): string {
             putenv('DUO_MANIFESTS_DIR=' . $lib);
             $policy = \Duo\Policy::load($estate . '/sites/certified-beta');
@@ -1613,7 +1685,14 @@ function rehearsal_registry_probes(string $estate, string $state): array {
  * @return array<string,mixed>
  */
 function rehearsal_prefix_reproduction(string $estate, string $state): array {
-    $lib = $estate . '/libs/' . $state;
+    // The CELL-MOVED library, not `libs/<state>`. Since § v3.6 an ordinary
+    // release moves no bound cell and withdraws nothing, so driving this probe
+    // against state B's own library would reproduce no condition at all — it
+    // would quietly become an assertion that a certificate verifies, which is
+    // the opposite of what WP-1.1's brick is a record of. The condition WP-1.1
+    // bricked on is "an agent-owned boundary moved under a valid certificate",
+    // and that is exactly what a moved engine range is now.
+    $lib = rehearsal_cell_moved_library($estate, $state);
     $scratch = $estate . '/scratch/' . $state;
     putenv('DUO_MANIFESTS_DIR=' . $lib);
     $site = $estate . '/sites/certified-alpha';
@@ -1688,7 +1767,13 @@ function rehearsal_prefix_reproduction(string $estate, string $state): array {
  * @return array<string,mixed>
  */
 function rehearsal_remedy(string $estate, string $state): array {
-    $lib = $estate . '/libs/' . $state;
+    // Same library the brick reproduction uses, and for the same reason: with
+    // nothing withdrawn there is no remedy to invoke and no symmetry to
+    // measure. State A is the shipped boundary and state B is that boundary
+    // with one engine RANGE moved, so a certificate minted at either state
+    // disagrees with the other in both directions — which is the property the
+    // rollback half of this rehearsal is about.
+    $lib = rehearsal_cell_moved_library($estate, $state);
     putenv('DUO_MANIFESTS_DIR=' . $lib);
     $remedied = $estate . '/scratch/remedied-at-B';
     $out = ['state' => $state];

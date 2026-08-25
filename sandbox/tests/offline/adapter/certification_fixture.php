@@ -182,10 +182,10 @@ function duo_cert_assert_loadable(string $shippedDir, string $manifestDir): void
     }
     // Reads capabilities/platform.json and refuses a boundary naming a
     // different agent/spec version than this process is running, which is the
-    // exact document a signed site-adapter certificate binds as
-    // `platform_sha256`. A fixture library that cannot answer it would fail
-    // every certification assertion in the mounting suite for a reason nothing
-    // there names.
+    // exact document a signed site-adapter certificate reads its bound
+    // compatibility cells out of (spec/repo-format.md § v3.6). A fixture
+    // library that cannot answer it would fail every certification assertion in
+    // the mounting suite for a reason nothing there names.
     ManifestDispositions::platform_boundary($manifestDir);
 }
 

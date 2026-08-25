@@ -65,13 +65,18 @@
  *     `source.artifact_hash` refuses re-association. The plan's deployed-sites
  *     section says scope contracts do not move. On this measurement they do,
  *     and the correct remedy is a re-projection verb, not a widened comparison.
- *   - A site holding a CERTIFIED SITE ADAPTER additionally moves that adapter's
- *     digest, and therefore its own `manifest_hash` and `revision_hash`: the
- *     withdrawal changes the certificate-derived digest. Such a site still
- *     LOADS — WP-1.1's `source:"site"` + uncertified pin concession
- *     (PinResolver.php:206) is what keeps it off the rocks — but its held
- *     compiled artifact refuses with `compiled_artifact_manifest_mismatch` and
- *     has to be recompiled.
+ *   - A site holding a CERTIFIED SITE ADAPTER used to move that adapter's
+ *     digest, and therefore its own `manifest_hash` and `revision_hash`,
+ *     because the withdrawal changed the certificate-derived digest; its held
+ *     compiled artifact then refused with `compiled_artifact_manifest_mismatch`
+ *     and had to be recompiled. WP-4.7 (spec/repo-format.md § v3.6) ended that:
+ *     a certificate binds the exercised compatibility CELLS rather than the
+ *     whole platform record, and this release moves none of them, so all three
+ *     certificate-holding sites are now inside the digest-neutral cohort and
+ *     their artifacts still verify. WP-1.1's `source:"site"` + uncertified pin
+ *     concession (PinResolver.php:206) is still what keeps such a site off the
+ *     rocks WHEN a withdrawal does happen, and the withdrawal is rehearsed
+ *     against a boundary that moved a bound cell rather than assumed away.
  *   - Zero unloadable sites: every site that loaded before the bump loads after
  *     it, including the promoted site that verifies only from its frozen
  *     snapshot.
@@ -116,7 +121,8 @@ $driver = __DIR__ . '/spec_migration_estate.php';
  * and the case (d) assertions below it); `<name>` is this estate's adapter.
  */
 const REHEARSAL_PREFIX_REFUSAL =
-    "duo: site adapter '<name>' certification platform boundary disagrees with the current agent-owned platform";
+    "duo: site adapter '<name>' certification binds compatibility axis 'database', whose exercised cells the "
+    . 'agent-owned platform boundary now states differently';
 
 /**
  * The reviewed gaps: register gates this estate does NOT exercise, each with
@@ -432,8 +438,13 @@ duo_check_same(
     . 'both certified-site-adapter sites included'
 );
 
-$shippedOnly = ['core-only', 'editorial', 'multilingual', 'pinned-shop'];
-foreach ($shippedOnly as $id) {
+// The certified sites JOINED this list in WP-4.7. They were excluded because
+// the bump withdrew their certificates and moved the certificate-derived digest
+// folded into manifest_rows(); § v3.6 stopped that happening for a release that
+// moves no exercised cell, so digest neutrality now covers every loadable site
+// in the cohort rather than the shipped-only half of it.
+$digestNeutral = ['certified-alpha', 'certified-beta', 'core-only', 'editorial', 'multilingual', 'pinned-shop', 'promoted-frozen'];
+foreach ($digestNeutral as $id) {
     duo_check_same(
         [
             'manifest_hash' => $observedA['sites'][$id]['manifest_hash'],
@@ -456,6 +467,12 @@ foreach ($shippedOnly as $id) {
         "DIGEST NEUTRALITY: $id keeps every shipped adapter digest, its manifest_hash, its site_hash and its "
         . 'revision_hash byte-identical across the bump'
     );
+    if ($id === 'promoted-frozen') {
+        // Its artifact was removed at materialization on purpose — that site
+        // exists to exercise the frozen path with nothing held — so there is no
+        // artifact to verify and asserting one would be asserting the fixture.
+        continue;
+    }
     duo_check_same(
         'verified',
         $observedB['sites'][$id]['artifact'] ?? null,
@@ -495,32 +512,50 @@ duo_check_same(
     . 'the two are not the same claim and the flag day separates them'
 );
 
+// THE MEASUREMENT WP-4.7 CHANGED, and the reason this block reads as it does.
+// Until spec/repo-format.md § v3.6 a certificate bound the whole platform
+// record byte for byte, so this release — `agent_version` and the prose the
+// boundary restates with it — withdrew all three of these claims, moved each
+// site's own manifest_hash with them, and refused each held artifact with
+// `compiled_artifact_manifest_mismatch`. A certificate now binds the exercised
+// compatibility CELLS, and this release moves none of them, so the three sites
+// join the digest-neutral cohort above instead of forming a second population.
+// The withdrawal machinery is not retired and is not untested: the estate's own
+// assertPlatformBinding probe drives it against a boundary that moved a bound
+// cell, and the brick reproduction below drives it end to end.
 foreach (['certified-alpha' => 'estate-forms', 'certified-beta' => 'estate-shop', 'promoted-frozen' => 'estate-catalog'] as $id => $adapter) {
-    $withdrawn = null;
+    $held = null;
     foreach ($observedB['sites'][$id]['adapters'] as $row) {
         if ($row['name'] === $adapter) {
-            $withdrawn = $row;
+            $held = $row;
         }
     }
     duo_check(
-        is_array($withdrawn)
-        && $withdrawn['certified'] === false
-        && $withdrawn['capability'] === 'none'
-        && str_contains((string) $withdrawn['reason'], 'agent platform boundary this agent no longer publishes'),
-        "state B: $id's certified adapter '$adapter' is WITHDRAWN with a named reason — one claim lost, the site "
-        . 'kept (' . (string) ($withdrawn['reason'] ?? 'no row') . ')'
+        is_array($held) && $held['certified'] === true && $held['capability'] !== 'none',
+        "state B: $id's certified adapter '$adapter' still HOLDS its claim across the release — the bump moved no "
+        . 'cell it was exercised against (' . (string) ($held['reason'] ?? 'no row') . ')'
     );
-    duo_check(
-        is_array($withdrawn) && $withdrawn['digest'] !== '',
-        "state B: and $id still resolves '$adapter' to a digest, so the pin set is answerable rather than absent"
+    duo_check_same(
+        (static function (array $rows, string $name): string {
+            foreach ($rows as $row) {
+                if ($row['name'] === $name) {
+                    return (string) $row['digest'];
+                }
+            }
+            return '(absent)';
+        })($observedA['sites'][$id]['adapters'], $adapter),
+        is_array($held) ? (string) $held['digest'] : '(absent)',
+        "state B: and '$adapter' keeps its exact digest, so the certificate-derived half of this site's identity "
+        . 'is as pin-neutral as the shipped half'
     );
 }
 duo_check_same(
-    'compiled_artifact_manifest_mismatch',
-    $observedB['sites']['certified-alpha']['artifact_reason'] ?? null,
-    'MEASURED CONSEQUENCE: a site holding a CERTIFIED site adapter also moves its own manifest_hash — the '
-    . 'withdrawal moves the certificate-derived digest — so its compiled artifact refuses and must be recompiled. '
-    . 'That population is exactly the certificate-holding population, not the fleet'
+    'verified',
+    $observedB['sites']['certified-alpha']['artifact'] ?? null,
+    'MEASURED CONSEQUENCE, INVERTED: a site holding a CERTIFIED site adapter no longer moves its own manifest_hash '
+    . 'on an ordinary release, so its held compiled artifact still verifies. Before § v3.6 this row read '
+    . '`compiled_artifact_manifest_mismatch` and the certificate-holding population was the one population the '
+    . 'flag day forced to recompile'
 );
 duo_check_same(
     'rehydrated',
@@ -535,9 +570,10 @@ foreach ((array) ($observedB['sites']['promoted-frozen']['snapshot_adapters'] ??
     }
 }
 duo_check(
-    ($frozenWithdrawn['certified'] ?? null) === false,
-    'and the frozen record is re-derived rather than trusted: the snapshot still SAYS certified, and the rehydrated '
-    . 'policy says uncertified, because verifyFrozen() re-binds the certificate to the boundary now installed'
+    ($frozenWithdrawn['certified'] ?? null) === true,
+    'and the frozen record is still RE-DERIVED rather than trusted — verifyFrozen() re-binds the certificate to '
+    . 'the boundary now installed on every rehydration — but the answer it re-derives is now `certified`, because '
+    . 'the release moved no cell that certificate was exercised against'
 );
 
 echo "\n== WP-1.1's brick, as a recorded expectation ==\n";

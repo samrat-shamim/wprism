@@ -41,12 +41,21 @@ final class SupersededSiteAdapterCertificate extends \RuntimeException {
 
 /**
  * A correctly-signed companion, under a currently-trusted authority, binding
- * exactly the bytes `adapters/<name>.json` carries now — whose statement names
- * an agent platform boundary this agent no longer publishes. THE AGENT MOVED,
- * NOT THE ADAPTER: `manifests/capabilities/platform.json` is agent-owned and
- * changes on an ordinary upgrade (a new `compatibility.wordpress.last_verified`
- * moves its bytes without moving one manifest), and verifyCertificate()
- * compares it byte for byte (`:1123-1128`).
+ * exactly the bytes `adapters/<name>.json` carries now — whose statement was
+ * exercised against a compatibility cell this agent no longer states the same
+ * way. THE AGENT MOVED, NOT THE ADAPTER: `manifests/capabilities/platform.json`
+ * is agent-owned and changes on an ordinary upgrade, and
+ * assertPlatformBinding() re-binds the statement to it.
+ *
+ * WHAT MOVES IT IS NOW MUCH NARROWER THAN THE FILE (spec/repo-format.md § v3.6,
+ * WP-4.7). Until then the comparison was the WHOLE record byte for byte, so
+ * every release raised this — a new `compatibility.wordpress.last_verified`, a
+ * re-measured PHP patch, the `agent_version` line AGENTS.md rule 8 forces the
+ * file to restate — and the fleet lost every certificate on every bump. Now it
+ * is raised by four things and nothing else: a moved `spec_version` or
+ * `site_mode`, a bound compatibility axis the boundary has dropped, a bound
+ * cell it no longer carries, or a bound cell whose acceptance terms it now
+ * states differently. Coverage the boundary GAINED raises nothing.
  *
  * Before this type the comparison threw a bare \RuntimeException, which
  * scan_site_source() could not tell from a forgery, so discover() refused the
@@ -70,27 +79,31 @@ final class StalePlatformSiteAdapterCertificate extends \RuntimeException {
 }
 
 /**
- * A canonical companion whose root `format` names the certification wire
- * family (`duo-adapter-certification/v<n>`) at a version this agent cannot
- * verify. Same withdrawal as StalePlatformSiteAdapterCertificate — the wire is
- * agent-owned, so a fleet that upgrades past a certificate's version must
- * degrade the adapter rather than refuse every command on the site — but NOT
- * the same argument, and the difference is the whole risk note:
+ * A canonical companion this agent cannot verify because of its WIRE
+ * GENERATION, at any of three tests: a root `format` naming the certification
+ * family (`duo-adapter-certification/v<n>`) at another version, a statement
+ * written in the v1 generation (the five members R-06 closed, signed under the
+ * retired `/v1` certification domain — deliberately not spelled here, because
+ * tools/wire-surface.php gate 2 reads every domain literal in this tree as a
+ * LIVE signing surface needing a register row), or a statement declaring an
+ * in-statement `version` this engine does not implement. Same withdrawal as
+ * StalePlatformSiteAdapterCertificate — the wire is agent-owned, so a fleet
+ * that upgrades past a certificate's generation must degrade the adapter rather
+ * than refuse every command on the site — but NOT the same argument, and the
+ * difference is the whole risk note:
  *
- * THIS SIGNAL IS UNAUTHENTICATED BY CONSTRUCTION. StalePlatform is reached only
- * after the Ed25519 signature, the authority binding and assertAdapterBinding()
- * have all verified (`:1025-1128`); this one is raised inside
- * assertCertificateShape(), before any of them, and it cannot be otherwise: a
- * signature cannot be verified over a wire whose statement shape this agent
- * cannot parse, and root `format` is outside the signed bytes anyway
- * (signatureBytes() signs SIGNATURE_DOMAIN . Canon::encode($statement) alone,
- * `:1340-1342`). So anyone who can write `adapters/certification/<name>.json`
- * can raise it — including by flipping the `format` of a GENUINE, valid
- * certificate, which strips that adapter's certification without breaking one
- * signature. That is the LIVE path only: AdapterSources::from_snapshot()
- * deliberately does not catch this type, so the same edit inside a frozen
- * snapshot is a hard refusal (there is no /v2 wire, so a snapshot cannot
- * honestly carry one).
+ * THIS SIGNAL IS UNAUTHENTICATED BY CONSTRUCTION, and WP-4.7 did not change
+ * that. StalePlatform is reached only after the Ed25519 signature, the
+ * authority binding and assertAdapterBinding() have all verified; all three
+ * tests here are raised before any of them, and it cannot be otherwise: a
+ * signature cannot be verified until the DOMAIN is chosen, and the generation is
+ * what names the domain. (Root `format` is outside the signed bytes entirely —
+ * signatureBytes() signs SIGNATURE_DOMAIN . Canon::encode($statement) alone.)
+ * So anyone who can write `adapters/certification/<name>.json` can raise it —
+ * by flipping the `format` of a GENUINE, valid certificate, or now equally by
+ * DELETING its `version` member so a v2 statement reads as a v1 one. Both strip
+ * that adapter's certification without breaking one signature, and both are the
+ * same accepted trade below.
  *
  * ACCEPTED, with its damping stated rather than argued away: the destination is
  * UNCERTIFIED support, strictly weaker than what the certificate conferred, so
@@ -101,17 +114,23 @@ final class StalePlatformSiteAdapterCertificate extends \RuntimeException {
  * operator would have investigated becomes a quiet degradation), not a trust
  * boundary loss.
  *
- * What is NOT accepted is widening the door. assertCertificateShape() proves
- * the closed root key set and a canonical base64 Ed25519-length signature
- * BEFORE this test, so the cheapest forgery — a one-key file naming a future
- * version — is refused as malformed and never reaches here. The predicate is
- * then the exact family at a different integer version and nothing else: any
- * other string, a non-string, a missing key, a non-canonical or unparseable
- * file, and every malformed statement inside a correctly-versioned envelope
- * stay hard whole-source refusals. That predicate is the difference between
- * "this agent does not speak this version" and "this file is not a
- * certificate", and one term wider would launder a forgery into unsigned
- * support.
+ * What is NOT accepted is widening the door, and WP-4.7's two new tests were
+ * placed to keep that ordering rather than to reopen it.
+ * assertCertificateShape() proves the closed root key set and a canonical
+ * base64 Ed25519-length signature BEFORE any of the three, so the cheapest
+ * forgery — a one-key file naming a future version — is refused as malformed
+ * and never reaches here. assertStatementShape() then proves the member set and
+ * the object-ness of all five common members before EITHER generation test, so
+ * the equivalent cheap statement forgery (a statement carrying `version` and
+ * nothing else, or a five-member statement whose `platform` is a string) is
+ * refused as malformed too. Each predicate is exact and nothing else: the exact
+ * family at a different integer version; the exact v1 member set; a `version`
+ * that is a positive integer this engine does not implement. Any other string,
+ * a non-string, a missing key, a non-integer or non-positive `version`, a
+ * non-canonical or unparseable file, and every other malformed statement stay
+ * hard whole-source refusals. Those predicates are the difference between "this
+ * agent does not speak this generation" and "this file is not a certificate",
+ * and one term wider would launder a forgery into unsigned support.
  */
 final class SupersededWireSiteAdapterCertificate extends \RuntimeException {
 }
@@ -138,8 +157,105 @@ final class AdapterCertification {
     public const BUNDLE_FORMAT = 'duo-site-adapter-certification-bundle/v1';
     public const RATIFICATION_FORMAT = 'duo-manifest-dispositions/v1';
 
-    /** Kept independent from JSON framing so this signature cannot verify elsewhere. */
-    public const SIGNATURE_DOMAIN = "duo-site-adapter-certification-signature/v1\0";
+    /**
+     * Kept independent from JSON framing so this signature cannot verify
+     * elsewhere.
+     *
+     * `/v2` since WP-4.7 (spec/repo-format.md § v3.6) because the BINDING
+     * SEMANTICS changed: the statement no longer covers the whole
+     * `capabilities/platform.json` record byte for byte, it covers the
+     * compatibility CELLS the certificate was exercised against. Per the
+     * irreversibility register's R-01 a new domain is a NEW statement type
+     * verified BESIDE the old one and never an edit of it, so no v1 statement
+     * is re-read under this domain: a v1-generation statement is refused BY
+     * NAME in assertStatementShape() and the adapter degrades to uncertified,
+     * which is strictly weaker than what its certificate conferred.
+     */
+    public const SIGNATURE_DOMAIN = "duo-site-adapter-certification-signature/v2\0";
+
+    /**
+     * The wire generation stated INSIDE the signed statement.
+     *
+     * The member the v1 statement could not grow: R-06 records its five-member
+     * set as closed in both directions, so `version` had to arrive in the same
+     * change that moved the domain. What it buys is the property § v3.7 states
+     * for the authority record and for the same reason — a grammar this engine
+     * does not implement is refused BY VERSION rather than read as corruption,
+     * and a tamperer cannot downgrade a statement by DELETING bytes, because
+     * the five-member shape is itself a named refusal now.
+     */
+    public const STATEMENT_VERSION = 2;
+
+    /** The v2 signed statement, exactly. `version` is the member v1 lacked. */
+    private const STATEMENT_KEYS = ['adapter', 'authority', 'bundle', 'platform', 'ratification', 'version'];
+    /** The v1 statement, kept only to RECOGNISE the previous generation by name. */
+    private const STATEMENT_V1_KEYS = ['adapter', 'authority', 'bundle', 'platform', 'ratification'];
+
+    /**
+     * The v2 `statement.platform` member.
+     *
+     * `axes` is the binding; `agent_version` is RECORDED and deliberately not
+     * bound. That inversion is the whole of WP-4.7: under v1 the statement
+     * covered the whole boundary document, so an agent release that moved
+     * `agent_version` and one prose `note` — which every release does, since
+     * AGENTS.md rule 8 makes platform.json restate the two defines — withdrew
+     * every certificate on the fleet. `agent_version` stays inside the
+     * signature because an operator still has to be told WHICH agent state a
+     * certificate was minted beside (`MigrationPreflight::certificates()` reads
+     * it, :518), and a fact inside the signature cannot be forged; it is simply
+     * no longer the thing validity turns on.
+     */
+    private const STATEMENT_PLATFORM_KEYS = ['agent_version', 'axes', 'site_mode', 'spec_version'];
+    /** One bound compatibility axis: which cells, and their digest. */
+    private const STATEMENT_AXIS_KEYS = ['cells', 'sha256'];
+
+    /**
+     * The two cell-series members a compatibility axis may carry, and the
+     * single rule that decides what a certificate binds on each shape.
+     *
+     * THE RULE: a cell's bound value is everything the boundary uses to ACCEPT
+     * a runtime on that cell, and nothing it uses only to WITNESS one.
+     *
+     *   - `verified` (the `php` and `wordpress` axes) maps an accepted SERIES
+     *     to the exact patch a live proof ran on. Acceptance is series
+     *     membership — "a runtime is accepted only when it is inside [min, max)
+     *     AND its MAJOR.MINOR is one of those exercised series"
+     *     (manifests/capabilities/platform.json, php axis note) — so the key is
+     *     bound and the patch is not. Re-measuring 8.3 on a newer patch is new
+     *     evidence for the same cell, which is exactly what § v3.6 means by
+     *     "recording a newly exercised PHP patch adds coverage and invalidates
+     *     nothing".
+     *   - `engines` (the `database` axis) maps an accepted ENGINE to its own
+     *     min/max line, because "the range is now a function of the engine"
+     *     (same file, database axis note). The value IS the acceptance term
+     *     here, so it is bound: widening `MySQL` to admit a 9.x nobody ran is
+     *     not new evidence for the same cell, it is a different cell wearing
+     *     the same name.
+     *   - neither member (`filesystem`, `process`) means the axis is one
+     *     reviewed PROFILE — a versioned identity plus the functions, families
+     *     and separators the gate requires. That whole object minus its prose
+     *     `note` is one cell, named by the profile string.
+     *
+     * `min`/`max` are deliberately outside every binding: the range admits
+     * nothing on its own (acceptance needs the series too), and a release that
+     * exercises a new series moves `max` in the same edit that adds the cell —
+     * binding it would make every additive release invalidate every
+     * certificate, which is the pathology this rider exists to end.
+     *
+     * THE RESIDUAL THAT LEAVES, stated rather than argued away: a boundary that
+     * NARROWED [min, max) around a series a certificate already binds moves no
+     * cell, so this binding raises nothing. It is not a hole in the honesty
+     * property, because the certificate is not what admits a runtime:
+     * `PlatformCompatibility::assert_supported()` gates every load on the range
+     * AND the series against the boundary installed now, so the site refuses at
+     * load time on the axis itself. The certificate's job is to say which cells
+     * were exercised; the boundary's job is to say which are admissible, and
+     * only the second one is a gate.
+     */
+    private const PLATFORM_AXIS_SERIES = 'verified';
+    private const PLATFORM_AXIS_ENGINES = 'engines';
+    /** Prose. An axis note is edited on every live matrix run and moves no runtime. */
+    private const PLATFORM_AXIS_NOTE = 'note';
 
     /**
      * The v2 authorities-document envelope signature domain.
@@ -1250,7 +1366,7 @@ final class AdapterCertification {
         object $ratificationTyped,
         string $secret
     ): string {
-        [$platform, ] = self::currentPlatform($manifestDir);
+        [, , $platformRecord] = self::currentPlatform($manifestDir);
         $statement = [
             'adapter' => [
                 'canonical_sha256' => self::canonicalHash($manifest),
@@ -1266,8 +1382,15 @@ final class AdapterCertification {
             // objects.  The signature binds their content-addressed identity,
             // all declared asset descriptors, and all named test claims.
             'bundle' => $bundleTyped,
-            'platform' => $platform,
+            // The exercised compatibility cells, not the boundary document.
+            // Derived through ManifestDispositions::narrowed_environment(), so
+            // an adapter that declared § v3.5 narrowing binds its NARROWED
+            // cells and an adapter that declared a WIDER environment than the
+            // reviewed boundary refuses HERE, at mint time, instead of minting
+            // a certificate that only refuses when a site first loads it.
+            'platform' => self::platformStatement($platformRecord, $manifest),
             'ratification' => $ratificationTyped,
+            'version' => self::STATEMENT_VERSION,
         ];
         $signature = sodium_crypto_sign_detached(self::signatureBytes($statement), $secret);
         return Canon::encode([
@@ -1326,7 +1449,7 @@ final class AdapterCertification {
         self::assertCertificateShape($certificateTyped, $certificate);
         $statementTyped = $certificateTyped->statement;
         $statement = $certificate['statement'];
-        self::assertStatementShape($statementTyped, $statement);
+        self::assertStatementShape($name, $statementTyped, $statement);
 
         $adapter = $statement['adapter'];
         $tier = AdapterSources::trust_tier($manifest);
@@ -1442,12 +1565,8 @@ final class AdapterCertification {
         // both verified, which is exactly why the typed signal below is safe:
         // this line can only be about an AGENT-owned document that moved, never
         // about the companion's provenance.
-        [$platform, $platformDigest] = self::currentPlatform($manifestDir);
-        if (!hash_equals(Canon::encode($platform), Canon::encode($statementTyped->platform))) {
-            throw new StalePlatformSiteAdapterCertificate(
-                "duo: site adapter '$name' certification platform boundary disagrees with the current agent-owned platform"
-            );
-        }
+        [, , $platformRecord] = self::currentPlatform($manifestDir);
+        $platformDigest = self::assertPlatformBinding($name, $platformRecord, $statement['platform']);
 
         $bundle = self::verifyEmbeddedBundle($statementTyped->bundle, $statement['bundle'], $name, $trustRoot);
         self::assertBundleSubjectInput($bundle['bound_inputs'], $name, $adapter);
@@ -1478,7 +1597,16 @@ final class AdapterCertification {
 
         return [
             'disposition' => $derived,
-            'claim' => self::projectClaim($name, $manifest, $disposition, $derived, $statement['platform']),
+            // The CURRENT boundary, not the signed one — and it is the same
+            // answer, narrowed by the same declaration: the binding above just
+            // proved every cell this certificate covers is still carried and
+            // still stated the same way, and § v3.5's narrowing is applied to
+            // whichever record it is handed. At v1 there was no choice to make
+            // (the two records were byte-equal or the certificate was gone);
+            // at v2 the signed member carries digests rather than a boundary,
+            // so the live document is the only record a claim can be projected
+            // from at all.
+            'claim' => self::projectClaim($name, $manifest, $disposition, $derived, $platformRecord),
             'provenance' => $derived['provenance'],
         ];
     }
@@ -3039,7 +3167,7 @@ final class AdapterCertification {
         return $record;
     }
 
-    /** @return array{0:array,1:string} */
+    /** @return array{0:object,1:string,2:array<string,mixed>} */
     private static function currentPlatform(string $manifestDir): array {
         $file = rtrim($manifestDir, '/') . '/' . self::PLATFORM_RELATIVE;
         if (!is_file($file)) {
@@ -3048,11 +3176,12 @@ final class AdapterCertification {
             );
         }
         // Read here rather than through ManifestDispositions::platform_boundary()
-        // because this path needs the TYPED object: canonicalHash($typed->platform)
-        // is the `platform_sha256` inside every signed statement, so the bytes
-        // hashed must be the decoded object itself and not a re-encoding of an
-        // array projection. Both readers bind the same file and the same
-        // format constant; only the shape they hand back differs.
+        // because this path needs BOTH shapes: the typed object is what
+        // `ContractAttestation::currentPlatformDigest()` hashes for the
+        // attestation's own whole-boundary `platform_sha256`, and the decoded
+        // array is what the axis binding (§ v3.6) and the projected claim read
+        // cell by cell. Both readers bind the same file and the same format
+        // constant; only the shape they hand back differs.
         [, $typed, $data] = self::readCanonicalObjectFile($file, 'agent platform boundary');
         if (($data['format'] ?? null) !== ManifestDispositions::PLATFORM_FORMAT
             || !isset($typed->platform) || !is_object($typed->platform)
@@ -3069,7 +3198,248 @@ final class AdapterCertification {
             || !is_array($platform['compatibility'] ?? null) || array_is_list($platform['compatibility'])) {
             throw new \RuntimeException('duo: agent capability platform boundary disagrees with the loaded agent');
         }
-        return [$typed->platform, self::canonicalHash($typed->platform)];
+        return [$typed->platform, self::canonicalHash($typed->platform), $platform];
+    }
+
+    /**
+     * The cells one compatibility axis contributes to a certificate, and the
+     * value each of them binds.
+     *
+     * Which member decides the shape is documented on PLATFORM_AXIS_SERIES
+     * above; this is that rule executed. An axis carrying BOTH series members
+     * stops the signer by name rather than picking one, for the reason
+     * topLevelKeyPartition() stops it on an unrecognised manifest section: a
+     * silently chosen binding would cover less than the boundary declares, and
+     * the uncovered half would simply stop being checked with nothing saying
+     * so.
+     *
+     * @param array<string,mixed> $axis
+     * @return array<string,mixed> cell name => the value that cell binds
+     */
+    private static function platformAxisCells(string $name, array $axis): array {
+        $series = $axis[self::PLATFORM_AXIS_SERIES] ?? null;
+        $engines = $axis[self::PLATFORM_AXIS_ENGINES] ?? null;
+        $hasSeries = is_array($series) && !array_is_list($series);
+        $hasEngines = is_array($engines) && !array_is_list($engines);
+        if ($hasSeries && $hasEngines) {
+            throw new \RuntimeException(
+                "duo: agent platform boundary axis '$name' declares both `" . self::PLATFORM_AXIS_SERIES
+                . '` and `' . self::PLATFORM_AXIS_ENGINES . '`, so what a certificate binds on it is ambiguous'
+            );
+        }
+        $cells = [];
+        if ($hasSeries) {
+            // Bound by NAME: the series is the acceptance unit, the patch is
+            // the witness. `null` states that in the signed bytes rather than
+            // leaving a reader to infer it from an absent value.
+            foreach (array_keys($series) as $cell) {
+                $cells[(string) $cell] = null;
+            }
+        } elseif ($hasEngines) {
+            foreach ($engines as $cell => $terms) {
+                $cells[(string) $cell] = $terms;
+            }
+        } else {
+            $profile = $axis['profile'] ?? null;
+            unset($axis[self::PLATFORM_AXIS_NOTE]);
+            ksort($axis, SORT_STRING);
+            // `*` for an axis that names no profile: the fixture boundaries in
+            // the offline corpus carry such an axis, and refusing them here
+            // would make this rule a statement about the shipped file rather
+            // than about the shape.
+            $cells[is_string($profile) && $profile !== '' ? $profile : '*'] = $axis;
+        }
+        ksort($cells, SORT_STRING);
+
+        return $cells;
+    }
+
+    /**
+     * The v2 `statement.platform` member: what this certificate covers.
+     *
+     * The three narrowable compatibility axes are read out of
+     * ManifestDispositions::narrowed_environment() rather than out of the
+     * boundary directly, so a § v3.5 declaration narrows the BINDING and the
+     * CLAIM through one function — and a declaration wider than the reviewed
+     * boundary refuses here, before a signature byte exists. `filesystem` and
+     * `process` are absent from that projection by design (no claim states
+     * them, § v3.5), so they fall through to the boundary's own axis and a
+     * certificate binds them whole.
+     *
+     * WHAT THE BOUNDARY CARRIES THAT THIS MEMBER DOES NOT, and why each one is
+     * a decision rather than an omission:
+     *
+     *   - `agent_version` is recorded and not bound (see
+     *     STATEMENT_PLATFORM_KEYS) — the whole point of the rider;
+     *   - `site_mode` is bound, because it is one of the four cells § v3.5 lets
+     *     an adapter narrow and one of the four a claim states. Read from the
+     *     boundary rather than from the narrowing, which can only ever RESTATE
+     *     a one-value axis: `narrowed_environment()` refuses any other value as
+     *     a widening, so the two are the same string or the mint already failed;
+     *   - `branchable_state` and `plugin_execution` are outside the binding
+     *     entirely. They are prose about the AGENT's posture, not runtime cells
+     *     anything was exercised against, and a claim restates them from the
+     *     boundary installed now (`claim_from_disposition()` copies the live
+     *     record into `platform`), so no certificate can make a claim assert a
+     *     posture the agent no longer holds.
+     *
+     * @param array<string,mixed> $platformBoundary the current boundary record
+     * @param array<string,mixed> $manifest the adapter being certified
+     * @return array<string,mixed>
+     */
+    private static function platformStatement(array $platformBoundary, array $manifest): array {
+        $narrowed = ManifestDispositions::narrowed_environment($manifest, $platformBoundary);
+        $compatibility = is_array($platformBoundary['compatibility'] ?? null)
+            ? $platformBoundary['compatibility']
+            : [];
+        $axes = [];
+        foreach ($compatibility as $name => $axis) {
+            $name = (string) $name;
+            if (!is_array($axis) || array_is_list($axis)) {
+                throw new \RuntimeException(
+                    "duo: agent platform boundary compatibility axis '$name' must be an object"
+                );
+            }
+            $declared = is_array($narrowed[$name] ?? null) ? $narrowed[$name] : $axis;
+            $cells = self::platformAxisCells($name, $declared);
+            $axes[$name] = [
+                'cells' => array_map('strval', array_keys($cells)),
+                'sha256' => self::canonicalHash((object) $cells),
+            ];
+        }
+        ksort($axes, SORT_STRING);
+        if ($axes === []) {
+            // Refused at MINT rather than left to assertPlatformShape(), which
+            // would meet the same document as an empty `axes` object and have
+            // to call it malformed. A boundary declaring no compatibility axis
+            // binds nothing at all, so the certificate it produced would say
+            // only "some agent published spec version N" — a certificate that
+            // covers nothing is worse than no certificate, because it reads as
+            // one.
+            throw new \RuntimeException(
+                'duo: agent platform boundary declares no compatibility axis, so a certificate signed against '
+                . 'it would bind no exercised runtime cell at all'
+            );
+        }
+
+        return [
+            'agent_version' => (string) ($platformBoundary['agent_version'] ?? ''),
+            'axes' => (object) $axes,
+            'site_mode' => (string) ($platformBoundary['site_mode'] ?? ''),
+            'spec_version' => $platformBoundary['spec_version'] ?? null,
+        ];
+    }
+
+    /**
+     * Re-bind a v2 statement's platform member to the boundary installed now.
+     *
+     * Reached only after the signature and the authority binding have both
+     * verified, which is what makes every refusal below a
+     * StalePlatformSiteAdapterCertificate rather than a forgery signal: this
+     * line can only ever be about an AGENT-owned document that moved.
+     *
+     * Three questions, and no fourth:
+     *
+     *   1. `spec_version` equality — the grammar gate, unchanged from v1. A
+     *      certificate never verifies across a grammar bump.
+     *   2. `site_mode` equality. It is not a compatibility axis (it is a
+     *      top-level member of the boundary) but it IS one of the four cells a
+     *      claim states, so a certificate that did not bind it would project a
+     *      claim naming a site mode nobody exercised.
+     *   3. Every BOUND cell of every BOUND axis is still carried, and still
+     *      binds the same value. A cell the current boundary has DROPPED
+     *      refuses by name; a cell whose acceptance terms MOVED refuses by
+     *      axis. An axis or a cell the boundary has GAINED refuses nothing —
+     *      it is coverage this certificate never claimed, exactly as § v3.6
+     *      states, and it is what stops an additive release from withdrawing
+     *      claims across the fleet.
+     *
+     * @param array<string,mixed> $platformBoundary the current boundary record
+     * @param array<string,mixed> $bound `statement.platform`, already shape-checked
+     * @return string the digest of the axes map this certificate binds
+     */
+    private static function assertPlatformBinding(string $name, array $platformBoundary, array $bound): string {
+        if (($bound['spec_version'] ?? null) !== ($platformBoundary['spec_version'] ?? null)) {
+            throw new StalePlatformSiteAdapterCertificate(
+                "duo: site adapter '$name' certification was signed under spec version "
+                . var_export($bound['spec_version'] ?? null, true) . ', which is not the spec version '
+                . var_export($platformBoundary['spec_version'] ?? null, true) . ' this agent publishes'
+            );
+        }
+        if (($bound['site_mode'] ?? null) !== ($platformBoundary['site_mode'] ?? null)) {
+            throw new StalePlatformSiteAdapterCertificate(
+                "duo: site adapter '$name' certification binds site mode '"
+                . (string) ($bound['site_mode'] ?? '') . "', which is not the site mode this agent publishes"
+            );
+        }
+        $compatibility = is_array($platformBoundary['compatibility'] ?? null)
+            ? $platformBoundary['compatibility']
+            : [];
+        foreach ((array) $bound['axes'] as $axis => $binding) {
+            $axis = (string) $axis;
+            $current = $compatibility[$axis] ?? null;
+            if (!is_array($current) || array_is_list($current)) {
+                throw new StalePlatformSiteAdapterCertificate(
+                    "duo: site adapter '$name' certification binds compatibility axis '$axis', which the "
+                    . 'agent-owned platform boundary no longer declares'
+                );
+            }
+            $cells = self::platformAxisCells($axis, $current);
+            $restricted = [];
+            foreach ($binding['cells'] as $cell) {
+                $cell = (string) $cell;
+                if (!array_key_exists($cell, $cells)) {
+                    throw new StalePlatformSiteAdapterCertificate(
+                        "duo: site adapter '$name' certification was exercised against '$axis' cell '$cell', "
+                        . 'which the agent-owned platform boundary no longer carries'
+                    );
+                }
+                $restricted[$cell] = $cells[$cell];
+            }
+            ksort($restricted, SORT_STRING);
+            if (!hash_equals((string) $binding['sha256'], self::canonicalHash((object) $restricted))) {
+                throw new StalePlatformSiteAdapterCertificate(
+                    "duo: site adapter '$name' certification binds compatibility axis '$axis', whose exercised "
+                    . 'cells the agent-owned platform boundary now states differently'
+                );
+            }
+        }
+
+        return self::canonicalHash((object) $bound['axes']);
+    }
+
+    /**
+     * The shape half of the v2 platform member, run before anything is bound.
+     *
+     * Separate from assertPlatformBinding() because the two answer different
+     * questions to different audiences: a malformed member is a corrupt or
+     * forged certificate (a hard \RuntimeException, the whole source refuses),
+     * while a well-formed member that no longer matches is an agent-owned
+     * document that moved (the typed withdrawal, one adapter degrades). Folding
+     * them would make a hand-edited statement look like an ordinary upgrade.
+     *
+     * @param array<string,mixed> $bound
+     */
+    private static function assertPlatformShape(string $name, array $bound): void {
+        self::assertExactKeys($bound, self::STATEMENT_PLATFORM_KEYS, "site adapter '$name' certification platform");
+        if (!is_string($bound['agent_version']) || !is_string($bound['site_mode'])
+            || !is_int($bound['spec_version'])
+            || !is_array($bound['axes']) || array_is_list($bound['axes']) || $bound['axes'] === []) {
+            throw new \RuntimeException(
+                "duo: site adapter '$name' certification platform member is malformed"
+            );
+        }
+        foreach ($bound['axes'] as $axis => $binding) {
+            $label = "site adapter '$name' certification platform axis '" . (string) $axis . "'";
+            if (!is_array($binding) || array_is_list($binding)) {
+                throw new \RuntimeException("duo: $label must be an object");
+            }
+            self::assertExactKeys($binding, self::STATEMENT_AXIS_KEYS, $label);
+            self::stringList($binding['cells'], $label . ' cells', false);
+            if (!self::sha($binding['sha256'] ?? null)) {
+                throw new \RuntimeException("duo: $label must carry a sha256 digest of its exercised cells");
+            }
+        }
     }
 
     private static function assertCertificateShape(object $typed, array $certificate): void {
@@ -3129,14 +3499,65 @@ final class AdapterCertification {
         }
     }
 
-    private static function assertStatementShape(object $typed, array $statement): void {
-        self::assertExactKeys($statement, ['adapter', 'authority', 'bundle', 'platform', 'ratification'], 'site adapter certification statement');
-        foreach (['adapter', 'authority', 'bundle', 'platform', 'ratification'] as $key) {
+    /**
+     * The statement's shape AND its wire generation, in that order.
+     *
+     * WHICH GENERATION A CERTIFICATE IS, decided without a signature: the
+     * member SET. A v2 statement carries `version`; a v1 statement is exactly
+     * the five members R-06 closed. That is the only discriminator available —
+     * a signature cannot be verified until the domain is chosen, and the domain
+     * is what the generation names — so it must be a shape question, and
+     * `version` exists to make the NEXT such question a version question
+     * instead (§ v3.6, and § v3.7's `record_version` for the same reason).
+     *
+     * ORDERING, kept from WP-1.1's review hardening on assertCertificateShape():
+     * every unconditional shape proof runs before any degrade signal, so the
+     * cheapest hand-authored file — a statement carrying `version` and nothing
+     * else — is refused as malformed rather than reaching the typed withdrawal
+     * and quietly stripping an adapter's certification. By the time either
+     * signal is raised the root key set, the canonical base64 Ed25519-length
+     * signature (assertCertificateShape) and the five common members have all
+     * been proved.
+     */
+    private static function assertStatementShape(string $name, object $typed, array $statement): void {
+        $keys = array_keys($statement);
+        sort($keys, SORT_STRING);
+        $v1 = self::STATEMENT_V1_KEYS;
+        sort($v1, SORT_STRING);
+        if ($keys !== $v1) {
+            self::assertExactKeys($statement, self::STATEMENT_KEYS, 'site adapter certification statement');
+        }
+        foreach (self::STATEMENT_V1_KEYS as $key) {
             if (!isset($typed->$key) || !is_object($typed->$key)
                 || !is_array($statement[$key] ?? null) || array_is_list($statement[$key])) {
                 throw new \RuntimeException("duo: site adapter certification statement.$key must be an object");
             }
         }
+        if ($keys === $v1) {
+            // The previous generation, signed under the retired `/v1`
+            // certification domain over a statement that bound the whole
+            // platform document. Refused BY NAME and routed to uncertified
+            // per-adapter — never a whole-source refusal, which would take the
+            // site's unrelated adapters down with it. The remedy is
+            // `duo adapter certify --pin`, which mints v2.
+            throw new SupersededWireSiteAdapterCertificate(
+                'duo: site adapter certification statement is written in wire generation 1, which this agent '
+                . 'does not verify; it verifies generation ' . self::STATEMENT_VERSION
+            );
+        }
+        $version = $statement['version'];
+        if (!is_int($version) || $version < 1) {
+            throw new \RuntimeException(
+                'duo: site adapter certification statement.version must be a positive integer wire generation'
+            );
+        }
+        if ($version !== self::STATEMENT_VERSION) {
+            throw new SupersededWireSiteAdapterCertificate(
+                "duo: site adapter certification statement is written in wire generation $version, which this "
+                . 'agent does not verify; it verifies generation ' . self::STATEMENT_VERSION
+            );
+        }
+        self::assertPlatformShape($name, $statement['platform']);
     }
 
     private static function assertAdapterBinding(
@@ -3798,7 +4219,17 @@ final class AdapterCertification {
                         'tests' => $ratifiedDisposition['evidence']['tests'],
                     ],
                     'certificate_sha256' => $certificateDigest,
-                    'platform_sha256' => $platformDigest,
+                    // RENAMED with its meaning, not quietly redefined under the
+                    // old name (§ v3.6): this is the digest of the exercised
+                    // AXES the certificate binds, which is a different number
+                    // from `ContractAttestation`'s whole-boundary
+                    // `platform_sha256` and must not be readable as it. It is
+                    // also why the rider delivers a stable identity rather than
+                    // only a valid certificate — this fact is folded into the
+                    // adapter digest through the disposition
+                    // (ArtifactPolicyIdentity::manifest_rows()), so a release
+                    // that moves no exercised cell moves no pin either.
+                    'platform_axes_sha256' => $platformDigest,
                     'ratification_sha256' => hash('sha256', $ratificationRaw),
                     'statement_sha256' => $statementDigest,
                     'raw_input' => [
@@ -3839,7 +4270,7 @@ final class AdapterCertification {
             'exercised' => $proof['bundle']['exercised'],
             'force_hatches' => $proof['bundle']['force_hatches'],
             'git_revision' => $proof['bundle']['git_revision'],
-            'platform_sha256' => $proof['platform_sha256'],
+            'platform_axes_sha256' => $proof['platform_axes_sha256'],
             'source' => AdapterSources::SITE,
             'status' => 'current',
             'statement_sha256' => $proof['statement_sha256'],

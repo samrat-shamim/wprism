@@ -370,12 +370,21 @@ duo_check(
     'v3.5 x v3.3: the narrowing channel joined the partition as a non-surface key, in the change that reads it'
 );
 
-// v3.6/v3.7 — the certificate wire is untouched.
+// v3.6/v3.7 — the two subsections whose enforcement has landed on the
+// certificate wire. Their assertions flip with the riders rather than staying
+// silently true; what must remain true is the SHAPE of each exception.
 $cert = new ReflectionClass(AdapterCertification::class);
 duo_check_same(
-    "duo-site-adapter-certification-signature/v1\0",
+    "duo-site-adapter-certification-signature/v2\0",
     (string) $cert->getConstant('SIGNATURE_DOMAIN'),
-    'v3.6 NOT enforced: SIGNATURE_DOMAIN is still /v1, so no certificate anywhere has moved wire'
+    'v3.6 ENFORCED (WP-4.7): SIGNATURE_DOMAIN is /v2, because the binding semantics changed — a new domain is a '
+    . 'NEW statement type verified beside the old one (register row R-01), never an edit of it'
+);
+duo_check_same(
+    2,
+    $cert->getConstant('STATEMENT_VERSION'),
+    'and the generation is stated INSIDE the signed statement, so the next wire change is refused BY VERSION '
+    . 'rather than read as corruption (R-24)'
 );
 // v3.7 IS enforced (WP-4.8) — the one exception, and the assertions flip with
 // it rather than staying silently true. What must remain true is the SHAPE of
@@ -418,13 +427,26 @@ duo_check(
     'v3.7 change (e) is shipped: the whole-record platform binding is gone, so both roots bind the key '
     . 'identity and a growing trust root no longer invalidates its own earlier certificates'
 );
-duo_check(
-    str_contains($certSource, "self::assertExactKeys(\$statement, ['adapter', 'authority', 'bundle', 'platform', 'ratification'], 'site adapter certification statement');"),
-    'v3.6/v3.10 NOT enforced: the signed statement is still exactly its five members, so no reserved member was added to the wire'
+duo_check_same(
+    ['adapter', 'authority', 'bundle', 'platform', 'ratification', 'version'],
+    (array) $cert->getConstant('STATEMENT_KEYS'),
+    'v3.6 ENFORCED: the signed statement grew the ONE member v1 could not grow — `version` — and R-06 closes the '
+    . 'six in both directions'
 );
 duo_check(
-    str_contains($certSource, 'hash_equals(Canon::encode($platform), Canon::encode($statementTyped->platform))'),
-    'v3.6 NOT enforced: verification still compares the WHOLE platform record byte-for-byte rather than the exercised axes'
+    !str_contains($certSource, 'hash_equals(Canon::encode($platform), Canon::encode($statementTyped->platform))')
+        && str_contains($certSource, 'private static function assertPlatformBinding('),
+    'v3.6 ENFORCED: the whole-platform byte comparison is GONE, replaced by a binding over the exercised '
+    . 'compatibility cells — the change that stops every agent release from withdrawing every certificate'
+);
+duo_check_same(
+    [],
+    array_values(array_intersect(
+        ['code_digest', 'delegated_authority'],
+        (array) $cert->getConstant('STATEMENT_KEYS')
+    )),
+    'v3.10 still NOT enforced on the statement: WP-4.7 moved the statement wire — the one change that could have '
+    . 'reserved a member there — and took neither slot, so both now wait on a further generation'
 );
 $authorities = json_decode((string) file_get_contents($manifestDir . '/capabilities/adapter-authorities.json'), true);
 duo_check_same(

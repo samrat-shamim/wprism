@@ -43,10 +43,11 @@ manifests/
 ```
 
 Both files under `capabilities/` are hand-authored and reviewed, not generated.
-`platform.json` is the object a site-adapter certificate signs as
-`platform_sha256`, so it has exactly one on-disk representation; the agent
-refuses at load time if its `agent_version`/`spec_version` disagree with the
-running `DUO_AGENT_VERSION`/`DUO_SPEC_VERSION`.
+`platform.json` is the object a site-adapter certificate reads its bound
+compatibility cells out of (§ v3.6), so it has exactly one on-disk
+representation; the agent refuses at load time if its
+`agent_version`/`spec_version` disagree with the running
+`DUO_AGENT_VERSION`/`DUO_SPEC_VERSION`.
 
 Four rules that will bite you if you learn them the hard way:
 
@@ -1216,12 +1217,16 @@ duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
 duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
 ```
 
-`certify` binds the signed statement to `manifests/capabilities/platform.json`
-— the shipped platform boundary, folded in as `platform_sha256` over its exact
-bytes. That pin is re-checked on every load, so a certificate cut against an
-older boundary refuses by name once the shipped file moves: `duo: site adapter
-'<name>' certification platform boundary disagrees with the current agent-owned
-platform`. Re-sign with `duo adapter certify … --pin`.
+`certify` binds the signed statement to the compatibility CELLS
+`manifests/capabilities/platform.json` states — `spec_version`, `site_mode`, and
+per axis the exercised cell names plus a digest of what each admits (§ v3.6). It
+also RECORDS the shipped `agent_version` inside the signature without binding
+it, so an agent release that moves no exercised cell leaves the certificate
+valid. That binding is re-checked on every load, so a certificate whose cells
+the boundary has dropped or now states differently refuses by name: `duo: site
+adapter '<name>' certification was exercised against '<axis>' cell '<cell>',
+which the agent-owned platform boundary no longer carries`. Re-sign with
+`duo adapter certify … --pin`, which mints the current wire generation.
 
 **Be exact about what a site certificate attests.** It says two things, and the
 bundle records that rather than leaving it to be assumed: *this organization's

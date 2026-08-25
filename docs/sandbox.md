@@ -121,14 +121,19 @@ three belong in the same commit as the claim:
 - `docs/compatibility-baseline.json` and the regenerated `docs/capabilities.md`
   are byte-compared against platform.json by `make release-gate`, so they move
   with it or the gate refuses;
-- **every site-adapter certificate already signed in the field is
-  invalidated.** `agent/src/Adapter/AdapterCertification.php` canonical-hashes
-  the whole platform object into `platform_sha256` inside every signed
-  statement, and verification refuses with *"certification platform boundary
-  disagrees with the current agent-owned platform"* the instant those bytes
-  move. No certificates are committed in this tree (the fixtures sign at
-  runtime), so nothing here needs re-signing — but a fleet carrying signed
-  site adapters does, and the PR that moves the boundary must say so.
+- **site-adapter certificates are invalidated only if you moved a bound
+  compatibility cell.** Since spec/repo-format.md § v3.6 a signed statement
+  binds `spec_version`, `site_mode` and a per-axis digest of the exercised
+  CELLS — the `verified` series names, each `engines` entry's version line, and
+  each profile axis minus its prose `note` — not the whole platform object. So
+  adding a newly exercised series, re-measuring a patch inside one, moving
+  `max` with it, or rewording a `note` invalidates nothing; DROPPING an
+  exercised cell or changing what one admits refuses by name — *"certification
+  was exercised against '<axis>' cell '<cell>', which the agent-owned platform
+  boundary no longer carries"*. No certificates are committed in this tree (the
+  fixtures sign at runtime), so nothing here needs re-signing — but a fleet
+  carrying signed site adapters may, and the PR that moves a bound cell must
+  say so.
 
 **Bring it down when the matrix is not running**
 (`docker compose -p duo-db-mysql -f db.mysql.yml down -v`). It adds a second

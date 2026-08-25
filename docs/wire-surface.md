@@ -26,7 +26,7 @@ statement of another?
 
 | surface | domain prefix | signed bytes | source |
 |---|---|---|---|
-| site adapter certification (`duo-adapter-certification/v1`) | `duo-site-adapter-certification-signature/v1\0` | domain &#124;&#124; `Canon::encode(statement)` — the whole five-member statement | `AdapterCertification::SIGNATURE_DOMAIN` |
+| site adapter certification (`duo-adapter-certification/v1`) | `duo-site-adapter-certification-signature/v2\0` | domain &#124;&#124; `Canon::encode(statement)` — the whole six-member statement | `AdapterCertification::SIGNATURE_DOMAIN` |
 | authorities envelope (`duo-adapter-authorities/v2`) | `duo-adapter-authorities-signature/v1\0` | domain &#124;&#124; `Canon::encode({format, keys})` — the document minus its own signature | `AdapterCertification::SIGNATURE_DOMAIN_AUTHORITIES` |
 | `duo-adapter-authority-delegations/v1` | `duo-adapter-authority-delegation-signature/v1\0` | domain &#124;&#124; `Canon::encode(statement)` — one delegation statement — the grant, both key identities and the window | `AdapterCertification::SIGNATURE_DOMAIN_DELEGATION` |
 | `duo-adapter-authority-revocations/v1` | `duo-adapter-authority-revocation-signature/v1\0` | domain &#124;&#124; `Canon::encode(statement)` — the whole revocation statement — every entry at once, so no row can be dropped | `AdapterCertification::SIGNATURE_DOMAIN_REVOCATION` |
@@ -41,11 +41,11 @@ and its cost are written down.
 
 ### R-01 — The adapter-certification signature domain
 
-**Shipped now.** `duo-site-adapter-certification-signature/v1\0`, prepended to `Canon::encode(statement)`.
+**Shipped now.** `duo-site-adapter-certification-signature/v2\0`, prepended to `Canon::encode(statement)`.
 
-**Why it cannot change.** A holder verifies by recomputing these bytes. Changing the string does not invalidate old certificates — it makes them unverifiable by the agent that changed, which is the same outcome as revoking every one of them at once, with no message saying so. The domain is also the only thing standing between this statement and a verifier for another statement type: it is "kept independent from JSON framing so this signature cannot verify elsewhere" (AdapterCertification.php:52).
+**Why it cannot change.** A holder verifies by recomputing these bytes. Changing the string does not invalidate old certificates — it makes them unverifiable by the agent that changed, which is the same outcome as revoking every one of them at once, with no message saying so. The domain is also the only thing standing between this statement and a verifier for another statement type: it is "kept independent from JSON framing so this signature cannot verify elsewhere" (AdapterCertification.php:161).
 
-**Reserved.** The `/v1` suffix is the whole change channel. A v2 domain is a NEW statement type verified alongside this one, never an edit of it; an agent may verify both, and a certificate says which it is by the bytes it was signed over.
+**Reserved.** The `/vN` suffix is the whole change channel, and WP-4.7 spent it once: `/v2` is a NEW statement type verified alongside `/v1`, never an edit of it. A certificate says which generation it is by the bytes it was signed over — and, because a signature cannot be checked until the domain is chosen, by the statement MEMBER SET this agent reads first (R-24). A third domain works the same way.
 
 ### R-02 — The contract-attestation signature domain and its two-member statement
 
@@ -81,11 +81,11 @@ and its cost are written down.
 
 ### R-06 — The signed statement member set
 
-**Shipped now.** `{adapter, authority, bundle, platform, ratification}`.
+**Shipped now.** `{adapter, authority, bundle, platform, ratification, version}`.
 
-**Why it cannot change.** Same closure as R-05, and covered by the signature: a sixth member changes the signed bytes AND is refused by every deployed verifier. This is the row that makes every other adapter-certification decision permanent, because none of them can be revisited without adding or moving a member here.
+**Why it cannot change.** Same closure as R-05, and covered by the signature: a seventh member changes the signed bytes AND is refused by every deployed verifier. This is the row that makes every other adapter-certification decision permanent, because none of them can be revisited without adding or moving a member here — which is exactly what WP-4.7 had to do, and why it could only be done in the same change that moved the domain (R-01, R-24). The v1 five-member set (`adapter`, `authority`, `bundle`, `platform`, `ratification`) is still read, for one purpose: it is how a v1-generation statement is RECOGNISED, before any signature, so it can be withdrawn by name instead of refused as corruption.
 
-**Reserved.** Nothing. Facts that need signing go inside an existing member — `bundle` and `ratification` are whole objects the signature already covers.
+**Reserved.** Nothing, again, and the reservation window closed harder than it looks: the reserved-but-refusing statement slots spec/repo-format.md § v3.10 names (`code_digest`, `delegated_authority`) were not taken in the v2 generation either, so they now wait on a v3 one. Facts that need signing meanwhile go inside an existing member — `bundle` and `ratification` are whole objects the signature already covers.
 
 ### R-07 — The adapter binding, and what a certificate names
 
@@ -231,6 +231,22 @@ and its cost are written down.
 
 **Reserved.** This row deliberately reserves NOTHING for `tables.<t>.id_kind`. R-17 rules the prefix RULE out permanently — captured state and `duo_map` rows embed the bare kind — so the 18 shipped kinds are recorded here as a permanent floor and a CONVENTION for authors, never as a break list. A future scheme for that space is a new `id_kind`-carrying wire, not an edit of this one.
 
+### R-23 — What a certificate binds about the platform: exercised cells, not the boundary document
+
+**Shipped now.** `statement.platform` is `{agent_version, axes, site_mode, spec_version}`, where each member of `axes` is `{cells, sha256}`. Bound: `spec_version`, `site_mode`, and per compatibility axis the exercised CELL names plus a digest of what each cell admits — series names for a `verified` map, the min/max line for each `engines` entry, the whole profile object minus its `note` for an axis with neither. Recorded and NOT bound: `agent_version`. Outside the member entirely: `branchable_state`, `plugin_execution`, every `note`, every `min`/`max`, and `wordpress`'s derived `last_verified`.
+
+**Why it cannot change.** The v1 statement bound `Canon::encode()` of the WHOLE platform record, so every agent release withdrew every certificate in the field — `manifests/capabilities/platform.json` restates both `define()`s (AGENTS.md rule 8), so a patch release that moved no axis anyone exercised still moved those bytes. Undoing this — widening back to the whole record, or binding `min`/`max` — restores that behaviour silently, because it is not a refusal anyone sees until the next release. Narrowing further is equally one-way: a cell dropped from the binding stops being a thing a certificate can be shown to have covered, and no artifact already signed records what it would have said.
+
+**Reserved.** A SIXTH compatibility axis needs nothing here: an axis the boundary GAINS is coverage no existing certificate claimed, and gaining one refuses nothing. Binding a fact this member does not carry is the other direction and needs a new statement generation (R-24), because `assertExactKeys()` closes this member in both directions too.
+
+### R-24 — The statement generation: `version` inside the signature, and how a generation is recognised without one
+
+**Shipped now.** Statements carry `version: 2`, signed under `duo-site-adapter-certification-signature/v2\0`. A statement whose member set is exactly the v1 five (`adapter`, `authority`, `bundle`, `platform`, `ratification`) is recognised as the previous generation and WITHDRAWN by name through `SupersededWireSiteAdapterCertificate`; a `version` this engine does not implement is withdrawn the same way, by VERSION. Both tests run behind the closed root key set, the canonical base64 Ed25519-length signature check and the statement's own member-shape proofs, and both degrade ONE adapter — on the live scan and inside a frozen snapshot alike — never the whole source.
+
+**Why it cannot change.** The generation must be decidable BEFORE a signature, because the signature domain is what the generation names (R-01): a verifier that needed the signature first could only ever guess. That forces the discriminator to be the member set, which is why `version` could not be added additively and had to arrive in the same change that moved the domain (R-06). What `version` buys is that the NEXT such change is a version question instead: a grammar this engine does not implement refuses by number rather than reading as corruption, and a tamperer cannot downgrade a statement by DELETING bytes without hitting a named refusal. Removing it later would spend that property for every holder at once.
+
+**Reserved.** Nothing about this signal is authenticated, and that is accepted rather than argued away: anyone who can write the companion file can delete `version` and reach `uncertified`, which is strictly weaker than the certificate and is the same state deleting the file reaches. A future generation may make the discriminator cheaper — a generation member OUTSIDE the statement, beside `format` — but it cannot make it authenticated, for the same reason the first sentence gives.
+
 ## 3. The grammars, as the shipped validators answer them
 
 ### 3.1 Key ids, three roots
@@ -297,8 +313,10 @@ regenerates this document and, in doing so, reads the change.
 | `agent/src/Adapter/AdapterCertification.php` | `validateAuthorityRecord()` | `$label` (`AUTHORITY_RECORD_V2_KEYS`) | `adapter_names`, `algorithm`, `not_after`, `not_before`, `public_key`, `record_version`, `scope`, `status`, `trust_tiers` |
 | `agent/src/Adapter/AdapterCertification.php` | `assertAuthoritiesEnvelope()` | `$label envelope signature` (`AUTHORITIES_SIGNATURE_KEYS`) | `key_id`, `value` |
 | `agent/src/Adapter/AdapterCertification.php` | `currentPlatform()` | `agent capability platform boundary` | `agent_version`, `branchable_state`, `compatibility`, `plugin_execution`, `site_mode`, `spec_version` |
+| `agent/src/Adapter/AdapterCertification.php` | `assertPlatformShape()` | `site adapter '$name' certification platform` (`STATEMENT_PLATFORM_KEYS`) | `agent_version`, `axes`, `site_mode`, `spec_version` |
+| `agent/src/Adapter/AdapterCertification.php` | `assertPlatformShape()` | `$label` (`STATEMENT_AXIS_KEYS`) | `cells`, `sha256` |
 | `agent/src/Adapter/AdapterCertification.php` | `assertCertificateShape()` | `site adapter certification` | `format`, `signature`, `statement` |
-| `agent/src/Adapter/AdapterCertification.php` | `assertStatementShape()` | `site adapter certification statement` | `adapter`, `authority`, `bundle`, `platform`, `ratification` |
+| `agent/src/Adapter/AdapterCertification.php` | `assertStatementShape()` | `site adapter certification statement` (`STATEMENT_KEYS`) | `adapter`, `authority`, `bundle`, `platform`, `ratification`, `version` |
 | `agent/src/Adapter/AdapterCertification.php` | `assertAdapterBinding()` | `site adapter certification adapter binding` | `canonical_sha256`, `name`, `path`, `raw_sha256`, `raw_size`, `source`, `trust_tier` |
 | `agent/src/Adapter/AdapterCertification.php` | `verifyBundleManifest()` | `$label` | `artifacts`, `bound_inputs`, `bundle_digest`, `created_at`, `environment`, `environment_summary`, `evidence`, `force_hatches`, `git_revision`, `harness`, `ratification`, `ratification_summary`, `schema_version`, `subject`, `tests`, `verdict` |
 | `agent/src/Adapter/AdapterCertification.php` | `verifyBundleManifest()` | `$label.subject` | `kind`, `name` |

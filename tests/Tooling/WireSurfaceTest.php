@@ -139,13 +139,20 @@ final class WireSurfaceTest extends TestCase
         self::assertSame(0, $result['status'], $result['stdout'] . $result['stderr']);
     }
 
+    /**
+     * The mutation targets the CURRENT generation, which WP-4.7 moved to `/v2`.
+     * A test that kept mutating `/v1` -> `/v2` would silently stop mutating
+     * anything the day the shipped domain became `/v2` — which is why
+     * withMutation() refuses a no-op edit rather than letting this pass
+     * vacuously.
+     */
     public function testAMovedSignatureDomainFailsTheCheck(): void
     {
         $result = self::withMutation(
             'agent/src/Adapter/AdapterCertification.php',
             static fn(string $source): string => str_replace(
-                'duo-site-adapter-certification-signature/v1',
                 'duo-site-adapter-certification-signature/v2',
+                'duo-site-adapter-certification-signature/v3',
                 $source
             )
         );
@@ -154,16 +161,22 @@ final class WireSurfaceTest extends TestCase
         // The reported "shipped" line carries the MUTATED domain, which is the
         // whole point: the document is projected from the constant the
         // refusals consult, never compared against a second copy of it.
-        self::assertStringContainsString('duo-site-adapter-certification-signature/v2', $result['stderr']);
+        self::assertStringContainsString('duo-site-adapter-certification-signature/v3', $result['stderr']);
     }
 
+    /**
+     * The six-member v2 statement, not the five-member v1 set beside it:
+     * `STATEMENT_V1_KEYS` exists only to RECOGNISE the previous generation and
+     * no register row projects it, so mutating that one would change no line of
+     * the document and prove nothing.
+     */
     public function testARenamedStatementMemberFailsTheCheck(): void
     {
         $result = self::withMutation(
             'agent/src/Adapter/AdapterCertification.php',
             static fn(string $source): string => str_replace(
-                "['adapter', 'authority', 'bundle', 'platform', 'ratification']",
-                "['adapter', 'authority', 'bundle', 'platform', 'ratifications']",
+                "['adapter', 'authority', 'bundle', 'platform', 'ratification', 'version']",
+                "['adapter', 'authority', 'bundle', 'platform', 'ratifications', 'version']",
                 $source
             )
         );

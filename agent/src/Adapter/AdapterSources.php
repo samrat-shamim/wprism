@@ -293,11 +293,14 @@ final class AdapterSources {
      * Why a certified claim was WITHDRAWN, when the reason is a document the
      * AGENT owns rather than anything about the adapter or its authority.
      *
-     * Both name a signal thrown by a typed exception at exactly one site —
-     * StalePlatformSiteAdapterCertificate at the platform byte comparison,
-     * SupersededWireSiteAdapterCertificate at the certificate wire-version
-     * test — and both resolve the adapter to the same uncertified support a
-     * companion-absent site adapter reaches. Nothing here catches
+     * Both name a signal thrown by a typed exception —
+     * StalePlatformSiteAdapterCertificate when a bound compatibility cell moved
+     * (§ v3.6), SupersededWireSiteAdapterCertificate at any of the three
+     * certificate wire-generation tests — and both resolve the adapter to the
+     * same uncertified support a companion-absent site adapter reaches. Both are
+     * caught on the live scan AND on the frozen path since WP-4.7, because a
+     * promoted site meets the generation change from the frozen side. Nothing
+     * here catches
      * \RuntimeException: an authority anomaly, a wrong binding, a bad signature
      * and an unparseable statement all stay whole-source refusals.
      *
@@ -2663,7 +2666,11 @@ final class AdapterSources {
             'authority' => is_array($proof['authority'] ?? null) ? $proof['authority'] : null,
             'bundle' => is_array($proof['bundle'] ?? null) ? $proof['bundle'] : null,
             'certificate_sha256' => $proof['certificate_sha256'] ?? null,
-            'platform_sha256' => $proof['platform_sha256'] ?? null,
+            // RENAMED with its meaning by WP-4.7 (§ v3.6): the digest of the
+            // exercised compatibility AXES a certificate binds, which is a
+            // different number from ContractAttestation's whole-boundary
+            // `platform_sha256` and must not be readable as it.
+            'platform_axes_sha256' => $proof['platform_axes_sha256'] ?? null,
             'statement_sha256' => $proof['statement_sha256'] ?? null,
             'supported_versions' => is_array($claim['supported_versions'] ?? null)
                 ? $claim['supported_versions']
@@ -4309,6 +4316,8 @@ final class AdapterSources {
                     );
                 } catch (StalePlatformSiteAdapterCertificate $movedPlatform) {
                     $withdrawn = self::WITHDRAWN_STALE_PLATFORM;
+                } catch (SupersededWireSiteAdapterCertificate $movedWire) {
+                    $withdrawn = self::WITHDRAWN_SUPERSEDED_WIRE;
                 }
                 if ($withdrawn !== null) {
                     // The identical withdrawal the live scan performs, on the
@@ -4329,22 +4338,38 @@ final class AdapterSources {
                     // signal), which is why this is a withdrawal and not a
                     // shrug.
                     //
-                    // Exactly ONE signal is caught here, and that is the whole
-                    // asymmetry of the frozen path. A SupersededSiteAdapter-
-                    // Certificate is not caught: manifest and certificate
-                    // travel together in one snapshot, so bytes that disagree
-                    // mean the snapshot was edited, not that an operator edited
-                    // an adapter. A SupersededWireSiteAdapterCertificate is not
-                    // caught either, and for the identical reason — it is
-                    // raised before any signature is checked (root `format` is
-                    // outside the signed bytes), so in a snapshot it can only
-                    // mean the snapshot's own certificate was rewritten. There
-                    // is no /v2 wire and never has been, so no snapshot can
-                    // honestly carry one; catching it would buy zero
-                    // compatibility and cost the tamper-evidence that is the
-                    // point of freezing. If a /v2 wire is ever published, this
-                    // is the decision to revisit — with a real wire to migrate,
-                    // not a hypothetical one.
+                    // TWO signals are caught here, and the second one arrived
+                    // with the wire it was reserved for. A
+                    // SupersededSiteAdapterCertificate is still not caught:
+                    // manifest and certificate travel together in one snapshot,
+                    // so bytes that disagree mean the snapshot was edited, not
+                    // that an operator edited an adapter.
+                    //
+                    // A SupersededWireSiteAdapterCertificate now IS caught, and
+                    // this is the decision the previous note reserved: "if a
+                    // /v2 wire is ever published, this is the decision to
+                    // revisit — with a real wire to migrate, not a hypothetical
+                    // one." WP-4.7 published it. Every certificate minted
+                    // before this agent carries the v1 statement generation, and
+                    // a promoted site verifies its certificates from THIS frozen
+                    // path, so leaving the signal uncaught would make the first
+                    // upgrade past WP-4.7 a hard refusal on every promoted site
+                    // holding a certified adapter — precisely the fleet-brick
+                    // StalePlatformSiteAdapterCertificate was introduced to end,
+                    // reached through the neighbouring door.
+                    //
+                    // The tamper-evidence cost is real and is accepted on the
+                    // same terms as on the live path: the signal is
+                    // unauthenticated (a generation is read before a domain can
+                    // be chosen), so anyone who can rewrite this snapshot can
+                    // flip its root `format` or delete the statement's `version`
+                    // and reach `uncertified`. They gain nothing by it — the
+                    // frozen record is DISCARDED and re-derived below, so the
+                    // destination is strictly weaker than the certificate, and
+                    // the same write access reaches it by deleting the
+                    // certificate outright. What is lost is that an operator
+                    // would have investigated a refusal; what is bought is that
+                    // no upgrade brick reaches a site that did nothing wrong.
                     $record = self::provenance_record(
                         $name,
                         self::SITE_DIR . '/' . $name . '.json',

@@ -20,7 +20,7 @@ declare(strict_types=1);
  * domain string, the exact member set of the signed statement, the key-id
  * grammar that names the verifying key, the closed key set of the authority
  * record, the absence of an expiry field. None of those is versioned by the
- * agent version — `AdapterCertification::SIGNATURE_DOMAIN` (:52) is "kept
+ * agent version — `AdapterCertification::SIGNATURE_DOMAIN` (:174) is "kept
  * independent from JSON framing so this signature cannot verify elsewhere",
  * which is the same sentence read from the other end: nothing else can be made
  * to verify these bytes later either. The register states each decision once,
@@ -201,6 +201,20 @@ function ws_probe(string $class, string $method, array $args): ?string {
 
 function ws_verdict(?string $refusal): string {
     return $refusal === null ? 'accepted' : 'refused';
+}
+
+/**
+ * A projected small count, spelled the way the surrounding prose spells one.
+ *
+ * The count itself is read out of the engine (WP-4.7 moved the signed statement
+ * from five members to six), so this exists only so the sentence does not have
+ * to choose between being projected and being readable.
+ */
+function ws_spelled(int $count): string {
+    return [
+        1 => 'one', 2 => 'two', 3 => 'three', 4 => 'four', 5 => 'five',
+        6 => 'six', 7 => 'seven', 8 => 'eight', 9 => 'nine', 10 => 'ten',
+    ][$count] ?? (string) $count;
 }
 
 /** @return list<string> the raw source text of each argument of a call */
@@ -800,10 +814,15 @@ function ws_signature_inputs(): array {
         || substr($adapterInput, strlen($adapterDomain)) !== Canon::encode($statement)) {
         ws_fail('the adapter certification signature input is no longer domain . Canon::encode(statement)');
     }
+    // The member count is PROJECTED, not written: WP-4.7 grew the statement
+    // from five members to six, and a hand-written number here is exactly the
+    // kind of quiet staleness §5 claims this document cannot have.
+    $statementKeys = ws_key_list('self::STATEMENT_KEYS', AdapterCertification::class, __FILE__);
     $rows[] = [
         'surface' => 'site adapter certification (`' . AdapterCertification::FORMAT . '`)',
         'domain' => '`' . ws_bytes($adapterDomain) . '`',
-        'input' => 'domain &#124;&#124; `Canon::encode(statement)` — the whole five-member statement',
+        'input' => 'domain &#124;&#124; `Canon::encode(statement)` — the whole '
+            . ws_spelled(count($statementKeys)) . '-member statement',
         'source' => '`AdapterCertification::SIGNATURE_DOMAIN`',
     ];
 
@@ -1013,10 +1032,12 @@ function ws_rows(): array {
             . 'is the same outcome as revoking every one of them at once, with no message saying so. The '
             . 'domain is also the only thing standing between this statement and a verifier for another '
             . 'statement type: it is "kept independent from JSON framing so this signature cannot verify '
-            . 'elsewhere" (AdapterCertification.php:52).',
-        'reserved' => 'The `/v1` suffix is the whole change channel. A v2 domain is a NEW statement type '
-            . 'verified alongside this one, never an edit of it; an agent may verify both, and a '
-            . 'certificate says which it is by the bytes it was signed over.',
+            . 'elsewhere" (AdapterCertification.php:161).',
+        'reserved' => 'The `/vN` suffix is the whole change channel, and WP-4.7 spent it once: `/v2` is a '
+            . 'NEW statement type verified alongside `/v1`, never an edit of it. A certificate says which '
+            . 'generation it is by the bytes it was signed over — and, because a signature cannot be '
+            . 'checked until the domain is chosen, by the statement MEMBER SET this agent reads first '
+            . '(R-24). A third domain works the same way.',
     ];
     $rows[] = [
         'id' => 'R-02',
@@ -1076,11 +1097,18 @@ function ws_rows(): array {
         'id' => 'R-06',
         'title' => 'The signed statement member set',
         'now' => ws_set($sets, 'site adapter certification statement') . '.',
-        'permanent' => 'Same closure as R-05, and covered by the signature: a sixth member changes the '
+        'permanent' => 'Same closure as R-05, and covered by the signature: a seventh member changes the '
             . 'signed bytes AND is refused by every deployed verifier. This is the row that makes every '
             . 'other adapter-certification decision permanent, because none of them can be revisited '
-            . 'without adding or moving a member here.',
-        'reserved' => 'Nothing. Facts that need signing go inside an existing member — `bundle` and '
+            . 'without adding or moving a member here — which is exactly what WP-4.7 had to do, and why '
+            . 'it could only be done in the same change that moved the domain (R-01, R-24). The v1 '
+            . 'five-member set (`adapter`, `authority`, `bundle`, `platform`, `ratification`) is still '
+            . 'read, for one purpose: it is how a v1-generation statement is RECOGNISED, before any '
+            . 'signature, so it can be withdrawn by name instead of refused as corruption.',
+        'reserved' => 'Nothing, again, and the reservation window closed harder than it looks: the '
+            . 'reserved-but-refusing statement slots spec/repo-format.md § v3.10 names (`code_digest`, '
+            . '`delegated_authority`) were not taken in the v2 generation either, so they now wait on a '
+            . 'v3 one. Facts that need signing meanwhile go inside an existing member — `bundle` and '
             . '`ratification` are whole objects the signature already covers.',
     ];
     $rows[] = [
@@ -1479,6 +1507,66 @@ function ws_rows(): array {
             . (string) count(IdentityNamespaces::GRANDFATHERED_ID_KINDS) . ' shipped kinds are recorded here '
             . 'as a permanent floor and a CONVENTION for authors, never as a break list. A future scheme for '
             . 'that space is a new `id_kind`-carrying wire, not an edit of this one.',
+    ];
+    // WP-4.7's two rows. R-21/R-22 are a sibling rider's and R-25/R-26 are
+    // WP-4.9's; the gap is deliberate and the ids are ordinal bookkeeping, not
+    // signed wire — nothing on disk or in a certificate embeds them (see the
+    // note above R-20).
+    $rows[] = [
+        'id' => 'R-23',
+        'title' => 'What a certificate binds about the platform: exercised cells, not the boundary document',
+        'now' => '`statement.platform` is ' . ws_set($sets, 'STATEMENT_PLATFORM_KEYS')
+            . ', where each member of `axes` is ' . ws_set($sets, 'STATEMENT_AXIS_KEYS')
+            . '. Bound: `spec_version`, `site_mode`, and per compatibility axis the exercised CELL names '
+            . 'plus a digest of what each cell admits — series names for a `'
+            . (string) ws_const(AdapterCertification::class, 'PLATFORM_AXIS_SERIES')
+            . '` map, the min/max line for each `'
+            . (string) ws_const(AdapterCertification::class, 'PLATFORM_AXIS_ENGINES')
+            . '` entry, the whole profile object minus its `'
+            . (string) ws_const(AdapterCertification::class, 'PLATFORM_AXIS_NOTE')
+            . '` for an axis with neither. Recorded and NOT bound: `agent_version`. Outside the '
+            . 'member entirely: `branchable_state`, `plugin_execution`, every `note`, every `min`/`max`, '
+            . 'and `wordpress`\'s derived `last_verified`.',
+        'permanent' => 'The v1 statement bound `Canon::encode()` of the WHOLE platform record, so every '
+            . 'agent release withdrew every certificate in the field — `manifests/capabilities/'
+            . 'platform.json` restates both `define()`s (AGENTS.md rule 8), so a patch release that moved '
+            . 'no axis anyone exercised still moved those bytes. Undoing this — widening back to the '
+            . 'whole record, or binding `min`/`max` — restores that behaviour silently, because it is not '
+            . 'a refusal anyone sees until the next release. Narrowing further is equally one-way: a cell '
+            . 'dropped from the binding stops being a thing a certificate can be shown to have covered, '
+            . 'and no artifact already signed records what it would have said.',
+        'reserved' => 'A SIXTH compatibility axis needs nothing here: an axis the boundary GAINS is '
+            . 'coverage no existing certificate claimed, and gaining one refuses nothing. Binding a fact '
+            . 'this member does not carry is the other direction and needs a new statement generation '
+            . '(R-24), because `assertExactKeys()` closes this member in both directions too.',
+    ];
+    $rows[] = [
+        'id' => 'R-24',
+        'title' => 'The statement generation: `version` inside the signature, and how a generation is recognised without one',
+        'now' => 'Statements carry `version: '
+            . (string) ws_const(AdapterCertification::class, 'STATEMENT_VERSION')
+            . '`, signed under `' . ws_bytes($adapterDomain) . '`. A statement whose member set is exactly '
+            . 'the v1 five (`adapter`, `authority`, `bundle`, `platform`, `ratification`) is recognised as '
+            . 'the previous generation and WITHDRAWN by name through '
+            . '`SupersededWireSiteAdapterCertificate`; a `version` this engine does not implement is '
+            . 'withdrawn the same way, by VERSION. Both tests run behind the closed root key set, the '
+            . 'canonical base64 Ed25519-length signature check and the statement\'s own member-shape '
+            . 'proofs, and both degrade ONE adapter — on the live scan and inside a frozen snapshot alike '
+            . '— never the whole source.',
+        'permanent' => 'The generation must be decidable BEFORE a signature, because the signature domain '
+            . 'is what the generation names (R-01): a verifier that needed the signature first could only '
+            . 'ever guess. That forces the discriminator to be the member set, which is why `version` '
+            . 'could not be added additively and had to arrive in the same change that moved the domain '
+            . '(R-06). What `version` buys is that the NEXT such change is a version question instead: a '
+            . 'grammar this engine does not implement refuses by number rather than reading as '
+            . 'corruption, and a tamperer cannot downgrade a statement by DELETING bytes without hitting '
+            . 'a named refusal. Removing it later would spend that property for every holder at once.',
+        'reserved' => 'Nothing about this signal is authenticated, and that is accepted rather than '
+            . 'argued away: anyone who can write the companion file can delete `version` and reach '
+            . '`uncertified`, which is strictly weaker than the certificate and is the same state '
+            . 'deleting the file reaches. A future generation may make the discriminator cheaper — a '
+            . 'generation member OUTSIDE the statement, beside `format` — but it cannot make it '
+            . 'authenticated, for the same reason the first sentence gives.',
     ];
 
     return $rows;
