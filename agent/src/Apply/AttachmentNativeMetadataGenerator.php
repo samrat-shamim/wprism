@@ -13,6 +13,15 @@ if (!class_exists(DeleteGuardEvaluator::class, false)) {
     require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 }
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
+if (!class_exists(CompiledRepository::class, false)) {
+    require_once __DIR__ . '/../Repository/CompiledArtifact.php';
+}
+if (!class_exists(AttachmentFilesystemTransaction::class, false)) {
+    require_once __DIR__ . '/AttachmentFilesystemTransaction.php';
+}
+if (!class_exists(AttachmentMaterializer::class, false)) {
+    require_once __DIR__ . '/AttachmentMaterializer.php';
+}
 
 /**
  * Materializer-owned native metadata authority. The compiled artifact and
