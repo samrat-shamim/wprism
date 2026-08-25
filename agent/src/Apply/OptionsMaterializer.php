@@ -1201,7 +1201,7 @@ final class OptionsMaterializer {
             }
             foreach ($materialized as $subKey => $desiredValue) {
                 if (!array_key_exists($subKey, $projectedAuthored)
-                    || $projectedAuthored[$subKey] !== $desiredValue) {
+                    || Canon::encode($projectedAuthored[$subKey]) !== Canon::encode($desiredValue)) {
                     throw new \RuntimeException(
                         "duo: native option materializer for '$name' did not persist the exact authored group"
                     );

@@ -1268,6 +1268,16 @@ $nativeInterpreter = new class ($nativeState) {
         if ($this->state->projection_mode === 'mismatch') {
             return array_replace($rawAuthored, ['portable' => 'projection-mismatch']);
         }
+        if ($this->state->projection_mode === 'reorder-authored'
+            && is_array($rawAuthored['portable'] ?? null)) {
+            $ordered = [];
+            foreach (['en', 'fr', 'ar'] as $language) {
+                if (array_key_exists($language, $rawAuthored['portable'])) {
+                    $ordered[$language] = $rawAuthored['portable'][$language];
+                }
+            }
+            $rawAuthored['portable'] = $ordered;
+        }
         if ($this->state->projection_mode === 'drop-desired') {
             unset($rawAuthored['portable']);
             return $rawAuthored;
@@ -1881,6 +1891,29 @@ $check(
         && $wpdb->optionRows === $projectionMismatchBefore,
     'projection cannot hide a physically retained carrier while that authored key is desired'
 );
+
+$wpdb->optionRows['native_blob'] = [
+    'option_value' => serialize([
+        'portable' => ['ar' => 3, 'en' => 1, 'fr' => 2],
+        'runtime' => 'keep',
+    ]),
+    'autoload' => 'yes',
+];
+$wpdb->optionRows['pll_language_from_content_available'] = [
+    'option_value' => 'yes',
+    'autoload' => 'no',
+];
+$nativeState->projection_mode = 'reorder-authored';
+$invokeNative('yes', ['portable' => ['ar' => 3, 'en' => 1, 'fr' => 2]]);
+$nativeState->projection_mode = 'identity';
+$check(
+    unserialize($wpdb->optionRows['native_blob']['option_value'], ['allowed_classes' => false]) === [
+        'portable' => ['ar' => 3, 'en' => 1, 'fr' => 2],
+        'runtime' => 'keep',
+    ],
+    'native projection accepts associative authored object-key reordering while preserving list/scalar strictness'
+);
+$wpdb->optionRows = $projectionMismatchBefore;
 
 $nativeState->mutate_target_sibling = true;
 $nativeState->projection_calls = 0;
