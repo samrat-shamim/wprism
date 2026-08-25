@@ -895,13 +895,20 @@ its name, the first `spec_version` its sections exist at, and the top-level keys
 constant in the engine, because a feature that is implemented while its section is unknown (or the
 reverse) is precisely the silent mis-read the channel exists to remove.
 
-The feature this engine implements today is **`spec-window/v1`**: the acceptance window of § v3.1 and this
+The FIRST feature this engine implemented is **`spec-window/v1`**: the acceptance window of § v3.1 and this
 channel itself, claiming the `engine_features` key from `spec_version` 3. It is a real entry, not a
 placeholder — the channel's own requirement is that one feature the engine IMPLEMENTS exists on the day it
 ships, so that "declared and implemented admits the claimed key" is a path something walks rather than an
 argument about admissibility. That path is walked in
 `sandbox/tests/offline/policy/regress_spec_window.php` against a synthetic `spec_version` 3 engine, which
-is the only place it can be walked before the flip.
+is the only place it could be walked before the flip.
+
+The SECOND is **`structured-evidence/v1`** (WP-6.4), and it is what makes the first one more than
+self-referential: it claims `declaration_evidence` (§ v3.13), a genuinely new grammar section that did not
+exist when v3 was cut. It was added after the flip and `DUO_SPEC_VERSION` did not move to admit it — the
+whole cost of a new top-level section was one row in `IMPLEMENTED_FEATURES` and one file validating its
+values. Two entries also make the vocabulary a SET rather than a special case, which is what an author's
+declaration list, the refusal that enumerates the implemented names, and register row R-19 all read.
 
 Feature names are engine-owned: an adapter may declare one, never mint one. A name nothing implements is
 refused as unimplemented rather than admitted as forward-looking — the honest-refusal posture, which is
@@ -959,8 +966,12 @@ key claimed by a declared `engine_features` value the engine IMPLEMENTS is admit
 declared feature the engine does NOT implement refuses by feature name (§ v3.2); a key nothing claims
 refuses as an unrecognised section. Those three verdicts are distinct and each is pinned by suite. There
 is no fourth answer, and in particular there is no "unknown keys are ignored" answer — that is the
-behaviour v3 removes. `engine_features` itself is the worked example: it is in no arm of the partition and
-is admitted only because `spec-window/v1` — a feature this engine implements — claims it.
+behaviour v3 removes. `engine_features` itself is the first worked example: it is in no arm of the
+partition and is admitted only because `spec-window/v1` — a feature this engine implements — claims it.
+`declaration_evidence` (§ v3.13) is the second, and the one that exercises the rule for a section v3 did
+not have: it was added after the flip, admitted only by a feature declared in the manifest, and cost no
+version bump. The set GREW, which is the property this paragraph asserts and the one an unexercised growth
+rule cannot evidence.
 
 **What the growth rule admits, and what it does not.** It admits at LOAD and does not classify. A feature
 record carries `{since, keys}` and no arm (`AdapterContractGrammar::IMPLEMENTED_FEATURES`), so a
@@ -1714,7 +1725,10 @@ defines moved, in the same change, and never regenerated since.
   v3 a flag day of exactly the kind this section exists to end. The window closes by a dated decision,
   gated on fleet telemetry showing no v2-declaring pinned manifests plus at least one grammar section
   shipped post-v3 through `engine_features` with no bump — the replacement mechanism proven before the
-  thing it replaces is retired.
+  thing it replaces is retired. **The second half of that condition is MET**: `declaration_evidence`
+  shipped post-v3 through the channel with `DUO_SPEC_VERSION` unmoved (§ v3.13, WP-6.4). The first half is
+  fleet telemetry and is not, so the window stays open; what changed is that the condition is now one
+  measurement away from decidable rather than two.
 
 Rollback, until that dated decision, is the shipped atomic bundle swap run backwards: redeploying the
 prior `agent manifests recovery` archive restores the v2 agent AND the manifest library it shipped with,
@@ -1757,6 +1771,73 @@ platform_boundary()` throws "platform version disagrees with the loaded agent" t
 `platform.json` disagree, which is the same equality `make release-gate` checks. WP-4.12 proves that
 refusal fires for a HAND-MIXED bundle (a v3 agent over a copied v2 `platform.json`) rather than adding a
 mechanism to survive one; the case is in `regress_spec_v3_digest_neutrality.php`.
+
+### v3.13 `declaration_evidence` — the first POST-v3 section, shipped with no bump
+
+**Rider: WP-6.4. Enforced today: yes, for a manifest that declares `structured-evidence/v1`.**
+
+This section is numbered v3.13 and is not part of v3. It was added AFTER the flip, `DUO_SPEC_VERSION` did
+not move to admit it and is still `3` — asserted in the same run as its three verdicts, in
+`sandbox/tests/offline/policy/regress_structured_evidence.php`, because a channel that worked while the
+integer quietly moved would have demonstrated nothing. It is here because § v3.2's channel is what a
+post-v3 section rides, and this is the first one to ride it. § v3.12's window-closing condition asks for
+"at least one grammar section shipped post-v3 through `engine_features` with no bump"; this is that
+section.
+
+**What it carries.** `duo adapter-draft` proposes every candidate with `evidence[]` rows of
+`{source, locator, observation}` and the `questions[]` a live target must answer
+(`cli/src/Adapter/AdapterDraft.php:1529-1530`), nested inert under `_draft`. § v3.3 resolution 2 refuses
+`_draft` at `spec_version` 3, so ratifying a proposal into a real section DELETES the evidence behind it;
+what survives is at best a sentence in `notes`. `declaration_evidence` is where it survives instead:
+
+```json
+"declaration_evidence": {
+  "options.acme_settings": {
+    "evidence": [
+      {"source": "state/options/core.json", "locator": "acme_settings",
+       "observation": "scalar in 12 captured files, no id positions"}
+    ],
+    "answered": [
+      {"question": "does any value carry a post id?", "answer": "no — probe showed 0 of 12 rows"}
+    ]
+  }
+}
+```
+
+The grammar is closed in both directions at every level (`agent/src/Adapter/StructuredEvidence.php`): the
+section is a non-empty object, a record is `{evidence}` or `{evidence, answered}`, an evidence row is
+exactly `{source, locator, observation}`, an answered row exactly `{question, answer}`, and every member
+is a non-empty string. Two rules carry the weight:
+
+1. **A target ADDRESSES a declaration the manifest makes.** The key's head — `options` in
+   `options.acme_settings` — must be a top-level key this manifest declares, so a record for a section
+   that was deleted refuses at load and a record for a section never declared cannot be written. The tail
+   is deliberately not resolved: fourteen field sections have fourteen sub-grammars, several address
+   positions inside a value rather than a key, and a resolver here would be a second, drifting copy of all
+   of them. The head is what makes the address falsifiable at the granularity that matters.
+2. **A question arrives only with its answer.** A draft's `questions[]` are bare strings because a draft's
+   question is OPEN — it names a deferral for a human. An open question has no business in an installed
+   manifest; the shape is the rule.
+
+**`notes` keeps everything.** Nothing is migrated, nothing is rewritten, no rule here reads `notes`, and
+the shipped library declares neither this section nor any engine feature. It cannot: a manifest byte is
+adapter identity (AGENTS.md rule 2), so adopting the section in the 16 shipped adapters would move all 16
+digests and invalidate every pin and certificate naming one, for a documentation change. So the
+declaration-to-rationale link is gated two ways at once, and honestly:
+`regress_shipped_option_declarations.php` keeps its `str_contains($text, 'DUO-3509')` grep over `notes`
+prose for the shipped library, and the schema check applies to fixtures and out-of-tree adapters that
+carry the section. The grep is retired per adapter, when that adapter is next touched for a product
+reason — a deferral recorded here rather than left implicit, because a converted gate that never converted
+is worse than one that says which half it covers.
+
+**An adapter that adopts it is not certifiable, by the rule § v3.3 already states.** A feature-claimed key
+has no arm in `AdapterCertification::topLevelKeyPartition()`, so `siteRatification()` refuses it by name —
+"which this signer cannot classify as an entity or field surface … teach the signer this section". That is
+the honest state and it is pinned by suite, not discovered. Measured precisely, the signer refuses one key
+EARLIER than that: `engine_features` is in no arm either, so declaring the CHANNEL is already what makes
+an adapter uncertifiable and this section made nothing worse — both halves are pinned rather than one
+inferred from the other. Giving the key an arm would also admit it with no feature declared, which would
+delete the demonstration above; the arm is a separate reviewed decision and this rider does not take it.
 
 ## Ledger tables (per environment, never in the repo)
 

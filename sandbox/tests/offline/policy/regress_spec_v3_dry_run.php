@@ -136,6 +136,15 @@ $report = static function (string $line): void {
  * would have to change on the flag day, which the loaded class graph cannot
  * answer.
  *
+ * Comments and docblocks are stripped before the grep (WP-6.4). A reader is a
+ * file whose CODE names the token; a file whose docblock explains why it is not
+ * one is not one, and AGENTS.md rule 10 guarantees this tree has such files —
+ * `agent/src/Adapter/StructuredEvidence.php` was the first, counted twice for
+ * saying in prose that it holds neither the feature vocabulary nor a partition
+ * arm. Same carve-out and same argument as `regress_platform_move_gates.php`
+ * (`:33-35`): documentation is not a gate. Widening the expected sets instead
+ * would have made both assertions weaker for the case they exist to catch.
+ *
  * @param list<string> $tokens
  * @return list<string>
  */
@@ -151,7 +160,7 @@ $shippedFilesNaming = static function (array $tokens) use ($repo): array {
             if (!$file->isFile() || $file->getExtension() !== 'php') {
                 continue;
             }
-            $body = (string) file_get_contents($file->getPathname());
+            $body = duo_code_without_comments((string) file_get_contents($file->getPathname()));
             foreach ($tokens as $token) {
                 if (str_contains($body, $token)) {
                     $hits[substr($file->getPathname(), strlen($repo) + 1)] = true;
@@ -564,10 +573,16 @@ duo_check_same(
     $featureReaders,
     'V3-FEAT: the channel has exactly one shipped reader — the contract grammar, which owns the one definition of a feature name, its first spec_version and the keys it claims'
 );
+// WP-6.4: two names, not one. The dry run's own posture — measure what is
+// there, do not assert what ought to be — makes the COUNT the interesting fact:
+// a vocabulary of one is a special case that happens to satisfy the channel's
+// requirement, and a vocabulary of two is a set the refusal enumerates, the
+// author declares from, and register row R-19 projects.
 duo_check_same(
-    ['spec-window/v1'],
+    ['spec-window/v1', 'structured-evidence/v1'],
     \Duo\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: and the vocabulary is non-empty, so an engine that lacks a declared name has something to compare against'
+    'V3-FEAT: the vocabulary carries two names, so an engine that lacks a declared name has something to '
+        . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented
 // since spec_version 3, and DUO_SPEC_VERSION is now 3 — so the fixture that

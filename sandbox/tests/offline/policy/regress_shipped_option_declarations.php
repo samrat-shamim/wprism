@@ -218,6 +218,27 @@ check(
 );
 
 echo "\n-- every DUO-3509 declaration is named in its own manifest's notes --\n";
+// THE DEFERRAL, WRITTEN AT THE SITE (WP-6.4). The grep below is load-bearing
+// regression coverage implemented as `str_contains()` over free prose, and it
+// has a typed replacement as of WP-6.4: the `declaration_evidence` section
+// (spec/repo-format.md § v3.13) carries {source, locator, observation} rows
+// under a TARGET whose head must be a top-level key the manifest declares, so
+// the link is checked rather than approximated — a record for a declaration
+// that was deleted refuses at load, which no grep over prose can notice.
+//
+// It is not converted here, and the reason is AGENTS.md rule 2 rather than
+// effort. Adopting the section in these four manifests edits four manifests'
+// bytes, `ArtifactPolicyIdentity::manifest_rows()` folds those bytes into each
+// adapter's `digest`, and every `site.duo.json` content pin and every
+// certificate binding one stops matching — a fleet-visible change bought for a
+// documentation improvement. So the schema check applies to fixtures and
+// out-of-tree adapters (`regress_structured_evidence.php`), this grep stays for
+// the shipped library, and it converts PER ADAPTER, when one is next opened for
+// a product reason and is paying the digest move anyway.
+//
+// `regress_structured_evidence.php` PART 4 asserts both halves of that
+// sentence, including that this grep is still here — so the deferral cannot
+// quietly become permanent-by-forgetting, and cannot be half-removed either.
 $documented = [
     'core' => ['permalink_structure', 'blog_public', 'fresh_site', 'theme_switched', 'current_theme',
         'uninstall_plugins', 'user_count', 'wp_user_roles'],

@@ -7,7 +7,7 @@ shell library and has nothing to do with the PHP harness below.)
 
 | file | provides |
 | --- | --- |
-| `check.php` | `duo_check*()` assertions and the end-of-suite summary/exit code |
+| `check.php` | `duo_check*()` assertions, the end-of-suite summary/exit code, and `duo_code_without_comments()` for the suites that measure a reader set by grepping shipped source (rationale-dense prose names the same tokens, so comments are stripped first) |
 | `wp_stubs.php` | `\DuoTest\WpStore` plus `function_exists()`-guarded WordPress function stubs |
 | `FakeWpdb.php` | `\DuoTest\FakeWpdb` — a duck-typed `$wpdb` that interprets SQL against seeded rows |
 | `frozen_policy.php` | `\DuoTest\FrozenPolicy` — the `duo-policy-snapshot/v6` envelope for suites that need a `Policy` to test something else |

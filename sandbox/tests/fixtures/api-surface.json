@@ -1,5 +1,5 @@
 {
-    "class_count": 387,
+    "class_count": 388,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -58669,6 +58669,47 @@
                             "has_default": false,
                             "name": "visit",
                             "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\StructuredEvidence": {
+            "abstract": false,
+            "constants": {
+                "SECTION": {
+                    "value_repr": "declaration_evidence"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_section": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
                             "variadic": false
                         }
                     ],
