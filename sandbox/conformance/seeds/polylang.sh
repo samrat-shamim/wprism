@@ -115,6 +115,15 @@ pll_save_post_translations($posts);
 // carry post ids, so capture/apply must rebind two more translated groups
 // rather than merely copy public posts. Trash is deliberately absent: it is a
 // deletion/tombstone boundary, not an authored post state.
+$publisher = get_user_by('login', 'admin');
+if (!$publisher instanceof WP_User) {
+    throw new RuntimeException('Polylang source publisher premise is missing');
+}
+$previousUserId = get_current_user_id();
+wp_set_current_user((int) $publisher->ID);
+if (!current_user_can('publish_posts')) {
+    throw new RuntimeException('Polylang source publisher lacks publish_posts');
+}
 $pages = [];
 $pageFixtures = [
     'en' => ['publish', 'Portable English Page 東京 🚀', 'portable-polylang-page-en', '<!-- wp:paragraph --><p>English portable page reference.</p><!-- /wp:paragraph -->'],
@@ -128,9 +137,16 @@ foreach ($pageFixtures as $language => [$status, $title, $slug, $content]) {
         'post_title' => $title,
         'post_name' => $slug,
         'post_content' => $content,
+        'post_author' => 0,
     ], true);
     if (is_wp_error($pageId)) {
         throw new RuntimeException('Polylang page creation failed: ' . $pageId->get_error_message());
+    }
+    $storedPage = get_post((int) $pageId);
+    if (!$storedPage instanceof WP_Post
+        || $storedPage->post_name !== $slug
+        || $storedPage->post_status !== $status) {
+        throw new RuntimeException("Polylang source page natural-key/status premise failed: $slug/$status");
     }
     $pages[$language] = (int) $pageId;
     pll_set_post_language((int) $pageId, $language);
@@ -151,6 +167,7 @@ foreach ($blockFixtures as $language => [$status, $title, $slug, $content]) {
         'post_title' => $title,
         'post_name' => $slug,
         'post_content' => $content,
+        'post_author' => 0,
     ];
     if ($status === 'future') {
         $record['post_date_gmt'] = $futureGmt;
@@ -160,10 +177,17 @@ foreach ($blockFixtures as $language => [$status, $title, $slug, $content]) {
     if (is_wp_error($blockId)) {
         throw new RuntimeException('Polylang synced-pattern creation failed: ' . $blockId->get_error_message());
     }
+    $storedBlock = get_post((int) $blockId);
+    if (!$storedBlock instanceof WP_Post
+        || $storedBlock->post_name !== $slug
+        || $storedBlock->post_status !== $status) {
+        throw new RuntimeException("Polylang source wp_block natural-key/status premise failed: $slug/$status");
+    }
     $blocks[$language] = (int) $blockId;
     pll_set_post_language((int) $blockId, $language);
 }
 pll_save_post_translations($blocks);
+wp_set_current_user($previousUserId);
 
 require_once ABSPATH . 'wp-admin/includes/file.php';
 require_once ABSPATH . 'wp-admin/includes/image.php';

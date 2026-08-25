@@ -49,6 +49,10 @@ foreach ([
     if (is_wp_error($created)) {
         throw new RuntimeException('Polylang target post creation failed: ' . $created->get_error_message());
     }
+    $storedPost = get_post((int) $created);
+    if (!$storedPost instanceof WP_Post || $storedPost->post_name !== $slug) {
+        throw new RuntimeException("Polylang target post natural-key premise failed: $slug");
+    }
     $posts[$language] = (int) $created;
     wp_set_object_terms((int) $created, [$terms[$language]], 'category', false);
 }
@@ -56,6 +60,15 @@ foreach ([
 // Same source-natural keys, deliberately different persistent statuses and
 // bytes: Apply must adopt these target rows while restoring source-authored
 // records and the target-local Polylang translation ids.
+$publisher = get_user_by('login', 'admin');
+if (!$publisher instanceof WP_User) {
+    throw new RuntimeException('Polylang target publisher premise is missing');
+}
+$previousUserId = get_current_user_id();
+wp_set_current_user((int) $publisher->ID);
+if (!current_user_can('publish_posts')) {
+    throw new RuntimeException('Polylang target publisher lacks publish_posts');
+}
 $pages = [];
 foreach ([
     'en' => ['portable-polylang-page-en', 'draft'],
@@ -68,9 +81,16 @@ foreach ([
         'post_title' => "Hostile target $language page",
         'post_name' => $slug,
         'post_content' => "Hostile target $language page content that must not survive adoption.",
+        'post_author' => 0,
     ], true);
     if (is_wp_error($created)) {
         throw new RuntimeException('Polylang target page creation failed: ' . $created->get_error_message());
+    }
+    $storedPage = get_post((int) $created);
+    if (!$storedPage instanceof WP_Post
+        || $storedPage->post_name !== $slug
+        || $storedPage->post_status !== $status) {
+        throw new RuntimeException("Polylang target page natural-key/status premise failed: $slug/$status");
     }
     $pages[$language] = (int) $created;
 }
@@ -87,12 +107,20 @@ foreach ([
         'post_title' => "Hostile target $language pattern",
         'post_name' => $slug,
         'post_content' => "Hostile target $language pattern content that must not survive adoption.",
+        'post_author' => 0,
     ], true);
     if (is_wp_error($created)) {
         throw new RuntimeException('Polylang target synced-pattern creation failed: ' . $created->get_error_message());
     }
+    $storedBlock = get_post((int) $created);
+    if (!$storedBlock instanceof WP_Post
+        || $storedBlock->post_name !== $slug
+        || $storedBlock->post_status !== $status) {
+        throw new RuntimeException("Polylang target wp_block natural-key/status premise failed: $slug/$status");
+    }
     $blocks[$language] = (int) $created;
 }
+wp_set_current_user($previousUserId);
 
 require_once ABSPATH . 'wp-admin/includes/file.php';
 require_once ABSPATH . 'wp-admin/includes/image.php';

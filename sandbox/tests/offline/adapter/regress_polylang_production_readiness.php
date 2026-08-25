@@ -1127,19 +1127,28 @@ namespace {
             && str_contains($seedScript, "'fr' => ['future'")
             && str_contains($seedScript, "'ar' => ['private'")
             && str_contains($seedScript, "'post_type' => 'wp_block'")
+            && str_contains($seedScript, "get_user_by('login', 'admin')")
+            && str_contains($seedScript, "current_user_can('publish_posts')")
+            && str_contains($seedScript, 'Polylang source page natural-key/status premise failed')
+            && str_contains($seedScript, 'Polylang source wp_block natural-key/status premise failed')
             && str_contains($seedScript, 'pll_save_post_translations($pages);')
             && str_contains($seedScript, 'pll_save_post_translations($blocks);'),
-        'source fixture covers every persistent non-deletion status in translated page and synced-pattern groups'
+        'source fixture covers every persistent non-deletion status under a publisher and proves every authored natural key survived WordPress normalization'
     );
     duo_check(
         str_contains($hostileScript, "'en' => ['portable-polylang-page-en', 'draft']")
             && str_contains($hostileScript, "'fr' => ['portable-polylang-page-fr', 'publish']")
             && str_contains($hostileScript, "'en' => ['portable-polylang-block-en', 'private']")
             && str_contains($hostileScript, "'fr' => ['portable-polylang-block-fr', 'draft']")
+            && str_contains($hostileScript, "get_user_by('login', 'admin')")
+            && str_contains($hostileScript, "current_user_can('publish_posts')")
+            && str_contains($hostileScript, 'Polylang target post natural-key premise failed')
+            && str_contains($hostileScript, 'Polylang target page natural-key/status premise failed')
+            && str_contains($hostileScript, 'Polylang target wp_block natural-key/status premise failed')
             && str_contains($hostileScript, 'source/target hostile identities did not diverge')
             && str_contains($hostileScript, '.pages | to_entries')
             && str_contains($hostileScript, '.blocks | to_entries'),
-        'hostile target fixture owns same-key page/pattern rows at disjoint identities and incompatible statuses'
+        'hostile target fixture proves publisher-authored same-key page/pattern rows at disjoint identities and incompatible statuses'
     );
     duo_check(
         str_contains($checksScript, '$pageSlugs =')
