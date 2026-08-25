@@ -215,10 +215,10 @@ duo_check_same(
 // section that did not exist when v3 was cut and that shipped with
 // DUO_SPEC_VERSION unmoved (§ v3.14) — so the channel is a walked path.
 duo_check_same(
-    ['spec-window/v1', 'structured-evidence/v1'],
+    ['attr-id-codecs/v1', 'spec-window/v1', 'structured-evidence/v1', 'typed-column-codecs/v1'],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: the vocabulary carries two IMPLEMENTED features, and the second claims a section v3 did not have — '
-        . '"declared and implemented admits" is now a path something walks, not an admissibility argument'
+    'v3.2: the vocabulary carries four IMPLEMENTED features, and three claim sections v3 did not have — '
+        . '"declared and implemented admits" is a path walked three times, not an admissibility argument'
 );
 // WP-4.12: the channel OPENED. At DUO_SPEC_VERSION 2 this probe refused by
 // SECTION NAME, because the section's own version (3) sat outside the window;

@@ -587,9 +587,9 @@ duo_check_same(
 // requirement, and a vocabulary of two is a set the refusal enumerates, the
 // author declares from, and register row R-19 projects.
 duo_check_same(
-    ['spec-window/v1', 'structured-evidence/v1'],
+    ['attr-id-codecs/v1', 'spec-window/v1', 'structured-evidence/v1', 'typed-column-codecs/v1'],
     \Duo\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: the vocabulary carries two names, so an engine that lacks a declared name has something to '
+    'V3-FEAT: the vocabulary carries four names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented
