@@ -233,12 +233,15 @@ OCC_2=$(wp2 db query "SELECT COUNT(*) FROM wp_tec_occurrences WHERE post_id=$EVE
 [ "$OCC_2" = "1" ] || fail "expected exactly 1 tec_occurrences row on side 2 (got $OCC_2) — regen_dependencies() should have created it automatically"
 pass "tec_occurrences row confirmed present on side 2, created automatically by Apply::regen_dependencies()"
 
-# A private manifest directory deliberately has no capability registry. It is
-# used only below for adapter fault injection; ordinary capture/apply above
-# already proved the exact evidence-bound shipped adapter.
-mkdir -p "$TEST_MANIFEST_DIR/regenerators"
+# A private manifest directory isolates the verifier fault while retaining the
+# shipped platform boundary and every manifest-bound hook file that policy
+# resolves before any adapter regenerator may run.
+mkdir -p "$TEST_MANIFEST_DIR/capabilities" "$TEST_MANIFEST_DIR/interpreters" "$TEST_MANIFEST_DIR/providers" "$TEST_MANIFEST_DIR/regenerators"
 cp ../manifests/core.json "$TEST_MANIFEST_DIR/core.json"
+cp ../manifests/capabilities/platform.json "$TEST_MANIFEST_DIR/capabilities/platform.json"
 cp "$SHIPPED_MANIFEST" "$MANIFEST"
+cp ../manifests/interpreters/the-events-calendar.php "$TEST_MANIFEST_DIR/interpreters/the-events-calendar.php"
+cp ../manifests/providers/the-events-calendar-category-colors.php "$TEST_MANIFEST_DIR/providers/the-events-calendar-category-colors.php"
 cp ../manifests/regenerators/the-events-calendar.php "$TEST_MANIFEST_DIR/regenerators/the-events-calendar.php"
 
 say "(4) byte-identical recapture on side 2"
