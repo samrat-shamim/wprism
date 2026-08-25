@@ -1987,9 +1987,6 @@ printf '%s\n' "$TEC_WIDGET_LEDGER_ORIGINAL" | jq -c '.selected_state' \
   >"$TEC_WIDGET_SCOPE_HOST/.original-selected-state.json"
 TEC_WIDGET_EXPECTED_PAGE="$TEC_WIDGET_SCOPE_HOST/.expected-widget-page.md"
 tec_widget_scope_expected_page "$TEC_SOURCE_WIDGET_STATE" >"$TEC_WIDGET_EXPECTED_PAGE"
-TEC_WIDGET_EXPECTED_PAGE_SHA256=$(shasum -a 256 "$TEC_WIDGET_EXPECTED_PAGE" | awk '{print $1}')
-[[ "$TEC_WIDGET_EXPECTED_PAGE_SHA256" =~ ^[a-f0-9]{64}$ ]] \
-  || fail "TEC scoped inactive-widget expected canonical page hash is malformed"
 TEC_WIDGET_SCOPE_MUTATED=1
 wp_conf1 eval "\$id=$TEC_WIDGET_PAGE_ID;"'
   global $wpdb;
@@ -2047,10 +2044,26 @@ tec_widget_scope_assert_repo_absent "$TEC_WIDGET_SCOPE_HOST" \
   'sidebar/wp_inactive_widgets' 'pseudo-row tombstone/carrier'
 [ "$(tec_widget_scope_physical_hash)" = "$TEC_WIDGET_PHYSICAL_MUTATED" ] \
   || fail "TEC scoped inactive-widget capture mutated post/options/sidebar/map target bytes"
+TEC_WIDGET_SCOPE_TWO="$TEC_WIDGET_SCOPE_HOST/.second.scope.json"
+capture_duo_json_success TEC_WIDGET_SCOPE_TWO_OUT \
+  "TEC scoped inactive-widget second contract" \
+  tec_scope_contract_json tec-widget-source \
+  --roots="post:$TEC_WIDGET_PAGE_UUID"
+printf '%s\n' "$TEC_WIDGET_SCOPE_TWO_OUT" >"$TEC_WIDGET_SCOPE_TWO"
+jq -e --arg uuid "$TEC_WIDGET_PAGE_UUID" '
+  .format == "duo-scope-contract/v1" and
+  ([.live.roots[], .live.closure[]] | any(.entity == "sidebar/wp_inactive_widgets") | not) and
+  ([.live.roots[] | select(.entity == $uuid and .type == "post" and
+    (.entity_hash | test("^[a-f0-9]{64}$")))] | length) == 1
+' "$TEC_WIDGET_SCOPE_TWO" >/dev/null \
+  || fail "TEC scoped inactive-widget second contract retained pseudo ownership or lost its selected post hash"
+TEC_WIDGET_EXPECTED_STATE_HASH=$(jq -er --arg uuid "$TEC_WIDGET_PAGE_UUID" '
+  first(.live.roots[] | select(.entity == $uuid and .type == "post") | .entity_hash)
+' "$TEC_WIDGET_SCOPE_TWO")
 TEC_WIDGET_LEDGER_FIRST=$(tec_widget_scope_ledger_witness)
 jq -en --argjson before "$TEC_WIDGET_LEDGER_ORIGINAL" \
   --argjson after "$TEC_WIDGET_LEDGER_FIRST" \
-  --arg expected "$TEC_WIDGET_EXPECTED_PAGE_SHA256" '
+  --arg expected "$TEC_WIDGET_EXPECTED_STATE_HASH" '
   ($before | del(.selected_state)) == ($after | del(.selected_state)) and
   ($before.selected_state | length) == 1 and ($after.selected_state | length) == 1 and
   $after.selected_state[0].uuid == $before.selected_state[0].uuid and
@@ -2075,17 +2088,6 @@ jq -en --argjson actual "$TEC_WIDGET_CANONICAL_FIRST" --argjson expected "$TEC_W
 ' >/dev/null || fail "TEC scoped inactive-widget capture did not preserve the exact two embedded widget blocks"
 
 TEC_WIDGET_REPO_FIRST=$(tec_widget_scope_repo_hash "$TEC_WIDGET_SCOPE_HOST")
-TEC_WIDGET_SCOPE_TWO="$TEC_WIDGET_SCOPE_HOST/.second.scope.json"
-capture_duo_json_success TEC_WIDGET_SCOPE_TWO_OUT \
-  "TEC scoped inactive-widget second contract" \
-  tec_scope_contract_json tec-widget-source \
-  --roots="post:$TEC_WIDGET_PAGE_UUID"
-printf '%s\n' "$TEC_WIDGET_SCOPE_TWO_OUT" >"$TEC_WIDGET_SCOPE_TWO"
-jq -e '
-  .format == "duo-scope-contract/v1" and
-  ([.live.roots[], .live.closure[]] | any(.entity == "sidebar/wp_inactive_widgets") | not)
-' "$TEC_WIDGET_SCOPE_TWO" >/dev/null \
-  || fail "TEC scoped inactive-widget second contract retained deauthorized pseudo ownership"
 TEC_WIDGET_CAPTURE_TWO=$(wp_conf1 duo capture \
   --repo="$TEC_WIDGET_SCOPE_REPO" \
   --scope-contract="$TEC_WIDGET_SCOPE_REPO/.second.scope.json" \

@@ -8524,7 +8524,7 @@ foreach ([
     'other_state_sha256',
     'kv_sha256',
     'journal_sha256',
-    'TEC_WIDGET_EXPECTED_PAGE_SHA256',
+    'TEC_WIDGET_EXPECTED_STATE_HASH',
     'tec_widget_scope_expected_page "$TEC_SOURCE_WIDGET_STATE" >"$TEC_WIDGET_EXPECTED_PAGE"',
     'capture exceeded its exact selected duo_state bookkeeping row',
     'cmp -s "$TEC_WIDGET_EXPECTED_PAGE" "$TEC_WIDGET_SCOPE_STATE"',
@@ -8613,8 +8613,9 @@ duo_check_same(
 );
 duo_check(
     str_contains($deletionCheck, '$after.selected_state[0].content_hash == $expected')
-        && str_contains($deletionCheck, '--arg expected "$TEC_WIDGET_EXPECTED_PAGE_SHA256"'),
-    'the only admitted duo_state publication delta is the exact full canonical page hash'
+        && str_contains($deletionCheck, '--arg expected "$TEC_WIDGET_EXPECTED_STATE_HASH"')
+        && str_contains($deletionCheck, 'first(.live.roots[] | select(.entity == $uuid and .type == "post") | .entity_hash)'),
+    'the only admitted duo_state publication delta is the compiler-proved selected post hash basis'
 );
 duo_check_same(
     4,
