@@ -75,6 +75,15 @@ $expectedShortcodes = [
 ];
 $check(
     $resolver->block_attr_rules() === $expectedBlocks
+        && $resolver->block_attr_rule_details('core/image') === [
+            'rule' => $expectedBlocks['core/image'],
+            'source' => 'second',
+        ]
+        && $resolver->block_attr_rule_details('core/gallery') === [
+            'rule' => $expectedBlocks['core/gallery'],
+            'source' => 'first',
+        ]
+        && $resolver->block_attr_rule_details('absent') === ['rule' => null, 'source' => null]
         && $resolver->shortcode_attr_rules() === $expectedShortcodes
         && (new ContentAttributeRuleResolver([]))->block_attr_rules() === []
         && (new ContentAttributeRuleResolver([]))->shortcode_attr_rules() === [],
@@ -89,13 +98,18 @@ $policy = new Duo\Policy();
 $policy->manifests = $manifests;
 $check(
     $policy->block_attr_rules() === $expectedBlocks
+        && $policy->block_attr_rule_details('core/image') === $resolver->block_attr_rule_details('core/image')
         && $policy->shortcode_attr_rules() === $expectedShortcodes,
-    'Policy retains both public content-attribute registry facades over the pure resolver'
+    'Policy retains public content-attribute registry and provenance facades over the pure resolver'
 );
 $policy->manifests[1]['block_attrs']['core/image'] = [['path' => 'changed', 'kind' => 'post']];
 $policy->manifests[1]['shortcode_attrs']['gallery'] = [['path' => 'changed', 'kind' => 'post']];
 $check(
     $policy->block_attr_rules()['core/image'] === [['path' => 'changed', 'kind' => 'post']]
+        && $policy->block_attr_rule_details('core/image') === [
+            'rule' => [['path' => 'changed', 'kind' => 'post']],
+            'source' => 'second',
+        ]
         && $policy->shortcode_attr_rules()['gallery'] === [['path' => 'changed', 'kind' => 'post']],
     'Policy builds a fresh resolver for each facade call so public fixture mutations are observed'
 );
@@ -104,6 +118,7 @@ $policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $check(
     substr_count($policySource, "require_once __DIR__ . '/../Grammar/ContentAttributeRuleResolver.php';") === 1
         && str_contains($policySource, 'return $this->content_attribute_rule_resolver()->block_attr_rules();')
+        && str_contains($policySource, 'return $this->content_attribute_rule_resolver()->block_attr_rule_details($block);')
         && str_contains($policySource, 'return $this->content_attribute_rule_resolver()->shortcode_attr_rules();')
         && str_contains($policySource, 'new ContentAttributeRuleResolver($this->manifests)')
         && !str_contains($policySource, '        foreach ($m[\'block_attrs\'] ?? [] as $block => $rules) {')

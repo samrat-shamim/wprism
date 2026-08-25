@@ -41,6 +41,7 @@ $recovery = $source('CapturePublicationRecovery');
 $initial = $source('InitialCaptureBoundary');
 $scoped = $source('ScopedCaptureProjector');
 $identity = $source('CaptureIdentity');
+$blocks = $source('Blocks');
 $post = $source('PostCapture');
 $term = $source('TermCapture');
 $captureCode = '';
@@ -254,6 +255,12 @@ $check(
         && str_contains($candidateBuild, '$portableWidgetReferences = [];')
         && str_contains($candidateBuild, '$portableWidgetReferences === [] ? null : $portableWidgetReferences'),
     'candidate construction never primes an empty overlay and passes no SidebarState pseudo-entity authority when selected posts contain no stored-widget references'
+);
+$check(
+    str_contains($blocks, '$details = $policy->block_attr_rule_details(\'core/legacy-widget\');')
+        && str_contains($blocks, '$policy->widget_type_rule_details((string) $type)')
+        && str_contains($blocks, 'stored legacy widget reference belongs to a different manifest owner'),
+    'the pre-SidebarState product path requires effective block and widget grammar declarations to have one manifest owner'
 );
 
 $check(str_contains($identity, 'public function ensurePost(')

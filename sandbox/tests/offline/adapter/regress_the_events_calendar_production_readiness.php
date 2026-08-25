@@ -3675,6 +3675,97 @@ $widgetDb->seedTable($widgetDb->options, [
         'autoload' => 'yes',
     ],
 ]);
+duo_check_same(
+    'the-events-calendar',
+    $policy->block_attr_rule_details('core/legacy-widget')['source'] ?? null,
+    'stored-widget discovery binds the effective whole-block codec owner'
+);
+$coreTecPolicy = Policy::load(null, ['core', 'the-events-calendar']);
+$ownerMismatchDb = FakeWpdb::install();
+$ownerMismatchMapTable = $ownerMismatchDb->prefix . 'duo_map';
+$ownerMismatchDb
+    ->setUniqueKey($ownerMismatchMapTable, ['uuid', 'id_kind'])
+    ->setUniqueKey($ownerMismatchMapTable, ['id_kind', 'local_id']);
+$ownerMismatchMap = [[
+    'uuid' => TEC_EVENT_UUID,
+    'entity_type' => 'post',
+    'id_kind' => 'post',
+    'local_id' => 8100000001,
+]];
+$ownerMismatchDb->seedTable($ownerMismatchMapTable, $ownerMismatchMap);
+$ownerMismatchDb->seedTable($ownerMismatchDb->options, [
+    [
+        'option_id' => 1,
+        'option_name' => 'sidebars_widgets',
+        'option_value' => serialize([
+            'wp_inactive_widgets' => ['text-8000000077', 'block-8000000088'],
+            'array_version' => 3,
+        ]),
+        'autoload' => 'yes',
+    ],
+    [
+        'option_id' => 2,
+        'option_name' => 'widget_text',
+        'option_value' => serialize([
+            8000000077 => ['title' => 'Target-only text', 'text' => 'Stay local', 'filter' => false, 'visual' => true],
+            '_multiwidget' => 1,
+        ]),
+        'autoload' => 'yes',
+    ],
+    [
+        'option_id' => 3,
+        'option_name' => 'widget_block',
+        'option_value' => serialize([
+            8000000088 => ['content' => '<!-- wp:paragraph --><p>Stay local</p><!-- /wp:paragraph -->'],
+            '_multiwidget' => 1,
+        ]),
+        'autoload' => 'yes',
+    ],
+]);
+$ownerMismatchOptionPreimage = $ownerMismatchDb->rows($ownerMismatchDb->options);
+foreach (['text' => 8000000077, 'block' => 8000000088] as $coreType => $coreLocalId) {
+    duo_check_same(
+        'core',
+        $coreTecPolicy->widget_type_rule_details($coreType)['source'] ?? null,
+        "the merged $coreType widget grammar remains owned by core rather than TEC"
+    );
+    $mapPreimage = $ownerMismatchDb->rows($ownerMismatchMapTable);
+    duo_check_throws(
+        static fn(): array => Blocks::capture_widget_instance_references(
+            tec_readiness_legacy_widget_block(['id' => "$coreType-$coreLocalId"]),
+            $coreTecPolicy
+        ),
+        RuntimeException::class,
+        "the TEC whole-block codec cannot pre-authorize an inactive core $coreType widget",
+        'belongs to a different manifest owner'
+    );
+    duo_check_same(
+        $mapPreimage,
+        $ownerMismatchDb->rows($ownerMismatchMapTable),
+        "owner-mismatched inactive core $coreType discovery cannot mint or alter duo_map"
+    );
+}
+$ownerMismatchTokens = new Tokens('https://target.example', 'https://target.example/media');
+$ownerMismatchTokens->policy = $coreTecPolicy;
+$ownerMismatchSidebarCapture = \Duo\SidebarState::capture(
+    $coreTecPolicy,
+    $ownerMismatchTokens,
+    true,
+    false,
+    false,
+    null
+);
+duo_check_same(
+    [],
+    $ownerMismatchSidebarCapture['entities'] ?? null,
+    'core inactive text/block rows without same-owner block references remain outside canonical SidebarState'
+);
+duo_check(
+    $ownerMismatchDb->rows($ownerMismatchMapTable) === $ownerMismatchMap
+        && $ownerMismatchDb->rows($ownerMismatchDb->options) === $ownerMismatchOptionPreimage,
+    'the product SidebarState boundary neither maps nor mutates unrelated inactive core widget state'
+);
+$GLOBALS['wpdb'] = $widgetDb;
 $storedWidgetReferences = Blocks::capture_widget_instance_references(
     $targetStoredList . $targetStoredQr . $targetStoredList,
     $policy
@@ -3816,9 +3907,10 @@ duo_check(
 );
 $blocksSource = (string) file_get_contents($root . '/agent/src/Grammar/Blocks.php');
 duo_check(
-    str_contains($blocksSource, "['core/legacy-widget']")
+    str_contains($blocksSource, "block_attr_rule_details('core/legacy-widget')")
         && str_contains($blocksSource, "isset(\$paths['id'])")
         && str_contains($blocksSource, '$policy->widget_types()')
+        && str_contains($blocksSource, '$policy->widget_type_rule_details((string) $type)')
         && !str_contains($blocksSource, 'capture_block_widget_instance_reference'),
     'stored-widget discovery is engine-owned by the declared whole-block id path and closed widget grammar, never an optional codec method'
 );

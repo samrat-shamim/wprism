@@ -11226,6 +11226,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "block_attr_rule_details": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "block",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "block_attr_rules": {
                     "abstract": false,
                     "final": false,
@@ -38306,6 +38323,23 @@
                     "abstract": false,
                     "final": false,
                     "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "block_attr_rule_details": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "block",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
                     "return_type": "array",
                     "static": false,
                     "visibility": "public"

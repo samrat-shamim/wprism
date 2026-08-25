@@ -1073,6 +1073,11 @@ final class Policy {
         return $this->content_attribute_rule_resolver()->block_attr_rules();
     }
 
+    /** @return array{rule:?array,source:?string} */
+    public function block_attr_rule_details(string $block): array {
+        return $this->content_attribute_rule_resolver()->block_attr_rule_details($block);
+    }
+
     /**
      * `shortcode_attrs` (DUO-3259): the shortcode twin of `block_attrs()`
      * above, same precedence (last pin wins per tag name, a structural

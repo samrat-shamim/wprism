@@ -63,14 +63,19 @@ final class Blocks {
     /**
      * Discover exact stored core/legacy-widget identities before SidebarState
      * capture. Authority is closed by the existing whole-block codec rule's
-     * declared `id` path plus the manifest widget-type grammar; interpreter
-     * methods cannot opt themselves into this engine-owned pre-scan.
+     * declared `id` path plus only widget types with that same effective
+     * manifest source; merged foreign widget rules and interpreter methods
+     * cannot opt themselves into this engine-owned pre-scan.
      *
      * @return list<array{type:string,local_id:int}>
      */
     public static function capture_widget_instance_references(string $content, Policy $policy): array {
-        $rules = $policy->block_attr_rules();
-        $legacyRules = $rules['core/legacy-widget'] ?? [];
+        $details = $policy->block_attr_rule_details('core/legacy-widget');
+        $legacyRules = $details['rule'] ?? [];
+        $source = $details['source'] ?? null;
+        if (!is_array($legacyRules) || !is_string($source) || $source === '') {
+            return [];
+        }
         $codec = null;
         $paths = [];
         foreach ($legacyRules as $rule) {
@@ -88,10 +93,23 @@ final class Blocks {
         if ($codec === null || !isset($paths['id']) || $content === '') {
             return [];
         }
+        $widgetTypes = [];
+        $foreignWidgetTypes = [];
+        foreach ($policy->widget_types() as $type => $rule) {
+            $widgetSource = $policy->widget_type_rule_details((string) $type)['source'] ?? null;
+            if (is_string($widgetSource) && hash_equals($source, $widgetSource)) {
+                $widgetTypes[(string) $type] = $rule;
+            } else {
+                $foreignWidgetTypes[(string) $type] = true;
+            }
+        }
+        if ($widgetTypes === []) {
+            return [];
+        }
         $out = [];
         foreach (parse_blocks($content) as $block) {
             if (is_array($block)) {
-                self::collect_widget_instance_keys($block, $policy->widget_types(), $out);
+                self::collect_widget_instance_keys($block, $widgetTypes, $foreignWidgetTypes, $out);
             }
         }
         ksort($out, SORT_STRING);
@@ -102,15 +120,16 @@ final class Blocks {
     private static function collect_widget_instance_keys(
         array $block,
         array $widgetTypes,
+        array $foreignWidgetTypes,
         array &$out
     ): void {
         $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
         if ($name === 'core/legacy-widget') {
-            self::collect_stored_legacy_widget_instance($block, $widgetTypes, $out);
+            self::collect_stored_legacy_widget_instance($block, $widgetTypes, $foreignWidgetTypes, $out);
         }
         foreach ((array) ($block['innerBlocks'] ?? []) as $inner) {
             if (is_array($inner)) {
-                self::collect_widget_instance_keys($inner, $widgetTypes, $out);
+                self::collect_widget_instance_keys($inner, $widgetTypes, $foreignWidgetTypes, $out);
             }
         }
     }
@@ -119,6 +138,7 @@ final class Blocks {
     private static function collect_stored_legacy_widget_instance(
         array $block,
         array $widgetTypes,
+        array $foreignWidgetTypes,
         array &$out
     ): void {
         if (!is_array($block['innerBlocks'] ?? null)
@@ -143,17 +163,18 @@ final class Blocks {
         if ($keys !== ['id'] || !is_string($attrs['id'])) {
             throw new \RuntimeException('duo: stored legacy widget reference has an unknown or malformed field');
         }
+        foreach (array_keys($foreignWidgetTypes) as $type) {
+            if (self::widget_instance_id($attrs['id'], $type) !== null) {
+                throw new \RuntimeException(
+                    'duo: stored legacy widget reference belongs to a different manifest owner'
+                );
+            }
+        }
         $matches = [];
         foreach (array_keys($widgetTypes) as $type) {
-            $prefix = $type . '-';
-            if (!str_starts_with($attrs['id'], $prefix)) {
-                continue;
-            }
-            $local = substr($attrs['id'], strlen($prefix));
-            if (preg_match('/^[1-9][0-9]*$/D', $local) === 1
-                && (string) (int) $local === $local
-                && (int) $local > 0) {
-                $matches[] = ['type' => $type, 'local_id' => (int) $local];
+            $localId = self::widget_instance_id($attrs['id'], $type);
+            if ($localId !== null) {
+                $matches[] = ['type' => $type, 'local_id' => $localId];
             }
         }
         if (count($matches) !== 1) {
@@ -163,6 +184,20 @@ final class Blocks {
         }
         $reference = $matches[0];
         $out[$reference['type'] . '-' . $reference['local_id']] = $reference;
+    }
+
+    private static function widget_instance_id(string $id, string $type): ?int {
+        $prefix = $type . '-';
+        if (!str_starts_with($id, $prefix)) {
+            return null;
+        }
+        $local = substr($id, strlen($prefix));
+        if (preg_match('/^[1-9][0-9]*$/D', $local) !== 1
+            || (string) (int) $local !== $local
+            || (int) $local <= 0) {
+            return null;
+        }
+        return (int) $local;
     }
 
     /**
