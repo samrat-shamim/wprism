@@ -81,7 +81,13 @@ global $wpdb;
 $rows=[];
 foreach (["posts","terms","term_taxonomy","term_relationships","postmeta","options"] as $table) {
   $name=$wpdb->$table;
-  $data=$wpdb->get_results("SELECT * FROM $name ORDER BY 1", ARRAY_A);
+  // WordPress renews this one process-local cron lease during a long WP-CLI
+  // command. It is runtime coordination, not authored/plugin/Duo state; keep
+  // every other option row inside the zero-effect fingerprint.
+  $sql=$table === "options"
+    ? $wpdb->prepare("SELECT * FROM $name WHERE option_name <> %s ORDER BY 1", "_transient_doing_cron")
+    : "SELECT * FROM $name ORDER BY 1";
+  $data=$wpdb->get_results($sql, ARRAY_A);
   if (!is_array($data) || $wpdb->last_error !== "") throw new RuntimeException("Polylang multisite fingerprint read failed: $table");
   $rows[$table]=["count"=>count($data),"sha256"=>hash("sha256",serialize($data))];
 }

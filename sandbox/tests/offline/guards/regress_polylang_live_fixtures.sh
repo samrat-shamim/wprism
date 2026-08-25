@@ -63,9 +63,13 @@ for needle in \
   'multisite_unsupported' \
   'state.capture-staging' \
   'Polylang plugin bytes' \
+  '_transient_doing_cron' \
   'polylang_graph_fingerprint'; do
   grep -Fq "$needle" "$MS" || fail "multisite fixture lost required guard: $needle"
 done
+if grep -Eq "NOT LIKE|_transient_%" "$MS"; then
+  fail 'multisite fixture widened its exact cron-lease exclusion to a transient wildcard'
+fi
 for needle in \
   'fetch_artifact' \
   'provider:polylang-nav-menus/synchronize_runtime' \
