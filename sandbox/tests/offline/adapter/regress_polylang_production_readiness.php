@@ -1833,6 +1833,11 @@ namespace {
         $interpreter->post_meta_rule('_pll_menu_item', ['_pll_menu_item' => serialize($native)]),
         'native switcher metadata receives the authored plain-data rule'
     );
+    duo_check_same(
+        ['class' => 'authored', 'plain_data' => true, 'lint_ok' => true],
+        $interpreter->post_meta_rule('_pll_menu_item', []),
+        'missing target switcher metadata still exposes the reviewed authored rule for materialization'
+    );
     duo_check_same(null, $interpreter->post_meta_rule('_foreign', []), 'interpreter never claims foreign post metadata');
     foreach ([
         'list' => [0, 1, 0, 1, 0, 1],
@@ -1854,6 +1859,11 @@ namespace {
             '_pll_strings_translations' => serialize([['Hello', 'Bonjour']]),
         ]),
         'populated string-translation termmeta enters the authored plain-data term sidecar'
+    );
+    duo_check_same(
+        ['class' => 'authored', 'plain_data' => true],
+        $interpreter->term_meta_rule('_pll_strings_translations', []),
+        'missing target string catalog still exposes the reviewed authored rule for materialization'
     );
     foreach ([
         'not a list' => serialize(['Hello' => 'Bonjour']),

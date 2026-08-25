@@ -106,7 +106,9 @@ final class Polylang {
         if ($key !== '_pll_menu_item') {
             return null;
         }
-        $this->assert_menu_switcher($allMeta[$key] ?? null, 'live _pll_menu_item');
+        if (array_key_exists($key, $allMeta)) {
+            $this->assert_menu_switcher($allMeta[$key], 'live _pll_menu_item');
+        }
         return ['class' => 'authored', 'plain_data' => true, 'lint_ok' => true];
     }
 
@@ -114,11 +116,9 @@ final class Polylang {
         if ($key !== '_pll_strings_translations') {
             return null;
         }
-        $this->assert_string_catalog(
-            $allMeta[$key] ?? null,
-            'live _pll_strings_translations',
-            true
-        );
+        if (array_key_exists($key, $allMeta)) {
+            $this->assert_string_catalog($allMeta[$key], 'live _pll_strings_translations', true);
+        }
         return ['class' => 'authored', 'plain_data' => true];
     }
 
