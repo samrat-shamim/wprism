@@ -582,7 +582,9 @@ itself), `certify-adversarial-matrix`,
 installed — `sandbox/tests/certify/certify_version_matrix.sh:57`),
 `certify-ssh-adoption-roundtrip` and `certify-ssh-rollback`. They keep the
 `certify-` prefix for their history; each is a live proof of one mechanism,
-and none of them publishes a record.
+and none of them publishes a record. `certify-version-matrix` accepts
+`VMATRIX_EXPECTED_SOURCE_SHA` and forwards it to the same gate; set
+`DUO_SOURCE_ROOT=$(pwd -P)` as well when the candidate is a linked worktree.
 
 Everything above about the pair budget, the exact-source gate, the artifact
 cache and destroy-when-green applies to those runs unchanged: those are

@@ -65,6 +65,7 @@ if (!class_exists(Ledger::class, false)) {
  * families that the native staging boundary must isolate.
  */
 final class AttachmentMaterializer {
+    private ?AttachmentNativeMetadataGenerator $polylangNativeGenerator = null;
     private const ATTACHED_FILE_KEY = '_wp_attached_file';
     private const FILESYSTEM_MARKER_PREFIX = 'attachment_fs:';
     private const MAX_FILESYSTEM_MARKERS = 1;
@@ -73,6 +74,7 @@ final class AttachmentMaterializer {
     private const ATTACHED_FILE_LOCK_CHUNK = 512;
     private const MAX_UPLOAD_PATH_BYTES = 1024;
     private readonly AttachmentFilesystemTransaction $filesystem;
+    private readonly object $nativeAuthoritySecret;
     private ?string $attachedFileLockIndex = null;
 
     public function __construct(
@@ -82,10 +84,19 @@ final class AttachmentMaterializer {
         string $repositoryRoot
     ) {
         $this->filesystem = new AttachmentFilesystemTransaction($compiled, $repositoryRoot);
+        $this->nativeAuthoritySecret = new \stdClass();
+    }
+
+    /** @internal consumed only by AttachmentNativeMetadataAuthority::from_materializer(). */
+    public function assert_native_authority_secret(object $secret): void {
+        if ($secret !== $this->nativeAuthoritySecret) {
+            throw new \RuntimeException('duo: native attachment metadata authority secret does not belong to this materializer');
+        }
     }
 
     /** Recover a committed upload publication before target capture. */
     public function recover_pending_filesystem(): void {
+        $this->polylangNativeGenerator = null;
         if ($this->filesystem->phase() === null) {
             $this->load_pending_filesystem();
         } else {
@@ -111,6 +122,7 @@ final class AttachmentMaterializer {
 
     /** Load-only scope gate: a scoped apply must never resume a full upload intent. */
     public function load_pending_filesystem(bool $retainLocks = true): bool {
+        $this->polylangNativeGenerator = null;
         try {
             $this->filesystem->load_pending();
             $this->assert_pending_marker_inventory();
@@ -212,13 +224,27 @@ final class AttachmentMaterializer {
 
     /** @param list<array<string,mixed>> $work */
     public function prepare_filesystem(array $work, array $tree): void {
+        // The witness belongs to this one markerless-to-post-commit transition;
+        // a retry must re-prove the target before accepting an absent callback pair.
+        $this->polylangNativeGenerator = null;
+        $generator = AttachmentNativeMetadataGenerator::from_authority(
+            AttachmentNativeMetadataAuthority::from_materializer(
+                $this,
+                $this->nativeAuthoritySecret,
+                $this->compiled,
+                $this->filesystem,
+                $this->attachment_adapter_manifests(),
+                fn(int $id): string => $this->assert_locked_pending_binding($id)
+            )
+        );
         $this->filesystem->prepare(
             $work,
             $tree,
-            new AttachmentNativeMetadataGenerator(static function (int $id): never {
-                throw new \LogicException('duo: markerless attachment preflight must not request a target MIME lock');
-            }, $this->attachment_adapter_manifests())
+            $generator
         );
+        $this->polylangNativeGenerator = !$generator->has_polylang_no_language_handoff()
+            ? null
+            : $generator;
     }
 
     /** Seal the exact UUID-to-post-ID mapping inside the authored DB transaction. */
@@ -242,15 +268,23 @@ final class AttachmentMaterializer {
 
     /** Cleanup preparation only after the authored database rollback is confirmed. */
     public function rollback_authored_transaction(): void {
-        $identity = $this->filesystem->pending_marker_identity();
-        $marker = $identity === null ? null : Ledger::kv_get($identity['key']);
-        $this->filesystem->rollback_authored_transaction($marker);
+        try {
+            $identity = $this->filesystem->pending_marker_identity();
+            $marker = $identity === null ? null : Ledger::kv_get($identity['key']);
+            $this->filesystem->rollback_authored_transaction($marker);
+        } finally {
+            $this->polylangNativeGenerator = null;
+        }
     }
 
     /** Discard a markerless prepare that failed before START established apply authority. */
     public function rollback_prepared_filesystem(): void {
-        if (!in_array($this->filesystem->phase(), ['preparing', 'prepared'], true)) return;
-        $this->filesystem->rollback_authored_transaction(null);
+        try {
+            if (!in_array($this->filesystem->phase(), ['preparing', 'prepared'], true)) return;
+            $this->filesystem->rollback_authored_transaction(null);
+        } finally {
+            $this->polylangNativeGenerator = null;
+        }
     }
 
     /** @return list<int> */
@@ -258,7 +292,17 @@ final class AttachmentMaterializer {
         return $this->filesystem->pending_attachment_ids();
     }
 
-    public function end_authored_transaction(): void {
+    /** Drop a post-commit handoff when no native rebuild will consume it. */
+    public function discard_native_rebuild_authority(): void {
+        $this->polylangNativeGenerator = null;
+        // The durable journal remains the recovery authority, but this
+        // request no longer owns a native rebuild handoff. Release its
+        // process-local flock so the next public apply can acquire the exact
+        // pending journal in the same PHP process.
+        $this->filesystem->end();
+    }
+
+    public function end_authored_transaction(bool $retainNativeRebuildAuthority = false): void {
         // Destination locks deliberately span the authored COMMIT and the
         // later native metadata phase. finalize_native_metadata() releases
         // them after terminal cleanup (or before surfacing a retryable fault).
@@ -266,6 +310,9 @@ final class AttachmentMaterializer {
             $this->filesystem->end();
         }
         $this->attachedFileLockIndex = null;
+        if (!$retainNativeRebuildAuthority || $this->filesystem->phase() === null) {
+            $this->polylangNativeGenerator = null;
+        }
     }
 
     /**
@@ -275,7 +322,10 @@ final class AttachmentMaterializer {
      */
     public function finalize_native_metadata(array $attachmentIds): void {
         $pending = $this->filesystem->pending_attachment_ids();
-        if ($pending === []) return;
+        if ($pending === []) {
+            $this->polylangNativeGenerator = null;
+            return;
+        }
         $provided = array_values(array_unique(array_filter($attachmentIds, static fn(mixed $id): bool => is_int($id) && $id > 0)));
         sort($provided, SORT_NUMERIC);
         if ($provided !== $pending) {
@@ -283,10 +333,19 @@ final class AttachmentMaterializer {
         }
         CacheInvalidationTransaction::assert_local_cache('native attachment metadata finalization');
         try {
-            $generator = new AttachmentNativeMetadataGenerator(
-                fn(int $id): string => $this->assert_locked_pending_binding($id),
-                $this->attachment_adapter_manifests()
-            );
+            $generator = $this->polylangNativeGenerator;
+            if ($generator === null) {
+                $generator = AttachmentNativeMetadataGenerator::from_authority(
+                    AttachmentNativeMetadataAuthority::from_materializer(
+                        $this,
+                        $this->nativeAuthoritySecret,
+                        $this->compiled,
+                        $this->filesystem,
+                        $this->attachment_adapter_manifests(),
+                        fn(int $id): string => $this->assert_locked_pending_binding($id)
+                    )
+                );
+            }
             $this->filesystem->generate_metadata($generator);
             $this->with_locked_pending_bindings(
                 fn(): mixed => $this->filesystem->publish_derivatives(),
@@ -311,6 +370,7 @@ final class AttachmentMaterializer {
                 $this->filesystem->cleanup_complete(Ledger::kv_get($metadataIdentity['key']));
             }
         } finally {
+            $this->polylangNativeGenerator = null;
             $this->filesystem->end();
         }
     }

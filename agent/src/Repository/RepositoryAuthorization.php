@@ -258,7 +258,11 @@ final class RepositoryAuthorization {
     private static function authorize_term(Policy $policy, string $uuid, array $entity, array &$out): void {
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         $path = $entity['path'];
-        self::unexpected_fields($front, self::TERM_FIELDS, $path, $uuid, 'term_field', $out);
+        $allowedFields = self::TERM_FIELDS;
+        if ($policy->taxonomy_term_group_is_authored((string) ($front['taxonomy'] ?? ''))) {
+            $allowedFields[] = 'term_group';
+        }
+        self::unexpected_fields($front, $allowedFields, $path, $uuid, 'term_field', $out);
         self::authorize_taxonomy($policy, (string) ($front['taxonomy'] ?? ''), $path, $uuid, 'taxonomy', $out);
         $meta = (array) ($front['meta'] ?? []);
         foreach ($meta as $key => $_) {

@@ -1064,9 +1064,11 @@ manifests/dispositions/<name>.json     # one document per adapter, the entry ver
 manifests/dispositions/profiles.json   # the profiles map, keyed independently of the manifest glob
 ```
 
-17 documents, 1,187 lines, 49,294 bytes — the same entries, the same profile, re-indented as 17 roots
+17 documents, 1,193 lines, 50,117 bytes — the same entries, the same profile, re-indented as 17 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
-promotion of `the-events-calendar` to `certified`, which rewrote that one subject's reviewed entry.)
+promotion of `the-events-calendar` to `certified` and Polylang's reviewed production-readiness port,
+which rewrote those subjects' reviewed entries, and the later reviewed empty-catalog lifecycle correction
+rewrote Polylang's entry without changing the split topology.)
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
 is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day
@@ -1700,10 +1702,13 @@ substitutable for another:
    executable repair AFTER the declarative primitives land, and the `compatibility_shim` share of NEWLY
    authored adapters has fallen below a threshold stated in advance of the measurement. The baseline is
    today's, measured over the shipped library: 11 of the 16 adapters name manifest-shipped hook code, and
-   that code is 15 files totalling 12,384 lines under `manifests/{interpreters,providers,regenerators}`.
+   that code is 16 files totalling 14,222 lines under `manifests/{interpreters,providers,regenerators}`.
    The baseline more than doubled with #561 alone — one adapter reaching production-readiness added a TEC
-   interpreter and a Category Colors provider and rewrote its regenerator — which is the condition
-   arguing against itself, and is recorded here rather than smoothed away.
+   interpreter and a Category Colors provider and rewrote its regenerator. Polylang then added the sixteenth
+   hook file and 1,828 lines through its reviewed production-readiness port — which is the condition arguing
+   against itself, and is recorded here rather than smoothed away. The later reviewed empty-catalog
+   lifecycle correction added seven lines to that measured hook surface; this baseline is re-measured rather
+   than preserving a stale threshold.
 2. **Falsifiable effects.** Declared-effect verification is live and REFUSING, with a measured
    false-refusal rate on the shipped 16 below a stated threshold — because the compiled inventory is
    recovery's entire authority, and under-declaring `effects[]` is the cheapest way for an adapter to pass.

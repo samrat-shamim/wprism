@@ -61,8 +61,8 @@ final class TaxonomyApplyContext {
 
     /** @return string[] */
     private function option_driven_object_types(string $taxonomy): array {
-        $ref = $this->policy->object_type_option_ref($taxonomy);
-        if ($ref === null) {
+        $refs = $this->policy->object_type_option_refs($taxonomy);
+        if ($refs === []) {
             return [];
         }
         $optionsEntity = $this->compiled->tree()['options/core'] ?? null;
@@ -74,14 +74,23 @@ final class TaxonomyApplyContext {
         } catch (\Throwable $failure) {
             return [];
         }
-        $record = $records[$ref['option']] ?? null;
-        if (($record['state'] ?? '') !== 'present' || !is_array($record['value'] ?? null)) {
-            return [];
+        $out = [];
+        foreach ($refs as $ref) {
+            $record = $records[$ref['option']] ?? null;
+            if (($record['state'] ?? '') !== 'present' || !is_array($record['value'] ?? null)) {
+                continue;
+            }
+            $value = $record['value'][$ref['sub_key']] ?? null;
+            if (isset($ref['object_types_when_truthy'])) {
+                if ($value === true || $value === 1) {
+                    $out = array_merge($out, $ref['object_types_when_truthy']);
+                }
+                continue;
+            }
+            if (is_array($value)) {
+                $out = array_merge($out, array_map('strval', $value));
+            }
         }
-        $value = $record['value'][$ref['sub_key']] ?? null;
-        if (!is_array($value)) {
-            return [];
-        }
-        return array_values(array_filter(array_map('strval', $value)));
+        return array_values(array_unique(array_filter($out)));
     }
 }

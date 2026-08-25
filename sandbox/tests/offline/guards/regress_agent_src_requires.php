@@ -16,6 +16,18 @@ function check(bool $condition, string $message): void {
     }
 }
 
+// The scanner below proves the declared edges. This direct partial load proves
+// the product consequence: the authority's public type contract is usable
+// without relying on duo.php's production include order or the classmap.
+require_once $src . '/Apply/AttachmentNativeMetadataGenerator.php';
+check(
+    class_exists(\Duo\AttachmentNativeMetadataGenerator::class, false)
+        && class_exists(\Duo\CompiledRepository::class, false)
+        && class_exists(\Duo\AttachmentFilesystemTransaction::class, false)
+        && class_exists(\Duo\AttachmentMaterializer::class, false),
+    'AttachmentNativeMetadataGenerator standalone load brings in every non-local authority dependency'
+);
+
 /** @return list<array{0:int|string,1:string}> */
 function significant_tokens(string $source): array {
     $tokens = token_get_all($source);
@@ -511,8 +523,8 @@ $gaps = find_gaps($sources, $classFiles, $knownGaps);
 check(count($knownGaps) >= 250, 'known-gap baseline unexpectedly shrank; review the allowlist rather than hiding changes');
 fwrite(STDOUT, 'known gaps: ' . count($knownGaps) . " (explicit baseline; new pairs fail)\n");
 // The allowlist cannot become a dead, copy-pasted escape hatch: every entry
-// must still be observed in the current baseline.  Then mutate the three
-// concrete standalone-load fixes that motivated this issue and prove the
+// must still be observed in the current baseline.  Then mutate concrete
+// standalone-load fixes and prove the
 // scanner would flag each one when its require_once disappears.
 $baselineGaps = find_gaps($sources, $classFiles, []);
 $staleAllowlist = array_diff_key($knownGaps, $baselineGaps);
@@ -530,12 +542,17 @@ foreach ([
     ['ConvergenceVerifier', 'ScopedApplySession'],
     ['ScopedApply', 'ScopeClosure'],
     ['ScopedApply', 'ScopedApplySession'],
-] as [$file, $dependency]) {
+    ['AttachmentNativeMetadataGenerator', 'CompiledRepository', 'CompiledArtifact'],
+    ['AttachmentNativeMetadataGenerator', 'AttachmentFilesystemTransaction'],
+    ['AttachmentNativeMetadataGenerator', 'AttachmentMaterializer'],
+] as $edge) {
+    [$file, $dependency] = $edge;
+    $requiredFile = $edge[2] ?? $dependency;
     // Since the module move (ROUND 3 TRAIN 1) a cross-module dependency is
     // spelled `__DIR__ . '/../<Module>/X.php'` while a same-module one is
     // still `/X.php`; without the optional segment this fixture would delete
     // nothing and stop proving anything.
-    $pattern = "~^require_once __DIR__ \\. '/(?:\\.\\./[A-Za-z0-9_]+/)?" . preg_quote($dependency, '~') . "\\.php';\\R~m";
+    $pattern = "~^[ \\t]*require_once __DIR__ \\. '/(?:\\.\\./[A-Za-z0-9_]+/)?" . preg_quote($requiredFile, '~') . "\\.php';\\R~m";
     $changed = preg_replace($pattern, '', $mutated[$file], 1, $count);
     check($count === 1 && is_string($changed), "mutation fixture could not remove $file.php -> $dependency.php require_once");
     $mutated[$file] = $changed;

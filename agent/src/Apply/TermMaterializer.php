@@ -95,9 +95,12 @@ final class TermMaterializer {
             (string) $front['taxonomy'],
             'apply insert term'
         );
+        $termGroup = $this->policy->taxonomy_term_group_is_authored((string) $front['taxonomy'])
+            ? (int) $front['term_group']
+            : 0;
         Db::insert(
             $wpdb->terms,
-            ['name' => $front['name'], 'slug' => $front['slug'], 'term_group' => 0],
+            ['name' => $front['name'], 'slug' => $front['slug'], 'term_group' => $termGroup],
             null,
             'apply insert term'
         );
@@ -143,9 +146,13 @@ final class TermMaterializer {
             (string) $front['taxonomy'],
             'apply update term'
         );
+        $termRow = ['name' => $front['name'], 'slug' => $front['slug']];
+        if ($this->policy->taxonomy_term_group_is_authored((string) $front['taxonomy'])) {
+            $termRow['term_group'] = (int) $front['term_group'];
+        }
         Db::update(
             $wpdb->terms,
-            ['name' => $front['name'], 'slug' => $front['slug']],
+            $termRow,
             ['term_id' => $termId],
             null,
             null,
@@ -171,6 +178,7 @@ final class TermMaterializer {
      * Every other taxonomy keeps the plain detokenize_text() treatment.
      */
     public function encode_description(string $taxonomy, $description): string {
+        $this->policy->taxonomy_description_lint_rule($taxonomy, $description);
         $rule = $this->policy->description_reference_rule($taxonomy);
         if ($rule === null) {
             return $this->tokens->detokenize_text((string) $description);

@@ -6,8 +6,13 @@ namespace Duo {
         public bool $derivedLocations = false;
         /** @var array<string,string> */
         public array $keyspaces = ['category' => 'post'];
+        /** @var array<string,bool> */
+        public array $authoredTermGroups = [];
         /** @return array<string,mixed> */
         public function menu_field_class(string $field): string { return $this->derivedLocations ? 'derived' : 'authored'; }
+        public function taxonomy_term_group_is_authored(string $taxonomy): bool {
+            return $this->authoredTermGroups[$taxonomy] ?? false;
+        }
         public function taxonomy_object_keyspace(string $taxonomy): string {
             if (!isset($this->keyspaces[$taxonomy])) {
                 throw new \RuntimeException("no keyspace for $taxonomy");
@@ -58,6 +63,27 @@ namespace {
     $post = ['uuid' => 'u', 'type' => 'post', 'slug' => 'one', 'title' => '', 'status' => 'publish', 'date' => '', 'date_gmt' => '', 'modified_gmt' => '', 'author' => null, 'parent' => null, 'menu_order' => 0, 'comment_status' => '', 'ping_status' => '', 'excerpt' => '', 'meta' => [], 'terms' => ['category' => []]];
     $validator->validate('post', 'posts/post/u--one.md', $post, '');
     $check($diagnostics === [], 'a complete post shape with the declared post keyspace is accepted without compiler state');
+
+    $term = ['uuid' => 'u', 'taxonomy' => 'language', 'name' => 'English', 'slug' => 'en', 'description' => '', 'parent' => null, 'meta' => [], 'relationships' => []];
+    $reset(); $policy->authoredTermGroups['language'] = true;
+    $validator->validate('term', 'terms/language/u--en.json', $term, null);
+    $check(
+        ($diagnostics[0]['code'] ?? null) === 'schema_content_mismatch'
+        && ($diagnostics[0]['locator'] ?? null) === 'term_group',
+        'an exact authored term-group taxonomy requires the portable field'
+    );
+
+    $reset(); $term['term_group'] = 37;
+    $validator->validate('term', 'terms/language/u--en.json', $term, null);
+    $check($diagnostics === [], 'an exact authored non-negative term_group passes the direct schema seam');
+
+    $reset(); unset($policy->authoredTermGroups['language']);
+    $validator->validate('term', 'terms/language/u--en.json', $term, null);
+    $check(
+        ($diagnostics[0]['code'] ?? null) === 'schema_content_mismatch'
+        && ($diagnostics[0]['locator'] ?? null) === 'term_group',
+        'term_group on an undeclared taxonomy refuses at the direct schema seam'
+    );
 
     $reset(); $policy->keyspaces['category'] = 'term';
     $validator->validate('post', 'posts/post/u--one.md', $post, '');

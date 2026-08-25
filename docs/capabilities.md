@@ -47,7 +47,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [elementor](#elementor) | certified | `elementor/elementor.php` | >=4.0.0 <5.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [ninja-forms](#ninja-forms) | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [paid-memberships-pro](#paid-memberships-pro) | certified | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.2 <3.8.4 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
-| [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.5 <4.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.8 <3.8.8 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [the-events-calendar](#the-events-calendar) | certified | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.4 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [wps-hide-login](#wps-hide-login) | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -281,18 +281,18 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## polylang
 
-**Status: certified.** Certified bilingual entity/ref behavior and rendered output at both admitted boundaries.
+**Status: certified.** Certified for the reviewed Polylang 3.8.x boundary: exact 3.8/3.8.6/3.8.7 artifact pins and adjacent 3.7/3.8.8 refusal controls, multilingual post/page/pattern/term/media/menu/widget graph, populated string-catalog term metadata plus exact empty-sentinel runtime handling, native API/render behavior, warning-free clean-target capture/deploy/apply, byte-identical recapture, provider projection plus fresh-process native rewrite action, failure-before-effect/retry, clean no-op recapture, lifecycle recovery, and exact 3.8.6 populated multisite refusal. Polylang Pro/add-ons, plugin-specific deletes, WPML state, domain/subdomain URL topology, and multisite remain explicit refusals.
 
 - **Plugin:** `polylang/polylang.php`
-- **Version range:** >=3.5 <4.0.0
+- **Version range:** >=3.8 <3.8.8
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** `taxonomies` (4: language, post_translations, term_language, term_translations)
-- **Declared fields:** `options` (4: default_category, pll_language_from_content_available, pll_language_taxonomies, polylang), `menu_fields` (1: locations)
-- **Adapter hooks:** 1 provider, 1 structured action
+- **Declared fields:** `options` (5: pll_dismissed_notices, pll_language_from_content_available, pll_language_taxonomies, polylang, polylang_licenses), `post_meta` (1: _pll_menu_item), `term_meta` (1: _pll_strings_translations), `user_meta` (3: description, pll_dismissed_notices, pll_filter_content), `widgets` (1: polylang)
+- **Adapter hooks:** 1 provider, 2 structured actions, interpreter `polylang`
 - **Deletions supported:** none
 - **Deletions unsupported:** plugin-specific deletes
-- **Exercised by:** `conformance-polylang`, `exact-artifact-version-matrix`
+- **Exercised by:** `conformance-polylang`, `exact-artifact-version-matrix`, `regress-polylang-production-readiness`, `regress-polylang-multisite-refusal`, `regress-polylang-tec-rewrite-coinstall`
 
 **Unsupported, explicitly.**
 

@@ -432,8 +432,8 @@ duo_check(
 // motivated the rider, taken on the shipped library rather than asserted.
 duo_check(
     str_contains($gradesDoc, '| [acf](#acf) | certified | complete · 16/16 units')
-        && str_contains($gradesDoc, '| [polylang](#polylang) | certified | partial · 10/17 units'),
-    'TWO ADAPTERS, ONE WORD, DIFFERENT EVIDENCE: acf and polylang are both `certified` and grade complete 16/16 against partial 10/17 — the difference an operator could not see before, now visible without widening what `certified` means'
+        && str_contains($gradesDoc, '| [polylang](#polylang) | certified | complete · 17/17 units'),
+    'TWO ADAPTERS, ONE WORD, DIFFERENT EVIDENCE: acf and polylang are both `certified` and both grade complete, but over 16/16 versus 17/17 units — the difference an operator could not see before, now visible without widening what `certified` means'
 );
 
 echo "\nPART 7 — the release gate byte-compares the projection, and BITES\n";
@@ -499,9 +499,13 @@ duo_check_same(0, $baseline['exit'], 'the unmutated copy passes, so every refusa
 
 $docPath = $gateRoot . '/docs/adapter-grades.md';
 $docBytes = (string) file_get_contents($docPath);
-file_put_contents($docPath, str_replace('| [polylang](#polylang) | certified | partial', '| [polylang](#polylang) | certified | complete', $docBytes));
+file_put_contents($docPath, str_replace(
+    '| [polylang](#polylang) | certified | complete · 17/17 units · 2 of 3 axes',
+    '| [polylang](#polylang) | certified | partial · 17/17 units · 2 of 3 axes',
+    $docBytes
+));
 $editedDoc = $run($gate);
-duo_check($editedDoc['exit'] !== 0, 'THE GATE BITES ON A HAND-EDIT: promoting one grade in the prose is refused');
+duo_check($editedDoc['exit'] !== 0, 'THE GATE BITES ON A HAND-EDIT: changing one grade in the prose is refused');
 duo_check(
     str_contains($editedDoc['stderr'], 'the generated evidence grades are stale')
         && str_contains($editedDoc['stderr'], 'first difference at line'),

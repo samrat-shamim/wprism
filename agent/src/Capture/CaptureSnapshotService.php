@@ -190,6 +190,7 @@ final class CaptureSnapshotService {
                     $forceUnresolvedRefs,
                     $repositoryOptions,
                     $dynamicResolverValues,
+                    true,
                     true
                 );
             },

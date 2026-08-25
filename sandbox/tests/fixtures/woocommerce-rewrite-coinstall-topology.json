@@ -61,6 +61,21 @@
     },
     {
       "plugin": "polylang",
+      "path": "src/admin/admin.php",
+      "sha256": "7ed2774c6c73c514c64fc1a4b6533e41bacc8278a54785e8246492ce597bfdc5"
+    },
+    {
+      "plugin": "polylang",
+      "path": "src/modules/sitemaps/sitemaps.php",
+      "sha256": "364cf0f52c51aeba8702e5108e2ddc66c35dc7b93bb4f694a3c35f862ed25856"
+    },
+    {
+      "plugin": "polylang",
+      "path": "src/modules/sitemaps/load.php",
+      "sha256": "f8f29cc916bd931ad1d2e886fff55beabba537ffcf21af055dddf4b918b24e8e"
+    },
+    {
+      "plugin": "polylang",
       "path": "src/links-directory.php",
       "sha256": "5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0"
     },

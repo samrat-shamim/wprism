@@ -205,6 +205,22 @@ check(
         && in_array('render-api', $pmproDisposition['capabilities']['operations'] ?? [], true),
     'Paid Memberships Pro binds its exact range to adversarial, lifecycle, native, and adjacent-tag evidence'
 );
+$polylangDisposition = $data['manifests']['polylang'];
+check(
+    ($polylangDisposition['status'] ?? null) === 'certified'
+        && ($polylangDisposition['supported_versions'] ?? null) === [
+            'plugin' => 'polylang/polylang.php',
+            'range' => ['max' => '3.8.8', 'min' => '3.8'],
+        ]
+        && ($polylangDisposition['evidence']['tests'] ?? null) === [
+            'conformance-polylang',
+            'exact-artifact-version-matrix',
+            'regress-polylang-production-readiness',
+            'regress-polylang-multisite-refusal',
+            'regress-polylang-tec-rewrite-coinstall',
+        ],
+    'Polylang is certified only with exact artifacts, readiness, multisite, and shared rewrite evidence'
+);
 foreach ([
     'advanced-editor-tools' => ['plugin' => 'tinymce-advanced/tinymce-advanced.php', 'min' => '5.9.2', 'max' => '5.9.3'],
     'classic-editor' => ['plugin' => 'classic-editor/classic-editor.php', 'min' => '1.7.0', 'max' => '1.7.1'],
@@ -241,6 +257,13 @@ function subject_test_is_discoverable(string $repo, string $test, string $name):
     }
     if ($test === 'exact-artifact-version-matrix' || ($test === 'multisite-refusal' && $name === 'core')) {
         return true;
+    }
+    if ($test === 'regress-polylang-production-readiness') {
+        return is_file("$repo/sandbox/tests/offline/adapter/regress_polylang_production_readiness.php");
+    }
+    if (in_array($test, ['regress-polylang-multisite-refusal', 'regress-polylang-tec-rewrite-coinstall'], true)) {
+        $suite = str_replace('-', '_', $test);
+        return is_file("$repo/sandbox/tests/live/$suite.sh");
     }
     // A third arm used to fall back to sandbox/certification/tests/$test.sh.
     // That whole directory went with the certification-evidence apparatus, so

@@ -19,6 +19,14 @@
  */
 declare(strict_types=1);
 
+/** @var array<string,object> exact runtime taxonomy registrations for one fixture pass */
+$GLOBALS['duo_menu_materializer_taxonomies'] = [];
+if (!function_exists('get_taxonomy')) {
+    function get_taxonomy(string $taxonomy): object|false {
+        return $GLOBALS['duo_menu_materializer_taxonomies'][$taxonomy] ?? false;
+    }
+}
+
 /**
  * Each extracted materializer must be loadable without relying on duo.php's
  * bootstrap order.  Run the probes in fresh PHP processes so the classes
@@ -33,7 +41,9 @@ $standaloneProbes = [
     [
         'label' => 'MenuMaterializer self-requires its constructor dependencies',
         'file' => __DIR__ . '/../../../../agent/src/Apply/MenuMaterializer.php',
-        'classes' => ['Duo\\Policy', 'Duo\\Tokens', 'Duo\\ApplyFieldMaterializer'],
+        'classes' => [
+            'Duo\\Policy', 'Duo\\Tokens', 'Duo\\ApplyFieldMaterializer', 'Duo\\RelationshipMaterializer',
+        ],
     ],
 ];
 $standaloneFailures = [];
@@ -243,15 +253,24 @@ $runtimePolicy->site = ['policy' => [
     ],
     'menu_fields' => ['locations' => ['class' => 'derived']],
 ]];
+$runtimePolicy->manifests = [[
+    'name' => 'polylang-fixture',
+    'taxonomies' => [
+        'term_language' => ['object_keyspace' => 'term'],
+        'term_translations' => ['object_keyspace' => 'term'],
+    ],
+]];
 $runtimeTokens = new Tokens('https://target.test', 'https://target.test/wp-content/uploads');
 
 $menuDb = static function (
     array $posts,
     array $postmeta,
     array $relationships,
-    bool $mapItem = true
+    bool $mapItem = true,
+    array $extraTerms = [],
+    array $extraTaxonomies = []
 ) use ($menuUuid, $itemUuid): \DuoTest\LockingFakeWpdb {
-    $inner = new \DuoTest\FakeWpdb();
+    $inner = (new \DuoTest\FakeWpdb())->enableRelationshipOwnershipJoin();
     $db = new \DuoTest\LockingFakeWpdb($inner);
     $db->setColumns('terms', ['term_id' => 'bigint unsigned', 'name' => 'varchar(200)', 'slug' => 'varchar(200)']);
     $db->setColumns('term_taxonomy', [
@@ -270,13 +289,13 @@ $menuDb = static function (
         'uuid' => 'char(36)', 'entity_type' => 'varchar(64)',
         'id_kind' => 'varchar(64)', 'local_id' => 'bigint unsigned',
     ]);
-    $db->seedTable('terms', [[
+    $db->seedTable('terms', array_merge([[
         'term_id' => 10, 'name' => 'Old menu', 'slug' => 'old-menu',
-    ]]);
-    $db->seedTable('term_taxonomy', [[
+    ]], $extraTerms));
+    $db->seedTable('term_taxonomy', array_merge([[
         'term_taxonomy_id' => 20, 'term_id' => 10, 'taxonomy' => 'nav_menu',
         'description' => '', 'parent' => 0, 'count' => count($relationships),
-    ]]);
+    ]], $extraTaxonomies));
     $db->seedTable('term_relationships', $relationships);
     $db->seedTable('posts', $posts);
     $db->seedTable('postmeta', $postmeta);
@@ -302,12 +321,15 @@ $menuDb = static function (
     return $db;
 };
 
-$runMenu = static function (\DuoTest\LockingFakeWpdb $db) use (
+$runMenu = static function (\DuoTest\LockingFakeWpdb $db, array $taxonomies = []) use (
     $runtimePolicy,
     $runtimeTokens,
     $front
 ): array {
     $GLOBALS['wpdb'] = $db;
+    $GLOBALS['duo_menu_materializer_taxonomies'] = $taxonomies + [
+        'nav_menu' => (object) ['object_type' => ['nav_menu_item']],
+    ];
     \DuoTest\WpStore::reset();
     $field = new ApplyFieldMaterializer($runtimePolicy, $runtimeTokens);
     $subject = new MenuMaterializer($runtimePolicy, $runtimeTokens, $field);
@@ -445,7 +467,13 @@ $check(
 $crossMenuResult = $runMenu($menuDb(
     [['ID' => 30, 'post_type' => 'nav_menu_item']],
     [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
-    [['object_id' => 30, 'term_taxonomy_id' => 21, 'term_order' => 0]]
+    [['object_id' => 30, 'term_taxonomy_id' => 21, 'term_order' => 0]],
+    true,
+    [],
+    [[
+        'term_taxonomy_id' => 21, 'term_id' => 11, 'taxonomy' => 'nav_menu',
+        'description' => '', 'parent' => 0, 'count' => 1,
+    ]]
 ));
 $check(
     $crossMenuResult['failure'] instanceof Throwable
@@ -480,6 +508,113 @@ $check(
     'a new menu item persists exact post/identity/membership readback before its ledger mapping'
 );
 
+// Polylang stores a category TERM's language/translation memberships in the
+// same wp_term_relationships.object_id column a nav menu uses for POST ids.
+// Force both independent allocators to mint 1: the prior raw menu read saw
+// these rows after adding nav_menu(20), then falsely rejected [20,22,23] as
+// not the exact desired [20]. The product path must retain both term rows.
+$polylangCollisionDb = $menuDb(
+    [],
+    [],
+    [
+        ['object_id' => 1, 'term_taxonomy_id' => 22, 'term_order' => 0],
+        ['object_id' => 1, 'term_taxonomy_id' => 23, 'term_order' => 0],
+    ],
+    false,
+    [
+        ['term_id' => 1, 'name' => 'Translated category', 'slug' => 'translated-category'],
+        ['term_id' => 2, 'name' => 'English', 'slug' => 'en'],
+        ['term_id' => 3, 'name' => 'Translation set', 'slug' => 'translation-set'],
+    ],
+    [
+        [
+            'term_taxonomy_id' => 22, 'term_id' => 2, 'taxonomy' => 'term_language',
+            'description' => '', 'parent' => 0, 'count' => 1,
+        ],
+        [
+            'term_taxonomy_id' => 23, 'term_id' => 3, 'taxonomy' => 'term_translations',
+            'description' => '', 'parent' => 0, 'count' => 1,
+        ],
+    ]
+);
+$polylangCollisionResult = $runMenu($polylangCollisionDb, [
+    'term_language' => (object) ['object_type' => ['term']],
+    'term_translations' => (object) ['object_type' => ['term']],
+]);
+$polylangCollisionRelationships = $polylangCollisionResult['rows']['relationships'];
+$polylangCollisionTts = array_map(
+    static fn(array $row): int => (int) $row['term_taxonomy_id'],
+    $polylangCollisionRelationships
+);
+sort($polylangCollisionTts, SORT_NUMERIC);
+$polylangOwnershipJoinSeen = count(array_filter(
+    $polylangCollisionResult['failure'] === null ? $polylangCollisionDb->inner()->queries() : [],
+    static fn(string $sql): bool => str_contains(
+        $sql,
+        'SELECT tr.term_taxonomy_id, tr.term_order, tt.taxonomy FROM wp_term_relationships tr LEFT JOIN wp_term_taxonomy tt'
+    ) && str_contains($sql, 'WHERE tr.object_id = 1')
+)) > 0;
+$check(
+    $polylangCollisionResult['failure'] === null
+        && array_column($polylangCollisionResult['rows']['posts'], 'ID') === [1]
+        && $polylangCollisionTts === [20, 22, 23]
+        && array_unique(array_column($polylangCollisionRelationships, 'object_id')) === [1]
+        && $polylangOwnershipJoinSeen,
+    'Polylang term_language/term_translations rows sharing a new nav_menu_item id stay intact while exact menu membership succeeds'
+);
+
+$postKeyspaceResult = $runMenu($menuDb(
+    [['ID' => 30, 'post_type' => 'nav_menu_item']],
+    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+    [['object_id' => 30, 'term_taxonomy_id' => 24, 'term_order' => 0]],
+    true,
+    [],
+    [[
+        'term_taxonomy_id' => 24, 'term_id' => 12, 'taxonomy' => 'category',
+        'description' => '', 'parent' => 0, 'count' => 1,
+    ]]
+), [
+    'category' => (object) ['object_type' => ['post']],
+]);
+$check(
+    $postKeyspaceResult['failure'] instanceof Throwable
+        && str_contains($postKeyspaceResult['failure']->getMessage(), 'cross-menu takeover')
+        && ($postKeyspaceResult['rows']['terms'][0]['name'] ?? null) === 'Old menu'
+        && ($postKeyspaceResult['rows']['relationships'][0]['term_taxonomy_id'] ?? null) === 24,
+    'an extra registered post-keyspace taxonomy relationship still refuses menu ownership takeover'
+);
+
+foreach ([
+    'unregistered' => [
+        'taxonomy' => 'unknown_relationship_owner',
+        'registrations' => [],
+    ],
+    'malformed registration' => [
+        'taxonomy' => 'malformed_relationship_owner',
+        'registrations' => ['malformed_relationship_owner' => (object) ['object_type' => 'post']],
+    ],
+] as $label => $case) {
+    $taxonomy = $case['taxonomy'];
+    $invalidTaxonomyResult = $runMenu($menuDb(
+        [['ID' => 30, 'post_type' => 'nav_menu_item']],
+        [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+        [['object_id' => 30, 'term_taxonomy_id' => 25, 'term_order' => 0]],
+        true,
+        [],
+        [[
+            'term_taxonomy_id' => 25, 'term_id' => 13, 'taxonomy' => $taxonomy,
+            'description' => '', 'parent' => 0, 'count' => 1,
+        ]]
+    ), $case['registrations']);
+    $check(
+        $invalidTaxonomyResult['failure'] instanceof Throwable
+            && str_contains($invalidTaxonomyResult['failure']->getMessage(), 'is unregistered or malformed')
+            && ($invalidTaxonomyResult['rows']['terms'][0]['name'] ?? null) === 'Old menu'
+            && ($invalidTaxonomyResult['rows']['relationships'][0]['term_taxonomy_id'] ?? null) === 25,
+        "$label relationship taxonomy refuses before a menu mutation"
+    );
+}
+
 $driftDb = $menuDb(
     [['ID' => 30, 'post_type' => 'nav_menu_item']],
     [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
@@ -489,7 +624,7 @@ $relationshipReads = 0;
 $driftDb->inner()->onQuery(static function (string $sql, string $method, \DuoTest\FakeWpdb $db) use (&$relationshipReads): mixed {
     if ($method === 'get_results'
         && str_contains($sql, 'FROM wp_term_relationships')
-        && str_contains($sql, 'WHERE object_id = 30')) {
+        && str_contains($sql, 'WHERE tr.object_id = 30')) {
         ++$relationshipReads;
         if ($relationshipReads === 2) {
             $db->seedTable('term_relationships', []);
@@ -498,12 +633,16 @@ $driftDb->inner()->onQuery(static function (string $sql, string $method, \DuoTes
     return null;
 });
 $driftResult = $runMenu($driftDb);
+$driftOk = $driftResult['failure'] instanceof Throwable
+    && str_contains($driftResult['failure']->getMessage(), 'relationship readback disagrees')
+    && ($driftResult['rows']['terms'][0]['name'] ?? null) === 'Primary menu'
+    && ($driftDb->rows('terms')[0]['name'] ?? null) === 'Old menu'
+    && $driftDb->rows('term_relationships') === [];
+if (!$driftOk && $driftResult['failure'] instanceof Throwable) {
+    fwrite(STDERR, '    relationship drift refusal: ' . $driftResult['failure']->getMessage() . "\n");
+}
 $check(
-    $driftResult['failure'] instanceof Throwable
-        && str_contains($driftResult['failure']->getMessage(), 'relationship readback disagrees')
-        && ($driftResult['rows']['terms'][0]['name'] ?? null) === 'Primary menu'
-        && ($driftDb->rows('terms')[0]['name'] ?? null) === 'Old menu'
-        && $driftDb->rows('term_relationships') === [],
+    $driftOk,
     'post-attach same-transaction relationship drift is rejected and the authored rollback restores prior bytes'
 );
 

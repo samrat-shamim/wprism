@@ -2987,28 +2987,56 @@ $wpdb->kv = [];
 // regress_woocommerce_regen_engine.php uses for the same class of claim.
 // Isolate the coordinator's actual private run() source so an unrelated
 // constructor, comment, or dead helper cannot satisfy these named mappings.
+// Attachment recovery deliberately gives this request a name before invoking
+// the coordinator: its native authority must be discarded on every earlier
+// failure, but becomes the coordinator's responsibility once entry is marked.
+// The direct `rebuild(new RebuildRequest(...))` spelling therefore cannot be
+// the test's boundary; prove both the request's exact inputs and its one live
+// handoff instead.
 $runSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyRequestCoordinator.php');
 $runMethodStart = strpos($runSource, 'private function run(');
-$rebuildRequestStart = strpos($runSource, 'new RebuildRequest(', (int) $runMethodStart);
-$rebuildRequestEnd = strpos($runSource, "\n            ),\n            \$this->warnings", (int) $rebuildRequestStart);
-$rebuildRequestSource = substr(
+$runMethodEnd = strpos($runSource, "\n    private static function assert_expected_artifact(", (int) $runMethodStart);
+$runMethodSource = substr(
     $runSource,
-    (int) $rebuildRequestStart,
-    (int) $rebuildRequestEnd - (int) $rebuildRequestStart
+    (int) $runMethodStart,
+    (int) $runMethodEnd - (int) $runMethodStart
 );
+$expectedRebuildRequest = <<<'PHP'
+        $rebuildRequest = new RebuildRequest(
+                attachmentIds: $attachmentIds,
+                work: $work,
+                tree: $tree,
+                regenerationContext: $regenContext,
+                deleteWork: $deleteWork,
+                withDeletes: $executeDeletes,
+                absentTombstones: $plan['deleted'],
+                retryingIncompleteApply: $this->retryingIncompleteApply,
+                scoped: $scoped,
+                skipScopedCore: $skipScopedCore,
+                scopedCoreComplete: $scopedCoreComplete === null
+                    ? null
+                    : \Closure::fromCallable($scopedCoreComplete),
+                suppressScopedExternalEffects: $scopedPromotion,
+                scopedSession: $this->scopedWorkflow->session,
+                scopedObservation: $this->scopedWorkflow->observation
+        );
+PHP;
+$expectedRebuildHandoff = <<<'PHP'
+        $this->rebuildCoordinator->rebuild(
+            $rebuildRequest,
+            $this->warnings,
+            $this->actionReceipts
+        );
+PHP;
 $check(
     $runMethodStart !== false
-        && $rebuildRequestStart !== false
-        && $rebuildRequestEnd !== false
-        && str_contains($rebuildRequestSource, 'deleteWork: $deleteWork,')
-        && str_contains($rebuildRequestSource, "absentTombstones: \$plan['deleted'],")
-        && str_contains($rebuildRequestSource, 'withDeletes: $executeDeletes,')
-        && str_contains($rebuildRequestSource, 'retryingIncompleteApply: $this->retryingIncompleteApply,')
-        && str_contains($rebuildRequestSource, 'suppressScopedExternalEffects: $scopedPromotion,'),
+        && $runMethodEnd !== false
+        && str_contains($runMethodSource, $expectedRebuildRequest)
+        && str_contains($runMethodSource, $expectedRebuildHandoff),
     "run() hands the rebuild pass this run's tombstones, the with_deletes gate, and the already-absent set — never "
     . 'the wider set the pre-mutation selection projected surfaces from; scoped promotion also retains its '
     . 'checkpoint-only external-effects profile');
-$check((bool) preg_match('/\$this->retryingIncompleteApply\s*=\s*\$retryingIncompleteApply;/', $runSource),
+$check((bool) preg_match('/\$this->retryingIncompleteApply\s*=\s*\$retryingIncompleteApply;/', $runMethodSource),
     'run() records its apply_in_progress read on the instance, which is the only path by which the retry channel '
     . 'can ever be true');
 

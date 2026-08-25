@@ -6,8 +6,63 @@ namespace Duo {
     final class Db {
         public static int $starts = 0;
         public static int $rollbacks = 0;
+        public static int $nextMetaId = 11;
 
         public static function start_repeatable_read(string $purpose): void { ++self::$starts; }
+        public static function commit(string $purpose): void {}
+        public static function checkpoint(string $purpose): void {}
+        public static function transaction_active(string $purpose): bool { return true; }
+        public static function insert(string $table, array $data, mixed $format = null, ?string $purpose = null): int {
+            global $wpdb;
+            if ($table === 'wp_postmeta' && is_object($wpdb) && property_exists($wpdb, 'rows')) {
+                $data['meta_id'] = (string) self::$nextMetaId++;
+                $wpdb->rows[] = [
+                    'meta_id' => $data['meta_id'],
+                    'post_id' => (string) ($data['post_id'] ?? 0),
+                    'meta_key' => (string) ($data['meta_key'] ?? ''),
+                    'meta_value' => $data['meta_value'] ?? null,
+                ];
+            }
+            return 1;
+        }
+        public static function update(string $table, array $data, array $where, mixed $format = null, mixed $whereFormat = null, ?string $purpose = null): int {
+            global $wpdb;
+            if ($table === 'wp_postmeta' && is_object($wpdb) && property_exists($wpdb, 'rows')) {
+                foreach ($wpdb->rows as &$row) {
+                    if ((string) ($row['meta_id'] ?? '') === (string) ($where['meta_id'] ?? '')) {
+                        $row['meta_value'] = $data['meta_value'] ?? $row['meta_value'];
+                    }
+                }
+                unset($row);
+            }
+            return 1;
+        }
+        public static function delete(string $table, array $where, mixed $whereFormat = null, ?string $purpose = null): int { return 1; }
+        public static function insert_id(string $purpose): int { return 41; }
+        public static function query(string $sql, string $purpose): int {
+            global $wpdb;
+            if (preg_match("/INSERT INTO wp_duo_kv \(k, v\) VALUES \('((?:''|[^'])*)', '((?:''|[^'])*)'\)/", $sql, $match) === 1) {
+                $key = str_replace("''", "'", $match[1]);
+                $value = str_replace("''", "'", $match[2]);
+                foreach ($wpdb->kvRows as &$row) {
+                    if ($row['k'] === $key) {
+                        $row['v'] = $value;
+                        unset($row);
+                        return 1;
+                    }
+                }
+                unset($row);
+                $wpdb->kvRows[] = ['k' => $key, 'v' => $value];
+            }
+            if (preg_match("/DELETE FROM wp_duo_kv WHERE k = '((?:''|[^'])*)'/", $sql, $deleteMatch) === 1) {
+                $key = str_replace("''", "'", $deleteMatch[1]);
+                $wpdb->kvRows = array_values(array_filter(
+                    $wpdb->kvRows,
+                    static fn(array $row): bool => $row['k'] !== $key
+                ));
+            }
+            return 1;
+        }
         public static function rollback(string $purpose): void {
             ++self::$rollbacks;
             if (isset($GLOBALS['wpdb'])
@@ -47,6 +102,69 @@ namespace TEC\Common\Integrations\Harbor {
 }
 
 namespace {
+    if (!function_exists('untrailingslashit')) {
+        function untrailingslashit(string $value): string { return rtrim($value, '/\\'); }
+    }
+    if (!function_exists('get_option')) {
+        function get_option(string $name): mixed { return $name === 'home' ? 'https://example.test' : false; }
+    }
+    if (!function_exists('wp_upload_dir')) {
+        function wp_upload_dir(?string $time = null, bool $refresh = false): array {
+            return ['baseurl' => 'https://example.test/wp-content/uploads'];
+        }
+    }
+    if (!function_exists('get_taxonomy')) {
+        function get_taxonomy(string $taxonomy): object { return (object) ['hierarchical' => true]; }
+    }
+    if (!function_exists('wp_cache_flush')) {
+        function wp_cache_flush(): true { return true; }
+    }
+    if (!function_exists('wp_cache_delete')) {
+        function wp_cache_delete(mixed $key, string $group = ''): bool { return true; }
+    }
+    if (!function_exists('wp_cache_get')) {
+        function wp_cache_get(mixed $key, string $group = '', bool $force = false, mixed &$found = null): mixed {
+            $found = false;
+            return false;
+        }
+    }
+
+    final class PLL_Sync_Post_Metas {
+        public function can_synchronize_metadata(mixed $check, mixed $id, mixed $key): mixed {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('Polylang post-meta guard must be quarantined');
+        }
+
+        public function update_metadata(
+            mixed $check,
+            mixed $id,
+            mixed $key,
+            mixed $value,
+            mixed $prior
+        ): mixed {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('Polylang post-meta witness must be quarantined');
+        }
+    }
+}
+
+namespace {
+    final class DuoTestPolylangModel {
+        public function has_languages(): bool {
+            return (bool) ($GLOBALS['duo_polylang_has_languages'] ?? false);
+        }
+    }
+    final class DuoTestPolylangRuntime {
+        public object $model;
+        public function __construct() {
+            $this->model = new DuoTestPolylangModel();
+        }
+    }
+    $GLOBALS['duo_polylang_runtime'] = new DuoTestPolylangRuntime();
+    function PLL(): object {
+        return $GLOBALS['duo_polylang_runtime'];
+    }
+
     if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
     /**
      * Product-path regression for the durable attachment filesystem/native
@@ -115,7 +233,15 @@ namespace {
     }
     final class AttachmentAuthorityWpdb {
         public string $prefix = 'wp_';
+        public string $posts = 'wp_posts';
         public string $postmeta = 'wp_postmeta';
+        public string $terms = 'wp_terms';
+        public string $term_taxonomy = 'wp_term_taxonomy';
+        public string $term_relationships = 'wp_term_relationships';
+        public string $termmeta = 'wp_termmeta';
+        public string $options = 'wp_options';
+        public string $users = 'wp_users';
+        public string $usermeta = 'wp_usermeta';
         public string $last_error = '';
         public bool $savepointExists = false;
         public bool $failMarkerInventory = false;
@@ -139,6 +265,13 @@ namespace {
         public function get_var(string $sql): mixed {
             $this->queries[] = $sql;
             if (trim($sql) === 'SELECT @@in_transaction') return '1';
+            if (preg_match('/^SELECT 1 FROM `[^`]+` LIMIT 1$/D', trim($sql)) === 1) return '1';
+            if (preg_match("/^SELECT local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'$/D", trim($sql), $match) === 1) {
+                foreach ($this->kvRows as $row) {
+                    if ($row['k'] === 'ledger:' . $match[2] . ':' . $match[1]) return $row['v'];
+                }
+                return null;
+            }
             if (preg_match("/SELECT v FROM wp_duo_kv WHERE k = '((?:''|[^'])*)'/D", $sql, $match) === 1) {
                 $wanted = str_replace("''", "'", $match[1]);
                 foreach ($this->kvRows as $row) {
@@ -189,15 +322,132 @@ namespace {
                     ];
                 }, $rows);
             }
-            if (str_starts_with($sql, 'SHOW INDEX FROM `wp_postmeta`')) {
+            if (str_starts_with($sql, 'SHOW INDEX FROM')) {
+                if (str_contains($sql, '`wp_options`')) {
+                    return [[
+                        'Key_name' => 'option_name',
+                        'Seq_in_index' => '1',
+                        'Column_name' => 'option_name',
+                        'Sub_part' => null,
+                        'Non_unique' => '0',
+                        'Index_type' => 'BTREE',
+                    ]];
+                }
+                if (str_contains($sql, '`wp_posts`')) {
+                    return [[
+                        'Key_name' => 'PRIMARY',
+                        'Seq_in_index' => '1',
+                        'Column_name' => 'ID',
+                        'Sub_part' => null,
+                        'Non_unique' => '0',
+                        'Index_type' => 'BTREE',
+                    ]];
+                }
+                if (str_contains($sql, '`wp_duo_map`')) {
+                    return [[
+                        'Key_name' => 'PRIMARY',
+                        'Seq_in_index' => '1',
+                        'Column_name' => 'uuid',
+                        'Sub_part' => null,
+                        'Non_unique' => '0',
+                        'Index_type' => 'BTREE',
+                    ]];
+                }
+                return [
+                    [
+                        'Key_name' => 'meta_key',
+                        'Seq_in_index' => '1',
+                        'Column_name' => 'meta_key',
+                        'Sub_part' => '191',
+                        'Non_unique' => '1',
+                        'Index_type' => 'BTREE',
+                    ],
+                    [
+                        'Key_name' => 'post_id',
+                        'Seq_in_index' => '1',
+                        'Column_name' => 'post_id',
+                        'Sub_part' => null,
+                        'Non_unique' => '1',
+                        'Index_type' => 'BTREE',
+                    ],
+                ];
+            }
+            if (str_contains($sql, 'FROM information_schema.TABLES')) {
+                preg_match_all("/'([^']+)'/", $sql, $matches);
+                return array_map(static fn(string $table): array => [
+                    'TABLE_NAME' => $table,
+                    'ENGINE' => 'InnoDB',
+                ], $matches[1] ?? []);
+            }
+            if (str_contains($sql, 'SELECT option_name')) return [];
+            if (str_contains($sql, 'SELECT k, v FROM wp_duo_kv')) return [];
+            if (str_contains($sql, 'OCTET_LENGTH(meta_key)')) {
+                preg_match('/`post_id` = ([0-9]+)/', $sql, $ownerMatch);
+                $owner = (int) ($ownerMatch[1] ?? 0);
+                $rows = array_values(array_map(
+                    static fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key_bytes' => (string) strlen($row['meta_key']),
+                        'meta_value_bytes' => $row['meta_value'] === null ? null : (string) strlen($row['meta_value']),
+                    ],
+                    array_filter($this->rows, static fn(array $row): bool => (int) $row['post_id'] === $owner)
+                ));
+                return $rows;
+            }
+            if (str_contains($sql, 'SHA2(meta_key, 256)')) {
+                preg_match('/`post_id` = ([0-9]+)/', $sql, $ownerMatch);
+                $owner = (int) ($ownerMatch[1] ?? 0);
+                return array_values(array_map(
+                    static fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key_sha256' => hash('sha256', $row['meta_key']),
+                        'meta_value_sha256' => $row['meta_value'] === null ? null : hash('sha256', $row['meta_value']),
+                    ],
+                    array_filter($this->rows, static fn(array $row): bool => (int) $row['post_id'] === $owner)
+                ));
+            }
+            if (str_contains($sql, 'AS meta_id, meta_key, meta_value')) {
+                preg_match('/`post_id` = ([0-9]+)/', $sql, $ownerMatch);
+                $owner = (int) ($ownerMatch[1] ?? 0);
+                return array_values(array_map(
+                    static fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key' => $row['meta_key'],
+                        'meta_value' => $row['meta_value'],
+                    ],
+                    array_filter($this->rows, static fn(array $row): bool => (int) $row['post_id'] === $owner)
+                ));
+            }
+            if (str_contains($sql, 'SELECT ID, post_type, post_mime_type FROM wp_posts')) {
                 return [[
-                    'Key_name' => 'meta_key',
-                    'Seq_in_index' => '1',
-                    'Column_name' => 'meta_key',
-                    'Sub_part' => '191',
-                    'Non_unique' => '1',
-                    'Index_type' => 'BTREE',
+                    'ID' => '41',
+                    'post_type' => 'attachment',
+                    'post_mime_type' => 'image/png',
                 ]];
+            }
+            if (str_contains($sql, 'SELECT uuid, entity_type, id_kind, local_id FROM `wp_duo_map`')) {
+                preg_match("/WHERE uuid = '([^']+)'/", $sql, $uuidMatch);
+                return [[
+                    'uuid' => $uuidMatch[1] ?? '01a0341e-2067-7fe3-9402-530b5a0f6b34',
+                    'entity_type' => 'post',
+                    'id_kind' => 'post',
+                    'local_id' => '41',
+                ]];
+            }
+            if (str_contains($sql, 'AS meta_id, meta_key')) {
+                preg_match('/`post_id` = ([0-9]+)/', $sql, $ownerMatch);
+                $owner = (int) ($ownerMatch[1] ?? 0);
+                preg_match("/meta_key = '((?:''|[^'])*)'/", $sql, $keyMatch);
+                $wantedKey = isset($keyMatch[1]) ? str_replace("''", "'", $keyMatch[1]) : null;
+                return array_values(array_map(
+                    static fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key' => $row['meta_key'],
+                    ],
+                    array_filter($this->rows, static fn(array $row): bool =>
+                        (int) $row['post_id'] === $owner
+                        && ($wantedKey === null || $row['meta_key'] === $wantedKey))
+                ));
             }
             if (!str_contains($sql, 'attachment') && !str_contains($sql, 'FROM `wp_postmeta`')) {
                 throw new \RuntimeException("unrecognized attachment authority get_results: $sql");
@@ -245,6 +495,7 @@ namespace {
     $GLOBALS['duo_attachment_big_guard_seen'] = false;
     $GLOBALS['duo_attachment_generate_calls'] = 0;
     $GLOBALS['duo_attachment_adapter_callback_calls'] = 0;
+    $GLOBALS['duo_polylang_has_languages'] = false;
     $GLOBALS['wpdb'] = new AttachmentAuthorityWpdb();
 
     function duo_attachment_filter_id(callable $callback): string {
@@ -262,6 +513,10 @@ namespace {
             'accepted_args' => $acceptedArgs,
         ];
         return true;
+    }
+
+    function add_action(string $hook, callable $callback, int $priority = 10, int $acceptedArgs = 1): bool {
+        return add_filter($hook, $callback, $priority, $acceptedArgs);
     }
 
     function remove_filter(string $hook, callable $callback, int $priority = 10): bool {
@@ -290,7 +545,11 @@ namespace {
     }
 
     function wp_upload_dir(mixed $time = null, bool $create = true): array {
-        return ['basedir' => $GLOBALS['duo_attachment_upload_root'], 'error' => false];
+        return [
+            'basedir' => $GLOBALS['duo_attachment_upload_root'],
+            'baseurl' => 'https://example.test/wp-content/uploads',
+            'error' => false,
+        ];
     }
 
     function wp_get_registered_image_subsizes(): array {
@@ -374,11 +633,20 @@ namespace {
     require_once $root . '/agent/src/Apply/AttachmentNativeMetadataGenerator.php';
     require_once $root . '/agent/src/Apply/AttachmentFilesystemTransaction.php';
     require_once $root . '/agent/src/Apply/AttachmentMaterializer.php';
+    require_once $root . '/agent/src/Apply/ApplyServiceCallbacks.php';
+    require_once $root . '/agent/src/Apply/ApplyServices.php';
+    require_once $root . '/agent/src/Rebuild/RebuildRequest.php';
+    require_once $root . '/agent/src/Rebuild/RebuildSelection.php';
+    require_once $root . '/agent/src/Apply/ApplyRebuildCoordinator.php';
 
     use Duo\ApplyFieldMaterializer;
     use Duo\AttachmentFilesystemTransaction;
     use Duo\AttachmentMaterializer;
+    use Duo\AttachmentNativeMetadataAuthority;
     use Duo\AttachmentNativeMetadataGenerator;
+    use Duo\ApplyRebuildCoordinator;
+    use Duo\ApplyServiceCallbacks;
+    use Duo\ApplyServices;
     use Duo\CompiledRepository;
     use Duo\Db;
     use Duo\DeleteGuardEvaluator;
@@ -405,6 +673,28 @@ namespace {
             }
             $check($matched, $message);
         }
+    };
+    // Production construction requires a materializer-owned capability. This
+    // reflection-only fixture builds the capability for pure generator tests;
+    // the public generator constructor deliberately cannot accept a closure.
+    $makeGenerator = static function (
+        \Closure $lockTarget,
+        array $adapterManifests = [],
+        ?CompiledRepository $compiled = null,
+        ?AttachmentFilesystemTransaction $filesystem = null
+    ): AttachmentNativeMetadataGenerator {
+        $authorityReflection = new \ReflectionClass(AttachmentNativeMetadataAuthority::class);
+        $authority = $authorityReflection->newInstanceWithoutConstructor();
+        foreach ([
+            'compiled' => $compiled,
+            'filesystem' => $filesystem,
+            'adapterManifests' => $adapterManifests,
+            'lockTarget' => $lockTarget,
+        ] as $property => $value) {
+            $field = $authorityReflection->getProperty($property);
+            $field->setValue($authority, $value);
+        }
+        return AttachmentNativeMetadataGenerator::from_authority($authority);
     };
     $removeTree = static function (string $path) use (&$removeTree): void {
         if (is_link($path) || is_file($path)) { @unlink($path); return; }
@@ -436,16 +726,28 @@ namespace {
         $blob = hash('sha256', $png) . '.png';
         $front = [
             'alt' => 'portable alt',
+            'author' => null,
+            'comment_status' => 'open',
+            'date' => '2026-08-25 00:00:00',
+            'date_gmt' => '2026-08-25 00:00:00',
+            'excerpt' => '',
             'file' => '2026/08/photo.png',
             'media' => $blob,
             'mime' => 'image/png',
+            'modified' => '2026-08-25 00:00:00',
+            'modified_gmt' => '2026-08-25 00:00:00',
+            'ping_status' => 'closed',
+            'slug' => 'photo',
+            'status' => 'publish',
+            'title' => 'Photo',
             'type' => 'attachment',
             'uuid' => $uuid,
         ];
-        $tree = [$uuid => ['data' => $front, 'type' => 'post']];
+        $tree = [$uuid => ['body' => '', 'data' => $front, 'type' => 'post']];
         $compiled = CompiledRepository::create([
             'media' => [$blob => ['base64' => base64_encode($png), 'sha256' => hash('sha256', $png)]],
             'tree' => $tree,
+            'manifest_hash' => str_repeat('d', 64),
         ]);
         $work = [['uuid' => $uuid]];
 
@@ -463,8 +765,16 @@ namespace {
         $filesystem->load_pending();
         $check($filesystem->phase() === null, 'an empty private control root has no pending attachment transaction');
         $check(!is_dir($repository . '/.duo'), 'a read-only pending probe does not create private control state');
-        $preflightGenerator = new AttachmentNativeMetadataGenerator(
-            static fn(int $id): never => throw new \LogicException('markerless preflight requested target lock')
+        $preflightGenerator = $makeGenerator(
+            static function (int $id): string {
+                DeleteGuardEvaluator::assert_transaction_isolation(
+                    'native attachment metadata target-lock regression'
+                );
+                return 'image/png';
+            },
+            ['polylang'],
+            $compiled,
+            $filesystem
         );
         $filesystem->prepare($work, $tree, $preflightGenerator);
         $check(
@@ -480,6 +790,16 @@ namespace {
             '2026/08/photo-150x150.png',
             '2026/08/photo-e1700000000000.png',
         ]);
+        $attemptIdentity = $filesystem->attempt_identity();
+        if (!is_array($attemptIdentity) || !$preflightGenerator->has_polylang_no_language_handoff()) {
+            throw new \RuntimeException('attachment journal handoff fixture lacks its attempt-bound Polylang proof');
+        }
+        $check(
+            preg_match('/^[0-9a-f]{32}$/D', $attemptIdentity['intent_id']) === 1
+                && preg_match('/^[0-9a-f]{64}$/D', $attemptIdentity['artifact_hash']) === 1
+                && preg_match('/^[0-9a-f]{64}$/D', $attemptIdentity['roster_hash']) === 1,
+            'the durable attachment journal exposes an exact intent/artifact/registered-roster handoff identity'
+        );
         $authored = $filesystem->seal_authored_transaction();
         $check(is_array($authored) && $filesystem->phase() === 'authored_prepared', 'authored marker seals exact UUID-to-post-ID authority');
         $publicationUmask = umask(0000);
@@ -522,17 +842,16 @@ namespace {
             'valid Core metadata with zero generated derivatives normalizes to an exact empty sizes map'
         );
 
-        $generator = new AttachmentNativeMetadataGenerator(static function (int $id): string {
-            DeleteGuardEvaluator::assert_transaction_isolation(
-                'native attachment metadata target-lock regression'
-            );
-            return 'image/png';
-        });
         $GLOBALS['duo_attachment_size_calls'] = 0;
         $GLOBALS['duo_attachment_mutate_size_call'] = 0;
         $GLOBALS['duo_attachment_big_guard_seen'] = false;
         $GLOBALS['duo_attachment_generate_calls'] = 0;
-        $filesystem->generate_metadata($generator);
+        $filesystem->generate_metadata($preflightGenerator);
+        $throws(
+            static fn() => $preflightGenerator->generate(41, $stageOriginal),
+            'was replayed for the same attachment attempt',
+            'a consumed Polylang handoff refuses replay for the same attachment instead of authorizing a second generation'
+        );
         $check(
             Db::$starts === 1
                 && Db::$rollbacks === 1
@@ -783,7 +1102,7 @@ namespace {
             is_file($uploads . '/2026/09/renamed.png') && is_file($oldOriginal),
             'directory/name move publishes the new original but retains old owned bytes until metadata commits'
         );
-        $renameGenerator = new AttachmentNativeMetadataGenerator(static fn(int $id): string => 'image/png');
+        $renameGenerator = $makeGenerator(static fn(int $id): string => 'image/png');
         $GLOBALS['duo_attachment_size_calls'] = 0;
         $rename->generate_metadata($renameGenerator);
         $rename->publish_derivatives();
@@ -823,6 +1142,7 @@ namespace {
 
         $standalone = $repository . '/standalone.png';
         file_put_contents($standalone, $png);
+        $generator = $makeGenerator(static fn(int $id): string => 'image/png');
         $GLOBALS['duo_attachment_size_calls'] = 0;
         $generator->generate(41, $standalone);
         $probe = static fn(): bool => true;
@@ -887,6 +1207,8 @@ namespace {
             ['update_post_metadata', ['WC_Post_Data', 'update_post_metadata'], 10, 5],
             ['update_post_metadata', ['WPSEO_Meta', 'remove_meta_if_default'], 10, 5],
             ['update_post_metadata', [$tecTracker, 'filter_watch_updated_meta'], PHP_INT_MAX - 1, 5],
+            ['update_post_metadata', [new PLL_Sync_Post_Metas(), 'can_synchronize_metadata'], 1, 3],
+            ['update_post_metadata', [new PLL_Sync_Post_Metas(), 'update_metadata'], 999, 5],
         ];
         foreach ($certifiedCallbacks as [$hook, $callback, $priority, $acceptedArgs]) {
             if (!add_filter($hook, $callback, $priority, $acceptedArgs)) {
@@ -904,14 +1226,16 @@ namespace {
         $GLOBALS['duo_attachment_size_calls'] = 0;
         $GLOBALS['duo_attachment_generate_calls'] = 0;
         $GLOBALS['duo_attachment_adapter_callback_calls'] = 0;
-        $certifiedGenerator = new AttachmentNativeMetadataGenerator(
+        $GLOBALS['duo_polylang_has_languages'] = true;
+        $certifiedGenerator = $makeGenerator(
             static fn(int $id): string => 'image/png',
             [
                 'acf', 'advanced-editor-tools', 'classic-editor', 'code-snippets',
                 'contact-form-7', 'elementor', 'ninja-forms', 'paid-memberships-pro',
                 'polylang', 'the-events-calendar', 'woocommerce', 'wps-hide-login',
                 'yoast', 'yoast-duplicate-post',
-            ]
+            ],
+            $compiled
         );
         $certifiedMetadata = $certifiedGenerator->generate(41, $standalone);
         $topologyRestored = true;
@@ -931,6 +1255,7 @@ namespace {
                 throw new \RuntimeException('could not remove certified-adapter callback fixture');
             }
         }
+        $GLOBALS['duo_polylang_has_languages'] = false;
         $GLOBALS['duo_attachment_size_roster'] = [
             'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => true],
         ];
@@ -948,8 +1273,81 @@ namespace {
         );
         remove_filter('wp_generate_attachment_metadata', $unboundWoo, 10);
 
+        $polylangAbsent = $makeGenerator(
+            static fn(int $id): string => 'image/png',
+            ['polylang'],
+            $compiled
+        )->generate(41, $standalone);
+        $check(
+            is_array($polylangAbsent),
+            'Polylang post-meta synchronization callbacks may be absent before the target has languages and are not fabricated'
+        );
+        $polylangTransition = $makeGenerator(
+            static fn(int $id): string => 'image/png',
+            ['polylang'],
+            $compiled
+        );
+        $polylangTransition->preflight('image/png', $standalone);
+        $check(
+            $polylangTransition->has_polylang_no_language_handoff(),
+            'markerless Polylang proof is held by the preflight generator rather than a boolean mode'
+        );
         $throws(
-            static fn() => (new AttachmentNativeMetadataGenerator(
+            static fn() => $polylangTransition->generate(41, $standalone),
+            'not sealed to a post-commit attachment attempt',
+            'an unsealed markerless witness cannot cross into post-commit metadata generation'
+        );
+        $GLOBALS['duo_polylang_has_languages'] = true;
+        $throws(
+            static fn() => $polylangTransition->generate(41, $standalone),
+            'not sealed to a post-commit attachment attempt',
+            'a direct generator cannot forge a post-commit Polylang handoff after languages appear'
+        );
+        $throws(
+            static fn() => new AttachmentNativeMetadataGenerator(
+                static fn(int $id): string => 'image/png',
+                ['polylang']
+            ),
+            'private Duo\\AttachmentNativeMetadataGenerator::__construct',
+            'direct generator construction cannot bypass the materializer-owned Polylang capability'
+        );
+        $throws(
+            static fn() => clone $polylangTransition,
+            'cannot be cloned',
+            'a markerless Polylang handoff cannot be replayed by cloning its generator'
+        );
+        $throws(
+            static fn() => serialize($polylangTransition),
+            'cannot be serialized',
+            'a markerless Polylang handoff cannot be replayed through serialization'
+        );
+        $GLOBALS['duo_polylang_has_languages'] = false;
+        $polylangPartial = new PLL_Sync_Post_Metas();
+        add_filter('update_post_metadata', [$polylangPartial, 'can_synchronize_metadata'], 1, 3);
+        $throws(
+            static fn() => ($makeGenerator(
+            static fn(int $id): string => 'image/png',
+                ['polylang'],
+                $compiled
+            ))->generate(41, $standalone),
+            'partial Polylang post-meta callback topology',
+            'one Polylang sync callback without its paired witness is refused'
+        );
+        remove_filter('update_post_metadata', [$polylangPartial, 'can_synchronize_metadata'], 1);
+        $GLOBALS['duo_polylang_has_languages'] = true;
+        $throws(
+            static fn() => ($makeGenerator(
+            static fn(int $id): string => 'image/png',
+                ['polylang'],
+                $compiled
+            ))->generate(41, $standalone),
+            'languages are present',
+            'an absent Polylang sync pair is refused when the native model proves languages are present'
+        );
+        $GLOBALS['duo_polylang_has_languages'] = false;
+
+        $throws(
+            static fn() => ($makeGenerator(
                 static fn(int $id): string => 'image/png',
                 ['woocommerce']
             ))->generate(41, $standalone),
@@ -960,9 +1358,10 @@ namespace {
         $polylangDomain = new PLL_Links_Domain();
         add_filter('upload_dir', [$polylangDomain, 'upload_dir'], 10, 1);
         $throws(
-            static fn() => (new AttachmentNativeMetadataGenerator(
-                static fn(int $id): string => 'image/png',
-                ['polylang']
+            static fn() => ($makeGenerator(
+            static fn(int $id): string => 'image/png',
+                ['polylang'],
+                $compiled
             ))->generate(41, $standalone),
             'request-conditional certified-adapter callback topology',
             'Polylang domain/subdomain upload rewriting is an explicit unsupported target-filesystem topology'
@@ -972,7 +1371,7 @@ namespace {
         $tecChunker = new Tribe__Meta__Chunker();
         add_filter('update_post_metadata', [$tecChunker, 'filter_update_metadata'], -1, 4);
         $throws(
-            static fn() => (new AttachmentNativeMetadataGenerator(
+            static fn() => ($makeGenerator(
                 static fn(int $id): string => 'image/png',
                 ['the-events-calendar']
             ))->generate(41, $standalone),
@@ -984,7 +1383,7 @@ namespace {
         $tecHarbor = new \TEC\Common\Integrations\Harbor\PUE();
         add_filter('pre_option', [$tecHarbor, 'filter_pre_get_option'], 10, 3);
         $throws(
-            static fn() => (new AttachmentNativeMetadataGenerator(
+            static fn() => ($makeGenerator(
                 static fn(int $id): string => 'image/png',
                 ['the-events-calendar']
             ))->generate(41, $standalone),
@@ -996,7 +1395,7 @@ namespace {
         $tecQrUpload = static fn(mixed $uploads): mixed => $uploads;
         add_filter('upload_dir', $tecQrUpload, 10, 1);
         $throws(
-            static fn() => (new AttachmentNativeMetadataGenerator(
+            static fn() => ($makeGenerator(
                 static fn(int $id): string => 'image/png',
                 ['the-events-calendar']
             ))->generate(41, $standalone),
@@ -1083,8 +1482,8 @@ namespace {
         $gifPath = $repository . '/exact.gif';
         file_put_contents($jpePath, $jpeg);
         file_put_contents($gifPath, $gif);
-        $jpegGenerator = new AttachmentNativeMetadataGenerator(static fn(int $id): string => 'image/jpeg');
-        $gifGenerator = new AttachmentNativeMetadataGenerator(static fn(int $id): string => 'image/gif');
+        $jpegGenerator = $makeGenerator(static fn(int $id): string => 'image/jpeg');
+        $gifGenerator = $makeGenerator(static fn(int $id): string => 'image/gif');
         $GLOBALS['duo_attachment_size_calls'] = 0;
         $jpegGenerator->preflight('image/jpeg', $jpePath);
         $GLOBALS['duo_attachment_size_calls'] = 0;
@@ -1116,7 +1515,7 @@ namespace {
         );
         $pdf = $repository . '/document.pdf';
         file_put_contents($pdf, "%PDF-1.4\n%%EOF\n");
-        $pdfGenerator = new AttachmentNativeMetadataGenerator(static fn(int $id): string => 'application/pdf');
+        $pdfGenerator = $makeGenerator(static fn(int $id): string => 'application/pdf');
         $GLOBALS['duo_attachment_size_calls'] = 0;
         $throws(
             static fn() => $pdfGenerator->preflight('application/pdf', $pdf),
@@ -1186,13 +1585,98 @@ namespace {
         $policy = (new \ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
         $tokens = (new \ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
         $fieldMaterializer = new ApplyFieldMaterializer($policy, $tokens);
-        $attachmentMaterializer = new AttachmentMaterializer($policy, $fieldMaterializer, $compiled, $repository);
-        $check($attachmentMaterializer instanceof AttachmentMaterializer, 'AttachmentMaterializer composes the durable boundary with an explicit private repository root');
-        $constructor = (new \ReflectionClass(AttachmentMaterializer::class))->getConstructor();
+        $callbacks = new ApplyServiceCallbacks(
+            taxonomyOwnership: static fn(): array => [],
+            renewPromotionLock: static function (string $phase): void {},
+            renewRegenerationLease: static function (): void {},
+            renewProviderLease: static function (): void {},
+            lockDeleteGuards: static function (array $a, array $b, array $c, array $d, array $e): void {},
+            recheckDeleteGuard: static function (array $a, array $b, array $c, bool $d, array $e, array $f, bool $g): void {},
+            selectionDeclaresChannelFor: static fn(string $channel, string $surface): bool => false,
+            selectionDeclaresEntityBatchFor: static fn(string $surface): bool => false,
+            selectionTriggersProviderActionFor: static fn(string $surface): bool => false,
+            pinnedProviderActionOwns: static fn(string $surface): bool => false,
+            upsertMeta: static function (string $table, string $fk, int $id, string $key, ?string $value, ?string $context, string $idCol): void {}
+        );
+        $services = new ApplyServices($policy, $compiled, $callbacks, $repository);
+        $attachmentMaterializer = $services->attachment_materializer();
+        $check($attachmentMaterializer instanceof AttachmentMaterializer, 'ApplyServices constructs the production AttachmentMaterializer with its private repository root');
+        $warnings = [];
+        $GLOBALS['wpdb']->rows[] = [
+            'meta_id' => '10',
+            'post_id' => '41',
+            'meta_key' => '_wp_attached_file',
+            'meta_value' => '2026/08/photo.png',
+        ];
+        $GLOBALS['wpdb']->rows[] = [
+            'meta_id' => '11',
+            'post_id' => '41',
+            'meta_key' => '_duo_uuid',
+            'meta_value' => $uuid,
+        ];
+        \Duo\Db::$nextMetaId = 12;
+        @unlink($uploads . '/2026/08/photo-300x300.png');
+        $attachmentMaterializer->prepare_filesystem($work, $tree);
+        $services->field_materializer()->begin_authored_transaction();
+        DeleteGuardEvaluator::begin_authored_transaction();
+        \Duo\CacheInvalidationTransaction::begin();
+        $attachmentMaterializer->place_attachment(41, $front);
+        $attachmentMaterializer->seal_authored_transaction();
+        $attachmentMaterializer->commit_authored_transaction();
+        $attachmentMaterializer->end_authored_transaction(true);
+        \Duo\CacheInvalidationTransaction::finish();
+        \Duo\CacheInvalidationTransaction::end();
         $check(
-            array_map(static fn(\ReflectionParameter $parameter): string => $parameter->getName(), $constructor->getParameters())
-                === ['policy', 'fieldMaterializer', 'compiled', 'repositoryRoot'],
-            'constructor authority binds frozen adapter policy, field materializer, immutable artifact and private repository root'
+            is_file($original) && file_get_contents($original) === $png,
+            'the public AttachmentMaterializer entry performs markerless preflight and authored publication for non-empty work'
+        );
+        $selection = new \Duo\RebuildSelection($policy);
+        $rebuild = new ApplyRebuildCoordinator($services, $selection);
+        $actionReceipts = [];
+        $throws(
+            static fn() => new \Duo\RebuildRequest(
+                attachmentIds: 'injected pre-rebuild construction failure',
+                work: [],
+                tree: [],
+                regenerationContext: [],
+                deleteWork: [],
+                withDeletes: false,
+                absentTombstones: [],
+                retryingIncompleteApply: false,
+                scoped: false,
+                skipScopedCore: false,
+                scopedCoreComplete: null,
+                suppressScopedExternalEffects: true,
+                scopedSession: null,
+                scopedObservation: null
+            ),
+            'must be of type array',
+            'an injected pre-rebuild request-construction failure is surfaced before coordinator entry'
+        );
+        $attachmentMaterializer->discard_native_rebuild_authority();
+        $rebuild->rebuild(
+            new \Duo\RebuildRequest(
+                attachmentIds: [41],
+                work: [],
+                tree: [],
+                regenerationContext: [],
+                deleteWork: [],
+                withDeletes: false,
+                absentTombstones: [],
+                retryingIncompleteApply: false,
+                scoped: false,
+                skipScopedCore: false,
+                scopedCoreComplete: null,
+                suppressScopedExternalEffects: true,
+                scopedSession: null,
+                scopedObservation: null
+            ),
+            $warnings,
+            $actionReceipts
+        );
+        $check(
+            !is_file($repository . '/.duo/attachment-filesystem/current/journal.json'),
+            'retry after the injected pre-rebuild failure enters NativeRebuildExecutor and consumes the discarded handoff'
         );
 
         $priorOwnership = new \ReflectionMethod(AttachmentMaterializer::class, 'prior_native_owned_paths');

@@ -35,7 +35,9 @@ namespace Duo;
  * 2f447a4120a349d5f596c834192b17a5b911c6c94e8a62cfaee58af89cc86aab,
  * 0e198faca151aeca66680e916a038eab5c264f7d0ee6472d8f07d1845d0a7b9a,
  * 3b07ec0af1f94269b2a5a98bba078edbee73e1697aeeed119ae12ff4a3ca7553,
- * 5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0
+ * 7ed2774c6c73c514c64fc1a4b6533e41bacc8278a54785e8246492ce597bfdc5,
+ * 364cf0f52c51aeba8702e5108e2ddc66c35dc7b93bb4f694a3c35f862ed25856,
+ * 5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0,
  * and cc15a8ffa92ffb045cd5c5ef350688c7b2e36c6b43ceb9c68bdf6f8c5ed68f98.
  * Bind the exact runtime objects and dynamic Polylang type roster before the
  * first native call; arbitrary pll_* callbacks can execute undeclared code
@@ -235,6 +237,46 @@ final class NativeRewriteEffects {
             }
         }
         return false;
+    }
+
+    /** @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $records */
+    private static function contains_class_method_callback(array $records, string $class, string $method): bool {
+        foreach ($records as [, $record]) {
+            $callback = $record['function'];
+            if (is_array($callback)
+                && is_object($callback[0] ?? null)
+                && get_class($callback[0]) === $class
+                && ($callback[1] ?? null) === $method) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @return list<string> */
+    private static function dynamic_rewrite_hooks_for_class(string $class): array {
+        global $wp_filter;
+        if (!is_array($wp_filter ?? null)) {
+            return [];
+        }
+        if (count($wp_filter) > 16384) {
+            throw new \RuntimeException('duo: native rewrite found an oversized WordPress hook topology');
+        }
+        $hooks = [];
+        foreach (array_keys($wp_filter) as $hookName) {
+            if (!is_string($hookName)
+                || preg_match('/\A[a-z0-9_-]{1,64}_rewrite_rules\z/D', $hookName) !== 1
+                || !self::contains_class_method_callback(
+                    self::hook_records($hookName),
+                    $class,
+                    'rewrite_rules'
+                )) {
+                continue;
+            }
+            $hooks[] = $hookName;
+        }
+        sort($hooks, SORT_STRING);
+        return $hooks;
     }
 
     /**
@@ -444,6 +486,7 @@ final class NativeRewriteEffects {
             $rewriteArrayExpected[] = ['wc_fix_rewrite_rules', null, 10, 1];
         }
         if ($polylang !== null) {
+            $rewriteArrayExpected[] = [$polylang['sitemaps'], 'rewrite_rules', 10, 1];
             $rewriteArrayExpected[] = [$polylang['links'], 'rewrite_rules', 10, 1];
         }
         self::assert_exact_hook('rewrite_rules_array', $rewriteArrayExpected);
@@ -709,7 +752,7 @@ final class NativeRewriteEffects {
      * callback on an unproved dynamic name would execute extension code before
      * the durable rewrite receipt can distinguish its side effects.
      *
-     * @param ?array{runtime:object,links:object,types:list<string>,types_hash:string} $polylang
+     * @param ?array{runtime:object,links:object,sitemaps:object,types:list<string>,types_hash:string} $polylang
      */
     private static function assert_core_generation_topology(object $wpRewrite, ?array $polylang): string {
         if (!property_exists($wpRewrite, 'extra_permastructs')
@@ -727,12 +770,12 @@ final class NativeRewriteEffects {
             $reachable[$name] = true;
         }
 
+        // Polylang registers the same exact callback for types WordPress does
+        // not dispatch here (3.8.6 includes attachment_rewrite_rules). The
+        // complete roster is still closed and callback-checked above; only its
+        // intersection with WP_Rewrite's actual generation graph is reachable
+        // during this mutation.
         $polylangTypes = $polylang === null ? [] : array_fill_keys($polylang['types'], true);
-        foreach ($polylangTypes as $name => $_present) {
-            if (!isset($reachable[$name])) {
-                throw new \RuntimeException('duo: native rewrite found an unreachable Polylang rewrite type');
-            }
-        }
         foreach (array_keys($reachable) as $name) {
             $expected = isset($polylangTypes[$name])
                 ? [[$polylang['links'], 'rewrite_rules', 10, 1]]
@@ -897,10 +940,12 @@ final class NativeRewriteEffects {
         ];
     }
 
-    /** @return ?array{runtime:object,links:object,types:list<string>,types_hash:string} */
+    /** @return ?array{runtime:object,links:object,sitemaps:object,types:list<string>,types_hash:string} */
     private static function resolve_polylang(): ?array {
         $rewriteArray = self::hook_records('rewrite_rules_array');
-        $callbackVisible = self::contains_class_callback($rewriteArray, 'PLL_Links_Directory');
+        $linksCallbackVisible = self::contains_class_callback($rewriteArray, 'PLL_Links_Directory');
+        $sitemapsCallbackVisible = self::contains_class_callback($rewriteArray, 'PLL_Sitemaps');
+        $callbackVisible = $linksCallbackVisible || $sitemapsCallbackVisible;
         $runtimeVisible = function_exists('PLL') && array_key_exists('polylang', $GLOBALS);
         if (!$callbackVisible && !$runtimeVisible) {
             return null;
@@ -914,8 +959,13 @@ final class NativeRewriteEffects {
         } catch (\Throwable $failure) {
             throw new \RuntimeException('duo: native rewrite could not resolve the Polylang runtime', 0, $failure);
         }
+        // rewrite.flush is deliberately executed by a fresh WP-CLI process;
+        // Polylang 3.8.6 boots that exact runtime as PLL_Admin (the pinned
+        // artifact's src/admin/admin.php SHA-256 is
+        // 7ed2774c6c73c514c64fc1a4b6533e41bacc8278a54785e8246492ce597bfdc5),
+        // while an HTTP frontend would expose a different service graph.
         if (!is_object($runtime)
-            || get_class($runtime) !== 'PLL_Frontend'
+            || get_class($runtime) !== 'PLL_Admin'
             || $resolved !== $runtime
             || !property_exists($runtime, 'links_model')
             || !is_object($runtime->links_model)) {
@@ -928,7 +978,14 @@ final class NativeRewriteEffects {
             }
             return null;
         }
-        if (!$callbackVisible || !is_callable([$links, 'get_rewrite_rules_filters'])) {
+        $sitemaps = null;
+        if (property_exists($runtime, 'sitemaps')) {
+            if (!is_object($runtime->sitemaps) || get_class($runtime->sitemaps) !== 'PLL_Sitemaps') {
+                throw new \RuntimeException('duo: native rewrite found a substituted Polylang sitemap service');
+            }
+            $sitemaps = $runtime->sitemaps;
+        }
+        if (!is_callable([$links, 'get_rewrite_rules_filters'])) {
             throw new \RuntimeException('duo: native rewrite found an incomplete Polylang rewrite runtime');
         }
         foreach (['pll_rewrite_rules', 'pll_modify_rewrite_rule'] as $openHook) {
@@ -937,6 +994,21 @@ final class NativeRewriteEffects {
                     'duo: native rewrite found an unsupported open Polylang rewrite filter'
                 );
             }
+        }
+        $dynamicHooks = self::dynamic_rewrite_hooks_for_class('PLL_Links_Directory');
+        if (!$linksCallbackVisible) {
+            // links-directory.php::prepare_rewrite_rules() registers the
+            // array callback and every dynamic type callback as one batch,
+            // but only after languages exist. The sitemap loader has the same
+            // language gate. Exact whole-batch absence is therefore an inert
+            // pre-provider phase; any fragment is partial boot or substitution.
+            if ($sitemaps !== null || $sitemapsCallbackVisible || $dynamicHooks !== []) {
+                throw new \RuntimeException('duo: native rewrite found an incomplete Polylang rewrite runtime');
+            }
+            return null;
+        }
+        if ($sitemaps === null || !$sitemapsCallbackVisible) {
+            throw new \RuntimeException('duo: native rewrite found an incomplete Polylang sitemap runtime');
         }
         try {
             $rawTypes = self::call_object($links, 'get_rewrite_rules_filters');
@@ -956,9 +1028,18 @@ final class NativeRewriteEffects {
             }
             $types[$type] = $type;
         }
+        $expectedDynamicHooks = array_map(
+            static fn(string $type): string => $type . '_rewrite_rules',
+            array_values($types)
+        );
+        sort($expectedDynamicHooks, SORT_STRING);
+        if (array_diff($dynamicHooks, $expectedDynamicHooks) !== []) {
+            throw new \RuntimeException('duo: native rewrite found extended Polylang rewrite callbacks');
+        }
         return [
             'runtime' => $runtime,
             'links' => $links,
+            'sitemaps' => $sitemaps,
             'types' => array_values($types),
             'types_hash' => hash('sha256', serialize($rawTypes)),
         ];

@@ -37,16 +37,16 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/wp_stubs.php",
             "role": "DuoTest\\WpStore plus function_exists()-guarded WordPress function stubs",
-            "bytes": 33013,
-            "sha256": "ef67101b0961f82d432b4f0127abef826ce8387fc2d405ca623c9f71843b5298"
+            "bytes": 34308,
+            "sha256": "f2eb1c0bb93d455962e361b2e031a897b1733e05d6a6ff75d356878d4c8d7493"
         },
         {
             "path": "lib/FakeWpdb.php",
             "origin": "copied",
             "source": "sandbox/tests/lib/FakeWpdb.php",
             "role": "DuoTest\\FakeWpdb — a $wpdb that holds ROWS and interprets SQL against them",
-            "bytes": 114198,
-            "sha256": "5665486fa8a588a00a7358de4ddc8bf274f1a2dac5bb3477f40ff795d841e164"
+            "bytes": 140805,
+            "sha256": "a06b927ec9f20e0c781a6881678010719a1f53fda51c22e8aa533332d2ce30e4"
         },
         {
             "path": "lib/frozen_policy.php",
@@ -69,8 +69,8 @@
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 32827,
-            "sha256": "c972dba713dfea4558196934448bc06939585e48f0bb7e37ecb861a5633347f3"
+            "bytes": 32866,
+            "sha256": "22aadea908717984c15690c3d9391ad792dfb7a9d07400f1d6953ab726b51796"
         },
         {
             "path": "conformance/asserts.sh",

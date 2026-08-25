@@ -645,8 +645,39 @@ run_conformance_passthrough_case() {
   pass "$label: conformance binds its sweep before the first pair mutation"
 }
 
+run_version_matrix_passthrough_case() {
+  local label=version_matrix_passthrough matrix="$ROOT/sandbox/tests/certify/certify_version_matrix.sh"
+
+  # The matrix has no reset between its boundary cells, but its first `up`
+  # still reserves pair resources and can start containers. Its candidate
+  # bridge must therefore be in scope before that call, just like run.sh.
+  assert_file_contains "$matrix" 'export DUO_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"' \
+    "$label: certify_version_matrix.sh does not plumb VMATRIX_EXPECTED_SOURCE_SHA through to pair.sh"
+  assert_before "$matrix" \
+    'export DUO_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"' \
+    'bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${PAIR_UP_FLAGS[@]}"'
+  pass "$label: exact-artifact matrix binds its candidate before pair startup"
+}
+
+run_multisite_passthrough_case() {
+  local label=multisite_passthrough multisite="$ROOT/sandbox/tests/live/regress_multisite_refusal.sh"
+
+  # Multisite refusal must describe the candidate that could have reached the
+  # destructive capture/journal paths, not whichever canonical checkout the
+  # host happened to mount. reset is the earliest mutation in this harness.
+  assert_file_contains "$multisite" 'export DUO_EXPECTED_SOURCE_SHA="$MULTISITE_EXPECTED_SOURCE_SHA"' \
+    "$label: regress_multisite_refusal.sh does not plumb MULTISITE_EXPECTED_SOURCE_SHA through to pair.sh"
+  assert_before "$multisite" \
+    'export DUO_EXPECTED_SOURCE_SHA="$MULTISITE_EXPECTED_SOURCE_SHA"' \
+    'bash bin/pair.sh reset "$PAIR"'
+  assert_before "$multisite" \
+    'export DUO_EXPECTED_SOURCE_SHA="$MULTISITE_EXPECTED_SOURCE_SHA"' \
+    'bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${PAIR_UP_FLAGS[@]}"'
+  pass "$label: multisite refusal binds its candidate before pair mutation"
+}
+
 say "bash syntax checks"
-bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_budget_lock.sh" "$ROOT/sandbox/lib/pair_force_hatch.sh" "$ROOT/sandbox/lib/pair_db.sh" "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" "$ROOT/sandbox/lib/pair_siterepo.sh" "$ROOT/sandbox/conformance/run.sh" \
+bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_budget_lock.sh" "$ROOT/sandbox/lib/pair_force_hatch.sh" "$ROOT/sandbox/lib/pair_db.sh" "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" "$ROOT/sandbox/lib/pair_siterepo.sh" "$ROOT/sandbox/conformance/run.sh" "$ROOT/sandbox/tests/certify/certify_version_matrix.sh" "$ROOT/sandbox/tests/live/regress_multisite_refusal.sh" \
   "$ROOT/sandbox/tests/offline/guards/regress_pair_candidate_source.sh"
 command -v git >/dev/null 2>&1 || fail "git is required for the linked-worktree fixture"
 assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_identity.sh"' \
@@ -704,5 +735,11 @@ run_teardown_ungated_case
 
 say "conformance run.sh plumbs CONF_EXPECTED_SOURCE_SHA before its first pair.sh call"
 run_conformance_passthrough_case
+
+say "exact-artifact matrix plumbs VMATRIX_EXPECTED_SOURCE_SHA before pair startup"
+run_version_matrix_passthrough_case
+
+say "multisite refusal plumbs MULTISITE_EXPECTED_SOURCE_SHA before pair mutation"
+run_multisite_passthrough_case
 
 printf '\n\033[1;32m✔ REGRESS_PAIR_CANDIDATE_SOURCE PASSED\033[0m\n'
