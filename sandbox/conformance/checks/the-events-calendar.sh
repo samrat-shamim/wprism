@@ -2385,6 +2385,7 @@ wp_conf2 db query '
   ALTER TABLE wp_duo_kv ADD CONSTRAINT duo_tec_fail_scoped_effect_receipt
   CHECK (
     k <> "scoped_apply_session"
+    OR JSON_UNQUOTE(JSON_EXTRACT(v, "$.phase")) = "complete"
     OR COALESCE(JSON_LENGTH(JSON_EXTRACT(v, "$.receipts")), 0) < 3
   )
 ' >/dev/null
