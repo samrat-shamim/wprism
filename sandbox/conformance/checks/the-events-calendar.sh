@@ -1940,12 +1940,19 @@ jq -n --arg compose "$TEC_SCOPE_COMPOSE" --arg widgetRepo "$TEC_WIDGET_SCOPE_REP
 ' >"$TEC_SCOPE_ENVS" \
   || fail "TEC scoped evidence could not write its isolated control-plane registry"
 
+tec_scope_contract_json() {
+  # The host transport preserves the agent's pretty canonical contract while
+  # Compose writes progress on stderr. Compact exactly one stdout document so
+  # the shared answer classifier still sees one complete final envelope.
+  php ../cli/duo --envs-file="$TEC_SCOPE_ENVS" scope "$@" --contract --format=json \
+    | jq -ce -s 'if length == 1 then .[0] else error("TEC scope expected exactly one JSON document") end'
+}
+
 TEC_WIDGET_SCOPE_ONE="$TEC_WIDGET_SCOPE_HOST/.first.scope.json"
 capture_duo_json_success TEC_WIDGET_SCOPE_ONE_OUT \
   "TEC scoped inactive-widget first contract" \
-  php ../cli/duo --envs-file="$TEC_SCOPE_ENVS" scope tec-widget-source \
-  --roots="post:$TEC_WIDGET_PAGE_UUID" \
-  --contract --format=json
+  tec_scope_contract_json tec-widget-source \
+  --roots="post:$TEC_WIDGET_PAGE_UUID"
 printf '%s\n' "$TEC_WIDGET_SCOPE_ONE_OUT" >"$TEC_WIDGET_SCOPE_ONE"
 jq -e --arg uuid "$TEC_WIDGET_PAGE_UUID" '
   .format == "duo-scope-contract/v1" and
@@ -2071,9 +2078,8 @@ TEC_WIDGET_REPO_FIRST=$(tec_widget_scope_repo_hash "$TEC_WIDGET_SCOPE_HOST")
 TEC_WIDGET_SCOPE_TWO="$TEC_WIDGET_SCOPE_HOST/.second.scope.json"
 capture_duo_json_success TEC_WIDGET_SCOPE_TWO_OUT \
   "TEC scoped inactive-widget second contract" \
-  php ../cli/duo --envs-file="$TEC_SCOPE_ENVS" scope tec-widget-source \
-  --roots="post:$TEC_WIDGET_PAGE_UUID" \
-  --contract --format=json
+  tec_scope_contract_json tec-widget-source \
+  --roots="post:$TEC_WIDGET_PAGE_UUID"
 printf '%s\n' "$TEC_WIDGET_SCOPE_TWO_OUT" >"$TEC_WIDGET_SCOPE_TWO"
 jq -e '
   .format == "duo-scope-contract/v1" and
@@ -2135,8 +2141,7 @@ tec_category_scope() { # <target-host-path> <category-uuid>
   [[ "$uuid" =~ ^[a-f0-9-]{36}$ ]] || fail "TEC Category Colors scope received a malformed category UUID"
   capture_duo_json_success scoped \
     "TEC Category Colors scope contract" \
-    php ../cli/duo --envs-file="$TEC_SCOPE_ENVS" scope tec-source \
-    --roots="term:${uuid}" --contract --format=json
+    tec_scope_contract_json tec-source --roots="term:${uuid}"
   printf '%s\n' "$scoped" >"$output"
   jq -e --arg uuid "$uuid" '
     .format == "duo-scope-contract/v1" and .selectors == ["term:" + $uuid] and

@@ -8361,10 +8361,12 @@ foreach ([
     'TEC scoped inactive-widget permission preparation changed repository identity',
     'TEC_SCOPE_COMPOSE="$(pwd -P)/pair.yml"',
     'transport: "docker", compose_file: $compose, service: "cli1", repo_path: $widgetRepo',
+    'tec_scope_contract_json() {',
+    "jq -ce -s 'if length == 1 then .[0] else error(\"TEC scope expected exactly one JSON document\") end'",
     'capture_duo_json_success TEC_WIDGET_SCOPE_ONE_OUT',
-    'php ../cli/duo --envs-file="$TEC_SCOPE_ENVS" scope tec-widget-source',
+    'tec_scope_contract_json tec-widget-source',
     'capture_duo_json_success TEC_WIDGET_SCOPE_TWO_OUT',
-    'php ../cli/duo --envs-file="$TEC_SCOPE_ENVS" scope tec-source',
+    'tec_scope_contract_json tec-source',
     '[ -z "${TEC_SCOPE_ENVS:-}" ] || rm -f -- "$TEC_SCOPE_ENVS"',
 ] as $scopedWidgetDiagnostic) {
     duo_check(
