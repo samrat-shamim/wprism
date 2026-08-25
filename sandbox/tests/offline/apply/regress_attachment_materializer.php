@@ -413,11 +413,9 @@ namespace {
     require_once $root . '/agent/src/Apply/AttachmentMaterializer.php';
 
     use Duo\ApplyFieldMaterializer;
-    use Duo\AttachmentPolylangNoLanguageProof;
     use Duo\AttachmentFilesystemTransaction;
     use Duo\AttachmentMaterializer;
     use Duo\AttachmentNativeMetadataGenerator;
-    use Duo\Canon;
     use Duo\CompiledRepository;
     use Duo\Db;
     use Duo\DeleteGuardEvaluator;
@@ -485,6 +483,7 @@ namespace {
         $compiled = CompiledRepository::create([
             'media' => [$blob => ['base64' => base64_encode($png), 'sha256' => hash('sha256', $png)]],
             'tree' => $tree,
+            'manifest_hash' => str_repeat('d', 64),
         ]);
         $work = [['uuid' => $uuid]];
 
@@ -502,9 +501,26 @@ namespace {
         $filesystem->load_pending();
         $check($filesystem->phase() === null, 'an empty private control root has no pending attachment transaction');
         $check(!is_dir($repository . '/.duo'), 'a read-only pending probe does not create private control state');
+        $handoffAttemptIdentity = null;
         $preflightGenerator = new AttachmentNativeMetadataGenerator(
-            static fn(int $id): never => throw new \LogicException('markerless preflight requested target lock'),
-            ['polylang']
+            static function (int $id): string {
+                DeleteGuardEvaluator::assert_transaction_isolation(
+                    'native attachment metadata target-lock regression'
+                );
+                return 'image/png';
+            },
+            ['polylang'],
+            $compiled->artifact_hash(),
+            $compiled->manifest_hash(),
+            static function () use (&$handoffAttemptIdentity): ?array {
+                if (!is_array($handoffAttemptIdentity)) return null;
+                return [
+                    'intent_id' => $handoffAttemptIdentity['intent_id'],
+                    'artifact_hash' => $handoffAttemptIdentity['artifact_hash'],
+                    'roster_hash' => $handoffAttemptIdentity['roster_hash'],
+                    'manifest_hash' => str_repeat('d', 64),
+                ];
+            }
         );
         $filesystem->prepare($work, $tree, $preflightGenerator);
         $check(
@@ -521,17 +537,10 @@ namespace {
             '2026/08/photo-e1700000000000.png',
         ]);
         $attemptIdentity = $filesystem->attempt_identity();
-        $handoffProof = $preflightGenerator->polylang_no_language_proof();
-        if (!is_array($attemptIdentity) || !$handoffProof instanceof AttachmentPolylangNoLanguageProof) {
+        if (!is_array($attemptIdentity) || !$preflightGenerator->has_polylang_no_language_handoff()) {
             throw new \RuntimeException('attachment journal handoff fixture lacks its attempt-bound Polylang proof');
         }
-        $handoffContext = [
-            'intent_id' => $attemptIdentity['intent_id'],
-            'artifact_hash' => $attemptIdentity['artifact_hash'],
-            'roster_hash' => $attemptIdentity['roster_hash'],
-            'manifest_hash' => hash('sha256', Canon::encode(['polylang'])),
-        ];
-        $handoffProof->seal($handoffContext);
+        $handoffAttemptIdentity = $attemptIdentity;
         $check(
             preg_match('/^[0-9a-f]{32}$/D', $attemptIdentity['intent_id']) === 1
                 && preg_match('/^[0-9a-f]{64}$/D', $attemptIdentity['artifact_hash']) === 1
@@ -580,17 +589,11 @@ namespace {
             'valid Core metadata with zero generated derivatives normalizes to an exact empty sizes map'
         );
 
-        $handoffGenerator = new AttachmentNativeMetadataGenerator(static function (int $id): string {
-            DeleteGuardEvaluator::assert_transaction_isolation(
-                'native attachment metadata target-lock regression'
-            );
-            return 'image/png';
-        }, ['polylang'], $handoffProof, $handoffContext);
         $GLOBALS['duo_attachment_size_calls'] = 0;
         $GLOBALS['duo_attachment_mutate_size_call'] = 0;
         $GLOBALS['duo_attachment_big_guard_seen'] = false;
         $GLOBALS['duo_attachment_generate_calls'] = 0;
-        $filesystem->generate_metadata($handoffGenerator);
+        $filesystem->generate_metadata($preflightGenerator);
         $check(
             Db::$starts === 1
                 && Db::$rollbacks === 1
@@ -973,7 +976,9 @@ namespace {
                 'contact-form-7', 'elementor', 'ninja-forms', 'paid-memberships-pro',
                 'polylang', 'the-events-calendar', 'woocommerce', 'wps-hide-login',
                 'yoast', 'yoast-duplicate-post',
-            ]
+            ],
+            $compiled->artifact_hash(),
+            $compiled->manifest_hash()
         );
         $certifiedMetadata = $certifiedGenerator->generate(41, $standalone);
         $topologyRestored = true;
@@ -1013,86 +1018,54 @@ namespace {
 
         $polylangAbsent = (new AttachmentNativeMetadataGenerator(
             static fn(int $id): string => 'image/png',
-            ['polylang']
+            ['polylang'],
+            $compiled->artifact_hash(),
+            $compiled->manifest_hash()
         ))->generate(41, $standalone);
         $check(
             is_array($polylangAbsent),
             'Polylang post-meta synchronization callbacks may be absent before the target has languages and are not fabricated'
         );
+        $transitionContext = null;
         $polylangTransition = new AttachmentNativeMetadataGenerator(
             static fn(int $id): string => 'image/png',
-            ['polylang']
+            ['polylang'],
+            str_repeat('b', 64),
+            str_repeat('d', 64),
+            static function () use (&$transitionContext): ?array {
+                return $transitionContext;
+            }
         );
         $polylangTransition->preflight('image/png', $standalone);
-        $polylangProof = $polylangTransition->polylang_no_language_proof();
         $proofContext = [
             'intent_id' => str_repeat('a', 32),
             'artifact_hash' => str_repeat('b', 64),
             'roster_hash' => str_repeat('c', 64),
             'manifest_hash' => str_repeat('d', 64),
         ];
-        $proofMismatchContext = $proofContext;
-        $proofMismatchContext['roster_hash'] = str_repeat('e', 64);
         $check(
-            $polylangProof instanceof AttachmentPolylangNoLanguageProof,
-            'markerless Polylang proof is an opaque attempt witness rather than a boolean mode'
+            $polylangTransition->has_polylang_no_language_handoff(),
+            'markerless Polylang proof is held by the preflight generator rather than a boolean mode'
         );
         $throws(
             static fn() => $polylangTransition->generate(41, $standalone),
-            'not sealed to an attachment attempt',
+            'not sealed to a post-commit attachment attempt',
             'an unsealed markerless witness cannot cross into post-commit metadata generation'
         );
-        if (!$polylangProof instanceof AttachmentPolylangNoLanguageProof) {
-            throw new \RuntimeException('markerless Polylang proof fixture was not issued');
-        }
-        $polylangProof->seal($proofContext);
-        $GLOBALS['duo_polylang_has_languages'] = true;
+        $wrongArtifactContext = $proofContext;
+        $wrongArtifactContext['artifact_hash'] = str_repeat('e', 64);
+        $transitionContext = $wrongArtifactContext;
         $throws(
-            static fn() => (new AttachmentNativeMetadataGenerator(
-                static fn(int $id): string => 'image/png',
-                ['polylang'],
-                $polylangProof,
-                $proofMismatchContext
-            ))->generate(41, $standalone),
-            'does not match the attachment attempt authority',
-            'a roster-mismatched Polylang proof refuses before native metadata work'
+            static fn() => $polylangTransition->generate(41, $standalone),
+            'compiled artifact identity',
+            'a compiled-artifact-mismatched Polylang handoff refuses before native metadata work'
         );
-        foreach (['intent_id', 'artifact_hash', 'manifest_hash'] as $identityKey) {
-            $wrongIdentityContext = $proofContext;
-            $wrongIdentityContext[$identityKey] = $identityKey === 'intent_id'
-                ? str_repeat('f', 32)
-                : str_repeat('f', 64);
-            $throws(
-                static fn() => (new AttachmentNativeMetadataGenerator(
-                    static fn(int $id): string => 'image/png',
-                    ['polylang'],
-                    $polylangProof,
-                    $wrongIdentityContext
-                ))->generate(41, $standalone),
-                'does not match the attachment attempt authority',
-                "a $identityKey-mismatched Polylang proof refuses before native metadata work"
-            );
-        }
-        $transitionGenerator = new AttachmentNativeMetadataGenerator(
-            static fn(int $id): string => 'image/png',
-            ['polylang'],
-            $polylangProof,
-            $proofContext
-        );
-        $transitionMetadata = $transitionGenerator->generate(41, $standalone);
+        $GLOBALS['duo_polylang_has_languages'] = true;
+        $transitionContext = $proofContext;
+        $transitionMetadata = $polylangTransition->generate(41, $standalone);
         $check(
             is_array($transitionMetadata),
             'a markerless no-language proof remains authoritative after the authored transaction materializes Polylang languages'
-        );
-        $throws(
-            static fn() => (new AttachmentNativeMetadataGenerator(
-                static fn(int $id): string => 'image/png',
-                ['polylang'],
-                $polylangProof,
-                $proofContext
-            ))->generate(41, $standalone),
-            'consumed more than once',
-            'a markerless Polylang proof cannot authorize a second attachment attempt'
         );
         $throws(
             static fn() => new AttachmentNativeMetadataGenerator(
@@ -1100,16 +1073,28 @@ namespace {
                 ['polylang'],
                 true
             ),
-            'AttachmentPolylangNoLanguageProof',
+            'must be of type ?string',
             'direct generator construction cannot bypass the attempt-bound Polylang proof'
+        );
+        $throws(
+            static fn() => clone $polylangTransition,
+            'cannot be cloned',
+            'a markerless Polylang handoff cannot be replayed by cloning its generator'
+        );
+        $throws(
+            static fn() => serialize($polylangTransition),
+            'cannot be serialized',
+            'a markerless Polylang handoff cannot be replayed through serialization'
         );
         $GLOBALS['duo_polylang_has_languages'] = false;
         $polylangPartial = new PLL_Sync_Post_Metas();
         add_filter('update_post_metadata', [$polylangPartial, 'can_synchronize_metadata'], 1, 3);
         $throws(
             static fn() => (new AttachmentNativeMetadataGenerator(
-                static fn(int $id): string => 'image/png',
-                ['polylang']
+            static fn(int $id): string => 'image/png',
+                ['polylang'],
+                $compiled->artifact_hash(),
+                $compiled->manifest_hash()
             ))->generate(41, $standalone),
             'partial Polylang post-meta callback topology',
             'one Polylang sync callback without its paired witness is refused'
@@ -1118,8 +1103,10 @@ namespace {
         $GLOBALS['duo_polylang_has_languages'] = true;
         $throws(
             static fn() => (new AttachmentNativeMetadataGenerator(
-                static fn(int $id): string => 'image/png',
-                ['polylang']
+            static fn(int $id): string => 'image/png',
+                ['polylang'],
+                $compiled->artifact_hash(),
+                $compiled->manifest_hash()
             ))->generate(41, $standalone),
             'languages are present',
             'an absent Polylang sync pair is refused when the native model proves languages are present'
@@ -1139,8 +1126,10 @@ namespace {
         add_filter('upload_dir', [$polylangDomain, 'upload_dir'], 10, 1);
         $throws(
             static fn() => (new AttachmentNativeMetadataGenerator(
-                static fn(int $id): string => 'image/png',
-                ['polylang']
+            static fn(int $id): string => 'image/png',
+                ['polylang'],
+                $compiled->artifact_hash(),
+                $compiled->manifest_hash()
             ))->generate(41, $standalone),
             'request-conditional certified-adapter callback topology',
             'Polylang domain/subdomain upload rewriting is an explicit unsupported target-filesystem topology'
@@ -1372,18 +1361,35 @@ namespace {
                 === ['policy', 'fieldMaterializer', 'compiled', 'repositoryRoot'],
             'constructor authority binds frozen adapter policy, field materializer, immutable artifact and private repository root'
         );
-        $proofState = new \ReflectionProperty(AttachmentMaterializer::class, 'polylangNoLanguageProof');
-        $proofState->setValue($attachmentMaterializer, $handoffProof);
+        $proofState = new \ReflectionProperty(AttachmentMaterializer::class, 'polylangNativeGenerator');
+        $proofState->setValue($attachmentMaterializer, $preflightGenerator);
         $attachmentMaterializer->end_authored_transaction();
         $check(
             $proofState->getValue($attachmentMaterializer) === null,
             'terminal authored-transaction end consumes any retained Polylang handoff authority'
         );
-        $proofState->setValue($attachmentMaterializer, $handoffProof);
+        $proofState->setValue($attachmentMaterializer, $preflightGenerator);
         $attachmentMaterializer->rollback_authored_transaction();
         $check(
             $proofState->getValue($attachmentMaterializer) === null,
             'rollback failure or retry preparation cannot retain a prior Polylang handoff authority'
+        );
+        $authoredExecutorSource = (string) file_get_contents($root . '/agent/src/Apply/AuthoredTransactionExecutor.php');
+        $rebuildCoordinatorSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyRebuildCoordinator.php');
+        $nativeRebuildSource = (string) file_get_contents($root . '/agent/src/Rebuild/NativeRebuildExecutor.php');
+        $check(
+            str_contains(preg_replace('/\s+/', ' ', $authoredExecutorSource),
+                'end_authored_transaction($retainNativeRebuildAuthority)'),
+            'AuthoredTransactionExecutor explicitly transfers the live handoff only after committed post-commit participants'
+        );
+        $check(
+            str_contains($rebuildCoordinatorSource, 'finally {')
+                && str_contains($rebuildCoordinatorSource, 'discard_native_rebuild_authority'),
+            'ApplyRebuildCoordinator clears an unconsumed handoff on every native-rebuild failure or skip path'
+        );
+        $check(
+            str_contains($nativeRebuildSource, 'finalize_native_metadata($attachmentIds)'),
+            'NativeRebuildExecutor remains the sole production consumer of the attachment handoff'
         );
 
         $priorOwnership = new \ReflectionMethod(AttachmentMaterializer::class, 'prior_native_owned_paths');

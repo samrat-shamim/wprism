@@ -32,43 +32,47 @@ final class ApplyRebuildCoordinator {
             ? []
             : $this->services->regeneration_context_store()->durable_deletions();
 
-        if (!$request->scoped) {
-            $this->services->dependency_regenerator()->run(
-                $request->work,
-                $request->tree,
-                $request->regenerationContext,
-                $warnings
-            );
-        }
+        try {
+            if (!$request->scoped) {
+                $this->services->dependency_regenerator()->run(
+                    $request->work,
+                    $request->tree,
+                    $request->regenerationContext,
+                    $warnings
+                );
+            }
 
-        if (!$request->scoped || !$request->skipScopedCore) {
-            $this->services->native_rebuild_executor()->run(
-                $request->attachmentIds,
+            if (!$request->scoped || !$request->skipScopedCore) {
+                $this->services->native_rebuild_executor()->run(
+                    $request->attachmentIds,
+                    $request->work,
+                    $request->tree,
+                    $appliedDeletions,
+                    $request->suppressScopedExternalEffects
+                );
+                if ($request->scoped && $request->scopedCoreComplete !== null) {
+                    ($request->scopedCoreComplete)();
+                }
+            }
+
+            $this->services->rebuild_action_dispatcher()->dispatch(
+                $this->selection->selected_actions(),
+                (array) $this->selection->negotiated_providers(),
                 $request->work,
                 $request->tree,
                 $appliedDeletions,
-                $request->suppressScopedExternalEffects
+                $request->regenerationContext,
+                $durableReparents,
+                $durableDeletions,
+                $request->retryingIncompleteApply,
+                $request->scoped,
+                $request->scopedSession,
+                $request->scopedObservation,
+                $warnings,
+                $actionReceipts
             );
-            if ($request->scoped && $request->scopedCoreComplete !== null) {
-                ($request->scopedCoreComplete)();
-            }
+        } finally {
+            $this->services->attachment_materializer()->discard_native_rebuild_authority();
         }
-
-        $this->services->rebuild_action_dispatcher()->dispatch(
-            $this->selection->selected_actions(),
-            (array) $this->selection->negotiated_providers(),
-            $request->work,
-            $request->tree,
-            $appliedDeletions,
-            $request->regenerationContext,
-            $durableReparents,
-            $durableDeletions,
-            $request->retryingIncompleteApply,
-            $request->scoped,
-            $request->scopedSession,
-            $request->scopedObservation,
-            $warnings,
-            $actionReceipts
-        );
     }
 }

@@ -1,5 +1,5 @@
 {
-    "class_count": 371,
+    "class_count": 370,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -4765,10 +4765,27 @@
                     "static": false,
                     "visibility": "public"
                 },
-                "end_authored_transaction": {
+                "discard_native_rebuild_authority": {
                     "abstract": false,
                     "final": false,
                     "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "end_authored_transaction": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "retainNativeRebuildAuthority",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
                     "return_type": "void",
                     "static": false,
                     "visibility": "public"
@@ -4909,6 +4926,14 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "__clone": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "__construct": {
                     "abstract": false,
                     "final": false,
@@ -4933,20 +4958,53 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": true,
-                            "name": "polylangNoLanguageProof",
-                            "type": "?Duo\\AttachmentPolylangNoLanguageProof",
+                            "name": "compiledArtifactIdentity",
+                            "type": "?string",
                             "variadic": false
                         },
                         {
                             "by_ref": false,
                             "default": null,
                             "has_default": true,
-                            "name": "polylangProofContext",
-                            "type": "?array",
+                            "name": "compiledManifestIdentity",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "nativeRebuildContextReader",
+                            "type": "?Closure",
                             "variadic": false
                         }
                     ],
                     "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "__serialize": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "__unserialize": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "data",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
                     "static": false,
                     "visibility": "public"
                 },
@@ -4975,11 +5033,11 @@
                     "static": false,
                     "visibility": "public"
                 },
-                "polylang_no_language_proof": {
+                "has_polylang_no_language_handoff": {
                     "abstract": false,
                     "final": false,
                     "parameters": [],
-                    "return_type": "?Duo\\AttachmentPolylangNoLanguageProof",
+                    "return_type": "bool",
                     "static": false,
                     "visibility": "public"
                 },
@@ -5001,60 +5059,6 @@
                             "has_default": false,
                             "name": "stageFile",
                             "type": "string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "void",
-                    "static": false,
-                    "visibility": "public"
-                }
-            },
-            "parent": null,
-            "properties": [],
-            "readonly": false
-        },
-        "Duo\\AttachmentPolylangNoLanguageProof": {
-            "abstract": false,
-            "constants": [],
-            "final": true,
-            "interfaces": [],
-            "kind": "class",
-            "methods": {
-                "consume": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "context",
-                            "type": "?array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "void",
-                    "static": false,
-                    "visibility": "public"
-                },
-                "issue": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [],
-                    "return_type": "Duo\\AttachmentPolylangNoLanguageProof",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "seal": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "context",
-                            "type": "array",
                             "variadic": false
                         }
                     ],
