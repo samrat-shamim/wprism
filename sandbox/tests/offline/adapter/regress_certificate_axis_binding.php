@@ -117,7 +117,13 @@ register_shutdown_function(static fn() => axis_rmtree($root));
 // file declares.
 $lib = $root . '/manifests';
 copy($duoRoot . '/manifests/core.json', $lib . '/core.json');
-copy($duoRoot . '/manifests/dispositions.json', $lib . '/dispositions.json');
+// WP-4.4 split the monolith: the reviewed claim source is now the
+// dispositions/ directory (core's own entry plus profiles.json — the two
+// documents a core-only library resolves), so the copy follows the layout the
+// loader reads rather than a file the library no longer ships.
+mkdir($lib . '/dispositions', 0755, true);
+copy($duoRoot . '/manifests/dispositions/core.json', $lib . '/dispositions/core.json');
+copy($duoRoot . '/manifests/dispositions/profiles.json', $lib . '/dispositions/profiles.json');
 copy($duoRoot . '/manifests/capabilities/platform.json', $lib . '/capabilities/platform.json');
 copy(
     $duoRoot . '/manifests/capabilities/adapter-authorities.json',
