@@ -269,8 +269,12 @@ class PublicationJournal {
         }
         self::assert_no_record_temps($stateDir);
         $intentPath = self::intent_path($stateDir);
-        $intent = self::read_record($intentPath, 'intent');
-        $receipt = self::read_record(self::receipt_path($stateDir), 'receipt');
+        $intent = self::read_record_with_missing_retry($intentPath, 'intent', 'recover-initial-intent');
+        $receipt = self::read_record_with_missing_retry(
+            self::receipt_path($stateDir),
+            'receipt',
+            'recover-initial-receipt'
+        );
         $staging = self::stage_dir($stateDir);
         $backup = self::backup_dir($stateDir);
 
@@ -584,8 +588,16 @@ class PublicationJournal {
                 $log[] = $transitionRecovery;
             }
         }
-        $intent = self::read_record(self::intent_path($stateDir), 'intent');
-        $receipt = self::read_record(self::receipt_path($stateDir), 'receipt');
+        $intent = self::read_record_with_missing_retry(
+            self::intent_path($stateDir),
+            'intent',
+            'recover-intent'
+        );
+        $receipt = self::read_record_with_missing_retry(
+            self::receipt_path($stateDir),
+            'receipt',
+            'recover-receipt'
+        );
 
         // Validate marker shape before comparing ids. A prior successful
         // receipt may still be present when a new intent was durably written;
@@ -638,6 +650,19 @@ class PublicationJournal {
                 $log[] = 'recovered: finalized the durable capture intent after its commit receipt was found';
             }
             return $log;
+        }
+
+        // A receipt with a retained backup belongs to the journal protocol,
+        // never the legacy no-intent layout. A staging tree alone can be a
+        // later pre-intent build and remains safe to discard below; a backup
+        // has already crossed the destructive swap boundary. Even after
+        // bounded readback retries, an absent intent leaves no authority to
+        // decide whether that backup belongs to the receipt or a later run.
+        if ($intent === null && $receipt !== null
+            && (is_dir($backup) || is_link($backup))) {
+            throw self::ambiguous_recovery(
+                'a capture receipt retained publication artifacts but its durable intent is missing'
+            );
         }
 
         if ($intent !== null) {
@@ -1474,8 +1499,12 @@ PHP;
     public static function mark_swapped(string $stateDir, array $intent, bool $initExclusion = false): array {
         self::assert_protocol_roots($stateDir);
         self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
-        $onDisk = self::read_record(self::intent_path($stateDir), 'intent');
-        if ($onDisk === null || ($onDisk['id'] ?? null) !== ($intent['id'] ?? null)) {
+        $onDisk = self::read_record_with_missing_retry(
+            self::intent_path($stateDir),
+            'intent',
+            'mark-swapped'
+        );
+        if ($onDisk === null || Canon::encode($onDisk) !== Canon::encode($intent)) {
             throw self::ambiguous_recovery('capture swap completed but its durable intent is missing or changed');
         }
         $intent['phase'] = 'swapped';
@@ -1485,7 +1514,8 @@ PHP;
             'intent',
             false,
             $onDisk,
-            $initExclusion
+            $initExclusion,
+            'mark-swapped-transition'
         );
         self::fault_checkpoint('intent-swapped');
         return $intent;
@@ -1516,7 +1546,7 @@ PHP;
             false,
             $onDisk,
             $initExclusion,
-            true
+            'mark-commit-ready-transition'
         );
         self::fault_checkpoint('intent-ready');
         return $intent;
@@ -1526,8 +1556,12 @@ PHP;
     public static function mark_committing(string $stateDir, array $intent, bool $initExclusion = false): array {
         self::assert_protocol_roots($stateDir);
         self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
-        $onDisk = self::read_record(self::intent_path($stateDir), 'intent');
-        if ($onDisk === null || ($onDisk['id'] ?? null) !== ($intent['id'] ?? null)) {
+        $onDisk = self::read_record_with_missing_retry(
+            self::intent_path($stateDir),
+            'intent',
+            'mark-committing'
+        );
+        if ($onDisk === null || Canon::encode($onDisk) !== Canon::encode($intent)) {
             throw self::ambiguous_recovery('capture cannot mark COMMIT-attempted because its durable intent is missing or changed');
         }
         // An injected pre-commit failure must leave `ready` on disk so the
@@ -1541,7 +1575,8 @@ PHP;
             'intent',
             false,
             $onDisk,
-            $initExclusion
+            $initExclusion,
+            'mark-committing-transition'
         );
         self::fault_checkpoint('after-commit-marker');
         return $intent;
@@ -1563,12 +1598,22 @@ PHP;
         // `committing` immediately before COMMIT. Re-read it so the receipt
         // binds that exact record even though Capture carried the pre-commit
         // PHP array across the wrapper boundary.
-        $onDisk = self::read_record(self::intent_path($stateDir), 'intent');
+        $expectedCommitting = $intent;
+        $expectedCommitting['phase'] = 'committing';
+        $expectedCommitting = self::seal_record($expectedCommitting);
+        $onDisk = self::read_record_with_missing_retry(
+            self::intent_path($stateDir),
+            'intent',
+            'write-receipt-intent'
+        );
         if ($onDisk === null || ($onDisk['id'] ?? null) !== ($intent['id'] ?? null)) {
             throw self::ambiguous_recovery('capture cannot write its receipt because its durable intent is missing or changed');
         }
         if (($onDisk['phase'] ?? null) !== 'committing') {
             throw self::ambiguous_recovery('capture cannot write its receipt before the durable COMMIT-attempt marker');
+        }
+        if (Canon::encode($onDisk) !== Canon::encode($expectedCommitting)) {
+            throw self::ambiguous_recovery('capture cannot write its receipt because its durable intent is missing or changed');
         }
         $intent = $onDisk;
         $actual = self::tree_digest($stateDir);
@@ -1615,13 +1660,16 @@ PHP;
         $staging = self::stage_dir($stateDir);
         $intent = self::intent_path($stateDir);
         $hadRetainedArtifacts = is_dir($backup) || is_dir($staging);
-        $onDisk = self::read_record($intent, 'intent');
+        $onDisk = self::read_record_with_missing_retry($intent, 'intent', 'cleanup-committed-intent');
         if ($hadRetainedArtifacts && $onDisk === null) {
             throw self::ambiguous_recovery('post-commit cleanup found retained artifacts with no matching intent');
         }
         if ($onDisk !== null) {
-            if (($onDisk['id'] ?? null) !== ($receipt['intent_id'] ?? null)) {
-                throw self::ambiguous_recovery('post-commit cleanup found an intent id that differs from its receipt');
+            if (($onDisk['phase'] ?? null) !== 'committing'
+                || ($onDisk['id'] ?? null) !== ($receipt['intent_id'] ?? null)
+                || ($onDisk['candidate_sha256'] ?? null) !== ($receipt['candidate_sha256'] ?? null)
+                || ($onDisk['previous_sha256'] ?? null) !== ($receipt['previous_sha256'] ?? null)) {
+                throw self::ambiguous_recovery('post-commit cleanup found an intent that differs from its receipt');
             }
         }
         if (is_dir($backup)) {
@@ -1678,8 +1726,12 @@ PHP;
             throw self::ambiguous_recovery('initial committed capture retained an unexpected staging boundary');
         }
         self::assert_owned_tree($backup, $backupManifest, 'initial retained state reservation');
-        $onDisk = self::read_record($intent, 'intent');
-        if ($onDisk === null || ($onDisk['id'] ?? null) !== ($receipt['intent_id'] ?? null)) {
+        $onDisk = self::read_record_with_missing_retry($intent, 'intent', 'cleanup-initial-intent');
+        if ($onDisk === null
+            || ($onDisk['phase'] ?? null) !== 'committing'
+            || ($onDisk['id'] ?? null) !== ($receipt['intent_id'] ?? null)
+            || ($onDisk['candidate_sha256'] ?? null) !== ($receipt['candidate_sha256'] ?? null)
+            || ($onDisk['previous_sha256'] ?? null) !== ($receipt['previous_sha256'] ?? null)) {
             throw self::ambiguous_recovery('initial committed capture intent changed before cleanup');
         }
         self::fault_checkpoint('post-commit-cleanup');
@@ -2081,7 +2133,7 @@ PHP;
         bool $createOnly = false,
         ?array $expectedExisting = null,
         bool $initExclusion = false,
-        bool $retryMissingReadback = false
+        ?string $missingReadbackScope = null
     ): array {
         self::assert_not_symlink_root($path, "$label record");
         $record = self::seal_record($record);
@@ -2120,8 +2172,8 @@ PHP;
                 self::fsync_dir(dirname($path));
                 self::remove_record_transition_artifact($nextPath, $record, $label);
             } elseif ($expectedExisting !== null) {
-                $current = $retryMissingReadback
-                    ? self::read_record_with_missing_retry($path, $label, 'mark-commit-ready-transition')
+                $current = $missingReadbackScope !== null
+                    ? self::read_record_with_missing_retry($path, $label, $missingReadbackScope)
                     : self::read_record($path, $label);
                 if ($current === null || Canon::encode($current) !== Canon::encode($expectedExisting)) {
                     throw self::ambiguous_recovery("capture $label record changed before its transition");
