@@ -8421,6 +8421,8 @@ duo_check(
 );
 foreach ([
     'git clone -q --no-hardlinks "$TEC_WIDGET_SCOPE_BASE" "$TEC_WIDGET_SCOPE_HOST"',
+    'TEC_WIDGET_SCOPE_CLONE_HEAD=$(git -C "$TEC_WIDGET_SCOPE_HOST" rev-parse --verify HEAD)',
+    'cmp -s "$TEC_WIDGET_SCOPE_BASE/site.duo.json" "$TEC_WIDGET_SCOPE_HOST/site.duo.json"',
     '--roots="post:$TEC_WIDGET_PAGE_UUID"',
     'any(.live.closure[]; .entity == "sidebar/wp_inactive_widgets")',
     '$stored !== 2 || $embedded !== 2',
@@ -8430,8 +8432,28 @@ foreach ([
     'duo-inactive-overlay-deauthorization/v1',
     'sidebar/wp_inactive_widgets',
     'TEC_WIDGET_PHYSICAL_MUTATED',
+    'TEC_WIDGET_LEDGER_MUTATED',
+    'other_state_sha256',
+    'kv_sha256',
+    'journal_sha256',
+    'TEC_WIDGET_EXPECTED_PAGE_SHA256',
+    'tec_widget_scope_expected_page "$TEC_SOURCE_WIDGET_STATE" >"$TEC_WIDGET_EXPECTED_PAGE"',
+    'capture exceeded its exact selected duo_state bookkeeping row',
+    'cmp -s "$TEC_WIDGET_EXPECTED_PAGE" "$TEC_WIDGET_SCOPE_STATE"',
+    'capture changed non-widget canonical page bytes',
+    'TEC_WIDGET_CANONICAL_FIRST',
+    '($actual | length) == 2',
+    'all($actual[]; (has("id") | not) and has("instance"))',
+    '["tribe-widget-events-list","tribe-widget-events-qr-code"]',
+    'tec_widget_scope_assert_repo_absent "$TEC_WIDGET_SCOPE_HOST"',
+    "-path \"\$repo/.git\" -prune -o",
+    "-name '.original-selected-state.json'",
     '--scope-contract="$TEC_WIDGET_SCOPE_REPO/.second.scope.json"',
     'TEC_WIDGET_REPO_FIRST',
+    'TEC_WIDGET_LEDGER_SECOND',
+    'TEC_WIDGET_CANONICAL_SECOND',
+    'tec_widget_scope_restore_physical_preimage',
+    'cleanup did not restore exact target and Duo ledger bytes',
     'trap cleanup_tec_widget_scope EXIT',
     'trap - EXIT',
 ] as $widgetScopedCaptureEvidence) {
@@ -8441,37 +8463,85 @@ foreach ([
     );
 }
 $widgetCleanupTrapAt = strpos($deletionCheck, 'trap cleanup_tec_widget_scope EXIT');
+$widgetBackupAt = strpos($deletionCheck, '$backup = "/siterepo/.tmp-tec-widget-scoped-capture/.original-post-content"');
 $widgetMutationAt = strpos($deletionCheck, 'TEC_WIDGET_SCOPE_MUTATED=1');
+$widgetMutationWriteAt = strpos(
+    $deletionCheck,
+    '$wpdb->update($wpdb->posts, ["post_content" => $content], ["ID" => $id], ["%s"], ["%d"]) !== 1',
+    (int) $widgetMutationAt
+);
 $widgetFirstCaptureAt = strpos($deletionCheck, 'TEC_WIDGET_CAPTURE_ONE=$(wp_conf1 duo capture');
 $widgetSecondCaptureAt = strpos($deletionCheck, 'TEC_WIDGET_CAPTURE_TWO=$(wp_conf1 duo capture');
 $widgetRestoreAt = strrpos(
+    substr($deletionCheck, 0, (int) $categoryScopedCaptureAt),
+    'tec_widget_scope_restore_physical_preimage'
+);
+$widgetRestoreHashAt = strrpos(
+    substr($deletionCheck, 0, (int) $categoryScopedCaptureAt),
+    'cleanup did not restore exact target and Duo ledger bytes'
+);
+$widgetMutationDisarmAt = strrpos(
     substr($deletionCheck, 0, (int) $categoryScopedCaptureAt),
     'TEC_WIDGET_SCOPE_MUTATED=0'
 );
 $widgetCleanupDisarmAt = strpos($deletionCheck, 'trap - EXIT', (int) $widgetSecondCaptureAt);
 duo_check(
     $widgetCleanupTrapAt !== false
+        && $widgetCleanupTrapAt < $widgetBackupAt
+        && $widgetBackupAt < $widgetMutationAt
         && $widgetCleanupTrapAt < $widgetMutationAt
+        && $widgetMutationAt < $widgetMutationWriteAt
         && $widgetMutationAt < $widgetFirstCaptureAt
         && $widgetFirstCaptureAt < $widgetSecondCaptureAt
         && $widgetSecondCaptureAt < $widgetRestoreAt
-        && $widgetRestoreAt < $widgetCleanupDisarmAt,
-    'scoped inactive-widget cleanup arms before mutation and restores exact target bytes after fixed-point capture'
+        && $widgetRestoreAt < $widgetRestoreHashAt
+        && $widgetRestoreHashAt < $widgetMutationDisarmAt
+        && $widgetMutationDisarmAt < $widgetCleanupDisarmAt,
+    'scoped inactive-widget cleanup backs up before arming, arms before physical mutation, and disarms only after exact target/ledger restore'
+);
+duo_check(
+    str_contains(
+        $deletionCheck,
+        '&& tec_widget_scope_restore_physical_preimage >/dev/null 2>&1'
+    )
+        && str_contains(
+            $deletionCheck,
+            '&& [ "$(tec_widget_scope_physical_hash 2>/dev/null)" = "$TEC_WIDGET_PHYSICAL_ORIGINAL" ]'
+        )
+        && str_contains(
+            $deletionCheck,
+            '&& [ "$(tec_widget_scope_ledger_witness 2>/dev/null)" = "$TEC_WIDGET_LEDGER_ORIGINAL" ]'
+        )
+        && str_contains(
+            $deletionCheck,
+            'TEC scoped inactive-widget cleanup retained its exact backup at %s'
+        ),
+    'scoped inactive-widget EXIT cleanup retains its backup unless both physical and ledger preimages are restored exactly'
 );
 duo_check_same(
     2,
+    substr_count($deletionCheck, 'cmp -s "$TEC_WIDGET_EXPECTED_PAGE" "$TEC_WIDGET_SCOPE_STATE"'),
+    'both scoped publications byte-compare the full canonical page to the exact stored-id-free source projection'
+);
+duo_check(
+    str_contains($deletionCheck, '$after.selected_state[0].content_hash == $expected')
+        && str_contains($deletionCheck, '--arg expected "$TEC_WIDGET_EXPECTED_PAGE_SHA256"'),
+    'the only admitted duo_state publication delta is the exact full canonical page hash'
+);
+duo_check_same(
+    4,
     substr_count($deletionCheck, 'require $argv[1];'),
-    'both host-side canonical block inspections load Canon from an explicit argv path'
+    'all four host-side canonical block/page inspections load Canon from an explicit argv path'
 );
 duo_check_same(
-    2,
+    4,
     substr_count($deletionCheck, '"$DUO_SOURCE_ROOT/agent/src/Kernel/Canon.php"'),
-    'both host-side canonical block inspections are independent of the matrix caller working directory'
+    'all four host-side canonical block/page inspections are independent of the matrix caller working directory'
 );
 duo_check_same(
-    2,
+    4,
     substr_count($deletionCheck, '"$DUO_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php"'),
-    'both host-side block-parser fixtures are independent of the matrix caller working directory'
+    'all four host-side block/page parser fixtures are independent of the matrix caller working directory'
 );
 duo_check(
     !str_contains($deletionCheck, 'require "agent/src/Kernel/Canon.php";')

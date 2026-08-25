@@ -1596,6 +1596,8 @@ TEC_WIDGET_SCOPE_BASE="${CONF_REPO1:-siterepo/conf1}"
 TEC_WIDGET_SCOPE_HOST="$TEC_WIDGET_SCOPE_BASE/.tmp-tec-widget-scoped-capture"
 TEC_WIDGET_SCOPE_REPO='/siterepo/.tmp-tec-widget-scoped-capture'
 TEC_WIDGET_SCOPE_MUTATED=0
+TEC_WIDGET_PHYSICAL_ORIGINAL=''
+TEC_WIDGET_LEDGER_ORIGINAL=''
 TEC_WIDGET_PAGE_ID=$(jq -er '.widget_page' <<<"$SOURCE_IDS")
 [[ "$TEC_WIDGET_PAGE_ID" =~ ^[1-9][0-9]*$ ]] \
   || fail "TEC scoped inactive-widget fixture has a malformed page id"
@@ -1637,6 +1639,133 @@ tec_widget_scope_physical_hash() {
   ' | tr -d '[:space:]'
 }
 
+tec_widget_scope_ledger_witness() {
+  wp_conf1 eval "\$uuid='$TEC_WIDGET_PAGE_UUID';"'
+    global $wpdb;
+    $wpdb->last_error = "";
+    $selected = $wpdb->get_results($wpdb->prepare(
+      "SELECT uuid,entity_type,content_hash FROM {$wpdb->prefix}duo_state WHERE uuid=%s ORDER BY uuid",
+      $uuid
+    ), ARRAY_A);
+    $other = $wpdb->get_results($wpdb->prepare(
+      "SELECT uuid,entity_type,content_hash FROM {$wpdb->prefix}duo_state WHERE uuid<>%s " .
+      "ORDER BY uuid,entity_type,content_hash",
+      $uuid
+    ), ARRAY_A);
+    $kv = $wpdb->get_results(
+      "SELECT k,v FROM {$wpdb->prefix}duo_kv ORDER BY k,v",
+      ARRAY_A
+    );
+    $journal = $wpdb->get_results(
+      "SELECT id,t,op,tbl,item,surface,actor,caps,hook,proposal FROM {$wpdb->prefix}duo_journal " .
+      "ORDER BY id,t,op,tbl,item,surface,actor,caps,hook,proposal",
+      ARRAY_A
+    );
+    if ($wpdb->last_error !== "" || count($selected) !== 1
+        || ($selected[0]["uuid"] ?? null) !== $uuid
+        || ($selected[0]["entity_type"] ?? null) !== "post"
+        || !is_string($selected[0]["content_hash"] ?? null)
+        || !preg_match("/^[a-f0-9]{64}$/D", $selected[0]["content_hash"])) {
+      throw new RuntimeException("TEC scoped inactive-widget ledger witness failed");
+    }
+    echo wp_json_encode([
+      "selected_state" => $selected,
+      "other_state_sha256" => hash("sha256", serialize($other)),
+      "kv_sha256" => hash("sha256", serialize($kv)),
+      "journal_sha256" => hash("sha256", serialize($journal)),
+    ], JSON_UNESCAPED_SLASHES);
+  ' | jq -ce '.'
+}
+
+tec_widget_scope_canonical_widgets() {
+  TEC_STATE_PATH=$1 php -r '
+    require $argv[1];
+    require $argv[2];
+    [, $body] = Duo\Canon::parse_post_file((string) file_get_contents((string) getenv("TEC_STATE_PATH")));
+    $attrs = [];
+    foreach (parse_blocks($body) as $block) {
+      if (($block["blockName"] ?? null) === "core/legacy-widget") {
+        $attrs[] = $block["attrs"] ?? null;
+      }
+    }
+    echo Duo\Canon::encode($attrs);
+  ' "$DUO_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$DUO_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php"
+}
+
+tec_widget_scope_expected_page() {
+  TEC_STATE_PATH=$1 php -r '
+    require $argv[1];
+    require $argv[2];
+    [$front, $body] = Duo\Canon::parse_post_file((string) file_get_contents((string) getenv("TEC_STATE_PATH")));
+    $kept = [];
+    $stored = 0;
+    $embedded = 0;
+    foreach (parse_blocks($body) as $block) {
+      if (($block["blockName"] ?? null) === "core/legacy-widget"
+          && is_array($block["attrs"] ?? null)
+          && isset($block["attrs"]["id"])) {
+        $stored++;
+        continue;
+      }
+      if (($block["blockName"] ?? null) === "core/legacy-widget"
+          && is_array($block["attrs"]["instance"] ?? null)) {
+        $embedded++;
+      }
+      $kept[] = $block;
+    }
+    if ($stored !== 2 || $embedded !== 2) {
+      throw new RuntimeException("TEC scoped inactive-widget expected page has an unexpected block projection");
+    }
+    echo Duo\Canon::post_file($front, serialize_blocks($kept));
+  ' "$DUO_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$DUO_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php"
+}
+
+tec_widget_scope_assert_repo_absent() { # <repo> <needle> <role>
+  local repo=$1 needle=$2 role=$3 matches
+  matches=$(find "$repo" \
+    -path "$repo/.git" -prune -o \
+    \( -name '.original-post-content' -o -name '.original-selected-state.json' \
+       -o -name '.expected-widget-page.md' -o -name '.first.scope.json' \
+       -o -name '.second.scope.json' \) -prune -o \
+    -type f -exec grep -Fl -- "$needle" {} + 2>/dev/null || true)
+  [ -z "$matches" ] || fail "TEC scoped inactive-widget $role escaped into the disposable repository: $matches"
+}
+
+tec_widget_scope_restore_physical_preimage() {
+  wp_conf1 eval "\$id=$TEC_WIDGET_PAGE_ID;\$uuid='$TEC_WIDGET_PAGE_UUID';"'
+    global $wpdb;
+    $wpdb->last_error = "";
+    $content = file_get_contents("/siterepo/.tmp-tec-widget-scoped-capture/.original-post-content");
+    $stateRaw = file_get_contents("/siterepo/.tmp-tec-widget-scoped-capture/.original-selected-state.json");
+    $state = is_string($stateRaw) ? json_decode($stateRaw, true) : null;
+    if (!is_string($content) || !is_array($state) || count($state) !== 1
+        || ($state[0]["uuid"] ?? null) !== $uuid
+        || ($state[0]["entity_type"] ?? null) !== "post"
+        || !is_string($state[0]["content_hash"] ?? null)
+        || !preg_match("/^[a-f0-9]{64}$/D", $state[0]["content_hash"])) {
+      throw new RuntimeException("TEC scoped inactive-widget physical preimage is malformed");
+    }
+    $postResult = $wpdb->update(
+      $wpdb->posts,
+      ["post_content" => $content],
+      ["ID" => $id],
+      ["%s"],
+      ["%d"]
+    );
+    $stateResult = $wpdb->query($wpdb->prepare(
+      "INSERT INTO {$wpdb->prefix}duo_state (uuid,entity_type,content_hash) VALUES (%s,%s,%s) " .
+      "ON DUPLICATE KEY UPDATE entity_type=VALUES(entity_type),content_hash=VALUES(content_hash)",
+      $state[0]["uuid"],
+      $state[0]["entity_type"],
+      $state[0]["content_hash"]
+    ));
+    if ($postResult === false || $stateResult === false || $wpdb->last_error !== "") {
+      throw new RuntimeException("TEC scoped inactive-widget cleanup could not restore its physical preimage");
+    }
+    clean_post_cache($id);
+  ' >/dev/null
+}
+
 tec_widget_scope_repo_hash() {
   local repo=$1
   (
@@ -1649,19 +1778,19 @@ tec_widget_scope_repo_hash() {
 
 cleanup_tec_widget_scope() {
   local remove_repo=1
-  if [ "$TEC_WIDGET_SCOPE_MUTATED" -eq 1 ] && [ -f "$TEC_WIDGET_SCOPE_HOST/.original-post-content" ]; then
-    if wp_conf1 eval "\$id=$TEC_WIDGET_PAGE_ID;"'
-      global $wpdb;
-      $content = file_get_contents("/siterepo/.tmp-tec-widget-scoped-capture/.original-post-content");
-      if (!is_string($content)
-          || $wpdb->update($wpdb->posts, ["post_content" => $content], ["ID" => $id], ["%s"], ["%d"]) !== 1) {
-        throw new RuntimeException("TEC scoped inactive-widget cleanup could not restore exact post content");
-      }
-      clean_post_cache($id);
-    ' >/dev/null 2>&1; then
+  if [ "$TEC_WIDGET_SCOPE_MUTATED" -eq 1 ]; then
+    remove_repo=0
+    if [ -f "$TEC_WIDGET_SCOPE_HOST/.original-post-content" ] \
+      && [ -f "$TEC_WIDGET_SCOPE_HOST/.original-selected-state.json" ] \
+      && [ -n "$TEC_WIDGET_PHYSICAL_ORIGINAL" ] \
+      && [ -n "$TEC_WIDGET_LEDGER_ORIGINAL" ] \
+      && tec_widget_scope_restore_physical_preimage >/dev/null 2>&1 \
+      && [ "$(tec_widget_scope_physical_hash 2>/dev/null)" = "$TEC_WIDGET_PHYSICAL_ORIGINAL" ] \
+      && [ "$(tec_widget_scope_ledger_witness 2>/dev/null)" = "$TEC_WIDGET_LEDGER_ORIGINAL" ]; then
       TEC_WIDGET_SCOPE_MUTATED=0
-    else
-      remove_repo=0
+      remove_repo=1
+    fi
+    if [ "$TEC_WIDGET_SCOPE_MUTATED" -eq 1 ]; then
       printf 'TEC scoped inactive-widget cleanup retained its exact backup at %s\n' \
         "$TEC_WIDGET_SCOPE_HOST" >&2
     fi
@@ -1671,6 +1800,12 @@ cleanup_tec_widget_scope() {
 trap cleanup_tec_widget_scope EXIT
 rm -rf -- "$TEC_WIDGET_SCOPE_HOST"
 git clone -q --no-hardlinks "$TEC_WIDGET_SCOPE_BASE" "$TEC_WIDGET_SCOPE_HOST"
+TEC_WIDGET_SCOPE_BASE_HEAD=$(git -C "$TEC_WIDGET_SCOPE_BASE" rev-parse --verify HEAD)
+TEC_WIDGET_SCOPE_CLONE_HEAD=$(git -C "$TEC_WIDGET_SCOPE_HOST" rev-parse --verify HEAD)
+[ "$TEC_WIDGET_SCOPE_CLONE_HEAD" = "$TEC_WIDGET_SCOPE_BASE_HEAD" ] \
+  && cmp -s "$TEC_WIDGET_SCOPE_BASE/site.duo.json" "$TEC_WIDGET_SCOPE_HOST/site.duo.json" \
+  && [ -z "$(git -C "$TEC_WIDGET_SCOPE_HOST" status --porcelain=v1 --untracked-files=all)" ] \
+  || fail "TEC scoped inactive-widget clone did not bind the exact source HEAD/site identity"
 
 TEC_WIDGET_SCOPE_ONE="$TEC_WIDGET_SCOPE_HOST/.first.scope.json"
 wp_conf1 duo scope \
@@ -1686,6 +1821,15 @@ jq -e --arg uuid "$TEC_WIDGET_PAGE_UUID" '
 
 TEC_WIDGET_PHYSICAL_ORIGINAL=$(tec_widget_scope_physical_hash)
 require_observed_nonempty "TEC scoped inactive-widget original physical witness" "$TEC_WIDGET_PHYSICAL_ORIGINAL"
+TEC_WIDGET_LEDGER_ORIGINAL=$(tec_widget_scope_ledger_witness)
+printf '%s\n' "$TEC_WIDGET_LEDGER_ORIGINAL" | jq -e '
+  (.selected_state | length) == 1 and
+  .selected_state[0].entity_type == "post" and
+  (.selected_state[0].content_hash | test("^[a-f0-9]{64}$")) and
+  (.other_state_sha256 | test("^[a-f0-9]{64}$")) and
+  (.kv_sha256 | test("^[a-f0-9]{64}$")) and
+  (.journal_sha256 | test("^[a-f0-9]{64}$"))
+' >/dev/null || fail "TEC scoped inactive-widget original ledger witness is malformed"
 wp_conf1 eval "\$id=$TEC_WIDGET_PAGE_ID;"'
   global $wpdb;
   $post = get_post($id);
@@ -1695,6 +1839,21 @@ wp_conf1 eval "\$id=$TEC_WIDGET_PAGE_ID;"'
   $backup = "/siterepo/.tmp-tec-widget-scoped-capture/.original-post-content";
   if (file_put_contents($backup, $post->post_content) !== strlen($post->post_content)) {
     throw new RuntimeException("TEC scoped inactive-widget backup failed");
+  }
+' >/dev/null
+printf '%s\n' "$TEC_WIDGET_LEDGER_ORIGINAL" | jq -c '.selected_state' \
+  >"$TEC_WIDGET_SCOPE_HOST/.original-selected-state.json"
+TEC_WIDGET_EXPECTED_PAGE="$TEC_WIDGET_SCOPE_HOST/.expected-widget-page.md"
+tec_widget_scope_expected_page "$TEC_SOURCE_WIDGET_STATE" >"$TEC_WIDGET_EXPECTED_PAGE"
+TEC_WIDGET_EXPECTED_PAGE_SHA256=$(shasum -a 256 "$TEC_WIDGET_EXPECTED_PAGE" | awk '{print $1}')
+[[ "$TEC_WIDGET_EXPECTED_PAGE_SHA256" =~ ^[a-f0-9]{64}$ ]] \
+  || fail "TEC scoped inactive-widget expected canonical page hash is malformed"
+TEC_WIDGET_SCOPE_MUTATED=1
+wp_conf1 eval "\$id=$TEC_WIDGET_PAGE_ID;"'
+  global $wpdb;
+  $post = get_post($id);
+  if (!$post instanceof WP_Post) {
+    throw new RuntimeException("TEC scoped inactive-widget page disappeared before mutation");
   }
   $kept = [];
   $stored = 0;
@@ -1722,11 +1881,13 @@ wp_conf1 eval "\$id=$TEC_WIDGET_PAGE_ID;"'
   }
   clean_post_cache($id);
 ' >/dev/null
-TEC_WIDGET_SCOPE_MUTATED=1
 TEC_WIDGET_PHYSICAL_MUTATED=$(tec_widget_scope_physical_hash)
 require_observed_nonempty "TEC scoped inactive-widget mutated physical witness" "$TEC_WIDGET_PHYSICAL_MUTATED"
 [ "$TEC_WIDGET_PHYSICAL_MUTATED" != "$TEC_WIDGET_PHYSICAL_ORIGINAL" ] \
   || fail "TEC scoped inactive-widget mutation did not change its exact post witness"
+TEC_WIDGET_LEDGER_MUTATED=$(tec_widget_scope_ledger_witness)
+[ "$TEC_WIDGET_LEDGER_MUTATED" = "$TEC_WIDGET_LEDGER_ORIGINAL" ] \
+  || fail "TEC scoped inactive-widget fixture mutation changed Duo ledger bytes before capture"
 
 TEC_WIDGET_CAPTURE_ONE=$(wp_conf1 duo capture \
   --repo="$TEC_WIDGET_SCOPE_REPO" \
@@ -1738,14 +1899,38 @@ printf '%s\n' "$TEC_WIDGET_CAPTURE_ONE" | jq -e --arg hash "$(jq -r '.scope_hash
 ' >/dev/null || fail "TEC scoped inactive-widget capture returned malformed scope/deletion evidence"
 [ ! -e "$TEC_WIDGET_SCOPE_HOST/state/sidebars/wp_inactive_widgets.json" ] \
   || fail "TEC scoped inactive-widget capture published an empty/shared pseudo row"
-if grep -RFq 'duo-inactive-overlay-deauthorization/v1' "$TEC_WIDGET_SCOPE_HOST/state" 2>/dev/null; then
-  fail "TEC scoped inactive-widget capture published its capture-local receipt"
-fi
-if grep -RFq 'sidebar/wp_inactive_widgets' "$TEC_WIDGET_SCOPE_HOST/state/deletions" 2>/dev/null; then
-  fail "TEC scoped inactive-widget capture published a pseudo-row tombstone"
-fi
+tec_widget_scope_assert_repo_absent "$TEC_WIDGET_SCOPE_HOST" \
+  'duo-inactive-overlay-deauthorization/v1' 'capture-local receipt'
+tec_widget_scope_assert_repo_absent "$TEC_WIDGET_SCOPE_HOST" \
+  'sidebar/wp_inactive_widgets' 'pseudo-row tombstone/carrier'
 [ "$(tec_widget_scope_physical_hash)" = "$TEC_WIDGET_PHYSICAL_MUTATED" ] \
   || fail "TEC scoped inactive-widget capture mutated post/options/sidebar/map target bytes"
+TEC_WIDGET_LEDGER_FIRST=$(tec_widget_scope_ledger_witness)
+jq -en --argjson before "$TEC_WIDGET_LEDGER_ORIGINAL" \
+  --argjson after "$TEC_WIDGET_LEDGER_FIRST" \
+  --arg expected "$TEC_WIDGET_EXPECTED_PAGE_SHA256" '
+  ($before | del(.selected_state)) == ($after | del(.selected_state)) and
+  ($before.selected_state | length) == 1 and ($after.selected_state | length) == 1 and
+  $after.selected_state[0].uuid == $before.selected_state[0].uuid and
+  $after.selected_state[0].entity_type == $before.selected_state[0].entity_type and
+  $after.selected_state[0].content_hash != $before.selected_state[0].content_hash and
+  $after.selected_state[0].content_hash == $expected
+' >/dev/null || fail "TEC scoped inactive-widget capture exceeded its exact selected duo_state bookkeeping row"
+TEC_WIDGET_SCOPE_STATE_REL=${TEC_SOURCE_WIDGET_STATE#"$TEC_WIDGET_SCOPE_BASE/"}
+[ "$TEC_WIDGET_SCOPE_STATE_REL" != "$TEC_SOURCE_WIDGET_STATE" ] \
+  || fail "TEC scoped inactive-widget canonical page is outside its bound source repository"
+TEC_WIDGET_SCOPE_STATE="$TEC_WIDGET_SCOPE_HOST/$TEC_WIDGET_SCOPE_STATE_REL"
+[ -f "$TEC_WIDGET_SCOPE_STATE" ] \
+  || fail "TEC scoped inactive-widget capture lost its exact selected canonical page"
+cmp -s "$TEC_WIDGET_EXPECTED_PAGE" "$TEC_WIDGET_SCOPE_STATE" \
+  || fail "TEC scoped inactive-widget capture changed non-widget canonical page bytes"
+TEC_WIDGET_EXPECTED_EMBEDDED=$(printf '%s\n' "$TEC_CANON_WIDGET_BLOCKS" | jq -cS '[.[2],.[3]]')
+TEC_WIDGET_CANONICAL_FIRST=$(tec_widget_scope_canonical_widgets "$TEC_WIDGET_SCOPE_STATE" | jq -cS '.')
+jq -en --argjson actual "$TEC_WIDGET_CANONICAL_FIRST" --argjson expected "$TEC_WIDGET_EXPECTED_EMBEDDED" '
+  $actual == $expected and ($actual | length) == 2 and
+  all($actual[]; (has("id") | not) and has("instance")) and
+  ($actual | map(.idBase)) == ["tribe-widget-events-list","tribe-widget-events-qr-code"]
+' >/dev/null || fail "TEC scoped inactive-widget capture did not preserve the exact two embedded widget blocks"
 
 TEC_WIDGET_REPO_FIRST=$(tec_widget_scope_repo_hash "$TEC_WIDGET_SCOPE_HOST")
 TEC_WIDGET_SCOPE_TWO="$TEC_WIDGET_SCOPE_HOST/.second.scope.json"
@@ -1770,25 +1955,27 @@ printf '%s\n' "$TEC_WIDGET_CAPTURE_TWO" | jq -e --arg hash "$(jq -r '.scope_hash
   || fail "TEC scoped inactive-widget second capture was not a canonical fixed point"
 [ "$(tec_widget_scope_physical_hash)" = "$TEC_WIDGET_PHYSICAL_MUTATED" ] \
   || fail "TEC scoped inactive-widget retry changed target assignment/option/map bytes"
-if grep -RFq 'duo-inactive-overlay-deauthorization/v1' "$TEC_WIDGET_SCOPE_HOST/state" 2>/dev/null; then
-  fail "TEC scoped inactive-widget retry published its capture-local receipt"
-fi
+TEC_WIDGET_LEDGER_SECOND=$(tec_widget_scope_ledger_witness)
+[ "$TEC_WIDGET_LEDGER_SECOND" = "$TEC_WIDGET_LEDGER_FIRST" ] \
+  || fail "TEC scoped inactive-widget fixed-point capture changed Duo ledger rows"
+TEC_WIDGET_CANONICAL_SECOND=$(tec_widget_scope_canonical_widgets "$TEC_WIDGET_SCOPE_STATE" | jq -cS '.')
+[ "$TEC_WIDGET_CANONICAL_SECOND" = "$TEC_WIDGET_CANONICAL_FIRST" ] \
+  && [ "$TEC_WIDGET_CANONICAL_SECOND" = "$TEC_WIDGET_EXPECTED_EMBEDDED" ] \
+  && cmp -s "$TEC_WIDGET_EXPECTED_PAGE" "$TEC_WIDGET_SCOPE_STATE" \
+  || fail "TEC scoped inactive-widget retry changed the exact embedded widget projection"
+tec_widget_scope_assert_repo_absent "$TEC_WIDGET_SCOPE_HOST" \
+  'duo-inactive-overlay-deauthorization/v1' 'retry capture-local receipt'
+tec_widget_scope_assert_repo_absent "$TEC_WIDGET_SCOPE_HOST" \
+  'sidebar/wp_inactive_widgets' 'retry pseudo-row tombstone/carrier'
 
-wp_conf1 eval "\$id=$TEC_WIDGET_PAGE_ID;"'
-  global $wpdb;
-  $content = file_get_contents("/siterepo/.tmp-tec-widget-scoped-capture/.original-post-content");
-  if (!is_string($content)
-      || $wpdb->update($wpdb->posts, ["post_content" => $content], ["ID" => $id], ["%s"], ["%d"]) !== 1) {
-    throw new RuntimeException("TEC scoped inactive-widget restore did not persist exact bytes");
-  }
-  clean_post_cache($id);
-' >/dev/null
-TEC_WIDGET_SCOPE_MUTATED=0
+tec_widget_scope_restore_physical_preimage
 [ "$(tec_widget_scope_physical_hash)" = "$TEC_WIDGET_PHYSICAL_ORIGINAL" ] \
-  || fail "TEC scoped inactive-widget cleanup did not restore exact target bytes"
+  && [ "$(tec_widget_scope_ledger_witness)" = "$TEC_WIDGET_LEDGER_ORIGINAL" ] \
+  || fail "TEC scoped inactive-widget cleanup did not restore exact target and Duo ledger bytes"
+TEC_WIDGET_SCOPE_MUTATED=0
 rm -rf -- "$TEC_WIDGET_SCOPE_HOST"
 trap - EXIT
-pass "real scoped capture deauthorizes only stored inactive ownership, preserves target bytes, and reaches a receipt-free fixed point"
+pass "real scoped capture deauthorizes only stored inactive ownership, preserves target/ledger bytes, and reaches a receipt-free fixed point"
 
 # Category metadata commits before required actions (the same recovery boundary
 # core rewrite, Elementor, and Yoast conformance exercise). Drive that boundary
