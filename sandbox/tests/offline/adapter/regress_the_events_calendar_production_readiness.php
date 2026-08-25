@@ -8355,6 +8355,25 @@ foreach ([
         "the exact live matrix binds Category Colors boundary evidence $categoryColorsBoundaryEvidence"
     );
 }
+$overflowCreateAt = strpos($deletionCheck, "\$createCategory('duo-second-page-refusal'");
+$overflowCachePrimeAt = strpos(
+    $deletionCheck,
+    '$dropdown->get_dropdown_categories();',
+    is_int($overflowCreateAt) ? $overflowCreateAt : 0
+);
+$overflowPreimageAt = strpos($deletionCheck, '$cssBeforeOverflow = $rawCss();');
+duo_check(
+    is_int($overflowCreateAt)
+        && is_int($overflowCachePrimeAt)
+        && is_int($overflowPreimageAt)
+        && $overflowCreateAt < $overflowCachePrimeAt
+        && $overflowCachePrimeAt < $overflowPreimageAt
+        && str_contains(
+            $deletionCheck,
+            'exact native 501-row refusal preimage did not contain a populated dropdown cache'
+        ),
+    'the exact 501-row fixture establishes and validates its CSS/cache preimage after TEC creation hooks'
+);
 foreach ([
     'tec_category_scope "$TEC_COLOR_PRECOMMIT_SCOPE" "$TEC_COLOR_UUID"',
     '--scope-contract=/siterepo/.tmp-tec-category-colors-precommit.scope.json',

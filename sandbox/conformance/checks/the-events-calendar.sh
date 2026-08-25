@@ -1635,13 +1635,19 @@ try {
         && substr_count($onePageCss, '.tribe_events_cat-' . $lastColoredSlug . '{') === 1,
         'the exact native Generator did not consume its complete 500-row query page');
 
-    $dropdown->get_dropdown_categories();
-    $cssBeforeOverflow = $rawCss();
-    $cacheBeforeOverflow = tribe_cache()->get($cacheKey);
+    // wp_insert_term() crosses TEC's registered created_tribe_events_cat
+    // generator and cache-bust hooks. Establish the refusal preimage only
+    // after that native fixture mutation, then repopulate the exact cache so
+    // the provider must preserve both durable CSS and populated cache bytes.
     $createCategory('duo-second-page-refusal', [
         'tec-events-cat-colors-primary' => '#abcdef',
     ]);
     $assert($relevantCount() === 501, 'exact native second-page fixture did not reach 501 rows');
+    $dropdown->get_dropdown_categories();
+    $cssBeforeOverflow = $rawCss();
+    $cacheBeforeOverflow = tribe_cache()->get($cacheKey);
+    $assert(is_array($cacheBeforeOverflow),
+        'exact native 501-row refusal preimage did not contain a populated dropdown cache');
     $refused = false;
     try {
         $provider->invoke('regenerate_css', []);
