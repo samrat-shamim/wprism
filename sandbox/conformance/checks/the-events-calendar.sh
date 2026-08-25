@@ -1025,7 +1025,15 @@ rm -rf "$TEC_WIDGET_OBJECT_OUT"
 wp_conf1 eval '
   $pages=get_posts(["post_type"=>"page","post_status"=>"any","posts_per_page"=>2,"title"=>"Duo TEC Legacy Widget Surface"]);
   if(count($pages)!==1) throw new RuntimeException("TEC widget object probe page is not unique");
-  file_put_contents("/siterepo/.tmp-tec-widget-object-backup.txt",$pages[0]->post_content);
+  $backup=[
+    "post_content"=>$pages[0]->post_content,
+    "post_modified"=>$pages[0]->post_modified,
+    "post_modified_gmt"=>$pages[0]->post_modified_gmt,
+  ];
+  file_put_contents(
+    "/siterepo/.tmp-tec-widget-object-backup.txt",
+    wp_json_encode($backup,JSON_UNESCAPED_SLASHES)
+  );
   $serialized=serialize(["title"=>(object)["hostile"=>true]]);
   $attrs=["idBase"=>"tribe-widget-events-list","instance"=>["encoded"=>base64_encode($serialized),"hash"=>wp_hash($serialized)]];
   $body="<!-- wp:legacy-widget ".wp_json_encode($attrs,JSON_UNESCAPED_SLASHES)." /-->";
@@ -1044,9 +1052,29 @@ require_duo_answered "TEC embedded widget object refusal" human "$TEC_WIDGET_OBJ
 wp_conf1 eval '
   $pages=get_posts(["post_type"=>"page","post_status"=>"any","posts_per_page"=>2,"title"=>"Duo TEC Legacy Widget Surface"]);
   if(count($pages)!==1) throw new RuntimeException("TEC widget object restore page is not unique");
-  $body=file_get_contents("/siterepo/.tmp-tec-widget-object-backup.txt");
-  if(!is_string($body)||is_wp_error(wp_update_post(["ID"=>$pages[0]->ID,"post_content"=>$body],true))){
+  $raw=file_get_contents("/siterepo/.tmp-tec-widget-object-backup.txt");
+  $backup=is_string($raw)?json_decode($raw,true):null;
+  if(!is_array($backup)||array_keys($backup)!==["post_content","post_modified","post_modified_gmt"]){
+    throw new RuntimeException("TEC widget object probe backup is malformed");
+  }
+  global $wpdb;
+  $restored=$wpdb->update(
+    $wpdb->posts,
+    $backup,
+    ["ID"=>$pages[0]->ID],
+    ["%s","%s","%s"],
+    ["%d"]
+  );
+  if($restored===false||$wpdb->last_error!==""){
     throw new RuntimeException("TEC widget object probe did not restore exact page bytes");
+  }
+  clean_post_cache((int)$pages[0]->ID);
+  $restoredPost=get_post((int)$pages[0]->ID);
+  if(!$restoredPost instanceof WP_Post
+      ||$restoredPost->post_content!==$backup["post_content"]
+      ||$restoredPost->post_modified!==$backup["post_modified"]
+      ||$restoredPost->post_modified_gmt!==$backup["post_modified_gmt"]){
+    throw new RuntimeException("TEC widget object probe restore readback diverged");
   }
 ' >/dev/null
 rm -rf "$TEC_WIDGET_OBJECT_OUT"
@@ -1807,7 +1835,8 @@ tec_widget_scope_expected_page() {
   TEC_STATE_PATH=$1 php -r '
     require $argv[1];
     require $argv[2];
-    [$front, $body] = Duo\Canon::parse_post_file((string) file_get_contents((string) getenv("TEC_STATE_PATH")));
+    $source = (string) file_get_contents((string) getenv("TEC_STATE_PATH"));
+    [, $body] = Duo\Canon::parse_post_file($source);
     $kept = [];
     $stored = 0;
     $embedded = 0;
@@ -1827,7 +1856,11 @@ tec_widget_scope_expected_page() {
     if ($stored !== 2 || $embedded !== 2) {
       throw new RuntimeException("TEC scoped inactive-widget expected page has an unexpected block projection");
     }
-    echo Duo\Canon::post_file($front, serialize_blocks($kept));
+    $frontEnd = strpos($source, "\n---\n", 3);
+    if ($frontEnd === false) {
+      throw new RuntimeException("TEC scoped inactive-widget expected page lost its canonical front matter");
+    }
+    echo substr($source, 0, $frontEnd + 5) . serialize_blocks($kept) . "\n";
   ' "$DUO_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$DUO_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php"
 }
 
@@ -1881,7 +1914,10 @@ tec_widget_scope_repo_hash() {
   local repo=$1
   (
     cd "$repo"
-    find state media -type f -print | LC_ALL=C sort | while IFS= read -r file; do
+    {
+      find state -type f -print
+      [ ! -d media ] || find media -type f -print
+    } | LC_ALL=C sort | while IFS= read -r file; do
       printf '%s  %s\n' "$(shasum -a 256 "$file" | awk '{print $1}')" "$file"
     done | shasum -a 256 | awk '{print $1}'
   )
@@ -2077,8 +2113,10 @@ TEC_WIDGET_SCOPE_STATE_REL=${TEC_SOURCE_WIDGET_STATE#"$TEC_WIDGET_SCOPE_BASE/"}
 TEC_WIDGET_SCOPE_STATE="$TEC_WIDGET_SCOPE_HOST/$TEC_WIDGET_SCOPE_STATE_REL"
 [ -f "$TEC_WIDGET_SCOPE_STATE" ] \
   || fail "TEC scoped inactive-widget capture lost its exact selected canonical page"
-cmp -s "$TEC_WIDGET_EXPECTED_PAGE" "$TEC_WIDGET_SCOPE_STATE" \
-  || fail "TEC scoped inactive-widget capture changed non-widget canonical page bytes"
+if ! cmp -s "$TEC_WIDGET_EXPECTED_PAGE" "$TEC_WIDGET_SCOPE_STATE"; then
+  diff -u "$TEC_WIDGET_EXPECTED_PAGE" "$TEC_WIDGET_SCOPE_STATE" >&2 || true
+  fail "TEC scoped inactive-widget capture changed non-widget canonical page bytes"
+fi
 TEC_WIDGET_EXPECTED_EMBEDDED=$(printf '%s\n' "$TEC_CANON_WIDGET_BLOCKS" | jq -cS '[.[2],.[3]]')
 TEC_WIDGET_CANONICAL_FIRST=$(tec_widget_scope_canonical_widgets "$TEC_WIDGET_SCOPE_STATE" | jq -cS '.')
 jq -en --argjson actual "$TEC_WIDGET_CANONICAL_FIRST" --argjson expected "$TEC_WIDGET_EXPECTED_EMBEDDED" '
@@ -2289,7 +2327,7 @@ wp_conf2 db query 'ALTER TABLE wp_duo_kv DROP CONSTRAINT IF EXISTS duo_tec_fail_
 TEC_COLOR_KV_CONSTRAINT_MAY_EXIST=1
 wp_conf2 db query '
   ALTER TABLE wp_duo_kv ADD CONSTRAINT duo_tec_fail_scoped_receipt
-  CHECK (k <> "scoped_apply_session" OR v NOT LIKE "%\"phase\":\"authored_committed\"%")
+  CHECK (k <> "scoped_apply_session" OR v NOT LIKE "%\"phase\": \"authored_committed\"%")
 ' >/dev/null
 COLOR_ATOMIC_RC=0
 COLOR_ATOMIC_OUT=$(wp_conf2 duo apply --repo=/siterepo \

@@ -8402,6 +8402,7 @@ foreach ([
     'tec_category_scope "$TEC_COLOR_PRECOMMIT_SCOPE" "$TEC_COLOR_UUID"',
     '--scope-contract=/siterepo/.tmp-tec-category-colors-precommit.scope.json',
     'duo_tec_fail_scoped_receipt',
+    'v NOT LIKE "%\"phase\": \"authored_committed\"%"',
     '.phase == "authoring" and .recovery_from == null',
     '.intent_count == 1 and .receipt_count == 0',
     '.author_action == "duo-scoped-authored-transaction/v2"',
@@ -8670,6 +8671,13 @@ duo_check(
     str_contains($deletionCheck, "grep -Fq 'non-plain serialized data (PHP object)'")
         && !str_contains($deletionCheck, "grep -Fq 'contains a PHP object'"),
     'the exact live object-graph probe matches the canonical PlainData refusal without weakening no-publication'
+);
+duo_check(
+    str_contains($deletionCheck, '"post_modified"=>$pages[0]->post_modified')
+        && str_contains($deletionCheck, '$restored=$wpdb->update(')
+        && str_contains($deletionCheck, '$restoredPost->post_modified!==$backup["post_modified"]')
+        && str_contains($deletionCheck, 'substr($source, 0, $frontEnd + 5) . serialize_blocks($kept)'),
+    'the hostile widget probe restores timestamp bytes and the scoped expectation preserves exact front-matter object shapes'
 );
 duo_check_same(
     1,
