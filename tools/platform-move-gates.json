@@ -291,6 +291,38 @@
    "note": "stamps the compiled manifest_hash into the apply summary; same upstream refusal as plan()."
   },
   {
+   "site": "agent/src/Apply/AttachmentNativeMetadataGenerator.php::__construct",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "validates that the Polylang-capable native metadata authority carries non-null compiled artifact and manifest identities, then retains that authority; it does not compare either value with active manifests or compute a digest. The moved-identity refusal is consume_polylang_no_language_handoff() and the compiled-artifact reader it ultimately protects."
+  },
+  {
+   "site": "agent/src/Apply/AttachmentNativeMetadataGenerator.php::assert_attempt_context",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "checks the exact post-commit handoff key set and the bounded hexadecimal shape of manifest_hash (alongside the attempt, artifact and roster hashes); it compares no captured value with the active manifest. The identity mismatch refusal is consume_polylang_no_language_handoff(), which calls this shape check before hash_equals()."
+  },
+  {
+   "site": "agent/src/Apply/AttachmentNativeMetadataGenerator.php::consume_polylang_no_language_handoff",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "refuses a Polylang no-language handoff whose post-commit manifest_hash or compiled artifact identity does not equal the authority's compiled identity; the hash_equals() checks make a moved compiled manifest an explicit attachment-metadata refusal rather than an unbound callback exemption."
+  },
+  {
+   "site": "agent/src/Apply/AttachmentNativeMetadataGenerator.php::post_commit_context",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "derivation",
+   "note": "derives the sealed post-commit handoff object, carrying the compiled manifest_hash with the attempt, artifact and roster identities after the filesystem reaches an admissible phase; it computes and compares nothing. The consuming gate is consume_polylang_no_language_handoff(), with the compiled-artifact reader enforcing the active manifest identity."
+  },
+  {
    "site": "agent/src/Assess/AssessInventory.php::from_facts",
    "axes": [
     "manifest"
