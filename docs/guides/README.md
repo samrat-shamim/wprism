@@ -17,6 +17,7 @@ them — a duplicated flag table is a flag table that goes stale in silence.
 | [flag-day.md](flag-day.md) | You are moving a fleet across an agent/spec bump, or deciding whether you can still roll one back. |
 | [code-updates.md](code-updates.md) | You are updating plugin/theme code, or a code refusal is blocking you. |
 | [adapter-authoring.md](adapter-authoring.md) | A plugin your site depends on has no manifest, or an existing one is short. |
+| [trust-enrollment.md](trust-enrollment.md) | You are enrolling a signing key in the platform trust root, rotating one, or burning one after a compromise. |
 | [capabilities-and-limits.md](capabilities-and-limits.md) | You need to know what Duo will and will not manage, and why a plan is red. |
 | [internals.md](internals.md) | You saw a `wp duo` command in a log or a receipt and want to know what drives it. You should not be typing these. |
 

@@ -302,7 +302,9 @@ section is refused **by name, per adapter**, rather than taking a library down.
   flag day entirely (§ v3.12). The 16 migrate individually after G3, each
   moving only its own digest and only for the sites that pin it.
 - **Populating the platform trust root.** `adapter-authorities.json` stays
-  `{"keys":{}}` through the flag day. Issuing one key is gate G4's decision.
+  `{"keys":{}}` through the flag day. Issuing one key is gate G4's decision —
+  [trust-enrollment.md](trust-enrollment.md) carries the ceremony, the vetting
+  posture, and G4's conditions with their current truth values.
 - **Opening the executable lane.** Gate G5, and the default answer there is no.
 
 ---
