@@ -868,6 +868,10 @@ namespace {
     );
     $nativeSubKeys = $manifest['options']['polylang']['sub_keys'];
     duo_check(
+        ($nativeSubKeys['duo_target_runtime_neighbor']['class'] ?? null) === 'env',
+        'Polylang target runtime neighbor remains target-owned outside the portable option contract'
+    );
+    duo_check(
         ($nativeSubKeys['force_lang']['lint_ok'] ?? null) === true,
         'Polylang force_lang is an audited 0/1 mode, not a portable entity reference'
     );
