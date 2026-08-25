@@ -870,24 +870,27 @@ $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/chec
 $wooRewriteCoInstallHarness = (string) file_get_contents(
     $root . '/sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh'
 );
-$wooRewriteComposeDefinition = strpos(
-    $wooRewriteCoInstallHarness,
-    'COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)'
-);
-$wooRewriteArtifactComposeHandoff = strpos(
-    $wooRewriteCoInstallHarness,
-    'PAIR_COMPOSE=("${COMPOSE[@]}")'
-);
-$wooRewriteArtifactResolverLoad = strpos(
-    $wooRewriteCoInstallHarness,
-    '. bin/fetch-artifact.sh'
-);
+$wooRewriteComposeMutations = [];
+$wooRewriteArtifactResolverLine = null;
+foreach (preg_split('/\R/', $wooRewriteCoInstallHarness) ?: [] as $lineNumber => $line) {
+    $executableLine = trim($line);
+    if ($executableLine === '. bin/fetch-artifact.sh') {
+        $wooRewriteArtifactResolverLine = $lineNumber;
+    }
+    if (preg_match(
+        '/^(?:(?:COMPOSE|PAIR_COMPOSE)(?:\[[^]]*\])?\+?=|unset\s+(?:COMPOSE|PAIR_COMPOSE)(?:\s|$))/',
+        $executableLine
+    ) === 1) {
+        $wooRewriteComposeMutations[] = ['line' => $executableLine, 'number' => $lineNumber];
+    }
+}
 woo_ok(
-    $wooRewriteComposeDefinition !== false
-        && $wooRewriteArtifactComposeHandoff !== false
-        && $wooRewriteArtifactResolverLoad !== false
-        && $wooRewriteComposeDefinition < $wooRewriteArtifactComposeHandoff
-        && $wooRewriteArtifactComposeHandoff < $wooRewriteArtifactResolverLoad,
+    array_column($wooRewriteComposeMutations, 'line') === [
+        'COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)',
+        'PAIR_COMPOSE=("${COMPOSE[@]}")',
+    ]
+        && $wooRewriteArtifactResolverLine !== null
+        && $wooRewriteComposeMutations[1]['number'] < $wooRewriteArtifactResolverLine,
     'the candidate-bound co-install hands its exact Compose argv to the pinned artifact resolver before loading it'
 );
 woo_ok(($wooEntry['manifest'] ?? null) === 'woocommerce'
