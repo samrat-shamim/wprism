@@ -322,6 +322,15 @@ function rehearsal_site_plan(): array {
  * the policy for its own answer is what lets a site pin `classic-editor` — whose
  * two authored options this fixture had never heard of — without the fixture
  * growing a per-adapter table that would go stale on the next manifest edit.
+ *
+ * One native primary row is deliberately not represented by `state: absent`.
+ * An adopted Polylang 3.8 site carries its `polylang` namespace as an object,
+ * with its observed portable defaults; the version/upgrade siblings remain
+ * environment-owned and therefore absent. The current interpreter re-derives
+ * that native shape from immutable state and correctly refuses a list or an
+ * incomplete object. Emitting the complete portable object therefore preserves
+ * the pre-flag source state without weakening that interpreter or omitting
+ * Polylang from the digest-pinned multilingual cohort.
  */
 function rehearsal_options_document(\Duo\Policy $policy, string $blogname): string {
     $rows = [];
@@ -329,7 +338,21 @@ function rehearsal_options_document(\Duo\Policy $policy, string $blogname): stri
         $rows[(string) $name] = \Duo\OptionState::absent();
     }
     foreach (array_keys($policy->sub_keyed_options()) as $name) {
-        $rows[(string) $name] = \Duo\OptionState::absent();
+        $rows[(string) $name] = $name === 'polylang'
+            ? \Duo\OptionState::present([
+                'browser' => false,
+                'default_lang' => '',
+                'force_lang' => 1,
+                'hide_default' => true,
+                'media_support' => true,
+                'nav_menus' => (object) [],
+                'post_types' => [],
+                'redirect_lang' => false,
+                'rewrite' => true,
+                'sync' => [],
+                'taxonomies' => [],
+            ], 'yes')
+            : \Duo\OptionState::absent();
     }
     foreach (['active_plugins', 'template', 'stylesheet'] as $managed) {
         if (($policy->option_rule($managed)['class'] ?? null) === 'managed') {

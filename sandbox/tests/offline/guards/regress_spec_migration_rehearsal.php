@@ -225,6 +225,12 @@ const REHEARSAL_GAPS = [
         'promotion needs a live target: a promotion lease, the ledger and an apply session. The manifest-identity '
         . 'refusal it surfaces is CompiledArtifactReader::read_artifact()\'s, which this estate drives directly '
         . 'through the artifact-drift control.',
+    'agent/src/Apply/AttachmentNativeMetadataGenerator.php::consume_polylang_no_language_handoff' =>
+        'requires a finished attachment materialization: a WordPress image editor, attachment database ids and a '
+        . 'sealed post-commit filesystem attempt. This state-only estate carries no media or target; its '
+        . 'artifact-drift control reaches CompiledArtifactReader::read_artifact() before a native attachment '
+        . 'callback could be permitted. regress_attachment_materializer.php covers the no-language handoff '
+        . 'fixture; a transition-specific A/B attachment path remains outside this estate.',
     'agent/src/Repository/IdentityBackup.php::restore' =>
         'its first statement is Ledger::ensure(), which needs $wpdb, so the manifest_hash comparison is '
         . 'unreachable without a database. The estate holds the three values that comparison makes '
@@ -393,6 +399,47 @@ register_shutdown_function(static fn() => rehearsal_remove_tree($estate));
 
 echo "\n== the estate, built by the pre-flag agent ==\n";
 $materialized = rehearsal_pass($driver, $estate, 'A', 'materialize');
+
+// The multilingual cohort is deliberately digest-pinned alongside the shop
+// cohort, so Polylang must remain in the actual pre-flag estate rather than
+// being removed to make a newer interpreter load. Its native primary option is
+// a complete portable object; `value: []`, an incomplete object, or a
+// topology-bound mode is a different state and the interpreter rightly
+// refuses it. Inspect the bytes emitted by the state-A builder so turning the
+// row back into the generic absent/list fixture cannot be hidden by later
+// observation summaries.
+$multilingualOptions = json_decode(
+    (string) file_get_contents($estate . '/sites/multilingual/state/options/core.json'),
+    false,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$multilingualPolylang = $multilingualOptions->records->polylang ?? null;
+duo_check(
+    is_object($multilingualPolylang)
+        && ($multilingualPolylang->state ?? null) === 'present'
+        && ($multilingualPolylang->autoload ?? null) === 'yes'
+        && isset($multilingualPolylang->value)
+        && is_object($multilingualPolylang->value)
+        && array_keys((array) $multilingualPolylang->value) === [
+            'browser', 'default_lang', 'force_lang', 'hide_default', 'media_support', 'nav_menus', 'post_types',
+            'redirect_lang', 'rewrite', 'sync', 'taxonomies',
+        ]
+        && $multilingualPolylang->value->browser === false
+        && $multilingualPolylang->value->default_lang === ''
+        && $multilingualPolylang->value->force_lang === 1
+        && $multilingualPolylang->value->hide_default === true
+        && $multilingualPolylang->value->media_support === true
+        && is_object($multilingualPolylang->value->nav_menus)
+        && (array) $multilingualPolylang->value->nav_menus === []
+        && $multilingualPolylang->value->post_types === []
+        && $multilingualPolylang->value->redirect_lang === false
+        && $multilingualPolylang->value->rewrite === true
+        && $multilingualPolylang->value->sync === []
+        && $multilingualPolylang->value->taxonomies === [],
+    'the pre-flag multilingual cohort retains Polylang and writes its complete portable native option namespace as '
+    . 'a present object, so immutable authorization exercises the current interpreter instead of a list-shaped fixture'
+);
 $observedA = rehearsal_pass($driver, $estate, 'A', 'observe');
 $observedB = rehearsal_pass($driver, $estate, 'B', 'observe');
 $rolledBack = rehearsal_pass($driver, $estate, 'A', 'observe');
