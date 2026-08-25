@@ -1,5 +1,5 @@
 {
-    "class_count": 370,
+    "class_count": 371,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -4406,6 +4406,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "attempt_identity": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "cleanup_complete": {
                     "abstract": false,
                     "final": false,
@@ -4920,6 +4928,22 @@
                             "name": "adapterManifests",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "polylangNoLanguageProof",
+                            "type": "?Duo\\AttachmentPolylangNoLanguageProof",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "polylangProofContext",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,
@@ -4951,6 +4975,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "polylang_no_language_proof": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?Duo\\AttachmentPolylangNoLanguageProof",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "preflight": {
                     "abstract": false,
                     "final": false,
@@ -4969,6 +5001,60 @@
                             "has_default": false,
                             "name": "stageFile",
                             "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\AttachmentPolylangNoLanguageProof": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "consume": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "issue": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "Duo\\AttachmentPolylangNoLanguageProof",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "seal": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "array",
                             "variadic": false
                         }
                     ],
@@ -7020,6 +7106,14 @@
                             "default": false,
                             "has_default": true,
                             "name": "bindMissingDynamicDesired",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "strictReadOnly",
                             "type": "bool",
                             "variadic": false
                         }
@@ -39324,6 +39418,14 @@
                             "has_default": false,
                             "name": "rawOptionSnapshot",
                             "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "strictReadOnly",
+                            "type": "bool",
                             "variadic": false
                         }
                     ],

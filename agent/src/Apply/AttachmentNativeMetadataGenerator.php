@@ -15,6 +15,69 @@ if (!class_exists(DeleteGuardEvaluator::class, false)) {
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 
 /**
+ * One markerless Polylang no-language witness, sealed to one durable apply.
+ * The metadata generator consumes it once; the materializer must bind the
+ * witness to the journal attempt, exact attachment roster, artifact and
+ * frozen adapter-manifest identity before handing it across COMMIT.
+ */
+final class AttachmentPolylangNoLanguageProof {
+    /** @var ?array{intent_id:string,artifact_hash:string,roster_hash:string,manifest_hash:string} */
+    private ?array $context = null;
+    private bool $consumed = false;
+
+    private function __construct() {}
+
+    public static function issue(): self {
+        return new self();
+    }
+
+    /** @param array<string,mixed> $context */
+    public function seal(array $context): void {
+        self::assert_context($context);
+        if ($this->context !== null || $this->consumed) {
+            throw new \RuntimeException('duo: Polylang no-language proof was sealed more than once');
+        }
+        $this->context = [
+            'intent_id' => $context['intent_id'],
+            'artifact_hash' => $context['artifact_hash'],
+            'roster_hash' => $context['roster_hash'],
+            'manifest_hash' => $context['manifest_hash'],
+        ];
+    }
+
+    /** @param ?array<string,mixed> $context */
+    public function consume(?array $context): void {
+        if ($this->context === null) {
+            throw new \RuntimeException('duo: Polylang no-language proof is not sealed to an attachment attempt');
+        }
+        if ($this->consumed) {
+            throw new \RuntimeException('duo: Polylang no-language proof was consumed more than once');
+        }
+        if (!is_array($context)) {
+            throw new \RuntimeException('duo: Polylang no-language proof lacks its attachment attempt identity');
+        }
+        self::assert_context($context);
+        foreach ($this->context as $key => $expected) {
+            if (!hash_equals($expected, (string) $context[$key])) {
+                throw new \RuntimeException('duo: Polylang no-language proof does not match the attachment attempt authority');
+            }
+        }
+        $this->consumed = true;
+    }
+
+    /** @param array<string,mixed> $context */
+    private static function assert_context(array $context): void {
+        if (array_keys($context) !== ['intent_id', 'artifact_hash', 'roster_hash', 'manifest_hash']
+            || preg_match('/^[0-9a-f]{32}$/D', (string) ($context['intent_id'] ?? '')) !== 1
+            || preg_match('/^[0-9a-f]{64}$/D', (string) ($context['artifact_hash'] ?? '')) !== 1
+            || preg_match('/^[0-9a-f]{64}$/D', (string) ($context['roster_hash'] ?? '')) !== 1
+            || preg_match('/^[0-9a-f]{64}$/D', (string) ($context['manifest_hash'] ?? '')) !== 1) {
+            throw new \RuntimeException('duo: Polylang no-language proof attempt identity is malformed');
+        }
+    }
+}
+
+/**
  * Runs WordPress's attachment metadata generator against an isolated file.
  *
  * Core 6.9.2/7.0.3/7.1 saves partial image metadata after every generated
@@ -36,6 +99,8 @@ final class AttachmentNativeMetadataGenerator {
     private const MAX_SOURCE_PIXELS = 67108864;
     private const MAX_OUTPUT_PIXELS = 67108864;
     private bool $polylangNoLanguagesObserved = false;
+    private bool $markerlessPreflightActive = false;
+    private ?AttachmentPolylangNoLanguageProof $polylangNoLanguageProof;
 
     /** Hooks reached by the audited Core raster path and the explicitly refused sibling media paths. */
     private const CLOSED_FILTERS = [
@@ -205,14 +270,18 @@ final class AttachmentNativeMetadataGenerator {
     /**
      * @param \Closure(int):string $lockTarget returns the exact raw MIME type under row/meta locks
      * @param list<string> $adapterManifests manifest names from the frozen Policy version-range projection
-     * @param bool $polylangNoLanguagesProven an earlier markerless boundary proved
-     *        no languages before the authored transaction materialized them
+     * @param ?AttachmentPolylangNoLanguageProof $polylangNoLanguageProof an
+     *        attempt-bound markerless witness sealed by AttachmentMaterializer
+     * @param ?array{intent_id:string,artifact_hash:string,roster_hash:string,manifest_hash:string} $polylangProofContext
+     *        current durable attempt identity for one-shot witness consumption
      */
     public function __construct(
         private readonly \Closure $lockTarget,
         private readonly array $adapterManifests = [],
-        private readonly bool $polylangNoLanguagesProven = false
+        ?AttachmentPolylangNoLanguageProof $polylangNoLanguageProof = null,
+        private readonly ?array $polylangProofContext = null
     ) {
+        $this->polylangNoLanguageProof = $polylangNoLanguageProof;
         if (!array_is_list($adapterManifests)
             || count($adapterManifests) > 32
             || count(array_unique($adapterManifests, SORT_STRING)) !== count($adapterManifests)) {
@@ -228,8 +297,8 @@ final class AttachmentNativeMetadataGenerator {
         }
     }
 
-    public function polylang_no_languages_proven(): bool {
-        return $this->polylangNoLanguagesObserved;
+    public function polylang_no_language_proof(): ?AttachmentPolylangNoLanguageProof {
+        return $this->polylangNoLanguageProof;
     }
 
     /**
@@ -246,6 +315,7 @@ final class AttachmentNativeMetadataGenerator {
         $adapterQuarantine = null;
         $primary = null;
         $cleanupFailures = [];
+        $this->markerlessPreflightActive = true;
         try {
             set_error_handler(static function (
                 int $severity,
@@ -265,6 +335,7 @@ final class AttachmentNativeMetadataGenerator {
             }, 4096);
             $this->load_core_runtime();
             $adapterQuarantine = $this->quarantine_reviewed_adapter_callbacks();
+            $this->assert_polylang_sync_topology($adapterQuarantine['matched']);
             $this->assert_closed_filter_topology();
             $priorUmask = umask(0077);
             $classification = $this->classify_stage_file($stageFile, $mime);
@@ -283,6 +354,7 @@ final class AttachmentNativeMetadataGenerator {
         } catch (\Throwable $failure) {
             $primary = $failure;
         } finally {
+            $this->markerlessPreflightActive = false;
             if ($adapterQuarantine !== null) {
                 array_push(
                     $cleanupFailures,
@@ -647,16 +719,7 @@ final class AttachmentNativeMetadataGenerator {
                 );
             }
         }
-        $polylangSyncIds = ['polylang-post-meta-guard', 'polylang-post-meta-witness'];
-        $polylangSyncMissing = array_values(array_diff($polylangSyncIds, array_keys($matched)));
-        if (isset($authorized['polylang']) && $polylangSyncMissing !== []) {
-            if (count($polylangSyncMissing) !== count($polylangSyncIds)) {
-                throw new \RuntimeException(
-                    'duo: native attachment metadata refuses a partial Polylang post-meta callback topology'
-                );
-            }
-            $this->assert_polylang_no_languages();
-        }
+        $this->assert_polylang_sync_topology($matched);
 
         $removed = [];
         try {
@@ -756,7 +819,12 @@ final class AttachmentNativeMetadataGenerator {
      * callback is never a valid intermediate topology.
      */
     private function assert_polylang_no_languages(): void {
-        if ($this->polylangNoLanguagesProven || $this->polylangNoLanguagesObserved) {
+        if ($this->polylangNoLanguageProof !== null && !$this->markerlessPreflightActive) {
+            $this->polylangNoLanguageProof->consume($this->polylangProofContext);
+            $this->polylangNoLanguagesObserved = true;
+            return;
+        }
+        if ($this->polylangNoLanguagesObserved) {
             return;
         }
         if (!function_exists('PLL')) {
@@ -778,6 +846,23 @@ final class AttachmentNativeMetadataGenerator {
             );
         }
         $this->polylangNoLanguagesObserved = true;
+        if ($this->markerlessPreflightActive) {
+            $this->polylangNoLanguageProof = AttachmentPolylangNoLanguageProof::issue();
+        }
+    }
+
+    /** @param array<string,true> $matched */
+    private function assert_polylang_sync_topology(array $matched): void {
+        if (!in_array('polylang', $this->adapterManifests, true)) return;
+        $syncIds = ['polylang-post-meta-guard', 'polylang-post-meta-witness'];
+        $missing = array_values(array_diff($syncIds, array_keys($matched)));
+        if ($missing === []) return;
+        if (count($missing) !== count($syncIds)) {
+            throw new \RuntimeException(
+                'duo: native attachment metadata refuses a partial Polylang post-meta callback topology'
+            );
+        }
+        $this->assert_polylang_no_languages();
     }
 
     /**

@@ -65,7 +65,7 @@ if (!class_exists(Ledger::class, false)) {
  * families that the native staging boundary must isolate.
  */
 final class AttachmentMaterializer {
-    private bool $polylangNoLanguagesProven = false;
+    private ?AttachmentPolylangNoLanguageProof $polylangNoLanguageProof = null;
     private const ATTACHED_FILE_KEY = '_wp_attached_file';
     private const FILESYSTEM_MARKER_PREFIX = 'attachment_fs:';
     private const MAX_FILESYSTEM_MARKERS = 1;
@@ -87,6 +87,7 @@ final class AttachmentMaterializer {
 
     /** Recover a committed upload publication before target capture. */
     public function recover_pending_filesystem(): void {
+        $this->polylangNoLanguageProof = null;
         if ($this->filesystem->phase() === null) {
             $this->load_pending_filesystem();
         } else {
@@ -112,6 +113,7 @@ final class AttachmentMaterializer {
 
     /** Load-only scope gate: a scoped apply must never resume a full upload intent. */
     public function load_pending_filesystem(bool $retainLocks = true): bool {
+        $this->polylangNoLanguageProof = null;
         try {
             $this->filesystem->load_pending();
             $this->assert_pending_marker_inventory();
@@ -215,7 +217,7 @@ final class AttachmentMaterializer {
     public function prepare_filesystem(array $work, array $tree): void {
         // The witness belongs to this one markerless-to-post-commit transition;
         // a retry must re-prove the target before accepting an absent callback pair.
-        $this->polylangNoLanguagesProven = false;
+        $this->polylangNoLanguageProof = null;
         $generator = new AttachmentNativeMetadataGenerator(static function (int $id): never {
             throw new \LogicException('duo: markerless attachment preflight must not request a target MIME lock');
         }, $this->attachment_adapter_manifests());
@@ -224,7 +226,7 @@ final class AttachmentMaterializer {
             $tree,
             $generator
         );
-        $this->polylangNoLanguagesProven = $generator->polylang_no_languages_proven();
+        $this->polylangNoLanguageProof = $generator->polylang_no_language_proof();
     }
 
     /** Seal the exact UUID-to-post-ID mapping inside the authored DB transaction. */
@@ -248,15 +250,23 @@ final class AttachmentMaterializer {
 
     /** Cleanup preparation only after the authored database rollback is confirmed. */
     public function rollback_authored_transaction(): void {
-        $identity = $this->filesystem->pending_marker_identity();
-        $marker = $identity === null ? null : Ledger::kv_get($identity['key']);
-        $this->filesystem->rollback_authored_transaction($marker);
+        try {
+            $identity = $this->filesystem->pending_marker_identity();
+            $marker = $identity === null ? null : Ledger::kv_get($identity['key']);
+            $this->filesystem->rollback_authored_transaction($marker);
+        } finally {
+            $this->polylangNoLanguageProof = null;
+        }
     }
 
     /** Discard a markerless prepare that failed before START established apply authority. */
     public function rollback_prepared_filesystem(): void {
-        if (!in_array($this->filesystem->phase(), ['preparing', 'prepared'], true)) return;
-        $this->filesystem->rollback_authored_transaction(null);
+        try {
+            if (!in_array($this->filesystem->phase(), ['preparing', 'prepared'], true)) return;
+            $this->filesystem->rollback_authored_transaction(null);
+        } finally {
+            $this->polylangNoLanguageProof = null;
+        }
     }
 
     /** @return list<int> */
@@ -272,6 +282,7 @@ final class AttachmentMaterializer {
             $this->filesystem->end();
         }
         $this->attachedFileLockIndex = null;
+        $this->polylangNoLanguageProof = null;
     }
 
     /**
@@ -281,7 +292,10 @@ final class AttachmentMaterializer {
      */
     public function finalize_native_metadata(array $attachmentIds): void {
         $pending = $this->filesystem->pending_attachment_ids();
-        if ($pending === []) return;
+        if ($pending === []) {
+            $this->polylangNoLanguageProof = null;
+            return;
+        }
         $provided = array_values(array_unique(array_filter($attachmentIds, static fn(mixed $id): bool => is_int($id) && $id > 0)));
         sort($provided, SORT_NUMERIC);
         if ($provided !== $pending) {
@@ -289,10 +303,17 @@ final class AttachmentMaterializer {
         }
         CacheInvalidationTransaction::assert_local_cache('native attachment metadata finalization');
         try {
+            $proof = $this->polylangNoLanguageProof;
+            $proofContext = null;
+            if ($proof !== null) {
+                $proofContext = $this->polylang_proof_context();
+                $proof->seal($proofContext);
+            }
             $generator = new AttachmentNativeMetadataGenerator(
                 fn(int $id): string => $this->assert_locked_pending_binding($id),
                 $this->attachment_adapter_manifests(),
-                $this->polylangNoLanguagesProven
+                $proof,
+                $proofContext
             );
             $this->filesystem->generate_metadata($generator);
             $this->with_locked_pending_bindings(
@@ -318,6 +339,7 @@ final class AttachmentMaterializer {
                 $this->filesystem->cleanup_complete(Ledger::kv_get($metadataIdentity['key']));
             }
         } finally {
+            $this->polylangNoLanguageProof = null;
             $this->filesystem->end();
         }
     }
@@ -882,6 +904,21 @@ final class AttachmentMaterializer {
         $out = array_keys($manifests);
         sort($out, SORT_STRING);
         return $out;
+    }
+
+    /** @return array{intent_id:string,artifact_hash:string,roster_hash:string,manifest_hash:string} */
+    private function polylang_proof_context(): array {
+        $attempt = $this->filesystem->attempt_identity();
+        if ($attempt === null) {
+            throw new \RuntimeException('duo: Polylang no-language proof lacks its durable attachment attempt');
+        }
+        $manifests = $this->attachment_adapter_manifests();
+        return [
+            'intent_id' => $attempt['intent_id'],
+            'artifact_hash' => $attempt['artifact_hash'],
+            'roster_hash' => $attempt['roster_hash'],
+            'manifest_hash' => hash('sha256', Canon::encode($manifests)),
+        ];
     }
 
     /**

@@ -123,6 +123,23 @@ final class AttachmentFilesystemTransaction {
         return $bindings;
     }
 
+    /**
+     * Return the exact identity a markerless witness must cross to reach
+     * post-commit generation: journal intent, compiled artifact and every
+     * registered attachment binding in durable row order.
+     *
+     * @return ?array{intent_id:string,artifact_hash:string,roster_hash:string}
+     */
+    public function attempt_identity(): ?array {
+        if ($this->journal === null) return null;
+        $bindings = $this->pending_bindings();
+        return [
+            'intent_id' => (string) $this->journal['intent_id'],
+            'artifact_hash' => (string) $this->journal['artifact_hash'],
+            'roster_hash' => hash('sha256', Canon::encode($bindings)),
+        ];
+    }
+
     /** Recover loaded durable state against its independently-read DB marker. */
     public function recover_pending_with_marker(?string $marker): void {
         if ($this->journal === null) return;
