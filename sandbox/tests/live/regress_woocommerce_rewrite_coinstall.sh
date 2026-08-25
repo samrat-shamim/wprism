@@ -22,6 +22,7 @@ command -v jq >/dev/null || fail 'jq is required'
 
 export DUO_SOURCE_ROOT="$ROOT" DUO_EXPECTED_SOURCE_SHA="$EXPECTED_SHA" DUO_PAIR="$PAIR"
 COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
+PAIR_COMPOSE=("${COMPOSE[@]}")
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 R1="siterepo/$PAIR""1"

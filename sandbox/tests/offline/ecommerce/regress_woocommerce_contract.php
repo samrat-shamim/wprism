@@ -870,6 +870,26 @@ $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/chec
 $wooRewriteCoInstallHarness = (string) file_get_contents(
     $root . '/sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh'
 );
+$wooRewriteComposeDefinition = strpos(
+    $wooRewriteCoInstallHarness,
+    'COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)'
+);
+$wooRewriteArtifactComposeHandoff = strpos(
+    $wooRewriteCoInstallHarness,
+    'PAIR_COMPOSE=("${COMPOSE[@]}")'
+);
+$wooRewriteArtifactResolverLoad = strpos(
+    $wooRewriteCoInstallHarness,
+    '. bin/fetch-artifact.sh'
+);
+woo_ok(
+    $wooRewriteComposeDefinition !== false
+        && $wooRewriteArtifactComposeHandoff !== false
+        && $wooRewriteArtifactResolverLoad !== false
+        && $wooRewriteComposeDefinition < $wooRewriteArtifactComposeHandoff
+        && $wooRewriteArtifactComposeHandoff < $wooRewriteArtifactResolverLoad,
+    'the candidate-bound co-install hands its exact Compose argv to the pinned artifact resolver before loading it'
+);
 woo_ok(($wooEntry['manifest'] ?? null) === 'woocommerce'
     && ($wooEntry['entry']['pin'] ?? null) === ['core', 'woocommerce']
     && ($wooEntry['entry']['plugins'] ?? null) === [['slug' => 'woocommerce', 'version' => '11.0.1']]
