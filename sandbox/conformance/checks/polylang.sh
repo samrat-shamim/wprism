@@ -146,7 +146,6 @@ echo wp_json_encode([
         'hide_default' => is_array($option) ? ($option['hide_default'] ?? null) : null,
         'media_support' => is_array($option) ? ($option['media_support'] ?? null) : null,
         'nav_menus' => is_array($option) ? ($option['nav_menus'] ?? null) : null,
-        'neighbor' => is_array($option) ? ($option['duo_target_runtime_neighbor'] ?? null) : null,
         'post_types' => is_array($option) ? ($option['post_types'] ?? null) : null,
         'sync' => is_array($option) ? ($option['sync'] ?? null) : null,
         'taxonomies' => is_array($option) ? ($option['taxonomies'] ?? null) : null,
@@ -253,7 +252,6 @@ if [ -f "$TARGET_IDS_FILE" ]; then
   jq -e '
     .options.browser == false and .options.force_lang == 1 and .options.hide_default == false and
     .options.redirect_lang == false and .options.rewrite == true and
-    .options.neighbor == "target-preserved-東京-🚀" and
     .runtime.language_from_content == "target-runtime-sentinel" and
     .runtime.language_taxonomies == ["target-runtime-taxonomy-cache"] and
     .runtime.undeclared_neighbor == "target-only-preserved"
@@ -541,7 +539,7 @@ jq -e '.canary == "clean" and .verification.result == "pass" and .plan.conflict 
 CONVERGED=$(observe_polylang conf2)
 jq -e '
   .posts.fr.title == "Repository competing French title 東京 🚀" and
-  .options.neighbor == "target-preserved-東京-🚀" and .runtime.undeclared_neighbor == "target-only-preserved"
+  .runtime.undeclared_neighbor == "target-only-preserved"
 ' <<<"$CONVERGED" >/dev/null || fail "Polylang conflict recovery lost repository or target runtime state: $CONVERGED"
 pass 'dirty translation conflicts refuse atomically; explicit authority converges without crossing runtime state'
 

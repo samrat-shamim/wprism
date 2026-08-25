@@ -91,9 +91,6 @@
         "default_lang": {
           "class": "authored"
         },
-        "duo_target_runtime_neighbor": {
-          "class": "env"
-        },
         "domains": {
           "class": "env",
           "native_default_completion": true

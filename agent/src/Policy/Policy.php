@@ -2066,7 +2066,7 @@ final class Policy {
         array $effectiveRule,
         ?string $effectiveSource,
         array $rawOptionSnapshot,
-        bool $strictReadOnly = false
+        bool $strictReadOnly
     ): array {
         $candidate = $this->option_sub_key_interpreter_candidate(
             $name,

@@ -384,6 +384,33 @@ namespace {
     use Duo\Interpreters\Polylang;
     use Duo\Providers\PolylangNavMenus;
 
+    $strictReadOnlyFixture = dirname(__DIR__, 2) . '/support/polylang_strict_readonly_context.php';
+    $strictReadOnlyProcess = proc_open(
+        [PHP_BINARY, $strictReadOnlyFixture, dirname(__DIR__, 4)],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $strictReadOnlyPipes
+    );
+    $strictReadOnlyOut = is_resource($strictReadOnlyProcess)
+        ? stream_get_contents($strictReadOnlyPipes[1]) : '';
+    $strictReadOnlyErr = is_resource($strictReadOnlyProcess)
+        ? stream_get_contents($strictReadOnlyPipes[2]) : '';
+    if (is_resource($strictReadOnlyProcess)) {
+        fclose($strictReadOnlyPipes[1]);
+        fclose($strictReadOnlyPipes[2]);
+        $strictReadOnlyExit = proc_close($strictReadOnlyProcess);
+    } else {
+        $strictReadOnlyExit = 1;
+    }
+    $strictReadOnly = json_decode($strictReadOnlyOut, true);
+    duo_check(
+        $strictReadOnlyExit === 0 && $strictReadOnlyErr === '' && is_array($strictReadOnly),
+        'inactive lifecycle capture validates Polylang authored values without PLL()'
+    );
+    duo_check_same(4, $strictReadOnly['refusals'] ?? null, 'inactive lifecycle refuses malformed values and topology');
+    duo_check_same(true, $strictReadOnly['browser'] ?? null, 'inactive lifecycle normalizes legacy boolean bytes');
+    duo_check_same(false, $strictReadOnly['media_support'] ?? null, 'inactive lifecycle preserves exact boolean false');
+    duo_check_same(false, $strictReadOnly['rewrite'] ?? null, 'inactive lifecycle preserves exact rewrite mode');
+
     $contextFixture = dirname(__DIR__, 2) . '/support/polylang_media_support_context.php';
     $contextProcess = proc_open(
         [PHP_BINARY, $contextFixture],
@@ -868,8 +895,8 @@ namespace {
     );
     $nativeSubKeys = $manifest['options']['polylang']['sub_keys'];
     duo_check(
-        ($nativeSubKeys['duo_target_runtime_neighbor']['class'] ?? null) === 'env',
-        'Polylang target runtime neighbor remains target-owned outside the portable option contract'
+        !array_key_exists('duo_target_runtime_neighbor', $nativeSubKeys),
+        'arbitrary duo_* Polylang siblings remain outside the reviewed closed native registry'
     );
     duo_check(
         ($nativeSubKeys['force_lang']['lint_ok'] ?? null) === true,
@@ -1214,7 +1241,8 @@ namespace {
         'polylang',
         ['nav_menus' => [], 'default_lang' => ''],
         $nativeSubKeys,
-        ['polylang' => serialize(['default_lang' => '', 'nav_menus' => []])]
+        ['polylang' => serialize(['default_lang' => '', 'nav_menus' => []])],
+        false
     );
     $normalizedKeys = array_keys($normalized);
     sort($normalizedKeys, SORT_STRING);
@@ -1238,7 +1266,8 @@ namespace {
         ['polylang' => serialize([
             'default_lang' => 'en',
             'nav_menus' => ['theme' => ['primary' => ['en' => 99]]],
-        ])]
+        ])],
+        false
     );
     duo_check_same(
         99,
@@ -1255,7 +1284,8 @@ namespace {
             'polylang',
             ['default_lang' => ''],
             $nativeSubKeys,
-            ['polylang' => serialize(['default_lang' => ''])]
+            ['polylang' => serialize(['default_lang' => ''])],
+            false
         ),
         \RuntimeException::class,
         'missing raw ref-bearing nav menus cannot bypass ordinary id tokenization',
@@ -1275,7 +1305,8 @@ namespace {
             [
                 'polylang' => serialize(['default_lang' => '', 'nav_menus' => []]),
                 'pll_language_from_content_available' => 'yes',
-            ]
+            ],
+            false
         ),
         \RuntimeException::class,
         'raw-missing force_lang refuses a stale process-local singleton even when its topology marker is healthy',

@@ -166,7 +166,6 @@ $options['nav_menus'] = [];
 $options['force_lang'] = 1;
 $options['hide_default'] = 1;
 $options['browser'] = 1;
-$options['duo_target_runtime_neighbor'] = 'target-preserved-東京-🚀';
 update_option('polylang', $options);
 update_option('pll_language_from_content_available', 'target-runtime-sentinel');
 update_option('pll_language_taxonomies', ['target-runtime-taxonomy-cache']);

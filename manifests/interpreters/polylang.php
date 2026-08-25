@@ -193,16 +193,32 @@ final class Polylang {
         array $captured,
         array $subKeys,
         array $rawOptionSnapshot,
-        bool $strictReadOnly = false
+        bool $strictReadOnly
     ): array {
         if ($name !== 'polylang') {
             return $captured;
         }
         if (!function_exists('PLL')) {
             if ($strictReadOnly) {
-                // Deploy snapshots the target before lifecycle activation;
-                // raw option bytes are still captured and ref-tokenized, but
-                // native defaults cannot be consulted until Polylang loads.
+                // Lifecycle snapshots deliberately run before activation. The
+                // native singleton is unavailable, but the authored frontier
+                // is still exact: normalize the historical 0/1 boolean bytes
+                // and run the same closed portable/topology validators before
+                // allowing the ordinary capture codec to proceed.
+                foreach (self::BOOLEAN_OPTION_KEYS as $key) {
+                    if (array_key_exists($key, $captured)
+                        && is_int($captured[$key])
+                        && in_array($captured[$key], [0, 1], true)) {
+                        $captured[$key] = (bool) $captured[$key];
+                    }
+                }
+                $this->assert_portable_options($captured, false);
+                $this->assert_supported_topology(
+                    $captured['force_lang'],
+                    $rawOptionSnapshot['pll_language_from_content_available'] ?? null,
+                    'source'
+                );
+                ksort($captured, SORT_STRING);
                 return $captured;
             }
             throw new \RuntimeException('duo: Polylang native option capture normalization requires PLL()');
