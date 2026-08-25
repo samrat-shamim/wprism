@@ -487,7 +487,8 @@ final class SidebarState {
     /**
      * @return array{
      *   instances:array<int,array<string,mixed>>,
-     *   marker:int|string|null
+     *   marker:int|string|null,
+     *   order:list<int|string>
      * }
      */
     private static function decode_widget_family_state(string $name, string $raw): array {
@@ -500,12 +501,14 @@ final class SidebarState {
         }
         $instances = [];
         $marker = null;
+        $order = [];
         foreach ($value as $key => $settings) {
             if ((string) $key === '_multiwidget') {
                 if (!in_array($settings, [1, '1'], true)) {
                     throw new \RuntimeException("duo: widget option '$name' has an invalid _multiwidget marker");
                 }
                 $marker = $settings;
+                $order[] = '_multiwidget';
                 continue;
             }
             $local = self::canonical_positive_decimal($key);
@@ -519,14 +522,16 @@ final class SidebarState {
                 throw new \RuntimeException("duo: widget option '$name' contains duplicate canonical instance identities");
             }
             $instances[$local] = $settings;
+            $order[] = $local;
         }
-        return ['instances' => $instances, 'marker' => $marker];
+        return ['instances' => $instances, 'marker' => $marker, 'order' => $order];
     }
 
     /**
      * @return array{
      *   widgets:array<string,array<int,array<string,mixed>>>,
      *   markers:array<string,int|string|null>,
+     *   orders:array<string,list<int|string>>,
      *   sidebars:array<string,mixed>
      * }
      */
@@ -547,19 +552,22 @@ final class SidebarState {
         }
         $widgets = [];
         $markers = [];
+        $orders = [];
         foreach ($types as $type) {
             $name = 'widget_' . $type;
             $row = $rows[$name];
             $state = $row === null
-                ? ['instances' => [], 'marker' => null]
+                ? ['instances' => [], 'marker' => null, 'order' => []]
                 : self::decode_widget_family_state($name, $row['option_value']);
             $widgets[$type] = $state['instances'];
             $markers[$type] = $state['marker'];
+            $orders[$type] = $state['order'];
         }
         $sidebarsRow = $rows[self::SIDEBARS_OPTION];
         return [
             'widgets' => $widgets,
             'markers' => $markers,
+            'orders' => $orders,
             'sidebars' => $sidebarsRow === null
                 ? []
                 : self::decode_sidebars_option($sidebarsRow['option_value']),
@@ -769,6 +777,7 @@ final class SidebarState {
         $state = self::load_locked_sidebar_state($declared);
         $options = $state['widgets'];
         $markers = $state['markers'];
+        $orders = $state['orders'];
         $sidebars = $state['sidebars'];
         $globallyDesired = [];
         foreach ($tree as $entity) {
@@ -830,11 +839,33 @@ final class SidebarState {
             ? array_keys($touchedTypes)
             : array_keys($declared);
         foreach ($optionWriteTypes as $type) {
-            if (!isset($preserveFamilyOrder[$type])) {
+            if (isset($preserveFamilyOrder[$type])) {
+                $stored = [];
+                $seenStoredKeys = [];
+                foreach ($orders[$type] as $orderedKey) {
+                    if ($orderedKey === '_multiwidget') {
+                        $stored['_multiwidget'] = $markers[$type] ?? 1;
+                        $seenStoredKeys['_multiwidget'] = true;
+                        continue;
+                    }
+                    if (is_int($orderedKey) && array_key_exists($orderedKey, $options[$type])) {
+                        $stored[$orderedKey] = $options[$type][$orderedKey];
+                        $seenStoredKeys[(string) $orderedKey] = true;
+                    }
+                }
+                foreach ($options[$type] as $local => $settings) {
+                    if (!isset($seenStoredKeys[(string) $local])) {
+                        $stored[$local] = $settings;
+                    }
+                }
+                if (!isset($seenStoredKeys['_multiwidget'])) {
+                    $stored['_multiwidget'] = $markers[$type] ?? 1;
+                }
+            } else {
                 ksort($options[$type], SORT_NUMERIC);
+                $stored = $options[$type];
+                $stored['_multiwidget'] = $markers[$type] ?? 1;
             }
-            $stored = $options[$type];
-            $stored['_multiwidget'] = $markers[$type] ?? 1;
             $name = 'widget_' . $type;
             $wire = maybe_serialize($stored);
             $locked = self::lock_authored_option_row($name, "apply widget_$type option locking");

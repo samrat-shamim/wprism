@@ -2586,9 +2586,9 @@ $movingInactiveWidget = '00000000-0000-4000-8000-000000000703';
 $mappedInactiveOrphan = '00000000-0000-4000-8000-000000000704';
 $inactiveOptionValue = serialize([
     2 => ['title' => 'Mapped target-local orphan'],
+    '_multiwidget' => '1',
     1 => ['title' => 'Moving widget'],
     3 => ['title' => 'Unmapped target-local widget'],
-    '_multiwidget' => '1',
 ]);
 $wpdb->map = [
     [
