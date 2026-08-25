@@ -47,6 +47,26 @@ namespace TEC\Common\Integrations\Harbor {
 }
 
 namespace {
+    final class PLL_Sync_Post_Metas {
+        public function can_synchronize_metadata(mixed $check, mixed $id, mixed $key): mixed {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('Polylang post-meta guard must be quarantined');
+        }
+
+        public function update_metadata(
+            mixed $check,
+            mixed $id,
+            mixed $key,
+            mixed $value,
+            mixed $prior
+        ): mixed {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('Polylang post-meta witness must be quarantined');
+        }
+    }
+}
+
+namespace {
     if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
     /**
      * Product-path regression for the durable attachment filesystem/native
@@ -887,6 +907,8 @@ namespace {
             ['update_post_metadata', ['WC_Post_Data', 'update_post_metadata'], 10, 5],
             ['update_post_metadata', ['WPSEO_Meta', 'remove_meta_if_default'], 10, 5],
             ['update_post_metadata', [$tecTracker, 'filter_watch_updated_meta'], PHP_INT_MAX - 1, 5],
+            ['update_post_metadata', [new PLL_Sync_Post_Metas(), 'can_synchronize_metadata'], 1, 3],
+            ['update_post_metadata', [new PLL_Sync_Post_Metas(), 'update_metadata'], 999, 5],
         ];
         foreach ($certifiedCallbacks as [$hook, $callback, $priority, $acceptedArgs]) {
             if (!add_filter($hook, $callback, $priority, $acceptedArgs)) {

@@ -128,6 +128,18 @@ final class AttachmentNativeMetadataGenerator {
             'kind' => 'instance-any', 'classes' => ['PLL_Links_Domain', 'PLL_Links_Subdomain'],
             'method' => 'upload_dir',
         ],
+        'polylang-post-meta-guard' => [
+            'manifest' => 'polylang', 'presence' => 'required',
+            'hook' => 'update_post_metadata', 'priority' => 1, 'accepted_args' => 3,
+            'kind' => 'instance', 'class' => 'PLL_Sync_Post_Metas',
+            'method' => 'can_synchronize_metadata',
+        ],
+        'polylang-post-meta-witness' => [
+            'manifest' => 'polylang', 'presence' => 'required',
+            'hook' => 'update_post_metadata', 'priority' => 999, 'accepted_args' => 5,
+            'kind' => 'instance', 'class' => 'PLL_Sync_Post_Metas',
+            'method' => 'update_metadata',
+        ],
         'woocommerce-background-sizes' => [
             'manifest' => 'woocommerce', 'presence' => 'conditional-refuse',
             'hook' => 'intermediate_image_sizes', 'priority' => 10, 'accepted_args' => 1,
