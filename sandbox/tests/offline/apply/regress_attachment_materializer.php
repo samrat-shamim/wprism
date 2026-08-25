@@ -970,6 +970,15 @@ namespace {
         );
         remove_filter('wp_generate_attachment_metadata', $unboundWoo, 10);
 
+        $polylangAbsent = (new AttachmentNativeMetadataGenerator(
+            static fn(int $id): string => 'image/png',
+            ['polylang']
+        ))->generate(41, $standalone);
+        $check(
+            is_array($polylangAbsent),
+            'Polylang post-meta synchronization callbacks may be absent before the target has languages and are not fabricated'
+        );
+
         $throws(
             static fn() => (new AttachmentNativeMetadataGenerator(
                 static fn(int $id): string => 'image/png',
