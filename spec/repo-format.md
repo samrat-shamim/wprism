@@ -818,6 +818,7 @@ evidence before this line changes.
 | v3.11 | the executable lane's evidence contract (gate G5) | WP-7.1 (shut) | n/a — the lane is shut and the reservations refuse |
 | v3.13 | the `invalidate[]` vocabulary and its two-demand admission rule | WP-6.2 | YES — three verbs; the third gated on `invalidate-vocabulary/v1`, the first section shipped POST-v3 with no bump |
 | v3.17 | a signing profile that accepts an author-written disposition | WP-5.3 | YES — `certify --ratification-file`, judged by the shipped disposition validator; the derivation stays the floor |
+| v3.18 | the evidence grade: computed beside the reviewed word | WP-5.4 | YES — three axes derived on every call into a byte-compared document; no wire member, no stored verdict, no shipped byte |
 
 The flip itself — the two defines, the migration verbs, the cohorted rollout and the rollback rehearsal —
 is WP-4.12, is DONE, and § v3.12 is the record of what it deliberately left alone. The runbook that
@@ -2178,6 +2179,66 @@ records someone other than the author having read it, and WP-5.4's graded axis i
 cannot support goes, so the pressure to relax this requirement has somewhere else to land.
 `sandbox/tests/offline/adapter/regress_authored_ratification.php` drives all of it, including the derived
 floor still standing for an author who writes no file.
+
+### v3.18 The evidence grade: computed beside the reviewed word, never instead of it
+
+**Rider: WP-5.4. Enforced today: yes — three axes derived on every call and projected into
+`docs/adapter-grades.md`, byte-compared by `make release-gate`. No wire member, no stored verdict, no
+shipped byte.**
+A disposition `status` is a three-value enum and every read surface projects it BINARY:
+`AdapterRegistry::report()` raises `authored_state_not_certified` for anything that is not the exact
+string `certified`, and `AdapterSources::claim()` writes `uncertified` over a signed claim the repository
+pin does not bind exactly — one word for every distance from the one accepted answer. Measured on
+the shipped library, 14 of 16 reviewed subjects print the same word while their evidence differs by
+half — `acf` carries 11 of its 11 applicable scenario families, `polylang` and `woocommerce` carry 5 of
+12. An operator choosing among adapters for one plugin cannot see that, and the only vocabulary available
+for saying "this one carries far more evidence" was to widen what `certified` means. That pressure is the
+hazard this section removes.
+
+**Three axes, each already machine-readable and previously projected into nothing.** *Coverage breadth* —
+which of `sandbox/conformance/production-readiness.json`'s 12 reviewed `scenario_families` have a
+`covered` bucket naming evidence files, against that ledger's own taxonomy minus the families reviewed
+`not_applicable`. *Exercise depth* — the certification bundle's per-test pass map, reaching a claim as
+`provenance.proof.bundle.exercised` + `.tests`, which `verifyBundleManifest()` has already refused unless
+every entry is a named passing test exactly once. *Platform reach* — the `verified` cells of
+`manifests/capabilities/platform.json` that the claim states after § v3.5 narrowing, which is the same set
+a certificate binds as exercised under § v3.6; the narrowing itself is CALLED
+(`ManifestDispositions::narrowed_environment()`), never reimplemented, so the axis cannot grade a claim
+the agent does not make.
+
+**The grade is its weakest present axis, and that is a rule rather than a formula choice.** Averaging
+would let a wide platform claim compensate for missing scenario evidence, which is exactly the arithmetic
+that turns an evidence summary into a marketing number; the weakest axis is the sentence an operator needs
+("this is as far as the evidence goes"). An axis with no evidence document for a subject is **silent** and
+leaves the arithmetic; an axis whose document records nothing exercised is **none** and drags the grade
+down — the distinction `AdapterSources::certification_evidence()` already draws between `[]` and `null`,
+applied one level up.
+
+**No evidence, no grade.** Platform reach alone cannot mint one. An adapter nobody exercised still states
+the whole reviewed boundary through `narrowed_environment()`'s default, so grading that would hand a fresh
+unreviewed adapter a number for having declared nothing. A subject with neither breadth nor depth reads
+`no grade`, which is the honest answer where a low grade would not be.
+
+**Computed on every call; a `grade` member may never be authored.** Nothing reads a stored verdict, and
+every input carrying a `grade` member is refused BY NAME rather than ignored — a member somebody could
+write down would be read by the next reader that wanted one, and from that moment the number is an
+assertion wearing a derivation's clothes. The projection writes one prose document and no machine-readable
+record, so there is nothing for a later reader to mistake for a source of truth.
+
+**`certified` is untouched, and this section is not a second status.** The grade ships nothing: the model
+lives in `tools/adapter-grade.php`, two of its three inputs are outside `Adopt.php`'s
+`agent manifests recovery` tar, and no file under `agent/`, `cli/`, `recovery/` or `manifests/` names it —
+so no adapter digest, no repository pin, no refusal message and no wire member moved. The reviewed word
+means exactly what it meant, is printed verbatim in its own column beside the grade, and remains the only
+thing any engine decision consults. What the grade absorbs is everything real-but-not-reviewed, which is
+precisely what keeps the pressure to widen `certified` off the word itself.
+`sandbox/tests/offline/adapter/regress_graded_claim.php` drives all of it, including the gate biting on a
+hand-edited grade, on evidence that moved while the prose did not, and on an authored `grade` member.
+
+**No register row.** `docs/wire-surface.md` records decisions frozen inside SIGNED bytes, every value read
+out of the shipped engine by reflection or by running its refusals. A grade is in no signature, is stored
+nowhere, and is re-derived from documents anyone may move; a row for it would be an authored entry in a
+register whose whole discipline is that it contains none.
 
 ## Ledger tables (per environment, never in the repo)
 

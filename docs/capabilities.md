@@ -8,6 +8,8 @@ Duo agent **0.6.0** / repo spec **3**. This document is the whole of what Duo cl
 
 **What happens outside a claim.** Refusal, not a guess. A surface, version, or operation this document does not name is unsupported, and the agent blocks loudly rather than falling back to a neighbouring capability. Plugins always execute unmodified; that fact is separate from whether their authored state is branchable.
 
+**A status is not a grade.** The word in each row below is *reviewed*. Beside it, [docs/adapter-grades.md](adapter-grades.md) carries a *computed* evidence grade — arithmetic over scenario-family coverage, the certification bundle's per-test pass map, and exercised platform cells, re-derived on every run and stored nowhere. It qualifies nothing here: two adapters can share a status and carry very different amounts of evidence, and that difference is what the grade makes visible.
+
 ## Platform and environment boundary
 
 | Axis | Boundary |
