@@ -639,6 +639,16 @@ final class AttachmentNativeMetadataGenerator {
                 );
             }
         }
+        $polylangSyncIds = ['polylang-post-meta-guard', 'polylang-post-meta-witness'];
+        $polylangSyncMissing = array_values(array_diff($polylangSyncIds, array_keys($matched)));
+        if (isset($authorized['polylang']) && $polylangSyncMissing !== []) {
+            if (count($polylangSyncMissing) !== count($polylangSyncIds)) {
+                throw new \RuntimeException(
+                    'duo: native attachment metadata refuses a partial Polylang post-meta callback topology'
+                );
+            }
+            $this->assert_polylang_no_languages();
+        }
 
         $removed = [];
         try {
@@ -729,6 +739,33 @@ final class AttachmentNativeMetadataGenerator {
             return in_array(get_class($callback[0]), (array) ($rule['classes'] ?? []), true);
         }
         return false;
+    }
+
+    /**
+     * Polylang registers both sync callbacks only after its model reports at
+     * least one language. An absent pair is therefore admissible only when
+     * the native model proves the bounded no-language state; one missing
+     * callback is never a valid intermediate topology.
+     */
+    private function assert_polylang_no_languages(): void {
+        if (!function_exists('PLL')) {
+            throw new \RuntimeException(
+                'duo: native attachment metadata cannot prove Polylang no-language state'
+            );
+        }
+        $runtime = PLL();
+        $model = is_object($runtime) ? ($runtime->model ?? null) : null;
+        if (!is_object($model) || !is_callable([$model, 'has_languages'])) {
+            throw new \RuntimeException(
+                'duo: native attachment metadata cannot audit Polylang language state'
+            );
+        }
+        $hasLanguages = $model->has_languages();
+        if (!is_bool($hasLanguages) || $hasLanguages) {
+            throw new \RuntimeException(
+                'duo: native attachment metadata refuses absent Polylang sync callbacks while languages are present'
+            );
+        }
     }
 
     /**

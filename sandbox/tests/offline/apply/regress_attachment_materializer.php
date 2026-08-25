@@ -67,6 +67,22 @@ namespace {
 }
 
 namespace {
+    final class DuoTestPolylangModel {
+        public function has_languages(): bool {
+            return (bool) ($GLOBALS['duo_polylang_has_languages'] ?? false);
+        }
+    }
+    final class DuoTestPolylangRuntime {
+        public object $model;
+        public function __construct() {
+            $this->model = new DuoTestPolylangModel();
+        }
+    }
+    $GLOBALS['duo_polylang_runtime'] = new DuoTestPolylangRuntime();
+    function PLL(): object {
+        return $GLOBALS['duo_polylang_runtime'];
+    }
+
     if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
     /**
      * Product-path regression for the durable attachment filesystem/native
@@ -265,6 +281,7 @@ namespace {
     $GLOBALS['duo_attachment_big_guard_seen'] = false;
     $GLOBALS['duo_attachment_generate_calls'] = 0;
     $GLOBALS['duo_attachment_adapter_callback_calls'] = 0;
+    $GLOBALS['duo_polylang_has_languages'] = false;
     $GLOBALS['wpdb'] = new AttachmentAuthorityWpdb();
 
     function duo_attachment_filter_id(callable $callback): string {
@@ -926,6 +943,7 @@ namespace {
         $GLOBALS['duo_attachment_size_calls'] = 0;
         $GLOBALS['duo_attachment_generate_calls'] = 0;
         $GLOBALS['duo_attachment_adapter_callback_calls'] = 0;
+        $GLOBALS['duo_polylang_has_languages'] = true;
         $certifiedGenerator = new AttachmentNativeMetadataGenerator(
             static fn(int $id): string => 'image/png',
             [
@@ -953,6 +971,7 @@ namespace {
                 throw new \RuntimeException('could not remove certified-adapter callback fixture');
             }
         }
+        $GLOBALS['duo_polylang_has_languages'] = false;
         $GLOBALS['duo_attachment_size_roster'] = [
             'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => true],
         ];
@@ -978,6 +997,27 @@ namespace {
             is_array($polylangAbsent),
             'Polylang post-meta synchronization callbacks may be absent before the target has languages and are not fabricated'
         );
+        $polylangPartial = new PLL_Sync_Post_Metas();
+        add_filter('update_post_metadata', [$polylangPartial, 'can_synchronize_metadata'], 1, 3);
+        $throws(
+            static fn() => (new AttachmentNativeMetadataGenerator(
+                static fn(int $id): string => 'image/png',
+                ['polylang']
+            ))->generate(41, $standalone),
+            'partial Polylang post-meta callback topology',
+            'one Polylang sync callback without its paired witness is refused'
+        );
+        remove_filter('update_post_metadata', [$polylangPartial, 'can_synchronize_metadata'], 1);
+        $GLOBALS['duo_polylang_has_languages'] = true;
+        $throws(
+            static fn() => (new AttachmentNativeMetadataGenerator(
+                static fn(int $id): string => 'image/png',
+                ['polylang']
+            ))->generate(41, $standalone),
+            'languages are present',
+            'an absent Polylang sync pair is refused when the native model proves languages are present'
+        );
+        $GLOBALS['duo_polylang_has_languages'] = false;
 
         $throws(
             static fn() => (new AttachmentNativeMetadataGenerator(
