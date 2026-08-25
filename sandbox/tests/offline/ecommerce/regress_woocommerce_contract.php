@@ -940,6 +940,7 @@ foreach ([
     "'/wc/v3/products/categories/",
     "'/wc/v3/products/brands/",
     "'display' => 'subcategories'",
+    'wp_conf1 theme activate twentytwentyfive',
     "--type=wc-visual",
     'VisualAttributeTermMeta::save_term_visual_from_request',
     "'/wc/v3/products/attributes/",

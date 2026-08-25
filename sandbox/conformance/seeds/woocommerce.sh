@@ -297,10 +297,17 @@ update_post_meta($COUPON_ID, 'exclude_product_brands', [$BRAND_EXCLUDED_ID]);
 # conformance sweep, not just the dedicated r3e regression. Attribute ids
 # are NOT hardcoded — a fresh conf1 mints them in creation order, so this
 # reads them back rather than assuming 1/2 (conf's own reset cycle can
-# leave a different starting id across repeated runs).
+# leave a different starting id across repeated runs). WooCommerce 11.0.1
+# exposes the native `wc-visual` type only while a block theme is active and
+# the feature flag is enabled; HPOS setup deliberately leaves the classic
+# bootstrap theme active. Temporarily switch to the bundled block theme for
+# the native creation call, then restore the ordinary conformance theme before
+# capture so the fixture does not smuggle a theme change into Woo evidence.
+wp_conf1 theme activate twentytwentyfive >/dev/null
 wp_conf1 option update woocommerce_feature_wc_visual_attribute_enabled yes >/dev/null
 SIZE_ATTR_ID=$(wp_conf1 wc product_attribute create --name="Conf Size" --slug="conf-size" --type=select --order_by=menu_order --has_archives=false --porcelain --user=admin)
 COLOR_ATTR_ID=$(wp_conf1 wc product_attribute create --name="Conf Color" --slug="conf-color" --type=wc-visual --order_by=menu_order --has_archives=false --porcelain --user=admin)
+wp_conf1 theme activate twentytwentyone >/dev/null
 require_fixture_ids COUPON_ID SIZE_ATTR_ID COLOR_ATTR_ID
 wp_conf1 wc product_attribute_term create "$SIZE_ATTR_ID" --name=Small --user=admin >/dev/null
 wp_conf1 wc product_attribute_term create "$SIZE_ATTR_ID" --name=Large --user=admin >/dev/null
