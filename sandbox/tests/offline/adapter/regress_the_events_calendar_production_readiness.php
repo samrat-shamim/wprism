@@ -8772,6 +8772,25 @@ duo_check_same(
 $versionMatrix = (string) file_get_contents(
     $root . '/sandbox/tests/certify/certify_version_matrix.sh'
 );
+$tecMatrixWrapperStart = strpos($versionMatrix, 'check_the_events_calendar_boundary_content() {');
+$tecMatrixWrapperEnd = strpos($versionMatrix, 'seed_advanced_editor_tools_content() {', $tecMatrixWrapperStart);
+duo_check(
+    $tecMatrixWrapperStart !== false && $tecMatrixWrapperEnd !== false,
+    'the exact TEC matrix check wrapper has bounded source markers'
+);
+$tecMatrixWrapper = substr($versionMatrix, $tecMatrixWrapperStart, $tecMatrixWrapperEnd - $tecMatrixWrapperStart);
+foreach ([
+    'wp_env() {' => 'the shared two-side helper',
+    'conf1) wp1 "$@" ;;' => 'the author-side mapping',
+    'conf2) wp2 "$@" ;;' => 'the target-side mapping',
+    '*) fail "unknown TEC check environment: $env" ;;' => 'the unknown-side refusal',
+    'unset -f wp_conf1 wp_conf2 wp_env' => 'the scoped helper cleanup',
+] as $matrixWrapperEvidence => $matrixWrapperLabel) {
+    duo_check(
+        str_contains($tecMatrixWrapper, $matrixWrapperEvidence),
+        "the exact TEC matrix check wrapper retains $matrixWrapperLabel"
+    );
+}
 foreach ([
     'seed_the_events_calendar_content() {' => 'native seed helper',
     'postdeploy_the_events_calendar_content() {' => 'hostile target helper',
