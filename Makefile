@@ -523,6 +523,20 @@ regress-authority-delegation:
 regress-revocation-reachability:
 	php sandbox/tests/offline/adapter/regress_revocation_reachability.php
 
+# WP-5.1 / spec/repo-format.md SS v3.7 + v3.8: POPULATING the platform trust
+# root -- the enrollment CEREMONY end to end over fixture keys, in a scratch
+# library, while the shipped adapter-authorities.json stays the empty v1
+# registry byte for byte (issuing a real key is gate G4's decision, and
+# docs/guides/trust-enrollment.md carries that checklist). Mint, enroll, sign
+# the envelope, delegate, certify, and project BOTH operator-facing words;
+# then the second-enrollment invariant, the grant's refusal matrix, and the
+# REVOCATION DRILL on WP-1.4's rehearsal fleet with propagation latency
+# measured. The drill runs in a child process (revocation_drill.php) because
+# the estate's certificates are minted at the prior state and a state is a
+# pair of define()s.
+regress-platform-authority-population:
+	php sandbox/tests/offline/adapter/regress_platform_authority_population.php
+
 # WP-4.12 / spec/repo-format.md § v3.8: the four adapter-side signature domains
 # and the cross-ROOT clause, measured through the VERIFIERS. The corpus already
 # asserted the four domain strings are distinct, NUL-terminated and pairwise
