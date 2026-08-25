@@ -2272,7 +2272,7 @@ tec_set_source_category_primary() { # <#rrggbb>
 TEC_COLOR_PRECOMMIT_SCOPE=''
 TEC_COLOR_SCOPE=''
 TEC_COLOR_KV_CONSTRAINT_MAY_EXIST=0
-TEC_COLOR_CSS_CONSTRAINT_MAY_EXIST=0
+TEC_COLOR_SESSION_RECEIPT_CONSTRAINT_MAY_EXIST=0
 TEC_COLOR_ABA_MAY_BE_REKEYED=0
 restore_tec_scoped_color_faults() {
   if [ "${TEC_COLOR_KV_CONSTRAINT_MAY_EXIST:-0}" -eq 1 ]; then
@@ -2281,11 +2281,11 @@ restore_tec_scoped_color_faults() {
       >/dev/null 2>&1 || true
     TEC_COLOR_KV_CONSTRAINT_MAY_EXIST=0
   fi
-  if [ "${TEC_COLOR_CSS_CONSTRAINT_MAY_EXIST:-0}" -eq 1 ]; then
+  if [ "${TEC_COLOR_SESSION_RECEIPT_CONSTRAINT_MAY_EXIST:-0}" -eq 1 ]; then
     wp_conf2 db query \
-      'ALTER TABLE wp_options DROP CONSTRAINT IF EXISTS duo_tec_fail_category_css' \
+      'ALTER TABLE wp_duo_kv DROP CONSTRAINT IF EXISTS duo_tec_fail_scoped_effect_receipt' \
       >/dev/null 2>&1 || true
-    TEC_COLOR_CSS_CONSTRAINT_MAY_EXIST=0
+    TEC_COLOR_SESSION_RECEIPT_CONSTRAINT_MAY_EXIST=0
   fi
   if [ "${TEC_COLOR_ABA_MAY_BE_REKEYED:-0}" -eq 1 ] \
     && [[ "${COLOR_ABA_OLD_ID:-}" =~ ^[1-9][0-9]*$ ]] \
@@ -2379,11 +2379,14 @@ printf '%s\n' "$COLOR_FAULT_BEFORE" | jq -e '
 ' >/dev/null || fail "TEC Category Colors failure premise is not at the prior projection: $COLOR_FAULT_BEFORE"
 COLOR_FAULT_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
 require_observed_nonempty "TEC applied revision before Category Colors fault" "$COLOR_FAULT_REV_BEFORE"
-wp_conf2 db query 'ALTER TABLE wp_options DROP CONSTRAINT IF EXISTS duo_tec_fail_category_css' >/dev/null
-TEC_COLOR_CSS_CONSTRAINT_MAY_EXIST=1
+wp_conf2 db query 'ALTER TABLE wp_duo_kv DROP CONSTRAINT IF EXISTS duo_tec_fail_scoped_effect_receipt' >/dev/null
+TEC_COLOR_SESSION_RECEIPT_CONSTRAINT_MAY_EXIST=1
 wp_conf2 db query '
-  ALTER TABLE wp_options ADD CONSTRAINT duo_tec_fail_category_css
-  CHECK (option_name <> "tec_events_category_color_css" OR option_value NOT LIKE "%#654321%")
+  ALTER TABLE wp_duo_kv ADD CONSTRAINT duo_tec_fail_scoped_effect_receipt
+  CHECK (
+    k <> "scoped_apply_session"
+    OR COALESCE(JSON_LENGTH(JSON_EXTRACT(v, "$.receipts")), 0) < 3
+  )
 ' >/dev/null
 COLOR_FAULT_RC=0
 COLOR_FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo \
@@ -2392,14 +2395,16 @@ COLOR_FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo \
 require_duo_answered "TEC injected Category Colors provider failure" human "$COLOR_FAULT_OUT"
 [ "$COLOR_FAULT_RC" -ne 0 ] \
   && grep -Fq "required manifest action 'provider:the-events-calendar-category-colors/regenerate_css' failed" <<<"$COLOR_FAULT_OUT" \
-  && grep -Fq "provider 'the-events-calendar-category-colors' capability 'regenerate_css' scoped invocation failed" <<<"$COLOR_FAULT_OUT" \
-  || fail "TEC injected Category Colors option failure did not surface through the provider: $COLOR_FAULT_OUT"
+  && grep -Fq 'scoped apply session update CAS' <<<"$COLOR_FAULT_OUT" \
+  || fail "TEC injected Category Colors outer-receipt failure did not surface through the provider: $COLOR_FAULT_OUT"
 COLOR_FAULT_AFTER=$(observe_tec conf2)
 COLOR_FAULT_EXPECTED=$(printf '%s\n' "$COLOR_FAULT_BEFORE" | jq -Sc '
-  .category.meta.primary = "#654321" | .category.dropdown.primary = "#654321"
+  .category.meta.primary = "#654321" |
+  .category.dropdown.primary = "#654321" |
+  .category_css |= gsub("#456789"; "#654321")
 ')
 [ "$(printf '%s\n' "$COLOR_FAULT_AFTER" | jq -Sc .)" = "$COLOR_FAULT_EXPECTED" ] \
-  || fail "TEC failed Category Colors provider action crossed its post-commit intent/CSS boundary: $COLOR_FAULT_AFTER"
+  || fail "TEC lost outer receipt did not retain the verified native Category Colors effect: $COLOR_FAULT_AFTER"
 [ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$COLOR_FAULT_REV_BEFORE" ] \
   || fail "TEC failed Category Colors provider action advanced applied_revision"
 COLOR_FAULT_SESSION=$(tec_scoped_session_evidence)
@@ -2409,8 +2414,8 @@ printf '%s\n' "$COLOR_FAULT_SESSION" | jq -e '
   .author_action_hash == "a0b8cb4c1ee6649aa089e3f21cc64471337f0b4d389837ba1219c77479b573c0" and
   .author_action_matches == true and .author_matches == true
 ' >/dev/null || fail "TEC failed Category Colors provider action did not retain exact scoped recovery authority: $COLOR_FAULT_SESSION"
-wp_conf2 db query 'ALTER TABLE wp_options DROP CONSTRAINT duo_tec_fail_category_css' >/dev/null
-TEC_COLOR_CSS_CONSTRAINT_MAY_EXIST=0
+wp_conf2 db query 'ALTER TABLE wp_duo_kv DROP CONSTRAINT duo_tec_fail_scoped_effect_receipt' >/dev/null
+TEC_COLOR_SESSION_RECEIPT_CONSTRAINT_MAY_EXIST=0
 
 COLOR_ABA_OLD_ID=$(wp_conf2 db query "
   SELECT local_id FROM wp_duo_map
@@ -2494,7 +2499,7 @@ printf '%s\n' "$COLOR_RECOVERED" | jq -e '
 rm -f "$TEC_COLOR_SCOPE"
 restore_tec_scoped_color_faults
 trap - EXIT
-pass "scoped Category Colors recovery refuses a selected-map ABA before effects, then inverse/retry converges"
+pass "scoped Category Colors recovery refuses a selected-map ABA before reconciling a lost outer receipt, then inverse/retry converges"
 
 # Capture-time schema/secret probes restore exact live bytes. Post bodies may
 # legitimately discuss credentials, while the same token in authored TEC meta
