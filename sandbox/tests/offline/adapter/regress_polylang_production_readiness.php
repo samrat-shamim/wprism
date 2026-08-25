@@ -956,10 +956,35 @@ namespace {
         512,
         JSON_THROW_ON_ERROR
     );
+    $registry = json_decode(
+        (string) file_get_contents($conformanceRoot . '/manifests.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    duo_check_same(
+        duo_check_canonical_json($entry['entry'] ?? []),
+        duo_check_canonical_json($registry['polylang'] ?? []),
+        'ordinary Polylang conformance uses the exact standalone fixture, including synced patterns'
+    );
     duo_check_same(
         ['post', 'page', 'wp_block', 'attachment'],
-        $entry['entry']['post_types'] ?? null,
-        'Polylang conformance scopes posts, pages, synced patterns and attachments explicitly'
+        $registry['polylang']['post_types'] ?? null,
+        'ordinary Polylang conformance scopes posts, pages, synced patterns and attachments explicitly'
+    );
+    $readiness = json_decode(
+        (string) file_get_contents($conformanceRoot . '/production-readiness.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    duo_check(
+        in_array(
+            'sandbox/conformance/manifests.json',
+            $readiness['adapters']['polylang']['covered']['clean-target'] ?? [],
+            true
+        ),
+        'the Polylang readiness ledger names the default standalone conformance registry'
     );
     duo_check(
         str_contains($seedScript, '$pageFixtures = [')

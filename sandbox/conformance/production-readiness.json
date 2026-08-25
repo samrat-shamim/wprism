@@ -211,6 +211,7 @@
           "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php"
         ],
         "clean-target": [
+          "sandbox/conformance/manifests.json",
           "sandbox/conformance/entries/polylang.json",
           "sandbox/conformance/seeds/polylang.sh",
           "sandbox/conformance/checks/polylang.sh",
