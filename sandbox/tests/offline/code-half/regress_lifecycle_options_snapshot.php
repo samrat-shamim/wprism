@@ -2743,6 +2743,25 @@ $check(
     ],
     'removing the source block reference de-authorizes inactive state without deleting its assignment, option, or map'
 );
+
+$inactiveOptionWithoutMarker = serialize([
+    2 => ['title' => 'Mapped target-local orphan'],
+    1 => ['title' => 'Moving widget'],
+    3 => ['title' => 'Unmapped target-local widget'],
+]);
+$wpdb->optionRows['widget_text']['option_value'] = $inactiveOptionWithoutMarker;
+SidebarState::finalize_sidebar(
+    $sidebarPolicy,
+    $tokens,
+    $activeMoveTree['sidebar/selected']['data'],
+    'selected',
+    $activeMoveTree,
+    true
+);
+$check(
+    $wpdb->optionRows['widget_text']['option_value'] === $inactiveOptionWithoutMarker,
+    'inactive-to-active move preserves exact absence of _multiwidget on a preexisting target family'
+);
 SidebarState::end_authored_transaction();
 $fieldMaterializer->end_authored_transaction();
 $wpdb->transactionState = '0';

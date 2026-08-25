@@ -249,6 +249,12 @@ $check(
         && $sidebarCapture < $postCapture,
     'whole-block widget references are discovered only from selected mapped block posts before SidebarState identity capture'
 );
+$check(
+    !str_contains($candidateBuild, "capture_widget_instance_references('',")
+        && str_contains($candidateBuild, '$portableWidgetReferences = [];')
+        && str_contains($candidateBuild, '$portableWidgetReferences === [] ? null : $portableWidgetReferences'),
+    'candidate construction never primes an empty overlay and passes no SidebarState pseudo-entity authority when selected posts contain no stored-widget references'
+);
 
 $check(str_contains($identity, 'public function ensurePost(')
     && str_contains($identity, 'public function ensureTerm(')

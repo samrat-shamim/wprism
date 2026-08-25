@@ -163,7 +163,11 @@ final class SidebarState {
             if ($unselected > 0) {
                 $warnings[] = self::inactive_exclusion_warning();
             }
-            $sidebars['wp_inactive_widgets'] = $selectedInactive;
+            if ($selectedInactive === []) {
+                unset($sidebars['wp_inactive_widgets']);
+            } else {
+                $sidebars['wp_inactive_widgets'] = $selectedInactive;
+            }
         } elseif ($inactive) {
             $warnings[] = self::inactive_exclusion_warning();
         }
@@ -532,6 +536,7 @@ final class SidebarState {
      *   widgets:array<string,array<int,array<string,mixed>>>,
      *   markers:array<string,int|string|null>,
      *   orders:array<string,list<int|string>>,
+     *   present:array<string,bool>,
      *   sidebars:array<string,mixed>
      * }
      */
@@ -553,6 +558,7 @@ final class SidebarState {
         $widgets = [];
         $markers = [];
         $orders = [];
+        $present = [];
         foreach ($types as $type) {
             $name = 'widget_' . $type;
             $row = $rows[$name];
@@ -562,12 +568,14 @@ final class SidebarState {
             $widgets[$type] = $state['instances'];
             $markers[$type] = $state['marker'];
             $orders[$type] = $state['order'];
+            $present[$type] = $row !== null;
         }
         $sidebarsRow = $rows[self::SIDEBARS_OPTION];
         return [
             'widgets' => $widgets,
             'markers' => $markers,
             'orders' => $orders,
+            'present' => $present,
             'sidebars' => $sidebarsRow === null
                 ? []
                 : self::decode_sidebars_option($sidebarsRow['option_value']),
@@ -778,6 +786,7 @@ final class SidebarState {
         $options = $state['widgets'];
         $markers = $state['markers'];
         $orders = $state['orders'];
+        $present = $state['present'];
         $sidebars = $state['sidebars'];
         $globallyDesired = [];
         foreach ($tree as $entity) {
@@ -858,7 +867,7 @@ final class SidebarState {
                         $stored[$local] = $settings;
                     }
                 }
-                if (!isset($seenStoredKeys['_multiwidget'])) {
+                if (!isset($seenStoredKeys['_multiwidget']) && !$present[$type]) {
                     $stored['_multiwidget'] = $markers[$type] ?? 1;
                 }
             } else {

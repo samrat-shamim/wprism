@@ -243,7 +243,7 @@ final class CaptureCandidateBuilder {
         // Table identities must exist before post/sidebar tokenization.
         $tableEntities = Snapshot::capture($this->policy, $this->tokens, $mint, $strictReadOnly);
         CaptureTransaction::check_transient_db_error('Snapshot::capture()');
-        $portableWidgetReferences = Blocks::capture_widget_instance_references('', $this->policy);
+        $portableWidgetReferences = [];
         foreach ($posts as $post) {
             $postId = (int) ($post->ID ?? 0);
             if (!isset($postUuids[$postId]) || $this->policy->body_mode((string) $post->post_type) !== 'blocks') {
@@ -253,16 +253,12 @@ final class CaptureCandidateBuilder {
                 (string) ($post->post_content ?? ''),
                 $this->policy
             );
-            if ($references === null) {
-                continue;
-            }
-            $portableWidgetReferences ??= [];
             foreach ($references as $reference) {
                 $key = $reference['type'] . '-' . $reference['local_id'];
                 $portableWidgetReferences[$key] = $reference;
             }
         }
-        if ($portableWidgetReferences !== null) {
+        if ($portableWidgetReferences !== []) {
             ksort($portableWidgetReferences, SORT_STRING);
             $portableWidgetReferences = array_values($portableWidgetReferences);
         }
@@ -272,7 +268,7 @@ final class CaptureCandidateBuilder {
             $mint,
             $forceUnresolvedRefs,
             $strictReadOnly,
-            $portableWidgetReferences
+            $portableWidgetReferences === [] ? null : $portableWidgetReferences
         );
 
         foreach ($terms as $term) {

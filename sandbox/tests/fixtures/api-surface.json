@@ -5529,7 +5529,7 @@
                             "variadic": false
                         }
                     ],
-                    "return_type": "?array",
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }

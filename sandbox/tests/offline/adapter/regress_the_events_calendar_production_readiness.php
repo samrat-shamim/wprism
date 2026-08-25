@@ -3692,34 +3692,68 @@ duo_check_same(
     Blocks::capture_widget_instance_references($targetEmbeddedList . $targetEmbeddedQr, $policy),
     'embedded TEC widget blocks carry no SidebarState assignment reference'
 );
-$interpreterInstances = new ReflectionProperty(Policy::class, 'interpreterInstances');
-$canonicalInterpreterRoster = $interpreterInstances->getValue($policy);
 foreach ([
-    'list result' => [['tribe-widget-events-list', 8000000001]],
-    'undeclared type' => ['type' => 'foreign-widget', 'local_id' => 8000000001],
-    'non-integer local id' => ['type' => 'tribe-widget-events-list', 'local_id' => '8000000001'],
-] as $label => $malformedReference) {
-    $hostileRoster = $canonicalInterpreterRoster;
-    $hostileRoster['the-events-calendar'] = new class($malformedReference) {
-        public function __construct(private mixed $reference) {}
-        public function capture_block_widget_instance_reference(array $_block): mixed {
-            return $this->reference;
-        }
-    };
-    $interpreterInstances->setValue($policy, $hostileRoster);
+    'undeclared type' => tec_readiness_legacy_widget_block(['id' => 'foreign-widget-8000000001']),
+    'noncanonical instance' => tec_readiness_legacy_widget_block([
+        'id' => 'tribe-widget-events-list-08000000001',
+    ]),
+    'extra attribute' => tec_readiness_legacy_widget_block([
+        'id' => 'tribe-widget-events-list-8000000001',
+        'futureAuthority' => true,
+    ]),
+] as $label => $malformedBlock) {
     duo_check_throws(
-        static fn(): ?array => Blocks::capture_widget_instance_references($targetStoredList, $policy),
+        static fn(): array => Blocks::capture_widget_instance_references($malformedBlock, $policy),
         RuntimeException::class,
-        "the whole-block widget reference seam rejects a codec $label",
-        'returned a malformed widget instance reference'
+        "the engine-owned stored-widget scanner rejects a $label",
+        $label === 'extra attribute'
+            ? 'unknown or malformed field'
+            : 'does not bind one declared widget type and canonical instance'
     );
 }
+$coreOnlyPolicy = Policy::load(null, ['core']);
+duo_check_same(
+    [],
+    Blocks::capture_widget_instance_references($targetStoredList, $coreOnlyPolicy),
+    'an unsupported core block rule and an undeclared adapter codec cannot silently join stored-widget discovery'
+);
+$interpreterInstances = new ReflectionProperty(Policy::class, 'interpreterInstances');
+$canonicalInterpreterRoster = $interpreterInstances->getValue($policy);
+$futureCodec = new class {
+    public int $calls = 0;
+    public function capture_block_widget_instance_reference(array $_block): array {
+        ++$this->calls;
+        return ['type' => 'tribe-widget-events-list', 'local_id' => 8000000001];
+    }
+};
+$hostileRoster = $canonicalInterpreterRoster;
+$hostileRoster['future-codec'] = $futureCodec;
+$interpreterInstances->setValue($policy, $hostileRoster);
+duo_check_same(
+    $storedWidgetReferences,
+    Blocks::capture_widget_instance_references($targetStoredList . $targetStoredQr, $policy),
+    'an undeclared future interpreter cannot join the engine-owned stored-widget authority roster'
+);
+duo_check_same(0, $futureCodec->calls, 'stored-widget discovery never probes an optional interpreter method');
 $interpreterInstances->setValue($policy, $canonicalInterpreterRoster);
 
 // Source capture starts with no widget ledger history in the product path.
 // The reference-selected inactive overlay must mint only the two referenced
 // identities; the unrelated parked instance is neither captured nor mapped.
 $widgetDb->seedTable($widgetMapTable, [$targetWidgetRows[2]]);
+$noInactiveAuthority = \Duo\SidebarState::capture(
+    $policy,
+    $targetWidgetTokens,
+    true,
+    false,
+    false,
+    []
+);
+duo_check_same(
+    [],
+    $noInactiveAuthority['entities'] ?? null,
+    'zero selected stored-widget references emit no empty wp_inactive_widgets pseudo entity'
+);
 $mintedInactive = \Duo\SidebarState::capture(
     $policy,
     $targetWidgetTokens,
@@ -3779,6 +3813,14 @@ duo_check(
         && count($capturedTecSidebars['warnings'] ?? []) === 1
         && str_contains($capturedTecSidebars['warnings'][0], 'target-owned'),
     'unreferenced inactive widgets remain target-owned and are noted without entering canonical state'
+);
+$blocksSource = (string) file_get_contents($root . '/agent/src/Grammar/Blocks.php');
+duo_check(
+    str_contains($blocksSource, "['core/legacy-widget']")
+        && str_contains($blocksSource, "isset(\$paths['id'])")
+        && str_contains($blocksSource, '$policy->widget_types()')
+        && !str_contains($blocksSource, 'capture_block_widget_instance_reference'),
+    'stored-widget discovery is engine-owned by the declared whole-block id path and closed widget grammar, never an optional codec method'
 );
 duo_check_same(
     $capturedTecWidgets,

@@ -61,47 +61,37 @@ final class Blocks {
     private const IMAGE_CLASS_BLOCKS = ['core/image', 'core/gallery', 'core/media-text', 'core/cover'];
 
     /**
-     * Discover physical widget instances a whole-block codec must bind before
-     * capture rewriting. SidebarState identities are minted before PostCapture
-     * rewrites block attributes, so asking the same manifest-bound codec for
-     * this one narrow reference is the only way to avoid either sweeping all
-     * parked widgets or guessing that every `id` attribute is a widget id.
+     * Discover exact stored core/legacy-widget identities before SidebarState
+     * capture. Authority is closed by the existing whole-block codec rule's
+     * declared `id` path plus the manifest widget-type grammar; interpreter
+     * methods cannot opt themselves into this engine-owned pre-scan.
      *
-     * A null return means no active codec exposes the optional reference seam.
-     * An empty list means the seam is active but this content has no stored
-     * widget reference; callers preserve that distinction so a previously
-     * selected inactive widget can be represented by an empty overlay.
-     *
-     * @return ?list<array{type:string,local_id:int}>
+     * @return list<array{type:string,local_id:int}>
      */
-    public static function capture_widget_instance_references(string $content, Policy $policy): ?array {
+    public static function capture_widget_instance_references(string $content, Policy $policy): array {
         $rules = $policy->block_attr_rules();
-        $supported = false;
-        foreach ($rules as $declaredRules) {
-            foreach ((array) $declaredRules as $rule) {
-                $codec = is_array($rule) ? ($rule['codec'] ?? null) : null;
-                $interpreter = is_string($codec) ? ($policy->interpreters()[$codec] ?? null) : null;
-                if (is_object($interpreter)
-                    && method_exists($interpreter, 'capture_block_widget_instance_reference')) {
-                    if (!is_callable([$interpreter, 'capture_block_widget_instance_reference'])) {
-                        throw new \RuntimeException(
-                            "duo: block codec '$codec' widget instance reference seam is not callable"
-                        );
-                    }
-                    $supported = true;
-                }
+        $legacyRules = $rules['core/legacy-widget'] ?? [];
+        $codec = null;
+        $paths = [];
+        foreach ($legacyRules as $rule) {
+            if (!is_array($rule) || !is_string($rule['codec'] ?? null) || $rule['codec'] === '') {
+                return [];
             }
+            if ($codec !== null && !hash_equals($codec, $rule['codec'])) {
+                throw new \RuntimeException(
+                    "duo: block 'core/legacy-widget' has an invalid or mixed whole-block codec registry"
+                );
+            }
+            $codec = $rule['codec'];
+            $paths[(string) ($rule['path'] ?? '')] = true;
         }
-        if (!$supported) {
-            return null;
-        }
-        if ($content === '') {
+        if ($codec === null || !isset($paths['id']) || $content === '') {
             return [];
         }
         $out = [];
         foreach (parse_blocks($content) as $block) {
             if (is_array($block)) {
-                self::collect_widget_instance_keys($block, $rules, $policy, $out);
+                self::collect_widget_instance_keys($block, $policy->widget_types(), $out);
             }
         }
         ksort($out, SORT_STRING);
@@ -111,55 +101,68 @@ final class Blocks {
     /** @param array<string,array{type:string,local_id:int}> $out */
     private static function collect_widget_instance_keys(
         array $block,
-        array $rules,
-        Policy $policy,
+        array $widgetTypes,
         array &$out
     ): void {
         $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
-        $declared = $rules[$name] ?? [];
-        $codec = null;
-        foreach ($declared as $rule) {
-            if (!is_array($rule) || !array_key_exists('codec', $rule)) {
-                continue;
-            }
-            if (!is_string($rule['codec'] ?? null) || $rule['codec'] === ''
-                || ($codec !== null && !hash_equals($codec, $rule['codec']))) {
-                throw new \RuntimeException("duo: block '$name' has an invalid or mixed whole-block codec registry");
-            }
-            $codec = $rule['codec'];
-        }
-        if ($codec !== null) {
-            $interpreter = $policy->interpreters()[$codec] ?? null;
-            if (is_object($interpreter)
-                && method_exists($interpreter, 'capture_block_widget_instance_reference')) {
-                if (!is_callable([$interpreter, 'capture_block_widget_instance_reference'])) {
-                    throw new \RuntimeException(
-                        "duo: block '$name' codec '$codec' widget instance reference seam is not callable"
-                    );
-                }
-                $reference = $interpreter->capture_block_widget_instance_reference($block);
-                if ($reference === null) {
-                    // Embedded legacy-widget instances carry no SidebarState identity.
-                } elseif (!is_array($reference)
-                    || array_keys($reference) !== ['type', 'local_id']
-                    || !is_string($reference['type'] ?? null)
-                    || !isset($policy->widget_types()[$reference['type']])
-                    || !is_int($reference['local_id'] ?? null)
-                    || $reference['local_id'] <= 0) {
-                    throw new \RuntimeException(
-                        "duo: block '$name' codec '$codec' returned a malformed widget instance reference"
-                    );
-                } else {
-                    $key = $reference['type'] . '-' . $reference['local_id'];
-                    $out[$key] = $reference;
-                }
-            }
+        if ($name === 'core/legacy-widget') {
+            self::collect_stored_legacy_widget_instance($block, $widgetTypes, $out);
         }
         foreach ((array) ($block['innerBlocks'] ?? []) as $inner) {
             if (is_array($inner)) {
-                self::collect_widget_instance_keys($inner, $rules, $policy, $out);
+                self::collect_widget_instance_keys($inner, $widgetTypes, $out);
             }
         }
+    }
+
+    /** @param array<string,array> $widgetTypes @param array<string,array{type:string,local_id:int}> $out */
+    private static function collect_stored_legacy_widget_instance(
+        array $block,
+        array $widgetTypes,
+        array &$out
+    ): void {
+        if (!is_array($block['innerBlocks'] ?? null)
+            || ($block['innerBlocks'] ?? []) !== []
+            || !is_string($block['innerHTML'] ?? null)
+            || trim((string) $block['innerHTML']) !== ''
+            || !is_array($block['innerContent'] ?? null)
+            || ($block['innerContent'] ?? []) !== []) {
+            throw new \RuntimeException(
+                'duo: stored legacy widget reference must be one exact self-closing core block'
+            );
+        }
+        $attrs = $block['attrs'] ?? null;
+        if (!is_array($attrs) || ($attrs !== [] && array_is_list($attrs))) {
+            throw new \RuntimeException('duo: stored legacy widget reference attributes must be one closed object');
+        }
+        if (!array_key_exists('id', $attrs)) {
+            return;
+        }
+        $keys = array_keys($attrs);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['id'] || !is_string($attrs['id'])) {
+            throw new \RuntimeException('duo: stored legacy widget reference has an unknown or malformed field');
+        }
+        $matches = [];
+        foreach (array_keys($widgetTypes) as $type) {
+            $prefix = $type . '-';
+            if (!str_starts_with($attrs['id'], $prefix)) {
+                continue;
+            }
+            $local = substr($attrs['id'], strlen($prefix));
+            if (preg_match('/^[1-9][0-9]*$/D', $local) === 1
+                && (string) (int) $local === $local
+                && (int) $local > 0) {
+                $matches[] = ['type' => $type, 'local_id' => (int) $local];
+            }
+        }
+        if (count($matches) !== 1) {
+            throw new \RuntimeException(
+                'duo: stored legacy widget reference does not bind one declared widget type and canonical instance'
+            );
+        }
+        $reference = $matches[0];
+        $out[$reference['type'] . '-' . $reference['local_id']] = $reference;
     }
 
     /**
