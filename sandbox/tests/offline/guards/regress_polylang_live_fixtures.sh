@@ -91,7 +91,7 @@ done
 if grep -Fq 'file_put_contents($path,$bytes)' "$TEC"; then
   fail 'co-install fixture reintroduced unprivileged/interpolated hostile callback installation'
 fi
-for needle in 'add_term_meta(' 'update_term_meta(' "[['Hello', 'Bonjour']]"; do
+for needle in 'add_term_meta(' 'update_term_meta(' "[['Hello', 'Bonjour']]" 'exact empty string-catalog sentinel entered canonical authored state'; do
   grep -Fq "$needle" "$CONF" || fail "Polylang string-catalog fixture lost native-value setup: $needle"
 done
 if grep -Eq 'wp_conf1 term meta (add|update).*_pll_strings_translations.*a:[0-9]+:' "$CONF"; then

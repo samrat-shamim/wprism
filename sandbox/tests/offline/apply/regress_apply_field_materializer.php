@@ -41,6 +41,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/EntityAdopter.php';
+require_once __DIR__ . '/../../../../manifests/interpreters/polylang.php';
 
 use Duo\ApplyFieldMaterializer;
 
@@ -753,6 +754,54 @@ $check(
 $check(
     $cacheEvents === [['term_meta', '31']],
     'term-meta reconciliation purges the same-process WordPress cache while accepting an already-absent cache key'
+);
+
+$polylangPolicy = new \Duo\Policy();
+$polylangPolicy->manifests = [[
+    'name' => 'polylang',
+    'interpreter' => 'polylang',
+    'term_meta' => [
+        '_pll_strings_translations' => ['class' => 'authored', 'plain_data' => true],
+    ],
+]];
+$interpreterInstances->setValue(
+    $polylangPolicy,
+    ['polylang' => new \Duo\Interpreters\Polylang($polylangPolicy)]
+);
+$polylangMaterializer = new ApplyFieldMaterializer($polylangPolicy, $termTokens);
+$polylangMaterializer->begin_authored_transaction();
+$wpdb->termMetaRows[] = [
+    'meta_id' => 40,
+    'term_id' => 33,
+    'meta_key' => '_pll_strings_translations',
+    'meta_value' => '',
+];
+$polylangMaterializer->reconcile_authored_term_meta(33, []);
+$polylangSentinelRows = array_values(array_filter(
+    $wpdb->termMetaRows,
+    static fn(array $row): bool => (int) $row['term_id'] === 33
+        && $row['meta_key'] === '_pll_strings_translations'
+));
+$check(
+    count($polylangSentinelRows) === 1 && $polylangSentinelRows[0]['meta_value'] === '',
+    'Polylang product apply preserves the exact target-owned empty catalog sentinel when canonical state omits it'
+);
+$polylangMaterializer->reconcile_authored_term_meta(33, [
+    '_pll_strings_translations' => [['Hello', 'Bonjour']],
+]);
+$polylangCatalogRows = array_values(array_filter(
+    $wpdb->termMetaRows,
+    static fn(array $row): bool => (int) $row['term_id'] === 33
+        && $row['meta_key'] === '_pll_strings_translations'
+));
+$check(
+    count($polylangCatalogRows) === 1
+        && $polylangCatalogRows[0]['meta_value'] === serialize([['Hello', 'Bonjour']])
+        && $polylangPolicy->meta_rule_for_term(
+            '_pll_strings_translations',
+            ['_pll_strings_translations' => $polylangCatalogRows[0]['meta_value']]
+        ) === ['class' => 'authored', 'plain_data' => true],
+    'Polylang product apply replaces its runtime sentinel with canonical authored bytes and the locked readback remains authored'
 );
 
 foreach (['false', 'null', 'error', 'oversize', 'oversized-value', 'aggregate-overflow'] as $failureMode) {

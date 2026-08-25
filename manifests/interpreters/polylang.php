@@ -117,7 +117,14 @@ final class Polylang {
             return null;
         }
         if (array_key_exists($key, $allMeta)) {
-            $this->assert_string_catalog($allMeta[$key], 'live _pll_strings_translations', true);
+            if ($allMeta[$key] === '') {
+                return ['class' => 'runtime'];
+            }
+            $this->assert_string_catalog(
+                $allMeta[$key],
+                'live _pll_strings_translations',
+                is_string($allMeta[$key])
+            );
         }
         return ['class' => 'authored', 'plain_data' => true];
     }

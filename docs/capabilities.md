@@ -281,7 +281,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## polylang
 
-**Status: certified.** Certified for the reviewed Polylang 3.8.x boundary: exact 3.8/3.8.6/3.8.7 artifact pins and adjacent 3.7/3.8.8 refusal controls, multilingual post/page/pattern/term/media/menu/widget graph, populated string-catalog term metadata, native API/render behavior, warning-free clean-target capture/deploy/apply, byte-identical recapture, provider projection plus fresh-process native rewrite action, failure-before-effect/retry, clean no-op recapture, lifecycle recovery, and exact 3.8.6 populated multisite refusal. Polylang Pro/add-ons, plugin-specific deletes, WPML state, domain/subdomain URL topology, and multisite remain explicit refusals.
+**Status: certified.** Certified for the reviewed Polylang 3.8.x boundary: exact 3.8/3.8.6/3.8.7 artifact pins and adjacent 3.7/3.8.8 refusal controls, multilingual post/page/pattern/term/media/menu/widget graph, populated string-catalog term metadata plus exact empty-sentinel runtime handling, native API/render behavior, warning-free clean-target capture/deploy/apply, byte-identical recapture, provider projection plus fresh-process native rewrite action, failure-before-effect/retry, clean no-op recapture, lifecycle recovery, and exact 3.8.6 populated multisite refusal. Polylang Pro/add-ons, plugin-specific deletes, WPML state, domain/subdomain URL topology, and multisite remain explicit refusals.
 
 - **Plugin:** `polylang/polylang.php`
 - **Version range:** >=3.8 <3.8.8

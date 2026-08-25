@@ -497,6 +497,13 @@ if jq -e '. == []' <<<"$STRINGS_PREIMAGE" >/dev/null; then
 else
   wp_conf1 term meta update "$LANG_TERM" _pll_strings_translations '' >/dev/null
 fi
+EMPTY_STRINGS_STATE="$CONF_REPO1/.tmp-polylang-empty-strings"
+wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-empty-strings >/dev/null
+jq -s -e 'any(.[]; .slug == "fr" and (.meta | has("_pll_strings_translations") | not))' \
+  "$EMPTY_STRINGS_STATE"/terms/language/*.json >/dev/null \
+  || fail 'Polylang exact empty string-catalog sentinel entered canonical authored state'
+rm -rf "$EMPTY_STRINGS_STATE"
+pass 'populated Polylang string catalogs are authored while the exact empty sentinel remains target-local runtime state'
 
 DELETE_BACKUP="${CONF_REPO1:-siterepo/conf1}/.tmp-polylang-delete-row.json"
 wp_conf1 eval '

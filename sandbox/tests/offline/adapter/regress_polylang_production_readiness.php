@@ -1985,6 +1985,25 @@ namespace {
         'populated string-translation termmeta enters the authored plain-data term sidecar'
     );
     duo_check_same(
+        ['class' => 'runtime'],
+        $interpreter->term_meta_rule('_pll_strings_translations', ['_pll_strings_translations' => '']),
+        'Polylang exact empty string-catalog sentinel remains target-local runtime residue'
+    );
+    duo_check_same(
+        ['class' => 'authored', 'plain_data' => true],
+        $interpreter->term_meta_rule('_pll_strings_translations', [
+            '_pll_strings_translations' => serialize([]),
+        ]),
+        'a native serialized empty string catalog remains a valid authored list distinct from the runtime sentinel'
+    );
+    duo_check_same(
+        ['class' => 'authored', 'plain_data' => true],
+        $interpreter->term_meta_rule('_pll_strings_translations', [
+            '_pll_strings_translations' => [['Hello', 'Bonjour']],
+        ]),
+        'canonical native string-catalog data retains authored classification through apply context'
+    );
+    duo_check_same(
         ['class' => 'authored', 'plain_data' => true],
         $interpreter->term_meta_rule('_pll_strings_translations', []),
         'missing target string catalog still exposes the reviewed authored rule for materialization'
