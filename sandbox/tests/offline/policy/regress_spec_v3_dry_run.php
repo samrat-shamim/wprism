@@ -151,7 +151,21 @@ $shippedFilesNaming = static function (array $tokens) use ($repo): array {
             if (!$file->isFile() || $file->getExtension() !== 'php') {
                 continue;
             }
-            $body = (string) file_get_contents($file->getPathname());
+            // COMMENTS STRIPPED (WP-6.1): this helper answers "which shipped
+            // files READ this name", and a docblock explaining why a section
+            // rides a channel reads nothing. It was a plain text match while
+            // `engine_features` appeared in one file's prose and code alike;
+            // the first sections to actually ship through the channel put the
+            // phrase in the docblocks of the collaborators that stage through
+            // it, which a text match reports as four readers of a definition
+            // three of them never consult.
+            $body = '';
+            foreach (token_get_all((string) file_get_contents($file->getPathname())) as $php) {
+                if (is_array($php) && in_array($php[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    continue;
+                }
+                $body .= is_array($php) ? $php[1] : $php;
+            }
             foreach ($tokens as $token) {
                 if (str_contains($body, $token)) {
                     $hits[substr($file->getPathname(), strlen($repo) + 1)] = true;
@@ -564,8 +578,12 @@ duo_check_same(
     $featureReaders,
     'V3-FEAT: the channel has exactly one shipped reader — the contract grammar, which owns the one definition of a feature name, its first spec_version and the keys it claims'
 );
+// WP-6.1 grew the vocabulary from one to three, and the two additions are the
+// dry run's own thesis arriving: post-v3 grammar sections that shipped through
+// this channel with NO version bump, so there was no second flag day and this
+// break list did not have to be re-measured for them.
 duo_check_same(
-    ['spec-window/v1'],
+    ['attr-id-codecs/v1', 'spec-window/v1', 'typed-column-codecs/v1'],
     \Duo\AdapterContractGrammar::implemented_features(),
     'V3-FEAT: and the vocabulary is non-empty, so an engine that lacks a declared name has something to compare against'
 );

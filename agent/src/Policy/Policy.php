@@ -66,6 +66,12 @@ require_once __DIR__ . '/../Grammar/AttributeGrammar.php';
 // DUO-3348 slice 50: block/shortcode structural registry projection is pure
 // manifest work; Policy retains the public compatibility accessors below.
 require_once __DIR__ . '/../Grammar/ContentAttributeRuleResolver.php';
+// WP-6.1's two `engine_features`-staged codec sections. Required here for the
+// same "loads alone" reason as AttributeGrammar above: closed_vocabularies()
+// publishes their vocabularies and the accessors below project them, both on a
+// directly-constructed Policy that never ran the loader.
+require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
+require_once __DIR__ . '/../Grammar/AttrIdCodecGrammar.php';
 // DUO-3348 slice 52: widget type registry/provenance is a pure manifest
 // projection; Policy retains its public facades for current callers.
 require_once __DIR__ . '/../Grammar/WidgetTypeResolver.php';
@@ -1234,6 +1240,35 @@ final class Policy {
     /** blockName => list of {path, kind, type} rules, merged across manifests. */
     public function block_attr_rules(): array {
         return $this->content_attribute_rule_resolver()->block_attr_rules();
+    }
+
+    /**
+     * `attr_id_codecs` (WP-6.1): blockName => attribute path => {id_type},
+     * merged across manifests on exactly block_attr_rules()'s precedence.
+     *
+     * The two are read together by Blocks::capture_rewrite()/apply_rewrite()
+     * and must therefore be projected together — see
+     * AttrIdCodecGrammar::rules() for why replacement is whole-block.
+     *
+     * @return array<string,array<string,array{id_type:string}>>
+     */
+    public function attr_id_codec_rules(): array {
+        return AttrIdCodecGrammar::rules($this->manifests);
+    }
+
+    /**
+     * `column_codecs` (WP-6.1): the declared codecs for ONE typed table,
+     * column => {container, leaves}.
+     *
+     * Per table rather than the whole section, because both consumers
+     * (TypedTableCapture, TypedTableMaterializer) work one table at a time and
+     * a whole-section map would hand each of them declarations about tables
+     * they are not capturing.
+     *
+     * @return array<string,array{container:string,leaves:string}>
+     */
+    public function column_codec_rules(string $table): array {
+        return ColumnCodecGrammar::rules_for($this->manifests, $table);
     }
 
     /**
@@ -3600,6 +3635,9 @@ final class Policy {
             'engine_ledger_kinds' => ReferenceKindGrammar::engineLedgerKinds(),
             'attribute_value_types' => AttributeGrammar::attributeValueTypes(),
             'attribute_tokenize_codecs' => AttributeGrammar::attributeTokenizeCodecs(),
+            'attribute_id_types' => AttrIdCodecGrammar::idTypes(),
+            'column_codec_containers' => ColumnCodecGrammar::containers(),
+            'column_codec_leaves' => ColumnCodecGrammar::leafCodecs(),
             'widget_setting_codecs' => ManifestGrammar::widgetSettingCodecs(),
             'widget_setting_refs' => ManifestGrammar::widgetSettingRefs(),
             'action_kinds' => ActionProviderGrammar::actionKinds(),

@@ -1840,6 +1840,82 @@ refuses(
     'a tokenize codec outside the published set is refused with the published set printed back'
 );
 
+// --- WP-6.1's two `engine_features`-staged codec sections. Both are
+// spec_version-3 sections claimed by an engine feature, so every fixture here
+// declares the feature that claims the key AND `spec-window/v1`, which claims
+// `engine_features` itself (spec/repo-format.md § v3.3's worked example). A
+// fixture that forgot either is refused by the closed key set, which is the
+// staging working rather than a fixture problem.
+$codecTable = [
+    'acme_b_codecs' => [
+        'class' => 'authored_snapshot',
+        'id_kind' => 'acme_codec',
+        'pk' => 'codec_id',
+        'slug_column' => 'codec_code',
+        // `payload` is the only column free to carry a codec: the slug column
+        // and the identity column may not (a canonical filename half and a
+        // derivation input must stay plain scalars).
+        'columns' => ['codec_code' => ['class' => 'authored'], 'payload' => ['class' => 'authored']],
+        'refs' => [],
+        'identity' => ['mode' => 'natural_key', 'column' => 'codec_code'],
+    ],
+];
+/** @param array<string,mixed> $codec */
+$columnCodecManifest = static fn(array $codec): array => solo_b([
+    'engine_features' => ['spec-window/v1', 'typed-column-codecs/v1'],
+    'tables' => $codecTable,
+    'column_codecs' => ['acme_b_codecs' => ['payload' => $codec]],
+]);
+
+$covered['column_codec_containers'] = true;
+foreach ($vocabularies['column_codec_containers'] as $container) {
+    accepts(
+        $columnCodecManifest(['container' => $container, 'leaves' => 'text']),
+        "column codec container '$container' is published as legal and loads"
+    );
+}
+refuses(
+    $columnCodecManifest(['container' => 'json', 'leaves' => 'text']),
+    'the column container vocabulary is closed and engine-owned ('
+        . implode(', ', $vocabularies['column_codec_containers']) . ')',
+    'a column container outside the published set is refused with the published set printed back'
+);
+
+$covered['column_codec_leaves'] = true;
+foreach ($vocabularies['column_codec_leaves'] as $leaves) {
+    accepts(
+        $columnCodecManifest(['container' => 'php_serialized', 'leaves' => $leaves]),
+        "column codec leaf treatment '$leaves' is published as legal and loads"
+    );
+}
+refuses(
+    $columnCodecManifest(['container' => 'php_serialized', 'leaves' => 'blocks']),
+    'the leaf codec vocabulary is closed and engine-owned ('
+        . implode(', ', $vocabularies['column_codec_leaves']) . ')',
+    'a column leaf codec outside the published set is refused with the published set printed back'
+);
+
+/** @param array<string,mixed> $codec */
+$attrIdManifest = static fn(array $codec): array => solo_b([
+    'engine_features' => ['attr-id-codecs/v1', 'spec-window/v1'],
+    'block_attrs' => ['acme/b' => [['kind' => 'post', 'path' => 'id', 'type' => 'int']]],
+    'attr_id_codecs' => ['acme/b' => ['id' => $codec]],
+]);
+
+$covered['attribute_id_types'] = true;
+foreach ($vocabularies['attribute_id_types'] as $idType) {
+    accepts(
+        $attrIdManifest(['id_type' => $idType]),
+        "block attribute stored-id type '$idType' is published as legal and loads"
+    );
+}
+refuses(
+    $attrIdManifest(['id_type' => 'int']),
+    'the stored-id type vocabulary is closed and engine-owned ('
+        . implode(', ', $vocabularies['attribute_id_types']) . ')',
+    'a stored-id type outside the published set is refused with the published set printed back'
+);
+
 $covered['widget_setting_codecs'] = true;
 foreach ($vocabularies['widget_setting_codecs'] as $codec) {
     accepts(

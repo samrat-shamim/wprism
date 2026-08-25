@@ -100,8 +100,21 @@ function closed_keys_report(int $supported): array {
     );
     sort($arms, SORT_STRING);
 
+    // The feature that claims `engine_features` itself — § v3.3's own worked
+    // example, and the only one that makes the probes below single-key. Derived
+    // rather than taken as `$implemented[0]`: that index was the same feature
+    // while the engine implemented one, and WP-6.1's additions sort ahead of it
+    // while claiming different keys, so the probe would have declared a feature
+    // that does not admit the very key the declaration is written in.
     $implemented = \Duo\AdapterContractGrammar::implemented_features();
-    $feature = $implemented[0] ?? 'none/v0';
+    $feature = 'none/v0';
+    foreach ($implemented as $candidate) {
+        $claims = \Duo\AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$candidate]]);
+        if (in_array('engine_features', $claims, true)) {
+            $feature = $candidate;
+            break;
+        }
+    }
     $featureKeys = \Duo\AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$feature]]);
 
     $verdict = static function (array $manifest): ?string {

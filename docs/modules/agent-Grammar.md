@@ -2,9 +2,9 @@
 
 **Purpose.** Declarative grammars and resolvers that turn manifest declarations and WordPress content syntax (blocks, shortcodes, tokens, options, taxonomies, user meta) into typed policy structures.
 
-**Directory** `agent/src/Grammar/` &middot; **layer** `policy` &middot; **files** 24 &middot; **status** populated
+**Directory** `agent/src/Grammar/` &middot; **layer** `policy` &middot; **files** 26 &middot; **status** populated
 
-**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Tokens`, `Blocks`, `OptionGrammar`, `SubKeyGrammar`, `UserMetaGrammar`, `AttributeGrammar`, `OptionNameReferenceResolver`, `OptionReferenceGrammar`, `PostTypeGrammar`, `ContentAttributeRuleResolver`, `DynamicOptionResolver`, `ExactOptionResolver`, `FieldGrammar`, `OptionNamespaceResolver`, `PostTypeRelationResolver`, `ShortcodeAlternateRegistrar`, `Shortcodes`, `TableDeclarationResolver`, `TaxonomyDescriptionReferenceResolver`, `TaxonomyGrammar`, `TaxonomyKeyspaceResolver`, `TaxonomyObjectTypeOptionResolver`, `TaxonomyPatternResolver`, `WidgetTypeResolver`.
+**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Tokens`, `Blocks`, `OptionGrammar`, `SubKeyGrammar`, `UserMetaGrammar`, `AttributeGrammar`, `AttrIdCodecGrammar`, `ColumnCodecGrammar`, `OptionNameReferenceResolver`, `OptionReferenceGrammar`, `PostTypeGrammar`, `ContentAttributeRuleResolver`, `DynamicOptionResolver`, `ExactOptionResolver`, `FieldGrammar`, `OptionNamespaceResolver`, `PostTypeRelationResolver`, `ShortcodeAlternateRegistrar`, `Shortcodes`, `TableDeclarationResolver`, `TaxonomyDescriptionReferenceResolver`, `TaxonomyGrammar`, `TaxonomyKeyspaceResolver`, `TaxonomyObjectTypeOptionResolver`, `TaxonomyPatternResolver`, `WidgetTypeResolver`.
 
 **May depend on:** `Grammar`, `Kernel`.
 

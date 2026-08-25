@@ -56,6 +56,20 @@ final class AdapterContractGrammar {
      * post_v1` demonstrates, which is declared by nothing across all 16 shipped
      * manifests.
      *
+     * `typed-column-codecs/v1` and `attr-id-codecs/v1` are WP-6.1's two
+     * declarative primitives, and they are the FIRST GROWTH THIS CHANNEL
+     * CARRIED — post-v3 sections that shipped with no version bump at all,
+     * which is the claim § v3.2 makes and this entry is the evidence for
+     * (`DUO_SPEC_VERSION` is still 3, asserted by both suites). Each is a
+     * refinement of an existing surface — how one typed-table column's bytes
+     * decode, and the JSON type one block attribute's resolved id is written
+     * back as — and each is a TOP-LEVEL key rather than a field nested inside
+     * `tables`/`block_attrs` for one reason: a nested field cannot be staged.
+     * An engine that predates it would ignore the field and capture the raw
+     * bytes, which is the silent mis-read this channel exists to convert into a
+     * named refusal. Both are keyed at `since` 3 and declared by no shipped
+     * manifest, so no adapter digest moves (AGENTS.md rule 2).
+     *
      * Feature names are ENGINE-OWNED: an adapter declares one, never mints one
      * (spec/repo-format.md § v3.2). A name is also permanent, which is why
      * docs/wire-surface.md carries it as row R-19: a declared name lives inside
@@ -66,9 +80,17 @@ final class AdapterContractGrammar {
      * @var array<string,array{since:int,keys:list<string>}>
      */
     private const IMPLEMENTED_FEATURES = [
+        'attr-id-codecs/v1' => [
+            'since' => 3,
+            'keys' => ['attr_id_codecs'],
+        ],
         'spec-window/v1' => [
             'since' => 3,
             'keys' => ['engine_features'],
+        ],
+        'typed-column-codecs/v1' => [
+            'since' => 3,
+            'keys' => ['column_codecs'],
         ],
     ];
 

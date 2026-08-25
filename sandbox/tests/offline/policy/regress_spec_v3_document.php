@@ -171,6 +171,16 @@ duo_check(
 // grammar that implements it. A SECOND reader appearing here is the alarm this
 // assertion exists for: it would mean the feature vocabulary acquired a
 // consumer that could disagree with the one definition.
+//
+// COMMENTS ARE STRIPPED BEFORE THE MATCH (WP-6.1). A docblock that explains why
+// a section rides this channel is not a reader — it cannot disagree with the
+// vocabulary, because it never reads it. The scan was a plain str_contains()
+// while `engine_features` appeared in exactly one file's prose and code alike;
+// the first section actually shipped through the channel put the phrase in the
+// docblocks of the collaborators that stage through it, and a text match would
+// then have reported four "readers" and named none of them wrongly except in
+// the only sense that matters. Tokenizing keeps the assertion measuring the
+// thing it was written to measure.
 $featureReaders = [];
 foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
     $walk = new RecursiveIteratorIterator(
@@ -182,7 +192,14 @@ foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
         if (!$file->isFile() || $file->getExtension() !== 'php') {
             continue;
         }
-        if (str_contains((string) file_get_contents($file->getPathname()), 'engine_features')) {
+        $code = '';
+        foreach (token_get_all((string) file_get_contents($file->getPathname())) as $token) {
+            if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+            $code .= is_array($token) ? $token[1] : $token;
+        }
+        if (str_contains($code, 'engine_features')) {
             $featureReaders[] = substr($file->getPathname(), strlen($repo) + 1);
         }
     }
@@ -193,10 +210,15 @@ duo_check_same(
     $featureReaders,
     'v3.2 ENFORCED: the channel has exactly one shipped reader — the grammar that owns the feature vocabulary'
 );
+// WP-6.1: THREE features, and that is the claim § v3.2 makes coming true. The
+// two additions are post-v3 grammar sections that shipped with NO version bump
+// — `DUO_SPEC_VERSION` is still 3, asserted above — which is the whole argument
+// for the channel existing. A shrinking list here would mean a feature name was
+// withdrawn, which R-19 records as permanent.
 duo_check_same(
-    ['spec-window/v1'],
+    ['attr-id-codecs/v1', 'spec-window/v1', 'typed-column-codecs/v1'],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: and the vocabulary carries one IMPLEMENTED feature, so "declared and implemented admits" is a path something walks'
+    'v3.2: the vocabulary carries three IMPLEMENTED features — the channel grew twice without a spec bump'
 );
 // WP-4.12: the channel OPENED. At DUO_SPEC_VERSION 2 this probe refused by
 // SECTION NAME, because the section's own version (3) sat outside the window;

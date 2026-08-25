@@ -806,7 +806,7 @@ evidence before this line changes.
 | § | rule | rider | enforced today |
 |---|---|---|---|
 | v3.1 | N/N-1 acceptance window, per-section refusal by name | WP-4.2 / WP-4.12 | YES — {2, 3}, for a manifest AND for `site.duo.json`; floor gated at release |
-| v3.2 | `engine_features` declaration channel | WP-4.2 | YES and now DECLARABLE — one implemented feature, since `spec_version: 3`; no shipped declarer |
+| v3.2 | `engine_features` declaration channel | WP-4.2 / WP-6.1 | YES, DECLARABLE, and USED — three implemented features, all since `spec_version: 3`; two of them post-v3 grammar sections that shipped with no bump; no shipped declarer |
 | v3.3 | closed top-level key set and its growth rule | WP-4.3 | YES at `spec_version: 3`, live through the product path since the flip; open at v2; one set, gated at release |
 | v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | LAYOUT yes — one document per subject; ADDRESSING no — still one whole-document hash |
 | v3.5 | per-adapter environment narrowing | WP-4.6 | YES at `spec_version: 3`; inert at v2 |
@@ -895,13 +895,34 @@ its name, the first `spec_version` its sections exist at, and the top-level keys
 constant in the engine, because a feature that is implemented while its section is unknown (or the
 reverse) is precisely the silent mis-read the channel exists to remove.
 
-The feature this engine implements today is **`spec-window/v1`**: the acceptance window of § v3.1 and this
-channel itself, claiming the `engine_features` key from `spec_version` 3. It is a real entry, not a
-placeholder — the channel's own requirement is that one feature the engine IMPLEMENTS exists on the day it
-ships, so that "declared and implemented admits the claimed key" is a path something walks rather than an
-argument about admissibility. That path is walked in
-`sandbox/tests/offline/policy/regress_spec_window.php` against a synthetic `spec_version` 3 engine, which
-is the only place it can be walked before the flip.
+This engine implements three features, and the first one is what the other two ride:
+
+- **`spec-window/v1`** — the acceptance window of § v3.1 and this channel itself, claiming the
+  `engine_features` key from `spec_version` 3. It is a real entry, not a placeholder — the channel's own
+  requirement is that one feature the engine IMPLEMENTS exists on the day it ships, so that "declared and
+  implemented admits the claimed key" is a path something walks rather than an argument about
+  admissibility. That path is walked in `sandbox/tests/offline/policy/regress_spec_window.php`, against a
+  synthetic `spec_version` 3 engine before the flip and against the shipped engine after it.
+- **`typed-column-codecs/v1`** (WP-6.1) — claims `column_codecs` from `spec_version` 3: per typed table,
+  per authored column, `{container, leaves}`, both members required and both vocabularies closed. It
+  decodes the column's container, rewrites its string leaves and re-encodes with correct length prefixes.
+- **`attr-id-codecs/v1`** (WP-6.1) — claims `attr_id_codecs` from `spec_version` 3: per block, per
+  attribute path, `{id_type}`, a closed vocabulary of one member (`string`). It decides the JSON type a
+  resolved entity id is written back as, instead of normalising every id to an integer.
+
+**The last two are the evidence for the claim this section makes.** They are the first grammar this engine
+grew after v3, they shipped through this channel and NOTHING ELSE, and `DUO_SPEC_VERSION` is still 3 —
+asserted by `sandbox/tests/offline/grammar/regress_column_codec_grammar.php` and
+`sandbox/tests/offline/grammar/regress_attr_id_codec_grammar.php`, which also walk each section's three
+distinct verdicts: refused BY SECTION in a `spec_version: 2` manifest (§ v3.1), refused BY KEY in a v3
+manifest that does not declare the feature (§ v3.3), refused BY FEATURE NAME on an engine that lacks it.
+Neither is a new addressing surface: one refines how a declared `tables.<t>.columns.<c>` decodes and the
+other how a declared `block_attrs` rule re-encodes. Both are nonetheless TOP-LEVEL keys, because a field
+nested inside an existing section cannot be staged — an engine that predates it would ignore the field and
+carry the plugin's bytes into canonical state unchanged, which is exactly the silent mis-read this channel
+converts into a named refusal. No shipped manifest declares either (§ v3.12's no-restamp rule), so no
+adapter digest moved; `tools/engine-gaps.json` records the demand each one closed and the coordinates that
+stayed open beside it.
 
 Feature names are engine-owned: an adapter may declare one, never mint one. A name nothing implements is
 refused as unimplemented rather than admitted as forward-looking — the honest-refusal posture, which is
