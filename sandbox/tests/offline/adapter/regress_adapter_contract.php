@@ -407,8 +407,14 @@ check(
         && substr_count($policySource, 'AdapterContractGrammar::validate_adapter_contract($manifest)') === 0
         && substr_count($manifestValidatorSource, 'AdapterContractGrammar::validate_adapter_contract($manifest)') === 1
         && substr_count($policySource, 'PolicyLoadFinalizer::finalize(') === 2
-        && substr_count($policySource, 'AdapterContractGrammar::validate_no_conflicting_adapter_claims($p->manifests)') === 0
-        && substr_count($finalizerSource, 'AdapterContractGrammar::validate_no_conflicting_adapter_claims($policy->manifests)') === 1,
+        // `($` and not `(`: Policy.php's prose names the method with an empty
+        // pair of parens several times, and a needle that matched those would
+        // be asserting the absence of a docblock rather than of a call.
+        && substr_count($policySource, 'AdapterContractGrammar::validate_no_conflicting_adapter_claims($') === 0
+        // WP-5.5 gave the guard a second argument — the operator's claim
+        // resolutions — so the pinned needle is the call, not its whole
+        // argument list. Still exactly one call site, still the finalizer's.
+        && substr_count($finalizerSource, 'AdapterContractGrammar::validate_no_conflicting_adapter_claims($policy->manifests, $claimResolutions)') === 1,
     'adapter compatibility grammar lives in ManifestValidator while PolicyLoadFinalizer owns its cross-manifest guard'
 );
 

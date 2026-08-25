@@ -123,6 +123,11 @@ require_once __DIR__ . '/SitePolicyValidator.php';
 // through SitePolicyValidator above, so this file's class references stay
 // self-satisfied the way every other agent/src file's are.
 require_once __DIR__ . '/VersionEvidenceGrammar.php';
+// WP-5.5: the operator's plugin/theme claim resolutions, whose in-force
+// decision version_ranges()/theme_ranges() read and whose displaced rows
+// displaced_adapter_claims() reports. Required directly for the same
+// self-satisfied-references reason VersionEvidenceGrammar is.
+require_once __DIR__ . '/AdapterClaimResolutions.php';
 // DUO-3348 slice 36: live and frozen loads share one post-local-load
 // validation/pin-binding sequence, so keep its refusal order in one place.
 require_once __DIR__ . '/PolicyLoadFinalizer.php';
@@ -3005,6 +3010,35 @@ final class Policy {
         return $out;
     }
 
+    /**
+     * WP-5.5: every plugin/theme claim an explicit `site.duo.json`
+     * `policy.adapter_claims` resolution displaced — the REPORTING half of
+     * that section, and the reason it is a resolution rather than a silent
+     * override (spec/repo-format.md § v3.13).
+     *
+     * The same posture, and the same plan surface, as the two
+     * active_*_reclassifications() accessors above: the owner ruling behind
+     * those is "Plan emits a note whenever a reclassification override is
+     * active — loud, never silent", and a displaced claim is the identical
+     * shape of fact — a precedence decision that is CORRECT once the operator
+     * has written it down, and that an operator reading `version_ranges()`
+     * against their own pin list must be able to account for. So it is a plain
+     * `$plan['warnings']` entry in ApplyPlanBuilder and never an ok-flipping
+     * bucket: a resolved collision is a decision, not a defect.
+     *
+     * The word is `displaced_by_resolution`, one step over from the catalog's
+     * own `shadowed_by_site` (AdapterSources::CERTIFICATION_SHADOWED_BY_SITE),
+     * which reports a shipped adapter an explicit `{name, source:"site"}` pin
+     * displaced. Distinct rather than reused because the subject differs: a
+     * displaced CLAIMANT is still installed, still pinned and still loaded,
+     * and reporting it in `not_installed` would be false about all three.
+     *
+     * @return list<array{kind:string, id:string, reason_code:string, in_force:string, in_force_range:?array<string,string>, displaced:string, displaced_range:?array<string,string>, note:?string}>
+     */
+    public function displaced_adapter_claims(): array {
+        return AdapterClaimResolutions::displaced($this->manifests, $this->site['policy'] ?? []);
+    }
+
     /** Apply a source-level default without mutating the loaded artifact. */
     public static function with_option_autoload(array $rule, array $source): array {
         if (!array_key_exists('autoload', $rule) && array_key_exists('option_autoload', $source)) {
@@ -3292,6 +3326,15 @@ final class Policy {
      * pinned manifests naming one plugin with different ranges, so this
      * accessor never actually arbitrates.
      *
+     * WP-5.5 keeps that true by removing the arbitration rather than by
+     * teaching this walk to arbitrate. Where TWO pinned manifests claim one
+     * plugin and `site.duo.json` `policy.adapter_claims` says which is in
+     * force (spec/repo-format.md § v3.13), the manifests that are NOT in force
+     * are skipped, so the answer is the operator's written decision and not
+     * this loop's traversal order. With no resolution declared the map is
+     * pin-order-first exactly as it always was, because there is nothing to
+     * skip: the guard above refused before the site could reach this line.
+     *
      * Deploy::code_mismatch() / Apply::build_plan()'s code_mismatch bucket
      * and DUO-3338's provider negotiation (Providers::negotiate(), which
      * bounds a plugin-owned provider by the same declared range that bounds
@@ -3300,11 +3343,15 @@ final class Policy {
      * @return array<string, array{min:string, max:string, manifest:string}> keyed by plugin basename
      */
     public function version_ranges(): array {
+        $inForce = AdapterClaimResolutions::in_force($this->site['policy'] ?? [], 'plugin');
         $out = [];
         foreach ($this->manifests as $m) {
             $plugin = $m['plugin'] ?? null;
             $range = $m['version_range'] ?? null;
             if (!is_string($plugin) || $plugin === '' || !is_array($range) || isset($out[$plugin])) {
+                continue;
+            }
+            if (isset($inForce[$plugin]) && $inForce[$plugin] !== (string) ($m['name'] ?? '?')) {
                 continue;
             }
             $out[$plugin] = [
@@ -3334,11 +3381,17 @@ final class Policy {
      * @return array<string, array{min:string, max:string, manifest:string}> keyed by theme directory name
      */
     public function theme_ranges(): array {
+        // WP-5.5, the twin of version_ranges()'s own skip: a resolved theme
+        // claim answers to the operator's decision rather than to pin order.
+        $inForce = AdapterClaimResolutions::in_force($this->site['policy'] ?? [], 'theme');
         $out = [];
         foreach ($this->manifests as $m) {
             $theme = $m['theme'] ?? null;
             $range = $m['theme_version_range'] ?? null;
             if (!is_string($theme) || $theme === '' || !is_array($range) || isset($out[$theme])) {
+                continue;
+            }
+            if (isset($inForce[$theme]) && $inForce[$theme] !== (string) ($m['name'] ?? '?')) {
                 continue;
             }
             $out[$theme] = [

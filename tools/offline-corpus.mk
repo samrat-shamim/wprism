@@ -232,6 +232,7 @@ regress-offline-corpus: code-half-unit \
 	regress-platform-compatibility \
 	regress-platform-move-gates \
 	regress-plugin-adapter-source \
+	regress-plugin-claim-resolution \
 	regress-plugin-dependency-order \
 	regress-policy-load-finalizer \
 	regress-policy-load-scale \

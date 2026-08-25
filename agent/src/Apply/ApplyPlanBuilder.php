@@ -454,6 +454,29 @@ final class ApplyPlanBuilder {
                 . "'{$r['core_class']}' but '{$r['overridden_by']}' (pinned) reclassifies it "
                 . "'{$r['active_class']}' on this site — the plugin's declaration governs";
         }
+        // WP-5.5: the loud half of site.duo.json's `policy.adapter_claims`
+        // resolution — every plugin/theme claim the operator's decision
+        // displaced, with the range that actually bounds the subject and the
+        // one that no longer does. A plain warning for the identical reason
+        // the two reclassification loops above are one: a resolved collision
+        // is correct, intended behaviour once the resolution is written down,
+        // not a condition to refuse promotion over. The displaced manifest is
+        // still pinned and still loaded — only its CLAIM about this plugin or
+        // theme is displaced, which is why the sentence says so rather than
+        // implying an adapter was dropped.
+        foreach ($this->policy->displaced_adapter_claims() as $d) {
+            $range = $d['displaced_range'] === null
+                ? 'no range'
+                : "{$d['displaced_range']['min']}..{$d['displaced_range']['max']}";
+            $inForce = $d['in_force_range'] === null
+                ? 'no range'
+                : "{$d['in_force_range']['min']}..{$d['in_force_range']['max']}";
+            $this->warnings[] = "displaced: {$d['kind']} '{$d['id']}' is claimed by '{$d['displaced']}' "
+                . "($range) and by '{$d['in_force']}' ($inForce); site.duo.json policy.adapter_claims puts "
+                . "'{$d['in_force']}' in force, so '{$d['displaced']}' still loads but its {$d['kind']} claim "
+                . 'is displaced'
+                . ($d['note'] === null || $d['note'] === '' ? '' : " — {$d['note']}");
+        }
         $inactiveWarning = SidebarState::inactive_warning();
         if ($inactiveWarning !== null && !in_array($inactiveWarning, $this->warnings, true)) {
             $this->warnings[] = $inactiveWarning;
