@@ -630,14 +630,14 @@ foreach (['agent', 'cli', 'recovery'] as $tree) {
 @mkdir($gateRoot . '/tools', 0777, true);
 copy($repo . '/docs/wire-surface.md', $gateRoot . '/docs/wire-surface.md');
 copy($repo . '/tools/wire-surface.php', $gateRoot . '/tools/wire-surface.php');
-// Gate 6 reads the SHIPPED authorities document under --root, so the copy must
-// carry it or every --check below refuses on that gate before this one is
-// reached.
-@mkdir($gateRoot . '/manifests/capabilities', 0777, true);
-copy(
-    $repo . '/manifests/capabilities/adapter-authorities.json',
-    $gateRoot . '/manifests/capabilities/adapter-authorities.json'
-);
+// The register's gates read the SHIPPED manifest library under --root — gate 6
+// the authorities document, and WP-4.10's R-27 gate the library's own adapter
+// names against the closed grandfather list (a copy with no manifests reads as
+// an empty library, which makes every grandfathered name "stale"). Copy the
+// whole manifests tree rather than the one file a gate happens to read today:
+// a sibling rider adding a library-reading gate is exactly what broke the
+// narrower copy twice in this program.
+$copyTree($repo . '/manifests', $gateRoot . '/manifests');
 
 $baseline = $run([PHP_BINARY, $gateRoot . '/tools/wire-surface.php', '--check', '--root=' . $gateRoot]);
 duo_check_same(0, $baseline['exit'], 'the unmutated copy passes, so a refusal below is the mutation and not the copy');
