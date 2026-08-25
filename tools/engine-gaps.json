@@ -150,10 +150,14 @@
           "coordinate": "taxonomies.wpforms_form_tag",
           "cannot_represent": "Forms also use the `wpforms_form_tag` taxonomy. A forms-only post-type draft omits authored plugin state.",
           "primitive_required": "taxonomy_delete_scope_exercise",
-          "remedy_phrase": "a complete taxonomy/delete-scope exercise"
+          "remedy_phrase": "a complete taxonomy/delete-scope exercise",
+          "closed_by": [
+            "sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json",
+            "sandbox/tests/offline/adapter/regress_wpforms_lite_adapter.php"
+          ]
         }
       ],
-      "closing": "The block-selector coordinate closed in WP-6.1 (`attr_id_codecs`) and the JSON body coordinate closed in WP-6.5 (`body_refs` plus the `json` body mode), each exercised end to end by its own suite; the two above remain. WP-6.5 also corrected this row: the body coordinate's original one-sentence claim about a \"source-local numeric `id`\" was true for one of the plugin's three write paths and not for the common one, and the `wpforms_form_locations` coordinate was missing entirely because a hand-written fixture never produces it. Both were found by authoring the entities through WPForms' own APIs on a live pair rather than with `wp post create --post_content=…`, which is the discipline `docs/guides/adapter-authoring.md` § 1 already states and `sandbox/tests/grind/grind_adapter_walk.sh:582-586` does not follow. The WPForms site adapter in `docs/grind/adapter-walk.md` remains an authoring and trust-flow fixture only; it is not a platform support claim."
+      "closing": "The block-selector coordinate closed in WP-6.1 (`attr_id_codecs`), the JSON body coordinate closed in WP-6.5 (`body_refs` plus the `json` body mode), and the taxonomy coordinate closed with the WP-6.6 exercise itself — `wpforms_form_tag` declared by the fixture adapter, its terms captured and applied on a live pair, and the `term:wpforms_form_tag` deletion contract (one guard, the one the feasibility report shows can lock; `term_taxonomy.parent` omitted because includes/class-form.php:136 registers the taxonomy non-hierarchical) reviewed into the authored certificate the suite signs. Only `post_meta.wpforms_form_locations`'s apply-side postcondition remains. WP-6.5 also corrected this row: the body coordinate's original one-sentence claim about a \"source-local numeric `id`\" was true for one of the plugin's three write paths and not for the common one, and the `wpforms_form_locations` coordinate was missing entirely because a hand-written fixture never produces it. Both were found by authoring the entities through WPForms' own APIs on a live pair rather than with `wp post create --post_content=…`, which is the discipline `docs/guides/adapter-authoring.md` § 1 already states and `sandbox/tests/grind/grind_adapter_walk.sh:582-586` does not follow. The WPForms site adapter in `docs/grind/adapter-walk.md` remains an authoring and trust-flow fixture only; it is not a platform support claim."
     },
     {
       "id": "redirection",
