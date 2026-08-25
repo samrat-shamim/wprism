@@ -35,7 +35,9 @@ namespace Duo;
  * 2f447a4120a349d5f596c834192b17a5b911c6c94e8a62cfaee58af89cc86aab,
  * 0e198faca151aeca66680e916a038eab5c264f7d0ee6472d8f07d1845d0a7b9a,
  * 3b07ec0af1f94269b2a5a98bba078edbee73e1697aeeed119ae12ff4a3ca7553,
- * 5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0
+ * 7ed2774c6c73c514c64fc1a4b6533e41bacc8278a54785e8246492ce597bfdc5,
+ * 364cf0f52c51aeba8702e5108e2ddc66c35dc7b93bb4f694a3c35f862ed25856,
+ * 5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0,
  * and cc15a8ffa92ffb045cd5c5ef350688c7b2e36c6b43ceb9c68bdf6f8c5ed68f98.
  * Bind the exact runtime objects and dynamic Polylang type roster before the
  * first native call; arbitrary pll_* callbacks can execute undeclared code
@@ -444,6 +446,7 @@ final class NativeRewriteEffects {
             $rewriteArrayExpected[] = ['wc_fix_rewrite_rules', null, 10, 1];
         }
         if ($polylang !== null) {
+            $rewriteArrayExpected[] = [$polylang['sitemaps'], 'rewrite_rules', 10, 1];
             $rewriteArrayExpected[] = [$polylang['links'], 'rewrite_rules', 10, 1];
         }
         self::assert_exact_hook('rewrite_rules_array', $rewriteArrayExpected);
@@ -709,7 +712,7 @@ final class NativeRewriteEffects {
      * callback on an unproved dynamic name would execute extension code before
      * the durable rewrite receipt can distinguish its side effects.
      *
-     * @param ?array{runtime:object,links:object,types:list<string>,types_hash:string} $polylang
+     * @param ?array{runtime:object,links:object,sitemaps:object,types:list<string>,types_hash:string} $polylang
      */
     private static function assert_core_generation_topology(object $wpRewrite, ?array $polylang): string {
         if (!property_exists($wpRewrite, 'extra_permastructs')
@@ -897,7 +900,7 @@ final class NativeRewriteEffects {
         ];
     }
 
-    /** @return ?array{runtime:object,links:object,types:list<string>,types_hash:string} */
+    /** @return ?array{runtime:object,links:object,sitemaps:object,types:list<string>,types_hash:string} */
     private static function resolve_polylang(): ?array {
         $rewriteArray = self::hook_records('rewrite_rules_array');
         $callbackVisible = self::contains_class_callback($rewriteArray, 'PLL_Links_Directory');
@@ -914,11 +917,18 @@ final class NativeRewriteEffects {
         } catch (\Throwable $failure) {
             throw new \RuntimeException('duo: native rewrite could not resolve the Polylang runtime', 0, $failure);
         }
+        // rewrite.flush is deliberately executed by a fresh WP-CLI process;
+        // Polylang 3.8.6 boots that exact runtime as PLL_Admin (the pinned
+        // artifact's src/admin/admin.php SHA-256 is
+        // 7ed2774c6c73c514c64fc1a4b6533e41bacc8278a54785e8246492ce597bfdc5),
+        // while an HTTP frontend would expose a different service graph.
         if (!is_object($runtime)
-            || get_class($runtime) !== 'PLL_Frontend'
+            || get_class($runtime) !== 'PLL_Admin'
             || $resolved !== $runtime
             || !property_exists($runtime, 'links_model')
-            || !is_object($runtime->links_model)) {
+            || !is_object($runtime->links_model)
+            || !property_exists($runtime, 'sitemaps')
+            || !is_object($runtime->sitemaps)) {
             throw new \RuntimeException('duo: native rewrite found a substituted Polylang runtime');
         }
         $links = $runtime->links_model;
@@ -927,6 +937,10 @@ final class NativeRewriteEffects {
                 throw new \RuntimeException('duo: native rewrite found a substituted Polylang links model');
             }
             return null;
+        }
+        $sitemaps = $runtime->sitemaps;
+        if (get_class($sitemaps) !== 'PLL_Sitemaps') {
+            throw new \RuntimeException('duo: native rewrite found a substituted Polylang sitemap service');
         }
         if (!$callbackVisible || !is_callable([$links, 'get_rewrite_rules_filters'])) {
             throw new \RuntimeException('duo: native rewrite found an incomplete Polylang rewrite runtime');
@@ -959,6 +973,7 @@ final class NativeRewriteEffects {
         return [
             'runtime' => $runtime,
             'links' => $links,
+            'sitemaps' => $sitemaps,
             'types' => array_values($types),
             'types_hash' => hash('sha256', serialize($rawTypes)),
         ];

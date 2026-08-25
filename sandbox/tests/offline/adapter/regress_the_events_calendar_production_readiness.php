@@ -4726,6 +4726,10 @@ duo_check_same(
 );
 duo_check_same(
     [
+        'src/admin/admin.php' =>
+            '7ed2774c6c73c514c64fc1a4b6533e41bacc8278a54785e8246492ce597bfdc5',
+        'src/modules/sitemaps/sitemaps.php' =>
+            '364cf0f52c51aeba8702e5108e2ddc66c35dc7b93bb4f694a3c35f862ed25856',
         'src/links-directory.php' =>
             '5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0',
         'src/links-permalinks.php' =>
@@ -4736,7 +4740,7 @@ duo_check_same(
             '4ff84b4c80783cefaa497009812b492d816ad6be8f5f5c79613f18906a462793',
     ],
     $coinstallSourceHashes['polylang'] ?? null,
-    'the exact Polylang runtime root, directory model, and dynamic type roster are source-hash bound'
+    'the exact Polylang admin runtime, sitemap service, directory model, and dynamic type roster are source-hash bound'
 );
 $tecRewriteSourceHashes = array_intersect_key(
     $coinstallSourceHashes['the-events-calendar'] ?? [],
@@ -9665,6 +9669,7 @@ foreach ([
     'wc_fix_rewrite_rules',
     'Yoast_Dynamic_Rewrites::sanitize_rewrite_rules_option',
     'Yoast_Dynamic_Rewrites::filter_rewrite_rules_option',
+    'PLL_Sitemaps::rewrite_rules',
     'PLL_Links_Directory::rewrite_rules',
     'Tribe__Events__Rewrite::filter_generate',
     'Tribe__Events__Rewrite::filter_rewrite_rules_array',
@@ -9972,6 +9977,32 @@ duo_check_same(
     'restoring the exact permastruct state permits same-process retry'
 );
 
+$canonicalPolylangRuntime = $GLOBALS['polylang'];
+$GLOBALS['polylang'] = new PLL_Frontend($wooServices['polylang_links']);
+$flushesBeforeFrontendRuntime = $GLOBALS['wp_rewrite']->flushCalls;
+$frontendRuntimeFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $frontendRuntimeFailure = $failure;
+}
+$GLOBALS['polylang'] = $canonicalPolylangRuntime;
+duo_check(
+    $frontendRuntimeFailure instanceof RuntimeException
+        && str_contains($frontendRuntimeFailure->getMessage(), 'substituted Polylang runtime'),
+    'an HTTP-only Polylang frontend runtime is not admitted in the fresh WP-CLI rewrite process'
+);
+duo_check_same(
+    $flushesBeforeFrontendRuntime,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the wrong Polylang process topology refuses before rewrite generation'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring the canonical Polylang admin runtime permits checked retry'
+);
+
 $polylangTypesProperty = new ReflectionProperty(PLL_Links_Directory::class, 'types');
 $originalPolylangTypes = $polylangTypesProperty->getValue($wooServices['polylang_links']);
 $polylangTypesProperty->setValue($wooServices['polylang_links'], ['bad/type']);
@@ -10061,6 +10092,29 @@ duo_check_same(
     $flushesBeforeForeignLinks,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the substituted Polylang links callback performs no native mutation'
+);
+
+$foreignSitemaps = new PLL_Sitemaps();
+remove_filter('rewrite_rules_array', [$wooServices['polylang_sitemaps'], 'rewrite_rules'], 10);
+add_filter('rewrite_rules_array', [$foreignSitemaps, 'rewrite_rules'], 10, 1);
+$flushesBeforeForeignSitemaps = $GLOBALS['wp_rewrite']->flushCalls;
+$foreignSitemapsFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $foreignSitemapsFailure = $failure;
+}
+remove_filter('rewrite_rules_array', [$foreignSitemaps, 'rewrite_rules'], 10);
+add_filter('rewrite_rules_array', [$wooServices['polylang_sitemaps'], 'rewrite_rules'], 10, 1);
+duo_check(
+    $foreignSitemapsFailure instanceof RuntimeException
+        && str_contains($foreignSitemapsFailure->getMessage(), "extended or substituted 'rewrite_rules_array'"),
+    'a same-class foreign Polylang sitemap callback refuses before rewrite generation'
+);
+duo_check_same(
+    $flushesBeforeForeignSitemaps,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the substituted Polylang sitemap callback performs no native mutation'
 );
 
 $missingType = $wooServices['polylang_types'][0];

@@ -108,6 +108,22 @@ namespace {
         }
     }
 
+    final class PLL_Sitemaps {
+        /** @param array<string,string> $rules @return array<string,string> */
+        public function rewrite_rules(array $rules): array {
+            $GLOBALS['tec_readiness_rewrite_calls'][] = [__METHOD__, 'rewrite_rules_array'];
+            return $rules;
+        }
+    }
+
+    final class PLL_Admin {
+        public object $sitemaps;
+
+        public function __construct(public object $links_model) {
+            $this->sitemaps = new PLL_Sitemaps();
+        }
+    }
+
     final class PLL_Frontend {
         public function __construct(public object $links_model) {}
     }
@@ -145,7 +161,8 @@ namespace {
     /**
      * @return array{
      *   container:object,features:object,synchronizer:object,custom_orders:object,
-     *   yoast:object,polylang:object,polylang_links:object,polylang_types:list<string>
+     *   yoast:object,polylang:object,polylang_links:object,polylang_sitemaps:object,
+     *   polylang_types:list<string>
      * }
      */
     function tec_readiness_install_woo_option_callbacks(): array {
@@ -170,8 +187,9 @@ namespace {
         $yoast = Yoast_Dynamic_Rewrites::instance();
         $polylangTypes = ['date', 'root', 'comments', 'search', 'author', 'product', 'product_cat'];
         $polylangLinks = new PLL_Links_Directory($polylangTypes);
-        $polylang = new PLL_Frontend($polylangLinks);
+        $polylang = new PLL_Admin($polylangLinks);
         $GLOBALS['polylang'] = $polylang;
+        add_filter('rewrite_rules_array', [$polylang->sitemaps, 'rewrite_rules'], 10, 1);
         add_filter('rewrite_rules_array', [$polylangLinks, 'rewrite_rules'], 10, 1);
         foreach ($polylangTypes as $type) {
             add_filter($type . '_rewrite_rules', [$polylangLinks, 'rewrite_rules'], 10, 1);
@@ -184,6 +202,7 @@ namespace {
             'yoast' => $yoast,
             'polylang' => $polylang,
             'polylang_links' => $polylangLinks,
+            'polylang_sitemaps' => $polylang->sitemaps,
             'polylang_types' => $polylangTypes,
         ];
     }
@@ -191,7 +210,8 @@ namespace {
     /**
      * @param array{
      *   container:object,features:object,synchronizer:object,custom_orders:object,
-     *   yoast:object,polylang:object,polylang_links:object,polylang_types:list<string>
+     *   yoast:object,polylang:object,polylang_links:object,polylang_sitemaps:object,
+     *   polylang_types:list<string>
      * } $services
      */
     function tec_readiness_remove_woo_option_callbacks(array $services): void {
@@ -205,6 +225,7 @@ namespace {
         remove_filter('rewrite_rules_array', 'wc_fix_rewrite_rules', 10);
         remove_filter('option_rewrite_rules', [$services['yoast'], 'filter_rewrite_rules_option'], 10);
         remove_filter('sanitize_option_rewrite_rules', [$services['yoast'], 'sanitize_rewrite_rules_option'], 10);
+        remove_filter('rewrite_rules_array', [$services['polylang_sitemaps'], 'rewrite_rules'], 10);
         remove_filter('rewrite_rules_array', [$services['polylang_links'], 'rewrite_rules'], 10);
         foreach ($services['polylang_types'] as $type) {
             remove_filter($type . '_rewrite_rules', [$services['polylang_links'], 'rewrite_rules'], 10);

@@ -78,6 +78,11 @@ for needle in \
 done
 grep -Fq 'manifests:["core","polylang","the-events-calendar"]' "$TEC" \
   || fail 'co-install fixture widened or dropped its manifest set'
+grep -Fq 'taxonomies:["category","post_tag","language","term_language","post_translations","term_translations","tribe_events_cat"]' "$TEC" \
+  || fail 'co-install fixture no longer keeps core-owned nav_menu out of generic term scope'
+if grep -Fq '"term_translations","nav_menu"' "$TEC"; then
+  fail 'co-install fixture reintroduced the term/menu identity contradiction'
+fi
 grep -Fq 'manifests:["core","polylang"]' "$MS" \
   || fail 'multisite fixture does not use the dedicated Polylang manifest set'
 printf 'PASS: Polylang exact multisite and bounded Polylang+TEC live fixtures are statically guarded\n'

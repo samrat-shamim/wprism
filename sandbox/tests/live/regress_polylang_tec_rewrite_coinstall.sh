@@ -42,7 +42,10 @@ wp_conf1() { wp1 "$@"; }
 unset -f wp_conf1
 
 git init -q -b main "$R1"; git -C "$R1" remote add origin "../origin-$PAIR.git"
-jq -n '{manifests:["core","polylang","the-events-calendar"],policy:{options:{},post_meta:{},post_types:["post","page","attachment","wp_block","nav_menu_item","tribe_events","tribe_venue","tribe_organizer"],taxonomies:["category","post_tag","language","term_language","post_translations","term_translations","nav_menu","tribe_events_cat"]},spec_version:2}' > "$R1/site.duo.json"
+# core's menu:nav_menu surface owns nav-menu terms and their term identities;
+# listing nav_menu again as a generic taxonomy would ask one durable UUID to
+# be both `term` and `menu`, which is an intentionally refused site policy.
+jq -n '{manifests:["core","polylang","the-events-calendar"],policy:{options:{},post_meta:{},post_types:["post","page","attachment","wp_block","nav_menu_item","tribe_events","tribe_venue","tribe_organizer"],taxonomies:["category","post_tag","language","term_language","post_translations","term_translations","tribe_events_cat"]},spec_version:2}' > "$R1/site.duo.json"
 cp site-repo.gitignore.template "$R1/.gitignore"; wp1 duo capture --repo=/siterepo >/dev/null
 git init --bare -b main "$ORIGIN" >/dev/null
 git -C "$R1" add -A; git -C "$R1" -c user.name=duo-polylang-tec -c user.email=polylang-tec@example.test commit -qm 'capture: Polylang TEC rewrite baseline'; git -C "$R1" push -qu origin main; git clone -q "$ORIGIN" "$R2"; REVISION=$(git -C "$R2" rev-parse HEAD)
