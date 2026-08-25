@@ -941,7 +941,7 @@ foreach ([
     "'/wc/v3/products/brands/",
     "'display' => 'subcategories'",
     'wp_conf1 theme activate twentytwentyfive',
-    'wp_conf1 theme activate twentytwentyone',
+    'restore_conformance_theme 0',
     "--type=wc-visual",
     'VisualAttributeTermMeta::save_term_visual_from_request',
     "'/wc/v3/products/attributes/",
@@ -949,6 +949,90 @@ foreach ([
 ] as $termSeedWitness) {
     woo_ok(str_contains($wooSeedHarness, $termSeedWitness),
         "category/brand/visual source fixture pins $termSeedWitness");
+}
+$themeScopeMatch = [];
+woo_ok(
+    preg_match('/^# DUO_THEME_SCOPE_BEGIN\n(.*?)^# DUO_THEME_SCOPE_END$/ms', $wooSeedHarness, $themeScopeMatch) === 1,
+    'visual-attribute fixture exposes one executable theme-scope block for failure-path testing'
+);
+if ($themeScopeMatch !== []) {
+    $scopeScript = <<<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+ACTIVE_THEME=twentytwentyone
+wp_conf1() {
+    case "$1 $2" in
+        'theme list')
+            printf '%s\n' "$ACTIVE_THEME"
+            ;;
+        'theme activate')
+            ACTIVE_THEME="$3"
+            printf '%s\n' "$ACTIVE_THEME" >> "$DUO_THEME_LOG"
+            ;;
+        'option update')
+            ;;
+        'wc product_attribute')
+            if [ "${DUO_TEST_FAIL_VISUAL:-0}" = 1 ] && [[ "$*" == *'Conf Color'* ]]; then
+                return 42
+            fi
+            printf '42\n'
+            ;;
+        *)
+            return 99
+            ;;
+    esac
+}
+BASH;
+    $scopeScript .= "\n" . $themeScopeMatch[1];
+    $scopeScript .= <<<'BASH'
+printf 'active=%s\n' "$ACTIVE_THEME"
+BASH;
+    $scopePath = tempnam(sys_get_temp_dir(), 'duo-woo-theme-scope-');
+    $scopeLog = tempnam(sys_get_temp_dir(), 'duo-woo-theme-log-');
+    file_put_contents($scopePath, $scopeScript);
+    chmod($scopePath, 0700);
+    $runScope = static function (string $script, string $log, bool $fail): array {
+        $pipes = [];
+        $environment = $_ENV;
+        $environment['DUO_THEME_LOG'] = $log;
+        $environment['DUO_TEST_FAIL_VISUAL'] = $fail ? '1' : '0';
+        $process = proc_open(
+            ['/bin/bash', $script],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            null,
+            $environment
+        );
+        if (!is_resource($process)) {
+            return [127, '', 'proc_open failed'];
+        }
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return [proc_close($process), $stdout, $stderr];
+    };
+    [$successStatus, $successOutput, $successError] = $runScope($scopePath, $scopeLog, false);
+    $successLog = (string) file_get_contents($scopeLog);
+    woo_ok(
+        $successStatus === 0
+        && trim($successOutput) === 'active=twentytwentyone'
+        && $successError === ''
+        && $successLog === "twentytwentyfive\ntwentytwentyone\n",
+        'visual-attribute scope restores the original theme and proves the success ordering'
+    );
+    file_put_contents($scopeLog, '');
+    [$failureStatus, $failureOutput, $failureError] = $runScope($scopePath, $scopeLog, true);
+    $failureLog = (string) file_get_contents($scopeLog);
+    woo_ok(
+        $failureStatus !== 0
+        && $failureOutput === ''
+        && $failureError === ''
+        && $failureLog === "twentytwentyfive\ntwentytwentyone\n",
+        'injected visual-attribute failure still restores the original theme before refusing'
+    );
+    unlink($scopePath);
+    unlink($scopeLog);
 }
 foreach ([
     'OrderReviews\\Endpoint::class',

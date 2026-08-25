@@ -303,11 +303,43 @@ update_post_meta($COUPON_ID, 'exclude_product_brands', [$BRAND_EXCLUDED_ID]);
 # bootstrap theme active. Temporarily switch to the bundled block theme for
 # the native creation call, then restore the ordinary conformance theme before
 # capture so the fixture does not smuggle a theme change into Woo evidence.
+# The EXIT trap is deliberately installed before the switch: a failed
+# attribute/API call under this script's `set -e` must not leave the source
+# in a block-theme state, and the postcondition makes a failed restore loud.
+# DUO_THEME_SCOPE_BEGIN
+ORIGINAL_THEME=$(wp_conf1 theme list --status=active --field=name --format=csv)
+[ -n "$ORIGINAL_THEME" ] || { echo 'WooCommerce conformance could not identify the active source theme' >&2; exit 1; }
+THEME_SWITCHED=1
+restore_conformance_theme() {
+  local status="$1" active_theme
+  trap - EXIT
+  if ! wp_conf1 theme activate "$ORIGINAL_THEME" >/dev/null; then
+    echo "WooCommerce conformance could not restore source theme '$ORIGINAL_THEME'" >&2
+    [ "$status" -eq 0 ] && status=1
+  fi
+  if ! active_theme=$(wp_conf1 theme list --status=active --field=name --format=csv); then
+    echo 'WooCommerce conformance could not verify the restored source theme' >&2
+    [ "$status" -eq 0 ] && status=1
+  elif [ "$active_theme" != "$ORIGINAL_THEME" ]; then
+    echo "WooCommerce conformance restored '$active_theme' instead of '$ORIGINAL_THEME'" >&2
+    [ "$status" -eq 0 ] && status=1
+  fi
+  THEME_SWITCHED=0
+  return "$status"
+}
+restore_conformance_theme_on_exit() {
+  local status=$?
+  restore_conformance_theme "$status"
+  exit $?
+}
+trap restore_conformance_theme_on_exit EXIT
 wp_conf1 theme activate twentytwentyfive >/dev/null
 wp_conf1 option update woocommerce_feature_wc_visual_attribute_enabled yes >/dev/null
 SIZE_ATTR_ID=$(wp_conf1 wc product_attribute create --name="Conf Size" --slug="conf-size" --type=select --order_by=menu_order --has_archives=false --porcelain --user=admin)
 COLOR_ATTR_ID=$(wp_conf1 wc product_attribute create --name="Conf Color" --slug="conf-color" --type=wc-visual --order_by=menu_order --has_archives=false --porcelain --user=admin)
-wp_conf1 theme activate twentytwentyone >/dev/null
+trap - EXIT
+restore_conformance_theme 0
+# DUO_THEME_SCOPE_END
 require_fixture_ids COUPON_ID SIZE_ATTR_ID COLOR_ATTR_ID
 wp_conf1 wc product_attribute_term create "$SIZE_ATTR_ID" --name=Small --user=admin >/dev/null
 wp_conf1 wc product_attribute_term create "$SIZE_ATTR_ID" --name=Large --user=admin >/dev/null
