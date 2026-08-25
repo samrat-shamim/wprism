@@ -89,6 +89,14 @@
    "note": "the shipped authority file wins the key-id namespace: a site trust root claiming a reviewed key id refuses. Needs no repository at all, which is why the frozen path can still run it."
   },
   {
+   "site": "agent/src/Adapter/AdapterCertification.php::assertPlatformBinding",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "WP-4.7 (spec/repo-format.md § v3.6). THE platform gate on the certificate path, and the successor to the whole-record hash_equals() that used to sit inline in verifyCertificate (still the anchor, and still the caller). It re-binds a signed statement to the boundary installed now on four questions and no fifth: spec_version, site_mode, a bound compatibility axis the boundary no longer declares, and a bound CELL the boundary no longer carries or now states differently. Coverage the boundary GAINED refuses nothing, which is the whole change -- an agent release that moves no exercised cell no longer withdraws every certificate on the fleet. The per-axis rule it applies lives in platformAxisCells(), which compares nothing and is registered nowhere for that reason."
+  },
+  {
    "site": "agent/src/Adapter/AdapterCertification.php::authority",
    "axes": [
     "authority"
@@ -110,7 +118,15 @@
     "platform"
    ],
    "verdict": "gate",
-   "note": "refuses \"agent capability platform boundary disagrees with the loaded agent\" on an agent_version/spec_version divergence, and is the TYPED read whose canonicalHash is the platform_sha256 inside every signed statement."
+   "note": "refuses \"agent capability platform boundary disagrees with the loaded agent\" on an agent_version/spec_version/site_mode divergence. It hands back BOTH shapes of the boundary: the typed object, whose canonicalHash is what ContractAttestation::currentPlatformDigest() computes, and the decoded array the § v3.6 axis binding and the projected claim read cell by cell."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::platformStatement",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "derivation",
+   "note": "WP-4.7. The MINT side of the same rule: it derives statement.platform -- the exercised cells a certificate binds -- out of the current boundary, narrowed through ManifestDispositions::narrowed_environment() so a § v3.5 adapter binds its NARROWED cells and a widening declaration refuses before a signature byte exists. Compares nothing, which is why it is a derivation; but what it derives is inside the signature and inside the adapter digest a pin binds, so a change here moves identity for every certificate minted afterwards."
   },
   {
    "site": "agent/src/Adapter/AdapterCertification.php::sign",
@@ -154,7 +170,7 @@
     "manifest"
    ],
    "verdict": "gate",
-   "note": "ANCHOR. Refuses \"certification platform boundary disagrees with the current agent-owned platform\" — one platform.json byte invalidates every signed adapter certificate on the fleet. Carries the one asymmetry between the two roots: a frozen site-rooted certificate is re-bound to the authority record the SIGNATURE covers because verifyFrozen() reopens no mutable site file."
+   "note": "ANCHOR. Owns the certificate verdict and calls the three gates that decide it -- assertAuthorityBinding, the Ed25519 signature, and (since WP-4.7) assertPlatformBinding, which is where the platform refusal now lives. Until § v3.6 the platform comparison was inline and covered the WHOLE platform.json, so one byte invalidated every signed adapter certificate on the fleet; it now names the axis and the cell that moved. Carries the one asymmetry between the two roots: a frozen site-rooted certificate is re-bound to the authority record the SIGNATURE covers because verifyFrozen() reopens no mutable site file."
   },
   {
    "site": "agent/src/Adapter/AdapterRegistry.php::capability_claim",
@@ -207,7 +223,7 @@
     "platform"
    ],
    "verdict": "carrier",
-   "note": "projects the certified evidence (platform_sha256 included) into an inventory row and deliberately keeps null and [] apart; compares nothing. The refusal is AdapterCertification::verifyCertificate."
+   "note": "projects the certified evidence (platform_axes_sha256 included -- the § v3.6 digest of the exercised cells, not the contract attestation's whole-boundary platform_sha256) into an inventory row and deliberately keeps null and [] apart; compares nothing. The refusal is AdapterCertification::verifyCertificate."
   },
   {
    "site": "agent/src/Apply/ApplyRequestCoordinator.php::plan",
@@ -489,7 +505,7 @@
     "platform"
    ],
    "verdict": "carrier",
-   "note": "prints platform_sha256 from a certified claim in `duo adapter` output."
+   "note": "prints platform_axes_sha256 from a certified claim in `duo adapter` output."
   },
   {
    "site": "cli/src/Adapter/AdapterCertify.php::certify",

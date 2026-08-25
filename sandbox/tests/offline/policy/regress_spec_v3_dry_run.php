@@ -698,29 +698,39 @@ duo_check_same(
 );
 $report('shipped adapters that declare a narrower environment today: 0 of 16 (the channel exists and none uses it)');
 
-// What today's certificate binds, and the reason R7 exists: verification is a
-// byte-exact comparison of the WHOLE platform record — AdapterCertification.php
-// :1043, `hash_equals(Canon::encode($platform), Canon::encode($statementTyped->
-// platform))` — not of the axes the bundle exercised. So every field in that
-// record is load-bearing for every certificate, and moving any one of them
-// re-invalidates the fleet's certificates wholesale.
+// What today's certificate binds. This measurement is the one V3-AXIS row
+// WP-4.7 LANDED: verification used to be a byte-exact comparison of the WHOLE
+// platform record — `hash_equals(Canon::encode($platform),
+// Canon::encode($statementTyped->platform))` — so every field in it was
+// load-bearing for every certificate and moving any one of them re-invalidated
+// the fleet wholesale. It is now assertPlatformBinding(), which re-binds the
+// exercised cells and nothing else (spec/repo-format.md § v3.6). The dry run
+// keeps measuring BOTH halves, because a dry run that stopped counting the
+// record the moment the rule landed could not tell a reader how much width was
+// actually removed.
 $certSource = (string) file_get_contents($repo . '/agent/src/Adapter/AdapterCertification.php');
 duo_check(
-    str_contains($certSource, 'hash_equals(Canon::encode($platform), Canon::encode($statementTyped->platform))'),
-    'V3-AXIS: certificate verification compares the whole platform record byte-for-byte, so it binds every field and not just the exercised axes'
+    !str_contains($certSource, 'hash_equals(Canon::encode($platform), Canon::encode($statementTyped->platform))')
+        && str_contains($certSource, 'private static function assertPlatformBinding('),
+    'V3-AXIS LANDED (WP-4.7): certificate verification no longer compares the whole platform record byte-for-byte '
+    . '— it binds the compatibility cells the certificate was exercised against'
 );
 $platformFields = array_keys($platform);
 sort($platformFields, SORT_STRING);
-$report('platform record fields a certificate binds today: ' . implode(', ', $platformFields));
+$report('platform record fields a certificate bound BEFORE WP-4.7: ' . implode(', ', $platformFields));
 $report(sprintf(
-    'of those, %d are the compatibility axes R7 would bind instead; %d are bound today for no exercised reason',
+    'of those, %d are the compatibility axes it binds now; the other %d were bound for no exercised reason',
     count($axes),
     count($platformFields) - 1
 ));
-duo_check(
-    in_array('compatibility', $platformFields, true) && count($platformFields) > 1,
-    'V3-AXIS: the axes R7 would bind are one field of a record with ' . count($platformFields) . ', which is the width R7 removes'
+$boundNow = (array) $cert->getConstant('STATEMENT_PLATFORM_KEYS');
+duo_check_same(
+    ['agent_version', 'axes', 'site_mode', 'spec_version'],
+    $boundNow,
+    'V3-AXIS: and what it binds instead is four members — the axes, the two the boundary is GATED on, and '
+    . '`agent_version`, which is recorded and deliberately not bound'
 );
+$report('platform members a certificate binds today: ' . implode(', ', $boundNow));
 
 // ===========================================================================
 // RULE V3-NS — namespace prefixing for the three flat identity spaces (R10)

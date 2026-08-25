@@ -321,15 +321,17 @@ The edit between those two commands is enforced, not advisory: the generated
 (`external_effect_unreviewed`). `accept` stages both documents and never
 commits — the commit is the human's signature on the review.
 
-**4. Re-sign any site-adapter certificates you hold.** A site certificate signs
-`platform_sha256` over the bytes of the platform boundary, now
-`manifests/capabilities/platform.json` and previously the `platform` block
-inside the deleted `registry.json`. Those bytes changed, so verification
+**4. Re-sign any site-adapter certificates you hold.** A site certificate binds
+the compatibility CELLS it was exercised against out of the platform boundary,
+now `manifests/capabilities/platform.json` and previously the `platform` block
+inside the deleted `registry.json` (before spec/repo-format.md § v3.6 it bound
+that whole object byte for byte, so any edit refused). Certificates cut against
+the old file bind cells this boundary states differently, so verification
 refuses:
 
 ```text
-duo: site adapter '<name>' certification platform boundary disagrees with the
-current agent-owned platform
+duo: site adapter '<name>' certification binds compatibility axis '<axis>',
+whose exercised cells the agent-owned platform boundary now states differently
 ```
 
 Re-sign each adapter under `adapters/certifications/` with the same key and

@@ -99,13 +99,22 @@ require_once __DIR__ . '/../../lib/check.php';
 
 $root = dirname(__DIR__, 4);
 
-/** The 17 identity stems, grouped by the axis a move on them belongs to. */
+/** The 18 identity stems, grouped by the axis a move on them belongs to. */
 const PMG_STEMS = [
     // manifest identity: ArtifactPolicyIdentity::manifest_rows() and its folds
     'manifesthash', 'manifestrows', 'manifestsha256', 'manifestinputssha256',
     'manifestdisposition', 'shippedmanifests', 'resolvedadapters', 'adapterdigest',
     // platform boundary: manifests/capabilities/platform.json
     'platformboundary', 'platformdigest', 'platformsha256', 'platformrelative',
+    // WP-4.7 (§ v3.6) split the platform axis into two spellings that mean two
+    // different numbers: `platform_sha256` is still the CONTRACT
+    // attestation's whole-boundary digest, and `platform_axes_sha256` is a
+    // certificate's digest of the exercised compatibility cells. A stem list
+    // that carried only the first would have silently DESELECTED every site
+    // the rename touched — which is exactly how a gate stops being watched,
+    // so the second spelling is enumerated here rather than absorbed by a
+    // looser pattern.
+    'platformaxessha256',
     // authority records: the two Ed25519 trust roots
     'authoritydigest', 'authorityrecord', 'authoritykeys', 'authoritiesformat',
     'authoritiesrelative',

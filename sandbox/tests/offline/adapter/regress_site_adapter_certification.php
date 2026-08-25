@@ -362,8 +362,9 @@ $platform = [
         // range-plus-exercised-series php axis. A certification fixture that
         // kept the retired single-engine/bare-range shapes would still hash
         // and verify (AdapterCertification only requires `compatibility` be an
-        // object), and would therefore stop being evidence that
-        // platform_sha256 binds the boundary a site actually ships.
+        // object), and would therefore stop being evidence that the axis
+        // binding (§ v3.6) reads the shapes a site actually ships: the two
+        // shapes here are exactly the two rules platformAxisCells() applies.
         'database' => [
             'engines' => [
                 'MariaDB' => ['max' => '12.0.0', 'min' => '11.0.0'],
@@ -373,7 +374,14 @@ $platform = [
         ],
         'php' => ['max' => '8.5.0', 'min' => '8.3.0', 'note' => 'fixture',
             'verified' => ['8.3' => '8.3.33', '8.4' => '8.4.24']],
-        'wordpress' => ['last_verified' => '7.0.2', 'note' => 'fixture'],
+        // `verified` since WP-4.7, for the reason the comment above gives:
+        // without it this axis has no series map, platformAxisCells() falls to
+        // the PROFILE rule, and the fixture would bind `last_verified` — a
+        // scalar the shipped boundary deliberately leaves OUT of the binding.
+        // A fixture that bound it would make every assertion below evidence
+        // about a boundary shape nobody ships.
+        'wordpress' => ['last_verified' => '7.0.2', 'max' => '7.1.0', 'min' => '6.9.0', 'note' => 'fixture',
+            'verified' => ['6.9' => '6.9.2', '7.0' => '7.0.2']],
     ],
     'plugin_execution' => 'unmodified',
     'site_mode' => 'single-site',
@@ -504,8 +512,8 @@ cert_check(($verified['disposition']['provenance']['path'] ?? null) === 'adapter
 cert_check(
     isset($proof['authority']['fingerprint'], $proof['authority']['key_id'], $proof['authority']['record_sha256'])
     && isset($proof['bundle']['digest'], $proof['bundle']['git_revision'], $proof['bundle']['tests'])
-    && isset($proof['certificate_sha256'], $proof['statement_sha256'], $proof['platform_sha256'], $proof['ratification_sha256'], $proof['raw_input']),
-    'derived disposition digest-binds authority, envelope, signed statement, bundle, ratification, platform, and raw-input proof facts'
+    && isset($proof['certificate_sha256'], $proof['statement_sha256'], $proof['platform_axes_sha256'], $proof['ratification_sha256'], $proof['raw_input']),
+    'derived disposition digest-binds authority, envelope, signed statement, bundle, ratification, exercised platform axes, and raw-input proof facts'
 );
 cert_check(
     ($verified['claim']['evidence']['status'] ?? null) === 'current'
@@ -1615,11 +1623,11 @@ try {
         is_array($signedEvidence)
         && ($signedEvidence['certificate_sha256'] ?? null) === $signedProof['certificate_sha256']
         && ($signedEvidence['statement_sha256'] ?? null) === $signedProof['statement_sha256']
-        && ($signedEvidence['platform_sha256'] ?? null) === $signedProof['platform_sha256']
+        && ($signedEvidence['platform_axes_sha256'] ?? null) === $signedProof['platform_axes_sha256']
         && ($signedEvidence['authority']['key_id'] ?? null) === 'review-key'
         && ($signedEvidence['authority']['fingerprint'] ?? null) === $signedProof['authority']['fingerprint'],
-        'a signed, pinned site adapter reports its authority and the exact certificate/statement/platform digests '
-        . 'the signature covers — the facts that used to be invisible'
+        'a signed, pinned site adapter reports its authority and the exact certificate/statement/exercised-axes '
+        . 'digests the signature covers — the facts that used to be invisible'
     );
     cert_check(
         ($signedEvidence['bundle']['digest'] ?? null) === $signedProof['bundle']['digest']
@@ -1971,12 +1979,26 @@ PHP
         'baseline: the certified, exactly-pinned site adapter and an unrelated shipped adapter load in one pin set'
     );
 
-    // ONE byte of the agent-owned boundary, moved the way an upgrade moves it —
-    // a newly verified WordPress release. agent_version/spec_version are left
-    // alone so currentPlatform()'s own agreement checks still pass and the only
-    // thing that differs is the byte comparison the signature covers.
+    // ONE BOUND CELL of the agent-owned boundary, dropped the way the live
+    // matrix's own documented remedy drops one ("if the live matrix fails, the
+    // remedy is to drop the 7.1 entry", manifests/capabilities/platform.json).
+    // agent_version/spec_version are left alone so currentPlatform()'s own
+    // agreement checks still pass and the only thing that differs is a cell the
+    // signature covers.
+    //
+    // WHY THIS MUTATION AND NOT THE ONE THAT USED TO BE HERE. Until WP-4.7 this
+    // block moved `compatibility.wordpress.last_verified`, because the
+    // signature covered the whole record and ANY byte withdrew the claim. Under
+    // § v3.6 that byte is deliberately outside every binding — it is derived
+    // from `verified` and moves on every additive release — so moving it now
+    // withdraws nothing, which is the deliverable and is asserted directly in
+    // regress_certificate_axis_binding.php. What still withdraws is a cell
+    // nobody can be shown to have exercised any more, and that is what this
+    // integration case needs: a genuine withdrawal, driven all the way through
+    // Policy::load(), from_snapshot() and the repair command.
     $stalePlatform = $platform;
-    $stalePlatform['compatibility']['wordpress']['last_verified'] = '7.1.0';
+    unset($stalePlatform['compatibility']['wordpress']['verified']['7.0']);
+    $stalePlatform['compatibility']['wordpress']['last_verified'] = '6.9';
     cert_write_canon($integrationManifests . '/capabilities/platform.json', [
         'format' => ManifestDispositions::PLATFORM_FORMAT,
         'platform' => $stalePlatform,
@@ -2336,30 +2358,54 @@ PHP
         . 'degraded on the version'
     );
 
-    // (i) The FROZEN path does not take the wire signal at all. A snapshot
-    // carries its manifest and its certificate together, so a certificate in it
-    // claiming a wire version that has never been published cannot mean "this
-    // agent upgraded past it" — there is no /v2 wire to have been written on.
-    // It can only mean the snapshot was edited, which is exactly the argument
-    // from_snapshot() already applies to SupersededSiteAdapterCertificate.
-    // Stale-platform stays caught there (case (f)) because a boundary genuinely
-    // moves under a frozen site; this does not.
+    // (i) THE FROZEN PATH TAKES THE WIRE SIGNAL NOW, and this assertion is the
+    // one WP-4.7 inverted on purpose. The argument that kept it a hard refusal
+    // was explicit and conditional: "there is no /v2 wire and never has been,
+    // so no snapshot can honestly carry one... if a /v2 wire is ever published,
+    // this is the decision to revisit — with a real wire to migrate, not a
+    // hypothetical one" (AdapterSources::from_snapshot(), pre-WP-4.7).
+    // § v3.6 published one. Every certificate minted before this agent carries
+    // the v1 statement generation, a promoted site verifies its certificates
+    // from THIS path and may not reopen its repository, so leaving the signal
+    // uncaught would make the first upgrade past WP-4.7 a hard refusal on every
+    // promoted site holding a certified adapter — the exact fleet-brick
+    // StalePlatformSiteAdapterCertificate exists to end, reached through the
+    // neighbouring door. Superseded BYTES stay a refusal: manifest and
+    // certificate travel together in one snapshot, so bytes that disagree still
+    // mean the snapshot was edited.
     $frozenWireEnvelope = $currentEnvelope;
     $frozenWireCertificate = Canon::decode((string) base64_decode((string) $currentEnvelope['certificate_json'], true));
     $frozenWireCertificate['format'] = 'duo-adapter-certification/v2';
     $frozenWireRaw = Canon::encode($frozenWireCertificate);
     // Digest recomputed so the envelope's own integrity check passes and the
-    // refusal below is the wire test, not 'corrupt certificate bytes'.
+    // outcome below is the wire test, not 'corrupt certificate bytes'.
     $frozenWireEnvelope['certificate_json'] = base64_encode($frozenWireRaw);
     $frozenWireEnvelope['certificate_sha256'] = hash('sha256', $frozenWireRaw);
     $frozenWireSnapshot = $currentSnapshot;
     $frozenWireSnapshot['adapter_sources']['certificates']['site-demo'] = $frozenWireEnvelope;
-    cert_expect_throw(
-        static fn() => Policy::from_snapshot($frozenWireSnapshot),
-        "wire version 'duo-adapter-certification/v2', which this agent does not verify",
-        '(i) a superseded wire version inside a FROZEN snapshot is a hard refusal, not a withdrawal — the frozen '
-        . 'asymmetry that keeps superseded BYTES a refusal applies to it verbatim'
-    );
+    $frozenWirePolicy = null;
+    try {
+        $frozenWirePolicy = Policy::from_snapshot($frozenWireSnapshot);
+    } catch (Throwable $t) {
+        cert_check(false, '(i) a superseded wire version inside a FROZEN snapshot withdraws one adapter rather '
+            . 'than refusing the snapshot (' . $t->getMessage() . ')');
+    }
+    if ($frozenWirePolicy instanceof Policy) {
+        cert_check(
+            !$frozenWirePolicy->adapter_sources()->is_certified('site-demo')
+            && str_contains(
+                (string) ($frozenWirePolicy->adapter_sources()->provenance('site-demo')['reason'] ?? ''),
+                'certification wire version this agent does not verify'
+            ),
+            '(i) a superseded wire version inside a FROZEN snapshot withdraws exactly that adapter, naming the '
+            . 'wire — the promoted path degrades one claim instead of bricking a site that did nothing wrong'
+        );
+        cert_check(
+            (RepositoryCompiler::resolved_adapters($frozenWirePolicy)[0]['digest'] ?? null) === $currentCoreDigest,
+            '(i) and the unrelated shipped adapter in the same frozen pin set is untouched, digest for digest — '
+            . 'the withdrawal is scoped the way the live scan scopes it'
+        );
+    }
 
     // (j) THE PIN CONCESSION IS ABOUT STATE, NOT SPELLING. A withdrawn adapter
     // is only unbricked if the operator's pin rides the concession, and the
@@ -2507,16 +2553,46 @@ cert_expect_throw(
 $keys->{'review-key'}['status'] = 'trusted';
 cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities);
 
+// WHAT A PLATFORM MUTATION DOES TO A FROZEN CERTIFICATE, both directions,
+// because WP-4.7 (spec/repo-format.md § v3.6) split one answer into two. This
+// assertion used to be one line — ANY byte of the boundary invalidated, which
+// is what made every agent release a fleet-wide withdrawal. Now the boundary
+// has bound cells and unbound prose, and the frozen path has to tell them
+// apart exactly as the live one does.
 $changedPlatform = $platform;
 $changedPlatform['branchable_state'] = 'a different current platform boundary';
 cert_write_canon($agent . '/capabilities/platform.json', [
     'format' => ManifestDispositions::PLATFORM_FORMAT,
     'platform' => $changedPlatform,
 ]);
+$unboundMove = null;
+try {
+    AdapterCertification::verifyFrozen($agent, 'site-demo', $manifest, $envelope);
+} catch (Throwable $t) {
+    $unboundMove = $t;
+}
+cert_check(
+    $unboundMove === null,
+    'a boundary member OUTSIDE the binding moved and the frozen certificate is still valid — `branchable_state` '
+    . 'is prose about the agent\'s posture, not a runtime cell anything was exercised against ('
+    . ($unboundMove === null ? 'valid' : $unboundMove->getMessage()) . ')'
+);
+
+// And the other direction, on the same frozen envelope: a cell the certificate
+// WAS exercised against, dropped. `verifyFrozen()` must reach the same typed
+// withdrawal the live entry point reaches, or a promoted site would keep
+// claiming coverage the agent under it no longer states.
+$movedAxisPlatform = $changedPlatform;
+unset($movedAxisPlatform['compatibility']['php']['verified']['8.4']);
+cert_write_canon($agent . '/capabilities/platform.json', [
+    'format' => ManifestDispositions::PLATFORM_FORMAT,
+    'platform' => $movedAxisPlatform,
+]);
 cert_expect_throw(
     static fn() => AdapterCertification::verifyFrozen($agent, 'site-demo', $manifest, $envelope),
-    'platform boundary',
-    'a current platform mutation invalidates frozen certification'
+    "exercised against 'php' cell '8.4'",
+    'a BOUND compatibility cell the boundary no longer carries invalidates frozen certification, and the refusal '
+    . 'names the axis and the cell rather than pointing at a whole document'
 );
 cert_write_canon($agent . '/capabilities/platform.json', [
     'format' => ManifestDispositions::PLATFORM_FORMAT,

@@ -59,7 +59,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-env-provider-conformance-live \
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-suite-wiring regress-platform-move-gates \
-	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
+	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification regress-certificate-axis-binding \
 	regress-post-field-classification regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
 	regress-lint-host-verb regress-lint-type-exemptions \
@@ -431,6 +431,15 @@ regress-adapter-survey-scale:
 
 regress-site-adapter-certification:
 	php sandbox/tests/offline/adapter/regress_site_adapter_certification.php
+
+# WP-4.7 / spec/repo-format.md § v3.6: a certificate binds the compatibility
+# CELLS it was exercised against, not the platform document. The case the
+# rider exists for -- an agent PATCH release that moves agent_version, an axis
+# note and one already-exercised PHP patch leaves the certificate VALID -- is
+# driven through a CHILD process, because one PHP process holds one
+# DUO_AGENT_VERSION and "the agent released" is not otherwise expressible.
+regress-certificate-axis-binding:
+	php sandbox/tests/offline/adapter/regress_certificate_axis_binding.php
 
 # WP-4.8 / spec/repo-format.md § v3.7: the authority record v2 grammar --
 # fingerprint-derived key ids, the mandatory validity window and its named

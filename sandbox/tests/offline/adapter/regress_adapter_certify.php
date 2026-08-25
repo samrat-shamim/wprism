@@ -160,9 +160,10 @@ function cert_agent_library(string $root, string $label, array $adapterNames, ar
     copy($duoRoot . '/manifests/core.json', $dir . '/core.json');
     copy($duoRoot . '/manifests/dispositions.json', $dir . '/dispositions.json');
 
-    // The shipped platform boundary verbatim: `platform_sha256` inside every
-    // signed statement is the hash of these exact bytes, so a fixture that
-    // re-authored them would sign against a platform no agent runs.
+    // The shipped platform boundary verbatim: the exercised compatibility cells
+    // inside every signed statement are read out of these exact bytes
+    // (spec/repo-format.md § v3.6), so a fixture that re-authored them would
+    // sign against a platform no agent runs.
     copy(
         $duoRoot . '/manifests/capabilities/platform.json',
         $dir . '/capabilities/platform.json'

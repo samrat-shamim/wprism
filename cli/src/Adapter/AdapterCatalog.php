@@ -1032,15 +1032,21 @@ final class AdapterCatalog {
         $evidence = $row['certification_evidence'] ?? null;
         if (is_array($evidence)) {
             echo "  signed certification evidence (this adapter's OWN envelope, not the shipped registry):\n";
-            echo '    authority:           ' . self::inline($evidence['authority'] ?? null) . "\n";
-            echo '    certificate_sha256:  ' . ($evidence['certificate_sha256'] ?? 'none') . "\n";
-            echo '    statement_sha256:    ' . ($evidence['statement_sha256'] ?? 'none') . "\n";
-            echo '    platform_sha256:     ' . ($evidence['platform_sha256'] ?? 'none') . "\n";
-            echo '    supported_versions:  ' . self::inline($evidence['supported_versions'] ?? null) . "\n";
+            echo '    authority:            ' . self::inline($evidence['authority'] ?? null) . "\n";
+            echo '    certificate_sha256:   ' . ($evidence['certificate_sha256'] ?? 'none') . "\n";
+            echo '    statement_sha256:     ' . ($evidence['statement_sha256'] ?? 'none') . "\n";
+            // The column is one wider than it was because this label is: WP-4.7
+            // renamed the value with its meaning (§ v3.6), and the printed label
+            // is the JSON key an operator will grep for. `platform_sha256` still
+            // exists in this product and means something ELSE — the contract
+            // attestation's whole-boundary digest — so the two must not be
+            // spelled alike in a report a human reads.
+            echo '    platform_axes_sha256: ' . ($evidence['platform_axes_sha256'] ?? 'none') . "\n";
+            echo '    supported_versions:   ' . self::inline($evidence['supported_versions'] ?? null) . "\n";
             $bundle = is_array($evidence['bundle'] ?? null) ? $evidence['bundle'] : [];
-            echo '    bundle:              ' . ($bundle['digest'] ?? 'none')
+            echo '    bundle:               ' . ($bundle['digest'] ?? 'none')
                 . ' (' . ($bundle['schema'] ?? '?') . ' @ ' . ($bundle['git_revision'] ?? '?') . ")\n";
-            echo '    bundle tests:        ' . (($bundle['tests'] ?? []) === []
+            echo '    bundle tests:         ' . (($bundle['tests'] ?? []) === []
                 ? '(none)'
                 : implode(', ', array_map('strval', (array) $bundle['tests']))) . "\n";
             // Three answers, not two: a bundle that exercised no named
@@ -1048,13 +1054,13 @@ final class AdapterCatalog {
             // decoded are different facts, and only one of them is a clean
             // report.
             if (($evidence['artifacts'] ?? null) === null) {
-                echo "    artifacts:           (UNREADABLE — this certificate's artifact list could not be "
+                echo "    artifacts:            (UNREADABLE — this certificate's artifact list could not be "
                     . "decoded)\n";
             } elseif ($evidence['artifacts'] === []) {
-                echo "    artifacts:           (none)\n";
+                echo "    artifacts:            (none)\n";
             }
             foreach ((array) ($evidence['artifacts'] ?? []) as $artifact) {
-                echo '    artifact:            ' . ($artifact['name'] ?? '?') . ' v'
+                echo '    artifact:             ' . ($artifact['name'] ?? '?') . ' v'
                     . ($artifact['version'] ?? '?') . ' [' . ($artifact['role'] ?? '?') . '] '
                     . ($artifact['sha256'] ?? '') . "\n";
             }

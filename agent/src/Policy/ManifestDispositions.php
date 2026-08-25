@@ -399,11 +399,21 @@ final class ManifestDispositions {
      *      than one that inherits the whole boundary; it is not permission to
      *      run outside it.
      *
+     * PUBLIC since WP-4.7, and for one caller with one reason.
+     * `AdapterCertification::signStatement()` binds the compatibility cells a
+     * certificate was exercised against (spec § v3.6), and a narrowing adapter
+     * must bind its NARROWED cells — so the signer needs the same subset this
+     * projection computes. Re-deriving it there would be a second copy of rule
+     * 2's widening refusal in the file that mints the signature, drifting
+     * silently the moment either moved; calling this instead also means the
+     * widening refusal fires at MINT time rather than only when the minted
+     * certificate is first verified.
+     *
      * @param array<string,mixed> $manifest
      * @param array<string,mixed> $platformBoundary
      * @return array<string,mixed>
      */
-    private static function narrowed_environment(array $manifest, array $platformBoundary): array {
+    public static function narrowed_environment(array $manifest, array $platformBoundary): array {
         // The historical four members, in their historical order: the claim
         // states `site_mode` plus three of the boundary's five compatibility
         // axes, and an adapter may narrow exactly what the claim states.

@@ -792,7 +792,7 @@ evidence before this line changes.
 | v3.3 | closed top-level key set and its growth rule | WP-4.3 | signing only, never the validator |
 | v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | no — one monolith, one whole-document hash |
 | v3.5 | per-adapter environment narrowing | WP-4.6 | yes at `spec_version: 3`; inert at v2 |
-| v3.6 | certificates bind exercised axes; in-statement version; domain `/v2` | WP-4.7 | no — whole-`platform.json` byte equality |
+| v3.6 | certificates bind exercised axes; in-statement version; domain `/v2` | WP-4.7 | YES — v2 statements bind exercised cells; v1 generation withdraws per adapter |
 | v3.7 | authority record v2, and the platform root's identity-only binding | WP-4.8 | YES — v2 records enforce; v1 unchanged; both roots bind identity |
 | v3.8 | depth-1 delegation and typed revocation | WP-4.9 | no — no chain, one `status` word per key |
 | v3.9 | namespace grammar and the closed grandfather list | WP-4.10 | no — one flat identity grammar |
@@ -1029,33 +1029,73 @@ that inherits the whole boundary; it is not permission to run outside it.
 
 ### v3.6 Certificates bind exercised axes, carry an in-statement version, and move to domain `/v2`
 
-**Rider: WP-4.7. Enforced today: no.** Verification is `hash_equals(Canon::encode($platform),
-Canon::encode($statementTyped->platform))` (`AdapterCertification.php:1155`) — the WHOLE platform record,
-byte for byte — so every agent release invalidates every certificate in existence, including patch
-releases that move no axis anyone exercised.
+**Rider: WP-4.7. Enforced today: yes, and gated on the CERTIFICATE WIRE GENERATION, never on
+`spec_version`.** Until WP-4.7 verification was
+`hash_equals(Canon::encode($platform), Canon::encode($statementTyped->platform))` — the WHOLE platform
+record, byte for byte — so every agent release invalidated every certificate in existence, including
+patch releases that moved no axis anyone exercised. `AdapterCertification::assertPlatformBinding()` is
+that comparison's replacement.
 
-A v3 certificate binds:
+A v2-generation certificate binds:
 
 - `spec_version` — the grammar gate, unchanged. A certificate never verifies across a grammar bump;
-- a digest of the **compatibility axes** the certificate was exercised against. The boundary declares
-  five as of #560 — `database`, `filesystem`, `php`, `process`, `wordpress` — each with its own `verified`
-  series, and `process` is the newest (the bounded WP-CLI child transport's POSIX process-group profile).
-  A new axis is a reviewed sentence in this section, never a silent widening of what a certificate signs
-  over;
+- `site_mode`. It is not a compatibility axis, but it is one of the four cells a capability claim states
+  and one of the four § v3.5 lets an adapter narrow, so a certificate that did not bind it could project
+  a claim naming a site mode nobody exercised;
+- a per-axis digest of the **compatibility axes** the certificate was exercised against. The boundary
+  declares five as of #560 — `database`, `filesystem`, `php`, `process`, `wordpress` — and `process` is
+  the newest (the bounded WP-CLI child transport's POSIX process-group profile). A new axis is a reviewed
+  sentence in this section, never a silent widening of what a certificate signs over;
 - a `version` field INSIDE the signed statement, so a future wire change is refused BY VERSION rather
-  than read as corruption. This is the member the current statement cannot grow (see below), which is why
-  it must be added in the same change that changes the binding.
+  than read as corruption. This is the member the v1 statement could not grow (see below), which is why
+  it had to be added in the same change that changed the binding.
+
+**What one axis contributes, and the single rule that decides it.** A cell's bound value is everything
+the boundary uses to ACCEPT a runtime on that cell, and nothing it uses only to WITNESS one. The three
+shapes the boundary actually declares each answer that rule differently, and the engine refuses an axis
+carrying two of them rather than choosing:
+
+- an axis with a `verified` series map (`php`, `wordpress`) binds the series NAMES and not the patches
+  beside them, because acceptance is series membership — "a runtime is accepted only when it is inside
+  [min, max) AND its MAJOR.MINOR is one of those exercised series";
+- an axis with an `engines` map (`database`) binds each engine's own min/max line, because there "the
+  range is now a function of the engine": the value IS the acceptance term, so widening `MySQL` to admit
+  a 9.x nobody ran is not new evidence for the same cell but a different cell wearing the same name;
+- an axis with neither (`filesystem`, `process`) is one reviewed PROFILE — a versioned identity plus the
+  functions, families and separators the gate requires. That whole object minus its prose `note` is one
+  cell, named by the profile string.
+
+`min`/`max`, every `note`, and `wordpress`'s derived `last_verified` are outside every binding. A release
+that exercises a new series moves `max` in the same edit that adds the cell, so binding the range would
+make every additive release invalidate every certificate — the pathology this subsection exists to end.
+The residual that leaves is stated rather than argued away: a boundary that NARROWED `[min, max)` around
+an already-bound series moves no cell and raises nothing here. That is not a hole in the honesty
+property, because a certificate is not what admits a runtime — `PlatformCompatibility::assert_supported()`
+gates every load on the range AND the series against the boundary installed now, so such a site refuses
+at load time on the axis itself.
 
 `SIGNATURE_DOMAIN` moves to `duo-site-adapter-certification-signature/v2\0` because the binding semantics
 changed. Per the irreversibility register's R-01, a v2 domain is a NEW statement type verified BESIDE the
 v1 one, never an edit of it: an agent may verify both, and a certificate says which it is by the bytes it
-was signed over. A v1-domain statement met by a v3 agent degrades to `uncertified` by name (the typed
-withdrawal `SupersededWireSiteAdapterCertificate` already exists for exactly this shape) — never a
-whole-source refusal that would take the site's unrelated adapters down with it.
+was signed over. WHICH GENERATION a certificate is must therefore be decided without a signature — the
+domain is what the generation names — so it is decided by the statement's MEMBER SET: a v2 statement
+carries `version`, a v1 statement is exactly the five members R-06 closed. A v1-generation statement met
+by this agent degrades to `uncertified` by name (the typed withdrawal
+`SupersededWireSiteAdapterCertificate`), per adapter, on the live scan and inside a frozen snapshot alike
+— never a whole-source refusal that would take the site's unrelated adapters down with it. An
+in-statement `version` this engine does not implement takes the same route, refused by VERSION rather
+than read as corruption. Both tests sit BEHIND the closed root key set, the canonical base64
+Ed25519-length signature check and the statement's own member-shape proofs, so a hand-authored file
+cannot reach the degrade path by being cheap.
 
 The honesty property is carried by the axes, not by `agent_version`: a claim may not describe a runtime
-nobody ran, and after this change it states WHICH runtime cells it covers. Recording a newly exercised
-PHP patch adds coverage and invalidates nothing; changing a bound axis invalidates.
+nobody ran, and after this change it states WHICH runtime cells it covers. `agent_version` stays inside
+the signature — an operator still has to be told which agent state a certificate was minted beside, and
+`duo adapter doctor --migration` reads it — but it is no longer the thing validity turns on.
+`branchable_state` and `plugin_execution` are outside the binding entirely: they are prose about the
+agent's posture rather than runtime cells anything was exercised against, and a claim restates them from
+the boundary installed now. Recording a newly exercised PHP patch adds coverage and invalidates nothing;
+so does an axis or a cell the boundary GAINS; changing a bound axis invalidates.
 
 ### v3.7 Authority record v2, and the platform root's identity-only binding
 
@@ -1252,12 +1292,13 @@ an extension attaches.
 | certification word `reviewer_signed` | the certification vocabulary | `duo: certification 'reviewer_signed' is reserved — the reviewer tier opens at gate G4 with an 'evidence.reviewer' bundle, and no engine mints it today` |
 | `evidence.reviewer` | the bundle evidence object | `duo: <label>.evidence declares 'reviewer' — the reviewer evidence member is reserved; it is admitted when the reviewer tier opens at gate G4` |
 
-Two consequences worth stating. First, the signed statement is exactly five members today — `adapter`,
-`authority`, `bundle`, `platform`, `ratification` (`AdapterCertification::assertStatementShape()`,
-`:1763-1765`) — checked with a MISSING-and-UNKNOWN refusal, which is register row R-06: a sixth member
-changes the signed bytes AND is refused by every deployed verifier. Reserving the two statement members
-above is therefore only possible in the same change that moves the statement wire (§ v3.6), and it is the
-last opportunity to reserve anything there. Second, the bundle evidence object is likewise closed —
+Two consequences worth stating. First, the signed statement is exactly six members today — `adapter`,
+`authority`, `bundle`, `platform`, `ratification`, `version` (`AdapterCertification::STATEMENT_KEYS`) —
+checked with a MISSING-and-UNKNOWN refusal, which is register row R-06: a seventh member changes the
+signed bytes AND is refused by every deployed verifier. Reserving the two statement members above is
+therefore only possible in a change that moves the statement wire (§ v3.6). WP-4.7 was such a change and
+it reserved neither, so a slot here now waits on the next wire generation — which is what `version` makes
+a version question rather than a corruption one (R-24). Second, the bundle evidence object is likewise closed —
 `exercised`, `grammar`, `reason` (`:2049`) — and the certification and observation vocabularies refuse a
 whole document on an unrecognised word, which is exactly why the slot must exist before any policy can
 flip into it.

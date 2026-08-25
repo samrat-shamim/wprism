@@ -140,17 +140,35 @@ final class MigrationPreflight {
      * certificate gate raises. A class absent from this map is NOT given a
      * default — it becomes an `unclassified` row and blocks the green verdict.
      *
-     * Only `stale_platform` is a migration movement. The two superseded
-     * signals describe a certificate that is ALREADY withdrawn today, for a
-     * reason the bump does not cause and does not fix; reporting them as
-     * migration movements would inflate the blast radius with work the flag day
-     * neither creates nor clears.
+     * TWO of the three are migration movements, and the second one became one
+     * when WP-4.7 published a second certificate wire generation
+     * (spec/repo-format.md § v3.6). `superseded_adapter_bytes` still is not: it
+     * describes a certificate ALREADY withdrawn today because an operator edited
+     * the adapter, for a reason the bump neither causes nor fixes, and reporting
+     * it would inflate the blast radius with work that is not the flag day's.
+     *
+     * `superseded_wire_format` used to sit in that same sentence and no longer
+     * can. Every certificate minted before WP-4.7 carries the v1 statement
+     * generation, and the target agent refuses exactly those BY GENERATION — so
+     * for a site crossing that release the wire refusal IS the withdrawal the
+     * bump causes, and it moves the same four identities `stale_platform` moves
+     * (see MOVING_CERTIFICATE_SIGNALS). Leaving it silent would have made the
+     * one verb whose job is predicting the blast radius under-report the largest
+     * release in the program.
      */
     private const CERTIFICATE_SIGNALS = [
         StalePlatformSiteAdapterCertificate::class => 'stale_platform',
         SupersededSiteAdapterCertificate::class => 'superseded_adapter_bytes',
         SupersededWireSiteAdapterCertificate::class => 'superseded_wire_format',
     ];
+
+    /**
+     * The signals above that the BUMP causes, and that therefore predict
+     * movement. A subset of CERTIFICATE_SIGNALS rather than a second list of
+     * classes, so a signal can never be predicted-as-moving without first being
+     * reviewed as classified at all.
+     */
+    private const MOVING_CERTIFICATE_SIGNALS = ['stale_platform', 'superseded_wire_format'];
 
     /**
      * @param list<string> $args everything `duo adapter` was given, including
@@ -576,8 +594,13 @@ final class MigrationPreflight {
                     continue;
                 }
                 $row['outcome'] = $signal;
+                // `false` only for `stale_platform`: that gate REACHED the
+                // platform question and answered it. A wire-generation refusal
+                // never got there — the generation is read before a signature
+                // can be verified at all — so its platform answer is unknown,
+                // and `null` is the only honest value for it.
                 $row['matches_target_platform'] = $signal === 'stale_platform' ? false : null;
-                if ($signal === 'stale_platform') {
+                if (in_array($signal, self::MOVING_CERTIFICATE_SIGNALS, true)) {
                     // Finding (b), predicted from the gate alone: the
                     // withdrawal changes the certificate-derived disposition
                     // folded into manifest_rows(), so this site's own
