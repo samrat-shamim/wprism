@@ -10023,6 +10023,11 @@ unset($canonicalPolylangRuntime->sitemaps);
 $rosterReadsBeforeInert = (int) ($GLOBALS['tec_readiness_polylang_roster_reads'] ?? 0);
 $rewriteCallsBeforeInert = count($GLOBALS['tec_readiness_rewrite_calls']);
 duo_check_same(
+    10,
+    has_filter('pll_prepare_rewrite_rules', [$wooServices['polylang_links'], 'prepare_rewrite_rules']),
+    'the inert Polylang fixture retains its exact non-effectful deferred setup callback'
+);
+duo_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'a pre-language Polylang runtime admits the exact fully inert deferred rewrite topology'

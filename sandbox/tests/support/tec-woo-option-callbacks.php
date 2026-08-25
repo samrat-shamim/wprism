@@ -93,6 +93,8 @@ namespace {
         /** @param list<string> $types */
         public function __construct(private array $types) {}
 
+        public function prepare_rewrite_rules(): void {}
+
         /** @return list<string> */
         public function get_rewrite_rules_filters(): array {
             $GLOBALS['tec_readiness_polylang_roster_reads'] =
@@ -191,6 +193,7 @@ namespace {
         $polylang = new PLL_Admin($polylangLinks);
         $polylang->sitemaps = new PLL_Sitemaps();
         $GLOBALS['polylang'] = $polylang;
+        add_action('pll_prepare_rewrite_rules', [$polylangLinks, 'prepare_rewrite_rules'], 10, 1);
         add_filter('rewrite_rules_array', [$polylang->sitemaps, 'rewrite_rules'], 10, 1);
         add_filter('rewrite_rules_array', [$polylangLinks, 'rewrite_rules'], 10, 1);
         foreach ($polylangTypes as $type) {

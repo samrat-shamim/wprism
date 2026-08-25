@@ -239,6 +239,20 @@ final class NativeRewriteEffects {
         return false;
     }
 
+    /** @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $records */
+    private static function contains_class_method_callback(array $records, string $class, string $method): bool {
+        foreach ($records as [, $record]) {
+            $callback = $record['function'];
+            if (is_array($callback)
+                && is_object($callback[0] ?? null)
+                && get_class($callback[0]) === $class
+                && ($callback[1] ?? null) === $method) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** @return list<string> */
     private static function dynamic_rewrite_hooks_for_class(string $class): array {
         global $wp_filter;
@@ -252,7 +266,11 @@ final class NativeRewriteEffects {
         foreach (array_keys($wp_filter) as $hookName) {
             if (!is_string($hookName)
                 || preg_match('/\A[a-z0-9_-]{1,64}_rewrite_rules\z/D', $hookName) !== 1
-                || !self::contains_class_callback(self::hook_records($hookName), $class)) {
+                || !self::contains_class_method_callback(
+                    self::hook_records($hookName),
+                    $class,
+                    'rewrite_rules'
+                )) {
                 continue;
             }
             $hooks[] = $hookName;
