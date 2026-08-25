@@ -30,7 +30,9 @@ manifest cannot certify itself merely by existing beside the agent`. See
 ```
 manifests/
   <name>.json                        # the manifest; basename is the pin name
-  dispositions.json                  # the reviewed support boundary; NOT a manifest
+  dispositions/<name>.json           # one adapter's reviewed support boundary;
+                                     #   NOT a manifest
+  dispositions/profiles.json         # the reviewed profiles map
   interpreters/<name>.php            # \Duo\Interpreters\<Name>
   regenerators/<name>.php            # \Duo\Regenerators\<Name>
   providers/<id>.php                 # \Duo\Providers\<Id>
@@ -41,10 +43,11 @@ manifests/
 ```
 
 Both files under `capabilities/` are hand-authored and reviewed, not generated.
-`platform.json` is the object a site-adapter certificate signs as
-`platform_sha256`, so it has exactly one on-disk representation; the agent
-refuses at load time if its `agent_version`/`spec_version` disagree with the
-running `DUO_AGENT_VERSION`/`DUO_SPEC_VERSION`.
+`platform.json` is the object a site-adapter certificate reads its bound
+compatibility cells out of (§ v3.6), so it has exactly one on-disk
+representation; the agent refuses at load time if its
+`agent_version`/`spec_version` disagree with the running
+`DUO_AGENT_VERSION`/`DUO_SPEC_VERSION`.
 
 Four rules that will bite you if you learn them the hard way:
 
@@ -65,8 +68,12 @@ Four rules that will bite you if you learn them the hard way:
   The same sentence refuses a site-installed adapter (see below), and
   `duo manifest-validate <dir>` reports it per manifest offline, before any
   target is contacted.
-- **`dispositions.json` is excluded from manifest globbing.** It is reviewed
-  data *about* manifests, not a manifest.
+- **`dispositions/` is not matched by manifest globbing.** It is reviewed data
+  *about* manifests, not a manifest. A leftover `dispositions.json` beside it —
+  the pre-WP-4.4 monolith — refuses the load by name rather than being ignored:
+  ratification bytes nothing reads are the failure mode this library refuses
+  everywhere else. Inside the directory, a file not named for a canonical
+  adapter slug refuses too, and `profiles` is reserved for the profiles map.
 - **A regression fixture is marked by its disposition, not by its name.** Give
   it `"status": "excluded"` and the generated document prints it as shipping
   "for regression use only" and carrying no product claim; the projected claim
@@ -143,8 +150,14 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
 }
 ```
 
-- `spec_version` must equal the engine's own `DUO_SPEC_VERSION` **exactly**.
-  Absent and declared-wrong are the same failure, both refused at load.
+- `spec_version` must be inside the engine's acceptance window — its own
+  `DUO_SPEC_VERSION` (**N**) or the one before it (**N-1**), and nothing deeper
+  (`spec/repo-format.md` § v3.1). An integer outside the window refuses at load
+  and names the window; an ABSENT or non-integer value is a different failure
+  with its own message, because it is not a version at all. Declare N unless you
+  are deliberately staging an older manifest across an engine move. Ask the
+  engine rather than guessing: `duo manifest-validate --emit-schema` prints the
+  accepted set in `spec_window`, measured from the shipped refusal.
 - `plugin` is the plugin basename; `version_range` is `{min, max}` with min
   inclusive and max exclusive, checked with two `version_compare()` calls. One
   plugin per manifest. Declaring a plugin without a well-formed range is
@@ -156,6 +169,78 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
   names what was verified live, against which version, through which code
   path. That is the standard. A rule without an evidence note is a guess with
   better formatting.
+
+### Finding the two versions the range names
+
+The refusal above is permanent, so the cost it creates recurs forever: somebody
+has to establish which releases actually work. `duo adapter boundary` bisects
+that in O(log releases) instead of by trying versions until one sticks.
+
+```bash
+duo adapter boundary \
+  --releases=sandbox/conformance/boundary/<slug>.releases.json \
+  --outcomes=sandbox/conformance/boundary/<slug>.outcomes.json \
+  --anchor=<a version you already believe works> \
+  --manifest=<name> --format=json
+```
+
+The candidate set is a **recorded** `duo-adapter-release-list/v1` document
+carrying every release's exact URL and sha256 (see
+[`sandbox/conformance/boundary/README.md`](../../sandbox/conformance/boundary/README.md)).
+Nothing on this path reaches the network, and an unpinned candidate is refused
+rather than fetched — the same discipline `artifacts.lock.json` already holds.
+
+One probe is a full pair round-trip, so the command is a planner: exit 3 names
+the one release to probe next, exit 0 emits the finished document, and
+`sandbox/bin/adapter-boundary.sh` is the loop that runs the probes in between,
+using the very same `sandbox/tests/certify/matrix.d/<slug>.sh` seed hook the
+certify version matrix uses. Outcomes are `green`, `boot-fatal`,
+`round-trip-diverges` or `artifact-unresolved`; the last blocks the search
+instead of counting as a failing release, because a mirror outage is not
+evidence about a plugin.
+
+**It never edits a manifest, and it is not trying to.** What it produces is the
+sentence a reviewer needs — "6.0.0 installs, round-trips and recaptures
+byte-identically; 5.12.6 fatals with this signature" — plus
+`artifacts.lock.json` rows in that file's own three-role vocabulary. Writing the
+range, and restating it in `manifests/dispositions/<name>.json` so the two stay
+Canon-byte-equal, remains one reviewed human edit; every proposed endpoint is a
+release that probed green, and a recorded failure inside the proposed window
+blocks the proposal rather than narrowing it by guess.
+
+### Keeping the range true after upstream ships
+
+The range you found is a claim with an expiry date nobody writes down. `duo
+adapter proposals` is the scheduled job that reads it out of the evidence
+instead:
+
+```bash
+duo adapter proposals --ledger=sandbox/conformance/boundary --format=json > health.json
+duo census --dir=<inventories> --health=health.json
+```
+
+It re-runs the bisection above for **every** pinned plugin that has a recorded
+ledger, deriving each adapter's anchor from its own newest green probe rather
+than from a flag, and emits two things.
+
+The first is a proposed range bump as **both** edits — `version_range` in the
+manifest and `supported_versions` in `manifests/dispositions/<name>.json` — built from
+one value, so they agree on the canonical bytes
+`ManifestDispositions::validate_entry()` compares. It is a review packet, never
+a commit: a byte under `manifests/` is adapter identity, so a job that widened a
+range on a schedule would refuse every deployed site holding a compiled
+artifact. `max` moves only as far as the next **recorded** release after the
+evidenced ceiling — exclusive, so it admits nothing unprobed — and a bisection
+that never reached green is refused rather than proposed, as is a range that
+would contain a release the record says fails.
+
+The second is a derived `last_verified` per adapter: the newest release that
+probed green, the same shape `manifests/capabilities/platform.json` uses per
+axis. It lives **outside** `manifests/` on purpose — stored beside a manifest it
+would move every adapter digest on every re-verification — and it cannot be
+hand-asserted: a ledger document carrying its own `last_verified` is refused.
+`duo census --health=` ranks those rows beside the demand rank, by sites pinning
+an adapter times releases it is behind.
 
 ### The caveat that catches everyone
 
@@ -206,6 +291,48 @@ fixture, not a reusable WPForms capability claim. The adversarial review in
 [the limitation ledger](adapter-authoring-limitations.md#wpforms-lite-2004--2005)
 found local ids inside the form body and block attributes that the fixture does
 not migrate. Do not copy that deletion declaration into a product adapter.
+
+#### Can each guard actually lock?
+
+A guard is only worth what its lock boundary is worth. Before the delete, the
+engine re-reads every guard under `SELECT … FOR UPDATE` behind
+`FORCE INDEX (<index>)`, and it resolves that index from the guard's first
+equality column against live `SHOW INDEX`. When no index leads with that
+column — or a prefix index is too narrow to cover a declared metadata key —
+there is no index to force, InnoDB cannot take the next-key/gap locks that
+close concurrent reverse-reference insertion, and the whole deletion refuses:
+`guard table 'X' has no complete indexed lock boundary for Y`. Plugin schemas
+routinely ship the reverse-reference column unindexed, so this is not a corner
+case; it is the first thing to check about a deletion contract you are about to
+write.
+
+`wp duo adapter-deletion-feasibility` runs that identical computation on the
+target, over a proposal nothing has declared yet:
+
+```sh
+cat > proposal.json <<'JSON'
+{"table:nf3_forms": {"guards": [
+  {"table": "nf3_actions", "column": "parent_id", "id_kind": "nf3_form", "reason": "actions reference this form"},
+  {"table": "nf3_fields",  "column": "parent_id", "id_kind": "nf3_form", "reason": "fields reference this form"}
+]}}
+JSON
+wp duo adapter-deletion-feasibility --proposal=proposal.json
+```
+
+Each guard answers with the covering index name, or `null` plus the reason —
+`no index leads with this column`, or `prefix index of N bytes cannot cover a
+declared key of M`. That null is the engine's own verdict, not a second
+opinion: the report publishes `DeleteGuardEvaluator::lock_index()`'s return
+value and refuses to print an explanation that disagrees with it.
+
+The proposal is deliberately *not* a manifest fragment. It carries no
+`cascades` — the report refuses one by name — proposes nothing, and declares
+`authority: false`, because a covering index is a necessary condition for a
+deletion contract and never a sufficient one. The example above is Ninja Forms,
+and its shipped `parent_id` columns are unindexed: the honest conclusion is the
+one `manifests/ninja-forms.json` records, that Duo does not advertise
+`table:nf3_forms` deletion. Deciding that is your job. The report only makes
+sure you are deciding it before an operator meets it.
 
 ## Precedence, in one sentence each
 
@@ -311,6 +438,23 @@ strength of a **value-level readback**. Command-success-only verification is
 refused — an exit code is not evidence that derived state was repaired. A
 successful native action surfaces in apply's output as
 `native action fired: <action> (verified)`.
+
+`verified: true` is not taken on your word where the engine can check it. Around
+your call it reads, itself, every surface you declared that it has a complete
+bounded reader for — `option:<name>` today, because that is the only one of the
+five surface kinds naming an extent that can be witnessed both completely and
+without scanning a core table twice per apply — and compares the two readings.
+Two things then refuse: a receipt whose `before !== after` when **every**
+declared `writes` surface is observable and **none** of them moved, and a
+surface you declared under `reads` that moved across the call (declare it under
+`writes` if your capability writes it). Neither can displace the malformed,
+unverified, or over-budget refusals; all three are decided first. A capability
+whose declared surfaces the engine cannot read — anything `table:`, `post:`,
+`term:` or `entity:` — is never refused for this: the gap is the reader's, and
+negotiation publishes it under `surface_observation` before apply mutates
+anything, rather than discovering it mid-write. The cost is one checked read per
+observable surface per pass, two passes per invocation, and exactly zero for a
+capability that declared none.
 
 Your `before`/`after` are **public output** — they reach `wp duo apply
 --format=json` — so the engine publishes a bounded projection of them rather
@@ -500,28 +644,36 @@ the code, then re-run without the flag from a directory you trust.
 
 ### `--site`, and why leaving it off can refuse a valid manifest
 
-Two of the guards above are not functions of the manifests alone. They read the
-SITE half of policy as input:
+Three of the guards above are not functions of the manifests alone. They read
+the SITE half of policy as input:
 
 - a table declared in `site.duo.json`'s `policy.tables` extends the legal
   ref/token/ledger **kind vocabulary** exactly as a manifest-declared one does,
   so `"ref": "my_site_thing"` is legal on that site and nowhere else;
 - a `policy.options.<name>` rule is the ratified **resolution** when two
   manifests declare one option name differently — the guard skips a name the
-  site has already decided.
+  site has already decided;
+- a `policy.adapter_claims` row is the operator's **resolution** when two
+  pinned manifests claim the same `plugin` (or the same `theme`) with different
+  ranges (spec/repo-format.md § v3.13). It names which claim is IN FORCE; the
+  displaced claimant's manifest still loads with every other declaration it
+  makes intact, and `duo plan` warns which claim was displaced on every run.
+  Without such a row the collision still refuses, exactly as it always did —
+  the resolution is opt-in, and it resolves the claim it names and nothing
+  else.
 
-Run without `--site`, this command loads with no site policy at all, so either
-guard can refuse a manifest its real site accepts — and the second one's
+Run without `--site`, this command loads with no site policy at all, so any of
+the three can refuse a manifest its real site accepts — and the option one's
 remediation ("add an explicit `site.duo.json` policy.options override") is
 advice to add something you may already have. Point `--site` at your duo site
-repo (the directory holding `site.duo.json`) and both guards get their real
-input:
+repo (the directory holding `site.duo.json`) and all three guards get their
+real input:
 
 ```sh
 duo manifest-validate manifests/ --site=/path/to/site-repo
 ```
 
-Without it, a refusal from either guard is **annotated**, never rewritten — the
+Without it, a refusal from any of the three is **annotated**, never rewritten — the
 engine's message is printed exactly as it stands, followed by a note saying the
 refusal may be resolvable by a `site.duo.json` this run was not given. The
 missing site half is also a permanent entry in the deferred list below, so it is
@@ -580,8 +732,43 @@ duo manifest-validate --emit-schema
 ```
 
 prints the closed vocabularies, bounded patterns, and native-action argument
-schemas as one versioned JSON document (`duo-manifest-grammar/v1`) — the raw
+schemas as one versioned JSON document (`duo-manifest-grammar/v2`) — the raw
 material for editor completion, a schema-aware linter, or a review checklist.
+
+v2 adds two blocks v1 could not answer, both derived the same way as the rest.
+`spec_window` is which `spec_version` integers this engine ACCEPTS, measured by
+handing each candidate to the real `validate_adapter_contract()` rather than by
+restating its condition, so a widened or narrowed window shows up here with no
+edit to the emitter. Read it before you pick a `spec_version`: the engine
+accepts N and N-1 (`spec/repo-format.md` § v3.1), an integer outside that window
+refuses wholesale and names the window, and an ABSENT or non-integer
+`spec_version` gets its own separate refusal — it is not a version, so it is not
+outside anything. Declaring a section this engine implements only at a HIGHER
+version refuses by SECTION NAME, which is how a format change stages one adapter
+at a time instead of arriving as a flag day; the top-level `engine_features`
+list (§ v3.2) is the first such section, and a name in it that no engine
+implements is refused as unimplemented rather than admitted as forward-looking.
+Two features exist today. `spec-window/v1` claims `engine_features` itself, so
+declaring it is what lets you declare the list at all. `structured-evidence/v1`
+claims `declaration_evidence` (`spec/repo-format.md` § v3.14) — an object keyed
+by TARGET, each record `{"evidence": [{source, locator, observation}, …]}` and
+optionally `{"answered": [{question, answer}, …]}`, with every member a
+non-empty string and every target's HEAD a top-level key the same manifest
+declares. It is where a ratified `duo adapter-draft` proposal's evidence goes
+instead of being deleted with the `_draft` sidecar; `notes` is unaffected and
+keeps whatever it already carries. Two things to know before adopting it: an
+adapter that declares any engine feature is not certifiable today (§ v3.3 — a
+feature-claimed key has no arm in the signer's partition, so `duo adapter
+certify` refuses it by name), and a record whose addressed declaration is later
+deleted refuses at load, which is the point.
+`top_level_keys` is the signer's own closed partition of
+manifest top-level keys — the set that decides whether an adapter can be
+certified at all — published with the one fact an author most needs about it:
+it refuses at signing (`enforced_by`) and the manifest validator does not
+consult it (`not_enforced_by`), so an invented or transposed section name loads
+`ok` here and is unsignable later. Closing that gap is spec v3's V3-KEYS rule
+(`spec/repo-format.md` § v3.3); until it lands, treat `top_level_keys.all` as
+the list to check a new section name against by hand.
 
 Every set in it is read out of the engine at emission time, never written down
 in the emitter. That is the only property that makes it worth trusting: a
@@ -633,6 +820,35 @@ plugin faithfully.
 7. Mutate the proposed manifest in tests: remove a ref, broaden a namespace,
    switch a runtime field to authored, and create a conflicting second owner.
    Each false claim must fail for the reason the production path would fail.
+
+### Getting the harness those tests need
+
+The archive `duo adopt` sends a site is exactly `agent manifests recovery`, so
+none of Duo's own test estate reaches you. Rather than reinvent it, assemble
+the adapter test kit out of a Duo checkout:
+
+```sh
+php tools/adapter-kit.php --assemble=/path/to/kit --adapter=my-forms
+php /path/to/kit/skeleton/regress_my_forms_kit.php
+```
+
+That second command's whole dependency list is `php` — no composer, no
+WordPress, no database. The kit carries `check.php` (assertions, the summary
+line, the suite exit code), `wp_stubs.php` (seedable WordPress function stubs),
+`FakeWpdb.php`, `frozen_policy.php`, and the manifest-agnostic conformance
+harness `run.sh`/`asserts.sh`, plus a generated skeleton to edit into your own
+suite. `MANIFEST.json` records the sha256 of every file so you can tell which
+revision of the harness you received.
+
+Take `FakeWpdb` in particular even if you keep nothing else. It holds rows and
+interprets your SQL against them, and any statement it cannot interpret throws
+`\LogicException` naming that statement. A hand-rolled fake answers `null`
+instead, which pushes your suite down a "no row" branch your real database
+never takes — every assertion after that point is green for the wrong reason.
+
+The kit is assembled from the live files on every run and never stored as a
+second copy, so re-assemble from a newer checkout rather than patching a file
+inside a kit you already have.
 
 For shortcode identities, test the callback's actual lookup rather than the
 shape of its example markup. Ordinary numeric attributes use a named
@@ -783,11 +999,44 @@ repository. What `runtime` buys is honest: the surface becomes *declared and
 excluded* instead of reading `unclassified / block` in assess. Promote the
 parts that really are authored configuration by hand — and then their columns,
 primary key and identity are live facts an offline draft cannot supply, which
-is what each candidate's `questions` say.
+is what each candidate's named `questions` say — and what `wp duo
+adapter-probe` answers, below.
+
+#### Answering the draft's live questions
+
+The questions a candidate carries are **named** — `[table_schema]`,
+`[natural_key_uniqueness]`, `[lock_index]`, `[foreign_keys]`, `[eav_twin]` —
+because one command can answer them. `wp duo adapter-probe` runs on the target
+and reports, per table, the real PRIMARY KEY, every column's MySQL type and
+nullability, unique keys, per-column index coverage in the deletion guard's own
+terms, declared foreign keys, an EAV twin, and natural-key uniqueness as one
+`COUNT(*)` vs `COUNT(DISTINCT …)`:
+
+```sh
+wp duo adapter-probe --tables=wpforms_tasks_meta,wpforms_payments \
+  --natural-keys=wpforms_payments.transaction_id --format=json > probe.json
+duo adapter-draft <site-repo> --name=wpforms --evidence=probe.json \
+  --out=<site-repo>/adapters/wpforms.json --force
+```
+
+Each fact lands as an `evidence[]` row at confidence 1.0 naming the question it
+closes, and **nothing else moves**. If the live PRIMARY KEY is not the column
+the offline proposer guessed, the guess still stands in the fragment and the
+disagreement is stated beside it — the probe declares `authority: false`, and
+`adapter-draft` refuses any document carrying a word outside the closed probe
+vocabulary, so it cannot classify anything on your behalf. Read the rows, then
+ratify by hand. The document never carries a row value: enum/set member lists
+are reduced to their base type word for the same reason.
 
 Everything under `_draft` is inert: `Policy::load()` never applies a proposal,
 and the trigger keys are renamed so no validator mis-collects one. Ratify by
 hand, delete the rest, then `duo adapter inspect <name> --repo=<site-repo>`.
+Deleting it is not tidiness. `_draft` is in no arm of the signer's top-level key
+partition, so a manifest still carrying it cannot be certified at any spec
+version, and at `spec_version: 3` it is refused at load by name with "strip the
+`_draft` key before install" (spec/repo-format.md § v3.3). Nothing is lost by
+removing it — `duo manifest-validate` reports the sidecar's facts, proposals and
+unsupported counts on every run.
 `--out` refuses to overwrite an existing draft without `--force`, because that
 file holds your ratifications; re-running with `--force` is safe, since human
 edits in the prior draft are carried forward.
@@ -828,6 +1077,19 @@ are plan-time signals, not proof of corruption; each carries its own caveat
 note, because small ids legitimately coincide with counts, versions, and
 ordering indexes.
 
+**A finding on state your out-of-tree adapter declared blocks capture.** For a
+shipped or certified adapter every finding stays the advisory warning it always
+was; for an adapter installed out-of-tree that nothing has certified — including
+one whose certification was withdrawn, and one whose valid signature the
+repository has not yet pinned — `duo capture` refuses with
+`uncertified_adapter_lint_findings` and names each locator and the adapter that
+declared it. Two ways forward, and no third: declare the reference so capture
+tokenizes it, or write the reviewed `lint_ok: true` on that declaration. A
+`proposed_lint_ok` finding (the type-derived proposal `wp duo lint
+--evidence=<probe.json>` emits) does **not** clear the gate on its own — it is
+the evidence for the review, and `lint_ok` is the review. Certifying the adapter
+returns its findings to advisory.
+
 An experimental adapter that deliberately excludes `apply` uses the narrower
 `mode: "capture-plan"` conformance profile instead. It still boots a fresh
 exact-artifact pair, authors state through the plugin's own APIs, runs capture,
@@ -847,8 +1109,10 @@ finding behind every assertion, and the manifests those rounds produced
 
 ## Dispositions: the reviewed claim source
 
-`manifests/dispositions.json` (`duo-manifest-dispositions/v1`) is separate from
-every manifest **so that declaration cannot imply certification**. It is
+`manifests/dispositions/` (`duo-manifest-dispositions/v1`) is separate from
+every manifest **so that declaration cannot imply certification**. Each adapter
+owns one document, `manifests/dispositions/<name>.json`, holding its entry
+verbatim; `manifests/dispositions/profiles.json` holds the profiles map. It is
 hand-authored and reviewed, and it is the *only* authored source of a product
 capability claim: `ManifestDispositions::claim_from_disposition()` projects the
 claim, `AdapterRegistry` evaluates that projection against a live target, and
@@ -856,18 +1120,31 @@ claim, `AdapterRegistry` evaluates that projection against a live target, and
 [docs/capabilities.md](../capabilities.md). There is no second, generated
 document for it to agree with.
 
-Coverage is an **exact one-for-one set**, in both directions. A manifest with
-no entry, or an entry with no manifest, is a loud load failure naming both
-sides:
+Coverage is an **exact one-for-one set**, in both directions, and it is proved
+in two places for two different questions.
+
+At runtime the question is about the adapters a repository actually **pins**:
+every pinned shipped manifest must have a reviewed entry, or the load refuses,
+naming the pin:
 
 ```
-duo: manifest disposition coverage mismatch; missing=[<manifest with no entry>], extra=[<entry with no manifest>]
+duo: manifest disposition coverage mismatch; missing=[<pinned manifest with no entry>], extra=[]
+```
+
+At authoring time the question is about the **library**: `make release-gate`
+(`capability-doc.php --check`) compares the shipped manifest set against the
+reviewed set both ways and refuses either difference, `extra` included, before
+it renders a line of prose.
+
+```
+manifest disposition coverage mismatch; missing=[<manifest with no entry>], extra=[<entry with no manifest>]
 ```
 
 So shipping `manifests/<name>.json` without adding its entry does not produce
-an unreviewed adapter — it produces an agent that refuses to load a policy at
-all, and a red `make release-gate` (`capability-doc.php --check` enforces the
-same rule so the document cannot describe a library the agent would reject).
+an unreviewed adapter. It produces a red `make release-gate`, and an agent that
+refuses the moment anything pins that name — while every adapter beside it
+keeps loading, which is the point of scoping the runtime half: one unreviewed
+file in the library is not grounds for refusing an unrelated, reviewed pin.
 
 ### What each status means now
 
@@ -905,7 +1182,7 @@ file.
 1. **Write the manifest** at `manifests/<name>.json`. `php cli/duo
    manifest-validate manifests --manifest=<name>` runs the engine's real
    validators over it offline, with no WordPress and no environment.
-2. **Add the reviewed entry** to `manifests/dispositions.json`, with a
+2. **Add the reviewed entry** at `manifests/dispositions/<name>.json`, with a
    `reason` a human wrote. Coverage is exact, so this is not optional
    bookkeeping — see the refusal above.
 3. **Add the conformance checks.** Add
@@ -937,8 +1214,8 @@ file.
    never restate their rows in prose — a hand-copied claim is exactly the
    failure mode the generator exists to prevent.
 
-A profile (`fse` is the shipped one) follows the same shape under
-`dispositions.json`'s `profiles` key, with its own conformance entry.
+A profile (`fse` is the shipped one) follows the same shape inside
+`dispositions/profiles.json`, with its own conformance entry.
 
 **A shipped manifest is a shipped byte sequence.** Before you edit an existing
 one, read [the identity warning above](#editing-a-shipped-manifest-moves-its-identity):
@@ -956,16 +1233,21 @@ own key:
 
 ```sh
 duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
-duo adapter certify <site-repo> --name=<n> --secret-key-file=<f> [--key-id=<id>] [--reason=<text>] [--pin [--adopt-scope]]
+duo adapter certify <site-repo> --name=<n> --secret-key-file=<f> [--key-id=<id>] [--reason=<text>] [--ratification-file=<f>] [--pin [--adopt-scope]]
 duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
+duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
 ```
 
-`certify` binds the signed statement to `manifests/capabilities/platform.json`
-— the shipped platform boundary, folded in as `platform_sha256` over its exact
-bytes. That pin is re-checked on every load, so a certificate cut against an
-older boundary refuses by name once the shipped file moves: `duo: site adapter
-'<name>' certification platform boundary disagrees with the current agent-owned
-platform`. Re-sign with `duo adapter certify … --pin`.
+`certify` binds the signed statement to the compatibility CELLS
+`manifests/capabilities/platform.json` states — `spec_version`, `site_mode`, and
+per axis the exercised cell names plus a digest of what each admits (§ v3.6). It
+also RECORDS the shipped `agent_version` inside the signature without binding
+it, so an agent release that moves no exercised cell leaves the certificate
+valid. That binding is re-checked on every load, so a certificate whose cells
+the boundary has dropped or now states differently refuses by name: `duo: site
+adapter '<name>' certification was exercised against '<axis>' cell '<cell>',
+which the agent-owned platform boundary no longer carries`. Re-sign with
+`duo adapter certify … --pin`, which mints the current wire generation.
 
 **Be exact about what a site certificate attests.** It says two things, and the
 bundle records that rather than leaving it to be assumed: *this organization's
@@ -1091,10 +1373,131 @@ identically (DUO-3504; before it, the first read `Platform-certified`).
 drops back to uncertified. Re-run `duo adapter certify … --pin` after every
 edit. That is the mechanism working, not a bug to route around.
 
+**An agent upgrade can withdraw the claim, and only the claim.** The signed
+statement also binds the agent's own platform boundary
+(`manifests/capabilities/platform.json`) and the certificate wire version, and
+both move on an ordinary agent upgrade. When either no longer matches, that one
+adapter drops back to uncertified with a reason naming what moved — "its signed
+certification binds an agent platform boundary this agent no longer publishes"
+— and every other adapter the site pins, shipped ones included, keeps loading
+untouched. The remedy is the same one line: re-run `duo adapter certify …
+--pin`, which is runnable in exactly that state. A companion that fails for any
+other reason — a bad signature, an authority this agent does not trust, a wrong
+binding, a file that is not a certificate — still refuses the whole
+`adapters/` source, because none of those is the agent having moved.
+
+Note the asymmetry between those two withdrawals, because it is a real one. The
+platform-boundary withdrawal happens only after the agent has verified the
+signature, the authority and the binding, so only a genuine certificate can
+reach it. The wire-version withdrawal cannot: the root `format` field sits
+outside the bytes the signature covers, and a statement written on a wire this
+agent cannot parse is a statement it cannot verify a signature over. So anyone
+who can write `adapters/certification/<name>.json` can put that adapter into the
+uncertified state by editing the `format` of an otherwise valid certificate. It
+takes nothing away that deleting the companion file would not — the destination
+is uncertified support either way, and no certified claim is ever granted by it
+— but it means a wire-version withdrawal is a report about a file, not a proof
+about a signer. If you see one on a site you did not upgrade, treat the
+companion as edited and look at it, rather than assuming the agent moved.
+
+**A third withdrawal: the authority itself.** The same one-adapter degradation
+covers the key that signed. If that key's validity window has lapsed — or if the
+platform-signed revocation document names its key material — the adapter drops
+back to uncertified with a reason naming the authority ("the authority that
+signed its certification is revoked", or "…is outside its own validity window on
+this host"), and every other adapter the site pins keeps loading. It is
+deliberately not a refusal: an expiry date arriving, or an incident response
+burning a key, must not be the thing that takes a site's commands away. Re-sign
+under a key that may still certify. This withdrawal sits between the other two
+on the authenticity scale: the agent has proved the named key, its fingerprint
+and its identity record against the current trust root before it can be raised,
+but it has not yet checked the signature — a key that may not certify is not
+asked to sign. Treat it the way you treat the wire-version case: a report about
+a file, and worth looking at the file.
+
+**The revocation channel is inert until a key is enrolled, and it says so.** The
+agent ships `manifests/capabilities/adapter-authorities.json` as an empty
+registry, so on a stock agent no key exists that could have signed a revocation
+document. Installing one anyway is not fatal: the document is REPORTED — `duo
+adapter doctor` and `wp duo adapter-survey` print "the document is installed and
+its entries do NOT apply: this channel is inert until a key that signs it is
+enrolled in the shipped trust root" and exit 1 — and nothing is revoked by it. A
+document whose signer IS enrolled and does not verify is a different thing
+entirely and still refuses. If you are running an incident response through this
+channel, check for that row first: an inert document looks exactly like a
+working one from the outside.
+
+**Revoking a delegator does not reach promoted sites.** A revocation of the
+PLATFORM key that delegated to a vendor invalidates that vendor's grant on every
+live scan at once — but a promoted site verifies its certificates from a frozen
+snapshot, which holds no repository and therefore reads no
+`adapters/delegations.json`. To reach those, revoke the DELEGATE's own
+fingerprint. Revoking only the delegator will look like it worked everywhere you
+can see and will not have.
+
+**Re-adopting an agent erases an installed revocation document.** The document
+lives in the agent's manifest library, which is what `duo adopt` replaces — and
+absence means "nothing is revoked", so the erasure is silent. Re-install it after
+an adopt, or point `DUO_MANIFESTS_DIR` at a library the adoption tar does not
+overwrite.
+
 **Key custody is yours.** A lost key cannot re-sign. A leaked key can certify
 any adapter in a repository whose `adapters/authorities.json` names it. Back it
 up where you back up deploy keys; production-grade custody (HSMs, rotation,
 revocation workflow) is out of scope for this profile.
+
+### Adopting an adapter's scope across a fleet
+
+The opt-in above rides on the pin, which is right for the site that *authored*
+the adapter and wrong for the fleet that consumes it: adding one adapter to N
+sites meant N hand edits of `site.duo.json`. `adopt-scope` is that same opt-in
+over a repository **set**:
+
+```sh
+duo adapter adopt-scope ~/sites/acme ~/sites/beta ~/sites/gamma --name=acme-catalog --dry-run
+duo adapter adopt-scope ~/sites/acme ~/sites/beta ~/sites/gamma --name=acme-catalog
+```
+
+```
+adapter:    acme-catalog
+repos:      3
+
+/Users/you/sites/acme
+  + policy.scope.post_type.acme_item = {"class": "authored"}
+
+/Users/you/sites/beta
+  ! policy.scope.post_type.acme_item = {"class": "runtime"} — capture will skip post_type acme_item
+
+/Users/you/sites/gamma
+  = every surface this adapter declares is already in site.duo.json's authored scope
+
+adopted:    1 repo(s), 1 authored scope rule(s)
+settled:    1 repo(s) had already decided every surface
+shadowed:   1 repo(s) record a decision this command never overwrites — a recorded site rule outranks every manifest
+  to override one, per site: duo adapter pin <site-repo> --name=acme-catalog --adopt-scope
+```
+
+It writes the same `{"class":"authored"}` node through the same writer the pin
+uses, so a repository it touches is byte-identical to one the single-repo verb
+adopted. Four properties are worth knowing before you point it at a fleet:
+
+- **Scope follows the pin.** Every repository must already resolve the
+  adapter; one that does not refuses the *whole* set, unwritten, naming the
+  repositories and the `duo adapter pin` that fixes each. Writing scope for an
+  adapter a site never pinned would opt it into types nothing can classify.
+- **Write-only-where-absent is unchanged.** A class a site recorded is
+  printed and left alone. `--adopt-scope` is refused here on purpose:
+  overriding a recorded decision is a per-site reviewed act, and one flag that
+  flipped it across a fleet is exactly the multiplied consequence this verb
+  exists to avoid.
+- **Per-repository atomic.** Each `site.duo.json` is written whole through the
+  same `tempnam`+`rename` the certificate and the pin use. A failure stops the
+  walk and reports which repositories were adopted and which were untouched —
+  every one of them is one or the other, never half-written.
+- **Idempotent.** Re-running is the remedy for any partial run, and a second
+  run over an adopted set writes no rule and no byte.
+
+`--dry-run` reports the same plan and writes nothing.
 
 ### Promoting a plugin-bundled adapter
 
@@ -1208,6 +1611,56 @@ no `delete` operation, no lifecycle phases, every intent-only table marked
 unsupported, and every open-ended `default_class: authored` keyspace recorded
 `unsupported` rather than justified. The full wire contract is
 [docs/adapter-walk-bundle.md](../adapter-walk-bundle.md).
+
+**If you reviewed more than that, say so in your own words:
+`--ratification-file`.** The derivation is a floor, not a ceiling. It writes one
+canned sentence on every refusal and leaves `--reason` as your only input, so a
+site that genuinely reviewed its adapter's deletion semantics signed the same
+document as one that reviewed nothing. Pass `--ratification-file=<file>` and
+`certify` signs the disposition **you** wrote — one entry, in the exact shape
+`manifests/dispositions/<name>.json` carries:
+
+```json
+{
+  "capabilities": {
+    "deletion_semantics": {"supported": ["post_types.acme_entry"], "unsupported": ["tables.acme_ledger_index"]},
+    "entity_sections": ["post_types", "tables"],
+    "field_sections": ["option_namespaces", "options", "post_meta"],
+    "lifecycle_phases": ["activate", "retire"],
+    "operations": ["apply", "capture", "compile", "delete", "deploy", "plan", "recapture"]
+  },
+  "default_authored_keyspaces": [
+    {"table": "acme_ledger_index", "status": "justified", "reason": "<what your review checked, and against which versions>"}
+  ],
+  "evidence": {"bundle_schema": "duo-site-adapter-certification-bundle/v1", "tests": []},
+  "reason": "<what this organization reviewed, and how>",
+  "status": "certified",
+  "supported_versions": {"plugin": "acme-ledger/acme-ledger.php", "range": {"max": "3.0.0", "min": "1.0.0"}},
+  "unsupported": [
+    {"surface": "tables.acme_ledger_intent", "operation": "apply", "reason": "<why this one is not covered>"}
+  ]
+}
+```
+
+The engine judges it with the **same validator it applies to its own reviewed
+library** — nothing on that path knows or asks who wrote the bytes. So it wants
+a separate non-empty reason on every `unsupported[]` row and every
+`default_authored_keyspaces[]` row; it refuses a section your manifest does not
+declare, an intent-only table you did not mark unsupported, a version range your
+manifest does not carry, a cited test the bundle does not hold, and an entry
+that refuses nothing at all. One further rule belongs to this profile: name
+**every** surface your manifest declares, under the arm the engine classifies it
+in. Narrow a claim with an `unsupported[]` row and its reason, which a reader can
+weigh — never by leaving a surface out, which no reader can see.
+
+What does not change: the bundle still records `exercised: false`, `tests` is
+still empty, and the claim still reads `Site-certified`. An authored entry is a
+stronger *argument*, never evidence of a run. And because `duo adapter recertify`
+DERIVES, it reports an authored certificate as a `blocked` row rather than
+replacing your claim with the floor — re-sign that one with
+`duo adapter certify … --ratification-file=<your file>`, so keep the file beside
+the repository. The rider is
+[spec/repo-format.md § v3.17](../../spec/repo-format.md).
 
 Every catalog and diagnostic row carries `trust_root` (`platform` for a shipped
 row, `site` or `platform` for a signed out-of-tree one, `null` when nothing
@@ -1350,15 +1803,45 @@ core-owned operations, **providers** for plugin-owned ones, **regenerators**
 for per-entity derived rebuild, **interpreters** for schema-driven
 classification. What is still missing sits above them.
 
-**REMOTE adapter discovery, executable adapter packages, compatibility shims,
-and a public capability catalog** are **Planned**. Site-repository discovery,
-plugin-bundled discovery, packaged installation (into the site source, with a
-signed certificate), derived trust tiers, loud unsigned support, and
-agent-authority signed evidence all ship now. What remains absent is a
-remote/registry mechanism that tells you an adapter you do not already have
-EXISTS, and any way for an out-of-tree adapter to introduce executable code
-outside an installed plugin; do not work around that boundary with manifest
-fields or copied PHP.
+**Executable adapter packages, compatibility shims, and a public capability
+catalog** are **Planned**. Site-repository discovery, plugin-bundled discovery,
+packaged installation (into the site source, with a signed certificate),
+derived trust tiers, loud unsigned support, agent-authority signed evidence,
+and — since WP-5.6 — **remote discovery and distribution** all ship now. What
+remains absent is any way for an out-of-tree adapter to introduce executable
+code outside an installed plugin; do not work around that boundary with
+manifest fields or copied PHP.
+
+**Remote discovery and distribution: what shipped, and what did not.** `duo
+adapter discover|install|update` reads a `duo-adapter-index/v1` document —
+`{adapters, format}`, each entry `{adapter_sha256, agent_versions,
+authority_fingerprint, certificate_sha256, certificate_url, url, version}` —
+and that is the mechanism that tells you an adapter you do not already have
+EXISTS. Installing one writes exactly `adapters/<name>.json` plus
+`adapters/certifications/<name>.json`, so a distributed package is not a fourth
+source: it is the site source, and everything above about pins, certificates
+and claims applies to it unchanged. Resolution never falls through — an
+unpinned version, a digest that does not match the fetched bytes, an
+unreachable URL, an out-of-window package, an unsigned or unverifiable one, or
+a signer your repository has not enrolled each refuses, and verification runs
+in a staging root so a refusal leaves your repository byte-for-byte as it found
+it. Nothing under `agent/` reads the format; installation is an operator act on
+the host, never a runtime fetch.
+
+Two boundaries inside that, stated rather than implied. **The index carries no
+signature** and confers no trust: it is a pointer document, every entry is
+digest-pinned, and every trust decision is re-derived from the fetched bytes
+against your own `adapters/authorities.json`. A tampered index can deny you a
+package; it can never install one. That means an index cannot enroll its own
+signer either — you enroll a vendor key deliberately, or the install refuses
+with `[authority_not_enrolled]`. **Exactly one transport ships, `file://`.** An
+`https://` entry is discoverable and refuses at install naming the mirror step:
+a network fetcher no offline suite can exercise is an unevidenced supply-chain
+surface in the one command whose job is to refuse unevidenced bytes. Mirror the
+two files into a directory you control and point an index at them. Adding an
+HTTPS transport is a separate reviewed decision with its own evidence, not a
+gap to be filled in. `spec/repo-format.md` § v3.19 and `docs/wire-surface.md`
+R-30 carry both decisions and what would have to be true to reverse them.
 
 What ships for the adapters you already have is the **installed-adapter
 catalog**: `duo adapter list|inspect|doctor` reports the two host-reachable

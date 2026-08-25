@@ -13,8 +13,9 @@ use Duo\RepositoryCompiler;
 use Duo\ScopeAdoption;
 
 /**
- * `duo adapter keygen | certify | pin` — the operator's own certification
- * authority for the adapters they author (round-3 T6 §3.1, §3.5).
+ * `duo adapter keygen | certify | pin | adopt-scope` — the operator's own
+ * certification authority for the adapters they author (round-3 T6 §3.1,
+ * §3.5), and the scope opt-in that follows a pin across a repository set.
  *
  * ## Why this exists
  *
@@ -47,7 +48,9 @@ use Duo\ScopeAdoption;
  * ## What this class does NOT build, and why
  *
  * It builds no certification bundle. `AdapterCertification::sign_site()`
- * does: it derives the ratification from the manifest, runs the real loader
+ * does: it derives the ratification from the manifest — or, with WP-5.3's
+ * `--ratification-file`, takes the entry the AUTHOR wrote and puts it through
+ * the identical shipped disposition validator — runs the real loader
  * for the `grammar` verdict, assembles the unexercised
  * `duo-site-adapter-certification-bundle/v1` in memory, verifies its own
  * output through the same validator that re-verifies it at every load, and
@@ -67,9 +70,14 @@ use Duo\ScopeAdoption;
  *
  * ## What this class owns
  *
- * The three mutations, and nothing else: the private key (`keygen`), the
- * site trust root and the certificate file (`certify`), and the pin
- * (`certify --pin`, `pin`). The key must be registered in
+ * The four mutations, and nothing else: the private key (`keygen`), the
+ * site trust root and the certificate file (`certify`), the pin
+ * (`certify --pin`, `pin`), and the scope opt-in that follows a pin — for one
+ * repository (`certify --pin`, `pin`) or for a repository SET
+ * (`adopt-scope`). `adopt-scope` adds no mutation KIND: it writes the same
+ * `policy.scope.<kind>.<name>` node through the same `writeScopeRules()`, so
+ * the write discipline a fleet-wide invocation runs on is the one the
+ * single-repo verbs are tested on. The key must be registered in
  * `adapters/authorities.json` BEFORE signing — that is where
  * `AdapterCertification::authority()` resolves it, and resolving under the
  * site root is what makes the result `site_signed` rather than an
@@ -80,7 +88,7 @@ use Duo\ScopeAdoption;
  */
 final class AdapterCertify {
     /** The sub-verbs this class owns; `AdapterCatalog` owns list/inspect/doctor. */
-    public const VERBS = ['keygen', 'certify', 'pin'];
+    public const VERBS = ['keygen', 'certify', 'pin', 'adopt-scope'];
 
     /** T6 §3.1: the SITE trust root, beside the adapters it is trusted for. */
     public const AUTHORITIES_RELATIVE = 'adapters/authorities.json';
@@ -108,6 +116,7 @@ final class AdapterCertify {
                 'keygen' => self::keygen($rest),
                 'certify' => self::certify($rest),
                 'pin' => self::pin($rest),
+                'adopt-scope' => self::adoptScopeBatch($rest),
                 default => self::fail("unknown subcommand '$verb'"),
             };
         } catch (\Throwable $t) {
@@ -212,12 +221,27 @@ final class AdapterCertify {
 
     /**
      * `duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
-     *  [--key-id=<id>] [--reason=<text>] [--pin] [--adopt-scope]`
+     *  [--key-id=<id>] [--reason=<text>] [--ratification-file=<f>] [--pin]
+     *  [--adopt-scope]`
+     *
+     * `--ratification-file` is WP-5.3's signing profile (spec/repo-format.md
+     * § v3.17): the disposition the AUTHOR wrote, in place of the one
+     * `sign_site()` derives. This verb reads the file and decodes it — the
+     * operator-named-path half it already owns for `--secret-key-file` — and
+     * judges NOTHING about its content. Every rule that decides whether those
+     * bytes may be signed is `ManifestDispositions::validate_external_entry()`,
+     * reached through the same chain the derived profile goes through, because
+     * a second opinion here is exactly the drift the split in this file's
+     * header exists to prevent.
      *
      * @param list<string> $args
      */
     private static function certify(array $args): int {
-        $flags = self::flags($args, ['name', 'secret-key-file', 'key-id', 'reason'], ['pin', 'adopt-scope']);
+        $flags = self::flags(
+            $args,
+            ['name', 'secret-key-file', 'key-id', 'reason', 'ratification-file'],
+            ['pin', 'adopt-scope']
+        );
         $repo = self::onlySiteRepo($flags['positional'], 'certify');
         if (is_int($repo)) {
             return $repo;
@@ -234,6 +258,7 @@ final class AdapterCertify {
         if ($reason === '') {
             $reason = self::DEFAULT_REASON;
         }
+        $authoredDisposition = self::authoredDisposition((string) ($flags['ratification-file'] ?? ''));
         $pinRequested = ($flags['pin'] ?? false) === true;
         $adoptScope = ($flags['adopt-scope'] ?? false) === true;
         if ($adoptScope && !$pinRequested) {
@@ -318,7 +343,8 @@ final class AdapterCertify {
                 $name,
                 $keyId,
                 base64_encode($secret),
-                $reason
+                $reason,
+                $authoredDisposition
             );
         } catch (\Throwable $t) {
             // The pre-flight is a load, the signature step is the certifier's
@@ -354,6 +380,13 @@ final class AdapterCertify {
         echo 'trust tier: ' . (string) ($summary['trust_tier'] ?? $tier) . "\n";
         echo 'claim:      ' . (string) ($summary['status'] ?? 'certified') . "\n";
         echo "evidence:   grammar=ok, exercised=false, reason stated in the signed bundle\n";
+        // Which of the two profiles signed this is not cosmetic: an authored
+        // claim is the site's own argument and `duo adapter recertify` will not
+        // re-derive over it (SpecMigration::recertify()), so the operator is
+        // told here, where they can still keep the file beside the repository.
+        echo 'claim basis: ' . ($authoredDisposition === null
+            ? 'DERIVED from the manifest — every surface unsupported that a grammar verdict cannot review'
+            : 'AUTHORED (--ratification-file), validated by the engine\'s own disposition validator') . "\n";
         echo 'certificate: ' . AdapterSources::SITE_DIR . '/' . AdapterSources::CERTIFICATION_DIR . "/$name.json\n";
         echo "\npin object for site.duo.json manifests[]:\n";
         echo rtrim(Canon::encode($pinObject)) . "\n";
@@ -464,6 +497,279 @@ final class AdapterCertify {
     }
 
     // -----------------------------------------------------------------
+    // adopt-scope (the repository SET)
+    // -----------------------------------------------------------------
+
+    /**
+     * `duo adapter adopt-scope <site-repo>… --name=<n> [--dry-run]`
+     *
+     * ## Why a batch verb exists at all
+     *
+     * The single-repo scope opt-in rides on the pin (`certify --pin`, `pin`),
+     * which is right for the site that authored the adapter and wrong for the
+     * fleet that consumes it: adding one adapter to N sites cost N hand edits
+     * of `site.duo.json`, so the operator cost scales with sites × adapters —
+     * the product of the two variables this program grows. This is that same
+     * opt-in over a repository SET, as one reviewed invocation.
+     *
+     * ## What it deliberately is NOT
+     *
+     * It is not a batch pin and not a batch signature. Scope follows the pin
+     * (`certify`'s own refusal: "--adopt-scope only means something with
+     * --pin"), so this verb REQUIRES the adapter to already resolve in each
+     * repository and refuses the whole set naming the ones where it does not.
+     * Writing scope for an adapter a site has not pinned would opt that site
+     * into types nothing can classify.
+     *
+     * It also declines `--adopt-scope`. Flipping a class the site RECORDED is
+     * a per-site reviewed act — `duo classify` and `duo init
+     * --allow-unmanaged-plugins` write byte-identical rules and the grammar
+     * carries no provenance key (Policy.php:2794) — and one flag that flipped
+     * a recorded decision across a fleet is the multiplied-consequence failure
+     * this verb is built to avoid.
+     *
+     * ## The two phases, and what each one guarantees
+     *
+     * PLAN reads every repository and writes nothing: a bad path, a repository
+     * that does not resolve the adapter, or an unreadable `site.duo.json`
+     * refuses the whole invocation with every failing repository named, so the
+     * common operator error costs zero writes and one round trip rather than N.
+     *
+     * WRITE walks the set in argument order and, per repository, RE-READS
+     * `site.duo.json`, re-plans against it, and writes the still-absent nodes
+     * through `writeScopeRules()` — one `tempnam`+`rename` per repository, the
+     * same derived-path discipline `writeCertificate()` and `writePin()` use.
+     * So each repository is fully adopted or untouched, and a node that
+     * appeared between the two phases is never overwritten (the plan is a
+     * preflight, never the authority for a write).
+     *
+     * A write failure stops the walk: repositories already written stay
+     * adopted, the failing one and every one after it are untouched, and the
+     * report names them. Re-running the same command is the remedy, because
+     * adoption is idempotent by construction — write-only-where-absent has no
+     * second effect.
+     *
+     * @param list<string> $args
+     */
+    private static function adoptScopeBatch(array $args): int {
+        $flags = self::flags($args, ['name'], ['dry-run', 'adopt-scope']);
+        $name = (string) ($flags['name'] ?? '');
+        if ($name === '') {
+            return self::fail('--name=<adapter-name> is required: bulk adoption widens the scope of ONE adapter');
+        }
+        if (($flags['adopt-scope'] ?? false) === true) {
+            return self::fail(
+                '--adopt-scope is not accepted here: overriding a decision a site RECORDED is a per-site '
+                . "reviewed act, and one flag would override it across the whole set.\n"
+                . "       run `duo adapter pin <site-repo> --name=$name --adopt-scope` on each site that needs it"
+            );
+        }
+        $given = $flags['positional'];
+        if ($given === []) {
+            return self::fail(
+                'adopt-scope needs at least one <site-repo> argument (each the directory holding site.duo.json)'
+            );
+        }
+
+        // Every repository is READ, WRITTEN and REPORTED through the path the
+        // operator typed, exactly as the single-repo verbs use their one
+        // `<site-repo>` argument; `realpath()` is used for IDENTITY only.
+        // Reporting the resolved path instead would hand back a path the
+        // operator never typed and cannot always paste — on macOS
+        // `sys_get_temp_dir()`'s `/var/folders/…` resolves to
+        // `/private/var/folders/…` — and this verb's whole output is a ledger
+        // of remedies to paste.
+        /** @var list<string> $repos the arguments as typed, in argument order */
+        $repos = [];
+        /** @var array<string,string> $identity canonical path => the argument that claimed it */
+        $identity = [];
+        $errors = [];
+        foreach ($given as $argument) {
+            $repo = rtrim($argument, '/');
+            if ($repo === '') {
+                $repo = '/';
+            }
+            $resolved = is_dir($repo) ? realpath($repo) : false;
+            if ($resolved === false) {
+                $errors[] = "'$argument' is not a directory";
+                continue;
+            }
+            if (!is_file($repo . '/site.duo.json')) {
+                $errors[] = "'$argument' has no site.duo.json — every argument is a duo SITE REPO";
+                continue;
+            }
+            if (isset($identity[$resolved])) {
+                // Two arguments resolving to one repository would plan it
+                // twice and report a count nobody can reconcile with the set
+                // they typed. Refused rather than silently collapsed.
+                $errors[] = "'$argument' names the same site repository as '" . $identity[$resolved] . "'";
+                continue;
+            }
+            $identity[$resolved] = $argument;
+            $repos[] = $repo;
+        }
+        if ($errors !== []) {
+            return self::failBatch($errors, count($given));
+        }
+
+        self::boot();
+        AdapterSources::assert_name($name, 'adapter adopt-scope --name');
+
+        // PLAN. Nothing below this writes; the loop exists so that N bad
+        // repositories are reported once instead of one per re-run.
+        $manifests = [];
+        $preview = [];
+        foreach ($repos as $repo) {
+            try {
+                $manifest = self::resolvedManifestOrNull($repo, $name);
+            } catch (\Throwable $t) {
+                $errors[] = "$repo: " . $t->getMessage();
+                continue;
+            }
+            if ($manifest === null) {
+                $errors[] = "$repo: the engine resolves no adapter '$name' here — scope follows the pin, so pin it "
+                    . "first: duo adapter pin $repo --name=$name";
+                continue;
+            }
+            try {
+                $preview[$repo] = self::scopePlan($repo, $manifest);
+            } catch (\Throwable $t) {
+                $errors[] = "$repo: " . $t->getMessage();
+                continue;
+            }
+            $manifests[$repo] = $manifest;
+        }
+        if ($errors !== []) {
+            return self::failBatch($errors, count($repos));
+        }
+
+        $dryRun = ($flags['dry-run'] ?? false) === true;
+        echo "adapter:    $name\n";
+        echo 'repos:      ' . count($repos) . ($dryRun ? " (--dry-run: nothing is written)\n" : "\n");
+
+        $adopted = [];
+        $rules = 0;
+        $settled = [];
+        $shadowed = [];
+        $pending = $repos;
+        while ($pending !== []) {
+            $repo = array_shift($pending);
+            $rows = [];
+            $extend = [];
+            // RE-READ and re-plan at the write: the preview above is a
+            // preflight, and a node another operator recorded in between must
+            // still be left exactly as they wrote it.
+            try {
+                $rows = $dryRun ? $preview[$repo] : self::scopePlan($repo, $manifests[$repo]);
+                $extend = array_values(array_filter(
+                    $rows,
+                    static fn (array $row): bool => $row['state'] === ScopeAdoption::EXTEND
+                ));
+                if ($extend !== [] && !$dryRun) {
+                    self::assertScopeWritable($repo);
+                    self::writeScopeRules($repo, $extend);
+                }
+            } catch (\Throwable $t) {
+                return self::fail(
+                    $t->getMessage() . "\n"
+                    . '       adopted before this failure: ' . self::repoList($adopted) . "\n"
+                    . '       untouched: ' . self::repoList(array_merge([$repo], $pending)) . "\n"
+                    . '       every repository in this set is fully adopted or untouched; fix that repository and '
+                    . 're-run the same command — adoption is idempotent'
+                );
+            }
+
+            echo "\n$repo\n";
+            if ($extend !== []) {
+                $adopted[] = $repo;
+                $rules += count($extend);
+                foreach ($extend as $row) {
+                    echo '  + ' . $row['pointer'] . " = {\"class\": \"authored\"}\n";
+                }
+            }
+            $blocked = array_values(array_filter(
+                $rows,
+                static fn (array $row): bool => $row['state'] === ScopeAdoption::SHADOWED
+            ));
+            foreach ($blocked as $row) {
+                echo '  ! ' . $row['pointer'] . ' = {"class": "' . $row['class'] . '"} — capture will skip '
+                    . $row['kind'] . ' ' . $row['name'] . "\n";
+            }
+            if ($blocked !== []) {
+                $shadowed[] = $repo;
+            }
+            if ($extend === [] && $blocked === []) {
+                $settled[] = $repo;
+                echo "  = every surface this adapter declares is already in site.duo.json's authored scope\n";
+            }
+        }
+
+        echo "\n" . ($dryRun ? 'would adopt: ' : 'adopted:    ') . count($adopted) . ' repo(s), '
+            . $rules . " authored scope rule(s)\n";
+        echo 'settled:    ' . count($settled) . " repo(s) had already decided every surface\n";
+        if ($shadowed !== []) {
+            echo 'shadowed:   ' . count($shadowed) . ' repo(s) record a decision this command never overwrites — '
+                . "a recorded site rule outranks every manifest\n";
+            echo "  to override one, per site: duo adapter pin <site-repo> --name=$name --adopt-scope\n";
+        }
+
+        return 0;
+    }
+
+    /**
+     * The adoption plan for one repository, read fresh off its `site.duo.json`.
+     *
+     * @param array<string,mixed> $manifest
+     * @return list<array{kind:string,name:string,state:string,class:?string,pointer:string,spec:string}>
+     */
+    private static function scopePlan(string $repo, array $manifest): array {
+        $site = json_decode((string) file_get_contents($repo . '/site.duo.json'), true);
+        if (!is_array($site)) {
+            throw new \RuntimeException('site.duo.json must be a JSON object');
+        }
+
+        return ScopeAdoption::plan($manifest, $site);
+    }
+
+    /**
+     * Refuse the write BEFORE `atomicWrite()` reaches an unwritable directory.
+     *
+     * The atomic rename is what makes the write all-or-nothing and this guard
+     * does not replace it — it is about the DIAGNOSTIC. `tempnam()` silently
+     * falls back to the system temporary directory when the target directory
+     * is not writable ("file created in the system's temporary directory"),
+     * and the `rename()` that then fails emits a PHP warning naming a path in
+     * `/tmp` rather than the repository the operator has to fix. Across a set
+     * of N repositories that is N warnings and no ledger.
+     */
+    private static function assertScopeWritable(string $repo): void {
+        $file = $repo . '/site.duo.json';
+        if (!is_writable($repo)) {
+            throw new \RuntimeException("cannot write site.duo.json in $repo: the directory is not writable");
+        }
+        if (!is_writable($file)) {
+            throw new \RuntimeException("cannot write $file: the file is not writable");
+        }
+    }
+
+    /** @param list<string> $repos */
+    private static function repoList(array $repos): string {
+        return $repos === [] ? 'none' : implode(', ', $repos);
+    }
+
+    /**
+     * One refusal for a whole set, naming every repository that failed.
+     *
+     * @param list<string> $errors
+     */
+    private static function failBatch(array $errors, int $total): int {
+        return self::fail(
+            'adopt-scope refused this set of ' . $total . ' repositories, and wrote nothing:' . "\n"
+            . '       - ' . implode("\n       - ", $errors)
+        );
+    }
+
+    // -----------------------------------------------------------------
     // shared mechanism
     // -----------------------------------------------------------------
 
@@ -567,12 +873,30 @@ final class AdapterCertify {
      * @return array<string,mixed>
      */
     private static function resolvedManifest(string $repo, string $name): array {
+        $manifest = self::resolvedManifestOrNull($repo, $name);
+        if ($manifest === null) {
+            throw new \RuntimeException("duo: the engine resolved no manifest for adapter '$name' after pinning it");
+        }
+
+        return $manifest;
+    }
+
+    /**
+     * The same resolution, with "this repository does not pin it" as an ANSWER
+     * rather than a refusal — `adopt-scope` reports that per repository across
+     * a set, and the sentence above is written for the single-repo pin that
+     * just ran.
+     *
+     * @return ?array<string,mixed>
+     */
+    private static function resolvedManifestOrNull(string $repo, string $name): ?array {
         foreach (Policy::load($repo)->manifests as $manifest) {
             if (is_array($manifest) && (string) ($manifest['name'] ?? '') === $name) {
                 return $manifest;
             }
         }
-        throw new \RuntimeException("duo: the engine resolved no manifest for adapter '$name' after pinning it");
+
+        return null;
     }
 
     /**
@@ -933,6 +1257,45 @@ final class AdapterCertify {
     }
 
     /**
+     * Read `--ratification-file` — the disposition entry an author wrote.
+     *
+     * NOT canonicalized in place, unlike the adapter file above, and the
+     * asymmetry is the design: the adapter's raw bytes are content-addressed
+     * inside the signed statement (`adapter.raw_sha256`), so an operator who
+     * hand-edits one has to be handed back the exact bytes the engine reads.
+     * A ratification's authored formatting reaches no signature at all —
+     * `sign_site()` wraps the decoded entry in the envelope it owns and
+     * `Canon::encode()`s that — so rewriting the author's file would move bytes
+     * on disk that nothing downstream depends on.
+     *
+     * @return null|array<string,mixed> null when the flag was not supplied,
+     *         which is what keeps the derived floor the default
+     */
+    private static function authoredDisposition(string $path): ?array {
+        if ($path === '') {
+            return null;
+        }
+        if (!is_file($path) || is_link($path)) {
+            throw new \RuntimeException(
+                "--ratification-file must be a regular non-symlink file: $path"
+            );
+        }
+        $raw = file_get_contents($path);
+        if ($raw === false) {
+            throw new \RuntimeException("cannot read --ratification-file: $path");
+        }
+        // typedObject() first, for its two sentences: an author hand-writing
+        // JSON meets "is not valid JSON: <parser's own words>" or "must be a
+        // JSON object" rather than a shape refusal three layers down about a
+        // list it never meant to write.
+        self::typedObject($raw, "authored ratification $path");
+        /** @var array<string,mixed> $decoded */
+        $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+
+        return $decoded;
+    }
+
+    /**
      * A stable, collision-resistant key id derived from the public key.
      *
      * An operator who does not name one still gets an id they can read off
@@ -1134,6 +1497,22 @@ final class AdapterCertify {
                 unlink($temporary);
             }
         }
+    }
+
+    /**
+     * The same bootstrap, for the sibling that shares this file's write
+     * discipline.
+     *
+     * WP-4.12's `duo adapter recertify` re-signs through
+     * `AdapterCertification::sign_site()` and writes through
+     * `self::writeCertificate()` — the same producer and the same file this
+     * class already owns — so it must load the same engine surface, from the
+     * same classmap, in the same order. A second bootstrap in
+     * `SpecMigration` would be a second answer to "which agent is this", which
+     * is exactly the question a flag-day verb must not have two of.
+     */
+    public static function bootPublic(): void {
+        self::boot();
     }
 
     /**

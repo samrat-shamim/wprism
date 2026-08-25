@@ -157,7 +157,7 @@ final class AdapterCatalog {
                     . 'are the negotiated answer',
             ],
             [
-                'surface' => 'dispositions.json against a target',
+                'surface' => 'dispositions/ against a target',
                 'check' => 'AdapterRegistry::report()',
                 'why' => 'certification is a reviewed claim evaluated against one target: whether the plugin the '
                     . 'claim is authored for is installed, active, and inside the reviewed version window. The '
@@ -222,6 +222,17 @@ final class AdapterCatalog {
      * @return int 0 healthy, 1 a refusal/blocker/grammar error was surfaced, 2 usage/IO
      */
     public static function run(array $args): int {
+        // `doctor --migration` is a different question with a different
+        // document (`duo-migration-preflight/v1`), so it gets its own owner and
+        // its own parser rather than a branch inside the loop below. Same
+        // split, same reason as `AdapterCertify::VERBS` in cli/duo: keeping the
+        // read-only catalog's flag loop and every refusal string it produces
+        // exactly where they were is what stops a new mode from moving the
+        // output of an existing one (AGENTS.md rule 8).
+        if (in_array('--migration', $args, true)) {
+            return MigrationPreflight::run($args);
+        }
+
         $verb = null;
         $name = null;
         $repoArg = null;
@@ -826,8 +837,9 @@ final class AdapterCatalog {
      * engine actually derived is what belongs here.
      *
      * The words come from `AdapterSources`: `registry` (shipped, reviewed),
-     * `uncertified`, `signed_unpinned`, `third_party_signed`, and T6's
-     * `site_signed`. A shipped row keeps printing its disposition status,
+     * `uncertified`, `signed_unpinned`, `third_party_signed`, T6's
+     * `site_signed`, and § v3.16's `reviewer_signed` (a signed bundle that also
+     * named who exercised it). A shipped row keeps printing its disposition status,
      * because for those the reviewed registry IS the certification state and
      * printing `registry` beside it would say the same thing twice.
      *
@@ -1021,29 +1033,45 @@ final class AdapterCatalog {
         $evidence = $row['certification_evidence'] ?? null;
         if (is_array($evidence)) {
             echo "  signed certification evidence (this adapter's OWN envelope, not the shipped registry):\n";
-            echo '    authority:           ' . self::inline($evidence['authority'] ?? null) . "\n";
-            echo '    certificate_sha256:  ' . ($evidence['certificate_sha256'] ?? 'none') . "\n";
-            echo '    statement_sha256:    ' . ($evidence['statement_sha256'] ?? 'none') . "\n";
-            echo '    platform_sha256:     ' . ($evidence['platform_sha256'] ?? 'none') . "\n";
-            echo '    supported_versions:  ' . self::inline($evidence['supported_versions'] ?? null) . "\n";
+            echo '    authority:            ' . self::inline($evidence['authority'] ?? null) . "\n";
+            echo '    certificate_sha256:   ' . ($evidence['certificate_sha256'] ?? 'none') . "\n";
+            echo '    statement_sha256:     ' . ($evidence['statement_sha256'] ?? 'none') . "\n";
+            // The column is one wider than it was because this label is: WP-4.7
+            // renamed the value with its meaning (§ v3.6), and the printed label
+            // is the JSON key an operator will grep for. `platform_sha256` still
+            // exists in this product and means something ELSE — the contract
+            // attestation's whole-boundary digest — so the two must not be
+            // spelled alike in a report a human reads.
+            echo '    platform_axes_sha256: ' . ($evidence['platform_axes_sha256'] ?? 'none') . "\n";
+            echo '    supported_versions:   ' . self::inline($evidence['supported_versions'] ?? null) . "\n";
             $bundle = is_array($evidence['bundle'] ?? null) ? $evidence['bundle'] : [];
-            echo '    bundle:              ' . ($bundle['digest'] ?? 'none')
+            echo '    bundle:               ' . ($bundle['digest'] ?? 'none')
                 . ' (' . ($bundle['schema'] ?? '?') . ' @ ' . ($bundle['git_revision'] ?? '?') . ")\n";
-            echo '    bundle tests:        ' . (($bundle['tests'] ?? []) === []
+            echo '    bundle tests:         ' . (($bundle['tests'] ?? []) === []
                 ? '(none)'
                 : implode(', ', array_map('strval', (array) $bundle['tests']))) . "\n";
+            // Printed ONLY when the bundle named one (§ v3.16). Every existing
+            // certificate carries no reviewer member at all, so this row is
+            // absent for them and their output stays byte-identical — AGENTS.md
+            // rule 8 applied to a line an operator's eye and a grep both use.
+            // The label says "exercised by" rather than "reviewer" because the
+            // fact is who RAN it; who vouched is `authority:` three lines up,
+            // and the whole point of the tier is that those are two parties.
+            if (is_string($bundle['reviewer'] ?? null) && $bundle['reviewer'] !== '') {
+                echo '    exercised by:         ' . $bundle['reviewer'] . "\n";
+            }
             // Three answers, not two: a bundle that exercised no named
             // artifact and a certificate whose artifact list could not be
             // decoded are different facts, and only one of them is a clean
             // report.
             if (($evidence['artifacts'] ?? null) === null) {
-                echo "    artifacts:           (UNREADABLE — this certificate's artifact list could not be "
+                echo "    artifacts:            (UNREADABLE — this certificate's artifact list could not be "
                     . "decoded)\n";
             } elseif ($evidence['artifacts'] === []) {
-                echo "    artifacts:           (none)\n";
+                echo "    artifacts:            (none)\n";
             }
             foreach ((array) ($evidence['artifacts'] ?? []) as $artifact) {
-                echo '    artifact:            ' . ($artifact['name'] ?? '?') . ' v'
+                echo '    artifact:             ' . ($artifact['name'] ?? '?') . ' v'
                     . ($artifact['version'] ?? '?') . ' [' . ($artifact['role'] ?? '?') . '] '
                     . ($artifact['sha256'] ?? '') . "\n";
             }

@@ -1,0 +1,91 @@
+{
+    "capabilities": {
+        "deletion_semantics": {
+            "supported": [],
+            "unsupported": [
+                "all ACF entity deletes"
+            ]
+        },
+        "entity_sections": [
+            "post_types"
+        ],
+        "field_sections": [
+            "options",
+            "option_namespaces",
+            "interpreter"
+        ],
+        "lifecycle_phases": [
+            "retire",
+            "activate",
+            "verify"
+        ],
+        "operations": [
+            "capture",
+            "compile",
+            "plan",
+            "deploy",
+            "apply",
+            "recapture",
+            "render-api"
+        ]
+    },
+    "default_authored_keyspaces": [],
+    "evidence": {
+        "bundle_schema": "duo-subject-certification-bundle/v1",
+        "tests": [
+            "conformance-acf",
+            "exact-artifact-version-matrix"
+        ]
+    },
+    "reason": "Certified for exact ACF 6.0.0 and 6.8.7 on single-site WordPress with strict serialized schema bodies, schema-driven post/term/exact-login-user/options/menu-item fields, divergent local post/term/user identities, every admitted built-in id-bearing field shape, nested URL rebinding, long UTF-8/delimiter data, hostile same-slug schema/content convergence, target runtime sovereignty, native get_field() verification, local PHP/JSON collision refusal, malformed/secret schema refusal and redaction, unsupported native UI scope and entity-delete atomicity, late database-failure rollback and retry, competing-apply serialization, deactivate/reactivate and digest-bound reinstall recovery, an in-place 6.0.0 to 6.8.7 upgrade, and adjacent official 5.12.6 refusal evidence.",
+    "status": "certified",
+    "supported_versions": {
+        "plugin": "advanced-custom-fields/acf.php",
+        "range": {
+            "max": "7.0.0",
+            "min": "6.0.0"
+        }
+    },
+    "unsupported": [
+        {
+            "operation": "delete",
+            "reason": "No ACF-specific post deletion selector declares the plugin cascades and reverse-reference guards required for field or field-group removal, so capture refuses before publishing a tombstone.",
+            "surface": "post:acf-field|post:acf-field-group"
+        },
+        {
+            "operation": "capture",
+            "reason": "Password fields are credential-shaped by definition and are refused rather than stored in canonical state.",
+            "surface": "field_type:password"
+        },
+        {
+            "operation": "capture",
+            "reason": "The free exact artifacts do not provide evidence for PRO-only gallery, repeater, flexible-content, clone, or other unregistered/custom field storage shapes; unknown types refuse instead of guessing.",
+            "surface": "field_type:pro|custom|unknown"
+        },
+        {
+            "operation": "capture",
+            "reason": "A page_link with archive choices is a mixed post-id/archive-URL union and has no unambiguous scalar/list reference codec.",
+            "surface": "field_type:page_link.allow_archives"
+        },
+        {
+            "operation": "compile",
+            "reason": "Comment, widget, and nav-menu-term location owners are outside the declared post/term/exact-login-user value stores; custom or malformed location parameters also refuse.",
+            "surface": "field_group.location:comment|widget|nav_menu|custom"
+        },
+        {
+            "operation": "compile",
+            "reason": "Local PHP/JSON field or group definitions can override database schemas at runtime, so any key collision with repository-owned schema refuses before mutation.",
+            "surface": "acf_local_schema:field|field-group"
+        },
+        {
+            "operation": "capture",
+            "reason": "ACF 6.1+ UI-created post-type and taxonomy definitions use acf-post-type/acf-taxonomy entities outside this adapter's bounded schema claim and trigger the ordinary incomplete-policy-scope refusal.",
+            "surface": "post_type:acf-post-type|acf-taxonomy"
+        },
+        {
+            "operation": "all",
+            "reason": "Duo v1 refuses multisite; ACF network/global behavior is outside this single-site adapter.",
+            "surface": "multisite"
+        }
+    ]
+}

@@ -66,6 +66,12 @@ require_once __DIR__ . '/../Grammar/AttributeGrammar.php';
 // DUO-3348 slice 50: block/shortcode structural registry projection is pure
 // manifest work; Policy retains the public compatibility accessors below.
 require_once __DIR__ . '/../Grammar/ContentAttributeRuleResolver.php';
+// WP-6.1's two `engine_features`-staged codec sections. Required here for the
+// same "loads alone" reason as AttributeGrammar above: closed_vocabularies()
+// publishes their vocabularies and the accessors below project them, both on a
+// directly-constructed Policy that never ran the loader.
+require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
+require_once __DIR__ . '/../Grammar/AttrIdCodecGrammar.php';
 // DUO-3348 slice 52: widget type registry/provenance is a pure manifest
 // projection; Policy retains its public facades for current callers.
 require_once __DIR__ . '/../Grammar/WidgetTypeResolver.php';
@@ -118,6 +124,16 @@ require_once __DIR__ . '/ManifestValidator.php';
 // validation sequence for live and frozen loaders, required here so both
 // entry points retain the same standalone load graph and refusal order.
 require_once __DIR__ . '/SitePolicyValidator.php';
+// WP-2.8: the optional recorded per-release probe evidence block, whose key
+// name Policy's own accessor reads. Required directly rather than leaned on
+// through SitePolicyValidator above, so this file's class references stay
+// self-satisfied the way every other agent/src file's are.
+require_once __DIR__ . '/VersionEvidenceGrammar.php';
+// WP-5.5: the operator's plugin/theme claim resolutions, whose in-force
+// decision version_ranges()/theme_ranges() read and whose displaced rows
+// displaced_adapter_claims() reports. Required directly for the same
+// self-satisfied-references reason VersionEvidenceGrammar is.
+require_once __DIR__ . '/AdapterClaimResolutions.php';
 // DUO-3348 slice 36: live and frozen loads share one post-local-load
 // validation/pin-binding sequence, so keep its refusal order in one place.
 require_once __DIR__ . '/PolicyLoadFinalizer.php';
@@ -370,7 +386,91 @@ final class Policy {
         bool $allowUnsupportedSiteForReadOnlyCapabilities = false,
         ?string $adapterRepo = null
     ): self {
-        if (!$allowUnsupportedSiteForReadOnlyCapabilities) {
+        return self::load_with(
+            null,
+            $repo,
+            $manifestNames,
+            $allowUnsupportedSiteForReadOnlyCapabilities,
+            $adapterRepo
+        );
+    }
+
+    /**
+     * Everything a load resolves about the LIBRARY rather than about a pin,
+     * resolved once, for a reader that will load many pins against it.
+     *
+     * The only caller is `AdapterScan` (WP-1.3), which holds the result behind
+     * a file-set witness and hands it back through load_from_scan() below;
+     * `AdapterSources::survey()` was re-running all three of these once per
+     * surveyed adapter, which is O(library) work repeated O(library) times.
+     *
+     * The ORDER is load()'s own and is load-bearing, which is why this is
+     * three statements and not one array literal: the two asserts refuse
+     * before any repository or library read (that is the whole point of
+     * assert_supported_platform() sitting where it does), and `discover()`
+     * refuses an ambiguous installation before the reviewed registry is even
+     * opened. A survey against a multisite target with a broken library still
+     * reports the multisite refusal, because that is the one that fires first
+     * here exactly as it fires first there.
+     *
+     * `manifests_dir()` is returned rather than re-derived by the consumer:
+     * `DUO_MANIFESTS_DIR` can move under a process, and a resolution used
+     * against a different library than the one it was taken from is precisely
+     * the staleness the witness exists to refuse.
+     *
+     * @return array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources}
+     */
+    public static function resolve_library(?string $repo): array {
+        self::assert_single_site();
+        self::assert_supported_platform();
+        $dir = self::manifests_dir();
+        $sources = AdapterSources::discover($dir, $repo);
+        $dispositions = class_exists(ManifestDispositions::class)
+            ? ManifestDispositions::load($dir)
+            : null;
+        return ['dir' => $dir, 'dispositions' => $dispositions, 'sources' => $sources];
+    }
+
+    /**
+     * One pin, loaded against a library resolution the CALLER has proved is
+     * still current.
+     *
+     * READ-ONLY BY CONSTRUCTION, and that is the risk control rather than a
+     * naming convention: no mutation entry point calls this — every one of
+     * them enters through load(), which resolves its own sources — and the
+     * only caller in the shipped tree is `AdapterScan::load()`, which re-
+     * derives its witness before every single call and refuses instead of
+     * serving a resolution the disk no longer matches.
+     * `sandbox/tests/offline/adapter/regress_adapter_survey_scale.php` asserts
+     * that call-site set against the tree.
+     *
+     * @param array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources} $library
+     * @param list<string>|list<array<string,mixed>> $manifestNames
+     */
+    public static function load_from_scan(array $library, ?string $repo, array $manifestNames): self {
+        return self::load_with($library, $repo, $manifestNames, false, null);
+    }
+
+    /**
+     * load()'s one body. `$library === null` is the ordinary load, which
+     * resolves each piece exactly where it always did; a supplied library
+     * substitutes those pieces and changes nothing else, including the order
+     * every other refusal fires in.
+     *
+     * @param ?array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources} $library
+     */
+    private static function load_with(
+        ?array $library,
+        ?string $repo,
+        ?array $manifestNames,
+        bool $allowUnsupportedSiteForReadOnlyCapabilities,
+        ?string $adapterRepo
+    ): self {
+        // A supplied library has already been through resolve_library(), which
+        // runs both asserts FIRST, before it reads anything; running them
+        // again per pin would re-read capabilities/platform.json once per
+        // surveyed adapter to re-answer a question about the process.
+        if ($library === null && !$allowUnsupportedSiteForReadOnlyCapabilities) {
             self::assert_single_site();
             self::assert_supported_platform();
         }
@@ -392,17 +492,47 @@ final class Policy {
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $pins = PinResolver::normalize_manifest_pins($rawPins);
         $dir = self::manifests_dir();
+        // A supplied library was resolved against the directory this process
+        // saw then; a `DUO_MANIFESTS_DIR` that moved since would silently
+        // resolve pins against one library and report them against another.
+        // Unreachable through AdapterScan, whose shape witness carries the
+        // same fact — kept because this is the entry point, and an invariant
+        // that only the caller enforces is one nobody enforces.
+        if ($library !== null && $library['dir'] !== $dir) {
+            throw new \RuntimeException(
+                'duo: a resolved adapter library was offered for a different manifest directory than the one this '
+                . 'process now loads from'
+            );
+        }
         // DUO-3314: every installed source is scanned, and ambiguous identity or
         // shadowing refused, before the first pin resolves — a broken adapter
         // installation must not wait for a pin to reveal itself.
         // Init needs source-aware validation before site.duo.json exists. Its
         // fourth argument supplies only the repository-owned adapter source;
         // ordinary loads continue to derive both config and source from $repo.
-        $p->adapterSources = AdapterSources::discover($dir, $adapterRepo ?? $repo);
+        //
+        // CLONED, never shared: the finalizer binds THIS load's pins onto the
+        // instance (PolicyLoadFinalizer.php:51, bind_explicit_pins), so a
+        // shared one would carry row 1's explicit pins into row 2's
+        // certification elevation. Every property of AdapterSources is a
+        // string or an array, so the shallow copy is a value copy.
+        $p->adapterSources = $library === null
+            ? AdapterSources::discover($dir, $adapterRepo ?? $repo)
+            : clone $library['sources'];
         PinResolver::validate_manifest_sources($pins, $p->adapterSources);
-        $p->manifestDispositions = class_exists(ManifestDispositions::class)
-            ? ManifestDispositions::load($dir)
-            : null;
+        // The registry DOCUMENT is read here — or carried in by a resolved
+        // library, which read it after its own discover() and before any pin,
+        // so the order the refusals fire in is the same one, and the object is
+        // immutable after construction so every pin sees the same bytes.
+        // Either way it is ahead of the pin loop, so a
+        // malformed root or profile still refuses before any manifest is
+        // validated — the order it always refused in. What it no longer does is
+        // decode the whole directory: coverage is proved against the PINNED
+        // shipped subset after the loop, where the manifests are already in
+        // hand (ManifestDispositions::assert_covers()).
+        $p->manifestDispositions = $library === null
+            ? (class_exists(ManifestDispositions::class) ? ManifestDispositions::load($dir) : null)
+            : $library['dispositions'];
         foreach ($pins as $pin) {
             $name = $pin['name'];
             // normalize_manifest_pins() has already proved this exact identity
@@ -412,15 +542,16 @@ final class Policy {
             // DUO-3371: the earliest point on the live load path where a
             // manifest's FILE name and its DECLARED name are both in hand, and
             // therefore the only place one identity can be enforced for both
-            // keyings. The pin, the file, and ManifestDispositions::load()'s
-            // coverage check all key off the file name; ManifestDispositions::
-            // entry(), RepositoryCompiler::manifest_rows()'s per-adapter digest,
-            // and the capability registry's claims all key off the declared
-            // name. Every one of those declared-name lookups is downstream of
-            // this line — nothing reads $p->manifests before it exists — so
-            // refusing here, ahead of the first validator, is what keeps one
-            // adapter from answering to two keys. from_snapshot() has always
-            // refused the same disagreement against the frozen pin; this is the
+            // keyings. The pin and the file key off the file name;
+            // ManifestDispositions::entry()/assert_covers(),
+            // RepositoryCompiler::manifest_rows()'s per-adapter digest, and the
+            // capability registry's claims all key off the declared name. Every
+            // one of those declared-name lookups is downstream of this line —
+            // nothing reads $p->manifests before it exists, and WP-1.2's
+            // coverage check runs after the whole loop — so refusing here,
+            // ahead of the first validator, is what keeps one adapter from
+            // answering to two keys. from_snapshot() has always refused the
+            // same disagreement against the frozen pin; this is the
             // live path's half of that, and AdapterSources owns the sentence so
             // the site source (DUO-3314) and the shipped source say it once.
             //
@@ -453,6 +584,19 @@ final class Policy {
             );
             $p->manifests[] = $manifest;
         }
+        // "A manifest cannot certify itself merely by existing beside the
+        // agent" (ManifestDispositions.php:7) is a rule about a PINNED
+        // manifest, and this is where it fires: every shipped pin must have a
+        // reviewed entry, and that entry must pass all nine per-entry rules
+        // against the manifest bytes just validated above. The refusal sentence
+        // is the one the whole-directory check emitted.
+        //
+        // shipped_manifests() and not $p->manifests, for the reason the frozen
+        // path states at :559-564 and AdapterSources::shipped_manifests()
+        // repeats: an out-of-tree adapter has no reviewed entry by
+        // construction, so demanding one would refuse every unrelated shipped
+        // adapter beside it.
+        $p->manifestDispositions?->assert_covers($p->adapterSources->shipped_manifests($p->manifests));
         PolicyLoadFinalizer::finalize($p, $pins);
         return $p;
     }
@@ -690,6 +834,22 @@ final class Policy {
             : null;
     }
 
+    /**
+     * WP-2.8: the recorded per-release probe outcomes this site holds, read
+     * straight off the declaration for the same reason code_config() is —
+     * VersionEvidenceGrammar already refused every other shape at load time
+     * (SitePolicyValidator.php), on the live and the frozen path alike, so
+     * Policy keeps no evidence grammar of its own. An absent key is an empty
+     * block, which is what makes "no evidence" the default: the graduated
+     * verdict cannot fire, and outside_version_range refuses unchanged.
+     *
+     * @return array<string,mixed> keyed by plugin basename, exactly as version_ranges() is
+     */
+    public function adapter_version_evidence(): array {
+        $block = $this->site[VersionEvidenceGrammar::SITE_KEY] ?? null;
+        return is_array($block) ? $block : [];
+    }
+
     /** @return array{rule:?array, source:?string} Policy's compatibility facade over PolicyRuleResolver. */
     private function rule_details(string $section, string $name): array {
         return $this->policy_rule_resolver()->details($section, $name);
@@ -767,6 +927,21 @@ final class Policy {
 
     public function term_meta_rule(string $key): ?array {
         return $this->rule('term_meta', $key);
+    }
+
+    /**
+     * The missing third `_details()` sibling of the options/post_meta pair.
+     *
+     * Journal::ground_truth_details() dispatches over exactly the four
+     * sections Journal::ground_truth() always has — options, postmeta,
+     * termmeta, then the table rule — and needs the declaring manifest for
+     * each. Three of the four already published one; term_meta did not, so a
+     * termmeta write would have had to be dropped from attribution silently.
+     *
+     * @return array{rule:?array, source:?string}
+     */
+    public function term_meta_rule_details(string $key): array {
+        return $this->rule_details('term_meta', $key);
     }
 
     public function user_meta_rule(string $key): ?array {
@@ -1076,6 +1251,35 @@ final class Policy {
     /** @return array{rule:?array,source:?string} */
     public function block_attr_rule_details(string $block): array {
         return $this->content_attribute_rule_resolver()->block_attr_rule_details($block);
+    }
+
+    /**
+     * `attr_id_codecs` (WP-6.1): blockName => attribute path => {id_type},
+     * merged across manifests on exactly block_attr_rules()'s precedence.
+     *
+     * The two are read together by Blocks::capture_rewrite()/apply_rewrite()
+     * and must therefore be projected together — see
+     * AttrIdCodecGrammar::rules() for why replacement is whole-block.
+     *
+     * @return array<string,array<string,array{id_type:string}>>
+     */
+    public function attr_id_codec_rules(): array {
+        return AttrIdCodecGrammar::rules($this->manifests);
+    }
+
+    /**
+     * `column_codecs` (WP-6.1): the declared codecs for ONE typed table,
+     * column => {container, leaves}.
+     *
+     * Per table rather than the whole section, because both consumers
+     * (TypedTableCapture, TypedTableMaterializer) work one table at a time and
+     * a whole-section map would hand each of them declarations about tables
+     * they are not capturing.
+     *
+     * @return array<string,array{container:string,leaves:string}>
+     */
+    public function column_codec_rules(string $table): array {
+        return ColumnCodecGrammar::rules_for($this->manifests, $table);
     }
 
     /**
@@ -2906,6 +3110,35 @@ final class Policy {
         return $out;
     }
 
+    /**
+     * WP-5.5: every plugin/theme claim an explicit `site.duo.json`
+     * `policy.adapter_claims` resolution displaced — the REPORTING half of
+     * that section, and the reason it is a resolution rather than a silent
+     * override (spec/repo-format.md § v3.13).
+     *
+     * The same posture, and the same plan surface, as the two
+     * active_*_reclassifications() accessors above: the owner ruling behind
+     * those is "Plan emits a note whenever a reclassification override is
+     * active — loud, never silent", and a displaced claim is the identical
+     * shape of fact — a precedence decision that is CORRECT once the operator
+     * has written it down, and that an operator reading `version_ranges()`
+     * against their own pin list must be able to account for. So it is a plain
+     * `$plan['warnings']` entry in ApplyPlanBuilder and never an ok-flipping
+     * bucket: a resolved collision is a decision, not a defect.
+     *
+     * The word is `displaced_by_resolution`, one step over from the catalog's
+     * own `shadowed_by_site` (AdapterSources::CERTIFICATION_SHADOWED_BY_SITE),
+     * which reports a shipped adapter an explicit `{name, source:"site"}` pin
+     * displaced. Distinct rather than reused because the subject differs: a
+     * displaced CLAIMANT is still installed, still pinned and still loaded,
+     * and reporting it in `not_installed` would be false about all three.
+     *
+     * @return list<array{kind:string, id:string, reason_code:string, in_force:string, in_force_range:?array<string,string>, displaced:string, displaced_range:?array<string,string>, note:?string}>
+     */
+    public function displaced_adapter_claims(): array {
+        return AdapterClaimResolutions::displaced($this->manifests, $this->site['policy'] ?? []);
+    }
+
     /** Apply a source-level default without mutating the loaded artifact. */
     public static function with_option_autoload(array $rule, array $source): array {
         if (!array_key_exists('autoload', $rule) && array_key_exists('option_autoload', $source)) {
@@ -3193,6 +3426,15 @@ final class Policy {
      * pinned manifests naming one plugin with different ranges, so this
      * accessor never actually arbitrates.
      *
+     * WP-5.5 keeps that true by removing the arbitration rather than by
+     * teaching this walk to arbitrate. Where TWO pinned manifests claim one
+     * plugin and `site.duo.json` `policy.adapter_claims` says which is in
+     * force (spec/repo-format.md § v3.13), the manifests that are NOT in force
+     * are skipped, so the answer is the operator's written decision and not
+     * this loop's traversal order. With no resolution declared the map is
+     * pin-order-first exactly as it always was, because there is nothing to
+     * skip: the guard above refused before the site could reach this line.
+     *
      * Deploy::code_mismatch() / Apply::build_plan()'s code_mismatch bucket
      * and DUO-3338's provider negotiation (Providers::negotiate(), which
      * bounds a plugin-owned provider by the same declared range that bounds
@@ -3201,11 +3443,15 @@ final class Policy {
      * @return array<string, array{min:string, max:string, manifest:string}> keyed by plugin basename
      */
     public function version_ranges(): array {
+        $inForce = AdapterClaimResolutions::in_force($this->site['policy'] ?? [], 'plugin');
         $out = [];
         foreach ($this->manifests as $m) {
             $plugin = $m['plugin'] ?? null;
             $range = $m['version_range'] ?? null;
             if (!is_string($plugin) || $plugin === '' || !is_array($range) || isset($out[$plugin])) {
+                continue;
+            }
+            if (isset($inForce[$plugin]) && $inForce[$plugin] !== (string) ($m['name'] ?? '?')) {
                 continue;
             }
             $out[$plugin] = [
@@ -3235,11 +3481,17 @@ final class Policy {
      * @return array<string, array{min:string, max:string, manifest:string}> keyed by theme directory name
      */
     public function theme_ranges(): array {
+        // WP-5.5, the twin of version_ranges()'s own skip: a resolved theme
+        // claim answers to the operator's decision rather than to pin order.
+        $inForce = AdapterClaimResolutions::in_force($this->site['policy'] ?? [], 'theme');
         $out = [];
         foreach ($this->manifests as $m) {
             $theme = $m['theme'] ?? null;
             $range = $m['theme_version_range'] ?? null;
             if (!is_string($theme) || $theme === '' || !is_array($range) || isset($out[$theme])) {
+                continue;
+            }
+            if (isset($inForce[$theme]) && $inForce[$theme] !== (string) ($m['name'] ?? '?')) {
                 continue;
             }
             $out[$theme] = [
@@ -3501,6 +3753,9 @@ final class Policy {
             'engine_ledger_kinds' => ReferenceKindGrammar::engineLedgerKinds(),
             'attribute_value_types' => AttributeGrammar::attributeValueTypes(),
             'attribute_tokenize_codecs' => AttributeGrammar::attributeTokenizeCodecs(),
+            'attribute_id_types' => AttrIdCodecGrammar::idTypes(),
+            'column_codec_containers' => ColumnCodecGrammar::containers(),
+            'column_codec_leaves' => ColumnCodecGrammar::leafCodecs(),
             'widget_setting_codecs' => ManifestGrammar::widgetSettingCodecs(),
             'widget_setting_refs' => ManifestGrammar::widgetSettingRefs(),
             'action_kinds' => ActionProviderGrammar::actionKinds(),

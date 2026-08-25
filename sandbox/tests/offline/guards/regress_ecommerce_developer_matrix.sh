@@ -179,6 +179,25 @@ check_matrix() {
   return 0
 }
 
+# The Makefile's own text with its `include`d fragments folded in, in make's
+# order. regress-offline-corpus's prerequisite list is generated into
+# tools/offline-corpus.mk (tools/offline-corpus.php states why), so the
+# offline-wiring check below reads ./Makefile alone at the cost of reporting
+# this suite as unwired while it is running -- which is exactly what happened
+# the first time the include landed.
+makefile_with_includes() {
+  awk '{
+    print
+    if ($0 ~ /^-?include[ \t]+/) {
+      path = $2
+      if (path ~ /^[A-Za-z0-9_.\/-]+$/) {
+        while ((getline line < path) > 0) print line
+        close(path)
+      }
+    }
+  }' Makefile
+}
+
 check_public_entrypoint() {
   local target
   grep -Fq 'grind-ecommerce-developer-live:' Makefile || return 1
@@ -190,7 +209,8 @@ check_public_entrypoint() {
   grep -Fq 'ECOMMERCE_PORT2="$(PORT2)"' <<<"$target" || return 1
   grep -Fq 'sandbox/tests/grind/grind_ecommerce_developer.sh' <<<"$target" || return 1
   grep -Fq 'regress-ecommerce-developer-matrix' Makefile || return 1
-  grep -Fq 'regress-ecommerce-developer-matrix' <(sed -n '/^regress-offline-corpus:/,/^[[:space:]]*@echo/p' Makefile) || return 1
+  grep -Fq 'regress-ecommerce-developer-matrix' \
+    <(makefile_with_includes | sed -n '/^regress-offline-corpus:/,/^[[:space:]]*@echo/p') || return 1
   return 0
 }
 

@@ -111,8 +111,20 @@ final class AdapterRegistry {
      * synthesized `current` here would be the agent vouching for itself, which
      * is the whole reason the disposition document is separate from the
      * manifest it describes.
+     *
+     * It is also the ONE funnel every shipped claim passes through —
+     * capability_claim() above and report() below both land here — which is
+     * why the per-entry rules are asserted at this line. Since WP-1.2 the
+     * pinned-subset check in Policy::load() no longer speaks for the LIBRARY
+     * view: `wp duo capabilities --all` reads entry() for manifests nobody
+     * pinned, and an entry tampered after review (evidence deleted, an
+     * invented entity_section, a version range the manifest does not declare)
+     * projected `certified`/`verified` from here with no validator between the
+     * bytes and the claim. Same validator, same wording as load time; only the
+     * moment moved.
      */
     private static function shipped_claim(array $manifest, array $disposition, array $platform): array {
+        ManifestDispositions::assert_entry((string) ($manifest['name'] ?? ''), $disposition, $manifest);
         return ManifestDispositions::claim_from_disposition(
             $manifest,
             $disposition,

@@ -1,0 +1,329 @@
+{
+    "agent_version": "0.5.0",
+    "basis": {
+        "caveat": "this census folds 3 eligible submissions, at or below the 5-site narrow bound: read the rank as one estate's demand, not a fleet's",
+        "sample_class": "narrow",
+        "sites": 3
+    },
+    "demand": [
+        {
+            "claimed_surfaces": [],
+            "covering_adapter": null,
+            "demand_score": 6,
+            "funnel_stage": "no_adapter",
+            "residual_option_rows": 91,
+            "residual_table_rows": 76,
+            "sites_active": 2,
+            "sites_installed": 3,
+            "sites_pinning": 0,
+            "sites_unpinned": 3,
+            "slug": "wp-rocket",
+            "uncovered_option_groups": 1,
+            "uncovered_surfaces": [
+                "options:wp_rocket",
+                "tables:wpr_rocket_cache"
+            ],
+            "uncovered_tables": 1
+        },
+        {
+            "claimed_surfaces": [
+                "options:woocommerce_allowed",
+                "tables:wc_customer_lookup"
+            ],
+            "covering_adapter": "woocommerce",
+            "demand_score": 0,
+            "funnel_stage": "adapter_pinned",
+            "residual_option_rows": 36,
+            "residual_table_rows": 617,
+            "sites_active": 2,
+            "sites_installed": 2,
+            "sites_pinning": 1,
+            "sites_unpinned": 1,
+            "slug": "woocommerce",
+            "uncovered_option_groups": 0,
+            "uncovered_surfaces": [],
+            "uncovered_tables": 0
+        },
+        {
+            "claimed_surfaces": [
+                "options:wpcf7"
+            ],
+            "covering_adapter": "contact-form-7",
+            "demand_score": 0,
+            "funnel_stage": "adapter_pinned",
+            "residual_option_rows": 4,
+            "residual_table_rows": 0,
+            "sites_active": 1,
+            "sites_installed": 1,
+            "sites_pinning": 1,
+            "sites_unpinned": 0,
+            "slug": "contact-form-7",
+            "uncovered_option_groups": 0,
+            "uncovered_surfaces": [],
+            "uncovered_tables": 0
+        },
+        {
+            "claimed_surfaces": [
+                "options:tec_ct1",
+                "tables:tec_events"
+            ],
+            "covering_adapter": "the-events-calendar",
+            "demand_score": 0,
+            "funnel_stage": "adapter_unpinned",
+            "residual_option_rows": 9,
+            "residual_table_rows": 88,
+            "sites_active": 1,
+            "sites_installed": 1,
+            "sites_pinning": 0,
+            "sites_unpinned": 1,
+            "slug": "the-events-calendar",
+            "uncovered_option_groups": 0,
+            "uncovered_surfaces": [],
+            "uncovered_tables": 0
+        },
+        {
+            "claimed_surfaces": [
+                "options:wpseo",
+                "tables:yoast_indexable"
+            ],
+            "covering_adapter": "yoast",
+            "demand_score": 0,
+            "funnel_stage": "adapter_unpinned",
+            "residual_option_rows": 26,
+            "residual_table_rows": 1980,
+            "sites_active": 1,
+            "sites_installed": 1,
+            "sites_pinning": 0,
+            "sites_unpinned": 1,
+            "slug": "wordpress-seo",
+            "uncovered_option_groups": 0,
+            "uncovered_surfaces": [],
+            "uncovered_tables": 0
+        }
+    ],
+    "fleet": {
+        "covered": 263,
+        "covered_ppm": 244651,
+        "pending": 0,
+        "total": 1075,
+        "uncovered": 812
+    },
+    "format": "duo-fleet-census/v1",
+    "funnel": {
+        "adapter_pinned": {
+            "plugins": 2,
+            "sites_installed": 3,
+            "sites_pinning": 2,
+            "uncovered_surfaces": 0
+        },
+        "adapter_unpinned": {
+            "plugins": 2,
+            "sites_installed": 2,
+            "sites_pinning": 0,
+            "uncovered_surfaces": 0
+        },
+        "adapter_unreviewed": {
+            "plugins": 0,
+            "sites_installed": 0,
+            "sites_pinning": 0,
+            "uncovered_surfaces": 0
+        },
+        "no_adapter": {
+            "plugins": 1,
+            "sites_installed": 3,
+            "sites_pinning": 0,
+            "uncovered_surfaces": 2
+        }
+    },
+    "library": {
+        "adapters": 16,
+        "reviewed": 16,
+        "site_mode": "single-site",
+        "surfaces_sha256": "393f32a730db894962c7e08abdc99e9451efd7191502bdc93ab8cf329b8f0ef0"
+    },
+    "population": {
+        "denominator": "eligible",
+        "disclosure": "every ratio below divides by the 3 eligible submission(s); the 0 excluded submission(s) named above are in NO denominator and contribute to no rank",
+        "eligible": 3,
+        "excluded": [],
+        "excluded_total": 0,
+        "submissions": 3
+    },
+    "sites": [
+        {
+            "label": "estate-a",
+            "options": {
+                "covered": 87,
+                "invisible_other": 382,
+                "invisible_transient": 0,
+                "pending": 0,
+                "total": 469
+            },
+            "residual": {
+                "option_groups": [
+                    {
+                        "count": 18,
+                        "prefix": "woocommerce_allowed",
+                        "probable_owner": "woocommerce"
+                    },
+                    {
+                        "count": 26,
+                        "prefix": "wpseo",
+                        "probable_owner": "wordpress-seo"
+                    },
+                    {
+                        "count": 31,
+                        "prefix": "wp_rocket",
+                        "probable_owner": "wp-rocket"
+                    },
+                    {
+                        "count": 7,
+                        "prefix": "orphaned_ns",
+                        "probable_owner": null
+                    }
+                ],
+                "option_transients": 0,
+                "tables": [
+                    {
+                        "logical_name": "wc_customer_lookup",
+                        "probable_owner": "woocommerce",
+                        "row_count": 412
+                    },
+                    {
+                        "logical_name": "yoast_indexable",
+                        "probable_owner": "wordpress-seo",
+                        "row_count": 1980
+                    },
+                    {
+                        "logical_name": "wpr_rocket_cache",
+                        "probable_owner": "wp-rocket",
+                        "row_count": 64
+                    }
+                ]
+            },
+            "surfaces": {
+                "covered": 87,
+                "covered_ppm": 184322,
+                "pending": 0,
+                "total": 472,
+                "uncovered": 385
+            },
+            "tables": {
+                "covered": 0,
+                "non_core": 3,
+                "undeclared": 3
+            }
+        },
+        {
+            "label": "estate-b",
+            "options": {
+                "covered": 96,
+                "invisible_other": 216,
+                "invisible_transient": 0,
+                "pending": 0,
+                "total": 312
+            },
+            "residual": {
+                "option_groups": [
+                    {
+                        "count": 4,
+                        "prefix": "wpcf7",
+                        "probable_owner": "contact-form-7"
+                    },
+                    {
+                        "count": 9,
+                        "prefix": "tec_ct1",
+                        "probable_owner": "the-events-calendar"
+                    },
+                    {
+                        "count": 31,
+                        "prefix": "wp_rocket",
+                        "probable_owner": "wp-rocket"
+                    }
+                ],
+                "option_transients": 0,
+                "tables": [
+                    {
+                        "logical_name": "tec_events",
+                        "probable_owner": "the-events-calendar",
+                        "row_count": 88
+                    },
+                    {
+                        "logical_name": "wpr_rocket_cache",
+                        "probable_owner": "wp-rocket",
+                        "row_count": 12
+                    }
+                ]
+            },
+            "surfaces": {
+                "covered": 96,
+                "covered_ppm": 305732,
+                "pending": 0,
+                "total": 314,
+                "uncovered": 218
+            },
+            "tables": {
+                "covered": 0,
+                "non_core": 2,
+                "undeclared": 2
+            }
+        },
+        {
+            "label": "estate-c",
+            "options": {
+                "covered": 80,
+                "invisible_other": 208,
+                "invisible_transient": 0,
+                "pending": 0,
+                "total": 288
+            },
+            "residual": {
+                "option_groups": [
+                    {
+                        "count": 18,
+                        "prefix": "woocommerce_allowed",
+                        "probable_owner": "woocommerce"
+                    },
+                    {
+                        "count": 29,
+                        "prefix": "wp_rocket",
+                        "probable_owner": "wp-rocket"
+                    }
+                ],
+                "option_transients": 0,
+                "tables": [
+                    {
+                        "logical_name": "wc_customer_lookup",
+                        "probable_owner": "woocommerce",
+                        "row_count": 205
+                    }
+                ]
+            },
+            "surfaces": {
+                "covered": 80,
+                "covered_ppm": 276816,
+                "pending": 0,
+                "total": 289,
+                "uncovered": 209
+            },
+            "tables": {
+                "covered": 0,
+                "non_core": 1,
+                "undeclared": 1
+            }
+        }
+    ],
+    "spec_version": 2,
+    "unattributed": {
+        "option_groups": [
+            {
+                "count": 7,
+                "prefix": "orphaned_ns"
+            }
+        ],
+        "option_rows": 7,
+        "surfaces": 1,
+        "table_rows": 0,
+        "tables": []
+    }
+}

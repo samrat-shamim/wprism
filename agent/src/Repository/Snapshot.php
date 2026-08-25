@@ -808,7 +808,16 @@ final class Snapshot {
         $entities = [];
         foreach (self::topo_order($rowTables) as $table) {
             $entities = array_merge($entities, self::capture_table(
-                $table, $rowTables[$table], $metaByOwner[$table] ?? [], $tokens, $mint, $strictReadOnly
+                $table,
+                $rowTables[$table],
+                $metaByOwner[$table] ?? [],
+                $tokens,
+                $mint,
+                $strictReadOnly,
+                // WP-6.1: the table's own `column_codecs` projection, read here
+                // because this is the last frame that still holds a Policy —
+                // TypedTableCapture is deliberately Policy-free.
+                $policy->column_codec_rules($table)
             ));
         }
         return $entities;
@@ -899,13 +908,15 @@ final class Snapshot {
         return false;
     }
 
+    /** @param array<string,array{container:string,leaves:string}> $columnCodecs */
     private static function capture_table(
         string $table,
         array $decl,
         array $metaDecls,
         Tokens $tokens,
         bool $mint,
-        bool $strictReadOnly = false
+        bool $strictReadOnly = false,
+        array $columnCodecs = []
     ): array {
         return self::typed_table_capture()->capture_table(
             $table,
@@ -913,7 +924,8 @@ final class Snapshot {
             $metaDecls,
             $tokens,
             $mint,
-            $strictReadOnly
+            $strictReadOnly,
+            $columnCodecs
         );
     }
 
@@ -1220,7 +1232,11 @@ final class Snapshot {
             static fn(int $packed): array => self::unpack_composite_id($packed),
             static fn(array $decl, string $key): bool => self::meta_key_in_keyspace($decl, $key),
             static fn($value) => maybe_serialize($value),
-            static fn(string $key, string $group): bool => wp_cache_delete($key, $group)
+            static fn(string $key, string $group): bool => wp_cache_delete($key, $group),
+            // WP-6.1: the write half of the same `column_codecs` projection
+            // capture() reads. Bound here for the same reason as every other
+            // capability above — TypedTableMaterializer never sees a Policy.
+            static fn(string $table): array => $policy->column_codec_rules($table)
         );
     }
 

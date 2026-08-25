@@ -178,8 +178,8 @@ fi
 # Cheapest proof that $REPO_ROOT is duo-wp and not some parent directory the
 # script was copied into: the adapter dispositions the engine loads at
 # Policy::load() time. Every check below reads paths relative to it.
-if [ ! -f manifests/dispositions.json ]; then
-    fail "manifests/dispositions.json is missing -- this is not a duo-wp checkout"
+if [ ! -d manifests/dispositions ]; then
+    fail "manifests/dispositions/ is missing -- this is not a duo-wp checkout"
     remedy "re-clone the repository"
 fi
 
@@ -195,7 +195,7 @@ if have php; then
     else
         fail "make release-gate (exit $gate_rc)"
         printf '%s\n' "$gate_out" | sed 's/^/      /'
-        remedy "read the message above; the generated capability prose no longer matches manifests/dispositions.json"
+        remedy "read the message above; the generated capability prose no longer matches manifests/dispositions/"
     fi
 else
     fail "php is not on PATH -- release-gate and every offline suite need it"

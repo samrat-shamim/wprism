@@ -40,8 +40,29 @@ final class AdapterObservation {
      * a word the engine legitimately emits, which is a closed vocabulary
      * failing closed against its own product.
      */
+    /**
+     * `reviewer_signed` is ADMITTED here (§ v3.16, WP-5.2), and the two-release
+     * shape of that admission is the point rather than a detail.
+     *
+     * It shipped in this file first as a REFUSAL naming gate G4, because the
+     * case this host has to survive is version skew: a host at a version that
+     * has never heard of a word refuses the whole observation on `invalid enum`
+     * — the same three words a corrupt document gets — and an operator reads a
+     * skew as target corruption. That refusal is now in the field, one release
+     * ahead of the first engine that can mint the word, which is exactly what
+     * R-28 says a reservation on a read surface is for. Admitting it here is
+     * the second half: a host at THIS version reads a reviewer-tier target
+     * correctly instead of refusing it.
+     *
+     * Restated rather than read from `AdapterSources` for the reason the
+     * vocabulary is restated at all: cli/duo requires this file at bootstrap
+     * (:68) and loads agent classes lazily, so the validator for an untrusted
+     * target document may not depend on an agent class being resident.
+     * `sandbox/tests/offline/adapter/regress_v3_reservations.php` asserts this
+     * list and the agent's own are the same set, in both directions.
+     */
     private const CERTIFICATIONS = [
-        'certification_unjudged', 'registry', 'signed_unpinned', 'site_signed',
+        'certification_unjudged', 'registry', 'reviewer_signed', 'signed_unpinned', 'site_signed',
         'third_party_signed', 'uncertified',
     ];
     private const CLAIM_STATUSES = ['certified', 'excluded', 'experimental', 'uncertified', 'unsupported'];

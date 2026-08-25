@@ -1,0 +1,31 @@
+{
+    "fse": {
+        "evidence": {
+            "bundle_schema": "duo-subject-certification-bundle/v1",
+            "tests": [
+                "conformance-fse"
+            ]
+        },
+        "manifest": "core",
+        "reason": "Certified core full-site-editing profile for block themes, templates, template parts, navigation, reusable blocks, and theme taxonomies.",
+        "scope": {
+            "post_types": [
+                "wp_block",
+                "wp_navigation",
+                "wp_template",
+                "wp_template_part"
+            ],
+            "taxonomies": [
+                "wp_pattern_category",
+                "wp_template_part_area",
+                "wp_theme"
+            ]
+        },
+        "status": "certified",
+        "supported_versions": {
+            "wordpress": {
+                "source": "bundle.environment_summary.wordpress"
+            }
+        }
+    }
+}

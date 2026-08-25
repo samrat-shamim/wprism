@@ -116,8 +116,8 @@ HERMETIC_MANIFESTS="$(php sandbox/tests/offline/adapter/certification_fixture.ph
   || fail "could not build the hermetic manifest library"
 [ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
   || fail "hermetic manifest library landed outside the owned scratch root"
-jq -e '[.manifests[] | select(.status == "certified") | .evidence.tests | length] | all(. > 0)' \
-  "$HERMETIC_MANIFESTS/dispositions.json" >/dev/null \
+jq -e -s '[.[] | select(.status == "certified") | .evidence.tests | length] | all(. > 0)' \
+  "$HERMETIC_MANIFESTS"/dispositions/*.json >/dev/null \
   || fail "a certified disposition in the hermetic library cites no evidence"
 jq -e '.format == "duo-platform-boundary/v1"' \
   "$HERMETIC_MANIFESTS/capabilities/platform.json" >/dev/null \

@@ -20,6 +20,8 @@ require_once __DIR__ . '/../Grammar/OptionReferenceGrammar.php';
 require_once __DIR__ . '/../Adapter/AdapterContractGrammar.php';
 require_once __DIR__ . '/DiscoveryGrammar.php';
 require_once __DIR__ . '/../Kernel/ReferenceShapeGrammar.php';
+require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
+require_once __DIR__ . '/../Grammar/AttrIdCodecGrammar.php';
 
 /**
  * Pure per-manifest validation pipeline shared by live and frozen policy
@@ -104,5 +106,16 @@ final class ManifestValidator {
         ActionProviderGrammar::validate_effect_contracts($manifest);
         DiscoveryGrammar::validate_discovery_contract($manifest);
         ReferenceShapeGrammar::validate_reference_shapes($manifest, $label);
+        // WP-6.1's two `engine_features`-staged sections, and their placement
+        // is the contract. AFTER validate_adapter_contract() above, because §
+        // v3.2/§ v3.3's three verdicts must stay distinct and must arrive
+        // FIRST: a `spec_version: 2` manifest declaring one of these sections
+        // has to be refused BY SECTION, a v3 manifest declaring it without the
+        // feature BY KEY, and an engine lacking the feature BY FEATURE NAME —
+        // none of which is a statement about whether the section's contents are
+        // well formed. Reaching a codec's own grammar refusal first would tell
+        // an author to fix a declaration this engine was never going to admit.
+        ColumnCodecGrammar::validate_column_codecs($manifest, $label);
+        AttrIdCodecGrammar::validate_attr_id_codecs($manifest, $label);
     }
 }

@@ -1,5 +1,5 @@
 {
-    "class_count": 370,
+    "class_count": 394,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -169,13 +169,272 @@
             "properties": [],
             "readonly": false
         },
-        "Duo\\AdapterContractGrammar": {
+        "Duo\\AdapterClaimResolutions": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "CLAIM_ARMS": {
+                    "value_repr": {
+                        "plugin": "version_range",
+                        "theme": "theme_version_range"
+                    }
+                },
+                "DISPLACED_BY_RESOLUTION": {
+                    "value_repr": "displaced_by_resolution"
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "assert_binds": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sitePolicy",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "claimants": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "declared": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sitePolicy",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "displaced": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sitePolicy",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "in_force": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sitePolicy",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "kind",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "resolves": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "declared",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "kind",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "id",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sitePolicy",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\AdapterContractGrammar": {
+            "abstract": false,
+            "constants": {
+                "RESERVED_PACKAGE_KEY": {
+                    "value_repr": "package"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "admitted_feature_keys": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "admitted_top_level_keys": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "closed_key_set_since": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "implemented_features": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "section_min_spec": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "validate_adapter_contract": {
                     "abstract": false,
                     "final": false,
@@ -202,6 +461,14 @@
                             "default": null,
                             "has_default": false,
                             "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "resolutions",
                             "type": "array",
                             "variadic": false
                         }
@@ -305,6 +572,70 @@
                             "has_default": false,
                             "name": "repo",
                             "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\AdapterProbe": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-adapter-probe/v1"
+                },
+                "MAX_TABLES": {
+                    "value_repr": 64
+                },
+                "REDACTION": {
+                    "value_repr": "values_omitted"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "hash_document": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "report": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tables",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "naturalKeys",
+                            "type": "array",
                             "variadic": false
                         }
                     ],
@@ -499,11 +830,72 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\AdapterScan": {
+            "abstract": false,
+            "constants": {
+                "REFUSAL_MOVED": {
+                    "value_repr": "adapter_library_moved"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "load": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\Policy",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "open": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\AdapterScan",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "settle": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\AdapterSources": {
             "abstract": false,
             "constants": {
                 "CERTIFICATION_DIR": {
                     "value_repr": "certifications"
+                },
+                "CERTIFICATION_REVIEWER_SIGNED": {
+                    "value_repr": "reviewer_signed"
                 },
                 "CERTIFICATION_SHADOWED_BY_SITE": {
                     "value_repr": "shadowed_by_site"
@@ -577,6 +969,15 @@
                 "REFUSAL_RESERVED_NAME": {
                     "value_repr": "reserved_name"
                 },
+                "REFUSAL_RESERVED_NAMESPACE": {
+                    "value_repr": "reserved_namespace"
+                },
+                "REFUSAL_REVOCATION_INERT": {
+                    "value_repr": "revocation_channel_inert"
+                },
+                "REFUSAL_REVOCATION_UNREADABLE": {
+                    "value_repr": "revocation_channel_unreadable"
+                },
                 "REFUSAL_SHADOWS_SHIPPED": {
                     "value_repr": "shadows_shipped"
                 },
@@ -595,8 +996,14 @@
                 "REFUSAL_SYMLINK_SOURCE": {
                     "value_repr": "symlink_source"
                 },
+                "RESERVED_NAMESPACE_REMEDY": {
+                    "value_repr": "rename the adapter, and every provider id it declares, into a <vendor>- namespace an authority you hold is scoped to"
+                },
                 "SCOPE_ADAPTER": {
                     "value_repr": "adapter"
+                },
+                "SCOPE_LIBRARY": {
+                    "value_repr": "library"
                 },
                 "SCOPE_SOURCE": {
                     "value_repr": "source"
@@ -609,6 +1016,9 @@
                 },
                 "SITE_AUTHORITIES_FILE": {
                     "value_repr": "authorities.json"
+                },
+                "SITE_DELEGATIONS_FILE": {
+                    "value_repr": "delegations.json"
                 },
                 "SITE_DIR": {
                     "value_repr": "adapters"
@@ -630,6 +1040,18 @@
                 },
                 "TRUST_ROOT_SITE": {
                     "value_repr": "site"
+                },
+                "WITHDRAWN_AUTHORITY_REVOKED": {
+                    "value_repr": "authority_revoked"
+                },
+                "WITHDRAWN_AUTHORITY_WINDOW": {
+                    "value_repr": "authority_window_lapsed"
+                },
+                "WITHDRAWN_STALE_PLATFORM": {
+                    "value_repr": "stale_platform_boundary"
+                },
+                "WITHDRAWN_SUPERSEDED_WIRE": {
+                    "value_repr": "superseded_certificate_wire"
                 }
             },
             "final": true,
@@ -834,6 +1256,31 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "certification_word": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "hasRegistry",
+                            "type": "?bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "claim": {
                     "abstract": false,
                     "final": false,
@@ -985,6 +1432,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "is_uncertified_out_of_tree": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "names": {
                     "abstract": false,
                     "final": false,
@@ -1074,6 +1538,73 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "reviewer": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "scan_anchors": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifestDir",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "scan_dependencies": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifestDir",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },
@@ -4981,6 +5512,142 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\AttrIdCodecGrammar": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_source_type": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "codecs",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "block",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "encode_id": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "id",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "codecs",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string|int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "idTypes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "rules": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate_attr_id_codecs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\AttributeGrammar": {
             "abstract": false,
             "constants": [],
@@ -8106,7 +8773,57 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "adapter_deletion_feasibility": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "assoc",
+                            "type": null,
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
                 "adapter_observe": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "assoc",
+                            "type": null,
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "adapter_probe": {
                     "abstract": false,
                     "final": false,
                     "parameters": [
@@ -8432,6 +9149,31 @@
                     "visibility": "public"
                 },
                 "deploy": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "assoc",
+                            "type": null,
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "effect_coverage": {
                     "abstract": false,
                     "final": false,
                     "parameters": [
@@ -10726,6 +11468,166 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\ColumnCodecGrammar": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "apply_value": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "canonical",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "codec",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tokens",
+                            "type": "object",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "capture_value": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "raw",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "codec",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tokens",
+                            "type": "object",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "containers": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "leafCodecs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "rules_for": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "table",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate_column_codecs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\CommandRefusalException": {
             "abstract": false,
             "constants": [],
@@ -11550,6 +12452,23 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "guess_prefix": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "report": {
                     "abstract": false,
                     "final": false,
@@ -13371,6 +14290,71 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\DeletionFeasibility": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-deletion-feasibility/v1"
+                },
+                "MAX_GUARDS": {
+                    "value_repr": 32
+                },
+                "MAX_SELECTORS": {
+                    "value_repr": 32
+                },
+                "NO_LEADING_INDEX": {
+                    "value_repr": "no index leads with this column"
+                },
+                "REDACTION": {
+                    "value_repr": "values_omitted"
+                },
+                "TABLE_ABSENT": {
+                    "value_repr": "guard table is absent on this target"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "hash_document": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "report": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "proposal",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\DependencyRegenerator": {
             "abstract": false,
             "constants": [],
@@ -14219,6 +15203,78 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\EffectDeclarationCoverage": {
+            "abstract": false,
+            "constants": {
+                "EFFECT_VERDICTS": {
+                    "value_repr": [
+                        "exercised",
+                        "unexercised",
+                        "unobservable"
+                    ]
+                },
+                "FORMAT": {
+                    "value_repr": "duo-effect-declaration-coverage/v1"
+                },
+                "WRITE_VERDICTS": {
+                    "value_repr": [
+                        "classified",
+                        "declared",
+                        "outside_declaration"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "from_facts": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "journal",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "report": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifestNames",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\EntityAdopter": {
             "abstract": false,
             "constants": [],
@@ -14725,6 +15781,156 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\IdentityNamespaces": {
+            "abstract": false,
+            "constants": {
+                "GRANDFATHERED_ADAPTER_NAMES": {
+                    "value_repr": [
+                        "acf",
+                        "advanced-editor-tools",
+                        "classic-editor",
+                        "code-snippets",
+                        "contact-form-7",
+                        "core",
+                        "duo-agency-cpt",
+                        "elementor",
+                        "ninja-forms",
+                        "paid-memberships-pro",
+                        "polylang",
+                        "the-events-calendar",
+                        "woocommerce",
+                        "wps-hide-login",
+                        "yoast",
+                        "yoast-duplicate-post"
+                    ]
+                },
+                "GRANDFATHERED_ID_KINDS": {
+                    "value_repr": [
+                        "attr_taxonomy",
+                        "code_snippet",
+                        "nf3_action",
+                        "nf3_field",
+                        "nf3_form",
+                        "pmpro_category_restrict",
+                        "pmpro_discount",
+                        "pmpro_discount_level",
+                        "pmpro_group",
+                        "pmpro_level",
+                        "pmpro_level_group",
+                        "pmpro_restrict",
+                        "wc_tax_class",
+                        "wc_tax_loc",
+                        "wc_tax_rate",
+                        "wc_zone",
+                        "wc_zone_loc",
+                        "wc_zone_method"
+                    ]
+                },
+                "NAMESPACED_SINCE": {
+                    "value_repr": 3
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_out_of_tree_identity": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "shown",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "is_grandfathered_id_kind": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "kind",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "is_grandfathered_name": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "vendor": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "identity",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
                     "static": true,
                     "visibility": "public"
                 }
@@ -16068,6 +17274,14 @@
                             "name": "profiles",
                             "type": "?array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "manifestNames",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "?array",
@@ -16812,6 +18026,39 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "ground_truth_details": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tbl",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "item",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "observe": {
                     "abstract": false,
                     "final": false,
@@ -16868,6 +18115,23 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "table_state": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "wpdb",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
                     "static": true,
                     "visibility": "public"
                 }
@@ -18182,6 +19446,40 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "live_environment": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "probe",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\LintEnvironment",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "render_lines": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "findings",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "scan_tree": {
                     "abstract": false,
                     "final": false,
@@ -18201,9 +19499,262 @@
                             "name": "policy",
                             "type": "Duo\\Policy",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "env",
+                            "type": "?Duo\\LintEnvironment",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\LintEnvironment": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-lint-environment/v1"
+                },
+                "PROBE_FORMAT": {
+                    "value_repr": "duo-adapter-probe/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_state_tree": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stateDir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "boolean_domain_premise": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "type",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "column_type": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "table",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "column",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "column_types_from_probe": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "probe",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "defer": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "what",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "deferrals": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "document": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stateDir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "home": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "live": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "probe",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\LintEnvironment",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "parses_blocks": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "parses_shortcodes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recorded": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\LintEnvironment",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "resolve_id": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "id",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "resolver": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "callable",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "scanned": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "state_hash": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stateDir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
                     "static": true,
                     "visibility": "public"
                 }
@@ -18275,6 +19826,111 @@
                     "return_type": "array",
                     "static": true,
                     "visibility": "public"
+                },
+                "render_lines": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "findings",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\LintTrustGate": {
+            "abstract": false,
+            "constants": {
+                "PUBLIC_MESSAGE": {
+                    "value_repr": "capture found suspicious unrewritten references in state declared by an adapter with no reviewed certification"
+                },
+                "REASON": {
+                    "value_repr": "uncertified_adapter_lint_findings"
+                },
+                "REMEDIATION": {
+                    "value_repr": "for each named locator either declare the reference so capture tokenizes it, or record the reviewed exemption `lint_ok: true` on that declaration in the owning manifest; certifying the adapter returns its findings to advisory"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "findings",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stateDir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "blocking": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "findings",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stateDir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
                 }
             },
             "parent": null,
@@ -18284,6 +19940,9 @@
         "Duo\\ManifestDispositions": {
             "abstract": false,
             "constants": {
+                "DIRECTORY": {
+                    "value_repr": "dispositions"
+                },
                 "EVIDENCE_SCHEMA": {
                     "value_repr": "duo-subject-certification-bundle/v1"
                 },
@@ -18304,6 +19963,56 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "assert_covers": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "assert_entry": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "entry",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "blockers": {
                     "abstract": false,
                     "final": false,
@@ -18437,6 +20146,31 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "narrowed_environment": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "platformBoundary",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "platform_boundary": {
                     "abstract": false,
                     "final": false,
@@ -18543,7 +20277,11 @@
         },
         "Duo\\ManifestGrammar": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "INVALIDATE_VOCABULARY_FEATURE": {
+                    "value_repr": "invalidate-vocabulary/v1"
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
@@ -18665,6 +20403,14 @@
                             "has_default": false,
                             "name": "label",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "site",
+                            "type": "bool",
                             "variadic": false
                         }
                     ],
@@ -21021,6 +22767,163 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\AdapterBoundary": {
+            "abstract": false,
+            "constants": {
+                "EXIT_BLOCKED": {
+                    "value_repr": 1
+                },
+                "EXIT_OK": {
+                    "value_repr": 0
+                },
+                "EXIT_PROBE_REQUIRED": {
+                    "value_repr": 3
+                },
+                "EXIT_USAGE": {
+                    "value_repr": 2
+                },
+                "FORMAT": {
+                    "value_repr": "duo-adapter-boundary-search/v1"
+                },
+                "OUTCOMES": {
+                    "value_repr": [
+                        "green",
+                        "boot-fatal",
+                        "round-trip-diverges",
+                        "artifact-unresolved"
+                    ]
+                },
+                "OUTCOMES_FORMAT": {
+                    "value_repr": "duo-adapter-boundary-outcomes/v1"
+                },
+                "OUTCOME_BOOT_FATAL": {
+                    "value_repr": "boot-fatal"
+                },
+                "OUTCOME_DIVERGES": {
+                    "value_repr": "round-trip-diverges"
+                },
+                "OUTCOME_GREEN": {
+                    "value_repr": "green"
+                },
+                "OUTCOME_UNRESOLVED": {
+                    "value_repr": "artifact-unresolved"
+                },
+                "RELEASES_FORMAT": {
+                    "value_repr": "duo-adapter-release-list/v1"
+                },
+                "ROLE_CERTIFIED": {
+                    "value_repr": "certified-boundary"
+                },
+                "ROLE_REFUSAL": {
+                    "value_repr": "refusal-fixture"
+                },
+                "VERBS": {
+                    "value_repr": [
+                        "boundary"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "readOutcomeTable": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "slug",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "readReleaseList": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "search": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "releases",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "outcomes",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "options",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\AdapterCatalog": {
             "abstract": false,
             "constants": {
@@ -21067,7 +22970,8 @@
                     "value_repr": [
                         "keygen",
                         "certify",
-                        "pin"
+                        "pin",
+                        "adopt-scope"
                     ]
                 }
             },
@@ -21075,6 +22979,14 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "bootPublic": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "readSecretKey": {
                     "abstract": false,
                     "final": false,
@@ -21147,6 +23059,52 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\AdapterDistribution": {
+            "abstract": false,
+            "constants": {
+                "INDEX_FORMAT": {
+                    "value_repr": "duo-adapter-index/v1"
+                },
+                "REPORT_FORMAT": {
+                    "value_repr": "duo-adapter-distribution/v1"
+                },
+                "TRANSPORT_FILE": {
+                    "value_repr": "file"
+                },
+                "VERBS": {
+                    "value_repr": [
+                        "discover",
+                        "install",
+                        "update"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\AdapterDraft": {
             "abstract": false,
             "constants": {
@@ -21155,6 +23113,12 @@
                 },
                 "FORMAT": {
                     "value_repr": "duo-adapter-draft/v1"
+                },
+                "GAP_REPORT_FORMAT": {
+                    "value_repr": "duo-adapter-draft-gap-report/v1"
+                },
+                "PROBE_FORMAT": {
+                    "value_repr": "duo-adapter-probe/v1"
                 },
                 "SEED_COVERAGE_FORMAT": {
                     "value_repr": "duo-coverage-report/v1"
@@ -21256,6 +23220,134 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\AdapterProposals": {
+            "abstract": false,
+            "constants": {
+                "DERIVED_ONLY_KEYS": {
+                    "value_repr": [
+                        "last_verified",
+                        "stale",
+                        "releases_behind",
+                        "freshness"
+                    ]
+                },
+                "EXIT_OK": {
+                    "value_repr": 0
+                },
+                "EXIT_REFUSED": {
+                    "value_repr": 1
+                },
+                "EXIT_USAGE": {
+                    "value_repr": 2
+                },
+                "FORMAT": {
+                    "value_repr": "duo-adapter-boundary-proposals/v1"
+                },
+                "FRESHNESS_CLASSES": {
+                    "value_repr": [
+                        "unrecorded",
+                        "unverified",
+                        "behind",
+                        "current"
+                    ]
+                },
+                "OUTCOMES_SUFFIX": {
+                    "value_repr": ".outcomes.json"
+                },
+                "RELEASES_SUFFIX": {
+                    "value_repr": ".releases.json"
+                },
+                "VERBS": {
+                    "value_repr": [
+                        "proposals"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "project": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "library",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "ledger",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "readLedger": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "dir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "readLibrary": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "dir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
                     "static": true,
                     "visibility": "public"
                 }
@@ -22848,6 +24940,35 @@
                             "has_default": true,
                             "name": "envsFileOverride",
                             "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\CensusCommand": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
                             "variadic": false
                         }
                     ],
@@ -24566,6 +26687,90 @@
                     ],
                     "return_type": "array",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\CohortRebaseline": {
+            "abstract": false,
+            "constants": {
+                "COMPARABILITY_CLASSES": {
+                    "value_repr": [
+                        "same-estate",
+                        "population-changed",
+                        "disjoint-estate"
+                    ]
+                },
+                "FORMAT": {
+                    "value_repr": "duo-cohort-rebaseline/v1"
+                },
+                "FUNNEL_COUNTERS": {
+                    "value_repr": [
+                        "plugins",
+                        "sites_installed",
+                        "sites_pinning",
+                        "uncovered_surfaces"
+                    ]
+                },
+                "VERDICTS": {
+                    "value_repr": [
+                        "no_cohort",
+                        "coverage_moved",
+                        "adoption_only",
+                        "shipped_without_movement",
+                        "coverage_regressed",
+                        "unmeasured"
+                    ]
+                },
+                "VERDICT_ADOPTION_ONLY": {
+                    "value_repr": "adoption_only"
+                },
+                "VERDICT_COVERAGE_MOVED": {
+                    "value_repr": "coverage_moved"
+                },
+                "VERDICT_COVERAGE_REGRESSED": {
+                    "value_repr": "coverage_regressed"
+                },
+                "VERDICT_NO_COHORT": {
+                    "value_repr": "no_cohort"
+                },
+                "VERDICT_SHIPPED_NO_MOVEMENT": {
+                    "value_repr": "shipped_without_movement"
+                },
+                "VERDICT_UNMEASURED": {
+                    "value_repr": "unmeasured"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "project": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "baseline",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "current",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
                     "visibility": "public"
                 }
             },
@@ -27439,6 +29644,226 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\FleetCensus": {
+            "abstract": false,
+            "constants": {
+                "EXIT_OK": {
+                    "value_repr": 0
+                },
+                "EXIT_REFUSED": {
+                    "value_repr": 1
+                },
+                "EXIT_USAGE": {
+                    "value_repr": 2
+                },
+                "FORMAT": {
+                    "value_repr": "duo-fleet-census/v1"
+                },
+                "FRESHNESS_CLASSES": {
+                    "value_repr": [
+                        "unrecorded",
+                        "unverified",
+                        "behind",
+                        "current"
+                    ]
+                },
+                "FUNNEL_STAGES": {
+                    "value_repr": [
+                        "no_adapter",
+                        "adapter_unreviewed",
+                        "adapter_unpinned",
+                        "adapter_pinned"
+                    ]
+                },
+                "HEALTH_FORMAT": {
+                    "value_repr": "duo-adapter-boundary-proposals/v1"
+                },
+                "INVENTORY_FORMAT": {
+                    "value_repr": "duo-assess-inventory/v1"
+                },
+                "LABEL_PATTERN": {
+                    "value_repr": "/^[a-z0-9][a-z0-9_-]{0,31}$/D"
+                },
+                "SAMPLE_NARROW_MAX": {
+                    "value_repr": 5
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "library": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "dir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "project": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "submissions",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "library",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "health",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "rebaseline": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "options",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "options",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\FleetCensusRefusal": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "kind": "class",
+            "methods": {
+                "__construct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "reasonCode",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "message",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "remediation",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "diagnostic",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "previous",
+                            "type": "?Throwable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": "RuntimeException",
+            "properties": {
+                "diagnostic": {
+                    "readonly": false,
+                    "static": false,
+                    "type": "?string",
+                    "visibility": "public"
+                },
+                "reasonCode": {
+                    "readonly": false,
+                    "static": false,
+                    "type": "string",
+                    "visibility": "public"
+                },
+                "remediation": {
+                    "readonly": false,
+                    "static": false,
+                    "type": "string",
+                    "visibility": "public"
+                }
+            },
+            "readonly": false
+        },
         "Duo\\Orchestrator\\GapActions": {
             "abstract": false,
             "constants": {
@@ -28427,6 +30852,35 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\LintTree": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\LocalTransport": {
             "abstract": false,
             "constants": {
@@ -28767,7 +31221,7 @@
                     "value_repr": "duo-manifest-validation/v1"
                 },
                 "SCHEMA": {
-                    "value_repr": "duo-manifest-grammar/v1"
+                    "value_repr": "duo-manifest-grammar/v2"
                 }
             },
             "final": true,
@@ -28951,6 +31405,75 @@
                     "visibility": "public"
                 }
             },
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\MigrationPreflight": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-migration-preflight/v1"
+                },
+                "VERB": {
+                    "value_repr": "doctor"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "enumerate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifestDir",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "held",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
             "readonly": false
         },
         "Duo\\Orchestrator\\NextAction": {
@@ -29574,7 +32097,11 @@
         },
         "Duo\\Orchestrator\\PlanContract": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "GRADUATED_VERSION_RANGE": {
+                    "value_repr": "version_range_graduated"
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
@@ -34987,6 +37514,73 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\SpecMigration": {
+            "abstract": false,
+            "constants": {
+                "JOURNAL_FORMAT": {
+                    "value_repr": "duo-spec-migration-journal/v1"
+                },
+                "JOURNAL_RELATIVE": {
+                    "value_repr": ".duo/migrations"
+                },
+                "RECERTIFY_FORMAT": {
+                    "value_repr": "duo-adapter-recertify/v1"
+                },
+                "RELEASE_FLAG": {
+                    "value_repr": "--spec-v3"
+                },
+                "RELEASE_FORMAT": {
+                    "value_repr": "duo-spec-migration/v1"
+                },
+                "VERBS": {
+                    "value_repr": [
+                        "recertify"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "runRelease": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\SshTransport": {
             "abstract": false,
             "constants": [],
@@ -38219,6 +40813,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "adapter_version_evidence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "assert_min_max_range": {
                     "abstract": false,
                     "final": false,
@@ -38324,6 +40926,14 @@
                         }
                     ],
                     "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "attr_id_codec_rules": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -38474,6 +41084,23 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "column_codec_rules": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "table",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -38642,6 +41269,14 @@
                         }
                     ],
                     "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "displaced_adapter_claims": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -38902,6 +41537,39 @@
                             "has_default": true,
                             "name": "adapterRepo",
                             "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\Policy",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "load_from_scan": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "library",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifestNames",
+                            "type": "array",
                             "variadic": false
                         }
                     ],
@@ -39901,6 +42569,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "resolve_library": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "set_rule": {
                     "abstract": false,
                     "final": false,
@@ -40106,6 +42791,23 @@
                         }
                     ],
                     "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "term_meta_rule_details": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "key",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -42998,6 +45700,92 @@
                         }
                     ],
                     "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\ProviderSurfaces": {
+            "abstract": false,
+            "constants": {
+                "PASSES_PER_INVOKE": {
+                    "value_repr": 2
+                },
+                "QUERIES_PER_SURFACE_PER_PASS": {
+                    "value_repr": 1
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "observable": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "surface",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "observation_plan": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "capabilityDecl",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "observe": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "surfaces",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "id",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "capability",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }
@@ -56433,6 +59221,52 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\SpecVersionWindow": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "accepted": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "supported",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "text": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "accepted",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\StateHandoffVerifier": {
             "abstract": false,
             "constants": [],
@@ -56997,6 +59831,47 @@
                             "has_default": false,
                             "name": "visit",
                             "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\StructuredEvidence": {
+            "abstract": false,
+            "constants": {
+                "SECTION": {
+                    "value_repr": "declaration_evidence"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_section": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
                             "variadic": false
                         }
                     ],
@@ -59290,6 +62165,14 @@
                             "name": "strictReadOnly",
                             "type": "bool",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "columnCodecs",
+                            "type": "array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -59381,6 +62264,14 @@
                             "default": null,
                             "has_default": false,
                             "name": "cacheDelete",
+                            "type": "Closure",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "columnCodecs",
                             "type": "Closure",
                             "variadic": false
                         }
@@ -60018,6 +62909,94 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\VersionEvidenceGrammar": {
+            "abstract": false,
+            "constants": {
+                "OUTCOMES": {
+                    "value_repr": [
+                        "green",
+                        "boot-fatal",
+                        "round-trip-diverges",
+                        "artifact-unresolved"
+                    ]
+                },
+                "OUTCOME_GREEN": {
+                    "value_repr": "green"
+                },
+                "SITE_KEY": {
+                    "value_repr": "adapter_version_evidence"
+                },
+                "VERDICT": {
+                    "value_repr": "version_range_graduated"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "entry": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "evidence",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plugin",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate_site_version_evidence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "site",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
                     "static": true,
                     "visibility": "public"
                 }

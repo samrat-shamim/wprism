@@ -15,11 +15,19 @@ $matrix = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
-$dispositions = json_decode(
-    (string) file_get_contents($root . '/manifests/dispositions.json'),
-    true,
-    flags: JSON_THROW_ON_ERROR
-);
+// The roster source. WP-4.4 made it a directory of one document per subject
+// (spec/repo-format.md § v3.4), so the reviewed set IS the file set — read as
+// a listing rather than as one document's `manifests` keys, which is what
+// makes an adapter reviewed-but-absent-from-the-ledger impossible to miss.
+$dispositions = [];
+foreach (glob($root . '/manifests/dispositions/*.json') ?: [] as $document) {
+    $subject = basename($document, '.json');
+    if ($subject === 'profiles') {
+        continue;
+    }
+    $dispositions[$subject] = json_decode((string) file_get_contents($document), true, flags: JSON_THROW_ON_ERROR);
+}
+ksort($dispositions, SORT_STRING);
 
 duo_check_same(
     'duo-adapter-production-readiness/v1',
@@ -44,7 +52,7 @@ $families = [
 duo_check_same($families, $matrix['scenario_families'] ?? null, 'the ledger carries the complete reviewed scenario taxonomy in review order');
 
 $productAdapters = [];
-foreach ($dispositions['manifests'] as $name => $entry) {
+foreach ($dispositions as $name => $entry) {
     if (($entry['status'] ?? null) !== 'excluded') {
         $productAdapters[] = $name;
     }

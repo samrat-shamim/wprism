@@ -158,11 +158,17 @@ function cert_agent_library(string $root, string $label, array $adapterNames, ar
     $dir = $root . '/' . $label;
     mkdir($dir . '/capabilities', 0755, true);
     copy($duoRoot . '/manifests/core.json', $dir . '/core.json');
-    copy($duoRoot . '/manifests/dispositions.json', $dir . '/dispositions.json');
+    // Only `core` is copied, so only `core`'s reviewed document is: WP-4.4
+    // addressed the reviewed source per subject (spec/repo-format.md § v3.4),
+    // and a library carrying entries for manifests it does not hold is exactly
+    // what `make release-gate`'s two-way comparison refuses.
+    mkdir($dir . '/dispositions', 0755, true);
+    copy($duoRoot . '/manifests/dispositions/core.json', $dir . '/dispositions/core.json');
 
-    // The shipped platform boundary verbatim: `platform_sha256` inside every
-    // signed statement is the hash of these exact bytes, so a fixture that
-    // re-authored them would sign against a platform no agent runs.
+    // The shipped platform boundary verbatim: the exercised compatibility cells
+    // inside every signed statement are read out of these exact bytes
+    // (spec/repo-format.md § v3.6), so a fixture that re-authored them would
+    // sign against a platform no agent runs.
     copy(
         $duoRoot . '/manifests/capabilities/platform.json',
         $dir . '/capabilities/platform.json'
@@ -233,6 +239,24 @@ duo_check(
     'and says why — every certificate that key signed would be orphaned'
 );
 
+/**
+ * WP-4.12: the version this suite's UNPREFIXED site adapter (`keeper`)
+ * declares, and why it is N-1 rather than N.
+ *
+ * At `spec_version` N the namespace grammar (§ v3.9) refuses an out-of-tree
+ * name that is not `<vendor>-<name>`, so a `keeper` stamped at N would refuse
+ * before certify reached a single one of this suite's subjects. N-1 is not a
+ * dodge: it is the exact population the flag-day runbook's recertify step
+ * exists for — a site adapter authored under the previous spec, still inside
+ * the acceptance window, whose certificate the bump withdrew and which an
+ * operator now re-signs. Certifying it has to keep working, and that is what
+ * these cases measure.
+ *
+ * The suite's vendor-prefixed fixtures (`acme-catalog`, `acme-cases`) stay at
+ * N, so both authoring eras are covered rather than one replaced by the other.
+ */
+$preFlipSpec = DUO_SPEC_VERSION - 1;
+
 // T6 §3.1: "Private keys never live in the repository." `duo init`'s own next
 // steps tell the operator to `git add .`, so a key anywhere under a site repo
 // is a key they are about to publish.
@@ -240,7 +264,7 @@ $keyRepo = cert_site($root, 'keyrepo', [
     'name' => 'keeper',
     'option_autoload' => 'preserve',
     'options' => ['keeper_layout' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => $preFlipSpec,
 ]);
 mkdir($keyRepo . '/secrets/deep', 0755, true);
 foreach (['org.key', 'secrets/deep/org.key'] as $inside) {
@@ -524,7 +548,7 @@ $authRepo = cert_site($root, 'authsite', [
     'name' => 'keeper',
     'option_autoload' => 'preserve',
     'options' => ['keeper_layout' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => $preFlipSpec,
 ]);
 $public = sodium_crypto_sign_publickey_from_secretkey($signSecret);
 $wrote = cert_private('registerAuthority', [
@@ -654,7 +678,7 @@ $pinRepo = cert_site($root, 'pinsite', [
     'name' => 'keeper',
     'option_autoload' => 'preserve',
     'options' => ['keeper_layout' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => $preFlipSpec,
 ]);
 $before = (string) file_get_contents($pinRepo . '/site.duo.json');
 
@@ -691,7 +715,7 @@ $dupRepo = cert_site($root, 'dupsite', [
     'name' => 'keeper',
     'option_autoload' => 'preserve',
     'options' => ['keeper_layout' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => $preFlipSpec,
 ], ['core', 'keeper', ['name' => 'keeper', 'source' => 'site', 'digest' => str_repeat('c', 64)]]);
 duo_check_throws(
     static fn() => cert_private('writePin', [$dupRepo, $pin]),
@@ -874,7 +898,7 @@ Canon::write_file($overRepo . '/adapters/keeper.json', Canon::encode([
     'name' => 'keeper',
     'option_autoload' => 'preserve',
     'options' => ['keeper_layout' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => $preFlipSpec,
 ]));
 duo_check_same(0, cert_run(['pin', $overRepo, '--name=keeper', '--source=site'])['exit'], 'a second site adapter pins');
 $keeperCert = cert_run(['certify', $overRepo, '--name=keeper', '--secret-key-file=' . $secretPath,
@@ -1359,6 +1383,312 @@ cert_with_scope_rule($pinRepo, 'post_type', 'acme_case', ['class' => 'runtime'],
     );
 });
 
+// ------------------------- bulk scope adoption over a repository SET (WP-3.4)
+// The single-repo opt-in rides on the pin, which is right for the site that
+// AUTHORED the adapter and wrong for the fleet that consumes it: adding one
+// adapter to N sites cost N hand edits of site.duo.json, so operator cost
+// scaled with sites × adapters. `duo adapter adopt-scope <repo>… --name=<n>`
+// is that same opt-in over a set. What follows pins the four properties a
+// batch write must have — idempotent, never overwriting a recorded node,
+// byte-identical to the single-repo writer, and per-repo atomic under a
+// mid-batch fault — because one defect in a batch write is multiplied by the
+// size of the set.
+
+/**
+ * An init-shaped site repository that ALREADY PINS the adapter by
+ * {name, source} — the state every consumer site is in before its scope is
+ * widened, and the state `adopt-scope` requires (scope follows the pin).
+ *
+ * A source pin without a digest is exactly what `pin --source=site` writes as
+ * its own override bootstrap (AdapterCertify::pin()), so this is the engine's
+ * own admitted shape and not a fixture dialect.
+ */
+function cert_bulk_site(string $root, string $label, array $manifest, array $scope = []): string {
+    $repo = $root . '/' . $label;
+    mkdir($repo . '/adapters', 0755, true);
+    Canon::write_file($repo . '/adapters/' . $manifest['name'] . '.json', Canon::encode($manifest));
+    $policy = [
+        'options' => new stdClass(),
+        'post_meta' => new stdClass(),
+        'post_types' => ['attachment', 'page', 'post'],
+        'taxonomies' => ['category', 'post_tag'],
+        'term_meta' => new stdClass(),
+    ];
+    if ($scope !== []) {
+        $policy['scope'] = $scope;
+    }
+    Canon::write_file($repo . '/site.duo.json', Canon::encode([
+        'manifests' => ['core', ['name' => $manifest['name'], 'source' => AdapterSources::SITE]],
+        'policy' => $policy,
+        'spec_version' => DUO_SPEC_VERSION,
+    ]));
+
+    return $repo;
+}
+
+/** @return array<string,string> repo => its current site.duo.json bytes */
+function cert_bulk_bytes(array $repos): array {
+    $out = [];
+    foreach ($repos as $repo) {
+        $out[$repo] = (string) file_get_contents($repo . '/site.duo.json');
+    }
+
+    return $out;
+}
+
+$bulkOne = cert_bulk_site($root, 'bulk-one', $declManifest);
+$bulkTwo = cert_bulk_site($root, 'bulk-two', $declManifest);
+// The fleet member whose site already recorded a decision about the type — the
+// DUO-3495 walkthrough's own shape, now one repository inside a set.
+$bulkThree = cert_bulk_site($root, 'bulk-three', $declManifest, [
+    'post_type' => ['acme_case' => ['class' => 'runtime']],
+]);
+$bulkSet = [$bulkOne, $bulkTwo, $bulkThree];
+
+duo_check_same(
+    // The manifest classifies the type `authored` and the pin makes that
+    // reading resolve — but the site never opted the type into its flat list,
+    // so capture still skips it. That gap is exactly what DUO-3495 reported
+    // and what one adoption per site used to be the only cure for.
+    ['in_scope' => false, 'class' => 'authored', 'source' => 'acme-cases', 'declared_by' => 'acme-cases'],
+    cert_type_verdict($bulkOne, 'acme_case'),
+    'fixture premise: every repository in the set pins the adapter, so the declaration resolves — and none of them '
+    . 'is in scope, because the CLASS comes from the manifest while being in scope is the site\'s own act'
+);
+duo_check(
+    !isset(Canon::decode(Canon::read_file($bulkOne . '/site.duo.json'))['policy']['scope']),
+    'and no repository in the set has recorded a scope decision of its own: there is nothing here to overwrite'
+);
+
+$bulkBefore = cert_bulk_bytes($bulkSet);
+$bulkDry = cert_run(array_merge(['adopt-scope'], $bulkSet, ['--name=acme-cases', '--dry-run']));
+duo_check_same(0, $bulkDry['exit'], '--dry-run over the whole set exits 0');
+duo_check(
+    str_contains($bulkDry['out'], '--dry-run: nothing is written')
+        && str_contains($bulkDry['out'], 'would adopt: 3 repo(s), 5 authored scope rule(s)')
+        && cert_bulk_bytes($bulkSet) === $bulkBefore,
+    'and reports the plan for the whole set without writing one byte — a fleet write is reviewable before it happens'
+);
+
+$bulkRun = cert_run(array_merge(['adopt-scope'], $bulkSet, ['--name=acme-cases']));
+duo_check_same(0, $bulkRun['exit'], 'one invocation adopts the adapter\'s scope across three site repositories');
+duo_check(
+    str_contains($bulkRun['out'], 'adopted:    3 repo(s), 5 authored scope rule(s)')
+        && str_contains($bulkRun['out'], "$bulkOne\n  + policy.scope.post_type.acme_case = {\"class\": \"authored\"}")
+        && str_contains($bulkRun['out'], '  + policy.scope.taxonomy.acme_case_kind = {"class": "authored"}'),
+    'printing every rule it wrote, per repository — a fleet-wide scope widen is never silent'
+);
+foreach ([$bulkOne, $bulkTwo] as $adoptedRepo) {
+    duo_check_same(
+        ['in_scope' => true, 'class' => 'authored', 'source' => 'site.duo.json', 'declared_by' => 'acme-cases'],
+        cert_type_verdict($adoptedRepo, 'acme_case'),
+        "the engine answers the three whole-type questions in $adoptedRepo exactly as the single-repo pin leaves them"
+    );
+}
+
+// THE INVARIANT, carried into the batch: a recorded class is never overwritten,
+// and the surface beside it is still adopted — the write is per NODE, not per
+// repository, so one recorded decision does not cost the site the rest.
+duo_check_same(
+    ['class' => 'runtime'],
+    Canon::decode(Canon::read_file($bulkThree . '/site.duo.json'))['policy']['scope']['post_type']['acme_case'] ?? null,
+    'a recorded site scope class inside the set is left exactly as the site wrote it'
+);
+duo_check_same(
+    ['class' => 'authored'],
+    Canon::decode(Canon::read_file($bulkThree . '/site.duo.json'))['policy']['scope']['taxonomy']['acme_case_kind'] ?? null,
+    'while the surface that repository had NOT decided is adopted in the same write'
+);
+duo_check(
+    str_contains($bulkRun['out'], '! policy.scope.post_type.acme_case = {"class": "runtime"} — capture will skip post_type acme_case')
+        && str_contains($bulkRun['out'], 'shadowed:   1 repo(s) record a decision this command never overwrites')
+        && str_contains($bulkRun['out'], 'to override one, per site: duo adapter pin <site-repo> --name=acme-cases --adopt-scope'),
+    'and the shadowed node is named with the per-site remedy — the override stays a reviewed act on ONE repository'
+);
+
+$bulkAfter = cert_bulk_bytes($bulkSet);
+$bulkRepeat = cert_run(array_merge(['adopt-scope'], $bulkSet, ['--name=acme-cases']));
+duo_check(
+    $bulkRepeat['exit'] === 0
+        && str_contains($bulkRepeat['out'], 'adopted:    0 repo(s), 0 authored scope rule(s)')
+        && str_contains($bulkRepeat['out'], 'settled:    2 repo(s) had already decided every surface')
+        && cert_bulk_bytes($bulkSet) === $bulkAfter,
+    'a second invocation over the same set writes no rule and no byte: write-only-where-absent has no second effect'
+);
+
+// RULE 8, stated as bytes: the batch writes what the SHIPPED single-repo
+// adoption writes. Both repositories start from identical bytes; one is
+// adopted through AdapterCertify::adoptScope() — the exact call `certify --pin`
+// and `pin` make — and the other through the batch verb.
+$bulkSingle = cert_bulk_site($root, 'bulk-single', $declManifest);
+$bulkBatch = cert_bulk_site($root, 'bulk-batch', $declManifest);
+duo_check(
+    hash_equals(
+        (string) file_get_contents($bulkSingle . '/site.duo.json'),
+        (string) file_get_contents($bulkBatch . '/site.duo.json')
+    ),
+    'premise: the single-repo and batch fixtures start byte-identical'
+);
+ob_start();
+// The single-repo call `pin()` makes, argument for argument
+// (AdapterCertify.php:467): the manifest is the one the ENGINE resolves, not
+// the PHP literal above — `taxonomies => new stdClass()` survives a JSON round
+// trip as an empty array, and only that array reads as a structural authored
+// declaration (ScopeAdoption::declared_authored():78 requires is_array).
+cert_private(
+    'adoptScope',
+    [$bulkSingle, 'acme-cases', cert_private('resolvedManifest', [$bulkSingle, 'acme-cases']), false]
+);
+$bulkSingleOut = (string) ob_get_clean();
+duo_check_same(
+    0,
+    cert_run(['adopt-scope', $bulkBatch, '--name=acme-cases'])['exit'],
+    'the batch verb runs over a one-repository set'
+);
+duo_check(
+    hash_equals(
+        (string) file_get_contents($bulkSingle . '/site.duo.json'),
+        (string) file_get_contents($bulkBatch . '/site.duo.json')
+    ),
+    'and leaves site.duo.json BYTE-IDENTICAL to what the shipped single-repo writer leaves — the batch adds no '
+    . 'scope semantics, it reuses writeScopeRules() and therefore the same typed, canonical, atomic write'
+);
+duo_check(
+    str_contains($bulkSingleOut, 'scope: wrote 2 authored scope rule(s)')
+        && str_contains($bulkSingleOut, '+ policy.scope.post_type.acme_case = {"class": "authored"}'),
+    'and the single-repo verb\'s own output is unchanged by the batch mode existing (rule 8)'
+);
+
+// A repository that does not resolve the adapter refuses the WHOLE set before
+// anything is written: scope follows the pin, and writing scope for an adapter
+// a site never pinned would opt it into types nothing can classify.
+$bulkUnpinned = cert_init_site($root, 'bulk-unpinned', $declManifest, []);
+$bulkFresh = cert_bulk_site($root, 'bulk-fresh', $declManifest);
+$bulkFreshBefore = (string) file_get_contents($bulkFresh . '/site.duo.json');
+$bulkRefusal = cert_run_cli(['adopt-scope', $bulkFresh, $bulkUnpinned, '--name=acme-cases']);
+duo_check_same(2, $bulkRefusal['exit'], 'a set holding one repository that does not pin the adapter is refused');
+duo_check(
+    str_contains($bulkRefusal['err'], 'wrote nothing')
+        && str_contains($bulkRefusal['err'], "the engine resolves no adapter 'acme-cases' here")
+        && str_contains($bulkRefusal['err'], "duo adapter pin $bulkUnpinned --name=acme-cases"),
+    'naming the repository and the command that fixes it, rather than adopting the rest and reporting a partial'
+);
+duo_check(
+    hash_equals($bulkFreshBefore, (string) file_get_contents($bulkFresh . '/site.duo.json')),
+    'and the healthy repository in that set is untouched — the plan phase writes nothing at all'
+);
+
+// Two SPELLINGS of one repository, not two copies of one string: identity is
+// realpath()'s, so a set that would have been planned and counted twice is
+// refused instead. The bytes are checked because a second plan of an
+// already-planned repository is precisely how a batch write double-counts.
+$bulkDupBefore = (string) file_get_contents($bulkFresh . '/site.duo.json');
+$bulkDup = cert_run_cli(['adopt-scope', $bulkFresh, $bulkFresh . '/./', '--name=acme-cases']);
+duo_check_same(
+    2,
+    $bulkDup['exit'],
+    'one repository named twice under two spellings is refused rather than planned twice against a count nobody '
+    . 'can reconcile with the set they typed'
+);
+duo_check(
+    str_contains($bulkDup['err'], "names the same site repository as '$bulkFresh'")
+        && hash_equals($bulkDupBefore, (string) file_get_contents($bulkFresh . '/site.duo.json')),
+    'naming the argument that already claimed it, and writing nothing'
+);
+duo_check_same(
+    2,
+    cert_run(['adopt-scope', $noSite, '--name=acme-cases'])['exit'],
+    'a directory with no site.duo.json is not a site repo here either'
+);
+duo_check_same(
+    2,
+    cert_run(['adopt-scope', '--name=acme-cases'])['exit'],
+    'adopt-scope with no repository is a usage error'
+);
+duo_check_same(2, cert_run(['adopt-scope', $bulkFresh])['exit'], 'and so is adopt-scope without --name');
+$bulkOverride = cert_run_cli(['adopt-scope', $bulkThree, '--name=acme-cases', '--adopt-scope']);
+duo_check_same(2, $bulkOverride['exit'], '--adopt-scope is refused in bulk mode');
+duo_check(
+    str_contains($bulkOverride['err'], 'overriding a decision a site RECORDED is a per-site')
+        && str_contains($bulkOverride['err'], 'duo adapter pin <site-repo> --name=acme-cases --adopt-scope'),
+    'because one flag flipping a recorded class across a fleet is exactly the multiplied consequence this verb '
+    . 'exists to avoid — the per-site command is printed instead'
+);
+
+// FAULT INJECTION: a repository in the middle of the set cannot be written.
+// The property under test is not the diagnostic but the STATE: every
+// repository ends fully adopted or untouched, never half-written, and the
+// operator is told which is which.
+$faultOne = cert_bulk_site($root, 'fault-one', $declManifest);
+$faultTwo = cert_bulk_site($root, 'fault-two', $declManifest);
+$faultThree = cert_bulk_site($root, 'fault-three', $declManifest);
+$faultBefore = cert_bulk_bytes([$faultOne, $faultTwo, $faultThree]);
+chmod($faultTwo, 0555);
+$faultRun = cert_run_cli(['adopt-scope', $faultOne, $faultTwo, $faultThree, '--name=acme-cases']);
+chmod($faultTwo, 0755);
+duo_check_same(2, $faultRun['exit'], 'a repository that cannot be written mid-batch fails the invocation');
+duo_check(
+    !hash_equals($faultBefore[$faultOne], (string) file_get_contents($faultOne . '/site.duo.json'))
+        && hash_equals($faultBefore[$faultTwo], (string) file_get_contents($faultTwo . '/site.duo.json'))
+        && hash_equals($faultBefore[$faultThree], (string) file_get_contents($faultThree . '/site.duo.json')),
+    'THE ATOMICITY PROPERTY: the repository written before the fault is fully adopted, the failing one is '
+    . 'byte-for-byte untouched, and the one after it was never attempted'
+);
+duo_check_same(
+    ['class' => 'authored'],
+    Canon::decode(Canon::read_file($faultOne . '/site.duo.json'))['policy']['scope']['post_type']['acme_case'] ?? null,
+    'the adopted repository holds a COMPLETE adoption, not a partial one'
+);
+duo_check(
+    str_contains($faultRun['err'], "adopted before this failure: $faultOne")
+        && str_contains($faultRun['err'], "untouched: $faultTwo, $faultThree")
+        && str_contains($faultRun['err'], 're-run the same command — adoption is idempotent'),
+    'and the refusal is a LEDGER: which repositories moved, which did not, and why re-running is safe'
+);
+duo_check(
+    trim($faultRun['out']) !== '' && !str_contains($faultRun['out'], 'PHP Warning')
+        && !str_contains($faultRun['err'], 'PHP Warning') && !str_contains($faultRun['err'], 'Notice:'),
+    'with no PHP diagnostic anywhere: tempnam() silently falls back to the system temp directory on an '
+    . 'unwritable directory, so the unguarded write would have named /tmp in a warning instead of the repository'
+);
+$faultResume = cert_run(['adopt-scope', $faultOne, $faultTwo, $faultThree, '--name=acme-cases']);
+duo_check(
+    $faultResume['exit'] === 0
+        && str_contains($faultResume['out'], 'adopted:    2 repo(s), 4 authored scope rule(s)')
+        && str_contains($faultResume['out'], 'settled:    1 repo(s) had already decided every surface'),
+    're-running after the fault finishes the set and re-decides nothing in the repository that had already moved'
+);
+
+// The atomicity above must not rest on the writability GUARD, which is a
+// diagnostic and therefore a TOCTOU check. Drive the shipped writer straight
+// at an unwritable repository: the tempnam()+rename() discipline is what keeps
+// the file whole, and it is asserted here on its own.
+$faultRaw = cert_bulk_site($root, 'fault-raw', $declManifest);
+$faultRawBefore = (string) file_get_contents($faultRaw . '/site.duo.json');
+chmod($faultRaw, 0555);
+// Scoped to this one call: the expected rename() warning is the thing under
+// test, and a suite whose job is to make a real failure legible must not print
+// a diagnostic it provoked on purpose.
+set_error_handler(static fn (): bool => true);
+try {
+    duo_check_throws(
+        static fn() => cert_private('writeScopeRules', [
+            $faultRaw,
+            [['kind' => 'post_type', 'name' => 'acme_case']],
+        ]),
+        RuntimeException::class,
+        'the shipped scope writer refuses when the atomic rename cannot land'
+    );
+} finally {
+    restore_error_handler();
+    chmod($faultRaw, 0755);
+}
+duo_check(
+    hash_equals($faultRawBefore, (string) file_get_contents($faultRaw . '/site.duo.json')),
+    'and leaves site.duo.json byte-for-byte intact WITHOUT the guard — the derived-path tempnam()+rename() '
+    . 'discipline is the atomicity, the writability check only names the repository the operator must fix'
+);
+
 // ------------------------------------------------------------------ closure
 
 duo_check(
@@ -1370,7 +1700,7 @@ duo_check(
         (string) file_get_contents($duoRoot . '/cli/duo'),
         'AdapterCertify::VERBS'
     ),
-    'the three verbs are dispatched from cli/duo by the class\'s own closed list'
+    'every verb is dispatched from cli/duo by the class\'s own closed list'
 );
 foreach (AdapterCertify::VERBS as $verb) {
     duo_check(

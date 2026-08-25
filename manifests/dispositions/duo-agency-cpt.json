@@ -1,0 +1,34 @@
+{
+    "capabilities": {
+        "deletion_semantics": {
+            "supported": [],
+            "unsupported": [
+                "all"
+            ]
+        },
+        "entity_sections": [],
+        "field_sections": [
+            "options",
+            "post_meta",
+            "term_meta",
+            "user_meta"
+        ],
+        "lifecycle_phases": [],
+        "operations": [
+            "test-only"
+        ]
+    },
+    "default_authored_keyspaces": [],
+    "reason": "Duo-authored regression fixture, not a third-party adapter or product support claim.",
+    "status": "excluded",
+    "supported_versions": {
+        "fixture": true
+    },
+    "unsupported": [
+        {
+            "operation": "promote",
+            "reason": "Excluded fixture manifests are never production-ready.",
+            "surface": "production"
+        }
+    ]
+}

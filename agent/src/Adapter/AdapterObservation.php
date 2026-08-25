@@ -58,9 +58,16 @@ final class AdapterObservation {
      * projection refuses the whole observation rather than emit an
      * unrecognised vocabulary, which is exactly the intent for a word nobody
      * downstream knows how to read.
+     *
+     * `reviewer_signed` joined at gate G4 (§ v3.16, WP-5.2), and it had to
+     * join here in the SAME change that let `AdapterSources` mint it: the
+     * derivation and this enum are the emitting half of one wire, so a word the
+     * engine can produce and this list does not carry would refuse the target's
+     * own observation of itself.
      */
     private const CERTIFICATIONS = [
-        'certification_unjudged', 'registry', 'signed_unpinned', 'site_signed', 'third_party_signed', 'uncertified',
+        'certification_unjudged', 'registry', 'reviewer_signed', 'signed_unpinned', 'site_signed',
+        'third_party_signed', 'uncertified',
     ];
     private const CLAIM_STATUSES = ['certified', 'excluded', 'experimental', 'uncertified', 'unsupported'];
     private const VERDICTS = ['blocked', 'certified'];
@@ -159,20 +166,24 @@ final class AdapterObservation {
         return defined('DUO_SPEC_VERSION') ? (int) DUO_SPEC_VERSION : 0;
     }
 
-    /** The only prerequisite probe is a read.  No Ledger repair is permitted. */
+    /**
+     * The only prerequisite probe is a read.  No Ledger repair is permitted.
+     *
+     * The probe itself moved to Journal::table_state() when a second read-only
+     * reader (EffectDeclarationCoverage) needed the identical SHOW TABLES /
+     * last_error discipline; what stays here is this command's own refusal
+     * contract, which is not shareable — `adapter_observation_prerequisite_absent`
+     * and `adapter_observation_journal_unreadable` are its public reason codes.
+     * `unusable` (no usable $wpdb) and `absent` (usable $wpdb, no table) keep
+     * folding into the one prerequisite refusal this command has always raised.
+     */
     private static function assert_journal_prerequisite(): void {
         global $wpdb;
-        if (!is_object($wpdb) || !is_string($wpdb->prefix ?? null)
-            || !method_exists($wpdb, 'prepare') || !method_exists($wpdb, 'get_var')) {
-            self::refuse_prerequisite();
-        }
-        $table = $wpdb->prefix . 'duo_journal';
-        $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
-        $readError = $wpdb->last_error ?? '';
-        if (!is_string($readError) || $readError !== '' || $found === false) {
+        $state = Journal::table_state($wpdb);
+        if ($state === 'unreadable') {
             self::refuse_journal_read_error();
         }
-        if (!is_string($found) || $found !== $table) {
+        if ($state !== 'present') {
             self::refuse_prerequisite();
         }
     }
@@ -468,7 +479,17 @@ final class AdapterObservation {
             $refusals[] = [
                 'code' => self::code($row['code'] ?? null),
                 'path_count' => count($row['paths']),
-                'scope' => self::enum($row['scope'] ?? null, [AdapterSources::SCOPE_ADAPTER, AdapterSources::SCOPE_SOURCE]),
+                // Three words since G2-FIXES C2: `library` is a row about the
+                // agent's own manifest directory (an installed-but-inert typed
+                // revocation document), which is neither one adapter nor one
+                // source. Admitted here rather than redacted to `?`, because an
+                // observation that hid the scope would report the row as
+                // unclassifiable and invite a reader to guess.
+                'scope' => self::enum($row['scope'] ?? null, [
+                    AdapterSources::SCOPE_ADAPTER,
+                    AdapterSources::SCOPE_LIBRARY,
+                    AdapterSources::SCOPE_SOURCE,
+                ]),
                 'source' => self::enum($row['source'] ?? null, self::SOURCES),
             ];
         }

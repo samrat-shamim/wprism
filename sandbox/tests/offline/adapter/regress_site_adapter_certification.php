@@ -8,12 +8,8 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_AGENT_VERSION')) {
-    define('DUO_AGENT_VERSION', '0.5.0');
-}
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
@@ -362,8 +358,9 @@ $platform = [
         // range-plus-exercised-series php axis. A certification fixture that
         // kept the retired single-engine/bare-range shapes would still hash
         // and verify (AdapterCertification only requires `compatibility` be an
-        // object), and would therefore stop being evidence that
-        // platform_sha256 binds the boundary a site actually ships.
+        // object), and would therefore stop being evidence that the axis
+        // binding (§ v3.6) reads the shapes a site actually ships: the two
+        // shapes here are exactly the two rules platformAxisCells() applies.
         'database' => [
             'engines' => [
                 'MariaDB' => ['max' => '12.0.0', 'min' => '11.0.0'],
@@ -373,7 +370,14 @@ $platform = [
         ],
         'php' => ['max' => '8.5.0', 'min' => '8.3.0', 'note' => 'fixture',
             'verified' => ['8.3' => '8.3.33', '8.4' => '8.4.24']],
-        'wordpress' => ['last_verified' => '7.0.2', 'note' => 'fixture'],
+        // `verified` since WP-4.7, for the reason the comment above gives:
+        // without it this axis has no series map, platformAxisCells() falls to
+        // the PROFILE rule, and the fixture would bind `last_verified` — a
+        // scalar the shipped boundary deliberately leaves OUT of the binding.
+        // A fixture that bound it would make every assertion below evidence
+        // about a boundary shape nobody ships.
+        'wordpress' => ['last_verified' => '7.0.2', 'max' => '7.1.0', 'min' => '6.9.0', 'note' => 'fixture',
+            'verified' => ['6.9' => '6.9.2', '7.0' => '7.0.2']],
     ],
     'plugin_execution' => 'unmodified',
     'site_mode' => 'single-site',
@@ -504,8 +508,8 @@ cert_check(($verified['disposition']['provenance']['path'] ?? null) === 'adapter
 cert_check(
     isset($proof['authority']['fingerprint'], $proof['authority']['key_id'], $proof['authority']['record_sha256'])
     && isset($proof['bundle']['digest'], $proof['bundle']['git_revision'], $proof['bundle']['tests'])
-    && isset($proof['certificate_sha256'], $proof['statement_sha256'], $proof['platform_sha256'], $proof['ratification_sha256'], $proof['raw_input']),
-    'derived disposition digest-binds authority, envelope, signed statement, bundle, ratification, platform, and raw-input proof facts'
+    && isset($proof['certificate_sha256'], $proof['statement_sha256'], $proof['platform_axes_sha256'], $proof['ratification_sha256'], $proof['raw_input']),
+    'derived disposition digest-binds authority, envelope, signed statement, bundle, ratification, exercised platform axes, and raw-input proof facts'
 );
 cert_check(
     ($verified['claim']['evidence']['status'] ?? null) === 'current'
@@ -530,6 +534,84 @@ $verify = cert_run([
     '--name=site-demo',
 ]);
 cert_check($verify['exit'] === 0 && is_array(json_decode($verify['stdout'], true)), 'verification tool revalidates the exact path-derived certificate');
+
+// -------------------------------------------------------------------------
+// WP-4.8 / spec § v3.7 change (e): THE SECOND-ENROLLMENT CASE.
+//
+// The platform trust root used to bind the WHOLE authority record, justified
+// by a premise enrollment falsifies — that the shipped file never grows under
+// an operator's hand. It grows once per enrolled vendor, and before WP-4.8
+// every growth silently invalidated every certificate already signed under
+// that key: this exact block failed with "certification authority/key/
+// fingerprint/trust root does not match the current platform authority
+// record". The site root has bound the key IDENTITY (everything but the two
+// scope lists) since T6 for the identical reason; the platform root now does
+// too, and the ordering matters because a root chooses its binding at the
+// moment its first certificate is signed and never after (register row R-08).
+// -------------------------------------------------------------------------
+echo "\n== WP-4.8: a platform trust root that GROWS keeps its earlier certificates ==\n";
+$grownKeys = clone $keys;
+$grownRecord = $grownKeys->{'review-key'};
+$grownRecord['adapter_names'] = ['acme-second-vendor', 'site-demo'];
+$grownRecord['trust_tiers'] = ['declarative_manifest', 'plugin_provider'];
+$grownKeys->{'review-key'} = $grownRecord;
+cert_write_canon($agent . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $grownKeys,
+]);
+try {
+    $grown = AdapterCertification::verifyFile($agent, $site, 'site-demo', $manifest, $certPath);
+    cert_check(
+        ($grown['disposition']['certification'] ?? null) === 'certified',
+        'enrolling a SECOND adapter on the platform key leaves the first adapter\'s certificate verifying'
+    );
+    cert_check(
+        ($grown['disposition']['provenance']['proof']['authority']['record_sha256'] ?? null)
+            === ($proof['authority']['record_sha256'] ?? null),
+        'and the pinned authority digest is still the record the certificate was SIGNED over, so no repository '
+        . 'pin moves when the trust root grows'
+    );
+} catch (Throwable $e) {
+    cert_check(false, 'enrolling a SECOND adapter on the platform key leaves the first adapter\'s certificate '
+        . 'verifying (' . $e->getMessage() . ')');
+}
+// The narrowing removes exactly the two scope lists and nothing else: an edit
+// to the key IDENTITY still refuses, and the scope lists are still enforced
+// LIVE rather than through the signature.
+$identityKeys = clone $keys;
+$identityRecord = $identityKeys->{'review-key'};
+$identityRecord['status'] = 'revoked';
+$identityKeys->{'review-key'} = $identityRecord;
+cert_write_canon($agent . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $identityKeys,
+]);
+cert_expect_throw(
+    static fn() => AdapterCertification::verifyFile($agent, $site, 'site-demo', $manifest, $certPath),
+    'does not match the current platform authority record',
+    'a platform key whose IDENTITY moved (status revoked) still refuses — authorityIdentity() drops only the '
+    . 'scope lists'
+);
+$narrowedKeys = clone $keys;
+$narrowedRecord = $narrowedKeys->{'review-key'};
+$narrowedRecord['adapter_names'] = ['acme-second-vendor'];
+$narrowedKeys->{'review-key'} = $narrowedRecord;
+cert_write_canon($agent . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $narrowedKeys,
+]);
+cert_expect_throw(
+    static fn() => AdapterCertification::verifyFile($agent, $site, 'site-demo', $manifest, $certPath),
+    "is not scoped to site adapter 'site-demo'",
+    'and a platform key NARROWED out of this adapter still refuses, live, through the current record rather '
+    . 'than through the signature'
+);
+cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities);
+cert_check(
+    (AdapterCertification::verifyFile($agent, $site, 'site-demo', $manifest, $certPath)['disposition']['certification'] ?? null)
+        === 'certified',
+    'restoring the shipped record restores the certified disposition'
+);
 
 echo "\n== plugin-owned provider certification and offline negotiation ==\n";
 $providerSite = $root . '/provider-site';
@@ -955,7 +1037,14 @@ echo "\n== plugin-owned provider identity boundary ==\n";
 $providerManifest = $manifest;
 $providerManifest['providers'] = [[
     'capabilities' => ['refresh'],
-    'id' => 'fixture-refresh',
+    // WP-4.12: `site-refresh`, inside this adapter's own `site-` namespace.
+    // At spec_version 3 the namespace grammar (§ v3.9) binds every
+    // `providers[].id` to the declaring adapter's vendor half, so the previous
+    // `fixture-refresh` refused there first and this case stopped being about
+    // its own subject — the plugin BASENAME check two lines down. Naming the
+    // provider legally is what makes the refusal below provably about the
+    // traversing `plugin` value and nothing else.
+    'id' => 'site-refresh',
     'plugin' => 'fixture-provider/fixture-provider.php',
     'source' => 'plugin',
     'version' => '1.0.0',
@@ -1537,11 +1626,11 @@ try {
         is_array($signedEvidence)
         && ($signedEvidence['certificate_sha256'] ?? null) === $signedProof['certificate_sha256']
         && ($signedEvidence['statement_sha256'] ?? null) === $signedProof['statement_sha256']
-        && ($signedEvidence['platform_sha256'] ?? null) === $signedProof['platform_sha256']
+        && ($signedEvidence['platform_axes_sha256'] ?? null) === $signedProof['platform_axes_sha256']
         && ($signedEvidence['authority']['key_id'] ?? null) === 'review-key'
         && ($signedEvidence['authority']['fingerprint'] ?? null) === $signedProof['authority']['fingerprint'],
-        'a signed, pinned site adapter reports its authority and the exact certificate/statement/platform digests '
-        . 'the signature covers — the facts that used to be invisible'
+        'a signed, pinned site adapter reports its authority and the exact certificate/statement/exercised-axes '
+        . 'digests the signature covers — the facts that used to be invisible'
     );
     cert_check(
         ($signedEvidence['bundle']['digest'] ?? null) === $signedProof['bundle']['digest']
@@ -1710,8 +1799,12 @@ try {
         <<<'PHP'
 <?php
 declare(strict_types=1);
-define('DUO_SPEC_VERSION', 2);
-define('DUO_AGENT_VERSION', '0.5.0');
+// WP-4.12: the child must present the SAME agent the parent does — it reads a
+// real platform.json copy, and AdapterCertification refuses the moment the
+// document and the loaded agent disagree ("agent capability platform boundary
+// disagrees with the loaded agent"). Derived, never retyped.
+require __ENGINE_ROOT__ . '/sandbox/tests/lib/agent_version.php';
+duo_test_define_agent_versions();
 define('ABSPATH', __ABSPATH__);
 define('WP_PLUGIN_DIR', __WP_PLUGIN_DIR__);
 function is_multisite(): bool { return false; }
@@ -1796,8 +1889,8 @@ PHP
     // other. Both are certified, which is the harder case — a contaminating
     // read would go unnoticed if one of them were failing anyway.
     $shippedCoreCitation = Canon::decode(
-        Canon::read_file($integrationManifests . '/dispositions.json')
-    )['manifests']['core']['evidence'] ?? null;
+        Canon::read_file($integrationManifests . '/dispositions/core.json')
+    )['evidence'] ?? null;
     cert_check(
         ($mixedReport['evidence_scope'] ?? null) === 'per_subject'
         && $mixedReport['evidence'] === null
@@ -1858,6 +1951,764 @@ PHP
         is_string($updatedDigest) && $updatedDigest !== $certifiedDigest,
         'a new signed statement/envelope/evidence proof produces a new final adapter digest'
     );
+
+    // ==================================================================
+    echo "\n== WP-1.1: a moved agent boundary WITHDRAWS one claim, never the source ==\n";
+    // ==================================================================
+    // `manifests/capabilities/platform.json` is AGENT-owned and moves on an
+    // ordinary upgrade, and every signed statement binds its exact bytes
+    // (AdapterCertification::verifyCertificate). Before WP-1.1 that comparison
+    // threw a bare \RuntimeException; scan_site_source() could not tell it from
+    // a forgery, so discover() refused the WHOLE site source and Policy::load()
+    // propagated it uncaught (Policy.php:400). One upgrade therefore took every
+    // command on every site holding a certified adapter — including the `duo
+    // adapter certify --pin` that is the only way back — for a condition no
+    // site caused. Cases (d) and (e) below are what keep the remedy from being
+    // the fallback rule 9 forbids: the line is drawn at TWO named typed
+    // exceptions, and everything else still refuses.
+    cert_write($certPath, $originalCertificateRaw);
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => ['core', $exactPin],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    $currentPolicy = Policy::load($site);
+    $currentResolved = RepositoryCompiler::resolved_adapters($currentPolicy);
+    $currentCoreDigest = (string) ($currentResolved[0]['digest'] ?? '');
+    // Captured while the boundary still agrees, because that is the artifact a
+    // promoted site is actually holding when the agent under it moves.
+    $currentSnapshot = $currentPolicy->export_snapshot();
+    $currentEnvelope = $currentSnapshot['adapter_sources']['certificates']['site-demo'] ?? [];
+    cert_check(
+        $currentPolicy->adapter_sources()->is_certified('site-demo')
+        && ($currentResolved[1]['digest'] ?? null) === $certifiedDigest
+        && $currentCoreDigest !== '',
+        'baseline: the certified, exactly-pinned site adapter and an unrelated shipped adapter load in one pin set'
+    );
+
+    // ONE BOUND CELL of the agent-owned boundary, dropped the way the live
+    // matrix's own documented remedy drops one ("if the live matrix fails, the
+    // remedy is to drop the 7.1 entry", manifests/capabilities/platform.json).
+    // agent_version/spec_version are left alone so currentPlatform()'s own
+    // agreement checks still pass and the only thing that differs is a cell the
+    // signature covers.
+    //
+    // WHY THIS MUTATION AND NOT THE ONE THAT USED TO BE HERE. Until WP-4.7 this
+    // block moved `compatibility.wordpress.last_verified`, because the
+    // signature covered the whole record and ANY byte withdrew the claim. Under
+    // § v3.6 that byte is deliberately outside every binding — it is derived
+    // from `verified` and moves on every additive release — so moving it now
+    // withdraws nothing, which is the deliverable and is asserted directly in
+    // regress_certificate_axis_binding.php. What still withdraws is a cell
+    // nobody can be shown to have exercised any more, and that is what this
+    // integration case needs: a genuine withdrawal, driven all the way through
+    // Policy::load(), from_snapshot() and the repair command.
+    $stalePlatform = $platform;
+    unset($stalePlatform['compatibility']['wordpress']['verified']['7.0']);
+    $stalePlatform['compatibility']['wordpress']['last_verified'] = '6.9';
+    cert_write_canon($integrationManifests . '/capabilities/platform.json', [
+        'format' => ManifestDispositions::PLATFORM_FORMAT,
+        'platform' => $stalePlatform,
+    ]);
+
+    $degradedPolicy = null;
+    try {
+        $degradedPolicy = Policy::load($site);
+        cert_check(
+            true,
+            '(a) a moved platform boundary no longer refuses the whole source — Policy::load() completes, and the '
+            . 'now-stale exact digest pin rides the site-pin concession (PinResolver.php:201-208) instead of '
+            . 'stranding the load'
+        );
+    } catch (Throwable $e) {
+        cert_check(
+            false,
+            '(a) a moved platform boundary no longer refuses the whole source — Policy::load() completes ('
+            . $e->getMessage() . ')'
+        );
+    }
+    $degradedResolved = [];
+    if ($degradedPolicy instanceof Policy) {
+        $degradedSources = $degradedPolicy->adapter_sources();
+        $degradedReason = (string) ($degradedSources->provenance('site-demo')['reason'] ?? '');
+        $degradedResolved = RepositoryCompiler::resolved_adapters($degradedPolicy);
+        cert_check(
+            !$degradedSources->is_certified('site-demo')
+            && ($degradedSources->diagnostics($degradedPolicy->manifests)['site-demo']['certification'] ?? null)
+                === 'uncertified'
+            // capability === null, not `['status' => 'uncertified']`: that
+            // second shape is `signed_unpinned`, where a claim exists and is
+            // merely not elevated. A withdrawn claim leaves NO claim at all —
+            // byte-identical to the companion-absent site adapter, which is the
+            // whole point of routing to the same record.
+            && array_key_exists('capability', $degradedResolved[1] ?? [])
+            && $degradedResolved[1]['capability'] === null
+            && str_contains($degradedReason, 'agent platform boundary this agent no longer publishes'),
+            '(b) the adapter resolves uncertified and its reason NAMES the stale boundary — an operator reading '
+            . '"carries no reviewed certification evidence" would go looking for a missing companion that is '
+            . 'sitting right there (' . $degradedReason . ')'
+        );
+        cert_check(
+            ($degradedResolved[0]['digest'] ?? null) === $currentCoreDigest
+            && ($degradedResolved[0]['capability']['status'] ?? null) === 'certified',
+            '(c) the unrelated shipped adapter in the same pin set is untouched — same digest, same certified '
+            . 'capability; the withdrawal is scoped to the one adapter whose certificate went stale'
+        );
+    } else {
+        cert_check(false, '(b) the adapter resolves uncertified naming the stale boundary — unreachable: the load refused');
+        cert_check(false, '(c) the unrelated shipped adapter is untouched — unreachable: the load refused');
+    }
+
+    // (f) The frozen path is the one a PROMOTED site walks: it verifies from
+    // its own snapshot and may not reopen the mutable repository, so if it kept
+    // refusing, the unbrick would stop at the host.
+    $frozenStale = null;
+    try {
+        AdapterCertification::verifyFrozen($integrationManifests, 'site-demo', $manifest, $currentEnvelope);
+    } catch (Throwable $t) {
+        $frozenStale = $t;
+    }
+    cert_check(
+        $frozenStale instanceof \Duo\StalePlatformSiteAdapterCertificate,
+        '(f) verifyFrozen() raises the same TYPED staleness the live entry point does, so one signal serves both '
+        . 'paths and neither can drift (' . ($frozenStale === null ? 'no exception' : get_class($frozenStale)) . ')'
+    );
+    $frozenPolicy = null;
+    try {
+        $frozenPolicy = Policy::from_snapshot($currentSnapshot);
+        cert_check(true, '(f) and Policy::from_snapshot() completes on the frozen snapshot the site already holds');
+    } catch (Throwable $e) {
+        cert_check(
+            false,
+            '(f) and Policy::from_snapshot() completes on the frozen snapshot the site already holds ('
+            . $e->getMessage() . ')'
+        );
+    }
+    if ($frozenPolicy instanceof Policy) {
+        $frozenResolved = RepositoryCompiler::resolved_adapters($frozenPolicy);
+        cert_check(
+            !$frozenPolicy->adapter_sources()->is_certified('site-demo')
+            && ($frozenResolved[0]['digest'] ?? null) === $currentCoreDigest
+            && ($frozenResolved[1]['digest'] ?? null) === ($degradedResolved[1]['digest'] ?? 'live-load-refused'),
+            '(f) and it withdraws exactly the claim the live scan withdraws, digest for digest — the frozen record '
+            . 'is DISCARDED and re-derived from the frozen manifest, never trusted for the state it claims'
+        );
+    } else {
+        cert_check(false, '(f) and it withdraws exactly the claim the live scan does — unreachable: from_snapshot refused');
+    }
+
+    // (g) Remedy invocability. `duo adapter certify --pin` runs Policy::load()
+    // three times (AdapterCertify.php:283 pre-flight, :349/:663 pin object,
+    // :570 scope), so under whole-source refusal the repair command was the
+    // first casualty of the condition it repairs. Driven on a COPY so the
+    // fixture the rest of this suite depends on is not re-signed underneath it.
+    $remedySite = $root . '/stale-remedy-site';
+    cert_copy_tree($site, $remedySite);
+    $remedyKeypair = sodium_crypto_sign_seed_keypair(str_repeat('R', SODIUM_CRYPTO_SIGN_SEEDBYTES));
+    cert_write($root . '/remedy-secret.key', base64_encode(sodium_crypto_sign_secretkey($remedyKeypair)) . "\n");
+    chmod($root . '/remedy-secret.key', 0600);
+    $remedyRun = cert_run([
+        'env',
+        'DUO_MANIFESTS_DIR=' . $integrationManifests,
+        PHP_BINARY,
+        dirname(__DIR__, 4) . '/cli/duo',
+        'adapter',
+        'certify',
+        $remedySite,
+        '--name=site-demo',
+        '--secret-key-file=' . $root . '/remedy-secret.key',
+        '--pin',
+    ]);
+    cert_check(
+        $remedyRun['exit'] === 0 && str_contains($remedyRun['stdout'], 'certified:  site-demo'),
+        '(g) `duo adapter certify --pin` — the one command that repairs this — completes on the degraded site '
+        . '(exit ' . $remedyRun['exit'] . ' ' . trim($remedyRun['stderr']) . ')'
+    );
+    try {
+        cert_check(
+            Policy::load($remedySite)->adapter_sources()->is_certified('site-demo'),
+            '(g) and the re-signed adapter is certified again against the CURRENT boundary — the withdrawal is a '
+            . 'state an operator can leave, not a trap'
+        );
+    } catch (Throwable $e) {
+        cert_check(false, '(g) and the re-signed adapter is certified again (' . $e->getMessage() . ')');
+    }
+
+    // (d) THE LINE. Every one of these is the identical stale-platform
+    // condition with one more thing wrong, and every one of them must still
+    // take the whole source down. The structural reason forgery cannot reach
+    // the withdrawal is ordering: assertAdapterBinding, the authority binding
+    // and the Ed25519 check all run BEFORE the platform comparison
+    // (AdapterCertification::verifyCertificate), so a companion that is not
+    // provably the operator's own never gets as far as the typed signal.
+    $forgedStatement = Canon::decode($originalCertificateRaw);
+    $forgedStatement['statement']['bundle']['git_revision'] = str_repeat('f', 40);
+    cert_write_canon($certPath, $forgedStatement);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        'invalid Ed25519 signature',
+        '(d) a FORGED statement under the identical stale-platform conditions still refuses the whole source'
+    );
+    $misbound = Canon::decode($originalCertificateRaw);
+    $misbound['statement']['adapter']['path'] = 'adapters/somewhere-else.json';
+    cert_write_canon($certPath, $misbound);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        'does not bind the exact source/path/canonical manifest/trust tier',
+        '(d) a WRONG-BINDING companion still refuses the whole source, and is not read as a stale boundary'
+    );
+    cert_write($certPath, $originalCertificateRaw);
+    $revokedIntegrationKeys = new stdClass();
+    foreach ((array) $integrationKeys as $revokedId => $revokedRecord) {
+        $revokedRecord['status'] = $revokedId === 'review-key' ? 'revoked' : $revokedRecord['status'];
+        $revokedIntegrationKeys->{$revokedId} = $revokedRecord;
+    }
+    cert_write_canon($integrationManifests . '/capabilities/adapter-authorities.json', [
+        'format' => 'duo-adapter-authorities/v1',
+        'keys' => $revokedIntegrationKeys,
+    ]);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        // A revoked key is dropped from the current authority map, so the
+        // binding check refuses before the revocation message is ever reached —
+        // either way the source is refused, and the refusal names the root it
+        // disagreed with rather than the boundary.
+        'does not match the current platform authority record',
+        '(d) an AUTHORITY ANOMALY — the signing key revoked in the current agent root — still refuses the whole '
+        . 'source; a withdrawal here would launder a revoked signature into unsigned support'
+    );
+    cert_write_canon($integrationManifests . '/capabilities/adapter-authorities.json', [
+        'format' => 'duo-adapter-authorities/v1',
+        'keys' => $integrationKeys,
+    ]);
+
+    // (e) An UNPARSEABLE or shape-broken statement, as distinct from a validly
+    // older wire. These are the cases a version-tolerant reader would be
+    // tempted to excuse; each one is a file that is not a certificate, and each
+    // one stays a refusal.
+    $unparseableCases = [
+        'a statement that is not an object at all' => static function (array $certificate): array {
+            $certificate['statement'] = 'not an object';
+            return $certificate;
+        },
+        'a statement missing the platform boundary it must bind' => static function (array $certificate): array {
+            unset($certificate['statement']['platform']);
+            return $certificate;
+        },
+        'a statement carrying a key this wire does not define' => static function (array $certificate): array {
+            $certificate['statement']['future_field'] = ['unread' => true];
+            return $certificate;
+        },
+    ];
+    foreach ($unparseableCases as $unparseableLabel => $unparseableMutation) {
+        cert_write_canon($certPath, $unparseableMutation(Canon::decode($originalCertificateRaw)));
+        cert_expect_throw(
+            static fn() => Policy::load($site),
+            'duo: site adapter certification',
+            "(e) $unparseableLabel still refuses the whole source"
+        );
+    }
+    cert_write($certPath, "{ this is not canonical json\n");
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        'is not valid JSON',
+        '(e) and a companion that is not parseable JSON never reaches the wire-version test at all'
+    );
+    // Parseable but not CANONICAL: the wire-version test sits inside
+    // assertCertificateShape, downstream of readCanonicalObjectFile, so a
+    // hand-formatted certificate cannot claim a future wire to dodge the
+    // canonical-bytes rule. Compact rather than merely re-indented, because
+    // Canon's canonical form IS four-space pretty JSON with a trailing newline
+    // — a pretty-printed re-encode of already-sorted keys is byte-identical.
+    $nonCanonicalFutureWire = Canon::decode($originalCertificateRaw);
+    $nonCanonicalFutureWire['format'] = 'duo-adapter-certification/v2';
+    cert_write($certPath, json_encode(
+        $nonCanonicalFutureWire,
+        JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+    ) . "\n");
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        'canonical',
+        '(e) and neither does a parseable but non-canonical one that claims a future wire'
+    );
+
+    // The withdrawal is REVERSIBLE and moves nothing permanent: put the agent's
+    // boundary back and the same certificate, unchanged, is certified again at
+    // the same digest it always had.
+    cert_write($certPath, $originalCertificateRaw);
+    cert_write_canon($integrationManifests . '/capabilities/platform.json', [
+        'format' => ManifestDispositions::PLATFORM_FORMAT,
+        'platform' => $platform,
+    ]);
+    $restoredResolved = RepositoryCompiler::resolved_adapters(Policy::load($site));
+    cert_check(
+        ($restoredResolved[1]['digest'] ?? null) === $certifiedDigest
+        && ($restoredResolved[1]['capability']['status'] ?? null) === 'certified',
+        'restoring the agent boundary restores the certified claim at its original digest — the withdrawal wrote '
+        . 'nothing and revoked nothing'
+    );
+
+    // The same withdrawal for the other agent-owned document inside a
+    // certificate: its wire version. There is no /v2 wire today, so this is the
+    // mechanism proved against a synthetic version field — which is exactly
+    // what makes case (e) above a real line rather than a tautology.
+    $futureWire = Canon::decode($originalCertificateRaw);
+    $futureWire['format'] = 'duo-adapter-certification/v2';
+    cert_write_canon($certPath, $futureWire);
+    $wirePolicy = null;
+    try {
+        $wirePolicy = Policy::load($site);
+    } catch (Throwable $e) {
+        cert_check(false, 'a superseded certificate WIRE withdraws one claim instead of refusing the source ('
+            . $e->getMessage() . ')');
+    }
+    if ($wirePolicy instanceof Policy) {
+        $wireReason = (string) ($wirePolicy->adapter_sources()->provenance('site-demo')['reason'] ?? '');
+        cert_check(
+            !$wirePolicy->adapter_sources()->is_certified('site-demo')
+            && str_contains($wireReason, 'certification wire version this agent does not verify')
+            && (RepositoryCompiler::resolved_adapters($wirePolicy)[0]['digest'] ?? null) === $currentCoreDigest,
+            'a superseded certificate WIRE withdraws one claim, names the wire in its reason, and leaves the '
+            . 'unrelated shipped adapter alone (' . $wireReason . ')'
+        );
+    }
+    // The predicate is the exact family at another integer version and nothing
+    // else. Each of these is one character away from the withdrawal above and
+    // every one of them is still a whole-source refusal — this is the
+    // "one predicate too wide" the risk note is about, tested rather than
+    // reasoned about.
+    foreach ([
+        'duo-adapter-certification/v0',
+        'duo-adapter-certification/v01',
+        'duo-adapter-certification/v',
+        'duo-adapter-certification/vnext',
+        'duo-adapter-certification/v2x',
+        'duo-adapter-certification/v2 ',
+        'duo-site-adapter-certification/v2',
+    ] as $nearMissFormat) {
+        $nearMiss = Canon::decode($originalCertificateRaw);
+        $nearMiss['format'] = $nearMissFormat;
+        cert_write_canon($certPath, $nearMiss);
+        cert_expect_throw(
+            static fn() => Policy::load($site),
+            'unsupported or malformed root',
+            "(e) format '$nearMissFormat' is not this wire family at another version — still a whole-source refusal"
+        );
+    }
+
+    // (h) WHAT THE WIRE SIGNAL ACTUALLY IS, pinned rather than assumed. Unlike
+    // the stale-platform signal, this one is UNAUTHENTICATED BY CONSTRUCTION:
+    // it is raised in assertCertificateShape(), before any signature is
+    // checked, and root `format` is outside the signed bytes anyway
+    // (signatureBytes signs the statement alone). The three cases below are the
+    // real boundary — one accepted degradation and two hard refusals — and they
+    // are what the risk note on SupersededWireSiteAdapterCertificate is about.
+    // The agent boundary is back to CURRENT here, so nothing but the wire
+    // version is in play.
+    $mutatedFutureWire = Canon::decode($originalCertificateRaw);
+    $mutatedFutureWire['format'] = 'duo-adapter-certification/v2';
+    $mutatedFutureWire['statement']['bundle']['git_revision'] = str_repeat('f', 40);
+    cert_write_canon($certPath, $mutatedFutureWire);
+    $mutatedWirePolicy = null;
+    try {
+        $mutatedWirePolicy = Policy::load($site);
+    } catch (Throwable $e) {
+        cert_check(false, '(h) a mutated statement under a superseded wire version withdraws rather than refuses ('
+            . $e->getMessage() . ')');
+    }
+    if ($mutatedWirePolicy instanceof Policy) {
+        // ACCEPTED, deliberately asserted as the real behaviour rather than the
+        // behaviour one would prefer: this is byte-for-byte the statement case
+        // (d) above refuses with 'invalid Ed25519 signature', and the ONLY
+        // difference is a root `format` no signature covers — so the signature
+        // is never reached and the adapter degrades instead. It is accepted
+        // because the destination is UNCERTIFIED support: strictly weaker than
+        // what the certificate conferred, never a grant, and the same write
+        // access that edited this file reaches the identical state by deleting
+        // it. The loss is tamper-evidence (a refusal an operator would have
+        // investigated becomes a quiet degradation), not a trust boundary —
+        // docs/guides/adapter-authoring.md says so to operators in the same
+        // words. Cases (h2)/(h3) are the part that is NOT accepted: the shape
+        // proofs that keep the cheap forgeries away from this signal.
+        cert_check(
+            !$mutatedWirePolicy->adapter_sources()->is_certified('site-demo')
+            && str_contains(
+                (string) ($mutatedWirePolicy->adapter_sources()->provenance('site-demo')['reason'] ?? ''),
+                'certification wire version this agent does not verify'
+            ),
+            '(h) a superseded wire version withdraws the claim WITHOUT authenticating anything — the same statement '
+            . 'mutation that case (d) refuses as a forgery degrades here, because root `format` is outside the '
+            . 'signed bytes; accepted, and the accepted risk is written down at the throw site'
+        );
+    }
+    // (h2) The cheapest thing an attacker with write access to
+    // adapters/certification/ can author: a one-key file naming a future wire.
+    // assertExactKeys runs AHEAD of the wire test precisely so this cannot
+    // reach the typed signal — before that ordering it degraded the adapter.
+    cert_write_canon($certPath, ['format' => 'duo-adapter-certification/v2']);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        'site adapter certification must contain exactly format, signature, statement',
+        '(h) a bare {"format":"…/v2"} file with statement and signature REMOVED is refused as malformed and never '
+        . 'reaches the wire signal — the closed root key set is proved first'
+    );
+    // (h3) And the signature must at least be a canonical base64 Ed25519-length
+    // signature, proved before the wire test for the same reason.
+    $shortSignatureFutureWire = Canon::decode($originalCertificateRaw);
+    $shortSignatureFutureWire['format'] = 'duo-adapter-certification/v2';
+    $shortSignatureFutureWire['signature'] = base64_encode('not an ed25519 signature');
+    cert_write_canon($certPath, $shortSignatureFutureWire);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        'certification signature is not a base64 Ed25519 signature',
+        '(h) and a superseded-wire file whose signature is not Ed25519-shaped is refused on the signature, not '
+        . 'degraded on the version'
+    );
+
+    // (i) THE FROZEN PATH TAKES THE WIRE SIGNAL NOW, and this assertion is the
+    // one WP-4.7 inverted on purpose. The argument that kept it a hard refusal
+    // was explicit and conditional: "there is no /v2 wire and never has been,
+    // so no snapshot can honestly carry one... if a /v2 wire is ever published,
+    // this is the decision to revisit — with a real wire to migrate, not a
+    // hypothetical one" (AdapterSources::from_snapshot(), pre-WP-4.7).
+    // § v3.6 published one. Every certificate minted before this agent carries
+    // the v1 statement generation, a promoted site verifies its certificates
+    // from THIS path and may not reopen its repository, so leaving the signal
+    // uncaught would make the first upgrade past WP-4.7 a hard refusal on every
+    // promoted site holding a certified adapter — the exact fleet-brick
+    // StalePlatformSiteAdapterCertificate exists to end, reached through the
+    // neighbouring door. Superseded BYTES stay a refusal: manifest and
+    // certificate travel together in one snapshot, so bytes that disagree still
+    // mean the snapshot was edited.
+    $frozenWireEnvelope = $currentEnvelope;
+    $frozenWireCertificate = Canon::decode((string) base64_decode((string) $currentEnvelope['certificate_json'], true));
+    $frozenWireCertificate['format'] = 'duo-adapter-certification/v2';
+    $frozenWireRaw = Canon::encode($frozenWireCertificate);
+    // Digest recomputed so the envelope's own integrity check passes and the
+    // outcome below is the wire test, not 'corrupt certificate bytes'.
+    $frozenWireEnvelope['certificate_json'] = base64_encode($frozenWireRaw);
+    $frozenWireEnvelope['certificate_sha256'] = hash('sha256', $frozenWireRaw);
+    $frozenWireSnapshot = $currentSnapshot;
+    $frozenWireSnapshot['adapter_sources']['certificates']['site-demo'] = $frozenWireEnvelope;
+    $frozenWirePolicy = null;
+    try {
+        $frozenWirePolicy = Policy::from_snapshot($frozenWireSnapshot);
+    } catch (Throwable $t) {
+        cert_check(false, '(i) a superseded wire version inside a FROZEN snapshot withdraws one adapter rather '
+            . 'than refusing the snapshot (' . $t->getMessage() . ')');
+    }
+    if ($frozenWirePolicy instanceof Policy) {
+        cert_check(
+            !$frozenWirePolicy->adapter_sources()->is_certified('site-demo')
+            && str_contains(
+                (string) ($frozenWirePolicy->adapter_sources()->provenance('site-demo')['reason'] ?? ''),
+                'certification wire version this agent does not verify'
+            ),
+            '(i) a superseded wire version inside a FROZEN snapshot withdraws exactly that adapter, naming the '
+            . 'wire — the promoted path degrades one claim instead of bricking a site that did nothing wrong'
+        );
+        cert_check(
+            (RepositoryCompiler::resolved_adapters($frozenWirePolicy)[0]['digest'] ?? null) === $currentCoreDigest,
+            '(i) and the unrelated shipped adapter in the same frozen pin set is untouched, digest for digest — '
+            . 'the withdrawal is scoped the way the live scan scopes it'
+        );
+    }
+
+    // ==================================================================
+    // (k) G2-FIXES M6: THE FLIP'S OWN WITHDRAWAL, on both paths.
+    // ==================================================================
+    // `assertPlatformBinding()` compares the SIGNED `spec_version` with the one
+    // this agent publishes and raises StalePlatformSiteAdapterCertificate when
+    // they differ. That is the single most fleet-visible consequence of WP-4.12
+    // — at the flip EVERY certified site adapter in the fleet withdraws to
+    // uncertified at once — and until now its refusal string appeared in no test
+    // and no document, so the flip's runbook had nothing to quote.
+    //
+    // Rehearsed by SIGNING a statement at the other spec version rather than by
+    // moving the agent's own define: `currentPlatform()` refuses a boundary that
+    // disagrees with the loaded agent, so a spec_version disagreement can only
+    // exist between a CERTIFICATE and an agent — which is exactly what the flip
+    // creates. Framed through the engine's own `signatureBytes()` by reflection,
+    // for the reason the delegation suite states about its forger: the producer
+    // is a guard rail (`sign_site()` builds `platform` from the live boundary and
+    // could never assemble this), and the verifier is the boundary being tested.
+    $signatureFramer = new ReflectionMethod(AdapterCertification::class, 'signatureBytes');
+    $flipCertificate = Canon::decode($originalCertificateRaw);
+    $flipCertificate['statement']['platform']['spec_version'] = DUO_SPEC_VERSION + 1;
+    $flipStatementTyped = json_decode(Canon::encode($flipCertificate['statement']), false, 512, JSON_THROW_ON_ERROR);
+    $flipCertificate['signature'] = base64_encode(sodium_crypto_sign_detached(
+        (string) $signatureFramer->invoke(null, $flipStatementTyped),
+        $secret
+    ));
+    $flipRaw = Canon::encode($flipCertificate);
+    cert_write($certPath, $flipRaw);
+    $flipThrown = null;
+    try {
+        AdapterCertification::verifyFile($integrationManifests, $site, 'site-demo', $manifest, $certPath);
+    } catch (Throwable $t) {
+        $flipThrown = $t;
+    }
+    cert_check(
+        $flipThrown instanceof \Duo\StalePlatformSiteAdapterCertificate
+        && str_contains(
+            $flipThrown->getMessage(),
+            "duo: site adapter 'site-demo' certification was signed under spec version "
+            . (DUO_SPEC_VERSION + 1) . ', which is not the spec version ' . DUO_SPEC_VERSION
+            . ' this agent publishes'
+        ),
+        '(k) a spec_version the agent no longer publishes raises the TYPED staleness, and this is the sentence '
+        . 'WP-4.12\'s runbook quotes (' . ($flipThrown === null ? 'no exception' : $flipThrown->getMessage()) . ')'
+    );
+    $flipPolicy = null;
+    try {
+        $flipPolicy = Policy::load($site);
+    } catch (Throwable $e) {
+        cert_check(false, '(k) and the site still LOADS at the flip (' . $e->getMessage() . ')');
+    }
+    if ($flipPolicy instanceof Policy) {
+        $flipReason = (string) ($flipPolicy->adapter_sources()->provenance('site-demo')['reason'] ?? '');
+        cert_check(
+            !$flipPolicy->adapter_sources()->is_certified('site-demo')
+            && str_contains($flipReason, 'agent platform boundary this agent no longer publishes')
+            && (RepositoryCompiler::resolved_adapters($flipPolicy)[0]['digest'] ?? null) === $currentCoreDigest,
+            '(k) and the LIVE path withdraws exactly that adapter to uncertified rather than refusing the source '
+            . '— at the flip every certified site adapter takes this route, one adapter at a time ('
+            . $flipReason . ')'
+        );
+    }
+    $flipEnvelope = $currentEnvelope;
+    $flipEnvelope['certificate_json'] = base64_encode($flipRaw);
+    $flipEnvelope['certificate_sha256'] = hash('sha256', $flipRaw);
+    $flipFrozenThrown = null;
+    try {
+        AdapterCertification::verifyFrozen($integrationManifests, 'site-demo', $manifest, $flipEnvelope);
+    } catch (Throwable $t) {
+        $flipFrozenThrown = $t;
+    }
+    cert_check(
+        $flipFrozenThrown instanceof \Duo\StalePlatformSiteAdapterCertificate,
+        '(k) the FROZEN entry point raises the identical typed signal — a promoted site meets the flip from its '
+        . 'snapshot, and one signal serves both paths ('
+        . ($flipFrozenThrown === null ? 'no exception' : get_class($flipFrozenThrown)) . ')'
+    );
+    $flipSnapshot = $currentSnapshot;
+    $flipSnapshot['adapter_sources']['certificates']['site-demo'] = $flipEnvelope;
+    $flipFrozenPolicy = null;
+    try {
+        $flipFrozenPolicy = Policy::from_snapshot($flipSnapshot);
+    } catch (Throwable $t) {
+        cert_check(false, '(k) and a PROMOTED site still loads its snapshot at the flip (' . $t->getMessage() . ')');
+    }
+    if ($flipFrozenPolicy instanceof Policy) {
+        cert_check(
+            !$flipFrozenPolicy->adapter_sources()->is_certified('site-demo')
+            && str_contains(
+                (string) ($flipFrozenPolicy->adapter_sources()->provenance('site-demo')['reason'] ?? ''),
+                'agent platform boundary this agent no longer publishes'
+            )
+            && (RepositoryCompiler::resolved_adapters($flipFrozenPolicy)[0]['digest'] ?? null) === $currentCoreDigest,
+            '(k) and it withdraws the same one claim inside the frozen snapshot — `duo adapter certify --pin` '
+            . 're-establishes it against the post-flip boundary (§ v3.12)'
+        );
+    }
+    cert_write($certPath, $originalCertificateRaw);
+
+    // ==================================================================
+    // (l) G2-FIXES C3: an authority that may no longer certify WITHDRAWS.
+    // ==================================================================
+    // THE DEFECT. Every refusal WP-4.8/4.9 added to the authority seat threw a
+    // bare \RuntimeException, so `guarded()` re-threw it, `discover()` refused
+    // the whole site source and `Policy::load()` propagated it uncaught — the
+    // third door to WP-1.1's brick, and a DATED one: `not_after` is mandatory at
+    // authority record v2, so every site holding a certificate under a v2 key
+    // lost every command at that key's own expiry, with no operator act in
+    // between. The typed revocation channel reached the same door from the other
+    // side, and it reaches the FROZEN path by design.
+    //
+    // Driven through the typed channel because it needs no v2 key id: the
+    // integration root's own `review-key` signs a document revoking its own key
+    // material, which is the shape an incident actually takes.
+    $reviewPublicRaw = (string) base64_decode((string) $integrationKeys->{'review-key'}['public_key'], true);
+    $revocationsPath = $integrationManifests . '/capabilities/adapter-revocations.json';
+    cert_write($revocationsPath, AdapterCertification::signRevocations(
+        Canon::encode((object) [
+            'format' => AdapterCertification::REVOCATION_FORMAT,
+            'issued_at' => '2020-01-01T00:00:00Z',
+            'revocations' => [[
+                'effective_at' => '2020-01-01T00:00:00Z',
+                'fingerprint' => hash('sha256', $reviewPublicRaw),
+                'key_id' => 'review-key',
+                'reason' => 'reviewer signing key disclosed',
+            ]],
+            'version' => 1,
+        ]),
+        'review-key',
+        base64_encode($secret)
+    ));
+    $revokedThrown = null;
+    try {
+        AdapterCertification::verifyFile($integrationManifests, $site, 'site-demo', $manifest, $certPath);
+    } catch (Throwable $t) {
+        $revokedThrown = $t;
+    }
+    cert_check(
+        $revokedThrown instanceof \Duo\WithdrawnAuthoritySiteAdapterCertificate
+        && $revokedThrown->withdrawal() === AdapterSources::WITHDRAWN_AUTHORITY_REVOKED
+        && str_contains($revokedThrown->getMessage(), 'is revoked by the platform-signed revocation record'),
+        '(l) a typed revocation of the signing key raises the THIRD typed withdrawal, carrying its own tag ('
+        . ($revokedThrown === null ? 'no exception' : get_class($revokedThrown)) . ')'
+    );
+    $revokedPolicy = null;
+    try {
+        $revokedPolicy = Policy::load($site);
+    } catch (Throwable $e) {
+        cert_check(false, '(l) and the site still LOADS with its authority revoked (' . $e->getMessage() . ')');
+    }
+    if ($revokedPolicy instanceof Policy) {
+        $revokedReason = (string) ($revokedPolicy->adapter_sources()->provenance('site-demo')['reason'] ?? '');
+        cert_check(
+            !$revokedPolicy->adapter_sources()->is_certified('site-demo')
+            && str_contains($revokedReason, 'the authority that signed its certification is revoked')
+            && (RepositoryCompiler::resolved_adapters($revokedPolicy)[0]['digest'] ?? null) === $currentCoreDigest,
+            '(l) the LIVE path withdraws exactly that adapter, and its reason NAMES the authority rather than the '
+            . 'boundary or the wire — three withdrawals, three sentences (' . $revokedReason . ')'
+        );
+    }
+    $revokedFrozen = null;
+    try {
+        $revokedFrozen = Policy::from_snapshot($currentSnapshot);
+    } catch (Throwable $t) {
+        cert_check(false, '(l) and a PROMOTED site still loads its snapshot (' . $t->getMessage() . ')');
+    }
+    if ($revokedFrozen instanceof Policy) {
+        cert_check(
+            !$revokedFrozen->adapter_sources()->is_certified('site-demo')
+            && str_contains(
+                (string) ($revokedFrozen->adapter_sources()->provenance('site-demo')['reason'] ?? ''),
+                'the authority that signed its certification is revoked'
+            ),
+            '(l) and the FROZEN path withdraws it too — this channel exists precisely to reach a promoted site, '
+            . 'and reaching it must not mean bricking it'
+        );
+    }
+    // THE LINE, under the identical revoked-authority condition. A companion
+    // that is not provably about THIS adapter never reaches the authority seat
+    // at all: assertAdapterBinding runs first, so it still refuses whole-source.
+    $revokedMisbound = Canon::decode($originalCertificateRaw);
+    $revokedMisbound['statement']['adapter']['path'] = 'adapters/somewhere-else.json';
+    cert_write_canon($certPath, $revokedMisbound);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        'does not bind the exact source/path/canonical manifest/trust tier',
+        '(l) a WRONG-BINDING companion under the same revoked authority still refuses the whole source — the '
+        . 'withdrawal is reached only after the certificate is proved to be about this adapter'
+    );
+    // ACCEPTED AND ASSERTED, not argued away: a forged SIGNATURE under a revoked
+    // authority degrades instead of refusing, because a key that may not certify
+    // is never asked to sign — the authority seat runs ahead of the Ed25519
+    // check. The destination is uncertified support, which the same write access
+    // reaches by deleting the companion, so it buys an attacker nothing; what it
+    // costs is tamper-evidence, and the alternative costs every site the
+    // certificate is not about. The risk note lives at the throw site.
+    $revokedForged = Canon::decode($originalCertificateRaw);
+    $revokedForged['statement']['bundle']['git_revision'] = str_repeat('f', 40);
+    cert_write_canon($certPath, $revokedForged);
+    $forgedUnderRevoked = null;
+    try {
+        $forgedUnderRevoked = Policy::load($site);
+    } catch (Throwable $e) {
+        cert_check(false, '(l) a forged statement under a revoked authority degrades (' . $e->getMessage() . ')');
+    }
+    if ($forgedUnderRevoked instanceof Policy) {
+        cert_check(
+            !$forgedUnderRevoked->adapter_sources()->is_certified('site-demo'),
+            '(l) and a FORGED statement under the same revoked authority reaches uncertified rather than the '
+            . 'signature refusal — the accepted ordering cost, stated here and at the throw site rather than '
+            . 'discovered later'
+        );
+    }
+    unlink($revocationsPath);
+    cert_write($certPath, $originalCertificateRaw);
+    cert_check(
+        Policy::load($site)->adapter_sources()->is_certified('site-demo'),
+        '(l) and removing the revocation restores the certified claim: the withdrawal wrote nothing and revoked '
+        . 'nothing of its own'
+    );
+
+    // (j) THE PIN CONCESSION IS ABOUT STATE, NOT SPELLING. A withdrawn adapter
+    // is only unbricked if the operator's pin rides the concession, and the
+    // source-qualified `{name,source,digest}` form is not the only one an
+    // operator writes: neither `duo adapter certify --pin` nor `wp duo
+    // manifest-pin` emits the bare `{name,digest}`, so that shape is
+    // hand-written — a shorter statement of the same intent, not a weaker one.
+    // PinResolver asks source() rather than the pin, so the concession follows
+    // where the adapter RESOLVED from.
+    cert_write($certPath, $originalCertificateRaw);
+    cert_write_canon($integrationManifests . '/capabilities/platform.json', [
+        'format' => ManifestDispositions::PLATFORM_FORMAT,
+        'platform' => $stalePlatform,
+    ]);
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => ['core', ['digest' => $certifiedDigest, 'name' => 'site-demo']],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    try {
+        $sourcelessPolicy = Policy::load($site);
+        cert_check(
+            !$sourcelessPolicy->adapter_sources()->is_certified('site-demo')
+            && (RepositoryCompiler::resolved_adapters($sourcelessPolicy)[0]['digest'] ?? null) === $currentCoreDigest,
+            '(j) a SOURCE-LESS digest pin on the withdrawn, site-resolved adapter rides the same concession — '
+            . 'without this the unbrick only reached operators who had spelled the source out'
+        );
+    } catch (Throwable $e) {
+        cert_check(false, '(j) a SOURCE-LESS digest pin on the withdrawn, site-resolved adapter rides the same '
+            . 'concession (' . $e->getMessage() . ')');
+    }
+    // The other half, and the reason the widening is narrow: dropping `source`
+    // buys nothing for an adapter that did not resolve from the site source. A
+    // shipped manifest that changed under a digest pin is a real integrity
+    // failure, and its refusal must not have moved one byte.
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => [
+            ['digest' => str_repeat('a', 64), 'name' => 'core'],
+            ['digest' => $certifiedDigest, 'name' => 'site-demo'],
+        ],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        "duo: manifest 'core' digest mismatch: expected " . str_repeat('a', 64) . ", actual $currentCoreDigest — "
+        . 'review the manifest change, then update its site.duo.json pin',
+        '(j) but a SOURCE-LESS digest pin on a SHIPPED-resolved manifest still refuses byte-identically — the '
+        . 'concession followed the resolved source, not the absence of a declared one'
+    );
+    // And the concession is still gated on the STATE, not the source: put the
+    // boundary back, so the same source-less pin now names a still-certified
+    // adapter whose digest simply disagrees, and it refuses again.
+    cert_write_canon($integrationManifests . '/capabilities/platform.json', [
+        'format' => ManifestDispositions::PLATFORM_FORMAT,
+        'platform' => $platform,
+    ]);
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => ['core', ['digest' => str_repeat('b', 64), 'name' => 'site-demo']],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        "duo: manifest 'site-demo' digest mismatch: expected " . str_repeat('b', 64),
+        '(j) and a source-less digest pin on a STILL-CERTIFIED site adapter refuses too — is_certified() is what '
+        . 'gates the concession, and dropping `source` did not loosen it'
+    );
+
+    cert_write($certPath, $originalCertificateRaw);
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => [['name' => 'site-demo', 'source' => 'site']],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
 } finally {
     cert_write($certPath, $originalCertificateRaw);
     putenv('DUO_MANIFESTS_DIR');
@@ -1930,16 +2781,46 @@ cert_expect_throw(
 $keys->{'review-key'}['status'] = 'trusted';
 cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities);
 
+// WHAT A PLATFORM MUTATION DOES TO A FROZEN CERTIFICATE, both directions,
+// because WP-4.7 (spec/repo-format.md § v3.6) split one answer into two. This
+// assertion used to be one line — ANY byte of the boundary invalidated, which
+// is what made every agent release a fleet-wide withdrawal. Now the boundary
+// has bound cells and unbound prose, and the frozen path has to tell them
+// apart exactly as the live one does.
 $changedPlatform = $platform;
 $changedPlatform['branchable_state'] = 'a different current platform boundary';
 cert_write_canon($agent . '/capabilities/platform.json', [
     'format' => ManifestDispositions::PLATFORM_FORMAT,
     'platform' => $changedPlatform,
 ]);
+$unboundMove = null;
+try {
+    AdapterCertification::verifyFrozen($agent, 'site-demo', $manifest, $envelope);
+} catch (Throwable $t) {
+    $unboundMove = $t;
+}
+cert_check(
+    $unboundMove === null,
+    'a boundary member OUTSIDE the binding moved and the frozen certificate is still valid — `branchable_state` '
+    . 'is prose about the agent\'s posture, not a runtime cell anything was exercised against ('
+    . ($unboundMove === null ? 'valid' : $unboundMove->getMessage()) . ')'
+);
+
+// And the other direction, on the same frozen envelope: a cell the certificate
+// WAS exercised against, dropped. `verifyFrozen()` must reach the same typed
+// withdrawal the live entry point reaches, or a promoted site would keep
+// claiming coverage the agent under it no longer states.
+$movedAxisPlatform = $changedPlatform;
+unset($movedAxisPlatform['compatibility']['php']['verified']['8.4']);
+cert_write_canon($agent . '/capabilities/platform.json', [
+    'format' => ManifestDispositions::PLATFORM_FORMAT,
+    'platform' => $movedAxisPlatform,
+]);
 cert_expect_throw(
     static fn() => AdapterCertification::verifyFrozen($agent, 'site-demo', $manifest, $envelope),
-    'platform boundary',
-    'a current platform mutation invalidates frozen certification'
+    "exercised against 'php' cell '8.4'",
+    'a BOUND compatibility cell the boundary no longer carries invalidates frozen certification, and the refusal '
+    . 'names the axis and the cell rather than pointing at a whole document'
 );
 cert_write_canon($agent . '/capabilities/platform.json', [
     'format' => ManifestDispositions::PLATFORM_FORMAT,
@@ -2372,11 +3253,16 @@ cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
     'format' => 'duo-adapter-authorities/v1',
     'keys' => $clashKeys,
 ]);
+// The LIVE path names the rule (G2-FIXES m3). It used to answer "does not match
+// the current platform authority record" — true, and about the wrong thing: the
+// operator re-pointed a key id this project reviews, and R-13's sentence is what
+// tells them so. `assertKeyIdNotPlatformOwned()` is now asked on both paths
+// rather than only on the frozen one, from one call site.
 cert_expect_throw(
     static fn() => AdapterCertification::verifyFile($orgAgent, $orgSite, 'acme-catalog', $orgManifest, $orgCertPath),
-    'does not match the current platform authority record',
-    'a site key id the shipped library also declares resolves to the SHIPPED record, and the certificate that '
-    . 'claimed a site root is refused by name rather than silently downgraded'
+    "duo: authority key 'acme-ops' is reviewed and shipped by this agent, so a site trust root cannot claim it",
+    'a site key id the shipped library also declares is refused BY THE SHIPPED-WINS RULE on the live path too, '
+    . 'with the sentence R-13 records rather than a binding mismatch about the wrong root'
 );
 cert_expect_throw(
     static fn() => AdapterCertification::verifyFrozen($orgAgent, 'acme-catalog', $orgManifest, $orgVerified['envelope']),

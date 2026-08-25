@@ -283,8 +283,8 @@ HERMETIC_MANIFESTS=$(php sandbox/tests/offline/adapter/certification_fixture.php
   || fail "fixture manufacture failed: could not build a hermetic manifest library under $HERMETIC_ROOT"
 [ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
   || fail "fixture manufacture failed: hermetic library landed at $HERMETIC_MANIFESTS, not under this run's owned scratch"
-jq -e '[.manifests[] | select(.status == "certified") | .evidence.tests | length] | all(. > 0)' \
-  "$HERMETIC_MANIFESTS/dispositions.json" >/dev/null \
+jq -e -s '[.[] | select(.status == "certified") | .evidence.tests | length] | all(. > 0)' \
+  "$HERMETIC_MANIFESTS"/dispositions/*.json >/dev/null \
   || fail "fixture manufacture failed: a certified disposition cites no evidence"
 jq -e '.format == "duo-platform-boundary/v1"' \
   "$HERMETIC_MANIFESTS/capabilities/platform.json" >/dev/null \

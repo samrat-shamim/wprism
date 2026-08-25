@@ -16,7 +16,11 @@ ROOT=$(cd "$(dirname "$0")/../../../.." && pwd)
 php -d display_errors=1 /dev/stdin "$ROOT" <<'PHP'
 <?php
 $root = $argv[1];
-define('DUO_SPEC_VERSION', 2);
+// WP-4.12: from agent/duo.php, never retyped. This harness compiles fixture
+// repositories, and RepositoryCompiler judges their site.duo.json spec_version
+// against the window this engine publishes.
+require_once "$root/sandbox/tests/lib/agent_version.php";
+duo_test_define_agent_versions();
 require_once "$root/agent/src/Kernel/Uuid.php";
 require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Code/Code.php";

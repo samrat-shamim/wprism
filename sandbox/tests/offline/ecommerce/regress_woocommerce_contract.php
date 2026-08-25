@@ -20,7 +20,9 @@ function woo_ok(bool $condition, string $message): void {
 
 $root = dirname(__DIR__, 4);
 $manifest = json_decode((string) file_get_contents($root . '/manifests/woocommerce.json'), true, flags: JSON_THROW_ON_ERROR);
-$dispositions = json_decode((string) file_get_contents($root . '/manifests/dispositions.json'), true, flags: JSON_THROW_ON_ERROR);
+// One document per subject since WP-4.4 (spec/repo-format.md § v3.4): this
+// suite reads woocommerce's reviewed entry, not the whole library.
+$wooDispositionDocument = json_decode((string) file_get_contents($root . '/manifests/dispositions/woocommerce.json'), true, flags: JSON_THROW_ON_ERROR);
 // No scratch library: $manifest IS manifests/woocommerce.json, so the v2
 // shipped-membership proof compares the frozen bytes against the very file they
 // were read from — the strongest form of the claim this snapshot makes.
@@ -191,7 +193,7 @@ woo_ok(!array_key_exists('deletions', $manifest), 'shipped Woo manifest declares
 foreach ($unsupportedDeletes as $selector) {
     woo_ok($policy->deletion_capability($selector) === null, "$selector deletion is fail-closed");
 }
-$wooDisposition = $dispositions['manifests']['woocommerce'] ?? [];
+$wooDisposition = $wooDispositionDocument;
 woo_ok(!in_array('delete', $wooDisposition['capabilities']['operations'] ?? [], true), 'external capability registry does not advertise Woo deletion');
 woo_ok(($wooDisposition['capabilities']['deletion_semantics']['supported'] ?? null) === [], 'external capability registry declares no supported Woo deletion surface');
 $declaredUnsupportedDeletes = $wooDisposition['capabilities']['deletion_semantics']['unsupported'] ?? null;

@@ -60,6 +60,10 @@
 # Usage: bash sandbox/conformance/run.sh <manifest-name>
 # Set CONF_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) to bind the sweep to an
 # exact agent/manifests commit (DUO-3377's gate — see below, before reset).
+# Set CONF_RECORD_VECTOR=<file> to leave a replayable `duo-conformance-vector/v1`
+# document behind (WP-2.7, conformance/record-vector.sh — recorded only after
+# the round-trip acceptance passes, replayed offline by
+# sandbox/tests/offline/capture/regress_conformance_vector_replay.php).
 #
 # Concurrency: the pair NAME is parameterized so sweeps no longer serialize
 # behind one host-wide 'conf' instance (a fleet-scale bottleneck — and two
@@ -534,8 +538,26 @@ fi
 say "acceptance: canonical(conf2) == canonical(conf1), byte for byte"
 wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-conf2state >/dev/null
 diff -r "$R1"/state "$R2"/.tmp-conf2state || fail "round-trip mismatch between conf1 and conf2 for manifest '$MANIFEST'"
-rm -rf "$R2"/.tmp-conf2state
 pass "canonical state identical across environments"
+
+# Optional vector recording (WP-2.7). A FLAG on this harness, never a second
+# harness: the four things a `duo-conformance-vector/v1` document holds — the
+# live rows, conf1's duo_map, a duo-adapter-probe/v1 read off this same pinned
+# target, and both canonical trees — exist only here, only now, and only
+# because the acceptance diff above just passed. Placed BEFORE the recapture is
+# removed for that last reason: a recorder that re-derived the recapture would
+# be recording a round trip nobody checked. Unset leaves every sweep
+# byte-identical. docs/agents/live-pair-budget.md allocation order 4 spends one
+# pair per vector; the replay is free forever after
+# (sandbox/tests/offline/capture/regress_conformance_vector_replay.php).
+if [ -n "${CONF_RECORD_VECTOR:-}" ]; then
+  say "record a replayable conformance vector -> $CONF_RECORD_VECTOR"
+  bash conformance/record-vector.sh \
+    "$CONF_RECORD_VECTOR" "$MANIFEST" "$R1/state" "$R2/.tmp-conf2state" \
+    || fail "could not record a conformance vector for '$MANIFEST'"
+  pass "conformance vector recorded"
+fi
+rm -rf "$R2"/.tmp-conf2state
 
 # Manifest-specific render-level acceptance (conformance/checks/<name>.sh,
 # optional): byte-identical canonical state is necessary but not sufficient

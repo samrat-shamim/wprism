@@ -125,7 +125,19 @@ final class PlanCategorySummary {
     /** @var list<string> */
     private const CODE_KINDS = ['plugin', 'theme', 'other'];
 
-    /** @var list<string> */
+    /**
+     * WP-2.8's `version_range_graduated` is deliberately NOT in this list, and
+     * the reason is in the category projection itself: `unsupported_code` is
+     * this same counter under a second name (:358). A graduated verdict is the
+     * precise opposite claim — the installed release has recorded per-release
+     * probe evidence behind it — so counting it here would report evidenced
+     * code as unsupported. It lands in `other_mismatch` instead, which is what
+     * that bucket is for: a code_mismatch row that is none of the three named
+     * kinds. Give it its own counter only alongside a decision to move the
+     * summary's metric keys, which is a wire change (rule 8).
+     *
+     * @var list<string>
+     */
     private const CODE_COMPATIBILITY_ISSUES = ['missing_in_code', 'outside_version_range'];
 
     /** @var list<string> */

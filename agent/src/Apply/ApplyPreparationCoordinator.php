@@ -5,6 +5,10 @@ require_once __DIR__ . '/ApplyPreparationRequest.php';
 require_once __DIR__ . '/PreparedApply.php';
 require_once __DIR__ . '/../Delete/DeleteGuardLockCoordinator.php';
 require_once __DIR__ . '/../Policy/Policy.php';
+// WP-2.8: enforce_code_mismatch_gate() names the graduated verdict by
+// constant, so the one place apply stops refusing cannot drift from the one
+// place LifecyclePlanner mints it.
+require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
 require_once __DIR__ . '/ApplyServices.php';
 require_once __DIR__ . '/../Rebuild/RebuildSelection.php';
 require_once __DIR__ . '/../Scope/ScopedApplyWorkflow.php';
@@ -140,6 +144,14 @@ final class ApplyPreparationCoordinator {
         }
         foreach ($forceableCodeMismatch as $row) {
             $warnings[] = 'FORCED past code_mismatch: ' . $row['message'];
+        }
+        // WP-2.8: reported on every run, exactly as Deploy::run() reports it,
+        // and read off the plan rather than off the gate's return — the gate
+        // no longer hands this row back, because it was never refused.
+        foreach ($plan['code_mismatch'] as $row) {
+            if (($row['issue'] ?? null) === VersionEvidenceGrammar::VERDICT) {
+                $warnings[] = 'GRADUATED outside_version_range: ' . $row['message'];
+            }
         }
 
         $rebuildWork = $this->services->apply_planner()->rebuild_work(
@@ -427,9 +439,17 @@ final class ApplyPreparationCoordinator {
                 . 'This ordering invariant is non-forceable; neither --force-code-mismatch nor --force-code-drift overrides it.'
             );
         }
+        // WP-2.8: the graduated verdict leaves $forceable, and only $forceable.
+        // It is still a row in the plan's code_mismatch bucket and still
+        // reported by the caller; what changes is that apply no longer refuses
+        // over it and no longer calls it FORCED, because nothing was forced —
+        // this site recorded per-release probe evidence covering the installed
+        // bytes (LifecyclePlanner::graduated_version_range()). --force-code-
+        // mismatch keeps its exact prior meaning for every other row.
         $forceable = array_values(array_filter(
             $mismatches,
             static fn(array $row): bool => ($row['issue'] ?? null) !== 'code_revision_stale'
+                && ($row['issue'] ?? null) !== VersionEvidenceGrammar::VERDICT
                 && empty($row['non_forceable'])
         ));
         if ($forceable && empty($opts['force_code_mismatch'])) {

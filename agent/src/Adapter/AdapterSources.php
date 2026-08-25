@@ -1,17 +1,28 @@
 <?php
 namespace Duo;
 
+// The § v3.9 namespace grammar is part of the out-of-tree contract below and
+// is required at file scope rather than lazily: IdentityNamespaces requires
+// nothing itself, so it forms no bootstrap cycle, and the one caller
+// (assert_out_of_tree_contract()) is reached from four entry points that do
+// not otherwise share a require.
+require_once __DIR__ . '/IdentityNamespaces.php';
+
 /**
  * Where each pinned adapter came from, and what that origin is allowed to do.
  *
  * Until DUO-3314 the engine knew exactly one adapter source: the manifest
  * directory that ships and mounts with the agent. Every identity check hung off
- * that assumption — ManifestDispositions::load() still requires the shipped
- * directory's *.json set and its reviewed disposition set to match one-for-one,
- * which is what stops a replaced manifests directory from silently discarding
- * shipped claims. The cost was that a site could not install an adapter at all:
- * dropping one extra file beside the shipped set failed that coverage check and
- * took down every unrelated shipped adapter with it.
+ * that assumption — including a whole-directory disposition coverage check that
+ * required the shipped *.json set and the reviewed set to match one-for-one on
+ * every load, and whose cost was that a site could not install an adapter at
+ * all: dropping one extra file beside the shipped set failed that check and
+ * took down every unrelated shipped adapter with it. WP-1.2 finished that
+ * repair on the other side of the same wall: coverage is proved against the
+ * PINNED shipped subset (ManifestDispositions::assert_covers(), fed by
+ * shipped_manifests() below), and the directory-wide, both-directions property
+ * — which is what stops a replaced manifests directory from silently discarding
+ * shipped claims — is an authoring rule `make release-gate` enforces.
  *
  * This class adds sources rather than loosening the first. There are now
  * THREE, and the whole file is organized around what each one's owner already
@@ -26,10 +37,10 @@ namespace Duo;
  *     plugin update the operator did not author.
  *
  * A site or plugin manifest OVERLAYS the shipped set — they are additional
- * pinnable adapters, never replacements. The shipped directory's coverage check
- * is untouched, so shipped claims keep proving themselves against exactly the
- * bytes they always did, and a repository with no `adapters/` directory on a
- * host with no plugin bundles takes no new code path at all.
+ * pinnable adapters, never replacements. The shipped set's reviewed coverage is
+ * untouched by an overlay, so shipped claims keep proving themselves against
+ * exactly the bytes they always did, and a repository with no `adapters/`
+ * directory on a host with no plugin bundles takes no new code path at all.
  *
  * Four properties are load-bearing, all enforced before any manifest reaches a
  * policy consumer or a target:
@@ -95,7 +106,7 @@ namespace Duo;
  * 5. **Certification is external, and a bundled adapter cannot hold it.** With
  *    no signed companion a site adapter carries the synthesized `uncertified`
  *    record below — a fourth status word which cannot be pasted into
- *    dispositions.json as self-certification. A companion under
+ *    dispositions/<name>.json as self-certification. A companion under
  *    adapters/certifications is accepted only when its disposition and complete
  *    evidence are signed by a key in the agent-owned authority registry. A
  *    PLUGIN-bundled adapter is `uncertified` by construction and can never be
@@ -232,6 +243,26 @@ final class AdapterSources {
     public const REFUSAL_SOURCE_UNREADABLE = 'source_unreadable';
 
     /**
+     * WP-4.10 / spec § v3.9: an out-of-tree identity outside its namespace.
+     *
+     * Its own code rather than a case of `out_of_tree_privilege`, because a
+     * refusal row carries a REMEDIATION and the two remediations are opposites:
+     * the privilege row's is "install this adapter into the agent's own
+     * manifest library", which is exactly the wrong instruction for an adapter
+     * whose only fault is that it answers to a name no authority can be scoped
+     * to. The condition itself lives in one place —
+     * IdentityNamespaces::assert_out_of_tree_identity(), inside
+     * assert_out_of_tree_contract() so all four out-of-tree entry points reach
+     * it — and the two scan sites call it first only so the reported row is
+     * this code with this advice.
+     */
+    public const REFUSAL_RESERVED_NAMESPACE = 'reserved_namespace';
+
+    /** The remediation the reserved-namespace rows carry, written once. */
+    public const RESERVED_NAMESPACE_REMEDY = 'rename the adapter, and every provider id it declares, into a '
+        . '<vendor>- namespace an authority you hold is scoped to';
+
+    /**
      * A refusal row's blast radius, which two different consumers need and
      * neither can infer.
      *
@@ -248,6 +279,36 @@ final class AdapterSources {
     public const SCOPE_ADAPTER = 'adapter';
 
     /**
+     * The third word, and it is about the AGENT'S OWN LIBRARY rather than about
+     * any adapter source (G2-FIXES C2).
+     *
+     * A library-scoped row reports a condition of `manifests/` that no adapter
+     * caused and no adapter's grammar verdict depends on — today, exactly one:
+     * an installed typed revocation document whose signer this agent does not
+     * hold, which grants nothing and must not be mistaken for a channel that is
+     * working. blocking_refusals() keeps SCOPE_SOURCE as the only blocking word,
+     * so a library row suppresses no verdict; it still makes `duo adapter
+     * doctor` and `wp duo adapter-survey` exit 1, because "installed and inert"
+     * is precisely the state an operator has to be told about and cannot
+     * discover any other way.
+     */
+    public const SCOPE_LIBRARY = 'library';
+
+    /**
+     * The typed revocation channel, reported rather than obeyed.
+     *
+     * `revocation_channel_inert` is the named non-fatal state C2 introduced: the
+     * document is installed, its signer is not enrolled in the shipped platform
+     * root, and its entries DO NOT apply.
+     * `revocation_channel_unreadable` is the other half of the same honesty —
+     * a document that exists and does NOT verify is a refusal, and reporting it
+     * here is what stops a malformed one from going unseen on a site that
+     * happens to hold no certificate for it to be read against.
+     */
+    public const REFUSAL_REVOCATION_INERT = 'revocation_channel_inert';
+    public const REFUSAL_REVOCATION_UNREADABLE = 'revocation_channel_unreadable';
+
+    /**
      * Why an adapter that is INSTALLED on this machine is nonetheless not
      * loaded. Neither of these is a refusal: the file is well-formed, the
      * engine simply resolved the name to something else (`shadowed`, which
@@ -257,6 +318,62 @@ final class AdapterSources {
      */
     public const NOT_INSTALLED_SHADOWED = 'shadowed';
     public const NOT_INSTALLED_PLUGIN_INACTIVE = 'plugin_not_active';
+
+    /**
+     * Why a certified claim was WITHDRAWN, when the reason is a document the
+     * AGENT owns rather than anything about the adapter's own bytes.
+     *
+     * Each names a signal thrown by a typed exception —
+     * StalePlatformSiteAdapterCertificate when a bound compatibility cell moved
+     * (§ v3.6), SupersededWireSiteAdapterCertificate at any of the three
+     * certificate wire-generation tests, WithdrawnAuthoritySiteAdapterCertificate
+     * when the signing authority is no longer entitled (G2-FIXES C3) — and each
+     * resolves the adapter to the same uncertified support a companion-absent
+     * site adapter reaches. All are caught on the live scan AND on the frozen
+     * path, because a promoted site meets every one of them from the frozen
+     * side. Nothing here catches \RuntimeException: a wrong binding, a bad
+     * signature, a key that is not installed at all and an unparseable
+     * statement all stay whole-source refusals.
+     *
+     * They are NOT equally guarded, and the difference is load-bearing.
+     * STALE_PLATFORM is raised only after the Ed25519 signature, the authority
+     * binding and the adapter binding have all verified, so nothing but a
+     * genuine certificate reaches it. SUPERSEDED_WIRE is raised in
+     * assertCertificateShape(), ahead of all three, and is UNAUTHENTICATED BY
+     * CONSTRUCTION — root `format` is outside the signed bytes, so anyone who
+     * can write the companion file can trigger it, including by flipping the
+     * `format` of a valid certificate. The two AUTHORITY tags sit between them:
+     * the authority binding has proved the named key, its fingerprint and its
+     * identity record against the CURRENT root before either can be raised, but
+     * the signature has not been checked yet (it cannot be — an authority that
+     * may not certify is not asked to sign anything). Each is accepted on one
+     * argument: the only destination is uncertified support, which the same
+     * write access already reached by deleting the companion; the full risk
+     * notes are on the exception classes themselves.
+     *
+     * They exist as tags rather than as sentences at the call site because the
+     * sentence lands in provenance_record()'s `reason`, which is
+     * IDENTITY-BEARING (it is folded into the adapter digest a pin binds), so
+     * it must be derived in exactly one place. The superseded-BYTES case
+     * deliberately has no tag: its reason is the companion-absent one, byte for
+     * byte, because that adapter's digest already exists in the field.
+     */
+    public const WITHDRAWN_STALE_PLATFORM = 'stale_platform_boundary';
+    public const WITHDRAWN_SUPERSEDED_WIRE = 'superseded_certificate_wire';
+
+    /**
+     * The third typed withdrawal's two outcomes (G2-FIXES C3), and they are two
+     * tags rather than one because an operator's next act differs: a lapsed
+     * window is repaired by re-signing under a renewed key, a typed revocation
+     * is not repaired at all until a different key certifies the adapter.
+     *
+     * Both reach the same UNCERTIFIED destination the two tags above reach, and
+     * both are raised only after the authority binding proved the certificate
+     * names the current record — see WithdrawnAuthoritySiteAdapterCertificate,
+     * which carries the tag so this sentence is never matched out of a message.
+     */
+    public const WITHDRAWN_AUTHORITY_WINDOW = 'authority_window_lapsed';
+    public const WITHDRAWN_AUTHORITY_REVOKED = 'authority_revoked';
 
     /**
      * A surveyed adapter's grammar verdict (DUO-3339).
@@ -297,6 +414,36 @@ final class AdapterSources {
     public const CERTIFICATION_SITE_SIGNED = 'site_signed';
 
     /**
+     * The REVIEWER-TIER word (spec/repo-format.md § v3.16, WP-5.2; gate G4).
+     *
+     * It answers a question neither word above can. `site_signed` and
+     * `third_party_signed` both say which ROOT vouched — the customer
+     * organization's or this project's — and both are silent about who actually
+     * ran the tests, because until this rider the two facts had one producer.
+     * A certificate whose signed bundle names a reviewing party
+     * (`AdapterCertification::EVIDENCE_REVIEWER`) has TWO distinct named
+     * parties in it, and collapsing that into either existing word would print
+     * one of them and delete the other.
+     *
+     * IT SHIPPED FIRST AS A REFUSAL, on purpose (§ v3.10, WP-4.11, R-28). A
+     * projection refuses a WHOLE document on a word it does not know
+     * (`AdapterObservation::CERTIFICATIONS`), so an engine that minted this word
+     * before every deployed host had heard of it would have turned a version
+     * skew into an `invalid enum` corruption verdict on the reading side. The
+     * reservation put the name in the field one release ahead of the policy that
+     * mints it; this rider is the flip it bought, and the flip is an edit to
+     * pins that `sandbox/tests/offline/adapter/regress_v3_reservations.php`
+     * fails on until it is made deliberately.
+     *
+     * PRECEDENCE, stated because a ladder word is only as good as its order:
+     * this word is reached only where `site_signed`/`third_party_signed` would
+     * have been — after `certification_unjudged`, `uncertified` and
+     * `signed_unpinned`, which are all about whether there is a reviewed
+     * signature at all and are untouched by who exercised it.
+     */
+    public const CERTIFICATION_REVIEWER_SIGNED = 'reviewer_signed';
+
+    /**
      * A SHIPPED adapter deliberately displaced by an explicit site override
      * pin (T6 §3.3). Not a refusal and not `uncertified`: the shipped manifest
      * is exactly as reviewed as it always was, the repository simply pinned
@@ -317,6 +464,20 @@ final class AdapterSources {
      * neither the file nor its problem.
      */
     public const SITE_AUTHORITIES_FILE = 'authorities.json';
+
+    /**
+     * The delegations a site was handed, and therefore a second RESERVED name
+     * inside `adapters/` (spec/repo-format.md § v3.8, WP-4.9).
+     *
+     * Reserved for the identical reason SITE_AUTHORITIES_FILE is: without this
+     * the file would be globbed as a site adapter called `delegations` and
+     * refused for declaring no name, which describes neither the file nor its
+     * problem. A flat file rather than a `delegations/` directory because
+     * assert_flat_json_source() refuses a nested `.json` under `adapters/` by
+     * name and admits exactly one directory, `certifications/`; admitting a
+     * second is a site-source grammar change and belongs to § v3.9, not here.
+     */
+    public const SITE_DELEGATIONS_FILE = 'delegations.json';
 
     public const GRAMMAR_OK = 'ok';
     public const GRAMMAR_ERROR = 'error';
@@ -392,8 +553,11 @@ final class AdapterSources {
      * that shadows a shipped one is a broken installation whether or not this
      * particular site.duo.json happens to pin it, and the operator should learn
      * that from the next command rather than from the first command that pins
-     * it. Same discipline ManifestDispositions::load() applies to the shipped
-     * directory.
+     * it. Deliberately NOT the discipline disposition coverage takes: a
+     * shadowed name is a broken INSTALLATION, while an unreviewed manifest is
+     * an unusable ADAPTER, and only the first is a fact about every other
+     * adapter beside it (ManifestDispositions::load()'s docblock states the
+     * split).
      *
      * The PLUGIN source is the exception, and the header states the reason at
      * length: its refusals are recorded rather than thrown even here, so a
@@ -417,6 +581,130 @@ final class AdapterSources {
                 'sources' => $scan['sources'],
             ]
         );
+    }
+
+    /**
+     * WHAT THE SCAN'S ANSWER IS A FUNCTION OF — the inputs a memo of it has to
+     * key on (WP-1.3).
+     *
+     * `AdapterScan` holds one resolved `discover()` for a whole survey instead
+     * of re-running it per surveyed adapter, and it may only do that while it
+     * can prove the inputs have not moved. This is the list of those inputs,
+     * and it lives HERE, beside scan(), for the reason the two scan modes share
+     * one body: a list of "which files does the scan read" maintained anywhere
+     * else is a second description of this walk that can silently disagree with
+     * it. `regress_adapter_survey_scale.php` closes the loop by intercepting
+     * every read the real scan performs and refusing one this list does not
+     * name.
+     *
+     *   - `anchors` are stat-cheap and re-checked per memo reuse: the three
+     *     source directories (whose mtime/ctime move on any entry churn), the
+     *     two documents that gate the whole scan, and `capabilities/` (which
+     *     holds the platform boundary the load's own precondition reads).
+     *   - `files` is every file the scan can open, re-checked once by content.
+     *   - `plugins` is the activation set, which decides which bundles are in
+     *     force and lives in the options table rather than on disk — a file
+     *     witness alone would be blind to a plugin activated mid-survey.
+     *
+     * The split between scan_anchors() and this is the whole reason the memo
+     * is cheap enough to check per reuse: naming the anchors costs no
+     * directory read at all, while naming the FILES costs one glob per source
+     * — which, re-derived once per surveyed adapter, would be the very
+     * O(rows x files) term WP-1.3 removed. Measured: folding the two together
+     * left a 400-adapter survey at 808 directory scans instead of 8.
+     *
+     * @return array{anchors:list<string>, files:list<string>, plugins:list<string>}
+     */
+    public static function scan_dependencies(string $manifestDir, ?string $repo): array {
+        $anchored = self::scan_anchors($manifestDir, $repo);
+        $library = rtrim($manifestDir, '/');
+        // The platform boundary is not an adapter and is not matched by the
+        // adapter glob, but Policy's own load precondition reads it
+        // (ManifestDispositions::platform_boundary()), so a memo that outlived
+        // a change to it would answer with a boundary the process no longer
+        // enforces.
+        $files = array_merge(
+            array_values(glob($library . '/*.json') ?: []),
+            // One reviewed entry per file since WP-4.4. The monolith was
+            // matched by the adapter glob above and skipped by name; the
+            // directory is not matched at all, so a memo that did not witness
+            // these bytes would answer with a disposition an operator had
+            // already revised.
+            glob($library . '/dispositions/*.json') ?: [],
+            glob($library . '/capabilities/*.json') ?: []
+        );
+        if ($repo !== null) {
+            $root = rtrim($repo, '/');
+            $siteDir = $root . '/' . self::SITE_DIR;
+            $files = array_merge(
+                $files,
+                [$root . '/site.duo.json'],
+                glob($siteDir . '/*.json') ?: [],
+                glob($siteDir . '/' . self::CERTIFICATION_DIR . '/*.json') ?: []
+            );
+        }
+        $source = self::plugin_source();
+        if ($source !== null) {
+            $files = array_merge(
+                $files,
+                // Both shapes the plugin block reads: the bundle at each
+                // plugin's root, and the one at the plugins root that is
+                // refused for belonging to no plugin.
+                glob($source['dir'] . '/*/' . self::PLUGIN_FILE) ?: [],
+                is_file($source['dir'] . '/' . self::PLUGIN_FILE)
+                    ? [$source['dir'] . '/' . self::PLUGIN_FILE]
+                    : []
+            );
+        }
+        $files = array_values(array_unique($files));
+        sort($files, SORT_STRING);
+        return ['anchors' => $anchored['anchors'], 'files' => $files, 'plugins' => $anchored['plugins']];
+    }
+
+    /**
+     * The O(1) half of the dependency set: the paths whose own `stat` moves
+     * when the file SET moves, plus the activation set.
+     *
+     * Every one of these is derived, never enumerated — no glob, no scandir —
+     * because this is what a memo re-checks before answering each row. A
+     * directory's mtime and ctime move on any entry added, removed or renamed
+     * inside it, which is exactly the class of change a stale origins map
+     * would get wrong; an in-place rewrite that churns no entry is the other
+     * class, and scan_dependencies()' content witness is what covers it.
+     *
+     * @return array{anchors:list<string>, plugins:list<string>}
+     */
+    public static function scan_anchors(string $manifestDir, ?string $repo): array {
+        $library = rtrim($manifestDir, '/');
+        // `dispositions` is a DIRECTORY since WP-4.4 (ManifestDispositions::
+        // DIRECTORY names it; spelled literally here for the reason the two
+        // class_exists() guards below state — this file is reachable in
+        // contexts that never loaded that class), so it anchors the same
+        // way `capabilities` does: its own stat moves when a reviewed subject
+        // is added, removed or renamed, and the per-document content witness
+        // in scan_dependencies() covers an in-place rewrite that churns no
+        // entry. Anchoring the retired `dispositions.json` instead would have
+        // left a memo that never notices a reviewed claim changing.
+        $anchors = [$library, $library . '/dispositions', $library . '/capabilities'];
+        if ($repo !== null) {
+            $root = rtrim($repo, '/');
+            $siteDir = $root . '/' . self::SITE_DIR;
+            // site.duo.json: read by override_pins() below, and by nothing
+            // else in this scan — the one exception discover() makes to never
+            // opening the site's own policy file.
+            $anchors = array_merge($anchors, [
+                $root . '/site.duo.json',
+                $siteDir,
+                $siteDir . '/' . self::CERTIFICATION_DIR,
+            ]);
+        }
+        $plugins = [];
+        $source = self::plugin_source();
+        if ($source !== null) {
+            $anchors[] = $source['dir'];
+            $plugins = $source['active'];
+        }
+        return ['anchors' => $anchors, 'plugins' => $plugins];
     }
 
     /**
@@ -705,7 +993,18 @@ final class AdapterSources {
         // is exactly the failure mode to refuse: an operator who wrote them
         // believes their adapter is certified, or believes their interpreter
         // will run. Say so instead of ignoring the bytes.
-        foreach (['dispositions.json' => 'certification data', 'capabilities' => 'capability registry data'] as $entry => $what) {
+        // Both spellings of the reviewed claim source are named: WP-4.4 moved
+        // the agent's own from `dispositions.json` to `dispositions/`, and an
+        // operator following that layout into their site source is making
+        // exactly the same claim this refusal exists for. The retired file
+        // name stays in the list because it is what an older copied library
+        // put there, and it must be answered by name rather than ignored.
+        $reserved = [
+            'dispositions.json' => 'certification data',
+            'dispositions' => 'certification data',
+            'capabilities' => 'capability registry data',
+        ];
+        foreach ($reserved as $entry => $what) {
             if (file_exists($siteDir . '/' . $entry)) {
                 self::refuse(
                     $collect,
@@ -799,6 +1098,16 @@ final class AdapterSources {
             $siteFiles,
             static fn(string $file): bool => basename($file) !== self::SITE_AUTHORITIES_FILE
         ));
+        // The delegation document is not an adapter either, and it is filtered
+        // and then VALIDATED for exactly the reason the trust root above is:
+        // inert authority bytes an operator believes in are the failure mode
+        // this source refuses everywhere else. A broken delegation document is
+        // a whole-source refusal because every certificate under a delegated key
+        // in this repository is judged against it (§ v3.8, WP-4.9).
+        $siteFiles = array_values(array_filter(
+            $siteFiles,
+            static fn(string $file): bool => basename($file) !== self::SITE_DELEGATIONS_FILE
+        ));
         if (is_file($siteDir . '/' . self::SITE_AUTHORITIES_FILE)) {
             require_once __DIR__ . '/AdapterCertification.php';
             self::guarded(
@@ -809,6 +1118,18 @@ final class AdapterSources {
                 [self::SITE_DIR . '/' . self::SITE_AUTHORITIES_FILE],
                 'repair the site trust root, or remove it and keep these adapters as uncertified support',
                 static fn() => AdapterCertification::assert_site_authorities($repo)
+            );
+        }
+        if (is_file($siteDir . '/' . self::SITE_DELEGATIONS_FILE)) {
+            require_once __DIR__ . '/AdapterCertification.php';
+            self::guarded(
+                $collect,
+                $refusals,
+                self::SITE,
+                self::REFUSAL_CERTIFICATION_SOURCE,
+                [self::SITE_DIR . '/' . self::SITE_DELEGATIONS_FILE],
+                'repair the delegation document, or remove it and keep these adapters as uncertified support',
+                static fn() => AdapterCertification::assert_site_delegations($manifestDir, $repo)
             );
         }
         sort($siteFiles, SORT_STRING);
@@ -1016,6 +1337,28 @@ final class AdapterSources {
             if ($caseCollision) {
                 continue;
             }
+            // The § v3.9 namespace rule, asked here only so the reported row
+            // carries `reserved_namespace` and its own remediation; the
+            // condition is enforced for every out-of-tree entry point inside
+            // assert_out_of_tree_contract() just below. Inert on every manifest
+            // below `spec_version` 3, which is all of them while
+            // DUO_SPEC_VERSION is 2.
+            if (!self::guarded(
+                $collect,
+                $refusals,
+                self::SITE,
+                self::REFUSAL_RESERVED_NAMESPACE,
+                [$relative],
+                self::RESERVED_NAMESPACE_REMEDY,
+                static fn() => IdentityNamespaces::assert_out_of_tree_identity(
+                    $manifest,
+                    $name,
+                    'site adapter',
+                    "'$relative'"
+                )
+            )) {
+                continue;
+            }
             // Prove the data-only boundary before spending any authority on a
             // companion certificate. Policy repeats this after loading the
             // pinned manifest as defense in depth and frozen reconstruction
@@ -1056,6 +1399,10 @@ final class AdapterSources {
             require_once __DIR__ . '/AdapterCertification.php';
             $verified = null;
             $superseded = false;
+            // The withdrawal tag, when the certified claim drops because an
+            // AGENT-owned document moved (see WITHDRAWN_*). Null keeps the
+            // superseded-bytes case on the existing companion-absent reason.
+            $withdrawn = null;
             if (!self::guarded(
                 $collect,
                 $refusals,
@@ -1064,7 +1411,7 @@ final class AdapterSources {
                 [self::SITE_DIR . '/' . self::CERTIFICATION_DIR . "/$name.json", $relative],
                 'obtain a certificate signed by an authority this agent trusts, or remove the companion and keep '
                     . 'the adapter as uncertified support',
-                static function () use ($manifestDir, $repo, $name, $manifest, $certificateFile, &$verified, &$superseded): void {
+                static function () use ($manifestDir, $repo, $name, $manifest, $certificateFile, &$verified, &$superseded, &$withdrawn): void {
                     try {
                         $verified = AdapterCertification::verifyFile(
                             $manifestDir,
@@ -1083,6 +1430,37 @@ final class AdapterSources {
                         // then re-establishes. Not a refusal: the adapter simply
                         // loses its certified grants until it is re-signed.
                         $superseded = true;
+                    } catch (StalePlatformSiteAdapterCertificate $movedPlatform) {
+                        // The AGENT moved, not the adapter: an upgrade rewrote
+                        // manifests/capabilities/platform.json, which every
+                        // signed statement binds byte for byte. A whole-source
+                        // refusal here took every command on the site with it —
+                        // including the `duo adapter certify --pin` that repairs
+                        // it — for a condition no site caused and no operator
+                        // could see. One adapter loses its certified grants; the
+                        // unrelated adapters this site pins are untouched.
+                        $superseded = true;
+                        $withdrawn = self::WITHDRAWN_STALE_PLATFORM;
+                    } catch (SupersededWireSiteAdapterCertificate $movedWire) {
+                        // Same withdrawal for the other agent-owned document in
+                        // the certificate: its wire version. A fleet that
+                        // upgrades past a certificate's version degrades that
+                        // adapter rather than losing the site.
+                        $superseded = true;
+                        $withdrawn = self::WITHDRAWN_SUPERSEDED_WIRE;
+                    } catch (WithdrawnAuthoritySiteAdapterCertificate $lostAuthority) {
+                        // THE AUTHORITY moved, not the adapter and not the
+                        // agent: its window lapsed, or the typed revocation
+                        // channel names its key material. Untyped, this was the
+                        // third door to WP-1.1's fleet-brick — and a DATED one,
+                        // because `not_after` is mandatory at record v2, so
+                        // every site holding a certificate under a v2 key lost
+                        // every command at that key's own expiry. The tag is
+                        // carried by the exception rather than re-derived from
+                        // its message: the sentence lands in an
+                        // IDENTITY-BEARING `reason` (provenance_record()).
+                        $superseded = true;
+                        $withdrawn = $lostAuthority->withdrawal();
                     }
                 }
             )) {
@@ -1096,11 +1474,21 @@ final class AdapterSources {
                 continue;
             }
             if ($superseded) {
-                // Superseded companion (adapter edited after signing) → the
-                // same uncertified record a companion-absent site adapter
-                // gets; no $certificates/$claims entry, so is_certified() is
-                // false and every certified-only gate treats it as unsigned.
-                $provenance[$name] = self::provenance_record($name, $relative, $manifest);
+                // Superseded companion (adapter edited after signing) or a
+                // withdrawn claim (an agent-owned document moved) → the same
+                // uncertified record a companion-absent site adapter gets; no
+                // $certificates/$claims entry, so is_certified() is false and
+                // every certified-only gate treats it as unsigned. $withdrawn
+                // only changes the sentence an operator reads, and only for the
+                // two cases that did not exist before WP-1.1.
+                $provenance[$name] = self::provenance_record(
+                    $name,
+                    $relative,
+                    $manifest,
+                    self::SITE,
+                    null,
+                    $withdrawn
+                );
                 continue;
             }
             $provenance[$name] = $verified['disposition'];
@@ -1818,6 +2206,30 @@ final class AdapterSources {
             return null;
         }
 
+        // The § v3.9 twin of the site scan's call, for the same reporting
+        // reason: a bundled adapter is exactly as namespaced as a site one, and
+        // an operator reading `out_of_tree_privilege` here would be told to
+        // move code that is not the problem.
+        $namespaceRow = null;
+        if (!self::guarded(
+            true,
+            $refusals,
+            self::PLUGIN,
+            self::REFUSAL_RESERVED_NAMESPACE,
+            [$relative],
+            self::RESERVED_NAMESPACE_REMEDY,
+            static fn() => IdentityNamespaces::assert_out_of_tree_identity(
+                $manifest,
+                (string) $declared,
+                'plugin adapter',
+                self::render($relative)
+            ),
+            $namespaceRow
+        )) {
+            $refusedNames[(string) $declared] = $namespaceRow;
+            return null;
+        }
+
         $privilegeRow = null;
         if (!self::guarded(
             true,
@@ -2053,10 +2465,28 @@ final class AdapterSources {
      * `not_installed` carries every adapter that is on this disk and did not
      * load, with the definition that outranked it.
      *
+     * Every grammar verdict below is taken against ONE resolved library
+     * (WP-1.3): the scan handle opened at the loop, passed explicitly into
+     * grammar_verdict(), and settled before these rows are returned. Before it,
+     * each row re-ran discover() and the reviewed-registry read that the row
+     * before it had already paid for — 501 directory scans and 501 registry
+     * reads for a 500-adapter library, growing 3.7x per doubling; 6 and 2 now.
+     * AdapterScan's header carries the measurements and the reason the handle
+     * is an argument rather than process state.
+     *
      * @param ?string $repo site repository whose adapters/ source also counts
      * @return array{adapters:list<array<string,mixed>>, not_installed:list<array<string,mixed>>, refusals:list<array<string,mixed>>, sources:list<array<string,mixed>>}
      */
     public static function survey(?string $repo): array {
+        // Lazily, at the one entry that needs them, for the reason the
+        // AdapterCertification requires below give: this file is on the pure
+        // loader path Policy::load() walks, and AdapterScan requires Policy,
+        // so a top-level require here would make AdapterSources and Policy
+        // require each other at load time. CommandRefusal comes with it
+        // because grammar_verdict() — reachable only from here — names
+        // CommandRefusalException to let the one typed refusal through.
+        require_once __DIR__ . '/AdapterScan.php';
+        require_once __DIR__ . '/../Kernel/CommandRefusal.php';
         $manifestDir = Policy::manifests_dir();
         $refusals = [];
         $scan = self::scan($manifestDir, $repo, true, $refusals);
@@ -2096,12 +2526,59 @@ final class AdapterSources {
             }
         }
 
+        // THE TYPED REVOCATION CHANNEL'S OWN STATE (G2-FIXES C2), asked once
+        // per survey and about the LIBRARY rather than about any adapter. The
+        // shipped answer is silence: no document is installed, so nothing is
+        // added here and no site in the field grows a row.
+        //
+        // Reported at all because the alternative states are both invisible
+        // otherwise. An INERT document (signed by a key this agent does not
+        // hold) grants nothing while an operator believes those keys are burnt;
+        // an UNREADABLE one is a refusal that a site holding no certificate
+        // would never reach, because revocations() is read from the certificate
+        // path alone. Neither blocks a verdict — SCOPE_LIBRARY is not in
+        // blocking_refusals() — and both make this command exit 1.
+        //
+        // Loaded lazily for the reason the scan's own require gives: this file
+        // is on the pure loader path, and AdapterCertification depends on it.
+        require_once __DIR__ . '/AdapterCertification.php';
+        $revocations = rtrim($manifestDir, '/') . '/capabilities/adapter-revocations.json';
+        if (file_exists($revocations) || is_link($revocations)) {
+            try {
+                $inert = AdapterCertification::revocation_channel($manifestDir);
+                if ($inert !== null) {
+                    $refusals[] = [
+                        'code' => self::REFUSAL_REVOCATION_INERT,
+                        'message' => (string) $inert['message'],
+                        'paths' => [$revocations],
+                        'remediation' => 'enroll the signing key in the agent-owned '
+                            . 'capabilities/adapter-authorities.json, or remove the document — until then it is '
+                            . 'installed and revokes nothing',
+                        'scope' => self::SCOPE_LIBRARY,
+                        'source' => self::SHIPPED,
+                    ];
+                }
+            } catch (\Throwable $unreadable) {
+                $refusals[] = [
+                    'code' => self::REFUSAL_REVOCATION_UNREADABLE,
+                    'message' => $unreadable->getMessage(),
+                    'paths' => [$revocations],
+                    'remediation' => 'reinstall the platform-signed revocation document, or remove it — an '
+                        . 'unreadable one is refused rather than read as "nothing is revoked"',
+                    'scope' => self::SCOPE_LIBRARY,
+                    'source' => self::SHIPPED,
+                ];
+            }
+        }
+
         // The reviewed disposition set is a property of the shipped library,
-        // and its own one-for-one coverage check can refuse. That refusal is
-        // about the library rather than about any one adapter, so it degrades
-        // to "no reviewed status known" here instead of taking the inventory
-        // down; `duo capabilities` is where a library-level registry problem
-        // is the subject.
+        // and reading it can still refuse: a malformed root or a malformed
+        // profile is a defect in the DOCUMENT, about the library rather than
+        // about any one adapter, so it degrades to "no reviewed status known"
+        // here instead of taking the inventory down; `duo capabilities` is
+        // where a library-level registry problem is the subject. Since WP-1.2
+        // an uncovered manifest is no longer one of those refusals — it reaches
+        // the row it belongs on, as `uncovered`.
         $dispositions = null;
         if (class_exists(ManifestDispositions::class)) {
             try {
@@ -2166,6 +2643,18 @@ final class AdapterSources {
             }
         }
 
+        // WHICH REFUSALS BLOCK, computed once for the whole survey rather than
+        // once per row: it is a function of $refusals, which is complete before
+        // the loop starts, and it decides the repository every row below is
+        // judged against — so the scan handle can be opened for exactly that
+        // repository, once.
+        $blocking = self::blocking_refusals($refusals);
+        // The resolved library every verdict below is taken against. Opening it
+        // reads nothing (AdapterScan::open()); the first row that actually
+        // loads is what pays for the one scan, so a survey whose rows are all
+        // answered without a load still costs none.
+        $library = AdapterScan::open($blocking === [] ? $repo : null);
+
         $adapters = [];
         foreach ($scan['origins'] as $name => $origin) {
             $name = (string) $name;
@@ -2174,7 +2663,7 @@ final class AdapterSources {
             $outOfTree = isset($scan['provenance'][$name]);
             $entry = $dispositions === null || $outOfTree ? null : $dispositions->entry($name);
             $tier = self::tier_decision($manifest);
-            $grammar = self::grammar_verdict($name, $source, $repo, $refusals);
+            $grammar = self::grammar_verdict($name, $source, $blocking, $library);
             $adapters[] = [
                 // A bundled adapter's word is `uncertified`, always, and never
                 // one of DUO-3314's signed words: certification binds
@@ -2222,12 +2711,43 @@ final class AdapterSources {
             ];
         }
 
+        // The exact half of the memo's witness, before a single row is
+        // published: every row above was judged against one resolved library,
+        // and this is where the survey proves that library was one library.
+        // A difference refuses the whole survey — an inventory assembled from
+        // two epochs is not an inventory of anything.
+        $library->settle();
+
         return [
             'adapters' => $adapters,
             'not_installed' => $scan['not_installed'],
             'refusals' => $refusals,
             'sources' => $scan['sources'],
         ];
+    }
+
+    /**
+     * The refusals that stop an adapter source from being read at all, which
+     * is what decides whether a verdict can be taken against the repository.
+     *
+     * Its own function since WP-1.3 because two callers need the identical
+     * answer: survey() opens ONE scan handle for the repository the whole loop
+     * will be judged against, and grammar_verdict() renders the first of these
+     * into a blocked SITE row's message. Deriving it twice would let a future
+     * filter change one and not the other, and the two disagreeing means rows
+     * judged against a repository the message says was not read.
+     *
+     * @param list<array<string,mixed>> $refusals
+     * @return list<array<string,mixed>>
+     */
+    private static function blocking_refusals(array $refusals): array {
+        $blocking = [];
+        foreach ($refusals as $refusal) {
+            if (($refusal['scope'] ?? self::SCOPE_SOURCE) === self::SCOPE_SOURCE) {
+                $blocking[] = $refusal;
+            }
+        }
+        return $blocking;
     }
 
     /**
@@ -2282,7 +2802,11 @@ final class AdapterSources {
             'authority' => is_array($proof['authority'] ?? null) ? $proof['authority'] : null,
             'bundle' => is_array($proof['bundle'] ?? null) ? $proof['bundle'] : null,
             'certificate_sha256' => $proof['certificate_sha256'] ?? null,
-            'platform_sha256' => $proof['platform_sha256'] ?? null,
+            // RENAMED with its meaning by WP-4.7 (§ v3.6): the digest of the
+            // exercised compatibility AXES a certificate binds, which is a
+            // different number from ContractAttestation's whole-boundary
+            // `platform_sha256` and must not be readable as it.
+            'platform_axes_sha256' => $proof['platform_axes_sha256'] ?? null,
             'statement_sha256' => $proof['statement_sha256'] ?? null,
             'supported_versions' => is_array($claim['supported_versions'] ?? null)
                 ? $claim['supported_versions']
@@ -2303,6 +2827,10 @@ final class AdapterSources {
      *      `third_party_signed` additionally requires the repository pin to
      *      bind both source "site" and the final certificate-derived digest.
      *   3. Elevation is withheld unless this row's own grammar is `ok`.
+     *   4. Only then does WHO decide the word, and the reviewer tier is asked
+     *      FIRST (§ v3.16): a bundle that named a reviewing party carries two
+     *      distinct named parties, and the root ternary below can print only
+     *      one of them.
      *      bind_explicit_pins() checks the digest's SHAPE, not its value; the
      *      engine compares the value (Policy's hash_equals) and refuses the
      *      repository outright when it disagrees. Without this clause a
@@ -2332,7 +2860,11 @@ final class AdapterSources {
         // provenance rather than re-derived: the trust root is inside the
         // signed statement and folded into the adapter digest, so a second
         // derivation here could disagree with the certificate the engine
-        // actually verified.
+        // actually verified. The reviewer is read the same way and from the same
+        // proof, for the same reason.
+        if ($sources->reviewer($name) !== null) {
+            return self::CERTIFICATION_REVIEWER_SIGNED;
+        }
         return $sources->trust_root($name) === self::TRUST_ROOT_SITE
             ? self::CERTIFICATION_SITE_SIGNED
             : 'third_party_signed';
@@ -2438,17 +2970,25 @@ final class AdapterSources {
      * both false and exactly the "true and useless" answer this function was
      * written to avoid.
      *
+     * The loader reached through the survey's scan handle rather than through
+     * `Policy::load()` directly (WP-1.3): the handle already holds the
+     * discovered sources and the reviewed registry that a fresh load would
+     * re-derive for this row, and it re-proves its witness before answering.
+     * The verdict is otherwise the same load, on the same bytes, with the same
+     * messages — the per-pin work (this manifest's own read, validation and
+     * finalization) is untouched, which is the half that is actually about
+     * this adapter.
+     *
      * @param string $source the row's own adapter source
-     * @param list<array<string,mixed>> $refusals refusals this survey already collected
+     * @param list<array<string,mixed>> $blocking source-scoped refusals this survey collected
      * @return array{status:string, message:?string}
      */
-    private static function grammar_verdict(string $name, string $source, ?string $repo, array $refusals): array {
-        $blocking = [];
-        foreach ($refusals as $refusal) {
-            if (($refusal['scope'] ?? self::SCOPE_SOURCE) === self::SCOPE_SOURCE) {
-                $blocking[] = $refusal;
-            }
-        }
+    private static function grammar_verdict(
+        string $name,
+        string $source,
+        array $blocking,
+        AdapterScan $library
+    ): array {
         if ($source === self::SITE && $blocking !== []) {
             $first = $blocking[0];
             return [
@@ -2464,8 +3004,19 @@ final class AdapterSources {
             ];
         }
         try {
-            Policy::load($blocking === [] ? $repo : null, [$name]);
+            $library->load($name);
             return ['message' => null, 'status' => self::GRAMMAR_OK];
+        } catch (CommandRefusalException $refusal) {
+            // The ONE throwable that is not this adapter's grammar. A moved
+            // library says the survey read two libraries, which is a fact
+            // about the RUN: folding it into one row's message would report
+            // "this adapter is malformed" for a library that changed under an
+            // unrelated adapter, and would leave the rows already collected
+            // published as if they still described the disk.
+            if ($refusal->reasonCode === AdapterScan::REFUSAL_MOVED) {
+                throw $refusal;
+            }
+            return ['message' => $refusal->getMessage(), 'status' => self::GRAMMAR_ERROR];
         } catch (\Throwable $t) {
             return ['message' => $t->getMessage(), 'status' => self::GRAMMAR_ERROR];
         }
@@ -3012,7 +3563,8 @@ final class AdapterSources {
         string $relativePath,
         array $manifest,
         string $source = self::SITE,
-        ?string $plugin = null
+        ?string $plugin = null,
+        ?string $withdrawn = null
     ): array {
         $sha256 = hash('sha256', Canon::encode($manifest));
         return [
@@ -3029,10 +3581,43 @@ final class AdapterSources {
                     . '— certification is a repository-scoped signed companion at ' . self::SITE_DIR . '/'
                     . self::CERTIFICATION_DIR . "/$name.json."
                 : "adapter '$name' is installed out-of-tree from the site repository's "
-                    . self::SITE_DIR . '/ directory and carries no reviewed certification evidence',
+                    . self::SITE_DIR . '/ directory and ' . self::withdrawal_clause($withdrawn),
             'status' => 'uncertified',
             'trust_tier' => self::trust_tier($manifest),
         ];
+    }
+
+    /**
+     * The half-sentence that says WHY this out-of-tree adapter is uncertified.
+     *
+     * `match` rather than a switch with a default: an unrecognised tag is a
+     * programming error, and \UnhandledMatchError says so loudly instead of
+     * silently minting the companion-absent wording for a state nobody
+     * classified — the reason is folded into the adapter digest a pin binds
+     * (see provenance_record()), so a wrong sentence here is a wrong identity.
+     *
+     * The null arm is byte-identical to the string this method replaced, and it
+     * is what the companion-absent case and the superseded-BYTES case both take
+     * (AdapterSources::scan_site_source(), grind_adoption A8): those digests
+     * already exist in the field and must not move.
+     */
+    private static function withdrawal_clause(?string $withdrawn): string {
+        return match ($withdrawn) {
+            null => 'carries no reviewed certification evidence',
+            self::WITHDRAWN_STALE_PLATFORM =>
+                'its signed certification binds an agent platform boundary this agent no longer publishes, so the '
+                    . 'certified claim is withdrawn until the adapter is re-signed against the current boundary',
+            self::WITHDRAWN_SUPERSEDED_WIRE =>
+                'its signed certification is written in a certification wire version this agent does not verify, so '
+                    . 'the certified claim is withdrawn until the adapter is re-signed on the current wire',
+            self::WITHDRAWN_AUTHORITY_WINDOW =>
+                'the authority that signed its certification is outside its own validity window on this host, so '
+                    . 'the certified claim is withdrawn until the adapter is re-signed under a key that may still '
+                    . 'certify',
+            self::WITHDRAWN_AUTHORITY_REVOKED =>
+                'the authority that signed its certification is revoked, so the certified claim is withdrawn until '
+                    . 'the adapter is re-signed under a key that is not',
+        };
     }
 
     /**
@@ -3199,6 +3784,19 @@ final class AdapterSources {
         // those paths are `adapters/<slug>.json` and this project's
         // regressions compare them exactly.
         $shown = $renderPath ? self::render($relativePath) : "'$relativePath'";
+        // IDENTITY BEFORE PRIVILEGE (spec/repo-format.md § v3.9, WP-4.10):
+        // whether an adapter may own the name it answers to is a cheaper and
+        // more basic question than what its declarations may do, so it is
+        // asked first. Ordering costs nothing today because the whole rule
+        // returns on any manifest below `spec_version` 3, which is every
+        // manifest in existence while DUO_SPEC_VERSION is 2 — so no shipped
+        // refusal, and no refusal any site can currently produce, moves.
+        // Placed HERE rather than at the two scan sites because this is the
+        // one boundary all four out-of-tree entry points share (the site scan,
+        // the plugin scan, Policy's post-load re-check and frozen
+        // reconstruction); a second copy at the scan would be a second copy of
+        // the rule.
+        IdentityNamespaces::assert_out_of_tree_identity($manifest, $name, $label, $shown);
         $remedy = $inherit === null
             ? "install the adapter into the agent's own manifest library (where its code ships, digest-binds, and "
                 . 'is reviewed with it), or declare a plugin-owned provider whose code the installed plugin already owns'
@@ -3490,6 +4088,81 @@ final class AdapterSources {
     }
 
     /**
+     * The certification word for ONE adapter — `diagnostics()`'s derivation,
+     * given a name so a caller that is not building a diagnostic row can ask
+     * the same question and be told the same thing.
+     *
+     * Extracted rather than copied for the reason tier_decision() gives about
+     * its own pairing (:3157-3162): two walks of one rule are two rules the
+     * moment either moves, and the one that moved silently would be the one a
+     * refusal quotes. `$hasRegistry` is threaded in so `diagnostics()` still
+     * asks has_reviewed_registry() ONCE for a whole manifest list rather than
+     * once per row; the memo on that method makes repetition cheap, not free.
+     */
+    public function certification_word(string $name, ?bool $hasRegistry = null): ?string {
+        if ($this->provenance($name) === null) {
+            return ($hasRegistry ?? $this->has_reviewed_registry()) ? 'registry' : null;
+        }
+        if (!$this->is_certified($name)) {
+            return 'uncertified';
+        }
+        if (empty($this->explicitPins[$name])) {
+            return 'signed_unpinned';
+        }
+        // § v3.16, in the same order site_certification() asks it — the two
+        // derivations are one rule and this method exists so they stay one.
+        if ($this->reviewer($name) !== null) {
+            return self::CERTIFICATION_REVIEWER_SIGNED;
+        }
+        return $this->trust_root($name) === self::TRUST_ROOT_SITE
+            ? self::CERTIFICATION_SITE_SIGNED
+            : 'third_party_signed';
+    }
+
+    /**
+     * The RISK TIER: an adapter installed out-of-tree that no review vouches
+     * for. WP-3.1's capture-time lint gate blocks here and nowhere else.
+     *
+     * Three states answer true, and each is a deliberate reading:
+     *
+     *  - `uncertified` — nothing was ever signed. The plain case.
+     *  - `uncertified` reached by WITHDRAWAL (WP-1.1). A stale platform
+     *    boundary or a superseded certificate wire leaves NO $certificates /
+     *    $claims entry (:1160-1170 says so in as many words: "every
+     *    certified-only gate treats it as unsigned"), so this predicate cannot
+     *    tell it from the plain case and must not try — a withdrawn claim is
+     *    exactly as unvouched-for as one that never existed, and the record's
+     *    own `reason` is what tells the operator which of the two they are in.
+     *  - `signed_unpinned` — a valid signature the REPOSITORY has not reviewed.
+     *    claim() already collapses this to `status: uncertified` with "valid
+     *    signed third-party evidence is present, but the repository pin does
+     *    not bind both source \"site\" and the final certificate-derived
+     *    digest" (:3644-3652). Certification is an elevation the pin gates, so
+     *    reading an unpinned signature as review here would elevate it in one
+     *    projection and not the other.
+     *
+     * A SHIPPED row is never at this tier whatever its registry status: its
+     * bytes are reviewed with the agent and digest-bound to it (AGENTS.md
+     * rule 2), which is the whole reason the gate can leave that path's
+     * behaviour byte-identical.
+     */
+    public function is_uncertified_out_of_tree(string $name): bool {
+        return $this->is_out_of_tree($name)
+            && !in_array(
+                $this->certification_word($name),
+                // `reviewer_signed` belongs here the day the engine can mint it
+                // (§ v3.16): it is the SAME verified, pinned certificate the two
+                // words beside it name, differing only in whether the bundle
+                // also said who exercised it. Omitting it would have made
+                // WP-3.1's capture-time lint gate block an adapter for carrying
+                // MORE evidence, which is the one direction a tier must never
+                // move a gate.
+                [self::CERTIFICATION_SITE_SIGNED, self::CERTIFICATION_REVIEWER_SIGNED, 'third_party_signed'],
+                true
+            );
+    }
+
+    /**
      * Which root vouched for this adapter, and who under it.
      *
      * Projected from the verified provenance the certificate produced, never
@@ -3510,6 +4183,25 @@ final class AdapterSources {
     public function principal(string $name): ?string {
         $principal = $this->provenance[$name]['provenance']['proof']['authority']['key_id'] ?? null;
         return is_string($principal) && $principal !== '' ? $principal : null;
+    }
+
+    /**
+     * The party the signed bundle says EXERCISED this adapter, or null when it
+     * named none (§ v3.16, WP-5.2).
+     *
+     * Projected out of the same verified proof `trust_root()` and `principal()`
+     * read, never recomputed: the member lives inside the bundle the signature
+     * covers and is folded into the adapter digest a repository pin binds, so a
+     * second derivation here would be an unsigned copy of a signed fact.
+     *
+     * `null` is the answer for every certificate minted before this rider and
+     * for every one after it that claims no tier — `derivedDisposition()` omits
+     * the member rather than writing `null`, which is what keeps those
+     * certificates' digests, and therefore their pins, exactly where they were.
+     */
+    public function reviewer(string $name): ?string {
+        $reviewer = $this->provenance[$name]['provenance']['proof']['bundle']['reviewer'] ?? null;
+        return is_string($reviewer) && $reviewer !== '' ? $reviewer : null;
     }
 
     /**
@@ -3624,15 +4316,7 @@ final class AdapterSources {
                 // survey() answers for the same row: naming `registry` there
                 // would name a review the consumer would then go looking for.
                 // The two projections of one fact disagreeing was DUO-3486.
-                'certification' => $record === null
-                    ? ($hasRegistry ? 'registry' : null)
-                    : ($signed
-                        ? ($explicit
-                            ? ($trustRoot === self::TRUST_ROOT_SITE
-                                ? self::CERTIFICATION_SITE_SIGNED
-                                : 'third_party_signed')
-                            : 'signed_unpinned')
-                        : 'uncertified'),
+                'certification' => $this->certification_word($name, $hasRegistry),
                 'path' => $this->path($name),
                 // On EVERY row, including the ones where both are trivially
                 // known: a projection that printed `trust_root` only when it
@@ -3717,6 +4401,14 @@ final class AdapterSources {
      * rather than being carried forward. Editing an out-of-tree record in place
      * separately fails through validate_frozen_record() and the adapter digest
      * binding.
+     *
+     * The one thing a frozen certified record may do besides verify or refuse
+     * is be WITHDRAWN, and on this path exactly one condition qualifies: the
+     * agent-owned platform boundary the signature binds has moved. The
+     * certificate is still proved authentic and the adapter still resolves — as
+     * uncertified support, from a record derived here. Every other
+     * disagreement, the superseded wire version included, is still a refusal;
+     * the single catch below says why.
      */
     public static function from_snapshot(array $data, array $manifests): self {
         $keys = array_keys($data);
@@ -3738,6 +4430,11 @@ final class AdapterSources {
         $provenance = [];
         $certificates = [];
         $claims = [];
+        // Names whose frozen certificate verified as authentic but no longer
+        // confers a claim (an agent-owned document moved). They produce no
+        // $certificates row, so the orphan-certificate check below has to know
+        // they were read rather than skipped.
+        $withdrawnCertificates = [];
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '');
             self::assert_name($name, 'frozen adapter source record name');
@@ -3790,19 +4487,99 @@ final class AdapterSources {
                 // certification verifier. Load it only for the record that
                 // actually carries a signed external claim; see discover().
                 require_once __DIR__ . '/AdapterCertification.php';
-                $verified = AdapterCertification::verifyFrozen(
-                    Policy::manifests_dir(),
-                    $name,
-                    $manifest,
-                    $certificate
-                );
-                if (Canon::encode($verified['disposition']) !== Canon::encode($record)) {
-                    throw new \RuntimeException(
-                        "duo: frozen adapter certification for '$name' disagrees with its derived disposition"
+                $verified = null;
+                $withdrawn = null;
+                try {
+                    $verified = AdapterCertification::verifyFrozen(
+                        Policy::manifests_dir(),
+                        $name,
+                        $manifest,
+                        $certificate
                     );
+                } catch (StalePlatformSiteAdapterCertificate $movedPlatform) {
+                    $withdrawn = self::WITHDRAWN_STALE_PLATFORM;
+                } catch (SupersededWireSiteAdapterCertificate $movedWire) {
+                    $withdrawn = self::WITHDRAWN_SUPERSEDED_WIRE;
+                } catch (WithdrawnAuthoritySiteAdapterCertificate $lostAuthority) {
+                    // THE THIRD, and it joins the two above for the identical
+                    // reason (G2-FIXES C3): a promoted site verifies its
+                    // certificates from THIS path, so an authority whose window
+                    // lapsed — or whose key the typed revocation channel burnt,
+                    // the one channel that deliberately DOES reach a frozen
+                    // snapshot — refused the whole policy here. Withdrawing the
+                    // one adapter is what the revocation was for; taking the
+                    // site down with it was not.
+                    $withdrawn = $lostAuthority->withdrawal();
                 }
-                $certificates[$name] = $verified['envelope'];
-                $claims[$name] = $verified['claim'];
+                if ($withdrawn !== null) {
+                    // The identical withdrawal the live scan performs, on the
+                    // path a deployed site actually walks: a compiled artifact
+                    // is verified from its frozen snapshot, so without this an
+                    // agent upgrade bricked every promoted site holding a
+                    // certified adapter, and reopening the mutable repository
+                    // is exactly what this path may not do to recover.
+                    //
+                    // The frozen record is DISCARDED rather than trusted: it
+                    // claims `certified`, and nothing here can still derive
+                    // that. What replaces it is derived from the frozen
+                    // manifest alone — the same record provenance_record()
+                    // mints live — so a tampered record buys nothing. The
+                    // certificate itself was still proved authentic before the
+                    // withdrawal (signature, current authority and the exact
+                    // adapter binding all verify ahead of this one typed
+                    // signal), which is why this is a withdrawal and not a
+                    // shrug.
+                    //
+                    // TWO signals are caught here, and the second one arrived
+                    // with the wire it was reserved for. A
+                    // SupersededSiteAdapterCertificate is still not caught:
+                    // manifest and certificate travel together in one snapshot,
+                    // so bytes that disagree mean the snapshot was edited, not
+                    // that an operator edited an adapter.
+                    //
+                    // A SupersededWireSiteAdapterCertificate now IS caught, and
+                    // this is the decision the previous note reserved: "if a
+                    // /v2 wire is ever published, this is the decision to
+                    // revisit — with a real wire to migrate, not a hypothetical
+                    // one." WP-4.7 published it. Every certificate minted
+                    // before this agent carries the v1 statement generation, and
+                    // a promoted site verifies its certificates from THIS frozen
+                    // path, so leaving the signal uncaught would make the first
+                    // upgrade past WP-4.7 a hard refusal on every promoted site
+                    // holding a certified adapter — precisely the fleet-brick
+                    // StalePlatformSiteAdapterCertificate was introduced to end,
+                    // reached through the neighbouring door.
+                    //
+                    // The tamper-evidence cost is real and is accepted on the
+                    // same terms as on the live path: the signal is
+                    // unauthenticated (a generation is read before a domain can
+                    // be chosen), so anyone who can rewrite this snapshot can
+                    // flip its root `format` or delete the statement's `version`
+                    // and reach `uncertified`. They gain nothing by it — the
+                    // frozen record is DISCARDED and re-derived below, so the
+                    // destination is strictly weaker than the certificate, and
+                    // the same write access reaches it by deleting the
+                    // certificate outright. What is lost is that an operator
+                    // would have investigated a refusal; what is bought is that
+                    // no upgrade brick reaches a site that did nothing wrong.
+                    $record = self::provenance_record(
+                        $name,
+                        self::SITE_DIR . '/' . $name . '.json',
+                        $manifest,
+                        self::SITE,
+                        null,
+                        $withdrawn
+                    );
+                    $withdrawnCertificates[$name] = true;
+                } else {
+                    if (Canon::encode($verified['disposition']) !== Canon::encode($record)) {
+                        throw new \RuntimeException(
+                            "duo: frozen adapter certification for '$name' disagrees with its derived disposition"
+                        );
+                    }
+                    $certificates[$name] = $verified['envelope'];
+                    $claims[$name] = $verified['claim'];
+                }
             }
             // The record's own path, not a re-derived site path: a frozen
             // plugin record's path is `plugins/<dir>/duo-adapter.json`, and
@@ -3820,6 +4597,12 @@ final class AdapterSources {
                 false,
                 $origin === self::SITE ? self::shipped_executable_grants(Policy::manifests_dir(), $name) : null
             );
+            // Tautological in the withdrawn branch above and deliberately left
+            // that way: $record was re-minted by provenance_record(), whose
+            // 'trust_tier' IS self::trust_tier($manifest), so the withdrawal
+            // cannot smuggle a tier past this line by construction rather than
+            // by this check. For every other record — the frozen bytes as they
+            // arrived — this is the check that proves it.
             if (($record['trust_tier'] ?? null) !== self::trust_tier($manifest)) {
                 throw new \RuntimeException(
                     "duo: frozen adapter source record for '$name' claims trust tier '{$record['trust_tier']}' but "
@@ -3840,7 +4623,11 @@ final class AdapterSources {
                 . implode(',', $unmatched)
             );
         }
-        $unmatchedCertificates = array_diff(array_keys($frozenCertificates), array_keys($certificates));
+        $unmatchedCertificates = array_diff(
+            array_keys($frozenCertificates),
+            array_keys($certificates),
+            array_keys($withdrawnCertificates)
+        );
         if ($unmatchedCertificates !== []) {
             throw new \RuntimeException(
                 'duo: frozen adapter source record names certificates absent from its manifests: '

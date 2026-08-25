@@ -313,11 +313,18 @@ PHP;
     /**
      * The whole point of "additive": including agent/duo.php must still load
      * every file it loaded before, with the autoloader as a net underneath
-     * rather than a replacement. 222 of the 224 agent/src files load eagerly
-     * here (Cli.php is WP_CLI-gated, AdapterCertification.php is deliberately
-     * lazy — see agent/src/Adapter/AdapterSources.php:898), and the two names that
-     * lazy file declares (AdapterCertification and its companion
-     * SupersededSiteAdapterCertificate exception) are left for the fallback.
+     * rather than a replacement. Every mapped name but five is declared
+     * eagerly here; those five are exactly the five
+     * AdapterCertification.php declares, and that file is deliberately lazy —
+     * only a record carrying a signed external claim requires it
+     * (agent/src/Adapter/AdapterSources.php:838, :1091, :3899). Duo\Cli is not
+     * in this list because it is not in the map at all (see
+     * testDuoCliIsNotResolvableThroughTheFallback above).
+     *
+     * The list is spelled out rather than counted: WP-1.1 added two withdrawal
+     * exceptions to that file and G2-FIXES C3 added the third, and a count
+     * would have absorbed each of them silently where this assertion names
+     * them.
      */
     public function testDuoPhpStillLoadsEagerlyWithExactlyOneExtraAutoloader(): void
     {
@@ -341,10 +348,25 @@ PHP;
         $result = self::invoke(['-r', $probe, $repo]);
         self::assertSame(0, $result['status'], $result['stderr']);
         self::assertSame('', $result['stderr']);
+        // The VERSION line proves `duo.php` EXECUTED rather than merely parsed
+        // — the constants only exist at runtime — so what it must compare
+        // against is the source of record, not a literal. WP-4.12 measured the
+        // cost of the literal: this assertion failed on the flip with
+        // `VERSION=0.6.0/3`, and a test that goes red on a correct bump for a
+        // reason unrelated to its own subject (one extra autoloader, no
+        // eagerly-undeclared class) trains a reader to retype the number rather
+        // than read the failure. Same regex and same reason as
+        // `AdapterCertify::boot()` (:1463-1481), `tools/wire-surface.php`
+        // (:128-136) and `sandbox/tests/lib/agent_version.php`.
+        $source = (string) file_get_contents($repo . '/agent/duo.php');
+        self::assertSame(1, preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $source, $agent));
+        self::assertSame(1, preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $spec));
         self::assertSame(
             "AUTOLOADERS=1/1\n"
-            . "VERSION=0.5.0/2\n"
-            . "UNDECLARED=Duo\\AdapterCertification,Duo\\SupersededSiteAdapterCertificate\n",
+            . "VERSION={$agent[1]}/{$spec[1]}\n"
+            . 'UNDECLARED=Duo\\AdapterCertification,Duo\\StalePlatformSiteAdapterCertificate,'
+            . 'Duo\\SupersededSiteAdapterCertificate,Duo\\SupersededWireSiteAdapterCertificate,'
+            . "Duo\\WithdrawnAuthoritySiteAdapterCertificate\n",
             $result['stdout']
         );
     }

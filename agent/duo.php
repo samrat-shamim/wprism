@@ -9,8 +9,8 @@ if (!defined('ABSPATH') && !(defined('WP_CLI') && WP_CLI)) {
     return;
 }
 
-define('DUO_AGENT_VERSION', '0.5.0');
-define('DUO_SPEC_VERSION', 2);
+define('DUO_AGENT_VERSION', '0.6.0');
+define('DUO_SPEC_VERSION', 3);
 
 require_once __DIR__ . '/src/Kernel/Uuid.php';
 require_once __DIR__ . '/src/Kernel/OrderPreserved.php';
@@ -37,6 +37,9 @@ require_once __DIR__ . '/src/Kernel/ReferenceRules.php';
 require_once __DIR__ . '/src/Policy/ManifestGrammar.php';
 require_once __DIR__ . '/src/Adapter/AdapterRegistry.php';
 require_once __DIR__ . '/src/Policy/Policy.php';
+// After Policy, which it loads pins through: the survey's scan handle holds
+// one resolved library for a whole read-only survey (WP-1.3).
+require_once __DIR__ . '/src/Adapter/AdapterScan.php';
 require_once __DIR__ . '/src/Adapter/Providers.php';
 require_once __DIR__ . '/src/Repository/Ledger.php';
 require_once __DIR__ . '/src/Promotion/PromotionLease.php';
@@ -106,8 +109,11 @@ require_once __DIR__ . '/src/Review/ConvergenceVerifier.php';
 require_once __DIR__ . '/src/Apply/Apply.php';
 require_once __DIR__ . '/src/Promotion/Deploy.php';
 require_once __DIR__ . '/src/Review/Journal.php';
+require_once __DIR__ . '/src/Review/EffectDeclarationCoverage.php';
 require_once __DIR__ . '/src/Review/Pending.php';
 require_once __DIR__ . '/src/Adapter/AdapterObservation.php';
+require_once __DIR__ . '/src/Adapter/AdapterProbe.php';
+require_once __DIR__ . '/src/Adapter/DeletionFeasibility.php';
 require_once __DIR__ . '/src/Review/Coverage.php';
 require_once __DIR__ . '/src/Review/Lint.php';
 require_once __DIR__ . '/src/Assess/AssessInventory.php';
@@ -116,11 +122,11 @@ require_once __DIR__ . '/src/Assess/AssessInventory.php';
  * Additive classmap fallback (DUO-3481, owner rulings D3/D4).
  *
  * Every require_once above is retained and still does all the loading: after
- * this bootstrap runs, 237 of the 239 names in duo-classmap.php are already
- * declared, and the two exceptions (Duo\AdapterCertification and the
- * Duo\SupersededSiteAdapterCertificate declared in the same file) are
+ * this bootstrap runs, 247 of the 251 names in duo-classmap.php are already
+ * declared, and the four exceptions (Duo\AdapterCertification and the three
+ * withdrawal/supersession signals declared in the same file) are
  * require_once'd at each of that file's three use sites in AdapterSources.php
- * before either is ever named. An spl_autoload_register() callback is only consulted for a
+ * before any of them is ever named. An spl_autoload_register() callback is only consulted for a
  * class that is *still undeclared* at the moment it is referenced, so on the
  * production path this registration resolves nothing and changes nothing. It
  * exists for the partially-loaded contexts the drop-in also runs in — an

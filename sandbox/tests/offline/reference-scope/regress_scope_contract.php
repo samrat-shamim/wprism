@@ -311,6 +311,186 @@ check(ScopeContract::from_array($contract) === $contract, 'strict schema and int
 ScopeContract::assert_associated($contract, $compiled, $policy);
 check(true, 'association verifier recomputes the complete contract for the exact compiled artifact/policy');
 
+// ------------------ fleet-wide scope adoption, in contract terms (WP-3.4)
+// A scope contract is partly an ADAPTER projection: `eligible_surfaces` are
+// the trigger vocabulary of the entities in scope, and `potential_actions` /
+// `potential_effects` are per-manifest rows filtered by them
+// (ScopeContract::potential_actions():684). A site that has PINNED an adapter
+// but never opted into the types it declares cannot produce that evidence at
+// all — its own state file for the adapter's type is `repository_entity_out_
+// _of_scope` and the compile refuses before a contract exists. Curing that
+// cost one hand edit of site.duo.json per site, so the operator cost scaled
+// with sites × adapters, the product of the two variables adapter
+// decentralization grows. `duo adapter adopt-scope <site-repo>… --name=<n>`
+// is the shipped single-repo opt-in over a repository SET; what is asserted
+// here is its effect on the evidence, per repository.
+require_once "$root/cli/src/Adapter/AdapterCertify.php";
+
+function fleet_copy(string $from, string $to): void {
+    mkdir($to, 0777, true);
+    foreach ((array) scandir($from) as $entry) {
+        if ($entry === '.' || $entry === '..') {
+            continue;
+        }
+        is_dir("$from/$entry")
+            ? fleet_copy("$from/$entry", "$to/$entry")
+            : copy("$from/$entry", "$to/$entry");
+    }
+}
+
+/**
+ * A fleet member: this suite's repository, byte for byte, with the adapter
+ * still pinned and its two declared post types taken back OUT of the flat
+ * opt-in list — the state a consumer site is in the moment an adapter it
+ * already trusts starts declaring a type. $scope records a site decision.
+ */
+function fleet_repo(string $tmp, string $repo, string $label, array $scope = []): string {
+    $path = "$tmp/$label";
+    fleet_copy($repo, $path);
+    $site = Canon::decode(Canon::read_file("$path/site.duo.json"));
+    $site['policy']['post_types'] = ['post', 'page', 'attachment'];
+    if ($scope !== []) {
+        $site['policy']['scope'] = $scope;
+    }
+    put("$path/site.duo.json", Canon::encode($site));
+
+    return $path;
+}
+
+/** One `duo adapter <args>` run, stdout captured; stderr stays on the harness. */
+function fleet_run(array $args): array {
+    ob_start();
+    $exit = \Duo\Orchestrator\AdapterCertify::run($args);
+
+    return ['exit' => $exit, 'out' => (string) ob_get_clean()];
+}
+
+function fleet_site_bytes(string $repo): string {
+    return (string) file_get_contents("$repo/site.duo.json");
+}
+
+$fleetA = fleet_repo($tmp, $repo, 'fleet-a');
+$fleetB = fleet_repo($tmp, $repo, 'fleet-b');
+// The fleet member whose site RECORDED a decision about the same type. Two
+// acts write byte-identical `{"class":"runtime"}` there and the grammar has no
+// key that tells them apart (Policy.php:2794), so no fleet write may infer
+// that the site did not mean it.
+$fleetC = fleet_repo($tmp, $repo, 'fleet-c', ['post_type' => ['duo_contract' => ['class' => 'runtime']]]);
+$fleetBefore = [
+    $fleetA => fleet_site_bytes($fleetA),
+    $fleetB => fleet_site_bytes($fleetB),
+    $fleetC => fleet_site_bytes($fleetC),
+];
+foreach ([$fleetA, $fleetB, $fleetC] as $member) {
+    expect_throw(
+        static fn() => RepositoryCompiler::compile($member, Policy::load($member)),
+        'repository_entity_out_of_scope',
+        'premise: a site that pins the adapter but never opted into its declared type cannot compile, so no '
+        . 'scope contract exists for it at all'
+    );
+}
+
+// PARTIAL FAILURE, stated in evidence terms: the middle repository cannot be
+// written. Every repository must end fully adopted or untouched — a half-
+// written site.duo.json is a policy nothing can bind a contract to.
+chmod($fleetB, 0555);
+$fleetFault = fleet_run(['adopt-scope', $fleetA, $fleetB, $fleetC, '--name=scope-contract-fixture']);
+chmod($fleetB, 0755);
+check($fleetFault['exit'] === 2, 'a repository that cannot be written fails the fleet invocation');
+check(
+    fleet_site_bytes($fleetB) === $fleetBefore[$fleetB]
+        && fleet_site_bytes($fleetC) === $fleetBefore[$fleetC]
+        && fleet_site_bytes($fleetA) !== $fleetBefore[$fleetA],
+    'and leaves the unwritable repository and the one after it byte-for-byte untouched, the one before it '
+    . 'fully adopted — per-repository atomicity, not a per-fleet transaction nothing could offer'
+);
+expect_throw(
+    static fn() => RepositoryCompiler::compile($fleetB, Policy::load($fleetB)),
+    'repository_entity_out_of_scope',
+    'the untouched repository still refuses exactly as it did before the batch: nothing half-moved its policy'
+);
+
+$fleetRun = fleet_run(['adopt-scope', $fleetA, $fleetB, $fleetC, '--name=scope-contract-fixture']);
+check(
+    $fleetRun['exit'] === 0
+        && str_contains($fleetRun['out'], 'adopted:    2 repo(s), 3 authored scope rule(s)')
+        && str_contains($fleetRun['out'], 'settled:    1 repo(s) had already decided every surface'),
+    're-running the same command after the fault finishes the set and re-decides nothing in the repository that '
+    . 'had already moved — write-only-where-absent has no second effect'
+);
+
+$fleetPolicyA = Policy::load($fleetA);
+$fleetPolicyB = Policy::load($fleetB);
+$fleetContractA = ScopeContract::resolve(
+    RepositoryCompiler::compile($fleetA, $fleetPolicyA),
+    $fleetPolicyA,
+    ['post:' . $ids['custom']]
+);
+$fleetContractB = ScopeContract::resolve(
+    RepositoryCompiler::compile($fleetB, $fleetPolicyB),
+    $fleetPolicyB,
+    ['post:' . $ids['custom']]
+);
+check(
+    in_array('post:duo_contract', $fleetContractA['eligible_surfaces'], true)
+        && $fleetContractA['resolution']['live_root_entities'] === [$ids['custom']],
+    'one invocation makes the adapter\'s own declared type an eligible surface, so the contract can carry the '
+    . 'per-manifest potential_action/potential_effect rows that projection is made of'
+);
+check(
+    Canon::encode($fleetContractA) === Canon::encode($fleetContractB),
+    'and every repository in the set ends with byte-identical evidence — the scope_hash included, because the '
+    . 'batch wrote the same node into repositories holding the same state'
+);
+
+// THE INVARIANT the fleet write is built around: a recorded class is never
+// overwritten, and the surface beside it is still adopted.
+$fleetScopeC = Canon::decode(fleet_site_bytes($fleetC))['policy']['scope']['post_type'];
+check(
+    $fleetScopeC['duo_contract'] === ['class' => 'runtime']
+        && $fleetScopeC['duo_child'] === ['class' => 'authored'],
+    'the repository that had recorded a decision keeps it exactly as it wrote it, while the surface it had NOT '
+    . 'decided is adopted in the same write — adoption is per NODE, not per repository'
+);
+expect_throw(
+    static fn() => RepositoryCompiler::compile($fleetC, Policy::load($fleetC)),
+    'repository_entity_out_of_scope',
+    'so that repository still refuses its own out-of-scope entity after the fleet ran: a recorded site rule '
+    . 'outranks every manifest, and the consequence is reported rather than resolved away'
+);
+
+$fleetAfter = [
+    $fleetA => fleet_site_bytes($fleetA),
+    $fleetB => fleet_site_bytes($fleetB),
+    $fleetC => fleet_site_bytes($fleetC),
+];
+$fleetRepeat = fleet_run(['adopt-scope', $fleetA, $fleetB, $fleetC, '--name=scope-contract-fixture']);
+check(
+    $fleetRepeat['exit'] === 0
+        && str_contains($fleetRepeat['out'], 'adopted:    0 repo(s), 0 authored scope rule(s)')
+        && [$fleetA => fleet_site_bytes($fleetA), $fleetB => fleet_site_bytes($fleetB),
+            $fleetC => fleet_site_bytes($fleetC)] === $fleetAfter,
+    'a second invocation over the same set writes no rule and no byte, so no repository\'s contract evidence '
+    . 'moves under a re-run: idempotent by construction'
+);
+$fleetPolicyRepeat = Policy::load($fleetA);
+check(
+    ScopeContract::resolve(
+        RepositoryCompiler::compile($fleetA, $fleetPolicyRepeat),
+        $fleetPolicyRepeat,
+        ['post:' . $ids['custom']]
+    )['scope_hash'] === $fleetContractA['scope_hash'],
+    'and the scope_hash proves it: the same evidence binds after the re-run as before it'
+);
+$fleetChanged = Canon::decode($fleetAfter[$fleetA]);
+$fleetOriginal = Canon::decode($fleetBefore[$fleetA]);
+unset($fleetChanged['policy']['scope'], $fleetOriginal['policy']['scope']);
+check(
+    Canon::encode($fleetChanged) === Canon::encode($fleetOriginal),
+    'and the fleet write moved policy.scope and nothing else in any site.duo.json it touched — no pin, no flat '
+    . 'list, no section a batch has no business rewriting'
+);
+
 $optionContract = ScopeContract::resolve($compiled, $policy, ['option:blogname']);
 $optionRoot = $optionContract['live']['roots'][0] ?? null;
 $compiledOptionRecords = OptionState::records((array) $compiled->tree()['options/core']['data']);

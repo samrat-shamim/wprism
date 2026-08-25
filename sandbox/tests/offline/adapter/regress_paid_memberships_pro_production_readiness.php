@@ -129,13 +129,14 @@ namespace {
 
     $manifestPath = __DIR__ . '/../../../../manifests/paid-memberships-pro.json';
     $manifest = json_decode((string) file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
-    $dispositions = json_decode(
-        (string) file_get_contents(__DIR__ . '/../../../../manifests/dispositions.json'),
+    // Addressed per subject since WP-4.4: this adapter's reviewed entry is
+    // its own document (spec/repo-format.md § v3.4).
+    $disposition = json_decode(
+        (string) file_get_contents(__DIR__ . '/../../../../manifests/dispositions/paid-memberships-pro.json'),
         true,
         512,
         JSON_THROW_ON_ERROR
     );
-    $disposition = $dispositions['manifests']['paid-memberships-pro'] ?? [];
     duo_check(
         ($disposition['status'] ?? null) === 'certified'
             && ($disposition['capabilities']['lifecycle_phases'] ?? null) === ['retire', 'activate', 'verify']
@@ -167,8 +168,13 @@ namespace {
         str_contains($matrix, 'wp_delete_user((int) $user_id, (int) $admin->ID)'),
         'the exact matrix removes retained conformance users before each PMPro boundary'
     );
+    // check_pmpro_content() itself moved to matrix.d/paid-memberships-pro.sh in
+    // WP-2.3's per-plugin split (sourced by name from certify_version_matrix.sh,
+    // see that driver's own header); the case body asserted just below, which
+    // did not move, still lives in the driver.
+    $pmproMatrixFile = (string) file_get_contents(__DIR__ . '/../../certify/matrix.d/paid-memberships-pro.sh');
     duo_check(
-        preg_match('/check_pmpro_content\(\) \{.*?wp_conf1\(\).*?wp_conf2\(\)/s', $matrix) === 1,
+        preg_match('/check_pmpro_content\(\) \{.*?wp_conf1\(\).*?wp_conf2\(\)/s', $pmproMatrixFile) === 1,
         'the exact matrix binds both PMPro conformance environments to its dedicated pair'
     );
     duo_check(

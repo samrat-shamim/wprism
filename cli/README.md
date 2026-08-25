@@ -91,7 +91,9 @@ are rejected when the registry is loaded.
   `--manifest=` narrows what is checked individually, `--pins=`/`--all` choose
   the co-loaded set, `--format=json` emits the report as
   `duo-manifest-validation/v1`, and `--emit-schema` prints the grammar document
-  (`duo-manifest-grammar/v1`) read out of the engine's own closed vocabularies.
+  (`duo-manifest-grammar/v2`) read out of the engine's own closed vocabularies,
+  the `spec_version` window it measures by probing the shipped refusal, and the
+  signer's closed top-level key partition.
   `--site=<site-repo>` is optional but not cosmetic: two of those guards read
   `site.duo.json`'s policy half as input (a site-declared table extends the
   ref/token/ledger kind vocabulary; a site `policy.options` rule resolves an
@@ -683,7 +685,7 @@ are rejected when the registry is loaded.
 
 - **`duo capabilities <env> [--operation=<op>] [--surface=<surface>]`
   `[--format=json]`** — resolves the repository's exact manifest pins against
-  [the reviewed dispositions](../manifests/dispositions.json). It evaluates the
+  [the reviewed dispositions](../manifests/dispositions/). It evaluates the
   adapter's authored status, the operation, the exact state surface, and the
   installed plugin version against the reviewed window. The document's
   `schema_version` is `duo-capability-report/v1` — the retired

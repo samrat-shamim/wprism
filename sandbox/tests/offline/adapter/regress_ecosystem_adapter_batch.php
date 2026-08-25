@@ -29,9 +29,8 @@ use Duo\Canon;
 use Duo\Policy;
 use Duo\ShortcodeReferenceScanner;
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 
 $names = [
     'advanced-editor-tools',
@@ -46,7 +45,6 @@ $manifests = [];
 foreach ($names as $name) {
     $manifests[$name] = Canon::decode(Canon::read_file($root . "/manifests/$name.json"));
 }
-$dispositions = Canon::decode(Canon::read_file($root . '/manifests/dispositions.json'));
 $conformanceEntry = Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/ecosystem-adapter-batch.json'));
 $standaloneEntries = [
     'advanced-editor-tools' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/advanced-editor-tools.json')),

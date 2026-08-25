@@ -211,11 +211,28 @@ function site_repo(array $pins, array $adapters = [], array $extra = [], array $
     return $root;
 }
 
-/** Minimal, valid, purely declarative out-of-tree adapter. */
+/**
+ * Minimal, valid, purely declarative out-of-tree adapter.
+ *
+ * WP-4.12: stamped at N-1, not at N, and the reason is this suite's subject.
+ *
+ * Its fixtures are deliberately UNPREFIXED (`keeper`, `CORE`, `core`) because
+ * what they measure is source discovery and refusal isolation — one bad file
+ * must not black out its neighbours. At `spec_version` N the namespace grammar
+ * (§ v3.9, `IdentityNamespaces::NAMESPACED_SINCE` = 3) refuses every one of
+ * those names first, so after the flip the whole fixture set would be testing
+ * WP-4.10's rule instead of this one.
+ *
+ * N-1 is not a dodge: it is what an out-of-tree adapter authored before the
+ * flip declares, it is inside the window, and it keeps loading — which is the
+ * no-restamp rule's promise to exactly this population. The namespace rule's
+ * own behaviour at N is measured where it belongs, in
+ * `sandbox/tests/offline/guards/regress_identity_namespaces.php`.
+ */
 function site_adapter(string $name, array $extra = []): array {
     return $extra + [
         'name' => $name,
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => DUO_SPEC_VERSION - 1,
         'option_autoload' => 'preserve',
         'options' => ['acme_widget_layout' => ['class' => 'authored']],
     ];
@@ -1434,6 +1451,78 @@ check(
     && str_contains($inspectText['stdout'], 'tier_basis:')
     && str_contains($inspectText['stdout'], 'verification (the facts that exist, not a scale)'),
     'inspect renders the merged row in text mode too, and labels the verification block for what it is'
+);
+
+// ======================================================================
+echo "\n== WP-1.3: a bigger library changes what a row COSTS, never what it says ==\n";
+// ======================================================================
+// Since WP-1.3 every row of one survey is judged against ONE resolved library
+// — discover() and the reviewed registry are read once for the run instead of
+// once per row — and the risk that buys is cross-row contamination: a shared
+// scan, or a shared source instance carrying one row's pins into the next,
+// would show up as a row whose answer depends on what ELSE is in the library.
+// So the same library is surveyed twice through the real command, the second
+// time with sixty unrelated adapters dropped beside the originals, and every
+// original row must come back byte-identical. Counting the SAVING is
+// regress_adapter_survey_scale.php's job (it can instrument the loader);
+// this surface can only see the answer, which is the half rule 8 governs.
+$sizedLibrary = scratch('sized-library') . '/manifests';
+copy_tree($repo . '/manifests', $sizedLibrary);
+$smallRun = report(duo(['list', '--format=json'], $sizedLibrary));
+$smallRows = [];
+foreach ($smallRun['adapters'] ?? [] as $row) {
+    $smallRows[(string) $row['name']] = json_encode($row);
+}
+for ($i = 0; $i < 60; $i++) {
+    $filler = sprintf('zz-filler-%03d', $i);
+    file_put_contents("$sizedLibrary/$filler.json", json_encode([
+        'name' => $filler,
+        'spec_version' => DUO_SPEC_VERSION,
+        'option_autoload' => 'preserve',
+        'options' => [str_replace('-', '_', $filler) . '_layout' => ['class' => 'authored']],
+    ]));
+}
+$largeRun = report(duo(['list', '--format=json'], $sizedLibrary));
+$largeRows = [];
+foreach ($largeRun['adapters'] ?? [] as $row) {
+    $largeRows[(string) $row['name']] = json_encode($row);
+}
+$changedRows = [];
+foreach ($smallRows as $name => $encoded) {
+    if (($largeRows[$name] ?? null) !== $encoded) {
+        $changedRows[] = $name;
+    }
+}
+check(
+    count($smallRows) > 10 && $changedRows === [],
+    'all ' . count($smallRows) . ' rows of the shipped library are byte-identical when sixty unrelated adapters '
+    . 'are surveyed alongside them — one shared library resolution, and no row reads differently for it'
+    . ($changedRows === [] ? '' : ' (changed: ' . implode(', ', $changedRows) . ')')
+);
+// The sixty ARE grammar errors, and correctly so: no reviewed disposition
+// covers them, and WP-1.2 made that refuse at the moment a manifest is
+// PINNED. What matters here is that the sixty failures are exactly the sixty
+// fillers — a shared resolution that leaked one row's refusal into the next
+// would show up as originals in this list.
+$erroredNames = [];
+foreach ($largeRun['adapters'] ?? [] as $row) {
+    if (($row['grammar']['status'] ?? null) !== 'ok') {
+        $erroredNames[] = (string) $row['name'];
+    }
+}
+$leaked = array_values(array_filter(
+    $erroredNames,
+    static fn(string $name): bool => !str_starts_with($name, 'zz-filler-')
+));
+check(
+    count($largeRows) === count($smallRows) + 60
+    && refusals_of($largeRun) === refusals_of($smallRun)
+    && ($smallRun['summary']['grammar_error'] ?? null) === 0
+    && count($erroredNames) === 60
+    && $leaked === [],
+    'the sixty new rows are the only difference: ' . count($largeRows) . ' rows against ' . count($smallRows)
+    . ', the same refusal list, and the ' . count($erroredNames) . ' unreviewed fillers carry every grammar error '
+    . 'between them' . ($leaked === [] ? '' : ' (leaked onto: ' . implode(', ', $leaked) . ')')
 );
 
 echo $failures === 0 ? "\nALL PASSED\n" : "\n$failures check(s) failed\n";

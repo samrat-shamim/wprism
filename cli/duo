@@ -58,10 +58,27 @@ require __DIR__ . '/src/Onboarding/ClassificationBatch.php';
 require __DIR__ . '/src/Onboarding/Triage.php';
 require __DIR__ . '/src/Command/ClassifyCommand.php';
 require __DIR__ . '/src/Adapter/ManifestValidate.php';
+require __DIR__ . '/src/Adapter/LintTree.php';
 require __DIR__ . '/src/Adapter/AdapterDraft.php';
 require __DIR__ . '/src/Adapter/AdapterCatalog.php';
+// `doctor --migration`'s owner. Plain `require` beside its caller for the same
+// reason the block above states: AdapterCatalog.php names the class but does
+// not require it, so this shell is the single load point.
+require __DIR__ . '/src/Adapter/MigrationPreflight.php';
 require __DIR__ . '/src/Adapter/AdapterObservation.php';
 require __DIR__ . '/src/Adapter/AdapterCertify.php';
+// WP-4.12's two flag-day migration verbs. After AdapterCertify, whose
+// bootstrap, secret-key reader and certificate writer they reuse rather than
+// re-implement, and after MigrationPreflight, whose enumeration
+// `release --spec-v3` calls.
+require __DIR__ . '/src/Adapter/SpecMigration.php';
+require __DIR__ . '/src/Adapter/AdapterBoundary.php';
+require __DIR__ . '/src/Adapter/AdapterProposals.php';
+// WP-5.6's discovery and distribution channel. After AdapterCertify because
+// it installs the same two files that verb writes and verifies them through
+// the same `AdapterCertification::verifyFile()`; it requires none of that
+// class's code, so the ordering is about reading order, not linkage.
+require __DIR__ . '/src/Adapter/AdapterDistribution.php';
 // RefreshPlan lands as a separately-reviewable semantic layer. Keep this
 // host shell loadable while that contract is unavailable; Refresh itself
 // fails closed with an actionable diagnostic before any candidate ref exists.
@@ -97,6 +114,21 @@ require __DIR__ . '/src/Assess/SurfaceCatalog.php';
 require __DIR__ . '/src/Assess/AssessReport.php';
 require __DIR__ . '/src/Assess/AssessRenderer.php';
 require __DIR__ . '/src/Command/AssessCommand.php';
+// `require_once`, and both files use it: CensusCommand.php require_once's
+// FleetCensus.php and CommandOutput.php by path, and CommandOutput.php is
+// already in this block (:19), so a plain `require` here would redeclare it
+// (the rule :80-84 states).
+require_once __DIR__ . '/src/Assess/FleetCensus.php';
+// Loaded here rather than left to FleetCensus::rebaseline()'s own
+// `require_once` (which stays, because a cli/src file requires its own
+// dependencies). The reason is the gate: tools/api-surface.php reflects
+// whatever THIS shell's prologue has declared, so a class reached only through
+// a lazy require inside one method is absent from the committed snapshot — and
+// CohortRebaseline's six verdict constants are a closed vocabulary a caller may
+// switch on (CohortRebaseline.php:85-105). Renaming one silently is exactly
+// what that snapshot exists to catch.
+require_once __DIR__ . '/src/Assess/CohortRebaseline.php';
+require_once __DIR__ . '/src/Command/CensusCommand.php';
 // After AssessCommand and AdapterCatalog above: this shell loads with plain
 // `require`, and CodeClassifyCommand require_once's AssessCommand for the
 // local site-repo resolution every from-inside-the-repo verb shares. Loading
@@ -214,6 +246,7 @@ use Duo\Orchestrator\CodeResolveCommand;
 use Duo\Orchestrator\CodeImportCommand;
 use Duo\Orchestrator\StatusCommand;
 use Duo\Orchestrator\AssessCommand;
+use Duo\Orchestrator\CensusCommand;
 use Duo\Orchestrator\ContractCommand;
 use Duo\Orchestrator\ReleaseCommand;
 use Duo\Orchestrator\VerifyCommand;
@@ -226,10 +259,15 @@ use Duo\Orchestrator\RollbackAuthority;
 use Duo\Orchestrator\VerifiedRollbackProfile;
 use Duo\Orchestrator\ScopedRollbackProfile;
 use Duo\Orchestrator\ManifestValidate;
+use Duo\Orchestrator\LintTree;
 use Duo\Orchestrator\AdapterDraft;
 use Duo\Orchestrator\AdapterCatalog;
 use Duo\Orchestrator\AdapterObservation;
 use Duo\Orchestrator\AdapterCertify;
+use Duo\Orchestrator\SpecMigration;
+use Duo\Orchestrator\AdapterBoundary;
+use Duo\Orchestrator\AdapterProposals;
+use Duo\Orchestrator\AdapterDistribution;
 use Duo\Orchestrator\CommandOutput;
 use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\PassthroughCommand;
@@ -264,16 +302,33 @@ Usage:
                         [--pins=<name>[,...]|--all] [--site=<site-repo>]
                         [--no-code] [--format=json]
   duo manifest-validate --emit-schema
+  duo lint-tree <site-repo> --environment=<lint-environment.json> [--format=json]
   duo adapter-draft <site-repo> --name=<n> [--match=<regex>]
-                    [--evidence=<live-evidence.json>] [--seed=<coverage.json>]
-                    [--out=<path> [--force]] [--format=json] [--check-proposals]
+                    [--evidence=<probe.json>] [--seed=<coverage.json>]
+                    [--out=<path> [--force]] [--format=json]
+                    [--check-proposals|--gap-report]
   duo adapter list [--repo=<site-repo>] [--format=json]
   duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
   duo adapter doctor [--repo=<site-repo>] [--format=json]
+  duo adapter doctor --migration --repo=<site-repo> [--artifact=<artifact.json>]
+                     [--scope-contract=<scope-contract.json>]
+                     [--snapshot=<snapshot.json>] [--format=json]
   duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
   duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
-                      [--key-id=<id>] [--reason=<text>] [--pin [--adopt-scope]]
+                      [--key-id=<id>] [--reason=<text>]
+                      [--ratification-file=<f>] [--pin [--adopt-scope]]
+  duo adapter recertify <site-repo> --secret-key-file=<f> [--format=json]
   duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
+  duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
+  duo adapter boundary --releases=<release-list.json> --anchor=<version>
+                       [--outcomes=<outcomes.json>] [--from=<v>] [--to=<v>]
+                       [--manifest=<n>] [--format=json]
+  duo adapter proposals [--ledger=<dir>] [--manifests=<dir>] [--format=json]
+  duo adapter discover --index=<index.json> [--repo=<site-repo>] [--format=json]
+  duo adapter install <site-repo> --index=<index.json> --name=<n>
+                      [--version=<v>] [--format=json]
+  duo adapter update <site-repo> --index=<index.json> --name=<n> --to=<v>
+                     [--format=json]
   duo adapter-observe <env> [--out=<local-file>|--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
@@ -291,6 +346,9 @@ Usage:
   duo release <env> [--from=<ref>] [--plan-only] [--profile=<p>]
                     [--accept-weaker-recovery] [--with-deletes] [--yes]
                     [--limit=<1..200>] [--format=json]
+  duo release --spec-v3 <site-repo> [--artifact=<artifact.json>]
+                    [--scope-contract=<scope-contract.json>]
+                    [--snapshot=<snapshot.json>] [--format=json]
   duo verify  <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
   duo recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded]
                     [--operator-directed] [--limit=<1..200>] [--format=json]
@@ -314,6 +372,11 @@ Usage:
   duo rebase <production-env> --production-ref=<ref> --new-branch=<name> [--scope-contract=<local-path>] [--field-resolution=<local-path>|--interactive]
   duo rebase <production-env> --abort=<run-id>
   duo merge-check [--ref=<ref>] [--against=<ref>] [--base=<ref>] [--format=json]
+  duo census --site=<label>=<inventory.json> [--site=...] [--dir=<dir>]
+             [--manifests=<dir>] [--health=<proposals.json>]
+             [--limit=<1..200>] [--format=json]
+  duo census --baseline=<census.json> (--current=<census.json> | --dir=<dir>)
+             [--manifests=<dir>] [--limit=<1..200>] [--format=json]
   duo -h | --help
 
 Verbs:
@@ -379,6 +442,22 @@ Verbs:
                           vocabularies at emission time (with a `coverage` note
                           stating what it does NOT publish). Exit 0 all valid,
                           1 any invalid, 2 usage/IO.
+  lint-tree               The suspicious-reference linter over a captured tree,
+    <site-repo>           on THIS machine (`duo lint <env>` is the separate
+    --environment=<file>  environment-bound passthrough). Runs the engine's REAL
+    [--format=json]       Lint::scan_tree() — the same method `wp duo lint`
+                          calls — so stdout is the live verb's output byte for
+                          byte. --environment replays the
+                          `duo-lint-environment/v1` transcript the live verb
+                          records (`wp duo lint --repo=<repo>
+                          --emit-environment=<file>`): the home URL and every id
+                          resolution are facts about a live target, so they are
+                          recorded rather than guessed, and a transcript taken
+                          over different state-tree bytes is refused. WordPress's
+                          own parsers do not exist here, so the block and
+                          shortcode attribute classes are DEFERRED and named on
+                          stderr on every run — silence never means clean.
+                          Exit 0 no findings, 1 findings exist, 2 usage/IO.
   adapter-draft           Safe adapter-DRAFT generator: reuses policy-to-manifest's
     <site-repo>           facts core (Policy::export_manifest) and adds OFFLINE
     --name=<n>            proposers over the site repo's captured state/**, emitting
@@ -389,12 +468,22 @@ Verbs:
     [--force]             each carrying status/confidence/evidence/questions. Every
     [--format=json]
     [--check-proposals]
+    [--gap-report]
                           fact needing a live target (column types, real PK, id
                           resolution, natural-key uniqueness) stays a proposal with a
-                          question; --evidence is the deferred live seam, accepted and
-                          ignored in this offline slice. --check-proposals lifts each
+                          NAMED question; --evidence takes the `duo-adapter-probe/v1`
+                          document `wp duo adapter-probe --format=json` writes and
+                          lands its facts as evidence rows at confidence 1.0 against
+                          those names. A probe answers; it promotes nothing, and a
+                          document carrying any word outside the closed probe
+                          vocabulary is refused. --check-proposals lifts each
                           candidate into a throwaway manifest and runs the REAL
-                          validators, writing nothing live. WordPress-free, no
+                          validators, writing nothing live. --gap-report reads the
+                          same lift and emits only the REFUSED shapes, as draft rows
+                          for the engine-gap ledger (tools/engine-gaps.json) with the
+                          primitive deliberately unnamed — classifying the demand
+                          against that closed vocabulary is a review judgement, and
+                          it is what keeps duplicate demand countable. WordPress-free, no
                           environment, no transport; the generator never applies or
                           promotes a proposal and never emits PHP.
                           --seed takes a `duo coverage <env> --format=json`
@@ -472,6 +561,40 @@ Verbs:
                           target, the manifest-shipped PHP it deliberately does
                           not load, and the cross-manifest guards that belong to
                           a pin set.
+  adapter doctor          The blast radius of an agent bump, on ONE site, BEFORE
+    --migration           the bump: every certificate and whether it still
+    --repo=<site-repo>    matches the target platform (and whether its signing
+    [--artifact=<f>]      key id is reachable, by id — never by reading the
+    [--scope-contract=<f>]
+    [--snapshot=<f>]      key), every {name,source,digest} pin and whether it
+    [--format=json]       would move, every host contract pinning
+                          registry_sha256, and the four identity values held
+                          against target. Emits `duo-migration-preflight/v1`.
+                          THE TARGET IS THIS PROCESS: run it from the release
+                          you are about to ship. Every verdict is a shipped gate
+                          CALLED — AdapterCertification::verifyFile,
+                          ArtifactPolicyIdentity::resolved_adapters,
+                          ScopeContract::assert_associated,
+                          ContractAttestation::verify,
+                          ContractProjection::generate — never a rule restated
+                          here, because a restated rule drifts and the drift
+                          surfaces as a false green.
+                          Two movements it predicts that nothing else will tell
+                          you (both MEASURED by the flag-day rehearsal):
+                          artifact_hash moves for EVERY site, even under full
+                          digest neutrality, because
+                          resolved_adapters[*].capability.platform.agent_version
+                          is inside the compiled document — so scope contracts
+                          and everything else pinning it need re-projection; and
+                          a site holding a CERTIFIED SITE ADAPTER also moves its
+                          own manifest_hash and revision_hash, because the
+                          withdrawal moves the certificate-derived digest.
+                          The held documents are named explicitly and every
+                          unanswered question is a `deferred` row. A certificate
+                          or pin shape it cannot classify is an `unclassified`
+                          row and NO green verdict is printed for that site:
+                          exit 0 only when nothing moves and nothing is
+                          unclassified, 1 for any finding, 2 usage/IO.
   adapter keygen          Mint the CUSTOMER-ORGANIZATION Ed25519 key that
     --out=<secret-file>   certifies this repository's own adapters. The secret
     [--key-id=<id>]       is written to the path you name at mode 0600 and
@@ -489,6 +612,7 @@ Verbs:
     --secret-key-file=<f> over the adapter, builds a
     [--key-id=<id>]       duo-site-adapter-certification-bundle/v1 whose
     [--reason=<text>]     evidence is exactly {grammar: <validator verdict>,
+    [--ratification-file=<f>]
     [--pin]               exercised: false, reason}, signs
                           adapters/certifications/<n>.json, verifies what it
                           just wrote through the live verifier, and prints the
@@ -501,6 +625,38 @@ Verbs:
                           `exercised: false` and the stated reason, and
                           deletion semantics are declared unsupported because
                           a validator run cannot review them.
+                          --ratification-file signs the disposition YOU wrote
+                          instead of the derived one: the same document shape
+                          manifests/dispositions/<name>.json carries, judged by
+                          the engine's own disposition validator, which wants a
+                          separate non-empty reason on every unsupported[] row
+                          and every default-authored keyspace. Without it the
+                          derivation stands — the honest floor, not a lesser
+                          certificate. `adapter recertify` re-derives, so it
+                          reports an authored claim as blocked rather than
+                          replacing it; re-sign that one here with the file.
+  adapter recertify       Re-sign EVERY certified site adapter in one repo,
+    <site-repo>           under the key each certificate already names, in one
+    --secret-key-file=<f> idempotent invocation. The flag day's remedy: a
+    [--format=json]       certificate binds `spec_version` inside its signed
+                          statement, so every certificate minted before the v3
+                          bump withdraws to `uncertified` (a named degradation
+                          — the adapter keeps loading, plan and apply stay
+                          available, readiness and host promotion do not).
+                          Idempotent by REUSE, not by a flag: an unchanged
+                          input re-signs byte-identically and keeps its
+                          original created_at, so a second run reports
+                          `unchanged` and writes nothing. ALL-OR-NOTHING: the
+                          trust root and every certificate file are staged
+                          before the first signature and restored on any
+                          failure, because a half-recertified repository is the
+                          worst available outcome. One key per invocation — a
+                          certificate under another key is a blocked row naming
+                          that key, never a silent skip.
+                          A re-signed certificate cannot be verified by the
+                          previous agent, so running this closes the rollback
+                          window for the site (gate G3 —
+                          docs/guides/flag-day.md).
   adapter pin             Write or replace one exact {name,source,digest} pin
     <site-repo>           in site.duo.json, offline. The digest comes from the
     --name=<n>            engine's own resolution, so it is the number the
@@ -511,6 +667,117 @@ Verbs:
                           explicit site pin is how you select your own copy.
                           The shipped copy is then reported `shadowed_by_site`
                           on every `duo adapter list` row.
+  adapter adopt-scope     The pin's scope opt-in over a repository SET: one
+    <site-repo>...        reviewed invocation writes the post types and
+    --name=<n>            taxonomies <n> declares authored into every named
+    [--dry-run]           site.duo.json that had decided nothing about them,
+                          instead of N hand edits. Every repository must
+                          already resolve the adapter (scope follows the pin),
+                          and the whole set is refused, unwritten, if one does
+                          not. Write-only-where-absent is unchanged: a class a
+                          site RECORDED is printed and left alone, because
+                          overriding one is a per-site act (`duo adapter pin
+                          <site-repo> --name=<n> --adopt-scope`). Each
+                          repository is written atomically and independently,
+                          so a failure leaves every repository in the set
+                          either fully adopted or untouched; re-running is
+                          safe. --dry-run reports the same plan and writes
+                          nothing.
+  adapter boundary        Bisect a plugin's certified version range and emit
+    --releases=<f>        the EVIDENCE for it, never the edit. --releases is a
+    --anchor=<version>    recorded duo-adapter-release-list/v1 naming every
+    [--outcomes=<f>]      candidate with its exact URL and sha256 — nothing
+    [--from=<v>]          here reaches the network, and an unpinned candidate
+    [--to=<v>]            is refused rather than fetched, the same discipline
+    [--manifest=<n>]      artifacts.lock.json already holds. --anchor names a
+    [--format=json]       release believed green; the search bisects outward
+                          from it in O(log releases) probes. One probe is a
+                          full pair round-trip, so this is a PLANNER over an
+                          accumulating duo-adapter-boundary-outcomes/v1
+                          record: exit 3 names the one release to probe next,
+                          exit 0 emits the finished document,
+                          sandbox/bin/adapter-boundary.sh is the loop between.
+                          Outcomes are green | boot-fatal |
+                          round-trip-diverges | artifact-unresolved; the last
+                          is a fact about the DOWNLOAD and BLOCKS the search
+                          rather than counting as a failing release. A failing
+                          release is never proposed as a boundary, and a
+                          recorded failure INSIDE the settled window blocks
+                          instead of narrowing the claim by guess. The output
+                          includes artifacts.lock.json rows in that file's own
+                          three-role vocabulary. It never writes a manifest:
+                          the range and its Canon-byte-equal restatement in
+                          dispositions/<name>.json stay one reviewed human edit.
+  adapter proposals       The scheduled job around that planner. Reads every
+    [--ledger=<dir>]      <slug>.releases.json / <slug>.outcomes.json in the
+    [--manifests=<dir>]   ledger directory, derives each adapter's anchor from
+    [--format=json]       its OWN newest green probe, re-runs the bisection and
+                          emits a duo-adapter-boundary-proposals/v1 document:
+                          the proposed range bump as BOTH edits — the
+                          manifest's version_range and the disposition's
+                          supported_versions — built from one value, so they
+                          agree on the canonical bytes
+                          ManifestDispositions.php:632-637 compares. Nothing is
+                          written: applying them stays a reviewed human edit,
+                          because a byte under manifests/ is adapter identity.
+                          A bisection that never reached green is REFUSED, not
+                          proposed, and a range that would contain a recorded
+                          failing release is refused too. It also derives a
+                          per-adapter freshness row — last_verified is the
+                          newest green probe, shaped like platform.json's own
+                          per-axis last_verified — and that fact lives OUTSIDE
+                          manifests/ on purpose: stored beside a manifest it
+                          would move every adapter digest on every
+                          re-verification. `duo census --health=<doc>` ranks
+                          the rows beside the demand rank.
+  adapter discover        What a duo-adapter-index/v1 document publishes, and
+    --index=<index.json>  which of it you already have. This is the channel
+    [--repo=<site-repo>]  that tells you an adapter you do NOT have exists —
+    [--format=json]       every other adapter command answers about bytes
+                          already on this disk. It fetches nothing: every row
+                          comes from the index or from your own repository.
+                          The index carries NO signature and confers NO trust.
+                          Each entry is a pointer — a digest, a certificate
+                          digest, an authority fingerprint and a URL — and
+                          every trust decision is re-derived at install from
+                          the fetched bytes against your own
+                          adapters/authorities.json. So a tampered index can
+                          deny you a package and can never install one.
+                          With --repo each row also carries whether it is
+                          installed, whether the installed bytes match, and
+                          whether that signer is enrolled here.
+  adapter install         Install a package this repository does NOT have, as
+    <site-repo>           adapters/<n>.json + adapters/certifications/<n>.json
+    --index=<index.json>  — exactly the two files `adapter certify` writes, so
+    --name=<n>            `adapter list --repo` reports it identically to one
+    [--version=<v>]       you certified yourself. Resolution NEVER falls
+    [--format=json]       through: an unpinned version, a digest that does not
+                          match the fetched bytes, an unreachable URL, an
+                          out-of-window package, an unsigned or unverifiable
+                          one, or a signer this repository has not enrolled is
+                          each REFUSED, never approximated and never installed
+                          uncertified. A revoked or expired authority refuses
+                          through the same verifier every other command uses.
+                          Verification happens in a staging root, so a refusal
+                          leaves the repository exactly as it was found.
+                          Without --version exactly one entry must be inside
+                          this agent's window; two is a refusal listing both,
+                          because the format defines no order over version
+                          strings. Installing is not pinning: `adapter pin` is
+                          the separate act that makes the site load it.
+                          One transport ships, file://. An https:// entry is
+                          discoverable and refuses at install naming the mirror
+                          step — a fetcher no offline suite can exercise is an
+                          unevidenced supply-chain surface in the one command
+                          whose job is to refuse unevidenced bytes.
+  adapter update          Replace an INSTALLED package with another version
+    <site-repo>           from the same index, through the identical ladder.
+    --index=<index.json>  --to is required: nothing ranks version strings for
+    --name=<n>            you. Refuses when the installed bytes hash to
+    --to=<v>              nothing that index published — those bytes are a
+    [--format=json]       local decision, and an unsigned index does not get
+                          to overwrite one. Re-running at the installed digest
+                          writes nothing and exits 0.
   adapter-observe <env>   Ask exactly one configured target for its closed,
     [--out=<local-file>]  value-redacted adapter proposal-evidence document.
     [--format=json]       The host supplies only that environment's configured
@@ -851,6 +1118,36 @@ Verbs:
     [--format=json]       destroy a created environment or detach an attached
                           one, only through its explicit provider capability.
                           Repeated reap is idempotent; stale identity refuses.
+  release --spec-v3       The v3 flag day, for ONE site repository. No <env>,
+    <site-repo>           no transport, no target contact: it reads files on
+    [--artifact=<f>]      this machine. Three steps, in this order.
+    [--scope-contract=<f>]  1. Enumerate what the bump reaches on THIS site by
+    [--snapshot=<f>]           calling `adapter doctor --migration`'s own
+    [--format=json]            preflight — never a second answer to the same
+                               question. The optional --artifact /
+                               --scope-contract / --snapshot are the documents
+                               a deployed site holds and git does not; each one
+                               omitted becomes a `deferred` row naming the flag
+                               that answers it, never silence.
+                            2. Journal the site's PRIOR pin objects under
+                               .duo/migrations/, content-addressed, BEFORE any
+                               new object is emitted. A site that re-pins and
+                               then rolls back otherwise has that provenance
+                               only in a shell scrollback.
+                            3. Emit the pin objects the post-flip library
+                               resolves. Under digest neutrality these EQUAL
+                               the prior ones for every shipped adapter; a
+                               certified site adapter is where they differ,
+                               because the certificate withdrawal moves its row.
+                          It writes nothing to site.duo.json — updating a pin
+                          stays an explicit review act (`duo adapter pin`) —
+                          and it deliberately does NOT re-stamp the repository's
+                          own spec_version: the acceptance window {N-1, N}
+                          accepts it unchanged, and re-stamping would strand a
+                          rollback (gate G3 — docs/guides/flag-day.md).
+                          Exit follows the PREFLIGHT's verdict: one
+                          unclassified gate makes the run non-green even though
+                          the journal was written.
   release <env>           The composed release. Fixed order, and it COMPOSES
     [--from=<ref>]        promote rather than forking it: deploy-before-apply,
     [--plan-only]         the lease, the fence, the checkpoint and the
@@ -1065,6 +1362,67 @@ Verbs:
   rebase <production-env> --abort=<run-id>
                           Removes only the retained candidate worktree named
                           by an interrupted run journal.
+  census                  Fold N `duo-assess-inventory/v1` documents into one
+    --site=<label>=<f>    `duo-fleet-census/v1`: a demand rank (plugins by
+    [--dir=<dir>]         sites installed x surface no reviewed adapter
+    [--manifests=<dir>]   covers), a coverage ratio per site and for the
+    [--health=<f>]        fleet with the residual NAMED, and the adoption
+    [--limit=<1..200>]    funnel — an adapter exists, it covers your plugin,
+    [--format=json]       your site pins it. No environment, no target, no
+                          WordPress: the inputs are documents `duo assess`
+                          already produced locally, and the coverage oracle is
+                          this checkout's manifest library (--manifests to
+                          point elsewhere).
+                          Every submission needs an OPAQUE label: up to 32
+                          lowercase letters, digits, hyphens or underscores,
+                          and no dot, slash, colon or @, so a label cannot be a
+                          hostname. --dir labels each *.json by its stem
+                          through the same grammar, so a file saved under a
+                          site's domain name is refused rather than pooled.
+                          Only names and counts leave a submission — no option
+                          value, no site URL and no review-queue row is read at
+                          all. A multisite submission is EXCLUDED (the platform
+                          claims single-site) and the excluded population is
+                          published beside the eligible denominator rather than
+                          dropped, and `basis.sample_class` says whether the
+                          rank rests on one estate or a fleet.
+                          --health takes the derived document `duo adapter
+                          proposals --format=json` emits and adds fleet-health
+                          rows: per adapter, the newest release that probed
+                          green, how many recorded releases are newer, and any
+                          open range proposal — ranked by sites pinning it x
+                          releases behind, because "four releases behind" and
+                          "eleven sites pin it" are one decision. Only names
+                          and counts are read out of that document too.
+  census                  The cohort re-baseline. Given the census you kept
+    --baseline=<f>        before a cohort and the one that describes the estate
+    [--current=<f>]       now, emits `duo-cohort-rebaseline/v1`: the coverage-
+    [--dir=<dir>]         ratio delta, funnel movement stage by stage, and
+    [--limit=<1..200>]    per-adapter attribution — which adapter's claim moved
+    [--format=json]       which surfaces, with `claimed`, `regressed`,
+                          `appeared` and `resolved` kept apart so a net number
+                          cannot hide a narrowed claim. The current side is
+                          either a census you already have (--current) or one
+                          measured now from --site/--dir submissions; naming
+                          both is refused.
+                          `cohort.verdict` is a closed word: coverage_moved,
+                          adoption_only, shipped_without_movement,
+                          coverage_regressed, no_cohort, unmeasured. A cohort
+                          that ships every adapter and moves no ratio reads
+                          shipped_without_movement and carries a FINDING —
+                          that is a result that re-opens the demand rank, not a
+                          success, and it is a fact inside the document rather
+                          than a fourth exit code.
+                          `comparability.class` says whether the two censuses
+                          even describe one estate (same-estate,
+                          population-changed, disjoint-estate) and only the
+                          first makes the delta attributable to a cohort. A
+                          different platform boundary refuses; a different
+                          AGENT or spec version does not, because a program
+                          worth re-baselining usually crossed one.
+                          The loop this grades — rank, probe, draft, boundary,
+                          vectors, kit, certify, bulk-adopt, re-measure — is
+                          docs/guides/coverage-cohort.md.
 
 Global flags:
   --envs-file=<path>      Explicitly trust and load the machine-local overlay
@@ -1153,6 +1511,28 @@ function main(array $argv): int {
         return ManifestValidate::run($rest);
     }
 
+    // WP-4.12: `duo release --spec-v3 <site-repo>` is the flag-day migration
+    // act for ONE REPOSITORY, and it is intercepted here — before the
+    // environment, transport and driver-capability machinery `release` itself
+    // needs — because it takes a site repo rather than an <env> and touches no
+    // target at all. Same shape and same reason as `manifest-validate` and
+    // `merge-check` above: the operator most likely to run it is mid-migration,
+    // which is exactly when an environment-bound verb is least reachable. The
+    // interception is on the FLAG, so `duo release <env>` keeps every byte of
+    // its own parsing, refusals and output.
+    if ($verb === 'release' && in_array(SpecMigration::RELEASE_FLAG, $rest, true)) {
+        return SpecMigration::runRelease($rest);
+    }
+
+    // Same shape, same reason (WP-2.4): the suspicious-reference linter over a
+    // captured tree on THIS machine. It runs the engine's real
+    // Lint::scan_tree() — the same static method `wp duo lint` calls — over a
+    // recorded `duo-lint-environment/v1` transcript, so its findings are the
+    // live verb's byte for byte. No environment, no transport, no WordPress.
+    if ($verb === 'lint-tree') {
+        return LintTree::run($rest);
+    }
+
     // Same shape, same reason (DUO-3325): the safe adapter-DRAFT generator reuses
     // policy-to-manifest's facts core (Policy::export_manifest) and adds offline
     // proposers over a site repo's captured state/**, emitting inert `_draft`
@@ -1169,15 +1549,56 @@ function main(array $argv): int {
     // repository is in a state that makes every environment-bound command
     // refuse, and requiring an <env> would put the answer behind the problem.
     if ($verb === 'adapter') {
-        // Same process, two owners. `list|inspect|doctor` REPORT what is
+        // Same process, three owners. `list|inspect|doctor` REPORT what is
         // installed; `keygen|certify|pin` MUTATE — a private key, the site
         // trust root, a certificate, a pin. Splitting on the sub-verb rather
         // than widening AdapterCatalog's parser keeps the read-only catalog
         // free of every write path, which is what lets `duo adapter doctor`
         // stay the command an operator can run when the repository is in a
         // state that makes the writing ones refuse.
+        //
+        // `boundary` is a third owner rather than a fourth catalog verb: it
+        // reads two RECORDED documents and no installed adapter at all, and it
+        // is the one verb here with a fourth exit code (3, "probe this next"),
+        // which AdapterCatalog's 0/1/2 contract has no room for.
+        if (in_array($rest[0] ?? '', AdapterBoundary::VERBS, true)) {
+            return AdapterBoundary::run($rest);
+        }
+        // `proposals` is the scheduled job AROUND that planner: it re-bisects
+        // every pinned plugin from its own recorded ledger and derives how
+        // stale each adapter's proof is. It is a fourth owner rather than a
+        // flag on `boundary` because it answers about the LIBRARY rather than
+        // about one slug, and because it deliberately drops boundary's exit 3
+        // ("probe this release next") — a job over sixteen adapters has as many
+        // next-probes as it has incomplete searches, and collapsing them into
+        // one process status would make a driver loop probe the first forever.
+        if (in_array($rest[0] ?? '', AdapterProposals::VERBS, true)) {
+            return AdapterProposals::run($rest);
+        }
         if (in_array($rest[0] ?? '', AdapterCertify::VERBS, true)) {
             return AdapterCertify::run($rest);
+        }
+        // WP-5.6: `discover|install|update` is a sixth owner, and the split is
+        // the sharpest one here. Every other verb in this family answers about
+        // bytes that are ALREADY on this disk; these three are the only ones
+        // that resolve a document describing bytes that are not, and the only
+        // ones with a transport at all. Keeping the resolution ladder — fetch,
+        // digest, verify, enrolled-authority — out of the read-only catalog and
+        // out of the signing verb is what lets each of the three be read on its
+        // own.
+        if (in_array($rest[0] ?? '', AdapterDistribution::VERBS, true)) {
+            return AdapterDistribution::run($rest);
+        }
+        // WP-4.12: `recertify` is a fifth owner rather than a fifth
+        // AdapterCertify verb, and the split is the same one that put
+        // `boundary` and `proposals` in their own classes. It mutates the same
+        // two files `certify` does and reuses that class's bootstrap, key
+        // reader and certificate writer — but it is a FLEET verb: it acts on
+        // every certificate a repository holds, all-or-nothing, and reports a
+        // per-adapter row matrix that `certify`'s single-subject output has no
+        // room for.
+        if (in_array($rest[0] ?? '', SpecMigration::VERBS, true)) {
+            return SpecMigration::run($rest);
         }
         return AdapterCatalog::run($rest);
     }
@@ -1201,6 +1622,17 @@ function main(array $argv): int {
     // never drive `rebase` (Refresh::assertAuthorizingPlan()).
     if ($verb === 'merge-check') {
         return MergeCheckCommand::run($rest);
+    }
+
+    // Same shape, same reason, one step further out: `census` has no target at
+    // all. It folds N `duo-assess-inventory/v1` documents an operator already
+    // produced locally against this checkout's own manifest library and emits
+    // `duo-fleet-census/v1` — no WordPress, no database, no environment, no
+    // registry. The question it answers ("which adapter is worth building
+    // next, and which existing one is simply unpinned") is a question about a
+    // FLEET, so binding it to any single <env> would be a category error.
+    if ($verb === 'census') {
+        return CensusCommand::run($rest);
     }
 
     if (!EnvironmentCommandPreflight::requiresEnvironment($verb)) {

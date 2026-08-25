@@ -1,0 +1,138 @@
+{
+    "format": "duo-assess-inventory/v1",
+    "spec_version": 2,
+    "agent_version": "0.5.0",
+    "target": {
+        "wordpress": "6.9.1",
+        "php": "8.3.33",
+        "database": {
+            "engine": "MariaDB",
+            "version": "11.8.8"
+        },
+        "site_mode": "single-site",
+        "home": "https://reference-estate.invalid",
+        "siteurl": "https://reference-estate.invalid"
+    },
+    "plugins": [
+        {
+            "basename": "woocommerce/woocommerce.php",
+            "name": "Reference Estate Plugin",
+            "version": "1.0.0",
+            "active": true
+        },
+        {
+            "basename": "wordpress-seo/wp-seo.php",
+            "name": "Reference Estate Plugin",
+            "version": "1.0.0",
+            "active": true
+        },
+        {
+            "basename": "wp-rocket/wp-rocket.php",
+            "name": "Reference Estate Plugin",
+            "version": "1.0.0",
+            "active": true
+        }
+    ],
+    "plugins_without_adapter": [],
+    "themes": [
+        {
+            "stylesheet": "reference-theme",
+            "name": "Reference Theme",
+            "version": "1.0",
+            "active": true
+        }
+    ],
+    "media": {
+        "count": 0,
+        "bytes": null
+    },
+    "policy": {
+        "manifests": [
+            {
+                "name": "core",
+                "source": "shipped",
+                "adapter_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+                "status": "certified"
+            },
+            {
+                "name": "woocommerce",
+                "source": "shipped",
+                "adapter_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+                "status": "certified"
+            }
+        ],
+        "surface_groups": []
+    },
+    "coverage": {
+        "format": "duo-coverage-report/v1",
+        "options": {
+            "total": 469,
+            "captured": 24,
+            "declared_excluded": 63,
+            "pending": 0,
+            "invisible_total": 382,
+            "invisible_transient": 0,
+            "invisible_other": 382,
+            "declared_excluded_by_class": [],
+            "invisible_groups": [
+                {
+                    "prefix": "woocommerce_allowed",
+                    "count": 18,
+                    "probable_owner": "woocommerce"
+                },
+                {
+                    "prefix": "wpseo",
+                    "count": 26,
+                    "probable_owner": "wordpress-seo"
+                },
+                {
+                    "prefix": "wp_rocket",
+                    "count": 31,
+                    "probable_owner": "wp-rocket"
+                },
+                {
+                    "prefix": "orphaned_ns",
+                    "count": 7,
+                    "probable_owner": null
+                }
+            ]
+        },
+        "tables": {
+            "live_total": 15,
+            "core_total": 12,
+            "declared_total": 0,
+            "undeclared_total": 3,
+            "undeclared": [
+                {
+                    "table": "wp_wc_customer_lookup",
+                    "logical_name": "wc_customer_lookup",
+                    "row_count": 412,
+                    "probable_owner": "woocommerce"
+                },
+                {
+                    "table": "wp_yoast_indexable",
+                    "logical_name": "yoast_indexable",
+                    "row_count": 1980,
+                    "probable_owner": "wordpress-seo"
+                },
+                {
+                    "table": "wp_wpr_rocket_cache",
+                    "logical_name": "wpr_rocket_cache",
+                    "row_count": 64,
+                    "probable_owner": "wp-rocket"
+                }
+            ]
+        }
+    },
+    "pending": {
+        "count": 0,
+        "rows": [],
+        "truncated": false
+    },
+    "adapter_survey": {
+        "adapters": [],
+        "not_installed": [],
+        "refusals": [],
+        "sources": []
+    }
+}

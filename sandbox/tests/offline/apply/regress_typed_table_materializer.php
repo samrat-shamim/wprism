@@ -374,7 +374,13 @@ namespace {
         static fn($value): string => serialize($value),
         static function (string $key, string $group) use (&$cacheDeletes): void {
             $cacheDeletes[] = "$group:$key";
-        }
+        },
+        // WP-6.1: the `column_codecs` capability. Required rather than
+        // defaulted, so a wiring that forgot it fails here instead of writing
+        // canonical container bytes into a live column; this fixture declares
+        // none, which is the arm that must stay byte-identical to the
+        // pre-WP-6.1 treatment.
+        static fn(string $table): array => []
     );
     materializer_check(class_exists(TypedTableMaterializer::class, false), 'materializer loads standalone');
     materializer_check(!class_exists(Duo\Snapshot::class, false) && !class_exists(Duo\Policy::class, false),

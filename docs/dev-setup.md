@@ -151,12 +151,18 @@ harness must too. The corpus root holds no suites — pick the `offline/` domain
 whose subject matches yours (`tools/suite-layout.review.md` says what each one
 means) and put the file there.
 
-Two `Makefile` edits go with it, and `regress_bundle_coverage.sh` fails the
-gate if either is missing: wire the new leaf into `regress-offline-corpus`, and
-bump the `regress-offline-all: N offline suites green` line. That suite expands
+One `Makefile` edit goes with it — the suite's own leaf target — and then
+`php tools/offline-corpus.php`. Neither the corpus list nor the count is typed
+by hand any more: that generator reads the suite files under the five
+execution-class directories, maps each to the target whose recipe runs it, and
+writes `regress-offline-corpus`'s prerequisite list plus the
+`regress-offline-all: N offline suites green` line into
+`tools/offline-corpus.mk`, which the `Makefile` `include`s and
+`make release-gate` byte-compares. `regress_bundle_coverage.sh` still expands
 the whole prerequisite graph and compares its size against the declared number
-(`:201-213`), so an unwired suite and a stale count are separate refusals — each
-with its own self-test inside the suite, so neither can rot unnoticed.
+(`:201-213`), so an unwired suite, a stale count and an attempted exclusion are
+three separate refusals — each with its own self-test inside the suite, so none
+can rot unnoticed.
 
 Tooling self-tests are different: they go in `tests/` as PHPUnit 11
 (`Duo\Tests\…`, PSR-4) and need no Makefile wiring at all.
@@ -197,11 +203,14 @@ first-party source file that ships inside `agent/`, and **every existing
 `require_once` stays** (owner ruling D4). The fallback is additive — an
 autoloader is only consulted for a class that is *still undeclared* when it is
 referenced — so on the production path it resolves nothing at all. Measured:
-after `agent/duo.php` finishes, 237 of the map's 239 names are already
-declared, and the two exceptions (`Duo\AdapterCertification` and the
-`Duo\SupersededSiteAdapterCertificate` declared in the same file) are
+after `agent/duo.php` finishes, 247 of the map's 251 names are already
+declared, and the four exceptions (`Duo\AdapterCertification` and the three
+withdrawal/supersession signals declared in the same file —
+`Duo\SupersededSiteAdapterCertificate`,
+`Duo\StalePlatformSiteAdapterCertificate`,
+`Duo\SupersededWireSiteAdapterCertificate`) are
 `require_once`d at each of that file's three use sites in `AdapterSources.php`
-before either is ever named. What the map buys is the partially-loaded case —
+before any of them is ever named. What the map buys is the partially-loaded case —
 an offline suite that includes three `agent/src` files by hand, or a new file
 whose hand-written require chain missed a dependency — where the alternative is
 a fatal `Class not found`.

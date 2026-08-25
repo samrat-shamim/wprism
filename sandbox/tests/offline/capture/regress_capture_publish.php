@@ -101,9 +101,11 @@ require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php
 // support load idempotent so the capture/publish harness remains valid both
 // before and after the compiler parser boundary is loaded transitively.
 require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2); // agent/duo.php's own value; not required here to avoid its ABSPATH/WP_CLI bootstrap guard
-}
+// agent/duo.php's own values, READ from it rather than retyped — this suite
+// cannot require duo.php (its ABSPATH/WP_CLI bootstrap guard) but does reach
+// the shipped platform.json, which restates them (WP-4.12).
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 
 use Duo\Canon;
 use Duo\CommandRefusalException;

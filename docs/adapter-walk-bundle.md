@@ -35,6 +35,12 @@ grammar of the shipped `manifests/capabilities/adapter-authorities.json`:
 - Each key record carries **exactly** those six keys. The allowlist the
   contract calls `adapters` is spelled **`adapter_names`** — the shipped
   grammar's own name, kept identical so one validator serves both roots.
+- There is a second grammar, `duo-adapter-authorities/v2`, and this walk does
+  not use it. It is what an ENROLLED vendor writes: fingerprint-derived key
+  ids, a mandatory `not_before`/`not_after` window, `<vendor>-*` namespace
+  scoping, and a signed envelope over the whole document. A v1 document is
+  never read against any of those rules — see `spec/repo-format.md` § v3.7 and
+  irreversibility register row R-18 before writing one.
 - `status` is `trusted` or `revoked`; `trust_tiers` is a non-empty subset of
   `declarative_manifest`, `native_action`, `plugin_provider`, and must contain
   the tier the manifest actually reaches (`AdapterSources::trust_tier()`).
@@ -68,8 +74,9 @@ does exactly that under `php scripts/adapter-certification.php sign-site
 --manifest-dir=… --repo=… --name=… --authority=… --secret-key-file=…
 --reason=…`, which is the reference implementation.
 
-`sign_site()` derives the ratification from the manifest, builds the
-unexercised bundle in memory, **runs the real loader** for the `grammar`
+`sign_site()` derives the ratification from the manifest (or signs the one an
+author wrote — [3a](#3a-an-authored-ratification---ratification-file)), builds
+the unexercised bundle in memory, **runs the real loader** for the `grammar`
 verdict (a manifest that does not load is refused, with the loader's own
 message), verifies its own output through the same validator that will
 re-verify it at every load, and signs. Nothing is written to disk: an
@@ -146,11 +153,12 @@ inside `--evidence-repo`) and re-hashes them before the private key is used.
 For an unexercised bundle that means exactly `environment.json` and
 `ratification.json` must exist; `results/`, `diffs/`, `logs/` are absent.
 
-## 3. The ratification — derived, never authored
+## 3. The ratification — derived by default, authored on request
 
-`sign_site()` derives it from the manifest. Every field is a restatement of
-something the manifest already declares, or of something a grammar check
-provably did not review:
+`sign_site()` derives it from the manifest unless it is handed one
+([3a](#3a-an-authored-ratification---ratification-file)). Every derived field is
+a restatement of something the manifest already declares, or of something a
+grammar check provably did not review:
 
 - `entity_sections` / `field_sections` — exactly the state surfaces the
   manifest declares, partitioned by the shipped vocabulary. A manifest key in
@@ -224,6 +232,38 @@ Enforced, and each has bitten a fixture:
 - `evidence.tests` must be `[]` when the bundle declares `exercised: false`,
   and every cited test must exist as a passing bundle test otherwise.
 - The `ratification.json` asset descriptor must bind these exact bytes.
+
+### 3a. An authored ratification (`--ratification-file`)
+
+WP-5.3 / [spec/repo-format.md § v3.17](../spec/repo-format.md). `sign_site()`
+takes an optional seventh argument — one disposition **entry**, the exact
+document shape `manifests/dispositions/<name>.json` carries — and signs it in
+place of the derivation. `duo adapter certify --ratification-file=<file>` is how
+an operator supplies one; `null` keeps the derivation, which stays the floor.
+
+Nothing above changes. The envelope (`format`, the single `manifests.<name>`
+key, `profiles: []`) is still the signer's, so an authored document cannot
+ratify a second adapter or smuggle a profile. Every rule in the enforced list
+above is still `ManifestDispositions::validate_external_entry()` reached through
+the same `validateDisposition()` call, with the same evidence schema and the
+same exercise-test strictness — there is no second grammar, and nothing on the
+path knows who wrote the bytes. What an authored entry may therefore say that a
+derived one cannot: a non-empty `deletion_semantics.supported`, non-empty
+`lifecycle_phases`, `delete` among `operations`, a `justified` authored
+keyspace, and its own prose on every refusal.
+
+One rule belongs to this profile alone, and it is about scope rather than
+strength: the entry must name **every** surface the manifest declares, under the
+arm the shipped vocabulary classifies it in. `validate_entry()` refuses a
+section the manifest does not declare and says nothing about one it omits, while
+the claim's `surfaces` list is built from those two lists — so a claim is
+narrowed with an `unsupported[]` row and its reason, never by leaving a surface
+out.
+
+The bundle is unchanged: `exercised: false`, `tests: []`, `verdict: pass`. An
+authored entry is a stronger argument, not evidence of a run. `duo adapter
+recertify` derives, so it reports an authored certificate as a `blocked` row
+naming `certify --ratification-file` rather than replacing the claim.
 
 ## 4. Signing a REVIEWED-exercise certificate
 

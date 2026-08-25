@@ -10,11 +10,16 @@ require_once __DIR__ . '/../Kernel/SiteTopology.php';
 require_once __DIR__ . '/../Review/PlanExplanation.php';
 require_once __DIR__ . '/../Review/PlanCategorySummary.php';
 require_once __DIR__ . '/../Review/PlanView.php';
+// WP-2.8: plan()'s code_mismatch rendering names the graduated verdict by
+// constant. Required here for the same reason as the two above — the offline
+// refusal suites load this file without agent/duo.php's bootstrap — and it is
+// a leaf grammar file that requires nothing of its own.
+require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
 
 use WP_CLI;
 
 /**
- * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset|code-inventory>
+ * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
@@ -424,6 +429,10 @@ final class Cli {
             'orphans' => 'inspect the declared authored_snapshot table and its structural ref columns, then name one listed orphan row and exactly one of --delete or --reparent before retrying',
             'verify-canonical' => 'inspect the parent apply frozen policy snapshot, compiled artifact, and expected artifact hash, then rerun verification from that exact apply',
             'journal-report' => 'inspect the provenance journal tables and the pinned manifests named by --manifests, then correct that selection before reporting again',
+            // Report-only: its refusals are the journal prerequisite and the
+            // manifest selection, never a scoring verdict, so the arm names
+            // exactly those two and nothing about effects.
+            'effect-coverage' => 'inspect the provenance journal prerequisite and the pinned manifests named by --manifests, then restore the journal or correct that selection before scoring effect declarations again',
             'pending' => 'inspect the repository policy and provenance journal state, then correct the policy or ledger blocker before scanning the review queue again',
             'coverage' => 'inspect the repository policy and this environment\'s database access, then correct that blocker before reporting coverage again',
             'classify' => 'inspect the rejected --set spec and the repository policy file, then correct its section, key, class, or secret override before writing rules again',
@@ -437,6 +446,8 @@ final class Cli {
             // things an operator can inspect and fix.
             'capabilities' => 'inspect the manifest disposition registry, the platform boundary, and this repository\'s manifest pins, then correct that input before reporting capabilities again',
             'adapter-observe' => 'inspect private target evidence and restore the existing provenance-journal prerequisite or policy inputs before collecting a new adapter observation',
+            'adapter-probe' => 'inspect the named unprefixed tables and this target\'s own schema reads (SHOW COLUMNS, SHOW INDEX, information_schema), then correct that selection or access before probing again',
+            'adapter-deletion-feasibility' => 'inspect the proposed deletion selectors and their guards in --proposal, and this target\'s own SHOW TABLES/SHOW INDEX access, then correct that proposal or access before asking again',
             'adapter-survey' => 'inspect the agent manifest library and, if --repo was given, that repository\'s site.duo.json and adapters/ source, then correct the unreadable or malformed input before surveying again',
             default => "correct the named $command blocker, then retry the command",
         };
@@ -1424,9 +1435,18 @@ final class Cli {
             static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
                 && !empty($r['non_forceable'])
         ));
+        // WP-2.8: the graduated verdict is rendered on its own, immediately
+        // below, and is excluded here for the reason the warning at the foot
+        // of this method makes plain: "duo apply will refuse until resolved"
+        // is false about a row apply does not refuse.
+        $graduatedVersionRange = array_values(array_filter(
+            $codeMismatch,
+            static fn(array $r): bool => ($r['issue'] ?? null) === VersionEvidenceGrammar::VERDICT
+        ));
         $forceableCodeMismatch = array_values(array_filter(
             $codeMismatch,
             static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
+                && ($r['issue'] ?? null) !== VersionEvidenceGrammar::VERDICT
                 && empty($r['non_forceable'])
         ));
         foreach ($codeRevisionStale as $r) {
@@ -1443,6 +1463,10 @@ final class Cli {
         }
         foreach ($forceableCodeMismatch as $r) {
             WP_CLI::line('CODE_MISMATCH ' . strtoupper($r['issue']) . ' ' . ($r['plugin'] ?? $r['theme'] ?? '?'));
+            WP_CLI::line('  ' . $r['message']);
+        }
+        foreach ($graduatedVersionRange as $r) {
+            WP_CLI::line('VERSION_RANGE_GRADUATED ' . ($r['plugin'] ?? $r['theme'] ?? '?'));
             WP_CLI::line('  ' . $r['message']);
         }
         foreach ($plan['code_drift'] ?? [] as $r) {
@@ -2185,6 +2209,76 @@ final class Cli {
     }
 
     /**
+     * Score declared effects[] against the writes the journal observed.
+     *
+     * Report-only by construction: it names writes no declaration covers and
+     * declarations nothing exercised, and refuses nothing. The split is
+     * journal-report's — Review owns the aggregation, this method only
+     * formats it — because the journal is a target-local table and only the
+     * agent can read it.
+     *
+     * ## OPTIONS
+     * [--manifests=<names>] : comma-separated, default "core".
+     * [--json]           : JSON output (wp-cli rewrites this to --format=json).
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand effect-coverage
+     */
+    public function effect_coverage($args, $assoc) {
+        $names = array_filter(explode(',', $assoc['manifests'] ?? 'core'));
+        // Initialized ahead of the try for adapter-probe's reason (:3438): a
+        // WP_CLI::error() that a replaced handler does not treat as fatal must
+        // not fall through into a half-built report.
+        $report = null;
+        try {
+            $report = EffectDeclarationCoverage::report($names);
+        } catch (\Throwable $t) {
+            // The only refusals here are the journal prerequisite and
+            // manifest resolution — never a scoring verdict, which is the
+            // whole point of a report-only scorer.
+            self::halt_json_failure($t, $assoc, 'effect-coverage');
+            WP_CLI::error($t->getMessage());
+        }
+        if (!is_array($report)) {
+            // Unreachable on a target: the catch above always halts.
+            throw new \RuntimeException('duo: effect-coverage reached its output path without a report');
+        }
+        if (isset($assoc['json']) || ($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($report, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        foreach ($report['adapters'] as $a) {
+            WP_CLI::line(sprintf(
+                '%-24s effects=%-4d observable=%-3d exercised=%-3d unexercised=%-3d writes=%-5d outside_declaration=%-3d %s',
+                $a['adapter'], $a['declared_effects'], $a['observable_effects'],
+                $a['exercised_effects'], count($a['unexercised_effects']),
+                $a['observations'], count($a['outside_declaration']),
+                $a['scorable'] ? '' : '(no journal-observable effect declared — not scored)'
+            ));
+            foreach ($a['outside_declaration'] as $f) {
+                WP_CLI::line(sprintf(
+                    '    outside_declaration %s / %s n=%d',
+                    $f['table'], $f['item'] !== '' ? $f['item'] : '—', $f['observations']
+                ));
+            }
+        }
+        foreach ($report['unattributed'] as $u) {
+            WP_CLI::line(sprintf(
+                'unattributed             %s / %s n=%d',
+                $u['table'], $u['item'] !== '' ? $u['item'] : '—', $u['observations']
+            ));
+        }
+        WP_CLI::line('');
+        WP_CLI::success(sprintf(
+            'report only, nothing blocked: %d of %d adapters scorable, %d writes outside every declared effect over %d scored surfaces (rate %s), %d declarations unexercised (not an error)',
+            $report['totals']['scorable_adapters'], $report['totals']['adapters'],
+            $report['totals']['outside_declaration'], $report['baseline']['scored_surfaces'],
+            $report['baseline']['outside_declaration_rate'] ?? 'n/a',
+            $report['totals']['unexercised']
+        ));
+    }
+
+    /**
      * Agent + spec version — the stable probe for external tooling
      * (orchestrators check this instead of internal class names).
      */
@@ -2795,16 +2889,44 @@ final class Cli {
      * run.sh, which currently runs this warn-only, pending main wiring it
      * into capture as a hard gate).
      *
+     * WP-2.4 adds two optional flags, and neither changes a byte of what this
+     * command prints without them:
+     *
+     *   --evidence=<probe.json> reads a `duo-adapter-probe/v1` document
+     *     (`wp duo adapter-probe --format=json`) so a custom-table `bare_id`
+     *     collision on a column whose LIVE MySQL type bounds it to {0,1} is
+     *     re-classed `proposed_lint_ok`, carrying the type as its premise. It
+     *     proposes; the `lint_ok` declaration stays a human's edit.
+     *   --emit-environment=<file> writes the `duo-lint-environment/v1`
+     *     transcript of everything this scan read that was NOT a byte of the
+     *     state tree — home URL, every id resolution, the probe's types, the
+     *     state-tree digest. `duo lint <repo> --environment=<file>` replays it
+     *     into the same `Lint::scan_tree()` on a host with no WordPress and
+     *     produces byte-identical findings.
+     *
      * ## OPTIONS
      * --repo=<path>
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
+     * [--evidence=<path>] : a duo-adapter-probe/v1 document; live column types
+     *                       turn a bare_id on a boolean column into a PROPOSED
+     *                       lint_ok carrying its premise.
+     * [--emit-environment=<path>] : write the duo-lint-environment/v1 transcript
+     *                       this scan consumed, for `duo lint --environment=`.
      */
     public function lint($args, $assoc) {
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('lint', '--repo');
             $policy = Policy::load($repo);
-            $findings = Lint::scan_tree(rtrim($repo, '/') . '/state', $policy);
+            $stateDir = rtrim($repo, '/') . '/state';
+            $environment = Lint::live_environment(self::lint_probe($assoc['evidence'] ?? null));
+            $findings = Lint::scan_tree($stateDir, $policy, $environment);
+            if (isset($assoc['emit-environment'])) {
+                // Written only after a completed scan: a transcript of a
+                // partial scan would be an incomplete answer set that replays
+                // as a refusal at the first id it never got to record.
+                self::write_lint_environment((string) $assoc['emit-environment'], $environment->document($stateDir));
+            }
         } catch (\Throwable $t) {
             // A refusal and a findings-bearing success both exit 1 here, so a
             // caller scripting this as a gate could not previously tell "the
@@ -2818,19 +2940,71 @@ final class Cli {
         } elseif (!$findings) {
             WP_CLI::success('no findings — captured state is clean');
         } else {
-            foreach ($findings as $f) {
-                $val = is_scalar($f['value']) ? (string) $f['value'] : json_encode($f['value'], JSON_UNESCAPED_SLASHES);
-                $match = isset($f['matches'])
-                    ? sprintf(' matches=%s:%d "%s" (%s)', $f['matches']['kind'], $f['matches']['id'], $f['matches']['title'], $f['matches']['post_type'])
-                    : '';
-                WP_CLI::line(sprintf('%-24s %-55s %-32s value=%s%s', $f['class'], $f['path'], $f['locator'], $val, $match));
-                WP_CLI::line('    ' . $f['note']);
+            // One renderer, shared with `duo lint-tree` (Lint::render_lines()).
+            // These bytes are pinned by AGENTS.md rule 8; the extraction is what
+            // keeps them pinned for the host verb too.
+            foreach (Lint::render_lines($findings) as $line) {
+                WP_CLI::line($line);
             }
             WP_CLI::line('');
             WP_CLI::warning(count($findings) . ' finding(s) — review before trusting a byte-identical round trip');
         }
         if ($findings) {
             WP_CLI::halt(1);
+        }
+    }
+
+    /**
+     * Read `lint --evidence=<file>` — a `duo-adapter-probe/v1` document.
+     *
+     * `json_decode()`, not `Canon::decode()`: this is a document handed in
+     * from outside the repository, exactly as `AdapterDraft::read_probe()`
+     * treats the same file (`cli/src/Adapter/AdapterDraft.php:917`), and the
+     * envelope/authority/self-hash validation that actually matters happens
+     * in `LintEnvironment::column_types_from_probe()` for both callers.
+     *
+     * @return array<string,mixed>|null
+     */
+    private static function lint_probe($path): ?array {
+        if ($path === null) {
+            return null;
+        }
+        $path = (string) $path;
+        if ($path === '' || !is_file($path) || !is_readable($path)) {
+            throw new \RuntimeException(
+                "duo: lint --evidence '$path' is not a readable file (`wp duo adapter-probe --format=json > $path`)"
+            );
+        }
+        $decoded = json_decode((string) file_get_contents($path), true);
+        if (!is_array($decoded) || array_is_list($decoded)) {
+            throw new \RuntimeException("duo: lint --evidence '$path' is not a JSON object");
+        }
+        return $decoded;
+    }
+
+    /**
+     * Write the `duo-lint-environment/v1` transcript.
+     *
+     * Canonical bytes, atomically: the host verb compares this document's own
+     * recorded `state_hash` against the tree it is handed, so a half-written
+     * transcript must never be readable as a whole one.
+     */
+    private static function write_lint_environment(string $path, array $document): void {
+        if ($path === '') {
+            throw new \RuntimeException('duo: lint --emit-environment needs a file path');
+        }
+        $directory = dirname($path);
+        if (!is_dir($directory) || !is_writable($directory)) {
+            throw new \RuntimeException("duo: lint --emit-environment cannot write into '$directory'");
+        }
+        $encoded = Canon::encode($document);
+        $temporary = tempnam($directory, '.duo-lint-environment-');
+        if ($temporary === false || file_put_contents($temporary, $encoded, LOCK_EX) === false
+            || !chmod($temporary, 0644) || !rename($temporary, $path)) {
+            if (is_string($temporary) && is_file($temporary)) {
+                unlink($temporary);
+            }
+            throw new \RuntimeException("duo: lint could not write the environment transcript to '$path'");
         }
     }
 
@@ -3001,6 +3175,248 @@ final class Cli {
         WP_CLI::line('policy readiness: ' . $document['policy']['readiness']);
         WP_CLI::line('observation hash: ' . $document['observation_hash']);
         WP_CLI::line('deferred: proposal evidence only; see --format=json for the closed limitations');
+    }
+
+    /**
+     * Live SCHEMA facts for the tables one adapter draft proposes.
+     *
+     * `duo adapter-draft` is WordPress-free, so its typed-table candidates
+     * carry NAMED questions instead of live facts: column types and
+     * nullability, the real PRIMARY KEY, delete-guard index coverage,
+     * declared foreign keys, an EAV twin, and natural-key uniqueness across
+     * the whole keyspace. This is the only half that can answer them, and
+     * `duo adapter-draft --evidence=<file>` is what consumes the answer.
+     *
+     * It answers; it never decides. The document declares `authority: false`,
+     * carries no `class`/identity/deletion word at all, and the host
+     * validates it against a closed key set before a single row lands in
+     * `_draft.evidence[]` — where nothing Policy loads will ever read it.
+     *
+     * ## OPTIONS
+     * --tables=<names> : Comma-separated unprefixed table names, as a manifest's `tables` section spells them.
+     * [--natural-keys=<pairs>] : Comma-separated `<table>.<column>` pairs whose keyspace-wide uniqueness to measure.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand adapter-probe
+     */
+    public function adapter_probe($args, $assoc) {
+        // Same entry-point discipline as adapter-observe: a read-only verb
+        // must not leave the journal's shutdown flush attached, or asking a
+        // target what its schema is becomes a later Duo INSERT — including on
+        // an argument refusal, where bootstrap has already buffered.
+        Journal::suspend_for_observation();
+        $document = null;
+        try {
+            require_once __DIR__ . '/../Adapter/AdapterProbe.php';
+            if ($args !== [] || array_diff(array_keys($assoc), ['tables', 'natural-keys', 'format']) !== []) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'adapter-probe accepts only --tables=<names>, optional --natural-keys=<table.column,…> and optional --format=json',
+                    'name the tables one adapter draft proposes, then rerun adapter-probe',
+                    [],
+                    'adapter-probe received unsupported positional arguments or flags'
+                );
+            }
+            if (!is_string($assoc['tables'] ?? null) || trim((string) $assoc['tables']) === '') {
+                throw CommandRefusalException::invalidArgument('adapter-probe', '--tables');
+            }
+            if (array_key_exists('format', $assoc) && $assoc['format'] !== 'json') {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'adapter-probe accepts only --format=json',
+                    'omit --format for the human summary, or use --format=json for the document adapter-draft consumes',
+                    [],
+                    'adapter-probe received an unsupported output format'
+                );
+            }
+            $tables = array_values(array_filter(array_map('trim', explode(',', (string) $assoc['tables'])), 'strlen'));
+            $naturalKeys = [];
+            foreach (explode(',', (string) ($assoc['natural-keys'] ?? '')) as $pair) {
+                $pair = trim($pair);
+                if ($pair === '') {
+                    continue;
+                }
+                // One dot, one meaning: `<table>.<column>`. A pair that does
+                // not say both is refused rather than half-read, because a
+                // silently dropped column is a question that stays unanswered
+                // while the document looks complete.
+                $parts = explode('.', $pair);
+                if (count($parts) !== 2 || $parts[0] === '' || $parts[1] === '') {
+                    throw CommandRefusalException::invalidArgument('adapter-probe', '--natural-keys');
+                }
+                $naturalKeys[$parts[0]] = $parts[1];
+            }
+            $document = AdapterProbe::report($tables, $naturalKeys);
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'adapter-probe');
+            if ($t instanceof CommandRefusalException) {
+                WP_CLI::error($t->publicMessage);
+            }
+            // A raw Throwable here can carry a server identifier or a path;
+            // the JSON form above is the sole transport form.
+            WP_CLI::error('adapter probe refused; inspect the named tables and this target\'s schema access before retrying');
+        }
+        if (!is_array($document)) {
+            // Unreachable on a target: every arm of the catch above halts.
+            // It exists so the output path below can never be entered
+            // without a document in a process that replaced WP_CLI's error
+            // handler, rather than printing a half-built one.
+            throw new \RuntimeException('duo: adapter-probe reached its output path without a document');
+        }
+
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(rtrim(Canon::encode($document), "\n"));
+            return;
+        }
+
+        WP_CLI::line('adapter probe');
+        WP_CLI::line('format: ' . AdapterProbe::FORMAT);
+        WP_CLI::line('authority: false; redaction: ' . AdapterProbe::REDACTION);
+        foreach ($document['tables'] as $table => $facts) {
+            WP_CLI::line(sprintf(
+                '%s: %s',
+                $table,
+                empty($facts['present'])
+                    ? 'absent on this target'
+                    : count($facts['columns']) . ' column(s), pk (' . implode(', ', $facts['primary_key']) . ')'
+            ));
+        }
+        WP_CLI::line('probe hash: ' . $document['probe_hash']);
+        WP_CLI::line('deferred: schema facts only; see --format=json for the closed limitations');
+    }
+
+    /**
+     * Can each guard of a PROPOSED deletion selector actually lock?
+     *
+     * `DeleteGuardEvaluator::lock_index()` decides that at DELETION time, on a
+     * live site, long after the selector was declared and pinned — and when it
+     * answers null the whole deletion refuses ("guard table 'X' has no
+     * complete indexed lock boundary for Y",
+     * `DeleteGuardReferenceScanner.php:135-142`). This verb runs the identical
+     * computation at AUTHORING time over a proposal nothing has declared yet,
+     * so an unindexed plugin schema is a fact the author reads before writing
+     * the contract rather than a refusal an operator meets after shipping it.
+     *
+     * It answers feasibility ONLY. A covering index never makes a deletion
+     * selector right for a site; `DeletionFeasibility` proposes no fragment,
+     * names no cascade set, and refuses a proposal that hands it one.
+     *
+     * ## OPTIONS
+     * --proposal=<path> : A JSON object shaped like a manifest `deletions` section — `<selector>: {"guards": [...]}` — minus `cascades`.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand adapter-deletion-feasibility
+     */
+    public function adapter_deletion_feasibility($args, $assoc) {
+        // Same entry-point discipline as adapter-probe: a read-only verb must
+        // not leave the journal's shutdown flush attached, or asking a target
+        // whether a guard could lock becomes a later Duo INSERT — including on
+        // an argument refusal, where bootstrap has already buffered.
+        Journal::suspend_for_observation();
+        $document = null;
+        try {
+            require_once __DIR__ . '/../Adapter/DeletionFeasibility.php';
+            if ($args !== [] || array_diff(array_keys($assoc), ['proposal', 'format']) !== []) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'adapter-deletion-feasibility accepts only --proposal=<path> and optional --format=json',
+                    'name the file holding the proposed deletion selectors and their guards, then rerun adapter-deletion-feasibility',
+                    [],
+                    'adapter-deletion-feasibility received unsupported positional arguments or flags'
+                );
+            }
+            if (!is_string($assoc['proposal'] ?? null) || trim((string) $assoc['proposal']) === '') {
+                throw CommandRefusalException::invalidArgument('adapter-deletion-feasibility', '--proposal');
+            }
+            if (array_key_exists('format', $assoc) && $assoc['format'] !== 'json') {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'adapter-deletion-feasibility accepts only --format=json',
+                    'omit --format for the human summary, or use --format=json for the full document',
+                    [],
+                    'adapter-deletion-feasibility received an unsupported output format'
+                );
+            }
+            $document = DeletionFeasibility::report(self::read_deletion_proposal((string) $assoc['proposal']));
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'adapter-deletion-feasibility');
+            if ($t instanceof CommandRefusalException) {
+                WP_CLI::error($t->publicMessage);
+            }
+            // A raw Throwable here can carry a path or a server identifier;
+            // the JSON form above is the sole transport form.
+            WP_CLI::error(
+                'deletion feasibility refused; inspect the proposed selectors, their guards, and this target\'s schema access before retrying'
+            );
+        }
+        if (!is_array($document)) {
+            // Unreachable on a target: every arm of the catch above halts. It
+            // exists so the output path below cannot be entered without a
+            // document in a process that replaced WP_CLI's error handler.
+            throw new \RuntimeException('duo: adapter-deletion-feasibility reached its output path without a document');
+        }
+
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(rtrim(Canon::encode($document), "\n"));
+            return;
+        }
+
+        WP_CLI::line('deletion guard feasibility');
+        WP_CLI::line('format: ' . DeletionFeasibility::FORMAT);
+        WP_CLI::line('authority: false; redaction: ' . DeletionFeasibility::REDACTION);
+        foreach ($document['selectors'] as $selector => $facts) {
+            $guards = (array) ($facts['guards'] ?? []);
+            if ($guards === []) {
+                WP_CLI::line("$selector: no guard declared, so no lock boundary to resolve");
+                continue;
+            }
+            foreach ($guards as $guard) {
+                WP_CLI::line(sprintf(
+                    '%s: %s.%s locks on %s — %s',
+                    $selector,
+                    $guard['table'],
+                    $guard['column'],
+                    $guard['lock_column'],
+                    $guard['index'] !== null
+                        ? 'index `' . $guard['index'] . '`'
+                            . ($guard['prefix'] !== null ? ' (prefix ' . $guard['prefix'] . ')' : '')
+                        : 'NO covering index: ' . $guard['reason']
+                ));
+            }
+        }
+        WP_CLI::line('feasibility hash: ' . $document['feasibility_hash']);
+        WP_CLI::line('deferred: lock feasibility only; see --format=json for the closed limitations');
+    }
+
+    /**
+     * The `--proposal=<path>` document, read under a bound.
+     *
+     * The bound is the point: this file is an authoring artifact a human just
+     * wrote, and `DeletionFeasibility` caps the selectors and guards inside
+     * it, so a multi-megabyte input is a mistake worth refusing before JSON
+     * decoding it rather than after.
+     *
+     * @return array<string,mixed>
+     */
+    private static function read_deletion_proposal(string $path): array {
+        if (!is_file($path) || !is_readable($path)) {
+            throw CommandRefusalException::invalidArgument('adapter-deletion-feasibility', '--proposal');
+        }
+        $bytes = @file_get_contents($path, false, null, 0, 262145);
+        if (!is_string($bytes) || $bytes === '' || strlen($bytes) > 262144) {
+            throw CommandRefusalException::invalidArgument('adapter-deletion-feasibility', '--proposal');
+        }
+        $decoded = Canon::decode($bytes);
+        if (!is_array($decoded) || $decoded === [] || array_is_list($decoded)) {
+            throw new CommandRefusalException(
+                'invalid_arguments',
+                'the proposal must be a JSON object of `<selector>: {"guards": [...]}`, as a manifest `deletions` section is shaped',
+                'shape the proposal like the `deletions` section you are drafting, then rerun adapter-deletion-feasibility',
+                [],
+                'adapter-deletion-feasibility received a proposal that is not a selector object'
+            );
+        }
+        return $decoded;
     }
 
     /**
@@ -3300,16 +3716,18 @@ final class Cli {
                     throw new \RuntimeException("duo: $dir has no external manifest disposition registry");
                 }
                 $manifests = [];
+                // No `dispositions.json` filter any more: WP-4.4 moved the
+                // reviewed claim source into `dispositions/`, which this glob
+                // does not match, and ManifestDispositions::load() above has
+                // already refused a library that still carries the file.
                 foreach (glob(rtrim($dir, '/') . '/*.json') ?: [] as $file) {
-                    if (basename($file) !== 'dispositions.json') {
-                        $manifest = Canon::decode(Canon::read_file($file));
-                        // DUO-3371: this path loads the library without Policy::load(),
-                        // so it must hold the same name==basename rule itself — a
-                        // mismatch otherwise surfaces as a malformed registry claim
-                        // that never says the name field is wrong.
-                        AdapterSources::assert_declared_name($manifest, basename($file, '.json'), AdapterSources::SHIPPED, $file);
-                        $manifests[] = $manifest;
-                    }
+                    $manifest = Canon::decode(Canon::read_file($file));
+                    // DUO-3371: this path loads the library without Policy::load(),
+                    // so it must hold the same name==basename rule itself — a
+                    // mismatch otherwise surfaces as a malformed registry claim
+                    // that never says the name field is wrong.
+                    AdapterSources::assert_declared_name($manifest, basename($file, '.json'), AdapterSources::SHIPPED, $file);
+                    $manifests[] = $manifest;
                 }
                 // DUO-3339: real provenance, not the absent-sources default.
                 // Every row here IS shipped, so the source word does not

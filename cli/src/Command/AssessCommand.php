@@ -805,10 +805,10 @@ final class AssessCommand {
     /**
      * The provenance of the reviewed dispositions this checkout ships.
      *
-     * Read host-side because that is the only place these bytes exist as a
-     * file: `manifests/dispositions.json` is the sole authored source of a
-     * capability claim (ManifestDispositions' own header), so the document
-     * whose provenance a contract records is that one. There is no second,
+     * Read host-side because that is the only place these bytes exist as
+     * files: `manifests/dispositions/` is the sole authored source of a
+     * capability claim (ManifestDispositions' own header), so the documents
+     * whose provenance a contract records are those. There is no second,
      * generated registry to name inputs for any more, and the code that read
      * one refused `capability_registry_unreadable` for a file that is now
      * deleted — hence the reason code moved with the premise.
@@ -817,28 +817,56 @@ final class AssessCommand {
      * computes it — sha256 over `Canon::encode()` of the DECODED document, not
      * over the file bytes — because that number is compared for equality with
      * the one a target reports, and whitespace in a checkout must not read as
-     * drift. `generated_from.dispositions_sha256` is the raw file hash, which
-     * addresses this host's exact copy.
+     * drift. WP-4.4's split does not move it: Canon sorts keys at every level,
+     * so the reassembled document encodes to the monolith's exact bytes.
+     * `generated_from.dispositions_sha256` is the RAW-byte address of this
+     * host's copy and therefore does move — it is nobody's equality partner
+     * (ApplicationContract.php:411-412 only requires a non-empty string), and
+     * with the source now a directory it addresses the document SET as well as
+     * each document's bytes: file name, a separator, then the file, in sorted
+     * order, so an added or renamed subject changes it exactly as an edited
+     * one does.
      *
      * @param array<string,mixed> $options
      * @return array{registry_sha256:string,generated_from:array{dispositions_sha256:string}}
      */
     private static function registryProvenance(array $options): array {
-        $path = (string) ($options['manifests_dir'] ?? dirname(__DIR__, 3) . '/manifests')
-            . '/dispositions.json';
-        $raw = is_file($path) ? @file_get_contents($path) : false;
-        $decoded = is_string($raw) ? json_decode($raw, true) : null;
-        if (!is_array($decoded) || !is_array($decoded['manifests'] ?? null)) {
+        $dir = (string) ($options['manifests_dir'] ?? dirname(__DIR__, 3) . '/manifests') . '/dispositions';
+        $files = is_dir($dir) ? (glob($dir . '/*.json') ?: []) : [];
+        sort($files, SORT_STRING);
+        // The literal, not ManifestDispositions::FORMAT: this command reads the
+        // library WITHOUT loading the agent's Policy tree (only Canon is
+        // imported above), exactly as it did when the whole document was one
+        // file carrying this string in its own bytes.
+        $decoded = ['format' => 'duo-manifest-dispositions/v1', 'manifests' => [], 'profiles' => []];
+        $raw = '';
+        $readable = $files !== [];
+        foreach ($files as $file) {
+            $bytes = @file_get_contents($file);
+            $document = is_string($bytes) ? json_decode($bytes, true) : null;
+            if (!is_array($document)) {
+                $readable = false;
+                break;
+            }
+            $raw .= basename($file) . "\n" . $bytes;
+            $subject = basename($file, '.json');
+            if ($subject === 'profiles') {
+                $decoded['profiles'] = $document;
+                continue;
+            }
+            $decoded['manifests'][$subject] = $document;
+        }
+        if (!$readable || $decoded['manifests'] === []) {
             throw new CommandRefusalException(
                 'dispositions_unreadable',
                 'the reviewed manifest dispositions could not be read for their provenance',
-                'restore manifests/dispositions.json in this checkout, then rerun assess'
+                'restore manifests/dispositions/ in this checkout, then rerun assess'
             );
         }
 
         return [
             'registry_sha256' => hash('sha256', Canon::encode($decoded)),
-            'generated_from' => ['dispositions_sha256' => hash('sha256', (string) $raw)],
+            'generated_from' => ['dispositions_sha256' => hash('sha256', $raw)],
         ];
     }
 

@@ -229,10 +229,38 @@ final class ApplyFieldMaterializer {
             }
             $envByKey[$row['meta_key']][] = $row;
         }
+        // The locked target context is the map this reconciliation ESTABLISHES
+        // — the witnessed rows with this roster's own first value per key laid
+        // over them — not the pre-write rows alone. Interpreter classification
+        // is sibling-dependent (manifests/interpreters/acf.php:400-427 makes
+        // '_<field>' authored only while its '<field>' sibling is present, and
+        // '<field>' only while the '_<field>' pointer names a field the
+        // revision defines), so asking the pre-write map rejects exactly the
+        // keys whose siblings this same roster supplies: a post an apply is
+        // about to create holds no rows at all. `VMATRIX_MANIFEST=acf bash
+        // sandbox/tests/certify/certify_version_matrix.sh` died there on the
+        // acf 6.0.0 target apply — "duo: authored post meta '_duo_related'
+        // disagrees with the locked target context" — as did the independent
+        // bisector probe (sandbox/bin/adapter-boundary.sh:44-69). The terminal
+        // repeated-row readback below already classifies against the
+        // established map ($finalFlat); this asks it the same question.
+        //
+        // Every check #556 (18f32d13) added survives, because the overlay only
+        // replaces keys this roster actually writes: a static rule is
+        // context-free and still refuses, and a target row whose OWN siblings
+        // leave it non-authored still refuses when the roster does not name
+        // those siblings. Rows this reconciliation is about to DELETE stay in
+        // the map on purpose — which sibling a repository may drop is the
+        // compiler's question about repository shape, not a decision this
+        // materializer may make while holding one owner's range lock.
+        $lockedContext = $envFlat;
+        foreach ($desired as $key => $declaration) {
+            $lockedContext[$key] = $declaration['values'][0];
+        }
         foreach ($desired as $key => $declaration) {
             $rule = $termMeta
-                ? $this->policy->meta_rule_for_term($key, $envFlat)
-                : $this->policy->meta_rule_for_post($key, $envFlat);
+                ? $this->policy->meta_rule_for_term($key, $lockedContext)
+                : $this->policy->meta_rule_for_post($key, $lockedContext);
             if (($rule['class'] ?? null) !== 'authored'
                 || array_key_exists('repeated_rows', (array) $rule) !== $declaration['repeated']) {
                 throw new \RuntimeException(

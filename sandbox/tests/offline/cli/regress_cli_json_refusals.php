@@ -1109,10 +1109,17 @@ namespace {
     // 27 with DUO-3326's `code-preflight` plus scoped promotion's two
     // orchestrator-only handoff commands; 28 with round-3 MUP §4.5's
     // `assess-inventory`; 29 with DUO-3499's read-only `code-inventory`, which
-    // reports one repository's lockable code components for `duo code-classify`.
+    // reports one repository's lockable code components for `duo code-classify`;
+    // 30 with `adapter-probe`, the read-only live-schema half `duo adapter-draft
+    // --evidence=` consumes; 31 with WP-3.2's report-only `effect-coverage`,
+    // whose only refusals are the journal prerequisite and manifest resolution
+    // — a scoring verdict is never one, which is the point of that command;
+    // 32 with WP-2.5's `adapter-deletion-feasibility`, which answers
+    // DeleteGuardEvaluator::lock_index() for a PROPOSED deletion selector's
+    // guards at authoring time.
     // Every advertised handler is covered by the common envelope contract, so
     // this count moves with the set rather than around it.
-    check(count($advertised) === 29, 'every one of the 29 --format=json commands was scanned (' . count($advertised) . ')');
+    check(count($advertised) === 32, 'every one of the 32 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path
@@ -1122,7 +1129,7 @@ namespace {
     foreach ([
         'code-preflight', 'promotion-begin', 'promotion-abort', 'promotion-begin-scoped',
         'promotion-complete-scoped', 'env-set', 'orphans', 'verify-canonical',
-        'journal-report', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
+        'journal-report', 'effect-coverage', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
     ] as $command) {
         $arm = (string) $armed->invoke(null, $command);
         check(

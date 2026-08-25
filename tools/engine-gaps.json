@@ -1,0 +1,370 @@
+{
+  "format": "duo-engine-gaps/v1",
+  "_comment": "The engine-gap ledger: plugin state shapes the generic grammar could not represent, typed so demand is COUNTABLE. tools/engine-gap-doc.php projects docs/guides/adapter-authoring-limitations.md from this file and `make release-gate` byte-compares the result, so the prose and the data cannot disagree. `primitives` is a CLOSED vocabulary -- the projector refuses a coordinate naming a primitive that is not declared here, and refuses a declared primitive nothing demands. That closure is the whole point: two candidates blocked on the same missing thing must name the SAME primitive id, so the open-demand ranking counts one primitive with two candidates rather than two lookalike wishlist lines. Adding a row is a review act, not a note-to-self: every `closed_by`/`evidence` path is checked to exist on disk, so a closed gap whose implementation moved fails the gate instead of quietly becoming a claim about nothing. CLOSURE IS PER COORDINATE (WP-6.1): `closed_by` sits on the coordinate whose primitive shipped, and a candidate's `disposition` is derived from its coordinates and merely checked -- `closed` exactly when every one of them carries `closed_by`. WP-6.1 forced that split by shipping a primitive that unblocked part of a row and none of the rest, which row-level closure could only state as one of two false sentences.",
+  "primitives": {
+    "structured_post_body_reference_paths": {
+      "title": "structured post-body reference paths",
+      "status": "open",
+      "definition": "Addressing a reference inside a post BODY by a declared path, so a source-local id embedded in structured post_content is rebound rather than carried over verbatim."
+    },
+    "type_preserving_string_id_attr_codec": {
+      "title": "a type-preserving string-id attribute codec",
+      "status": "shipped",
+      "definition": "A block/shortcode attribute codec that resolves an entity id and writes it back in the JSON type it was stored as, instead of normalising every id to an integer.",
+      "evidence": [
+        "agent/src/Grammar/AttrIdCodecGrammar.php",
+        "sandbox/tests/offline/grammar/regress_attr_id_codec_grammar.php"
+      ]
+    },
+    "taxonomy_delete_scope_exercise": {
+      "title": "a complete taxonomy/delete-scope exercise",
+      "status": "open",
+      "definition": "The adversarial matrix that must run before a post-type adapter carrying an authored taxonomy may claim a deletion selector: term-attached state, cascade scope, and residue on a dirty target."
+    },
+    "serialized_column_codec": {
+      "title": "structured typed-table column codecs that decode, tokenize string leaves, and re-encode canonical PHP serialization",
+      "status": "shipped",
+      "definition": "A typed-table column codec that round-trips a PHP-serialized container: decode, tokenize the string leaves, re-encode with correct length prefixes. Distinct from structured_leaf_text_codec because the re-encode half is the hazard -- a tokenized string of a different byte length invalidates the serialization.",
+      "evidence": [
+        "agent/src/Grammar/ColumnCodecGrammar.php",
+        "sandbox/tests/offline/grammar/regress_column_codec_grammar.php"
+      ]
+    },
+    "verified_provider_postcondition": {
+      "title": "a provider whose success is a bounded, verified postcondition rather than an exit-code-only callback",
+      "status": "open",
+      "definition": "Direct writes bypass the side effects a plugin's own save path performs (cache drops, rewrite flushes, execution-file rebuilds). Apply cannot be claimed on a plugin with such a side effect until a provider both performs it and PROVES it, because an exit code proves only that something ran."
+    },
+    "structured_leaf_text_codec": {
+      "title": "an explicit structured-leaf text codec independent of fake reference paths",
+      "status": "open",
+      "definition": "Tokenizing the string leaves of a nested array-valued option that declares no reference, without inventing a reference path to reach them."
+    },
+    "post_apply_registration_boundary": {
+      "title": "a verified post-apply type-registration/process boundary",
+      "status": "open",
+      "definition": "A stated, verified boundary for state that a plugin consumes during `init`: applied definitions do not exist in the process that wrote them, so entity materialization depending on them must be sequenced across processes rather than assumed."
+    },
+    "dynamic_option_name_reference_rule": {
+      "title": "a generic dynamic derived option-name reference rule",
+      "status": "open",
+      "definition": "Widens the shipped `option_name_refs` rule, which captures a numeric ROW id out of the option name, to a name whose dynamic segment is a slug and whose VALUE is the local reference."
+    },
+    "table_scoped_cache_entry_invalidation": {
+      "title": "a cache entry shared by every row of a table, dropped once per apply rather than per row",
+      "status": "open",
+      "definition": "An object-cache entry whose key and group are both literal -- no `{id}` anywhere -- so it is ONE entry the whole table shares rather than one per row. The per-row `{cache_group, cache_key}` verb requires `{id}` in one member and therefore refuses it: with no substitution point every row of the table would name the same entry. This stays recorded rather than admitted because it has exactly ONE demand, which is the same admission rule that let `row_cache_entry_invalidation` in on two. The blanket case was already reviewed into the top-level `actions` channel (manifests/woocommerce.json:307), but that channel has an engine-owned native action for a transient and none for the object cache, so a plugin-owned cache group is still reachable only through a provider."
+    },
+    "composite_ref_identity": {
+      "title": "join-table identity with no scalar primary key (`identity.mode: composite_ref`)",
+      "status": "shipped",
+      "definition": "A pure join table's identity is its two reference columns, not a row id: every identity column is a ref and every ref is an identity column.",
+      "evidence": [
+        "agent/src/Policy/ManifestGrammar.php",
+        "manifests/paid-memberships-pro.json"
+      ]
+    },
+    "option_name_refs": {
+      "title": "an option-name reference rule binding a numeric row id captured from the option NAME",
+      "status": "shipped",
+      "definition": "A top-level `option_name_refs` list whose anchored `match` regex carries exactly one named `(?<id>...)` capture bound to a table id_kind, driving its own name-scan discovery pass.",
+      "evidence": [
+        "agent/src/Grammar/OptionReferenceGrammar.php",
+        "manifests/woocommerce.json"
+      ]
+    },
+    "row_cache_invalidation": {
+      "title": "a per-row `invalidate` declaration that drops a plugin's own derived cache after every apply-time write",
+      "status": "shipped",
+      "definition": "Invalidate rather than rebuild: a plugin whose read site falls through to a fresh read when its cache row is ABSENT needs the row deleted, not reconstructed, and needs no rebuild command to exist.",
+      "evidence": [
+        "agent/src/Apply/TypedTableMaterializer.php",
+        "manifests/ninja-forms.json"
+      ]
+    },
+    "manifest_regenerator": {
+      "title": "a declared regenerator that rebuilds derived tables from applied authored state and fails loudly on a stale row",
+      "status": "shipped",
+      "definition": "An always-on-write `regen_dependency` naming a regenerator file, for derived state where row EXISTENCE is not a sufficient postcondition because a present row can disagree with the authored state that was just applied.",
+      "evidence": [
+        "agent/src/Rebuild/DependencyRegenerator.php",
+        "manifests/regenerators/the-events-calendar.php"
+      ]
+    },
+    "row_cache_entry_invalidation": {
+      "title": "a per-row object-cache ENTRY invalidation, whose key or group carries the row id",
+      "status": "shipped",
+      "definition": "A `tables.<t>.invalidate[]` verb naming one WordPress object-cache entry -- `{cache_group, cache_key}`, with `{id}` substituting the row's resolved local id into either member -- dropped and PROVEN gone after every apply-time write to that row. Distinct from `row_cache_invalidation`, which reaches a cache stored AS a database row (a table row or an option); no DELETE reaches the object cache. Admitted on TWO independent demands and not before: `manifests/providers/paid-memberships-pro-cache.php:92` puts the id on the key side, `manifests/providers/woocommerce-product-lookups.php:1301` puts it on the group side, and it is the second that made the rule '{id} in EITHER member' rather than a transcription of one plugin's spelling.",
+      "evidence": [
+        "agent/src/Policy/ManifestGrammar.php",
+        "agent/src/Apply/TypedTableMaterializer.php"
+      ]
+    }
+  },
+  "candidates": [
+    {
+      "id": "wpforms-lite",
+      "candidate": "WPForms Lite",
+      "versions_probed": [
+        "2.0.0.4",
+        "2.0.0.5"
+      ],
+      "probed_on": "2026-08-22",
+      "disposition": "rejected",
+      "blocked_adapters": [
+        "wpforms"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "post_types.wpforms.body",
+          "cannot_represent": "`wpforms` post content is JSON and includes the form's source-local numeric `id`. `body: \"verbatim\"` preserves the wrong id on a target whose post id differs; it does not provide fidelity.",
+          "primitive_required": "structured_post_body_reference_paths",
+          "remedy_phrase": "structured post-body reference paths"
+        },
+        {
+          "coordinate": "block_attrs.wpforms/form-selector",
+          "cannot_represent": "The `wpforms/form-selector` Gutenberg block persists `formId` as a JSON string. The current block-reference codec accepts `int|int[]` and writes an integer back, changing the stored type even if the identity resolves.",
+          "primitive_required": "type_preserving_string_id_attr_codec",
+          "remedy_phrase": "a type-preserving string-id attribute codec",
+          "closed_by": [
+            "agent/src/Grammar/AttrIdCodecGrammar.php",
+            "sandbox/tests/offline/grammar/regress_attr_id_codec_grammar.php"
+          ]
+        },
+        {
+          "coordinate": "taxonomies.wpforms_form_tag",
+          "cannot_represent": "Forms also use the `wpforms_form_tag` taxonomy. A forms-only post-type draft omits authored plugin state.",
+          "primitive_required": "taxonomy_delete_scope_exercise",
+          "remedy_phrase": "a complete taxonomy/delete-scope exercise"
+        }
+      ],
+      "closing": "The block-selector coordinate closed in WP-6.1 and its `attr_id_codecs` declaration is exercised end to end by `sandbox/tests/offline/grammar/regress_attr_id_codec_grammar.php`; the two above remain. The WPForms site adapter in `docs/grind/adapter-walk.md` remains an authoring and trust-flow fixture only; it is not a platform support claim."
+    },
+    {
+      "id": "redirection",
+      "candidate": "Redirection",
+      "versions_probed": [
+        "5.9.0"
+      ],
+      "probed_on": "2026-08-22",
+      "disposition": "rejected",
+      "blocked_adapters": [
+        "redirection"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "tables.redirection_items.columns.action_data",
+          "cannot_represent": "`redirection_items.action_data` can be a PHP-serialized array containing a target URL. Typed-table authored strings currently pass through `tokenize_text()` as opaque bytes. Replacing a source URL can change its byte length without updating PHP serialization length prefixes, producing invalid data on capture.",
+          "primitive_required": "serialized_column_codec",
+          "remedy_phrase": "structured typed-table column codecs that decode, tokenize string leaves, and re-encode canonical PHP serialization",
+          "closed_by": [
+            "agent/src/Grammar/ColumnCodecGrammar.php",
+            "sandbox/tests/offline/grammar/regress_column_codec_grammar.php"
+          ]
+        },
+        {
+          "coordinate": "providers.redirection-module-flush",
+          "cannot_represent": "Group/item raw writes also bypass `Red_Module::flush()`, so generated module state needs a bounded postcondition rather than an exit-code-only callback.",
+          "primitive_required": "verified_provider_postcondition",
+          "remedy_phrase": "a verified module-flush provider"
+        }
+      ],
+      "closing": "The `action_data` coordinate closed in WP-6.1 — `sandbox/tests/offline/grammar/regress_column_codec_grammar.php` authors this candidate end to end as a `column_codecs` fixture adapter that validates, captures and round-trips. Capture is therefore representable; the module-flush postcondition is not, so no Redirection manifest is shipped and none would claim apply if it were."
+    },
+    {
+      "id": "custom-post-type-ui",
+      "candidate": "Custom Post Type UI",
+      "versions_probed": [
+        "1.19.3"
+      ],
+      "probed_on": "2026-08-22",
+      "disposition": "rejected",
+      "blocked_adapters": [
+        "custom-post-type-ui"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "options.cptui_post_types",
+          "cannot_represent": "`cptui_post_types` and `cptui_taxonomies` are nested authored arrays. The `menu_icon` field may be a site URL, but a plain array-valued option with no reference declaration does not currently tokenize nested string leaves.",
+          "primitive_required": "structured_leaf_text_codec",
+          "remedy_phrase": "an explicit structured-leaf text codec independent of fake reference paths"
+        },
+        {
+          "coordinate": "lifecycle_effects.cptui-init-registration",
+          "cannot_represent": "Duo writes options after WordPress `init`; CPT UI registers its dynamic post types and taxonomies during `init`. Newly applied definitions therefore do not exist in the same process that would need them for entity materialization.",
+          "primitive_required": "post_apply_registration_boundary",
+          "remedy_phrase": "a verified post-apply type-registration/process boundary"
+        },
+        {
+          "coordinate": "option_name_refs[cptui-default-term]",
+          "cannot_represent": "A taxonomy `default_term` produces `default_term_<taxonomy>` with a local term id. The option name is dynamic and the value is derived/reference-shaped; treating it as ordinary authored data would leak a local id.",
+          "primitive_required": "dynamic_option_name_reference_rule",
+          "remedy_phrase": "a generic dynamic derived option-name reference rule"
+        }
+      ],
+      "closing": "Until those exist, no CPT UI manifest is shipped."
+    },
+    {
+      "id": "code-snippets-apply",
+      "candidate": "Code Snippets",
+      "versions_probed": [
+        "3.9.6"
+      ],
+      "disposition": "promotion_blocked",
+      "blocked_adapters": [
+        "code-snippets"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "tables.snippets",
+          "cannot_represent": "typed rows and shortcode refs are representable, but direct table writes bypass the plugin's object-cache cleanup and optional flat-file execution rebuild. `manifests/code-snippets.json` therefore does not claim apply.",
+          "primitive_required": "verified_provider_postcondition",
+          "remedy_phrase": "a bounded postcondition over the plugin's object-cache cleanup and flat-file execution rebuild"
+        },
+        {
+          "coordinate": "tables.snippets.invalidate",
+          "cannot_represent": "Code Snippets' own cleanup drops `wp_cache_delete(Settings\\CACHE_KEY, CACHE_GROUP)` (manifests/providers/code-snippets-state.php:94) -- one settings entry the whole `snippets` table shares, keyed by neither the row nor anything derived from it. WP-6.2's `{cache_group, cache_key}` verb requires `{id}` in one member, so a table-scoped entry still has no declarative spelling and this plugin's object cache stays reachable only through a provider.",
+          "primitive_required": "table_scoped_cache_entry_invalidation",
+          "remedy_phrase": "a table-scoped object-cache invalidation with somewhere engine-owned to live"
+        }
+      ]
+    },
+    {
+      "id": "wps-hide-login-apply",
+      "candidate": "WPS Hide Login",
+      "versions_probed": [
+        "1.9.19"
+      ],
+      "disposition": "promotion_blocked",
+      "blocked_adapters": [
+        "wps-hide-login"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "options.whl_page",
+          "cannot_represent": "both route slugs are representable, but the plugin's own settings path flushes rewrite rules. A clean-target request matrix must establish the required postcondition before apply is claimed.",
+          "primitive_required": "verified_provider_postcondition",
+          "remedy_phrase": "a clean-target request matrix establishing the rewrite-flush postcondition"
+        }
+      ]
+    },
+    {
+      "id": "paid-memberships-pro-join-tables",
+      "candidate": "Paid Memberships Pro",
+      "versions_probed": [
+        "3.8.2",
+        "3.8.3"
+      ],
+      "disposition": "closed",
+      "blocked_adapters": [
+        "paid-memberships-pro"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "tables.pmpro_memberships_pages.identity",
+          "cannot_represent": "`pmpro_memberships_pages` and `pmpro_memberships_categories` are pure join tables: a two-column composite primary key, every identity column a reference, and no scalar row id at all. `identity.mode` admitted only `mapped` and `natural_key`, both of which require a scalar `pk`, so the membership-to-page and membership-to-category relationships stayed honest-intent markers in the manifest rather than declarations.",
+          "primitive_required": "composite_ref_identity",
+          "closed_by": [
+            "agent/src/Policy/ManifestGrammar.php",
+            "manifests/paid-memberships-pro.json"
+          ]
+        }
+      ],
+      "closing": "Closed in DUO-3235 together with the `id_column` meta-table gap from the same round."
+    },
+    {
+      "id": "woocommerce-shipping-zone-methods",
+      "candidate": "WooCommerce",
+      "versions_probed": [
+        "11.0.0"
+      ],
+      "disposition": "closed",
+      "blocked_adapters": [
+        "woocommerce"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "option_name_refs[woocommerce-zone-method-settings]",
+          "cannot_represent": "A shipping zone method stores its settings in an option whose NAME embeds the local zone-method row id (`woocommerce_<method>_<id>_settings`). Options were addressable only by literal name -- the `options` section is an exact whitelist and `option_patterns` drove no discovery scan -- so an option whose name carries a local reference could be neither discovered nor rebound, and shipping zones had no engine path at all.",
+          "primitive_required": "option_name_refs",
+          "closed_by": [
+            "agent/src/Grammar/OptionReferenceGrammar.php",
+            "manifests/woocommerce.json"
+          ]
+        }
+      ],
+      "closing": "Closed in task #93, which graduated shipping zones and tax rates from an intent marker to a declared surface."
+    },
+    {
+      "id": "ninja-forms-form-cache",
+      "candidate": "Ninja Forms",
+      "versions_probed": [
+        "3.14.11"
+      ],
+      "disposition": "closed",
+      "blocked_adapters": [
+        "ninja-forms"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "tables.nf3_forms.invalidate",
+          "cannot_represent": "Ninja Forms caches a form's settings and fields in `nf3_upgrades` plus a legacy `nf_form_<id>` option. An apply-time write to a form's own row left that cache stale, so an id-reused form silently served the PREVIOUS form's settings. The grammar could express the row write but not the derived state the plugin's own save path drops, and Ninja Forms ships no rebuild command (`wp help nf` fails) for an exit-code callback to shell out to.",
+          "primitive_required": "row_cache_invalidation",
+          "closed_by": [
+            "agent/src/Apply/TypedTableMaterializer.php",
+            "manifests/ninja-forms.json"
+          ]
+        }
+      ],
+      "closing": "Closed by reading Ninja Forms' own read site rather than by trial: `ModelFactory` falls through to a fresh `nf3_forms`/`nf3_fields` read the moment the cache row is ABSENT, which is why invalidation is sufficient and a rebuilder was not required to close the gap."
+    },
+    {
+      "id": "the-events-calendar-occurrences",
+      "candidate": "The Events Calendar",
+      "versions_probed": [
+        "6.17.2"
+      ],
+      "disposition": "closed",
+      "blocked_adapters": [
+        "the-events-calendar"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "post_types.tribe_events.regen_dependency",
+          "cannot_represent": "The Events Calendar keeps every event's dates in the derived custom tables `tec_events`/`tec_occurrences`, which capture excludes. Row EXISTENCE was the only postcondition the grammar could state, and an adopted target event can already hold a `tec_occurrences` row whose dates disagree with the applied post meta -- a present-but-stale row that an existence check passes.",
+          "primitive_required": "manifest_regenerator",
+          "closed_by": [
+            "manifests/regenerators/the-events-calendar.php",
+            "manifests/the-events-calendar.json"
+          ]
+        }
+      ],
+      "closing": "Closed in DUO-3234 plus the 2026-08-22 production-readiness stale-row regression; the existence check remains as the generic backstop underneath the regenerator."
+    },
+    {
+      "id": "paid-memberships-pro-level-meta-cache",
+      "candidate": "Paid Memberships Pro",
+      "versions_probed": [
+        "3.8.2",
+        "3.8.3"
+      ],
+      "disposition": "closed",
+      "blocked_adapters": [
+        "paid-memberships-pro"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "tables.pmpro_membership_levels.invalidate",
+          "cannot_represent": "PMPro reads membership-level metadata through get_metadata(), which caches per level id in the `pmpro_membership_level_meta` object-cache group. Duo writes `pmpro_membership_levelmeta` by SQL and fires none of the metadata API's invalidation, so an applied level served its PRE-APPLY meta for as long as that entry lived. `invalidate[]` could delete a table row or an option row but had no verb for an object-cache ENTRY, so the whole repair had to be hook code: one action, one `providers[].source: \"manifest\"` row, and a provider whose entire product act is wp_cache_delete() in a loop -- which alone held the adapter at `compatibility_shim`.",
+          "primitive_required": "row_cache_entry_invalidation",
+          "closed_by": [
+            "agent/src/Policy/ManifestGrammar.php",
+            "agent/src/Apply/TypedTableMaterializer.php",
+            "sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php"
+          ]
+        }
+      ],
+      "closing": "Closed in WP-6.2 by generalising the verb rather than by adopting PMPro's spelling: WooCommerce's `object_<id>`/`lookup_table` drop (manifests/providers/woocommerce-product-lookups.php:1301) is the second independent demand and puts the id on the GROUP side, so the admitted rule is `{id}` in EITHER member. The engine proves the drop with a wp_cache_get() readback, matching the refusal the provider it replaces already raised (paid-memberships-pro-cache.php:96-99) -- an unverified delete would have shipped the stale read in a shorter spelling. The SHIPPED manifest is deliberately not restamped: a byte under manifests/ is adapter identity (AGENTS.md rule 2), so the declarative form is demonstrated on a synthetic fixture derived from those bytes at runtime."
+    }
+  ]
+}

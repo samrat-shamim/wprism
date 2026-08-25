@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
+require_once __DIR__ . '/AttrIdCodecGrammar.php';
 
 /**
  * Structure-aware content rewriting via the official block parser:
@@ -220,8 +221,13 @@ final class Blocks {
         }
         $blocks = parse_blocks($content);
         $rules = $policy->block_attr_rules();
+        // WP-6.1: resolved once beside $rules, never per block, because the two
+        // are one declaration about one block's attribute grammar (see
+        // AttrIdCodecGrammar::rules()) and a per-block lookup would re-walk the
+        // pin set for every block in a post body.
+        $idCodecs = $policy->attr_id_codec_rules();
         $blocks = array_map(
-            fn($b) => self::walk($b, $rules, $tokens, true, $policy, $forceUnresolvedRefs, $postLabel),
+            fn($b) => self::walk($b, $rules, $tokens, true, $policy, $forceUnresolvedRefs, $postLabel, $idCodecs),
             $blocks
         );
         return serialize_blocks($blocks);
@@ -233,10 +239,15 @@ final class Blocks {
         }
         $blocks = parse_blocks($content);
         $rules = $policy->block_attr_rules();
-        $blocks = array_map(fn($b) => self::walk($b, $rules, $tokens, false, $policy, false, ''), $blocks);
+        $idCodecs = $policy->attr_id_codec_rules();
+        $blocks = array_map(
+            fn($b) => self::walk($b, $rules, $tokens, false, $policy, false, '', $idCodecs),
+            $blocks
+        );
         return serialize_blocks($blocks);
     }
 
+    /** @param array<string,array<string,array{id_type:string}>> $idCodecs */
     private static function walk(
         array $block,
         array $rules,
@@ -244,13 +255,30 @@ final class Blocks {
         bool $capture,
         Policy $policy,
         bool $forceUnresolvedRefs,
-        string $postLabel
+        string $postLabel,
+        array $idCodecs = []
     ): array {
-        // parse_blocks() represents whitespace and classic/freeform chunks as
-        // null-name nodes. PHP 8.4 deprecates null array offsets, so normalize
-        // only the dispatch key; the block itself stays byte-faithful.
-        $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
-        $declaredRules = $rules[$name] ?? [];
+        $name = $block['blockName'] ?? null;
+        // Classic (non-block) content parses as a freeform block whose
+        // `blockName` is NULL, and PHP 8.5 deprecates a null array offset —
+        // both sides of the #561 merge fixed this independently (WP-6.1 here,
+        // the whole-block codec change upstream). This copy keeps `$name`
+        // itself null so every warning and IMAGE_CLASS_BLOCKS check reads
+        // exactly as it did, and normalises only the LOOKUP key: no registry
+        // can hold a rule under the empty string.
+        // The `?? null` covers the key being ABSENT rather than null, which is
+        // a distinct shape: `parse_blocks()` always emits the key, but walk()
+        // is reached with hand-built nodes (#561's B0 dispatch probe feeds one
+        // with no `blockName` at all) and a bare read raises "Undefined array
+        // key" there — a warning, which offline_diagnostics_guard.sh rejects.
+        $lookup = is_string($name) ? $name : '';
+        $blockIdCodecs = $idCodecs[$lookup] ?? [];
+        $declaredRules = $rules[$lookup] ?? [];
+        // #561's whole-block codec: a block whose every rule names one codec
+        // is captured/applied by that interpreter as a unit; mixing whole-block
+        // and per-attribute rules refuses. A null-name freeform block has no
+        // registered rules, so $codec stays null there by construction and the
+        // messages below only ever interpolate a real block name.
         $codec = null;
         $codecPaths = [];
         foreach ($declaredRules as $rule) {
@@ -370,6 +398,12 @@ final class Blocks {
                         unset($block['attrs'][$path]); // absence restores WordPress's scalar default
                         continue;
                     }
+                    // WP-6.1's identity round-trip precondition, evaluated
+                    // BEFORE the value is tokenized: apply writes the DECLARED
+                    // stored type, so a source whose type disagrees would come
+                    // back with different bytes even when the id resolved to
+                    // itself. See AttrIdCodecGrammar::assert_source_type().
+                    AttrIdCodecGrammar::assert_source_type($v, $blockIdCodecs, $path, $name);
                     $tok = $kind === 'user'
                         ? $tokens->user_id_to_token((int) $v)
                         : $tokens->id_to_token((int) $v, $kind);
@@ -400,9 +434,16 @@ final class Blocks {
                         (array) $v
                     );
                 } else {
-                    $block['attrs'][$path] = $kind === 'user' && is_string($v) && str_starts_with($v, 'user:')
+                    // WP-6.1: the ONE place the resolved id's JSON type is
+                    // decided. With no codec declared this is `(int) $v` byte
+                    // for byte, which is what every rule did before; with
+                    // `id_type: "string"` the id goes back as the string the
+                    // plugin stores, so a round trip that substituted nothing
+                    // reproduces the block's bytes exactly.
+                    $resolved = $kind === 'user' && is_string($v) && str_starts_with($v, 'user:')
                         ? $tokens->user_token_to_id($v)
                         : (is_string($v) && str_starts_with($v, '{{') ? $tokens->token_to_id($v) : (int) $v);
+                    $block['attrs'][$path] = AttrIdCodecGrammar::encode_id($resolved, $blockIdCodecs, $path);
                 }
             }
         }
@@ -507,7 +548,7 @@ final class Blocks {
         // it shipped.
         if (!empty($block['innerBlocks'])) {
             $block['innerBlocks'] = array_map(
-                fn($b) => self::walk($b, $rules, $tokens, $capture, $policy, $forceUnresolvedRefs, $postLabel),
+                fn($b) => self::walk($b, $rules, $tokens, $capture, $policy, $forceUnresolvedRefs, $postLabel, $idCodecs),
                 $block['innerBlocks']
             );
         }

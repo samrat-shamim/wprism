@@ -1,0 +1,899 @@
+{
+ "format": "duo-platform-move-gates/v1",
+ "about": "The reviewed register of every site the identity-comparison predicate selects. sandbox/tests/offline/guards/regress_platform_move_gates.php owns the predicate and its documentation; this file is the answer it compares against, so a site that appears in the tree and not here fails the offline gate. `verdict` is a reviewed judgement, never a mute button: `carrier` and `derivation` still appear, each with the reason it cannot refuse and the gate that does. `exclusions` is the other half of that discipline — the sites the predicate deliberately DROPS, each with the reason and the registered gate that answers for it, so \"why isn't X here?\" has a written answer the gate keeps true.",
+ "verdicts": {
+  "gate": "a moved platform boundary, manifest identity or authority record can make this site refuse, block, or return a blocker row",
+  "carrier": "the site reads or emits the identity value but compares nothing; `note` names the gate that refuses",
+  "derivation": "the site COMPUTES the identity value — it is the source of the move, not a check on it"
+ },
+ "axes": {
+  "manifest": "ArtifactPolicyIdentity::manifest_rows() and everything hashed from it: manifest_hash, adapter digests, resolved_adapters, the reviewed disposition folded into each row",
+  "platform": "manifests/capabilities/platform.json — the boundary certificates and attestations sign against",
+  "authority": "manifests/capabilities/adapter-authorities.json (shipped) and adapters/authorities.json (site) — the Ed25519 trust roots"
+ },
+ "anchors": [
+  "agent/src/Adapter/AdapterCertification.php::verifyCertificate",
+  "agent/src/Policy/Policy.php::from_snapshot",
+  "agent/src/Policy/ScopeContract.php::assert_associated",
+  "agent/src/Promotion/Deploy.php::run",
+  "agent/src/Repository/CompiledArtifactReader.php::read_artifact",
+  "agent/src/Repository/IdentityBackup.php::restore",
+  "agent/src/Scope/ScopedApplySession.php::assert_source",
+  "cli/src/Refresh/RefreshPlan.php::assertProductionCodeMatches",
+  "recovery/CheckpointBundle.php::validatePriorVerification"
+ ],
+ "exclusions_are": "A site that exists in agent/, cli/ or recovery/, that a reviewer of a manifests/ change would plausibly expect to find in `sites`, and that the predicate does not select. The suite asserts each one still exists, still resolves to exactly one unit, is still NOT selected, and is not also registered — so widening an arm until one of these is selected fails the gate instead of passing unnoticed. `arm` records WHICH half of the predicate dropped it: `identity` means no token on the manifest/platform/authority axes, `decision` means the unit references an axis but compares nothing.",
+ "exclusions": [
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::verifyFrozen",
+   "arm": "identity",
+   "reason": "The frozen re-verification entry point. The only value it compares is the envelope's certificate_sha256 against hash('sha256', $raw) — a digest over the certificate BYTES, which is not one of the three axes. Every axis check is delegated to verifyCertificate(), registered here as an anchor gate; selecting both would record one refusal under two names and hide which of them actually refuses."
+  },
+  {
+   "site": "agent/src/Init/InitPlanner.php::assert_confirmed_proposal",
+   "arm": "identity",
+   "reason": "Refuses \"duo: init proposal changed before confirmation\" on a hash_equals against $proposal['digest'] — a digest over the WHOLE adoption proposal, not a manifest hash. A manifest move does move that digest, but it does so through proposal_bound(), which is registered as the carrier that stamps every adapter_digest into the proposal. Widening arm 1 from `adapterdigest` to a bare `digest` to absorb this one site is the measured 76-to-198 explosion the suite header records."
+  },
+  {
+   "site": "agent/src/Policy/ArtifactPolicyIdentity.php::manifest_hash",
+   "arm": "decision",
+   "reason": "AGENTS.md rule 2 cites this at :127 as the definition of manifest identity, so a reviewer will look for it here first. Arm 1 hits (it names manifest_rows); arm 2 does not, because the body is one expression — hash('sha256', Canon::encode(self::manifest_rows($policy))) — with no operator, throw or guard call. It is the move, not a check on it, and the derivation verdict is recorded on manifest_rows, whose output this hashes."
+  },
+  {
+   "site": "agent/src/Policy/ArtifactPolicyIdentity.php::resolved_adapters",
+   "arm": "decision",
+   "reason": "Rule 2's other cited line (:147, where each adapter's `digest` is that one row hashed). Dropped for the same reason as manifest_hash: arm 1 hits on manifest_rows, arm 2 finds nothing because the body builds rows and compares none of them. Its comparisons live downstream, at PinResolver::validate_manifest_pins and CompiledArtifactReader::read_artifact, both registered as gates."
+  },
+  {
+   "site": "agent/src/Policy/ArtifactPolicyIdentity.php::site_hash",
+   "arm": "identity",
+   "reason": "Site identity is a fourth axis this register deliberately does not carry: a site.duo.json move is a different change class from a manifests/ move, and it has its own refusal — compiled_artifact_policy_mismatch, \"compiled site policy does not match the active site.duo.json\", raised by the registered CompiledArtifactReader::read_artifact in the block immediately above the manifest one (:38-43 against :44-49). Adding a site axis here would widen the register to answer a question nobody asked of it."
+  },
+  {
+   "site": "agent/src/Policy/PlatformCompatibility.php::assert_supported",
+   "arm": "identity",
+   "reason": "The likeliest reviewer question on the platform axis, and the distinction worth writing down: this checks the SITE's runtime (WordPress, PHP, database, site_mode) against the version ranges the boundary DECLARES — it is not a check on the boundary document's identity. Its tokens are $platform/$facts/$compatibility, none of which carries an axis stem. The two refusals on the document itself are assert_boundary_shape (platform_boundary_invalid) and Policy::assert_supported_platform, which calls this one; both are registered as gates."
+  }
+ ],
+ "sites": [
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::assertAuthoritiesEnvelope",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "refuses \"envelope signature does not verify under key '<id>'\" for a duo-adapter-authorities/v2 document: the signature covers {format, keys} whole, so appending a key, widening a scope list or moving a window in a signed registry refuses. Unreachable for a v1 document, which carries no envelope signature at all."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::assertAuthorityBinding",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "refuses \"certification authority/key/fingerprint/trust root does not match the current <root> authority record\"; BOTH roots bind the key IDENTITY (everything but adapter_names/trust_tiers) since WP-4.8, because a trust root grows under an operator's hand at every enrollment and whole-record binding would re-invalidate every earlier certificate under that key. The two scope lists are enforced live by assertAuthorityScope() instead."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::assertKeyIdBindsKeyMaterial",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "refuses a v2 key id that does not end in the first 12 hex of sha256(its own public_key). It is the authority axis read from the identity end: the id and the key material are one fact, so swapping either refuses. v1 records never reach it."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::assertKeyIdNotPlatformOwned",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the shipped authority file wins the key-id namespace: a site trust root claiming a reviewed key id refuses. Needs no repository at all, which is why the frozen path can still run it."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::assertNotRevoked",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "refuses \"authority key '<id>' is revoked by the platform-signed revocation record at capabilities/adapter-revocations.json\" when the typed out-of-band document (spec/repo-format.md § v3.8, WP-4.9) names the selected key's fingerprint and its effective_at has arrived. It is the ONE seat that reaches an already-frozen snapshot for a site-rooted key, because that document is agent-owned where the site's own adapters/authorities.json is not; its sentence states that distinction, so the operator-own-key asymmetry stays legible rather than silently closed."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::assertPlatformBinding",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "WP-4.7 (spec/repo-format.md § v3.6). THE platform gate on the certificate path, and the successor to the whole-record hash_equals() that used to sit inline in verifyCertificate (still the anchor, and still the caller). It re-binds a signed statement to the boundary installed now on four questions and no fifth: spec_version, site_mode, a bound compatibility axis the boundary no longer declares, and a bound CELL the boundary no longer carries or now states differently. Coverage the boundary GAINED refuses nothing, which is the whole change -- an agent release that moves no exercised cell no longer withdraws every certificate on the fleet. The per-axis rule it applies lives in platformAxisCells(), which compares nothing and is registered nowhere for that reason."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::authority",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "resolves a key id against the shipped capabilities/adapter-authorities.json first and the site adapters/authorities.json second; a key removed from the shipped file stops resolving for every certificate under it."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::authorityKeys",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "refuses an authority document whose root is not duo-adapter-authorities/v1, that is a symlink, or whose key map carries a numeric-coerced id — the shape gate every other authority read depends on."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::currentPlatform",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "refuses \"agent capability platform boundary disagrees with the loaded agent\" on an agent_version/spec_version/site_mode divergence. It hands back BOTH shapes of the boundary: the typed object, whose canonicalHash is what ContractAttestation::currentPlatformDigest() computes, and the decoded array the § v3.6 axis binding and the projected claim read cell by cell."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::derivedDisposition",
+   "axes": [
+    "authority",
+    "platform"
+   ],
+   "verdict": "derivation",
+   "note": "builds the disposition a verified certificate installs, carrying the authority record digest and the exercised-axes digest verifyCertificate() has already proved. It COMPUTES identity rather than checking it: this object is folded into the adapter digest a site.duo.json pin binds (ArtifactPolicyIdentity::manifest_rows()), so a member added or renamed here moves the pinned digest of every site-certified adapter on every fleet. WP-5.2 (spec/repo-format.md § v3.16) gave it its only operator, and it is a presence test on the optional evidence.reviewer member rather than an identity comparison — the member is OMITTED when a bundle names no reviewer precisely so that every certificate minted before that rider keeps its exact digest. The refusals are upstream: assertPlatformBinding() and assertAuthorityBinding()."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::platformStatement",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "derivation",
+   "note": "WP-4.7. The MINT side of the same rule: it derives statement.platform -- the exercised cells a certificate binds -- out of the current boundary, narrowed through ManifestDispositions::narrowed_environment() so a § v3.5 adapter binds its NARROWED cells and a widening declaration refuses before a signature byte exists. Compares nothing, which is why it is a derivation; but what it derives is inside the signature and inside the adapter digest a pin binds, so a change here moves identity for every certificate minted afterwards."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::projectClaim",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "carrier",
+   "note": "projects the source-scoped claim out of the disposition derivedDisposition() just built, platform_axes_sha256 included, and refuses nothing about it. WP-5.2 added a presence test on the optional certification.reviewer member (spec/repo-format.md § v3.16), which decides whether one fact is emitted and compares no identity value. The refusal is AdapterCertification::verifyCertificate, which has already run by the time this is reached."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::revocations",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the reader for capabilities/adapter-revocations.json: refuses an unsupported root, a revocation version it does not implement, a signer the SHIPPED platform root does not carry, a revoked signer, and a signature that does not verify. A file that exists and is not a readable signed document REFUSES rather than reading as an absent one -- laundering unreadable revocation bytes into \"no revocations\" would make deleting a signature the cheapest way to un-revoke a burnt key. Absence itself is a legitimate answer and is the shipped state."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::sign",
+   "axes": [
+    "authority",
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "the mint path resolves the key through authority() and binds currentPlatform() before Ed25519 runs, so a revoked key or a moved boundary refuses to produce a certificate at all."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::signAuthorities",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the one shipped producer of a signed duo-adapter-authorities/v2 registry. Validates every record through validateAuthorityRecord() and refuses a key the document does not carry, or a private key that is not that record's own, before a signature byte exists — so a registry that could not be READ can never be signed."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::sign_site",
+   "axes": [
+    "authority",
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "same mint gate for the site trust root; additionally refuses an empty operator reason, because a site claim with no stated basis is the thing the site root exists to avoid."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::validateAuthorityRecord",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the record grammar itself, with two closed key sets selected by the record's own record_version: the shipped six at v1, the nine of R-18 at v2. Refuses a record version this agent does not implement BY VERSION rather than reading it as a v2 record with unexpected members."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::verifyCertificate",
+   "axes": [
+    "platform",
+    "authority",
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "ANCHOR. Owns the certificate verdict and calls the three gates that decide it -- assertAuthorityBinding, the Ed25519 signature, and (since WP-4.7) assertPlatformBinding, which is where the platform refusal now lives. Until § v3.6 the platform comparison was inline and covered the WHOLE platform.json, so one byte invalidated every signed adapter certificate on the fleet; it now names the axis and the cell that moved. Carries the one asymmetry between the two roots: a frozen site-rooted certificate is re-bound to the authority record the SIGNATURE covers because verifyFrozen() reopens no mutable site file."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::verifyDelegation",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the depth-1 delegation verifier (spec/repo-format.md § v3.8, WP-4.9). Refuses a delegator that is itself a delegate BY NAME, a delegator absent from the shipped platform root, a claimed site trust root, a delegator fingerprint that is not the current record's, a revoked delegator on either revocation channel, and any grant that widens its delegator's adapter_names, trust_tiers or window. It is on the authority axis in both directions: it READS the shipped authority record to bind the delegator, and it MINTS the derived record a delegated certificate is then judged against."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterRegistry.php::capability_claim",
+   "axes": [
+    "platform",
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "projects one shipped claim through ManifestDispositions::platform_boundary(); returns null rather than refusing. The refusal is platform_boundary() itself."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterRegistry.php::capability_report",
+   "axes": [
+    "manifest",
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "returns ready:false plus a blocker row when the library has no reviewed registry, and otherwise delegates to report(); a disposition move flips ready."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterRegistry.php::certification_readiness_blockers",
+   "axes": [
+    "manifest",
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "the promote-operation blocker list; a moved disposition or manifest row turns an allowed promotion into a blocked one without any exception being thrown."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterRegistry.php::provider_readiness_blockers",
+   "axes": [
+    "manifest",
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "the same blocker projection narrowed to the provider actions a plan actually selected, so an unrelated declaration cannot block a plan it cannot execute on."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterRegistry.php::report",
+   "axes": [
+    "manifest",
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "the one capability projection every readiness caller funnels through; binds each row to platform_boundary() and emits the blockers that stop promotion."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterSources.php::certification_evidence",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "carrier",
+   "note": "projects the certified evidence (platform_sha256 included) into an inventory row and deliberately keeps null and [] apart; compares nothing. The refusal is AdapterCertification::verifyCertificate."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterSources.php::survey",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "G2-FIXES C2. Asks AdapterCertification::revocation_channel() once per survey and returns a LIBRARY-scoped refusal row for the two states an operator cannot otherwise see: an installed typed revocation document whose signer the shipped root does not carry (revocation_channel_inert — its entries do not apply, so a document an operator believes in grants nothing), and one that exists and does not verify (revocation_channel_unreadable — a refusal a site holding no certificate would never otherwise reach, because revocations() is read from the certificate path alone). A blocker row rather than a thrown refusal: SCOPE_LIBRARY is not in blocking_refusals(), so no adapter's grammar verdict is suppressed, and `duo adapter doctor` / `wp duo adapter-survey` still exit 1. The hard refusals for a tampered document stay AdapterCertification::revocations()."
+  },
+  {
+   "site": "agent/src/Apply/ApplyRequestCoordinator.php::plan",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "emits resolved_adapters into the plan. Apply's refusal on a moved manifest is upstream, at CompiledArtifactReader::read_artifact."
+  },
+  {
+   "site": "agent/src/Apply/ApplyRequestCoordinator.php::run",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "stamps the compiled manifest_hash into the apply summary; same upstream refusal as plan()."
+  },
+  {
+   "site": "agent/src/Assess/AssessInventory.php::from_facts",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "the `duo assess` inventory projection; reports manifest rows, refuses nothing about them."
+  },
+  {
+   "site": "agent/src/Assess/AssessInventory.php::manifest_rows",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "derivation",
+   "note": "re-projects RepositoryCompiler::resolved_adapters() into assess rows so one derivation answers every source; computes the digest it reports, never compares it."
+  },
+  {
+   "site": "agent/src/Code/Code.php::assert_source_compatibility",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "hands the compiled resolved_adapters to CodeCompatibility::assert_source, which is where the refusal lives."
+  },
+  {
+   "site": "agent/src/Code/CodeCompatibility.php::assert_source",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "refuses \"code source compatibility failed (N blocking diagnostic(s)); no target code was staged\" — a manifest version_range move can make already-staged code unmaterializable."
+  },
+  {
+   "site": "agent/src/Code/CodeCompatibility.php::diagnostics",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "builds the diagnostic rows assert_source refuses on; produces the verdict, does not enforce it."
+  },
+  {
+   "site": "agent/src/Code/CodeCompatibility.php::theme_version_diagnostics",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "the theme_version_range half of diagnostics(); same reason."
+  },
+  {
+   "site": "agent/src/Code/CodeCompatibility.php::version_diagnostics",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "the plugin version_range half of diagnostics(); same reason."
+  },
+  {
+   "site": "agent/src/Command/Cli.php::capabilities",
+   "axes": [
+    "manifest",
+    "platform"
+   ],
+   "verdict": "carrier",
+   "note": "prints each row's adapter_digest for `wp duo capabilities`; the refusals it can surface belong to AdapterRegistry::report."
+  },
+  {
+   "site": "agent/src/Command/Cli.php::compile",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "prints the artifact/revision/manifest hashes the compile produced; RepositoryCompiler::run derived them and CompiledArtifactReader::read_artifact is what later compares them."
+  },
+  {
+   "site": "agent/src/Init/InitPlanner.php::load_selected_policy",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "walks the discovered policy's resolved adapters to build capability blocker rows for the adoption preview."
+  },
+  {
+   "site": "agent/src/Init/InitPlanner.php::proposal_bound",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "stamps every adapter's digest and reviewed status into the adoption proposal. The staleness refusal is InitPlanner::assert_confirmed_proposal, which compares a digest over the WHOLE proposal — not a manifest hash, so the predicate does not select it; this entry is the reader's pointer to it."
+  },
+  {
+   "site": "agent/src/Policy/ArtifactPolicyIdentity.php::manifest_rows",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "derivation",
+   "note": "AGENTS.md rule 2's definition of adapter identity: folds each manifest's JSON, its disposition, and hash_file() of every interpreter/provider/regenerator it names. Every gate on the manifest axis is comparing this function's output; it is the move itself."
+  },
+  {
+   "site": "agent/src/Policy/ManifestDispositions.php::narrowed_environment",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "WP-4.6 (spec § v3.5): a spec_version 3 adapter declares the boundary cells it was exercised on, and this refuses \"an adapter may narrow the reviewed environment, never widen it\" for any cell platform.json does not carry. So it is a platform-move gate in the second direction the register cares about: DROPPING an exercised series or an engine from platform.json turns a previously honoured narrowing into a named refusal at claim projection. It gates the CLAIM only -- PlatformCompatibility::assert_supported() takes no manifest and reads no claim, so no runtime assertion moves with it."
+  },
+  {
+   "site": "agent/src/Policy/ManifestDispositions.php::platform_boundary",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "refuses \"platform version disagrees with the loaded agent\" the moment platform.json and agent/duo.php's DUO_AGENT_VERSION / DUO_SPEC_VERSION diverge — the rule-8 pairing that makes those two files move together or not at all."
+  },
+  {
+   "site": "agent/src/Policy/PinResolver.php::validate_manifest_pins",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "refuses \"manifest '<name>' digest mismatch: expected <pin>, actual <resolved>\" by comparing each site.duo.json content pin against RepositoryCompiler::resolved_adapters(). One documented concession, and only one: a `source:site` pin on an adapter that is no longer certified is the edit-then-uncertified path, and it can never read as certified because bind_explicit_pins() gates elevation on is_certified()."
+  },
+  {
+   "site": "agent/src/Policy/PlatformCompatibility.php::assert_boundary_shape",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "raises CommandRefusalException platform_boundary_invalid — a typed refusal with remediation \"restore the reviewed manifests/capabilities/platform.json bytes\" — rather than falling back to a bare boundary."
+  },
+  {
+   "site": "agent/src/Policy/Policy.php::assert_supported_platform",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "runs PlatformCompatibility::assert_supported() against a REAL loaded target only (ABSPATH + WPINC + get_bloginfo all defined), so offline fixtures do not trip it and a live site cannot escape it."
+  },
+  {
+   "site": "agent/src/Policy/Policy.php::from_snapshot",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "ANCHOR. Frozen-snapshot rehydration re-validates: each manifest against its site pin by name and order, provenance through AdapterSources::from_snapshot(), then the reviewed dispositions against the shipped subset. duo-policy-snapshot/v4 is refused BY NAME because its source record granted shipped authority without proving bytes."
+  },
+  {
+   "site": "agent/src/Policy/Policy.php::load_with",
+   "axes": [
+    "platform",
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "the body every ordinary command reaches through load(): assert_supported_platform() before the first repository read, then AdapterSources::discover() refusing ambiguous or shadowing adapter identity before a single pin resolves. WP-1.3 moved the body here so a read-only survey can supply one already-resolved library (load_from_scan) instead of re-discovering per surveyed adapter; the gate, its order and its sentences are unchanged, and a supplied library is refused outright when it names a different manifest directory."
+  },
+  {
+   "site": "agent/src/Policy/ScopeContract.php::assert_associated",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "ANCHOR. Refuses \"scope contract is not associated with this exact compiled artifact/policy\", then recomputes the whole canonical contract so a caller cannot drop a closure row, re-hash, and keep the association."
+  },
+  {
+   "site": "agent/src/Policy/ScopeContract.php::assert_source",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "the shape half: a contract source missing or malforming manifest_hash is refused before any association comparison can be attempted."
+  },
+  {
+   "site": "agent/src/Policy/ScopeContract.php::resolve",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "writes the compiled manifest_hash into the contract's source block; assert_associated() is what later compares it."
+  },
+  {
+   "site": "agent/src/Promotion/Deploy.php::run",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "ANCHOR. Promotion reads the compiled artifact through RepositoryCompiler::read_artifact(), so compiled_artifact_manifest_mismatch surfaces here on a live site; it then pins the operator's expected artifact_hash and re-verifies the lock-held artifact, both of which a manifest move moves."
+  },
+  {
+   "site": "agent/src/Repository/CompiledArtifactReader.php::read_artifact",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "ANCHOR. compiled_artifact_manifest_mismatch — \"compiled manifest/interpreter set does not match active pins\". The refusal AGENTS.md rule 2 quotes as the fleet-visible consequence of one byte under manifests/."
+  },
+  {
+   "site": "agent/src/Repository/IdentityBackup.php::create",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "stamps repository_revision / site_hash / manifest_hash into the sidecar; restore() is the comparison."
+  },
+  {
+   "site": "agent/src/Repository/IdentityBackup.php::restore",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "ANCHOR. Refuses \"identity sidecar manifest_hash does not match the active repository\" before the import transaction opens, so a sidecar taken against a different manifest set cannot be half-applied."
+  },
+  {
+   "site": "agent/src/Repository/RepositoryCompiler.php::run",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "derivation",
+   "note": "writes manifest_hash and resolved_adapters into the compiled artifact. This is where a manifest move becomes a new artifact identity that every gate downstream then disagrees with."
+  },
+  {
+   "site": "agent/src/Review/PlanExplanation.php::adaptersFor",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "reads the compiled resolved_adapters to attribute each explained action to its adapter."
+  },
+  {
+   "site": "agent/src/Review/PlanExplanation.php::build",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "reports manifest_sha256 in the explanation envelope; explaining a plan refuses nothing about identity."
+  },
+  {
+   "site": "agent/src/Review/RefreshExport.php::payload",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "exports manifest_hash and resolved_adapters so the CLI side can compare them; the comparison is RefreshPlan::assertProductionCodeMatches."
+  },
+  {
+   "site": "agent/src/Scope/ScopedApplyCoordinator.php::authority",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "mints the scoped mutation authority carrying manifest_hash; ScopedApplySession::assert_source is the gate on the way back in."
+  },
+  {
+   "site": "agent/src/Scope/ScopedApplySession.php::assert_source",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "ANCHOR. A scoped mutation authority whose source omits or malforms manifest_hash is refused before any lease or target check runs — the scoped path's shape gate on manifest identity."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterCatalog.php::render_adapter",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "carrier",
+   "note": "prints platform_sha256 from a certified claim in `duo adapter` output."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterCertify.php::certify",
+   "axes": [
+    "authority",
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "the operator mutation boundary: verifies the whole imported bundle against the site trust root before signing, and restores adapters/authorities.json on any failure."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterCertify.php::keygen",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "carrier",
+   "note": "names adapters/authorities.json in operator guidance only; it writes a keypair and compares nothing. Registration and its refusals are registerAuthority()."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterCertify.php::pinObject",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "derivation",
+   "note": "emits the copy-pasteable site.duo.json pin from resolved_adapters — the remedy side of PinResolver::validate_manifest_pins, not a check."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterCertify.php::registerAuthority",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "refuses a symlinked or non-duo-adapter-authorities/v1 site trust root, a key id already registered, and a revoked key — the site root's write gate."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterDistribution.php::enrolledFingerprints",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "reads the installing repository's own adapters/authorities.json through AdapterCertification::assert_site_authorities(), which refuses a malformed trust root WHOLE before any package resolves — the same posture the certification scan takes on the same file, and for the same reason: an operator who wrote an authorities file believes their adapters are certifiable, so reporting that belief as one adapter's `not enrolled` would be silence. The fingerprint set it derives is compared one level up, in resolveVerified."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterDistribution.php::resolveVerified",
+   "axes": [
+    "authority",
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "the install ladder (spec/repo-format.md § v3.19). Refuses [authority_not_enrolled] when the fingerprint an index names is carried by no record in this repository's root, and [authority_fingerprint_mismatch] when the certificate verifies under a DIFFERENT enrolled key — an enrolled key is not automatically the right key. It holds no revocation, window or boundary opinion of its own: a revoked key, a lapsed v2 not_after and a moved manifests/capabilities/platform.json all reach it as AdapterCertification::verifyFile() throwing, and are surfaced with the engine's own withdrawal tag rather than re-judged here."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterDistribution.php::staging",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "carrier",
+   "note": "copies the repository's adapters/authorities.json and adapters/delegations.json into a throwaway root, so an unverified package is judged without being written into the repository first. It compares nothing and its throws are IO faults about the staging directory; the trust decision those bytes carry is taken by resolveVerified above, through verifyFile()."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterProposals.php::declaredPair",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "compares Canon::encode() of the manifest's version_range against the disposition's supported_versions.range — the same two manifest-identity inputs ArtifactPolicyIdentity::manifest_rows() folds — and returns a declared_pair_disagrees blocker row when they differ, because a library ManifestDispositions::validate_entry() already refuses has no base to propose an edit onto."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterProposals.php::project",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "derivation",
+   "note": "COMPUTES the proposed version_range and compares its canonical bytes against the declared one only to classify the row as proposed or no_change; it refuses nothing. The gates on what it derives are declaredPair() and proposedEdits() beside it, and the reviewed human edit the document exists to feed — nothing here writes a manifest byte."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterProposals.php::proposedEdits",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "throws rather than emit a proposal whose two edits disagree on canonical bytes — exactly the comparison ManifestDispositions.php:632-637 makes at load time, so a review packet can never carry a pair that would brick the library it is applied to."
+  },
+  {
+   "site": "cli/src/Adapter/MigrationPreflight.php::certificates",
+   "axes": [
+    "platform",
+    "manifest",
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "`duo adapter doctor --migration`'s certificate half. It does not own a refusal -- AdapterCertification::verifyCertificate (an anchor here) owns it -- but it CLASSIFIES that refusal into the blast radius: a StalePlatformSiteAdapterCertificate becomes four predicted invalidation rows (the withdrawal, the certificate-derived digest, and this site's manifest_hash and revision_hash), and an outcome this preflight has no reviewed migration answer for becomes an `unclassified` row that makes a green verdict impossible. It also answers the authority axis by ID: whether the signing key id is reachable in the site or platform trust root, over identifiers, never over key bytes."
+  },
+  {
+   "site": "cli/src/Adapter/MigrationPreflight.php::identity",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "the held-versus-target comparison of the four identity values (artifact_hash, manifest_hash, revision_hash, site_hash) plus each resolved adapter digest. Both halves are gate outputs -- CompiledRepository::from_array() for the held document, RepositoryCompiler::compile() for the target -- and a moved value becomes a predicted invalidation row rather than a refusal, because a preflight's job is to enumerate the bump BEFORE it happens. The refusal an operator meets on the deployed site is CompiledArtifactReader::read_artifact()'s, called here and reported with its own reason code."
+  },
+  {
+   "site": "cli/src/Adapter/MigrationPreflight.php::render",
+   "axes": [
+    "platform",
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "the human renderer. It PRINTS platform_sha256, registry_sha256 and the four identity values and compares none of them -- every verdict on the page was decided by report(), certificates() and identity() above, which are the gates. Registered so a comparison added to the renderer is a reviewed change and not an invisible second opinion."
+  },
+  {
+   "site": "cli/src/Adapter/MigrationPreflight.php::report",
+   "axes": [
+    "platform",
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "where the preflight's own verdict is decided. It observes the target platform digest (ContractAttestation::currentPlatformDigest) and the reviewed registry hash (ManifestDispositions::sha256), assembles every sub-verdict, and its `match(true)` resolves status to refused/unclassified/moves/ok -- only `ok` exits 0. An unclassified certificate or pin shape can never reach `ok`, which is the refuse-to-classify posture this verb exists to hold."
+  },
+  {
+   "site": "cli/src/Adapter/MigrationPreflight.php::snapshot",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "the frozen half: Policy::from_snapshot() re-derives a promoted site's certificates against the boundary now installed, so resolved_adapters()/is_certified() on the rehydrated policy report a claim the bump withdraws while the frozen record still says certified. That difference becomes a frozen_certificate_withdrawn invalidation row; a snapshot the target cannot rehydrate at all becomes an `unclassified` row rather than a clean one."
+  },
+  {
+   "site": "cli/src/Adapter/SpecMigration.php::recertify",
+   "axes": [
+    "platform",
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "WP-4.12's remedy verb, and the only write the flag day asks an operator to perform. It re-signs every certified site adapter against the boundary NOW installed, under the key each certificate already names, and verifies each result through the live verifier before claiming it -- a producer that trusted its own bytes would leave the one certificate nobody checked in the repository. Two gate properties, both measured by regress_spec_migration_verbs.php: it is idempotent by REUSE rather than by a flag (sign_site() returns the existing bytes with their original created_at when a deterministic re-sign is byte-identical, AdapterCertification.php:1096-1126), and it is ALL-OR-NOTHING -- adapters/authorities.json and every certificate file are staged before the first signature and restored on any failure, because a partial re-signing leaves some adapters bound to the new boundary and some to the old with no single command that reports which. A certificate under a different key is a blocked row naming that key id, never a silent skip."
+  },
+  {
+   "site": "cli/src/Assess/AssessReport.php::proposalSeed",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "carries each adapter_digest into the assess proposal seed."
+  },
+  {
+   "site": "cli/src/Assess/FleetCensus.php::library",
+   "axes": [
+    "manifest",
+    "platform"
+   ],
+   "verdict": "derivation",
+   "note": "census's coverage oracle: re-runs ManifestDispositions::platform_boundary()+load() over the library it was pointed at and projects reviewed-claim credit from the result; refuses census_library_unreadable on a broken library but compares no stored identity against the current tree — the boundary equality that CAN fire inside it is platform_boundary()'s own registered gate, not a second one here."
+  },
+  {
+   "site": "cli/src/Assess/StackInventory.php::adapters",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "reports the pinned adapter_digest per stack row; the pin comparison is PinResolver::validate_manifest_pins."
+  },
+  {
+   "site": "cli/src/Command/ContractCommand.php::attest",
+   "axes": [
+    "authority",
+    "platform"
+   ],
+   "verdict": "carrier",
+   "note": "the operator entry point: signs, then re-verifies through ContractAttestation::verify() and stages capabilities/adapter-authorities.json. Its own output states the consequence — an agent upgrade moves the boundary this attestation binds and every consumer refuses until re-attested."
+  },
+  {
+   "site": "cli/src/Command/MergeCheckCommand.php::render",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "prints manifest_hash in the merge-check coherence line."
+  },
+  {
+   "site": "cli/src/Contract/ApplicationContract.php::validateDeclarations",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "refuses a contract adapter pin whose key set is not exactly {name, source, adapter_digest} or whose digest is empty — the contract cannot name an adapter without binding its identity."
+  },
+  {
+   "site": "cli/src/Contract/ContractAttestation.php::authorities",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "refuses an authorities document that is not duo-adapter-authorities/v1; the shipped file ships empty, so an unregistered key is the default state rather than an accident."
+  },
+  {
+   "site": "cli/src/Contract/ContractAttestation.php::currentPlatformDigest",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "refuses when capabilities/platform.json is absent or untyped (\"run this command from a complete duo checkout\"); the TYPED decode whose canonical hash every attestation binds."
+  },
+  {
+   "site": "cli/src/Contract/ContractAttestation.php::refuseAuthorities",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the typed refusal envelope for an unreadable/invalid authorities document, naming the trust-root path in its remediation."
+  },
+  {
+   "site": "cli/src/Contract/ContractAttestation.php::refuseKeyRevoked",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the typed refusal envelope for a revoked key: revocation refuses, it does not silently downgrade to unsigned."
+  },
+  {
+   "site": "cli/src/Contract/ContractAttestation.php::refuseKeyUnknown",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the typed refusal envelope for a key id absent from the trust root."
+  },
+  {
+   "site": "cli/src/Contract/ContractAttestation.php::refuseUnsignedAnchor",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the typed refusal envelope for a contract with no attestation at all."
+  },
+  {
+   "site": "cli/src/Contract/ContractAttestation.php::registerAuthority",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the write gate on capabilities/adapter-authorities.json: format, key-id shape and re-registration are all refusals."
+  },
+  {
+   "site": "cli/src/Contract/ContractAttestation.php::sign",
+   "axes": [
+    "platform",
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "binds currentPlatformDigest() into attestation.platform_sha256 and refuses a secret key that does not belong to the registered key id; the boundary is signed, not merely recorded."
+  },
+  {
+   "site": "cli/src/Contract/ContractAttestation.php::verify",
+   "axes": [
+    "platform",
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "refuses contract_attestation_platform_moved — \"the contract was attested against a different agent capability boundary than this one\". The most operator-visible platform-move refusal in the tree, and the one an exact-token predicate misses: its identity value is spelled currentPlatformDigest()/platform_sha256, not platform_digest."
+  },
+  {
+   "site": "cli/src/Contract/ContractProjection.php::validateFacts",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "refuses projection_invalid — \"every projection facts.manifest_pins row needs a non-empty '<field>'\". Supplying observed pins is a promise that attribution is available for every surface; degrading silently to the blunt flip would under- or over-report drift, so it refuses (rule 9)."
+  },
+  {
+   "site": "cli/src/Recovery/ScopedRollbackProfile.php::claimFields",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "refuses \"scoped plan has no resolved adapter identity\" — a checkpoint-only scoped promotion will not open a claim over a plan that cannot say which adapters produced it."
+  },
+  {
+   "site": "cli/src/Recovery/VerifiedRollbackProfile.php::claimFields",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "folds resolved_adapters into adapter_versions_sha256 so the rollback claim's own identity moves with the manifest set; the divergence refusal belongs to the verifier that reads that field back."
+  },
+  {
+   "site": "cli/src/Refresh/RefreshFieldDiff.php::normalizePolicyProjection",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "refuses a policy projection whose manifest_hash / resolved_adapters_sha256 / projection_hash are not well-formed hashes, which is what stops a field diff from being computed across two different manifest sets."
+  },
+  {
+   "site": "cli/src/Refresh/RefreshPlan.php::assertProductionCodeMatches",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "ANCHOR. Refuses \"production manifest_hash does not match --production-ref\" and \"production adapter contract does not match --production-ref\": a refresh cannot be planned against a production snapshot whose adapter identity has moved."
+  },
+  {
+   "site": "cli/src/Refresh/RefreshPlan.php::compileGitWorktreeWorker",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "derivation",
+   "note": "computes the policy projection inside a detached git worktree so the two sides of a refresh are derived identically; it produces the value assertProductionCodeMatches compares."
+  },
+  {
+   "site": "cli/src/Refresh/RefreshPlan.php::fieldDiffPolicyProjection",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "derivation",
+   "note": "derives manifest_hash, resolved_adapters_sha256 and state_site_hash into the projection normalizePolicyProjection then shape-checks."
+  },
+  {
+   "site": "cli/src/Transport/CodeDeploy.php::dispositionBlockers",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "turns a compiled adapter with no reviewed capability claim, or a non-certified one, into a deploy blocker; a disposition move here changes whether code deploys at all."
+  },
+  {
+   "site": "recovery/CheckpointBundle.php::validatePriorVerification",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "ANCHOR. manifest_inputs_sha256 is one of the fourteen hash_equals() conjuncts behind \"prior verification evidence is incomplete or mismatched\"; a manifest move invalidates a checkpoint's prior-verification chain."
+  },
+  {
+   "site": "recovery/CheckpointBundle.php::validateVerifierInputs",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "refuses a prior-verifier-input record whose key set is not exact or whose manifest_inputs_sha256 is not a hash, before validatePriorVerification compares it."
+  }
+ ]
+}

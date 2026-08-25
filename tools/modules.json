@@ -19,7 +19,7 @@
   ],
   "layer_notes": {
     "src/Apply/TypedTableMaterializer.php": "Engine with the rest of the *Materializer family, for the same reason as TypedTableCapture.",
-    "src/Assess/AssessInventory.php": "Surface with Cli.php: the read-only assess projection (round-3 MUP \u00a74.5) is a command-shaped composition over policy, adapter and review, reached only from the wp duo verb that publishes it.",
+    "src/Assess/AssessInventory.php": "Surface with Cli.php: the read-only assess projection (round-3 MUP §4.5) is a command-shaped composition over policy, adapter and review, reached only from the wp duo verb that publishes it.",
     "src/Capture/TypedTableCapture.php": "Engine with the rest of the *Capture family even though it only reads kernel files; the recorded Snapshot -> TypedTableCapture edge names the real seam (a repository state model driving engine capture) instead of hiding it behind a convenient placement.",
     "src/Code/CodeMaterializer.php": "Repository, not engine, despite the *Materializer suffix: it depends only on PathSafety and is used solely by Code. The engine *Materializer family materializes authored state; this one materializes code bytes for the repository half.",
     "src/Code/CodeOwnershipPruner.php": "Repository for the same reason as CodeMaterializer: a Code-owned pruner over PathSafety, not an engine apply step.",
@@ -56,7 +56,7 @@
     "modules": {
       "Kernel": {
         "layer": "kernel",
-        "purpose": "Dependency-free primitives \u2014 canonical JSON, database access, reference codecs, durable filesystem, identifiers, secrets and PII redaction \u2014 that everything else is built on.",
+        "purpose": "Dependency-free primitives — canonical JSON, database access, reference codecs, durable filesystem, identifiers, secrets and PII redaction — that everything else is built on.",
         "status": "populated",
         "entry_points": [
           "Canon",
@@ -113,7 +113,7 @@
             ]
           }
         ],
-        "file_count": 32,
+        "file_count": 33,
         "files": [
           "Canon.php",
           "CommandRefusal.php",
@@ -137,6 +137,7 @@
           "ReferenceShapeGrammar.php",
           "Secrets.php",
           "SiteTopology.php",
+          "SpecVersionWindow.php",
           "StructuredReferenceCodec.php",
           "StructuredValue.php",
           "TableGraph.php",
@@ -252,8 +253,9 @@
             ]
           }
         ],
-        "file_count": 20,
+        "file_count": 22,
         "files": [
+          "AdapterClaimResolutions.php",
           "ArtifactPolicyIdentity.php",
           "CodeConfigGrammar.php",
           "CrossManifestGuards.php",
@@ -273,7 +275,8 @@
           "ScopeContract.php",
           "ScopeDiscovery.php",
           "ScopeGrammar.php",
-          "SitePolicyValidator.php"
+          "SitePolicyValidator.php",
+          "VersionEvidenceGrammar.php"
         ]
       },
       "Grammar": {
@@ -287,6 +290,8 @@
           "SubKeyGrammar",
           "UserMetaGrammar",
           "AttributeGrammar",
+          "AttrIdCodecGrammar",
+          "ColumnCodecGrammar",
           "OptionNameReferenceResolver",
           "OptionReferenceGrammar",
           "PostTypeGrammar",
@@ -334,10 +339,12 @@
             ]
           }
         ],
-        "file_count": 24,
+        "file_count": 26,
         "files": [
+          "AttrIdCodecGrammar.php",
           "AttributeGrammar.php",
           "Blocks.php",
+          "ColumnCodecGrammar.php",
           "ContentAttributeRuleResolver.php",
           "DynamicOptionResolver.php",
           "ExactOptionResolver.php",
@@ -760,7 +767,7 @@
       },
       "Scope": {
         "layer": "engine",
-        "purpose": "Scoped (partial-site) execution \u2014 the state overlay, session and work projection that let apply and capture run over a subset of the repository.",
+        "purpose": "Scoped (partial-site) execution — the state overlay, session and work projection that let apply and capture run over a subset of the repository.",
         "status": "populated",
         "entry_points": [
           "ScopedApply",
@@ -907,7 +914,7 @@
       },
       "Promotion": {
         "layer": "engine",
-        "purpose": "Deploy, lifecycle and promotion mechanics \u2014 planners, leases, locks, session journals and state handoff between environments.",
+        "purpose": "Deploy, lifecycle and promotion mechanics — planners, leases, locks, session journals and state handoff between environments.",
         "status": "populated",
         "entry_points": [
           "PromotionLock",
@@ -1061,11 +1068,12 @@
       },
       "Review": {
         "layer": "engine",
-        "purpose": "Read-only projections over plans and state \u2014 lint and its reference scanners, coverage, pending, journal, orphans, canary, convergence verification and refresh export.",
+        "purpose": "Read-only projections over plans and state — lint and its reference scanners, coverage, pending, journal, effect-declaration coverage, orphans, canary, convergence verification and refresh export.",
         "status": "populated",
         "entry_points": [
           "Canary",
           "ConvergenceVerifier",
+          "EffectDeclarationCoverage",
           "Journal",
           "Lint",
           "Pending",
@@ -1074,7 +1082,10 @@
           "PlanView",
           "Coverage",
           "Orphans",
-          "RefreshExport"
+          "RefreshExport",
+          "LintEnvironment",
+          "LintFinding",
+          "LintTrustGate"
         ],
         "depends_on": [
           "Code",
@@ -1115,15 +1126,18 @@
             ]
           }
         ],
-        "file_count": 17,
+        "file_count": 20,
         "files": [
           "BlockReferenceScanner.php",
           "Canary.php",
           "ConvergenceVerifier.php",
           "Coverage.php",
+          "EffectDeclarationCoverage.php",
           "Journal.php",
           "Lint.php",
+          "LintEnvironment.php",
           "LintFinding.php",
+          "LintTrustGate.php",
           "MenuReferenceScanner.php",
           "Orphans.php",
           "Pending.php",
@@ -1147,10 +1161,13 @@
           "ActionProviderGrammar",
           "AdapterContractGrammar",
           "AdapterObservation",
-          "AdapterRegistry"
+          "AdapterProbe",
+          "AdapterRegistry",
+          "DeletionFeasibility"
         ],
         "depends_on": [
           "Adapter",
+          "Delete",
           "Kernel",
           "Policy",
           "Promotion",
@@ -1159,23 +1176,29 @@
           "Review"
         ],
         "exceptions": [],
-        "file_count": 10,
+        "file_count": 16,
         "files": [
           "ActionProviderGrammar.php",
           "AdapterCertification.php",
           "AdapterContractGrammar.php",
           "AdapterObservation.php",
+          "AdapterProbe.php",
           "AdapterRegistry.php",
+          "AdapterScan.php",
           "AdapterSources.php",
+          "DeletionFeasibility.php",
+          "IdentityNamespaces.php",
           "ProviderActionBatchBuilder.php",
           "ProviderSdk.php",
+          "ProviderSurfaces.php",
           "Providers.php",
+          "StructuredEvidence.php",
           "TargetProbe.php"
         ]
       },
       "Command": {
         "layer": "surface",
-        "purpose": "The `wp duo \u2026` WP-CLI surface: verb dispatch, argument parsing, refusal envelopes and operator output.",
+        "purpose": "The `wp duo …` WP-CLI surface: verb dispatch, argument parsing, refusal envelopes and operator output.",
         "status": "populated",
         "entry_points": [
           "Cli"
@@ -1375,7 +1398,7 @@
       },
       "Onboarding": {
         "layer": "engine",
-        "purpose": "Adopting, initializing, diagnosing and triaging a site \u2014 the first-run and health mechanics behind adopt/init/doctor/classify/pending.",
+        "purpose": "Adopting, initializing, diagnosing and triaging a site — the first-run and health mechanics behind adopt/init/doctor/classify/pending.",
         "status": "populated",
         "entry_points": [
           "Doctor",
@@ -1404,14 +1427,19 @@
       },
       "Adapter": {
         "layer": "adapter",
-        "purpose": "Authoring-side adapter tooling: catalog, draft, observation, manifest validation against the agent's policy, and the operator's own Ed25519 certification authority (keygen/certify/pin).",
+        "purpose": "Authoring-side adapter tooling: catalog, draft, observation, manifest validation against the agent's policy, the operator's own Ed25519 certification authority (keygen/certify/pin), `lint-tree` -- the WordPress-free half of the suspicious-reference linter, which replays a recorded lint environment into the engine's own Lint::scan_tree() -- `boundary`, the version-range bisector, which reads a recorded release list plus an accumulating probe-outcome table and emits artifacts.lock.json rows as EVIDENCE, never a manifest edit, and `proposals`, the scheduled job around that planner: it re-bisects every pinned plugin from its own recorded ledger, emits the range bump as BOTH edits in the Canon-byte-equal shape ManifestDispositions.php:632-637 demands, and derives a per-adapter last_verified that deliberately lives outside manifests/ (a byte there is adapter identity, so storing freshness beside a manifest would re-pin the fleet on every re-verification). WP-5.6 adds `distribution`: `discover|install|update` over a duo-adapter-index/v1 pointer document, the only verbs in this module with a transport at all -- digest-pinned resolution that never falls through, verification in a staging root through the agent's own AdapterCertification::verifyFile(), and a package that lands as the two files certify already writes, so the engine cannot tell it from a hand-placed adapter.",
         "status": "populated",
         "entry_points": [
+          "AdapterBoundary",
           "AdapterCatalog",
           "AdapterCertify",
+          "AdapterDistribution",
           "AdapterDraft",
           "AdapterObservation",
-          "ManifestValidate"
+          "AdapterProposals",
+          "LintTree",
+          "ManifestValidate",
+          "MigrationPreflight"
         ],
         "depends_on": [
           "Adapter",
@@ -1421,16 +1449,23 @@
           "agent:Kernel",
           "agent:Policy",
           "agent:Rebuild",
-          "agent:Repository"
+          "agent:Repository",
+          "agent:Review"
         ],
         "exceptions": [],
-        "file_count": 5,
+        "file_count": 11,
         "files": [
+          "AdapterBoundary.php",
           "AdapterCatalog.php",
           "AdapterCertify.php",
+          "AdapterDistribution.php",
           "AdapterDraft.php",
           "AdapterObservation.php",
-          "ManifestValidate.php"
+          "AdapterProposals.php",
+          "LintTree.php",
+          "ManifestValidate.php",
+          "MigrationPreflight.php",
+          "SpecMigration.php"
         ]
       },
       "Code": {
@@ -1484,11 +1519,12 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 30,
+        "file_count": 31,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
           "CaptureCommand.php",
+          "CensusCommand.php",
           "ClassifyCommand.php",
           "CodeClassifyCommand.php",
           "CodeImportCommand.php",
@@ -1520,14 +1556,16 @@
       },
       "Assess": {
         "layer": "engine",
-        "purpose": "The assess mechanism \u2014 stack inventory and the authority block, the per-surface catalog carrying the six spec dimensions, the closed gap-action set, the `duo-assess-report/v1` document and its bounded human renderer. Mechanism only: `AssessCommand` (cli:Command) calls Doctor, the environment registry and the adapter catalog and hands their results in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
+        "purpose": "The assess mechanism — stack inventory and the authority block, the per-surface catalog carrying the six spec dimensions, the closed gap-action set, the `duo-assess-report/v1` document and its bounded human renderer. Mechanism only: `AssessCommand` (cli:Command) calls Doctor, the environment registry and the adapter catalog and hands their results in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9). `FleetCensus` is the one file here with no target at all: it folds N `duo-assess-inventory/v1` documents into `duo-fleet-census/v1` against a manifest library on this machine, which is why it reaches agent:Policy (the reviewed-claim projector) and agent:Review (the one option-prefix grammar the residual is grouped in) as data sources rather than through any cli module. `CohortRebaseline` (WP-6.3) is one level further out and reaches nothing at all: it folds TWO census documents into `duo-cohort-rebaseline/v1` — the coverage-ratio delta, the funnel movement and the per-adapter surface attribution a cohort's exit criterion reads — so its only inputs are documents `FleetCensus` already published, and it depends on that class alone.",
         "status": "populated",
         "entry_points": [
           "StackInventory",
           "SurfaceCatalog",
           "GapActions",
           "AssessReport",
-          "AssessRenderer"
+          "AssessRenderer",
+          "FleetCensus",
+          "CohortRebaseline"
         ],
         "depends_on": [
           "Assess",
@@ -1536,13 +1574,17 @@
           "Transport",
           "agent:Adapter",
           "agent:Assess",
-          "agent:Kernel"
+          "agent:Kernel",
+          "agent:Policy",
+          "agent:Review"
         ],
         "exceptions": [],
-        "file_count": 5,
+        "file_count": 7,
         "files": [
           "AssessRenderer.php",
           "AssessReport.php",
+          "CohortRebaseline.php",
+          "FleetCensus.php",
           "GapActions.php",
           "StackInventory.php",
           "SurfaceCatalog.php"
@@ -1550,7 +1592,7 @@
       },
       "Release": {
         "layer": "engine",
-        "purpose": "The release mechanism \u2014 `AuthorizationPlan` (build, freeze before any mutation, digest and re-verify the `duo-authorization-plan/v1` document), `AuthorizationPlanRenderer` (its bounded human projection, ending in one question), `ReleaseOutcome` + `NextAction` (the closed post-freeze next-action set and the deterministic failure-class mapping) and `JourneyOracle` (the declared affected-journey probes and the `duo-verify-report/v1` document). Mechanism only: the verb boundaries (`ReleaseCommand`, `VerifyCommand`, `RecoverCommand`, cli:Command) compose it with Environment, Recovery and the existing promote/deploy handlers, and the recovery claim reaches the plan as a canonical array, not as a Recovery class reference \u2014 which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
+        "purpose": "The release mechanism — `AuthorizationPlan` (build, freeze before any mutation, digest and re-verify the `duo-authorization-plan/v1` document), `AuthorizationPlanRenderer` (its bounded human projection, ending in one question), `ReleaseOutcome` + `NextAction` (the closed post-freeze next-action set and the deterministic failure-class mapping) and `JourneyOracle` (the declared affected-journey probes and the `duo-verify-report/v1` document). Mechanism only: the verb boundaries (`ReleaseCommand`, `VerifyCommand`, `RecoverCommand`, cli:Command) compose it with Environment, Recovery and the existing promote/deploy handlers, and the recovery claim reaches the plan as a canonical array, not as a Recovery class reference — which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
         "status": "populated",
         "entry_points": [
           "AuthorizationPlan",
@@ -1579,7 +1621,7 @@
       },
       "Rehearse": {
         "layer": "engine",
-        "purpose": "The rehearsal mechanism \u2014 `RehearsalPlanPreview`, which joins the converged environment's plan-category projection with the assess-style surface rows restricted to that plan's actual scope to state what a release would touch, and `RehearsalDisclosure`, which owns MUP \u00a72.2's containment banner and its consequence. Mechanism only, and pure: no I/O, no clock, no provider. The verb boundary (`RehearseCommand`, cli:Command) drives `EnvironmentLifecycle` and hands both documents in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
+        "purpose": "The rehearsal mechanism — `RehearsalPlanPreview`, which joins the converged environment's plan-category projection with the assess-style surface rows restricted to that plan's actual scope to state what a release would touch, and `RehearsalDisclosure`, which owns MUP §2.2's containment banner and its consequence. Mechanism only, and pure: no I/O, no clock, no provider. The verb boundary (`RehearseCommand`, cli:Command) drives `EnvironmentLifecycle` and hands both documents in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
         "status": "populated",
         "entry_points": [
           "RehearsalPlanPreview",
@@ -1601,7 +1643,7 @@
       },
       "Contract": {
         "layer": "policy",
-        "purpose": "The per-site application contract as one object \u2014 manifests, site policy, evidence pins, bindings and capability report composed and addressable \u2014 plus `ProjectionVocabulary`, the single implementation of the spec-word projection that Assess, Release and Rehearse all read. Pure and offline-testable: a document, not a session.",
+        "purpose": "The per-site application contract as one object — manifests, site policy, evidence pins, bindings and capability report composed and addressable — plus `ProjectionVocabulary`, the single implementation of the spec-word projection that Assess, Release and Rehearse all read. Pure and offline-testable: a document, not a session.",
         "status": "populated",
         "entry_points": [
           "ApplicationContract",

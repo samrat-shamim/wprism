@@ -437,7 +437,11 @@ $knownGapsByFile = [
     // require_once's CodeDescriptorCompiler.php, which declares it, so the
     // allowlist entry became a no-longer-observed gap and this two-sided
     // ratchet correctly refused to keep it.
-    'Cli' => ['AdapterObservation', 'AdapterRegistry', 'AdapterSources', 'Apply', 'Canon', 'Capture', 'Code', 'Coverage', 'Db', 'Deploy', 'IdentityBackup', 'Init', 'InitialStateBoundaryException', 'Journal', 'Ledger', 'Lint', 'ManifestDispositions', 'Orphans', 'Pending', 'Policy', 'PromotionLock', 'RefreshExport', 'RepositoryAuthorizationException', 'RepositoryCompilationException', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Secrets'],
+    // EffectDeclarationCoverage joins the same slice as Journal and Coverage:
+    // requiring it from Cli.php would pull the real Policy.php in at file
+    // scope, and the JSON-refusal suites load Cli.php against a pre-declared
+    // \Duo\Policy stub — the shadow-block idiom agent/duo.php:106-138 names.
+    'Cli' => ['AdapterObservation', 'AdapterRegistry', 'AdapterSources', 'Apply', 'Canon', 'Capture', 'Code', 'Coverage', 'Db', 'Deploy', 'EffectDeclarationCoverage', 'IdentityBackup', 'Init', 'InitialStateBoundaryException', 'Journal', 'Ledger', 'Lint', 'ManifestDispositions', 'Orphans', 'Pending', 'Policy', 'PromotionLock', 'RefreshExport', 'RepositoryAuthorizationException', 'RepositoryCompilationException', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Secrets'],
     // The reader deliberately tests this bridge at runtime rather than
     // requiring it: an unavailable bridge is a stable artifact diagnostic.
     'CompiledArtifactReader' => ['CodeStateContract'],

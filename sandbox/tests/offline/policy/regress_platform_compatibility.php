@@ -33,12 +33,12 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../lib/check.php';
 
 $root = dirname(__DIR__, 4);
-if (!defined('DUO_AGENT_VERSION')) {
-    define('DUO_AGENT_VERSION', '0.5.0');
-}
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
+// WP-4.12: read from agent/duo.php, not retyped. This suite loads the SHIPPED
+// platform.json, which restates both defines, so a literal here fails the
+// boundary's own version-agreement check the moment the defines move — and it
+// fails as a fatal about the boundary, not as anything about compatibility.
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 if (!defined('ABSPATH')) {
     define('ABSPATH', $root . '/');
 }

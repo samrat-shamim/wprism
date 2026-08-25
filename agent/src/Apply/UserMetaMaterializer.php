@@ -156,8 +156,20 @@ final class UserMetaMaterializer {
             }
             $kept[$slot] = true;
         }
+        // Same locked-context rule as ApplyFieldMaterializer::reconcileMetaTable()
+        // (see the rationale there): recheck against the map this reconciliation
+        // establishes, so a sibling-classified key whose sibling THIS roster
+        // supplies is not rejected on a user that does not carry the pair yet.
+        // ACF fields on users are a shipped claim (manifests/interpreters/acf.php's
+        // user_meta_rule() reaching the same shadow-key machinery), and the
+        // deletion pass above deliberately keeps asking the witnessed map,
+        // because those rows exist now.
+        $lockedContext = $flat;
         foreach ($desired as $key => $value) {
-            $rule = $this->policy->meta_rule_for_user((string) $key, $flat);
+            $lockedContext[(string) $key] = $value ?? '';
+        }
+        foreach ($desired as $key => $value) {
+            $rule = $this->policy->meta_rule_for_user((string) $key, $lockedContext);
             if (($rule['class'] ?? null) !== 'authored') {
                 throw new \RuntimeException(
                     "duo: user-meta '$key' for exact login '$login' is not authored in the locked target context"

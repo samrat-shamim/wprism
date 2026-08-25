@@ -369,14 +369,14 @@ check(
         && (($cf7Manifest['post_types']['wpcf7_contact_form'] ?? null) === []),
     'contact-form-7 declares its non-public wpcf7_contact_form post type for discovery'
 );
-$dispositions = json_decode((string) file_get_contents($repo . '/manifests/dispositions.json'), true);
+// Addressed per subject since WP-4.4 (spec/repo-format.md § v3.4).
+$cf7Disposition = json_decode(
+    (string) file_get_contents($repo . '/manifests/dispositions/contact-form-7.json'),
+    true
+);
 check(
-    is_array($dispositions)
-        && in_array(
-            'post_types',
-            $dispositions['manifests']['contact-form-7']['capabilities']['entity_sections'] ?? [],
-            true
-        ),
+    is_array($cf7Disposition)
+        && in_array('post_types', $cf7Disposition['capabilities']['entity_sections'] ?? [], true),
     'contact-form-7 disposition registers the declared post_types surface'
 );
 // The third link of the chain: the declared type reaches the CAPABILITY CLAIM,
@@ -389,8 +389,8 @@ check(
 // exactly the step a whole-type declaration could silently lose.
 $cf7Claim = \Duo\ManifestDispositions::claim_from_disposition(
     $cf7Manifest,
-    $dispositions['manifests']['contact-form-7'],
-    $dispositions['manifests']['contact-form-7']['evidence'] ?? [],
+    $cf7Disposition,
+    $cf7Disposition['evidence'] ?? [],
     ['compatibility' => []]
 );
 check(
@@ -400,7 +400,7 @@ check(
 );
 check(
     !in_array('dispositions', $shippedNames, true),
-    'dispositions.json is external review state loaded WITH the directory, never validated as a manifest of its own'
+    'the reviewed dispositions are external review state loaded WITH the directory, never validated as a manifest of their own'
 );
 check(
     ($shippedReport['pinned_set']['status'] ?? null) === 'ok'
@@ -1233,7 +1233,7 @@ $schema = json_decode($emit['stdout'], true);
 check(is_array($schema), '--emit-schema writes a parseable JSON document to stdout');
 $schema = is_array($schema) ? $schema : [];
 check(
-    ($schema['schema'] ?? null) === 'duo-manifest-grammar/v1' && ($schema['spec_version'] ?? null) === DUO_SPEC_VERSION,
+    ($schema['schema'] ?? null) === 'duo-manifest-grammar/v2' && ($schema['spec_version'] ?? null) === DUO_SPEC_VERSION,
     'the document is versioned and states the spec version it describes'
 );
 
@@ -1299,6 +1299,227 @@ $emitWithDir = duo([$repo . '/manifests', '--emit-schema']);
 check(
     $emitWithDir['exit'] === 2 && str_contains($emitWithDir['stderr'], 'duo: manifest-validate:'),
     '--emit-schema refuses a manifests dir rather than implying the grammar came from those files'
+);
+
+// ======================================================================
+echo "\n== WP-4.1: duo-manifest-grammar/v2's two new blocks, and a MUTATION proof that they are derived ==\n";
+
+// The v1 DRIFT group above compares the emitted document with the live
+// accessors IN THIS PROCESS. That is a real check and it stays, but it cannot
+// tell a derived list from a hand-copied one: a literal array typed into
+// ManifestValidate.php equals the accessor on the day it is typed, and only
+// stops equalling it the day the engine moves — which is the day nobody is
+// looking. So the two blocks WP-4.1 adds are checked a second way: the engine
+// constants they claim to come from are MUTATED in a fixture-scoped copy of
+// the shipped trees, and the emitted document must move with them. A copied
+// list fails every case below while passing every case above.
+require_once $repo . '/agent/src/Adapter/AdapterCertification.php';
+
+$partition = \Duo\AdapterCertification::topLevelKeyPartition();
+$topLevel = $schema['top_level_keys'] ?? [];
+check(
+    ($topLevel['entity_sections'] ?? null) === $partition['entity_sections']
+        && ($topLevel['field_sections'] ?? null) === $partition['field_sections']
+        && ($topLevel['non_surface_keys'] ?? null) === $partition['non_surface_keys'],
+    'top_level_keys publishes the signer\'s three arms exactly as AdapterCertification::topLevelKeyPartition() returns them'
+);
+$mergedPartition = array_merge($partition['entity_sections'], $partition['field_sections'], $partition['non_surface_keys']);
+sort($mergedPartition, SORT_STRING);
+check(
+    ($topLevel['all'] ?? null) === $mergedPartition && count($mergedPartition) === count(array_unique($mergedPartition)),
+    'and `all` is the merged, sorted, disjoint set (' . count($mergedPartition) . ' keys) rather than a fourth list'
+);
+check(
+    str_contains((string) ($topLevel['enforced_by'] ?? ''), 'siteRatification')
+        && str_contains((string) ($topLevel['enforced_by'] ?? ''), 'validate_adapter_contract')
+        && str_contains((string) ($topLevel['not_enforced_by'] ?? ''), 'ManifestValidator')
+        && str_contains((string) ($topLevel['status'] ?? ''), 'WP-4.3'),
+    'the block states BOTH halves of the truth — it refuses at signing at every version AND at load for a spec_version 3 manifest, while a v2 manifest still admits an unrecognised key — and names the rider'
+);
+// The growth rule belongs in the published document and not only in the spec:
+// an author reading `all` would otherwise conclude that the 33 keys are the
+// whole answer, and be wrong for any manifest that declares a feature.
+check(
+    str_contains((string) ($topLevel['status'] ?? ''), 'engine feature')
+        && str_contains((string) ($topLevel['status'] ?? ''), '_draft'),
+    'and it publishes how the set GROWS (a key claimed by an implemented engine feature) and the one key refused on the merits (`_draft`), so `all` is not mistaken for the whole answer'
+);
+
+$window = $schema['spec_window'] ?? [];
+check(
+    ($window['engine_supported'] ?? null) === DUO_SPEC_VERSION
+        && ($window['accepted'] ?? null) === [DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION]
+        && ($window['n_minus_1_accepted'] ?? null) === true,
+    'spec_window reports this engine accepting {' . (DUO_SPEC_VERSION - 1) . ', ' . DUO_SPEC_VERSION
+        . '} — WP-4.2\'s acceptance window, reported here because it is MEASURED and not restated'
+);
+check(
+    ($window['probed'] ?? null) === [DUO_SPEC_VERSION - 2, DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION, DUO_SPEC_VERSION + 1],
+    'and publishes the probed range, so "refused" is distinguishable from "never asked" (' . implode(', ', (array) ($window['probed'] ?? [])) . ')'
+);
+check(
+    ($window['probed'][0] ?? null) === DUO_SPEC_VERSION - 2
+        && !in_array(DUO_SPEC_VERSION - 2, (array) ($window['accepted'] ?? []), true),
+    'and N-2 was ASKED and refused, which is what makes "the floor is exactly N-1" a measurement rather than an assumption'
+);
+check(
+    str_contains((string) ($window['status'] ?? ''), 'is ENFORCED here')
+        && str_contains((string) ($window['status'] ?? ''), '§ v3.1'),
+    'the window block says the N/N-1 acceptance window IS enforced here, naming the section that specifies it'
+);
+
+/** Copy one shipped tree into the scratch root, file by file. */
+function copy_tree(string $src, string $dst): void {
+    mkdir($dst, 0777, true);
+    $walk = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($src, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($walk as $item) {
+        $target = $dst . '/' . substr($item->getPathname(), strlen($src) + 1);
+        if ($item->isDir()) {
+            @mkdir($target, 0777, true);
+        } else {
+            copy($item->getPathname(), $target);
+        }
+    }
+}
+
+function remove_tree(string $dir): void {
+    if (!is_dir($dir)) {
+        return;
+    }
+    $walk = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($walk as $item) {
+        $item->isDir() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
+    }
+    @rmdir($dir);
+}
+
+// agent/ + cli/ + recovery/ is exactly what the command needs: boot() resolves
+// the two defines out of agent/duo.php and the engine files out of
+// agent/duo-classmap.php, and cli/duo requires recovery/rollback-control.php at
+// startup. manifests/ is deliberately NOT copied — --emit-schema reads no
+// declaration directory, which is itself a property this copy exercises.
+$mutantRoot = sys_get_temp_dir() . '/duo_regress_emit_derivation_' . bin2hex(random_bytes(4));
+foreach (['agent', 'cli', 'recovery'] as $tree) {
+    copy_tree($repo . '/' . $tree, $mutantRoot . '/' . $tree);
+}
+register_shutdown_function(static fn() => remove_tree($mutantRoot));
+
+/**
+ * The grammar document emitted by the COPY, decoded.
+ *
+ * @return array<string,mixed>
+ */
+function emit_from(string $root): array {
+    $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root . '/cli/duo')
+        . ' manifest-validate --emit-schema';
+    $pipes = [];
+    $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($proc)) {
+        throw new \RuntimeException("could not run: $cmd");
+    }
+    $stdout = (string) stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exit = proc_close($proc);
+    if ($exit !== 0) {
+        throw new \RuntimeException("emit from $root exited $exit: " . trim($stderr));
+    }
+    $decoded = json_decode($stdout, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+$baseline = emit_from($mutantRoot);
+check(
+    $baseline === $schema,
+    'the untouched copy emits a byte-equal document to the real tree, so any difference below is the mutation and nothing else'
+);
+
+// MUTATION 1 — the signer's partition gains a key. A hand-copied list in the
+// emitter does not move; a derived one does.
+$certFile = $mutantRoot . '/agent/src/Adapter/AdapterCertification.php';
+$certSource = (string) file_get_contents($certFile);
+$anchor = "'providers', 'spec_version', 'theme', 'theme_version_range', 'version_range',";
+check(str_contains($certSource, $anchor), 'the NON_SURFACE_KEYS anchor is present in the copied engine');
+file_put_contents($certFile, str_replace(
+    $anchor,
+    "'providers', 'spec_version', 'theme', 'theme_version_range', 'version_range', 'acme_reserved_marker',",
+    $certSource
+));
+$mutated = emit_from($mutantRoot);
+check(
+    in_array('acme_reserved_marker', $mutated['top_level_keys']['non_surface_keys'] ?? [], true)
+        && in_array('acme_reserved_marker', $mutated['top_level_keys']['all'] ?? [], true),
+    'MUTATION 1: a key added to the engine\'s NON_SURFACE_KEYS appears in the emitted partition — the block is READ from the constant, not typed beside it'
+);
+check(
+    count($mutated['top_level_keys']['all'] ?? []) === count($mergedPartition) + 1
+        && ($mutated['spec_window'] ?? null) === ($baseline['spec_window'] ?? null),
+    'and it moves that block ONLY — the window block is byte-unchanged, so the two are independently derived'
+);
+file_put_contents($certFile, $certSource);
+check(emit_from($mutantRoot) === $baseline, 'restoring the constant restores the document exactly');
+
+// MUTATION 2 — the shipped window itself is NARROWED back to exact equality.
+// Before WP-4.2 this mutation ran the other way (widen and watch the document
+// widen); now that the window is the shipped behaviour, the case a restated
+// `[DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION]` in the emitter could never pass is
+// the narrowing. Same claim, exercised from the side the engine is now on.
+// WP-4.12 moved the window's one definition from AdapterContractGrammar down
+// to the kernel: `site.duo.json` carries the same wire integer and
+// RepositoryCompiler (layer 3) cannot reference the grammar (layer 5), so
+// SpecVersionWindow owns it and the grammar delegates. The mutation follows
+// the definition — the point of mutating rather than reading is that there is
+// exactly ONE file whose corruption the emitter must notice.
+$grammarFile = $mutantRoot . '/agent/src/Kernel/SpecVersionWindow.php';
+$grammarSource = (string) file_get_contents($grammarFile);
+$windowAnchor = 'return [$supported - 1, $supported];';
+check(str_contains($grammarSource, $windowAnchor), 'the accepted-window return is present in the copied engine\'s kernel');
+file_put_contents($grammarFile, str_replace($windowAnchor, 'return [$supported];', $grammarSource));
+$narrowed = emit_from($mutantRoot);
+check(
+    ($narrowed['spec_window']['accepted'] ?? null) === [DUO_SPEC_VERSION]
+        && ($narrowed['spec_window']['n_minus_1_accepted'] ?? null) === false,
+    'MUTATION 2: narrowing the shipped window back to exact equality narrows the emitted `accepted` set — the window is MEASURED by running the refusal, never restated'
+);
+check(
+    ($narrowed['top_level_keys'] ?? null) === ($baseline['top_level_keys'] ?? null),
+    'and the partition block is untouched by it'
+);
+file_put_contents($grammarFile, $grammarSource);
+
+// MUTATION 3 — the define moves. The document must follow the engine it was
+// emitted from, including the probe range it centres on that engine.
+$duoFile = $mutantRoot . '/agent/duo.php';
+$duoSource = (string) file_get_contents($duoFile);
+file_put_contents($duoFile, str_replace(
+    "define('DUO_SPEC_VERSION', " . DUO_SPEC_VERSION . ')',
+    "define('DUO_SPEC_VERSION', " . (DUO_SPEC_VERSION + 5) . ')',
+    $duoSource
+));
+$bumped = emit_from($mutantRoot);
+check(
+    ($bumped['spec_version'] ?? null) === DUO_SPEC_VERSION + 5
+        && ($bumped['spec_window']['engine_supported'] ?? null) === DUO_SPEC_VERSION + 5
+        && ($bumped['spec_window']['accepted'] ?? null) === [DUO_SPEC_VERSION + 4, DUO_SPEC_VERSION + 5],
+    'MUTATION 3: moving DUO_SPEC_VERSION in the copy moves the document\'s version, its supported integer and its whole accepted window together — the window travels WITH N, which is why the flip re-stamps no manifest'
+);
+file_put_contents($duoFile, $duoSource);
+check(emit_from($mutantRoot) === $baseline, 'and restoring the define restores the document exactly');
+
+// The shipped tree is untouched by all of the above — the mutations only ever
+// wrote inside the scratch copy. Assert it rather than trust it: a mutation
+// helper with the wrong root would otherwise leave the engine edited under a
+// green suite.
+check(
+    ($shippedNow = duo(['--emit-schema']))['exit'] === 0 && json_decode($shippedNow['stdout'], true) === $schema,
+    'the real tree still emits the original document — every mutation stayed inside the scratch copy'
 );
 
 // ======================================================================
@@ -1619,6 +1840,81 @@ refuses(
     'a tokenize codec outside the published set is refused with the published set printed back'
 );
 
+// --- WP-6.1's two `engine_features`-staged codec sections. Both are
+// spec_version-3 sections claimed by an engine feature, so every fixture here
+// declares the feature that claims the key AND `spec-window/v1`, which claims
+// `engine_features` itself (spec/repo-format.md § v3.3's worked example). A
+// fixture that forgot either is refused by the closed key set, which is the
+// staging working rather than a fixture problem.
+$codecTable = [
+    'acme_b_codecs' => [
+        'class' => 'authored_snapshot',
+        'id_kind' => 'acme_codec',
+        'pk' => 'codec_id',
+        'slug_column' => 'codec_code',
+        // `payload` is the only column free to carry a codec: the slug column
+        // and the identity column may not (a canonical filename half and a
+        // derivation input must stay plain scalars).
+        'columns' => ['codec_code' => ['class' => 'authored'], 'payload' => ['class' => 'authored']],
+        'refs' => [],
+        'identity' => ['mode' => 'natural_key', 'column' => 'codec_code'],
+    ],
+];
+/** @param array<string,mixed> $codec */
+$columnCodecManifest = static fn(array $codec): array => solo_b([
+    'engine_features' => ['spec-window/v1', 'typed-column-codecs/v1'],
+    'tables' => $codecTable,
+    'column_codecs' => ['acme_b_codecs' => ['payload' => $codec]],
+]);
+
+$covered['column_codec_containers'] = true;
+foreach ($vocabularies['column_codec_containers'] as $container) {
+    accepts(
+        $columnCodecManifest(['container' => $container, 'leaves' => 'text']),
+        "column codec container '$container' is published as legal and loads"
+    );
+}
+refuses(
+    $columnCodecManifest(['container' => 'json', 'leaves' => 'text']),
+    'the column container vocabulary is closed and engine-owned ('
+        . implode(', ', $vocabularies['column_codec_containers']) . ')',
+    'a column container outside the published set is refused with the published set printed back'
+);
+
+$covered['column_codec_leaves'] = true;
+foreach ($vocabularies['column_codec_leaves'] as $leaves) {
+    accepts(
+        $columnCodecManifest(['container' => 'php_serialized', 'leaves' => $leaves]),
+        "column codec leaf treatment '$leaves' is published as legal and loads"
+    );
+}
+refuses(
+    $columnCodecManifest(['container' => 'php_serialized', 'leaves' => 'blocks']),
+    'the leaf codec vocabulary is closed and engine-owned ('
+        . implode(', ', $vocabularies['column_codec_leaves']) . ')',
+    'a column leaf codec outside the published set is refused with the published set printed back'
+);
+
+/** @param array<string,mixed> $codec */
+$attrIdManifest = static fn(array $codec): array => solo_b([
+    'engine_features' => ['attr-id-codecs/v1', 'spec-window/v1'],
+    'block_attrs' => ['acme/b' => [['kind' => 'post', 'path' => 'id', 'type' => 'int']]],
+    'attr_id_codecs' => ['acme/b' => ['id' => $codec]],
+]);
+
+$covered['attribute_id_types'] = true;
+foreach ($vocabularies['attribute_id_types'] as $idType) {
+    accepts(
+        $attrIdManifest(['id_type' => $idType]),
+        "block attribute stored-id type '$idType' is published as legal and loads"
+    );
+}
+refuses(
+    $attrIdManifest(['id_type' => 'int']),
+    'the stored-id type vocabulary is closed and engine-owned ('
+        . implode(', ', $vocabularies['attribute_id_types']) . ')',
+    'a stored-id type outside the published set is refused with the published set printed back'
+);
 refuses(
     solo_b(['block_attrs' => ['acme/b' => [['path' => 'id', 'codec' => 'b']]]]),
     "codec must equal the declaring manifest's own non-empty interpreter name",

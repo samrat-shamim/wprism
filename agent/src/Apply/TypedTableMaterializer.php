@@ -24,6 +24,9 @@ if (!class_exists(TableGraph::class, false)) {
 if (!class_exists(TableSchema::class, false)) {
     require_once __DIR__ . '/../Kernel/TableSchema.php';
 }
+if (!class_exists(ColumnCodecGrammar::class, false)) {
+    require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
+}
 
 /**
  * Write-side materialization boundary for authored typed tables (DUO-3349).
@@ -49,6 +52,17 @@ final class TypedTableMaterializer {
     private \Closure $metaKeyInKeyspace;
     private \Closure $serializeValue;
     private \Closure $cacheDelete;
+    /**
+     * `(string $table): array<string,array{container:string,leaves:string}>` —
+     * the table's `column_codecs` projection (WP-6.1).
+     *
+     * REQUIRED, not defaulted. A boundary whose codec source may be omitted
+     * would write the canonical container's bytes straight into the column on
+     * any wiring that forgot it, which is the corruption this primitive exists
+     * to prevent, arriving silently through a constructor default. Every
+     * construction site names it.
+     */
+    private \Closure $columnCodecs;
 
     public function __construct(
         \Closure $rowTables,
@@ -59,7 +73,8 @@ final class TypedTableMaterializer {
         \Closure $unpackCompositeId,
         \Closure $metaKeyInKeyspace,
         \Closure $serializeValue,
-        \Closure $cacheDelete
+        \Closure $cacheDelete,
+        \Closure $columnCodecs
     ) {
         $this->rowTables = $rowTables;
         $this->metaTables = $metaTables;
@@ -70,6 +85,25 @@ final class TypedTableMaterializer {
         $this->metaKeyInKeyspace = $metaKeyInKeyspace;
         $this->serializeValue = $serializeValue;
         $this->cacheDelete = $cacheDelete;
+        $this->columnCodecs = $columnCodecs;
+    }
+
+    /**
+     * One authored column's value on the way back to the live row.
+     *
+     * The no-codec arm is byte for byte the treatment every authored column had
+     * before WP-6.1. With a codec the canonical container is opened, its
+     * tokenized leaves rebound for THIS target, and the container re-encoded —
+     * so a `{{site_url}}` that expands to a different byte length leaves the
+     * `s:<n>:` prefixes correct, which is the whole reason the codec exists.
+     *
+     * @param array<string,array{container:string,leaves:string}> $codecs
+     */
+    private static function applyColumn(mixed $value, array $codecs, string $column, object $tokens, string $where): mixed {
+        if (!isset($codecs[$column])) {
+            return is_string($value) ? $tokens->detokenize_text($value) : $value;
+        }
+        return ColumnCodecGrammar::apply_value($value, $codecs[$column], $tokens, $where);
     }
 
     /**
@@ -152,13 +186,20 @@ final class TypedTableMaterializer {
         $pk = $decl['pk'];
         $colTypes = TableSchema::live_column_types($entity['type']) ?? [];
 
+        $codecs = ($this->columnCodecs)($entity['type']);
         $data = [];
         foreach ($decl['columns'] ?? [] as $col => $rule) {
             if (($rule['class'] ?? '') !== 'authored') {
                 continue;
             }
             $value = $front['columns'][$col] ?? null;
-            $data[$col] = is_string($value) ? $tokens->detokenize_text($value) : $value;
+            $data[$col] = self::applyColumn(
+                $value,
+                $codecs,
+                (string) $col,
+                $tokens,
+                "table '{$entity['type']}' column '$col' (row $uuid)"
+            );
         }
         foreach ($decl['refs'] ?? [] as $ref) {
             $col = $ref['column'];
@@ -209,13 +250,20 @@ final class TypedTableMaterializer {
             $localByColumn[$column] = $tokens->token_to_id($token);
         }
 
+        $codecs = ($this->columnCodecs)($entity['type']);
         $authored = [];
         foreach ($decl['columns'] ?? [] as $column => $rule) {
             if (($rule['class'] ?? '') !== 'authored') {
                 continue;
             }
             $value = $front['columns'][$column] ?? null;
-            $authored[$column] = is_string($value) ? $tokens->detokenize_text($value) : $value;
+            $authored[$column] = self::applyColumn(
+                $value,
+                $codecs,
+                (string) $column,
+                $tokens,
+                "table '{$entity['type']}' column '$column' (composite row $uuid)"
+            );
         }
 
         $where = [
@@ -338,9 +386,12 @@ final class TypedTableMaterializer {
         }
     }
 
-    /** Run one generic table-row or option-name cache invalidation rule. */
+    /** Run one generic table-row, option-name, or object-cache-entry invalidation rule. */
     private function runInvalidation(array $invalidation, int $localId): void {
         global $wpdb;
+        if (isset($invalidation['cache_group'])) {
+            $this->runCacheEntryInvalidation($invalidation, $localId);
+        }
         if (isset($invalidation['table'])) {
             $table = preg_replace('/[^A-Za-z0-9_]/', '', $invalidation['table']);
             $column = preg_replace('/[^A-Za-z0-9_]/', '', $invalidation['column'] ?? 'id');
@@ -380,6 +431,59 @@ final class TypedTableMaterializer {
                 ($this->cacheDelete)($name, 'options');
                 ($this->cacheDelete)('alloptions', 'options');
             }
+        }
+    }
+
+    /**
+     * Drop ONE object-cache entry named by a `{cache_group, cache_key}` verb
+     * (WP-6.2), and PROVE it is gone.
+     *
+     * The readback is the whole point, and it is what makes the declarative
+     * verb equal in strength to the provider it replaces rather than a weaker
+     * imitation of it: `manifests/providers/paid-memberships-pro-cache.php`
+     * refuses with "cache invalidation left cached membership level id(s)"
+     * (:96-99) when an entry survives, and so does this. A `wp_cache_delete()`
+     * that quietly returns false against a backend that kept the value is
+     * precisely the stale-read the declaration exists to prevent, so an
+     * unverified delete would ship the bug in a shorter spelling.
+     *
+     * Two runtime paths, matching the option branch above for the same reason.
+     * Under the authored transaction the delete goes through
+     * CacheInvalidationTransaction::queue(), which registers the entry BEFORE
+     * attempting it and re-attempts every registered primitive after the
+     * database outcome (:372-397, :400-408) — a pre-COMMIT purge alone is
+     * insufficient because a later read in the same request repopulates it.
+     * Outside one, the injected cacheDelete closure is used, exactly as the
+     * option branch does, so a directly-constructed materializer stays testable
+     * without a transaction.
+     *
+     * `wp_cache_get` is required rather than guarded away: this engine refuses
+     * loudly instead of skipping a check it cannot make, and the function is
+     * unconditionally present in any WordPress that loaded wp-includes/cache.php
+     * — which is every context this branch can be reached from.
+     */
+    private function runCacheEntryInvalidation(array $invalidation, int $localId): void {
+        $group = str_replace('{id}', (string) $localId, (string) $invalidation['cache_group']);
+        $key = str_replace('{id}', (string) $localId, (string) $invalidation['cache_key']);
+        $purpose = 'apply invalidate declared object-cache entry';
+        if (!function_exists('wp_cache_get')) {
+            throw new \RuntimeException(
+                "duo: $purpose cannot verify the drop of '$key' in group '$group' — wp_cache_get() is absent, "
+                . 'and an unverified cache invalidation proves nothing about the stale read it exists to prevent'
+            );
+        }
+        if (CacheInvalidationTransaction::is_active()) {
+            CacheInvalidationTransaction::queue($key, $group, $purpose);
+        } else {
+            ($this->cacheDelete)($key, $group);
+        }
+        $found = false;
+        wp_cache_get($key, $group, false, $found);
+        if ($found) {
+            throw new \RuntimeException(
+                "duo: $purpose left '$key' cached in group '$group'; the declared invalidation did not take, so "
+                . "the plugin's own read path would still serve the pre-apply value"
+            );
         }
     }
 
