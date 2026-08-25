@@ -2409,6 +2409,18 @@ regress-fleet-census:
 regress-cohort-rebaseline:
 	php sandbox/tests/offline/cli/regress_cohort_rebaseline.php
 
+# WP-5.6, adapter discovery and distribution: `duo adapter discover|install|
+# update` over RECORDED duo-adapter-index/v1 fixtures, with no live network on
+# any path (the one https:// entry exists to prove it is discoverable and
+# refuses at install). Every refusing install is asserted twice — the typed
+# code, and that the repository's adapters/ tree is byte-for-byte unchanged —
+# because a refusal that wrote first and rolled back is a different product.
+# Includes a real platform-signed revocation and a genuinely lapsed v2
+# authority window, both refusing through AdapterCertification::verifyFile()
+# rather than through a second opinion in the distribution command.
+regress-adapter-distribution:
+	php sandbox/tests/offline/cli/regress_adapter_distribution.php
+
 regress-rollback-authority:
 	php sandbox/tests/offline/recovery/regress_rollback_authority.php
 

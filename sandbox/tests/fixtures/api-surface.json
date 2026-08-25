@@ -1,5 +1,5 @@
 {
-    "class_count": 392,
+    "class_count": 393,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -22920,6 +22920,52 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\AdapterDistribution": {
+            "abstract": false,
+            "constants": {
+                "INDEX_FORMAT": {
+                    "value_repr": "duo-adapter-index/v1"
+                },
+                "REPORT_FORMAT": {
+                    "value_repr": "duo-adapter-distribution/v1"
+                },
+                "TRANSPORT_FILE": {
+                    "value_repr": "file"
+                },
+                "VERBS": {
+                    "value_repr": [
+                        "discover",
+                        "install",
+                        "update"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
                     "static": true,
                     "visibility": "public"
                 }

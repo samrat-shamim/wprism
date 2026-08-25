@@ -117,6 +117,11 @@ require_once $repo . '/agent/src/Adapter/IdentityNamespaces.php';
 require_once $repo . '/agent/src/Kernel/ReferenceKindGrammar.php';
 require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
 require_once $repo . '/cli/src/Contract/ContractAttestation.php';
+// WP-5.6's index format. Loaded for its own constants only: the row below
+// reads the format string, the closed key sets and the transport list by
+// reflection, so a member added to the entry grammar moves this document
+// rather than being described by a literal here.
+require_once $repo . '/cli/src/Adapter/AdapterDistribution.php';
 require_once $repo . '/recovery/rollback-control.php';
 
 // The spec-version window (R-18) is a CONDITION inside the shipped validator,
@@ -139,6 +144,7 @@ use Duo\AdapterContractGrammar;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\IdentityNamespaces;
+use Duo\Orchestrator\AdapterDistribution;
 use Duo\Orchestrator\ApplicationContract;
 use Duo\Orchestrator\ContractAttestation;
 use Duo\Recovery\CanonicalJson;
@@ -1792,6 +1798,58 @@ function ws_rows(): array {
             . 'resolving a target\'s TAIL against the addressed section\'s own sub-grammar — fourteen '
             . 'field sections have fourteen of those, and a resolver here would be a second, drifting '
             . 'copy of all of them.',
+    ];
+
+    // WP-5.6's row. It is here for the OPPOSITE reason to every row above it:
+    // those record what a signature froze, and this one records a document
+    // that deliberately carries none. A register that only listed signed
+    // surfaces would have no place to write down "and this one is not signed,
+    // on purpose" — which is exactly the decision a later reader is most
+    // likely to try to reverse without knowing what it bought.
+    $indexEnvelope = (array) ws_const(AdapterDistribution::class, 'INDEX_ENVELOPE_KEYS');
+    $indexEntry = (array) ws_const(AdapterDistribution::class, 'INDEX_ENTRY_KEYS');
+    $indexWindow = (array) ws_const(AdapterDistribution::class, 'AGENT_WINDOW_KEYS');
+    sort($indexEnvelope, SORT_STRING);
+    sort($indexEntry, SORT_STRING);
+    sort($indexWindow, SORT_STRING);
+    $rows[] = [
+        'id' => 'R-30',
+        'title' => 'The adapter index is UNSIGNED by design, and its entry grammar is closed',
+        'now' => '`' . (string) ws_const(AdapterDistribution::class, 'INDEX_FORMAT')
+            . '` is `{' . implode(', ', $indexEnvelope) . '}`, where `adapters` maps an adapter NAME to a '
+            . 'non-empty list of entries, each exactly `{' . implode(', ', $indexEntry) . '}` and each '
+            . '`agent_versions` exactly `{' . implode(', ', $indexWindow) . '}` '
+            . '(spec/repo-format.md § v3.19). There is no signature member and no signing domain: an '
+            . 'index is a POINTER document. Every trust decision is re-derived at install from the '
+            . 'FETCHED bytes by `AdapterCertification::verifyFile()` — the same call the live policy path '
+            . 'makes — against the trust root the installing repository already holds, so the complete '
+            . 'blast radius of a tampered index is DENIAL: a moved digest, a moved URL, a moved '
+            . 'fingerprint and a deleted entry each refuse or withhold, and none of them can put an '
+            . 'unverified byte on disk. Exactly one transport ships (`'
+            . (string) ws_const(AdapterDistribution::class, 'TRANSPORT_FILE') . '://`); an `https://` '
+            . 'entry is discoverable and refuses at install by name.',
+        'permanent' => 'The closed entry key set is the part that cannot move quietly. It is closed in '
+            . 'BOTH directions for R-21\'s reason one level up — a member no checker reads is '
+            . 'indistinguishable from a deliberate one — and the absent-member direction is the one that '
+            . 'matters here: deleting `certificate_sha256` and `certificate_url` is precisely how a '
+            . 'tamperer would express "this package is unsigned", so an entry missing them must be '
+            . 'refused by the DOCUMENT grammar rather than discovered at verify time. Adding a member '
+            . 'later would make every index already published unreadable by the agent that added it, '
+            . 'which is why `/v1` is the whole change channel, exactly as R-01 records for the '
+            . 'certification domain. The digests are full sha256 in one spelling for the same reason a '
+            . 'certificate binds bytes rather than a path: a prefix, or a second accepted case, would let '
+            . 'two different packages resolve under one pin.',
+        'reserved' => 'A SIGNATURE over the index is deliberately not reserved, and this is the decision '
+            . 'the row exists to hold. Signing it would create a second trust root — with its own '
+            . 'custody, enrollment and revocation story — in front of a decision already taken by a root '
+            . 'that has all three, and it would buy nothing the digests do not already buy: an index '
+            . 'signature can only assert which packages EXIST, which is a denial-of-service surface, '
+            . 'never an authorization one. Reversing this needs a new `format` value read beside v1, a '
+            . 'reviewed answer to whose key signs it and how it is revoked, and a reason the answer is '
+            . 'not simply "the certificate the entry already points at". Also not reserved: an ORDER over '
+            . '`version`, which is an opaque publisher label this format never parses (§ v3.19 — the two '
+            . 'verbs refuse an ambiguity rather than rank it), and an HTTPS transport, whose absence is a '
+            . 'stated boundary with its own refusal rather than a gap to be filled in.',
     ];
 
     return $rows;
