@@ -791,6 +791,30 @@ final class Lint {
                 continue; // structured value: the deep scan above supersedes the shallow one below
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
+                if ($id === 0 || $id === 1) {
+                    // DUO-3508's guard on Pending::ref_hint() (Pending.php:315-329)
+                    // suppresses a value that is WHOLLY 0/1 -- a boolean flag can
+                    // never be a reference -- but only for a scalar row read whole.
+                    // numeric_candidates()'s array branch (Pending.php:406-413)
+                    // walks INTO an array-shaped option one element at a time, so
+                    // the identical boolean-flag shape recurs one level down and
+                    // that guard never sees it: measured live on
+                    // options.wpforms_settings[modern-markup] -- the '1' of
+                    // s:13:"modern-markup";s:1:"1" -- which BLOCKS capture under
+                    // LintTrustGate for an uncertified out-of-tree adapter
+                    // (LintTrustGate.php:16, PUBLIC_MESSAGE). Deliberately NOT
+                    // pushed into Pending::numeric_candidates() itself: that
+                    // function is shared with eight OTHER Lint::scan_tree() call
+                    // sites (Pending.php:322-325) where a bare 1 sitting inside a
+                    // larger structure is a genuine candidate; this option scan is
+                    // the one measured to collide, so only it is corrected. Mirrors
+                    // Pending::ref_hint()'s exact posture and its documented cost:
+                    // a real id genuinely stored as 1 in some OTHER array element
+                    // is swallowed the same way a whole-value '1' option already
+                    // is, id === 0 kept alongside id === 1 for the same reason
+                    // ref_hint() checks both.
+                    continue;
+                }
                 $hit = $env->resolve_id($id);
                 if ($hit === null) {
                     continue;

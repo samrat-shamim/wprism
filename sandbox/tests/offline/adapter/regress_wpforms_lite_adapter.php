@@ -216,14 +216,15 @@ duo_check_same(
     'A3: wpforms_form_locations is derived — the plugin regenerates it, so capture must not carry its page id'
 );
 duo_check_same(
-    ['authored', true],
+    ['authored', null],
     [
         $policy->option_rule('wpforms_settings')['class'] ?? null,
         $policy->option_rule('wpforms_settings')['lint_ok'] ?? null,
     ],
-    'A3: the ONE operator-authored option of the fourteen the recon censused is authored, and carries the '
-        . 'reviewed lint_ok exemption a live capture REFUSAL earned: `uncertified_adapter_lint_findings` on '
-        . 'options.wpforms_settings[modern-markup] (bare_id), where the "1" is a boolean flag and not an id'
+    'A3: the ONE operator-authored option of the fourteen the recon censused is authored, and carries NO '
+        . 'lint_ok exemption — the live capture REFUSAL it originally earned (`uncertified_adapter_lint_findings` '
+        . 'on options.wpforms_settings[modern-markup] (bare_id), where the "1" is a boolean flag and not an id) '
+        . 'is now closed at the engine (group F, FRICTION 7) rather than papered over on the declaration'
 );
 duo_check_same(
     ['runtime', 'runtime', 'runtime', 'runtime', 'runtime', 'runtime', 'runtime', 'runtime'],
@@ -672,6 +673,134 @@ duo_check_same(
     $aboveCeiling,
     'E6: and the CEILING is exclusive of every recorded release, so the window admits exactly the measured '
         . '2.0.0.x series and stops at the next minor rather than at the next major'
+);
+
+// ===========================================================================
+// F. FRICTION 7 — THE BOOLEAN THAT ONCE BLOCKED CAPTURE, NOW WITHOUT lint_ok
+//
+// A3 already pins that `wpforms_settings` carries no `lint_ok` exemption on
+// the CURRENT fixture. This group runs the actual capture-time scanner
+// (`Lint::scan_tree()`) over the exact bytes that fired live —
+// `a:3:{s:13:"modern-markup";s:1:"1";...}` — and asserts no `bare_id` finding
+// comes back for it, on the environment that made the false hint possible:
+// post #1 exists and is titled "Hello world!", WordPress's own seed row,
+// exactly as the manifest's own declaration_evidence for options.
+// wpforms_settings records (dogfood WP-6.4/WP-6.6, 2026-08-25).
+//
+// FAILING-BEFORE for this group lives outside the file, because the fix is
+// the ENGINE, not this suite: `git stash` the Lint.php edit (keeping this
+// suite and the fixture's lint_ok removal), rerun this file, and F1 fails —
+// `scan_tree()` returns a `bare_id` finding at
+// `options/core.json options.wpforms_settings[modern-markup]`, the same
+// locator `LintTrustGate` quoted live before this fix. `git stash pop`
+// restores the fix and F1 passes again. That sequence is the demonstration;
+// it is not re-run here because a suite cannot stash its own dependency out
+// from under itself mid-run.
+// ===========================================================================
+
+require_once $root . '/agent/src/Kernel/OptionState.php';
+require_once $root . '/agent/src/Review/Lint.php';
+
+use Duo\Lint;
+use Duo\LintEnvironment;
+use Duo\OptionState;
+
+$lintTmp = sys_get_temp_dir() . '/duo_wpforms_lint_' . bin2hex(random_bytes(8));
+mkdir($lintTmp . '/options', 0700, true);
+register_shutdown_function(static function () use ($lintTmp): void {
+    @unlink($lintTmp . '/options/core.json');
+    @rmdir($lintTmp . '/options');
+    @rmdir($lintTmp);
+});
+
+// The measured bytes, decoded as PHP's own unserialize() would hand them to
+// OptionsCapture: a:3:{s:13:"modern-markup";s:1:"1";s:20:"modern-markup-is-
+// set";b:1;s:26:"modern-markup-hide-setting";b:1;} — one boolean-shaped '1'
+// beside two real PHP booleans, which numeric_candidates() never treats as
+// numeric (is_numeric(true) === false), so only 'modern-markup' is a
+// candidate at all.
+Canon::write_file($lintTmp . '/options/core.json', Canon::encode(OptionState::document([
+    'wpforms_settings' => [
+        'autoload' => 'yes',
+        'state' => 'present',
+        'value' => ['modern-markup' => '1', 'modern-markup-is-set' => true, 'modern-markup-hide-setting' => true],
+    ],
+])));
+
+// Post #1 "Hello world!" is WordPress's own default seed row — the exact
+// resolution target the manifest's declaration_evidence records the false
+// pending hint against. Without it $env->resolve_id(1) answers null and F1
+// would pass VACUOUSLY (no candidate ever resolves), which would prove
+// nothing about the suppression this group exists to pin.
+$wpdb->seedTable('wp_posts', [
+    ['ID' => 1, 'post_type' => 'post', 'post_title' => 'Hello world!', 'post_status' => 'publish'],
+]);
+
+$lintFindings = Lint::scan_tree($lintTmp, $policy, LintEnvironment::live());
+$bareIdOnModernMarkup = array_values(array_filter(
+    $lintFindings,
+    static fn(array $f): bool => $f['class'] === 'bare_id' && $f['locator'] === 'options.wpforms_settings[modern-markup]'
+));
+duo_check_same(
+    [],
+    $bareIdOnModernMarkup,
+    'F1: the boolean\'s own "1" produces no bare_id finding — Lint::scan_options_file()\'s bare_id loop now '
+        . 'carries the same wholly-0/1 suppression Pending::ref_hint() has had since DUO-3508, so capture no '
+        . 'longer needs `lint_ok: true` on this declaration to get past LintTrustGate'
+);
+
+// F2 — the suppression is SCOPED to the {0,1} value class, not to "this
+// option is boolean-shaped so stop looking at it". A sibling array element
+// holding a real, non-boolean-shaped id (7, resolving to an existing page)
+// in the SAME option still flags — the fix reads the CANDIDATE's own value,
+// not the option or the key name.
+$wpdb->seedTable('wp_posts', [
+    ['ID' => 1, 'post_type' => 'post', 'post_title' => 'Hello world!', 'post_status' => 'publish'],
+    ['ID' => 7, 'post_type' => 'page', 'post_title' => 'Recon Contact Page', 'post_status' => 'publish'],
+]);
+Canon::write_file($lintTmp . '/options/core.json', Canon::encode(OptionState::document([
+    'wpforms_settings' => [
+        'autoload' => 'yes',
+        'state' => 'present',
+        'value' => ['modern-markup' => '1', 'unrelated_authored_post_ref' => 7],
+    ],
+])));
+$scopedFindings = Lint::scan_tree($lintTmp, $policy, LintEnvironment::live());
+$locators = array_values(array_map(
+    static fn(array $f): string => $f['locator'],
+    array_filter($scopedFindings, static fn(array $f): bool => $f['class'] === 'bare_id')
+));
+duo_check_same(
+    ['options.wpforms_settings[unrelated_authored_post_ref]'],
+    $locators,
+    'F2: a sibling element holding a genuine non-{0,1} id (7) still flags as bare_id, and modern-markup\'s own '
+        . '"1" still does not — the suppression is per-candidate value, not "any option shaped like this escapes '
+        . 'lint entirely"'
+);
+
+// F3 — Pending::ref_hint()'s OWN documented cost (Pending.php:315-329, "small
+// ids coincide … applied twice") is carried over rather than narrowed: a
+// genuine reference that happens to be stored as the bare value 1 is STILL
+// swallowed by this suppression, on either boolean-flag position. Asserting
+// this is what keeps the fix from silently drifting into a key-name
+// heuristic ("only suppress a key literally called modern-markup") that
+// CAREFUL SCOPE never asked for and DUO-3508 does not do either.
+Canon::write_file($lintTmp . '/options/core.json', Canon::encode(OptionState::document([
+    'wpforms_settings' => [
+        'autoload' => 'yes',
+        'state' => 'present',
+        'value' => ['modern-markup' => '1', 'coincidentally_one' => 1],
+    ],
+])));
+$costFindings = array_values(array_filter(
+    Lint::scan_tree($lintTmp, $policy, LintEnvironment::live()),
+    static fn(array $f): bool => $f['class'] === 'bare_id'
+));
+duo_check_same(
+    [],
+    $costFindings,
+    'F3: a second element that genuinely IS post #1 stored as bare 1 is also swallowed — the same cost '
+        . 'Pending::ref_hint() already accepts for a whole-value \'1\' option, not a new, narrower one'
 );
 
 duo_check_summary('regress_wpforms_lite_adapter');
