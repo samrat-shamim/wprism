@@ -595,6 +595,21 @@ regress-reviewer-evidence-tier:
 regress-cross-root-replay:
 	php sandbox/tests/offline/adapter/regress_cross_root_replay.php
 
+# WP-5.4 / spec/repo-format.md SS v3.18: the COMPUTED evidence grade that sits
+# beside the reviewed word. Three axes that already existed and projected into
+# nothing -- coverage breadth (production-readiness.json's 12 scenario
+# families), exercise depth (the bundle's per-test pass map at
+# provenance.proof.bundle) and platform reach (platform.json's per-axis
+# `verified` cells after SS v3.5 narrowing). The acceptance is that the number
+# is DERIVED: it moves when any of the three inputs move, an authored `grade`
+# member is refused BY NAME in every input, a subject with no exercise evidence
+# carries no grade at all, and `certified` still means exactly what it meant --
+# so the suite re-measures the shipped word through
+# ManifestDispositions::report() and proves the whole grade model reaches no
+# shipped byte at all.
+regress-graded-claim:
+	php sandbox/tests/offline/adapter/regress_graded_claim.php
+
 # Product release gate: every generated artifact must still agree with the
 # source it was generated from -- the public capability prose with the
 # manifest dispositions it describes, the published branch-environment
@@ -602,8 +617,11 @@ regress-cross-root-replay:
 # limitation ledger with tools/engine-gaps.json (whose closed-gap rows also
 # assert the implementations they cite are still on disk), the irreversibility
 # register with the signature domains, closed key sets and grammars the
-# refusals consult, the classmap with agent/src, and the offline corpus
-# include with the suite files on disk.
+# refusals consult, the classmap with agent/src, the offline corpus
+# include with the suite files on disk, and the computed evidence grades with
+# the three evidence records they are arithmetic over (WP-5.4: a grade is
+# re-derived on every run and byte-compared here, which is the only reason it
+# can never become a stored verdict somebody edits).
 release-gate:
 	php tools/capability-doc.php --check
 	php tools/provider-protocol-doc.php --check
@@ -612,6 +630,7 @@ release-gate:
 	php tools/classmap-generate.php --check
 	php tools/offline-corpus.php --check
 	php tools/adapter-kit.php --check
+	php tools/adapter-grade.php --check
 
 regress-multisite-refusal:
 	bash sandbox/tests/live/regress_multisite_refusal.sh
