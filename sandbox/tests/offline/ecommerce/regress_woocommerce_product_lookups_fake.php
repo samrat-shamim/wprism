@@ -2944,6 +2944,60 @@ namespace {
         $fakeVisibilityRelationships[$reverseRaceParent], $fakeProductCache[$reverseRaceParent],
         $fakeGroupedChildren[$reverseRaceParent]);
 
+    // The reverse witness must include ordinary members discovered below a
+    // grouped root, not only the initially selected child. Insert a new
+    // grouped owner for a nested simple member during its post-preflight
+    // reverse probe; before the child-ID witness this owner was discovered
+    // only after effects began and the unsnapshotted root was skipped.
+    $nestedReverseRoot = 71800;
+    $nestedReverseInner = 71801;
+    $nestedReverseChild = 71802;
+    $nestedReverseParent = 71803;
+    fake_add_visibility_product($nestedReverseRoot, 'grouped', 0, [$nestedReverseInner]);
+    fake_add_visibility_product($nestedReverseInner, 'grouped', 0, [$nestedReverseChild]);
+    fake_add_visibility_product($nestedReverseChild, 'simple');
+    $fakeGroupedChildren[$nestedReverseRoot] = [$nestedReverseInner];
+    $fakeGroupedChildren[$nestedReverseInner] = [$nestedReverseChild];
+    $nestedReverseReads = 0;
+    $wpdb->groupedParentReadHook = static function () use (
+        &$nestedReverseReads,
+        &$fakeGroupedChildren,
+        $nestedReverseChild,
+        $nestedReverseParent
+    ): void {
+        $nestedReverseReads++;
+        // Preflight reads: selected root, each grouped root, then every
+        // discovered child witness. Assertion repeats those three witnesses
+        // in the same sorted order; mutate immediately before the nested
+        // simple child query returns.
+        if ($nestedReverseReads === 9) {
+            fake_add_visibility_product($nestedReverseParent, 'grouped', 0, [$nestedReverseChild]);
+            $fakeGroupedChildren[$nestedReverseParent] = [$nestedReverseChild];
+        }
+    };
+    $nestedReverseCacheStart = count($fakeCacheEvents);
+    $nestedReverseFailure = '';
+    try {
+        $adapter->regenerate_batch([$nestedReverseRoot], []);
+    } catch (\Throwable $failure) {
+        $nestedReverseFailure = $failure->getMessage();
+    }
+    $wpdb->groupedParentReadHook = null;
+    $nestedReverseEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $nestedReverseCacheStart),
+        static fn(string $event): bool => str_starts_with($event, 'remove:')
+    ));
+    $check(str_contains($nestedReverseFailure, 'grouped-parent scope changed')
+        && $nestedReverseEffects === []
+        && $nestedReverseReads === 9,
+        'a grouped parent inserted for a nested ordinary child refuses before root discovery or derived effects');
+    foreach ([$nestedReverseRoot, $nestedReverseInner, $nestedReverseChild, $nestedReverseParent] as $id) {
+        unset($fakeProducts[$id], $fakeMeta[$id], $fakeMetaLookup[$id],
+            $fakeVisibilityRelationships[$id], $fakeProductCache[$id]);
+    }
+    unset($fakeGroupedChildren[$nestedReverseRoot], $fakeGroupedChildren[$nestedReverseInner],
+        $fakeGroupedChildren[$nestedReverseParent]);
+
     // Exercise the same mutable sequence through Woo's variable-product
     // post_parent reader. The all-child witness is fixed at 50,000 ids, then
     // the native membership widens before the assertion read; no later

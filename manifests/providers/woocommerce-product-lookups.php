@@ -4447,7 +4447,17 @@ final class WoocommerceProductLookups {
             }
             foreach ($childIds as $childId) {
                 $childId = (int) $childId;
-                if ($childId > 0 && !isset($excluded[$childId])) {
+                if ($childId <= 0) {
+                    continue;
+                }
+                // Every child discovered from a composite is another
+                // possible grouped reverse owner target. Keep its lookup in
+                // the same bounded witness even when the child is excluded
+                // from the live walk as a tombstone; otherwise a grouped
+                // owner inserted around a nested ordinary child can appear
+                // after preflight and be silently skipped by projection.
+                $reverseCandidates[$childId] = $childId;
+                if (!isset($excluded[$childId])) {
                     $enqueue($childId, true);
                 }
             }
