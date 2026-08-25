@@ -8441,6 +8441,20 @@ duo_check(
         < strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]'),
     'both exact TEC boundary artifacts execute Category Colors equal-priority/cache/pagination evidence'
 );
+duo_check(
+    str_contains($deletionCheck, "getenv('DUO_MANIFESTS_DIR')")
+        && str_contains(
+            $deletionCheck,
+            "'/providers/the-events-calendar-category-colors.php'"
+        )
+        && str_contains(
+            $deletionCheck,
+            'class_exists(\\Duo\\Providers\\TheEventsCalendarCategoryColors::class, false)'
+        )
+        && strpos($deletionCheck, 'require_once $providerPath;')
+            < strpos($deletionCheck, '$provider = new \\Duo\\Providers\\TheEventsCalendarCategoryColors('),
+    'the raw exact Category Colors boundary loads the shipped provider from the active manifest mount before construction'
+);
 $tecBoundaryReturnAt = strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]');
 $widgetScopedCaptureAt = strpos($deletionCheck, 'TEC_WIDGET_SCOPE_HOST=');
 $categoryScopedCaptureAt = strpos($deletionCheck, 'tec_category_uuid()');
