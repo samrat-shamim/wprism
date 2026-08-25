@@ -39331,23 +39331,6 @@
                     "static": false,
                     "visibility": "public"
                 },
-                "object_type_option_ref": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "tax",
-                            "type": "string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "?array",
-                    "static": false,
-                    "visibility": "public"
-                },
                 "object_type_option_refs": {
                     "abstract": false,
                     "final": false,
@@ -58179,23 +58162,6 @@
                         }
                     ],
                     "return_type": null,
-                    "static": false,
-                    "visibility": "public"
-                },
-                "resolve": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "tax",
-                            "type": "string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "?array",
                     "static": false,
                     "visibility": "public"
                 },

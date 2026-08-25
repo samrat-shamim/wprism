@@ -461,6 +461,16 @@ namespace {
             && str_contains((string) ($sidebar['unowned_refusal'] ?? ''), 'polylang-1 is absent'),
         'ordinary capture and forged or unowned sidebar recovery remain loudly blocked'
     );
+    $sidebarSource = (string) file_get_contents(dirname(__DIR__, 4) . '/agent/src/Repository/SidebarState.php');
+    $sidebarFixtureSource = (string) file_get_contents($sidebarFixture);
+    duo_check(
+        !str_contains($sidebarSource, 'array_is_list($portableWidgetReferences)')
+            && str_contains(
+                $sidebarFixtureSource,
+                'SidebarState::capture($policy, $tokens, false, false, false, null, $canonicalTree)'
+            ),
+        'SidebarState requires the explicit seventh canonical-tree argument and never reinterprets an ambiguous sixth argument'
+    );
     duo_check_same(
         true,
         $sidebar['orphan_identity_ignored'] ?? null,

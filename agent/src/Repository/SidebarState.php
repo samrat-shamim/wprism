@@ -126,15 +126,6 @@ final class SidebarState {
         ?array $portableWidgetReferences = null,
         ?array $canonicalTree = null
     ): array {
-        // The sixth argument is historically the portable-widget reference
-        // list. A Polylang-only caller from the first readiness patch passed
-        // its canonical tree there; recognize that shape during the API
-        // transition while the builder supplies both values explicitly.
-        if ($canonicalTree === null && $portableWidgetReferences !== null
-            && !array_is_list($portableWidgetReferences)) {
-            $canonicalTree = $portableWidgetReferences;
-            $portableWidgetReferences = null;
-        }
         self::assert_policy($policy);
         $declared = $policy->widget_types();
         $sidebars = self::load_sidebars_option();

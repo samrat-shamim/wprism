@@ -4,32 +4,21 @@ namespace Duo;
 /**
  * Pure resolution of a taxonomy's option-derived object-type declaration.
  *
- * This reads only pinned manifest order. Policy retains the public facade,
- * while Apply owns reading the current compiled option state at apply time.
+ * This reads only pinned manifest order. Policy exposes the complete
+ * declaration list, while Apply owns reading the current compiled option
+ * state at apply time.
  */
 final class TaxonomyObjectTypeOptionResolver {
     /** @param list<array<string,mixed>> $manifests */
     public function __construct(private array $manifests) {}
 
-    /** @return ?array{option:string, sub_key:string} */
-    public function resolve(string $tax): ?array {
-        $declarations = $this->resolve_all($tax);
-        if ($declarations === null) {
-            return null;
-        }
-        return [
-            'option' => $declarations[0]['option'],
-            'sub_key' => $declarations[0]['sub_key'],
-        ];
-    }
-
     /**
      * Resolve every compiled-option contribution for one taxonomy.
      *
-     * The original object shape remains a one-row shorthand. A list adds
-     * independent contributions, including a boolean setting whose true/1
-     * state enables fixed object types. Policy grammar validates the raw
-     * shape before this pure projection is reachable.
+     * The object shape remains a one-row shorthand. A list adds independent
+     * contributions, including a boolean setting whose true/1 state enables
+     * fixed object types. Policy grammar validates the raw shape before this
+     * pure projection is reachable.
      *
      * @return ?list<array{option:string, sub_key:string, object_types_when_truthy?:list<string>}>
      */

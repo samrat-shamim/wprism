@@ -1253,17 +1253,11 @@ final class Policy {
      * get_taxonomy() succeeded or the pattern fallback did.
      *
      * Same first-manifest-wins, exact-name lookup as
-     * description_refs_for_taxonomy() immediately above. The singular facade
-     * remains the byte-compatible first-row projection for existing callers;
-     * Apply uses the plural form so no compiled contribution is discarded.
+     * description_refs_for_taxonomy() immediately above. Apply consumes the
+     * complete list so no compiled contribution is discarded.
      *
-     * @return ?array{option:string, sub_key:string}
+     * @return list<array{option:string, sub_key:string, object_types_when_truthy?:list<string>}>
      */
-    public function object_type_option_ref(string $tax): ?array {
-        return $this->taxonomy_object_type_option_resolver()->resolve($tax);
-    }
-
-    /** @return list<array{option:string, sub_key:string, object_types_when_truthy?:list<string>}> */
     public function object_type_option_refs(string $tax): array {
         return $this->taxonomy_object_type_option_resolver()->resolve_all($tax) ?? [];
     }

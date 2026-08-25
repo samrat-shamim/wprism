@@ -71,7 +71,7 @@
 #       at its own top-of-function gate, before ever reaching ref
 #       resolution. The real fix: Apply's own taxes_by_object_type() now
 #       ALSO consults a manifest-declared, generic supplement (Policy::
-#       object_type_option_ref() -- "taxonomy X's object_type is
+#       object_type_option_refs() -- "taxonomy X's object_type is
 #       additionally driven by option O's sub-key K"; the engine knows
 #       nothing about Polylang specifically). NOT via a live database
 #       read, on purpose -- an earlier version of this fix tried exactly
@@ -446,7 +446,7 @@ print('wpseo merge OK:', d['disableadvanced_meta'], d['version'])
 " || fail "wpseo sub-key merge check failed"
 pass "wpseo.disableadvanced_meta merged correctly; version/first_activated_on (target's OWN) preserved -- second real-plugin proof of the same grammar"
 
-say "(3) the documented Polylang timing hazard (manifests/polylang.json's own CLOSED note, task #121/DUO-3280): taxes_by_object_type()'s manifest-declared option supplement (Policy::object_type_option_ref(), reading polylang.post_types from THIS apply's own compiled tree, not a live DB read -- see Apply::option_driven_object_type()'s comment for why) means the SAME single apply that first writes post_types now ALSO sees it for relationship-writing purposes -- no second process, no retry required. Checked below on the output of the single APPLY1 attempt above, not a subsequent process's read of it."
+say "(3) the documented Polylang timing hazard (manifests/polylang.json's own CLOSED note, task #121/DUO-3280): taxes_by_object_type()'s manifest-declared option supplement (Policy::object_type_option_refs(), reading polylang.post_types from THIS apply's own compiled tree, not a live DB read -- see Apply::option_driven_object_type()'s comment for why) means the SAME single apply that first writes post_types now ALSO sees it for relationship-writing purposes -- no second process, no retry required. Checked below on the output of the single APPLY1 attempt above, not a subsequent process's read of it."
 OBJTYPE_B2=$(wp2 eval "\$t=get_taxonomy('language'); echo implode(',', (array) \$t->object_type);")
 echo "side2 language taxonomy object_type in a fresh process after the single apply attempt: $OBJTYPE_B2"
 grep -q "project" <<<"$OBJTYPE_B2" || fail "expected 'project' in language's object_type after the single apply attempt (got: $OBJTYPE_B2) -- the post_types write itself did not land"
@@ -473,7 +473,7 @@ echo "pll_get_post_language immediately after the SINGLE, unretried apply attemp
 # pll_get_post_language(), which hits the DB directly and would report the
 # same answer whether checked in-process or, as here, from a separate
 # `wp2 eval` process; a fresh process was never what made this pass.
-[ "$LANG_BEFORE_FIX" = "'en'" ] || fail "expected pll_get_post_language already resolved to 'en' after the single, unretried apply attempt (got: $LANG_BEFORE_FIX) -- DUO-3280's fix did not close the gap; re-check taxes_by_object_type()/object_type_option_ref()"
+[ "$LANG_BEFORE_FIX" = "'en'" ] || fail "expected pll_get_post_language already resolved to 'en' after the single, unretried apply attempt (got: $LANG_BEFORE_FIX) -- DUO-3280's fix did not close the gap; re-check taxes_by_object_type()/object_type_option_refs()"
 pass "confirmed: the SINGLE, unretried apply attempt already resolved the documented Polylang object_type timing gap -- zero manual Settings replication, zero retry, zero drift left for the checks below to find"
 
 say "confirming the above leaves nothing to self-heal: a no-op re-apply -- ZERO content changes anywhere -- should show ZERO drift, not the 'drift (env ahead, untouched)' this suite originally documented here (that characterization described the pre-fix apply's own gap; see note (3) above for why the single apply above already closed it). Kept as a real assertion, not just a description, precisely because a regression back to the old behavior should fail loudly here, not slide by unnoticed."

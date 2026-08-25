@@ -105,7 +105,7 @@ namespace {
         ],
     ];
 
-    $recovered = \Duo\SidebarState::capture($policy, $tokens, false, false, false, $canonicalTree);
+    $recovered = \Duo\SidebarState::capture($policy, $tokens, false, false, false, null, $canonicalTree);
     $content = json_decode((string) ($recovered['entities'][0]['content'] ?? ''), true);
 
     $captureRefusal = '';
@@ -119,7 +119,7 @@ namespace {
     try {
         $wrongTree = $canonicalTree;
         $wrongTree['sidebar/sidebar-1']['path'] = 'sidebars/different.json';
-        \Duo\SidebarState::capture($policy, $tokens, false, false, false, $wrongTree);
+        \Duo\SidebarState::capture($policy, $tokens, false, false, false, null, $wrongTree);
     } catch (\Throwable $failure) {
         $unownedRefusal = $failure->getMessage();
     }
