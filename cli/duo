@@ -74,6 +74,11 @@ require __DIR__ . '/src/Adapter/AdapterCertify.php';
 require __DIR__ . '/src/Adapter/SpecMigration.php';
 require __DIR__ . '/src/Adapter/AdapterBoundary.php';
 require __DIR__ . '/src/Adapter/AdapterProposals.php';
+// WP-5.6's discovery and distribution channel. After AdapterCertify because
+// it installs the same two files that verb writes and verifies them through
+// the same `AdapterCertification::verifyFile()`; it requires none of that
+// class's code, so the ordering is about reading order, not linkage.
+require __DIR__ . '/src/Adapter/AdapterDistribution.php';
 // RefreshPlan lands as a separately-reviewable semantic layer. Keep this
 // host shell loadable while that contract is unavailable; Refresh itself
 // fails closed with an actionable diagnostic before any candidate ref exists.
@@ -262,6 +267,7 @@ use Duo\Orchestrator\AdapterCertify;
 use Duo\Orchestrator\SpecMigration;
 use Duo\Orchestrator\AdapterBoundary;
 use Duo\Orchestrator\AdapterProposals;
+use Duo\Orchestrator\AdapterDistribution;
 use Duo\Orchestrator\CommandOutput;
 use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\PassthroughCommand;
@@ -318,6 +324,11 @@ Usage:
                        [--outcomes=<outcomes.json>] [--from=<v>] [--to=<v>]
                        [--manifest=<n>] [--format=json]
   duo adapter proposals [--ledger=<dir>] [--manifests=<dir>] [--format=json]
+  duo adapter discover --index=<index.json> [--repo=<site-repo>] [--format=json]
+  duo adapter install <site-repo> --index=<index.json> --name=<n>
+                      [--version=<v>] [--format=json]
+  duo adapter update <site-repo> --index=<index.json> --name=<n> --to=<v>
+                     [--format=json]
   duo adapter-observe <env> [--out=<local-file>|--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
@@ -719,6 +730,54 @@ Verbs:
                           would move every adapter digest on every
                           re-verification. `duo census --health=<doc>` ranks
                           the rows beside the demand rank.
+  adapter discover        What a duo-adapter-index/v1 document publishes, and
+    --index=<index.json>  which of it you already have. This is the channel
+    [--repo=<site-repo>]  that tells you an adapter you do NOT have exists —
+    [--format=json]       every other adapter command answers about bytes
+                          already on this disk. It fetches nothing: every row
+                          comes from the index or from your own repository.
+                          The index carries NO signature and confers NO trust.
+                          Each entry is a pointer — a digest, a certificate
+                          digest, an authority fingerprint and a URL — and
+                          every trust decision is re-derived at install from
+                          the fetched bytes against your own
+                          adapters/authorities.json. So a tampered index can
+                          deny you a package and can never install one.
+                          With --repo each row also carries whether it is
+                          installed, whether the installed bytes match, and
+                          whether that signer is enrolled here.
+  adapter install         Install a package this repository does NOT have, as
+    <site-repo>           adapters/<n>.json + adapters/certifications/<n>.json
+    --index=<index.json>  — exactly the two files `adapter certify` writes, so
+    --name=<n>            `adapter list --repo` reports it identically to one
+    [--version=<v>]       you certified yourself. Resolution NEVER falls
+    [--format=json]       through: an unpinned version, a digest that does not
+                          match the fetched bytes, an unreachable URL, an
+                          out-of-window package, an unsigned or unverifiable
+                          one, or a signer this repository has not enrolled is
+                          each REFUSED, never approximated and never installed
+                          uncertified. A revoked or expired authority refuses
+                          through the same verifier every other command uses.
+                          Verification happens in a staging root, so a refusal
+                          leaves the repository exactly as it was found.
+                          Without --version exactly one entry must be inside
+                          this agent's window; two is a refusal listing both,
+                          because the format defines no order over version
+                          strings. Installing is not pinning: `adapter pin` is
+                          the separate act that makes the site load it.
+                          One transport ships, file://. An https:// entry is
+                          discoverable and refuses at install naming the mirror
+                          step — a fetcher no offline suite can exercise is an
+                          unevidenced supply-chain surface in the one command
+                          whose job is to refuse unevidenced bytes.
+  adapter update          Replace an INSTALLED package with another version
+    <site-repo>           from the same index, through the identical ladder.
+    --index=<index.json>  --to is required: nothing ranks version strings for
+    --name=<n>            you. Refuses when the installed bytes hash to
+    --to=<v>              nothing that index published — those bytes are a
+    [--format=json]       local decision, and an unsigned index does not get
+                          to overwrite one. Re-running at the installed digest
+                          writes nothing and exits 0.
   adapter-observe <env>   Ask exactly one configured target for its closed,
     [--out=<local-file>]  value-redacted adapter proposal-evidence document.
     [--format=json]       The host supplies only that environment's configured
@@ -1518,6 +1577,17 @@ function main(array $argv): int {
         }
         if (in_array($rest[0] ?? '', AdapterCertify::VERBS, true)) {
             return AdapterCertify::run($rest);
+        }
+        // WP-5.6: `discover|install|update` is a sixth owner, and the split is
+        // the sharpest one here. Every other verb in this family answers about
+        // bytes that are ALREADY on this disk; these three are the only ones
+        // that resolve a document describing bytes that are not, and the only
+        // ones with a transport at all. Keeping the resolution ladder — fetch,
+        // digest, verify, enrolled-authority — out of the read-only catalog and
+        // out of the signing verb is what lets each of the three be read on its
+        // own.
+        if (in_array($rest[0] ?? '', AdapterDistribution::VERBS, true)) {
+            return AdapterDistribution::run($rest);
         }
         // WP-4.12: `recertify` is a fifth owner rather than a fifth
         // AdapterCertify verb, and the split is the same one that put

@@ -13,6 +13,7 @@ return [
     'Duo\\Orchestrator\\AdapterBoundary' => 'src/Adapter/AdapterBoundary.php',
     'Duo\\Orchestrator\\AdapterCatalog' => 'src/Adapter/AdapterCatalog.php',
     'Duo\\Orchestrator\\AdapterCertify' => 'src/Adapter/AdapterCertify.php',
+    'Duo\\Orchestrator\\AdapterDistribution' => 'src/Adapter/AdapterDistribution.php',
     'Duo\\Orchestrator\\AdapterDraft' => 'src/Adapter/AdapterDraft.php',
     'Duo\\Orchestrator\\AdapterObservation' => 'src/Adapter/AdapterObservation.php',
     'Duo\\Orchestrator\\AdapterProposals' => 'src/Adapter/AdapterProposals.php',

@@ -314,6 +314,26 @@ const REHEARSAL_GAPS = [
         . 'Exercised by sandbox/tests/offline/recovery/regress_checkpoint_bundle.php.',
     'recovery/CheckpointBundle.php::validateVerifierInputs' =>
         'same provider-backed path as validatePriorVerification, which calls it.',
+    // WP-5.6's two distribution gates. This estate is a fleet of sites that
+    // ALREADY hold their adapters — that is what makes it a rehearsal of a
+    // version transition rather than of an installation — and both of these
+    // gates are reached only by resolving a duo-adapter-index/v1 document the
+    // estate does not have and must not acquire: an estate that installed a
+    // package mid-transition would be measuring two moves at once and could
+    // not attribute a digest change to the bump.
+    'cli/src/Adapter/AdapterDistribution.php::enrolledFingerprints' =>
+        'reads the installing repository\'s adapters/authorities.json to answer "is this package\'s signer '
+        . 'enrolled here", a question only `duo adapter install` asks. The estate\'s sites build and edit that '
+        . 'exact file — the authority probes below drive it — but never through this seam. Its whole-root '
+        . 'refusal and its unenrolled-signer answer are exercised by '
+        . 'sandbox/tests/offline/cli/regress_adapter_distribution.php.',
+    'cli/src/Adapter/AdapterDistribution.php::resolveVerified' =>
+        'the install ladder (§ v3.19). Reachable only with an index document, a transport and a package to '
+        . 'fetch, none of which this state-only estate has. What it surfaces on the authority and platform axes '
+        . 'is AdapterCertification::verifyFile()\'s own refusals — an anchor gate this estate DOES exercise '
+        . 'directly, at both states — so the transition property is measured here and the ladder that '
+        . 'classifies it is exercised by sandbox/tests/offline/cli/regress_adapter_distribution.php, including '
+        . 'a real platform-signed revocation and a genuinely lapsed v2 authority window.',
 ];
 
 /** Run one driver pass and return its decoded document. */

@@ -271,6 +271,14 @@ and its cost are written down.
 
 **Reserved.** An ARM in `AdapterCertification::topLevelKeyPartition()` is deliberately NOT taken. Without one the signer refuses this section by name — an adapter that adopts it loads everywhere and is not certifiable, which is § v3.3's stated posture for a feature-claimed key rather than an oversight. Taking the arm would also admit the key with NO feature declared, deleting the no-bump demonstration the section exists to be; it is a separate reviewed decision, for whoever needs a certificate to cover this surface. Also reserved: resolving a target's TAIL against the addressed section's own sub-grammar — fourteen field sections have fourteen of those, and a resolver here would be a second, drifting copy of all of them.
 
+### R-30 — The adapter index is UNSIGNED by design, and its entry grammar is closed
+
+**Shipped now.** `duo-adapter-index/v1` is `{adapters, format}`, where `adapters` maps an adapter NAME to a non-empty list of entries, each exactly `{adapter_sha256, agent_versions, authority_fingerprint, certificate_sha256, certificate_url, url, version}` and each `agent_versions` exactly `{max, min}` (spec/repo-format.md § v3.19). There is no signature member and no signing domain: an index is a POINTER document. Every trust decision is re-derived at install from the FETCHED bytes by `AdapterCertification::verifyFile()` — the same call the live policy path makes — against the trust root the installing repository already holds, so the complete blast radius of a tampered index is DENIAL: a moved digest, a moved URL, a moved fingerprint and a deleted entry each refuse or withhold, and none of them can put an unverified byte on disk. Exactly one transport ships (`file://`); an `https://` entry is discoverable and refuses at install by name.
+
+**Why it cannot change.** The closed entry key set is the part that cannot move quietly. It is closed in BOTH directions for R-21's reason one level up — a member no checker reads is indistinguishable from a deliberate one — and the absent-member direction is the one that matters here: deleting `certificate_sha256` and `certificate_url` is precisely how a tamperer would express "this package is unsigned", so an entry missing them must be refused by the DOCUMENT grammar rather than discovered at verify time. Adding a member later would make every index already published unreadable by the agent that added it, which is why `/v1` is the whole change channel, exactly as R-01 records for the certification domain. The digests are full sha256 in one spelling for the same reason a certificate binds bytes rather than a path: a prefix, or a second accepted case, would let two different packages resolve under one pin.
+
+**Reserved.** A SIGNATURE over the index is deliberately not reserved, and this is the decision the row exists to hold. Signing it would create a second trust root — with its own custody, enrollment and revocation story — in front of a decision already taken by a root that has all three, and it would buy nothing the digests do not already buy: an index signature can only assert which packages EXIST, which is a denial-of-service surface, never an authorization one. Reversing this needs a new `format` value read beside v1, a reviewed answer to whose key signs it and how it is revoked, and a reason the answer is not simply "the certificate the entry already points at". Also not reserved: an ORDER over `version`, which is an opaque publisher label this format never parses (§ v3.19 — the two verbs refuse an ambiguity rather than rank it), and an HTTPS transport, whose absence is a stated boundary with its own refusal rather than a gap to be filled in.
+
 ## 3. The grammars, as the shipped validators answer them
 
 ### 3.1 Key ids, three roots
@@ -402,7 +410,7 @@ printing a register it cannot stand behind:
    them into every adapter digest — and their membership equals the shipped library exactly: 16 adapter
    names and 18 `id_kind`s, in both directions, so a seventeenth unprefixed name is a reviewed
    edit rather than a file appearing in a directory (R-27).
-10. **The register has no gaps and no duplicates.** Row ids run R-01 … R-29 with every integer
+10. **The register has no gaps and no duplicates.** Row ids run R-01 … R-30 with every integer
     present exactly once. Ids are ordinal bookkeeping — nothing on disk or in a certificate
     embeds one — but an id nobody can account for reads as a row somebody deleted, and this
     document is the only place a deleted decision would be missed.

@@ -1803,15 +1803,45 @@ core-owned operations, **providers** for plugin-owned ones, **regenerators**
 for per-entity derived rebuild, **interpreters** for schema-driven
 classification. What is still missing sits above them.
 
-**REMOTE adapter discovery, executable adapter packages, compatibility shims,
-and a public capability catalog** are **Planned**. Site-repository discovery,
-plugin-bundled discovery, packaged installation (into the site source, with a
-signed certificate), derived trust tiers, loud unsigned support, and
-agent-authority signed evidence all ship now. What remains absent is a
-remote/registry mechanism that tells you an adapter you do not already have
-EXISTS, and any way for an out-of-tree adapter to introduce executable code
-outside an installed plugin; do not work around that boundary with manifest
-fields or copied PHP.
+**Executable adapter packages, compatibility shims, and a public capability
+catalog** are **Planned**. Site-repository discovery, plugin-bundled discovery,
+packaged installation (into the site source, with a signed certificate),
+derived trust tiers, loud unsigned support, agent-authority signed evidence,
+and — since WP-5.6 — **remote discovery and distribution** all ship now. What
+remains absent is any way for an out-of-tree adapter to introduce executable
+code outside an installed plugin; do not work around that boundary with
+manifest fields or copied PHP.
+
+**Remote discovery and distribution: what shipped, and what did not.** `duo
+adapter discover|install|update` reads a `duo-adapter-index/v1` document —
+`{adapters, format}`, each entry `{adapter_sha256, agent_versions,
+authority_fingerprint, certificate_sha256, certificate_url, url, version}` —
+and that is the mechanism that tells you an adapter you do not already have
+EXISTS. Installing one writes exactly `adapters/<name>.json` plus
+`adapters/certifications/<name>.json`, so a distributed package is not a fourth
+source: it is the site source, and everything above about pins, certificates
+and claims applies to it unchanged. Resolution never falls through — an
+unpinned version, a digest that does not match the fetched bytes, an
+unreachable URL, an out-of-window package, an unsigned or unverifiable one, or
+a signer your repository has not enrolled each refuses, and verification runs
+in a staging root so a refusal leaves your repository byte-for-byte as it found
+it. Nothing under `agent/` reads the format; installation is an operator act on
+the host, never a runtime fetch.
+
+Two boundaries inside that, stated rather than implied. **The index carries no
+signature** and confers no trust: it is a pointer document, every entry is
+digest-pinned, and every trust decision is re-derived from the fetched bytes
+against your own `adapters/authorities.json`. A tampered index can deny you a
+package; it can never install one. That means an index cannot enroll its own
+signer either — you enroll a vendor key deliberately, or the install refuses
+with `[authority_not_enrolled]`. **Exactly one transport ships, `file://`.** An
+`https://` entry is discoverable and refuses at install naming the mirror step:
+a network fetcher no offline suite can exercise is an unevidenced supply-chain
+surface in the one command whose job is to refuse unevidenced bytes. Mirror the
+two files into a directory you control and point an index at them. Adding an
+HTTPS transport is a separate reviewed decision with its own evidence, not a
+gap to be filled in. `spec/repo-format.md` § v3.19 and `docs/wire-surface.md`
+R-30 carry both decisions and what would have to be true to reverse them.
 
 What ships for the adapters you already have is the **installed-adapter
 catalog**: `duo adapter list|inspect|doctor` reports the two host-reachable

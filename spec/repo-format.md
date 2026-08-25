@@ -819,6 +819,7 @@ evidence before this line changes.
 | v3.13 | the `invalidate[]` vocabulary and its two-demand admission rule | WP-6.2 | YES — three verbs; the third gated on `invalidate-vocabulary/v1`, the first section shipped POST-v3 with no bump |
 | v3.17 | a signing profile that accepts an author-written disposition | WP-5.3 | YES — `certify --ratification-file`, judged by the shipped disposition validator; the derivation stays the floor |
 | v3.18 | the evidence grade: computed beside the reviewed word | WP-5.4 | YES — three axes derived on every call into a byte-compared document; no wire member, no stored verdict, no shipped byte |
+| v3.19 | `duo-adapter-index/v1` — discovery and distribution over an unsigned pointer document | WP-5.6 | YES — three host verbs, digest-pinned resolution that never falls through, one transport (`file://`); nothing under `agent/` reads the format |
 
 The flip itself — the two defines, the migration verbs, the cohorted rollout and the rollback rehearsal —
 is WP-4.12, is DONE, and § v3.12 is the record of what it deliberately left alone. The runbook that
@@ -2239,6 +2240,78 @@ hand-edited grade, on evidence that moved while the prose did not, and on an aut
 out of the shipped engine by reflection or by running its refusals. A grade is in no signature, is stored
 nowhere, and is re-derived from documents anyone may move; a row for it would be an authored entry in a
 register whose whole discipline is that it contains none.
+
+### v3.19 `duo-adapter-index/v1` — discovery and distribution, over a document that carries no authority
+
+**Rider: WP-5.6. Enforced today: yes — `cli/src/Adapter/AdapterDistribution.php` reads it,
+`duo adapter discover|install|update` are the three verbs, and
+`sandbox/tests/offline/cli/regress_adapter_distribution.php` drives every refusal below. Nothing under
+`agent/` reads this format, and no shipped byte moved.**
+
+Three adapter sources ship — the agent's own library, `<site-repo>/adapters/`, and one
+`duo-adapter.json` at the root of each active plugin — and all three answer a question about bytes that
+are already on the disk. `docs/guides/adapter-authoring.md` stated the gap as Planned in exactly those
+terms: "what remains absent is a remote/registry mechanism that tells you an adapter you do not already
+have EXISTS". This section is that mechanism, and it is deliberately the smaller half of what the word
+"registry" usually means.
+
+**The document.** `{adapters, format}`, closed. `adapters` maps an adapter NAME to a non-empty list of
+entries, each exactly
+`{adapter_sha256, agent_versions, authority_fingerprint, certificate_sha256, certificate_url, url,
+version}`. Digests are lowercase 64-hex sha256 of the exact published bytes; `agent_versions` is the
+`{min, max}` window `Policy::assert_min_max_range()` already authors, min inclusive and max exclusive,
+naming the agent line the publisher offers the package for; `version` is an opaque publisher label in the
+same slug `fetch_artifact` accepts for an artifact version; both URLs are absolute. The name is the map
+key rather than a member for the reason `AdapterCertification::certificatePath()` derives its own path:
+a name that can be stated twice can be stated inconsistently.
+
+**It carries no signature, and that is the decision.** An index is a POINTER document. Every entry names
+bytes and their digest; every trust decision is re-derived at install from the FETCHED bytes by
+`AdapterCertification::verifyFile()`, the same call the live policy path makes, against the trust root
+the installing repository already holds. So the complete blast radius of a tampered, replayed, truncated
+or hostile index is DENIAL: move a digest and resolution refuses, move a URL and the digest refuses, move
+the fingerprint and the enrolled-authority check refuses, delete an entry and the package is not offered.
+It can never cause an unverified byte to land. Signing it would create a second trust root — with its own
+custody, enrollment and revocation story — in front of a decision already taken by a root that has all
+three. `docs/wire-surface.md` R-30 records that, and records what would have to be true for a later
+generation to reverse it.
+
+**Installation is an operator act, and stays outside `agent/`.** AGENTS.md rule 1 says the drop-in fetches
+nothing at runtime; nothing here changed that, because nothing under `agent/` reads this format. An
+installed package lands as `adapters/<name>.json` plus `adapters/certifications/<name>.json` — exactly the
+two files `duo adapter certify` writes — so the agent cannot tell a distributed package from an adapter an
+operator hand-placed, and every rule already written about an installed adapter keeps applying unchanged.
+Installing is also not PINNING: `duo adapter pin` remains the separate decision that makes a site load it.
+
+**Resolution never falls through.** `sandbox/bin/fetch-artifact.sh`'s discipline, generalised: an unpinned
+version, a digest that does not match the fetched bytes, an unreachable URL, a package served through a
+symbolic link, an out-of-window package, an unsigned or unverifiable one, or a signer this repository has
+not enrolled is each REFUSED. There is no arm that installs a package uncertified — an uncertified adapter
+still loads, so that arm is the whole reason a distribution channel would be worth attacking. Verification
+happens in a staging root, so a refusal at any rung leaves the repository byte-for-byte as it was found.
+
+**Enrollment is never inferred.** `authority_fingerprint` must already be carried by a record in the
+installing repository's own `adapters/authorities.json`, and the authority the certificate actually
+verifies under must be that same fingerprint — an enrolled key is not automatically the right key. There
+is no trust-on-first-use arm: a channel that could enroll its own signer would be a channel that signs for
+itself. Revocation and expiry need no clause here at all — `AdapterCertification::authority()` resolves
+every key through `assertNotRevoked()` and the v2 record's mandatory window, so § v3.8's typed revocation
+channel and a lapsed `not_after` reach an install through the identical door they reach every other
+verifier.
+
+**No order over `version`.** The format defines none, and neither verb invents one. With two entries
+inside the agent's window and no `--version`, `install` refuses and lists both; `update` requires `--to`.
+Ranking opaque vendor labels would be a resolver guessing at a grammar the publisher never agreed to, and
+the wrong guess installs the wrong package silently. `update` also refuses when the installed bytes hash
+to nothing that index published: those bytes are somebody's decision, and an unsigned document does not
+get to overwrite one.
+
+**One transport ships: `file://`.** An `https://` entry is DISCOVERABLE — learning that an adapter exists
+is the capability this section adds, and it does not need a fetcher — and refuses at install naming the
+mirror step. A network fetcher no offline suite can exercise is an unevidenced supply-chain surface inside
+the one command whose entire job is to refuse unevidenced bytes, which is why `fetch-artifact.sh` keeps
+its own network half in the harness rather than in shipped code. Adding an HTTPS transport is a separate
+reviewed decision with its own evidence, not a fill-in.
 
 ## Ledger tables (per environment, never in the repo)
 
