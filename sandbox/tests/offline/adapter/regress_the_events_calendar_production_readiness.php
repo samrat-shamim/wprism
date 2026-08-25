@@ -8357,7 +8357,7 @@ foreach ([
 }
 foreach ([
     'TEC_SCOPE_ENVS="$TEC_WIDGET_SCOPE_BASE/.tmp-tec-scope-envs.json"',
-    'chmod -R a+rwX -- "$TEC_WIDGET_SCOPE_HOST"',
+    'chmod -R a+rwX "$TEC_WIDGET_SCOPE_HOST"',
     'TEC scoped inactive-widget permission preparation changed repository identity',
     'TEC_SCOPE_COMPOSE="$(pwd -P)/pair.yml"',
     'transport: "docker", compose_file: $compose, service: "cli1", repo_path: $widgetRepo',

@@ -1921,7 +1921,7 @@ TEC_WIDGET_SCOPE_CLONE_HEAD=$(git -C "$TEC_WIDGET_SCOPE_HOST" rev-parse --verify
 # pair.yml's CLI runs as uid/gid 33 while this disposable clone is created by
 # the host. Match run.sh's cooperative umask contract before scoped capture
 # writes its ignored publication/backup files, without changing Git modes.
-chmod -R a+rwX -- "$TEC_WIDGET_SCOPE_HOST" \
+chmod -R a+rwX "$TEC_WIDGET_SCOPE_HOST" \
   || fail "TEC scoped inactive-widget clone could not establish cooperative bind permissions"
 [ -z "$(git -C "$TEC_WIDGET_SCOPE_HOST" status --porcelain=v1 --untracked-files=all)" ] \
   || fail "TEC scoped inactive-widget permission preparation changed repository identity"
