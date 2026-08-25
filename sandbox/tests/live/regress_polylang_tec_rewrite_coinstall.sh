@@ -98,6 +98,12 @@ echo "$RETRY" | jq -e '.canary=="clean" and any(.actions[];.source=="provider:po
 pass 'hostile callback refused before effect; removal permitted a bounded provider-then-native retry'
 
 say 'clean no-op recapture'
-wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-tec-recapture >/dev/null; diff -rq "$R2/state" "$R2/.tmp-polylang-tec-recapture" >/dev/null || fail 'clean target recapture differs from applied state'; NOOP=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json | tail -1); echo "$NOOP" | jq -e '.canary=="clean" and (.actions|length)==0' >/dev/null || fail "clean recapture reran effects: $NOOP"; rm -rf "$R2/.tmp-polylang-tec-recapture"
+wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-tec-recapture >/dev/null
+# WordPress seeds an unreferenced Twenty Twenty-One sidebar on this exact target; canonical no-op below guards managed drift, while this loop proves every repository-owned byte recaptures unchanged.
+while IFS= read -r -d '' SOURCE_FILE; do
+  RELATIVE_FILE=${SOURCE_FILE#"$R2/state/"}
+  cmp -s "$SOURCE_FILE" "$R2/.tmp-polylang-tec-recapture/$RELATIVE_FILE" || fail "repository-owned recapture differs at $RELATIVE_FILE"
+done < <(find "$R2/state" -type f -print0)
+NOOP=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json | tail -1); echo "$NOOP" | jq -e '.canary=="clean" and (.actions|length)==0' >/dev/null || fail "clean recapture reran effects: $NOOP"; rm -rf "$R2/.tmp-polylang-tec-recapture"
 pass 'post-retry recapture is clean and repeated apply is a verified no-op'
 GREEN=1; printf '\n\033[1;32m✔ REGRESS_POLYLANG_TEC_REWRITE_COINSTALL PASSED\033[0m\n'
