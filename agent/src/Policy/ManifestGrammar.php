@@ -70,7 +70,7 @@ final class ManifestGrammar {
     /** The closed `widgets.<t>.settings.<s>.codec` vocabulary. @see assert_widget_grammar() */
     private const WIDGET_SETTING_CODECS = ['blocks'];
     /** The closed `widgets.<t>.settings.<s>.ref` vocabulary. @see assert_widget_grammar() */
-    private const WIDGET_SETTING_REFS = ['term'];
+    private const WIDGET_SETTING_REFS = ['term', 'post'];
 
     /** @return list<string> Policy::closed_vocabularies()'s read of TABLE_CLASSES. */
     public static function tableClasses(): array {
@@ -628,7 +628,8 @@ final class ManifestGrammar {
             if (array_key_exists('ref', $rule) && !in_array($rule['ref'], self::WIDGET_SETTING_REFS, true)) {
                 throw new \RuntimeException(
                     "duo: $where.settings.$setting declares ref=" . var_export($rule['ref'], true)
-                    . ' but the widget settings ref vocabulary is closed and engine-owned (term)'
+                    . ' but the widget settings ref vocabulary is closed and engine-owned ('
+                    . implode(', ', self::WIDGET_SETTING_REFS) . ')'
                 );
             }
             if (array_key_exists('codec', $rule) && array_key_exists('ref', $rule)) {

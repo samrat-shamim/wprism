@@ -141,6 +141,8 @@ final class DuoScopedRewriteRuntime {
     public string|false $permalink_structure = '/old/%post_id%/';
     /** @var array<string,string> */
     public array $rules = ['^old/([0-9]+)/?$' => 'index.php?p=$matches[1]'];
+    /** @var array<string,array<string,mixed>> */
+    public array $extra_permastructs = [];
     public int $flushes = 0;
 
     public function init(): void {

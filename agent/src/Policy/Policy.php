@@ -154,6 +154,7 @@ require_once __DIR__ . '/../Grammar/PostTypeRelationResolver.php';
  */
 final class Policy {
     private const MAX_DISCOVERED_TAXONOMIES = 4096;
+    private const MAX_NATIVE_OPTION_COMPANIONS = 8;
     /**
      * The one {min,max} version-range predicate, shared by every site that
      * bounds something by an exact, certifiable window: min and max are both
@@ -1072,6 +1073,11 @@ final class Policy {
         return $this->content_attribute_rule_resolver()->block_attr_rules();
     }
 
+    /** @return array{rule:?array,source:?string} */
+    public function block_attr_rule_details(string $block): array {
+        return $this->content_attribute_rule_resolver()->block_attr_rule_details($block);
+    }
+
     /**
      * `shortcode_attrs` (DUO-3259): the shortcode twin of `block_attrs()`
      * above, same precedence (last pin wins per tag name, a structural
@@ -1776,7 +1782,8 @@ final class Policy {
         \Closure $finalizeStorage,
         \Closure $restoreStorage,
         ?\Closure $registerRuntimeRestore = null,
-        ?\Closure $writeStorage = null
+        ?\Closure $writeStorage = null,
+        ?\Closure $writeRuntimeOption = null
     ): bool {
         $candidate = $this->option_sub_key_interpreter_candidate(
             $name,
@@ -1802,6 +1809,9 @@ final class Policy {
             },
             $writeStorage ?? static function (): void {
                 throw new \RuntimeException('duo: native option engine-owned storage writer is unavailable');
+            },
+            $writeRuntimeOption ?? static function (): void {
+                throw new \RuntimeException('duo: native option runtime-companion writer is unavailable');
             }
         );
         if (!is_bool($handled)) {
@@ -1928,12 +1938,67 @@ final class Policy {
                 . 'must return a list'
             );
         }
+        if (count($companions) > self::MAX_NATIVE_OPTION_COMPANIONS) {
+            throw new \RuntimeException(
+                "duo: interpreter '{$candidate['interpreter_name']}' returned too many native option companions"
+            );
+        }
         $seen = [];
         foreach ($companions as $position => $companion) {
             if (!is_string($companion) || $companion === '' || isset($seen[$companion])) {
                 throw new \RuntimeException(
                     "duo: interpreter '{$candidate['interpreter_name']}' returned a malformed/duplicate native "
                     . "option companion at position $position"
+                );
+            }
+            $seen[$companion] = true;
+        }
+        return array_keys($seen);
+    }
+
+    /**
+     * Exact target-owned rows a digest-bound native materializer may update
+     * as source-proven runtime effects. This roster is deliberately separate
+     * from observation-only companions: OptionsMaterializer grants only these
+     * names to its raw writer and retains locking, readback, cache invalidation
+     * and rollback authority for every byte.
+     *
+     * @return list<string>
+     */
+    public function option_sub_key_materialization_runtime_companions(
+        string $name,
+        array $effectiveRule,
+        ?string $effectiveSource
+    ): array {
+        $candidate = $this->option_sub_key_interpreter_candidate(
+            $name,
+            $effectiveRule,
+            $effectiveSource,
+            'materialize_option_sub_keys',
+            'native materialization runtime-companion discovery'
+        );
+        if ($candidate === null
+            || !method_exists($candidate['interpreter'], 'option_sub_key_materialization_runtime_companions')) {
+            return [];
+        }
+        $companions = $candidate['interpreter']->option_sub_key_materialization_runtime_companions($name);
+        if (!is_array($companions) || !array_is_list($companions)) {
+            throw new \RuntimeException(
+                "duo: interpreter '{$candidate['interpreter_name']}' "
+                . 'option_sub_key_materialization_runtime_companions() must return a list'
+            );
+        }
+        if (count($companions) > self::MAX_NATIVE_OPTION_COMPANIONS) {
+            throw new \RuntimeException(
+                "duo: interpreter '{$candidate['interpreter_name']}' returned too many native option runtime companions"
+            );
+        }
+        $seen = [];
+        foreach ($companions as $position => $companion) {
+            if (!is_string($companion) || $companion === '' || isset($seen[$companion])) {
+                throw new \RuntimeException(
+                    "duo: interpreter '{$candidate['interpreter_name']}' returned a malformed/duplicate native "
+                    . "option runtime companion at position $position"
                 );
             }
             $seen[$companion] = true;

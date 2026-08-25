@@ -187,7 +187,7 @@ A menu file owns the `nav_menu` term **and** its `nav_menu_item` posts (they nev
 
 A sidebar file is the scoped-ownership boundary and contains one ordered `widgets` array. Each entry is exactly `{"uuid", "type", "settings"}`. Widget UUIDs are durable identity; source/target counter ids are not portable and never enter the file. Identity is ledger-only: the per-type `id_kind` `widget_<type>` maps the UUID to that type's integer instance number. No `_duo_uuid` key is injected into plugin/core settings arrays. Apply allocates a free counter per type, writes the mapping, preserves file order in `sidebars_widgets`, and removes target instances absent from that declared sidebar; unmapped theme defaults are reported as plan-visible `widget_deletes`, never overwritten or merged by counter.
 
-The widget type set is closed and manifest-declared. Core v1 declares `block`, `text`, and `nav_menu`. An undeclared live type is a `duo pending` item and blocks capture; malformed `widget_<type>` options that are not WordPress's multi-instance array family block by option name. `widget_block.content` uses the ordinary `Blocks` capture/apply codec, and `widget_nav_menu.nav_menu` is a declared term reference. `sidebars_widgets.array_version` is internal bookkeeping and excluded. `wp_inactive_widgets` is excluded in v1 and produces a loud plan/capture note because parked content does not propagate.
+The widget type set is closed and manifest-declared. Core v1 declares `block`, `text`, and `nav_menu`. An undeclared live type is a `duo pending` item and blocks capture; malformed `widget_<type>` options that are not WordPress's multi-instance array family block by option name. `widget_block.content` uses the ordinary `Blocks` capture/apply codec, and `widget_nav_menu.nav_menu` is a declared term reference. `sidebars_widgets.array_version` is internal bookkeeping and excluded. `wp_inactive_widgets` is target-owned except for an exact reference-selected overlay: the engine pre-scans only selected mapped block posts whose effective `core/legacy-widget` rule is one closed whole-block codec declaring `id`, accepts only a stored id whose effective widget-type declaration has that same manifest source, and emits/mints only the intersection with exact inactive assignments. A merged widget type owned by another manifest cannot inherit the block codec's authority. An empty reference set or empty intersection emits no pseudo-sidebar entity. Applying a nonempty overlay is merge-only; removing the source reference de-authorizes the parked instance without deleting its target assignment, settings, or ledger identity. Every unrelated inactive assignment and option byte remains target-owned and produces a loud capture note rather than propagating.
 
 Lost widget mappings fail closed when identity history exists; recovery is the unchanged `duo-identity-ledger/v1` export/import flow. The export includes and witnesses every owned widget mapping. The `duo_map.id_kind` width budget is 32 characters and is migrated idempotently; the regression floor is the 20-character family member `widget_media_gallery`.
 
@@ -900,7 +900,22 @@ mint identities, run the global stale-map pruners, or grant authority over an
 unselected row. Before projection, the complete live target observation is
 strict-compiled and closure-checked, so a target-only declared child, outbound
 dependency, or inbound deletion referrer cannot disappear behind preserved
-source bytes. `all` selects every identity in the associated source artifact;
+source bytes. Portable inactive-widget discovery is narrower still: it scans
+only block posts in the contract's selected root/closure roster, identified by
+their already-resolved post UUIDs, so an unrelated target post cannot grant or
+deny widget ownership. Removing the final selected stored-widget reference may
+omit the old `sidebar/wp_inactive_widgets` canonical row without a tombstone,
+using an unpublished `duo-inactive-overlay-deauthorization/v1` witness that
+binds the exact prior row hash, source revision, and complete sorted selected
+post scan. That omission is admitted only for outbound post closure (or `all`)
+with no excluded inbound owner; a direct sidebar root, incomplete scan,
+remaining stored reference, or excluded referrer refuses. The target inactive
+assignment, widget option, and ledger mapping are never deleted. Because the
+inactive carrier is shared, even a nonempty/subset replacement refuses when
+the frozen contract has an excluded inbound owner; a changed subset is safe
+only when all owners are selected. Active/inactive owner transfer remains an
+explicit scoped-capture refusal rather than being mistaken for deauthorization.
+`all` selects every identity in the associated source artifact;
 it remains the same strict state-only transaction and refuses a target identity
 minted after association rather than falling back to global capture. Media
 authority comes only from a selected attachment record,
@@ -992,10 +1007,32 @@ the phases `planned`, `authoring`, `authored_committed`, `effects_pending`,
 `verifying`, `complete`, and `recovery_required`. Every mutation intent binds
 the authority, lease generation, ordinal, action, operation, input, effect,
 and before-witness hashes; every receipt repeats that binding and adds an
-after-witness hash. At the authored COMMIT boundary, retry compares a fresh
-target observation: the exact pre-root may execute once, exact desired state
-advances without replay, and any mixed or protected change becomes
-`recovery_required`.
+after-witness hash. The authored operation identity is
+`duo-scoped-authored-transaction/v2`; an active v1 author intent/receipt is
+obsolete state-only evidence and refuses with checkpoint recovery rather than
+being upgraded from current target bytes. For a real authored transaction,
+ordinal 1's receipt and the `authored_committed` phase are one session-row CAS
+inside the same database transaction as authored rows and ledger mappings. Its
+domain-separated after-witness binds the selected ledger-map root read after
+all authored/map writes; the repeated intent/effect binding already seals the
+desired work and deletions. Thus a committed target cannot exist with an
+`authoring` session and no receipt, and a rolled-back target cannot retain a
+committed receipt. An already-desired no-op uses the same one-CAS phase/receipt
+seal outside an authored transaction only when current selected content, map,
+locked plan, and guards all equal the authority's exact pre-author witnesses.
+
+After COMMIT and attachment publication, a second strict canonical capture
+independently proves desired selected content/media, protected content/map
+roots, and the selected map against ordinal 1 before effects. Every normal
+`authored_committed`, `effects_pending`, and `verifying` retry repeats that
+same capture and receipt check, and any observation failure first restores a
+durable `recovery_required` gate; a crash immediately after recovery resume
+cannot bypass it. Pre-author retries instead repeat the locked plan, guard,
+pre-root, and selected-map checks. `authoring` plus desired state or
+`authored_committed` without ordinal 1 is never inferred or repaired. Post-author
+retries do not compare the old guard witness, because the authorized deletion
+transaction can legitimately change that target state. Any mixed, protected,
+obsolete, or receipt/map change becomes `recovery_required`.
 
 Scoped native/provider effects additionally use
 `duo-scoped-effect-operation/v1`. A provider explicitly advertises scoped
@@ -1022,6 +1059,12 @@ tombstones, and requires exact equality of every protected out-of-scope
 authored and ledger-map root. Its terminal transaction advances only selected ledger base rows and
 the scoped terminal receipt; that receipt binds the post-finalization selected
 identity-map root while the authority continues to bind the protected map.
+Before any terminal ledger write, that transaction locks the complete
+`duo_map` primary range and its supremum gap, then repeats the locked inventory
+after only explicitly authorized tombstone cleanup. This receipt boundary
+admits at most 100,000 physical map rows: it requests one proof row beyond the
+frontier and refuses before ledger mutation when that row exists, rather than
+silently terminalizing an identity partition it did not fully lock.
 It never clears global recovery debt and never writes `applied_revision`.
 Full plan/apply refuse while a scoped session is nonterminal; a terminal retry
 returns the same receipt bytes only after desired authored state and those

@@ -23,6 +23,19 @@ final class ContentAttributeRuleResolver {
         return $out;
     }
 
+    /** @return array{rule:?array,source:?string} */
+    public function block_attr_rule_details(string $block): array {
+        $rule = null;
+        $source = null;
+        foreach ($this->manifests as $manifest) {
+            if (isset($manifest['block_attrs'][$block]) && is_array($manifest['block_attrs'][$block])) {
+                $rule = $manifest['block_attrs'][$block];
+                $source = (string) ($manifest['name'] ?? '?');
+            }
+        }
+        return ['rule' => $rule, 'source' => $source];
+    }
+
     /** @return array<string,array> shortcode tag => declared rule list */
     public function shortcode_attr_rules(): array {
         $out = [];

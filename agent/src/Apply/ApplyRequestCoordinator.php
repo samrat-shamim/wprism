@@ -1077,21 +1077,31 @@ final class ApplyRequestCoordinator {
                     'duo: scoped apply refused — global derived-state recovery debt exists; recover it through the original full apply before bounded mutation'
                 );
             }
-            $actual = Capture::snapshot_read_only(
-                $this->repo,
-                !empty($opts['force_unresolved_refs']),
-                $compiled,
-                $this->policy
-            );
-            $this->scopedWorkflow->observation = ScopedApply::observe_target(
-                $this->repo,
-                $compiled,
-                $this->policy,
-                $this->scopedWorkflow->scopeContract,
-                $actual,
-                $this->scopedWorkflow->ledger_map_identity_hashes(),
-                $this->scopedWorkflow->allows_target_old_menu_items($actual)
-            );
+            $observed = $this->scopedWorkflow->recheck_target_observation(function () use (
+                $opts,
+                $compiled
+            ): array {
+                $actual = Capture::snapshot_read_only(
+                    $this->repo,
+                    !empty($opts['force_unresolved_refs']),
+                    $compiled,
+                    $this->policy
+                );
+                return [
+                    'actual' => $actual,
+                    'observation' => ScopedApply::observe_target(
+                        $this->repo,
+                        $compiled,
+                        $this->policy,
+                        $this->scopedWorkflow->scopeContract,
+                        $actual,
+                        $this->scopedWorkflow->ledger_map_identity_hashes(),
+                        $this->scopedWorkflow->allows_target_old_menu_items($actual)
+                    ),
+                ];
+            });
+            $actual = $observed['actual'];
+            $this->scopedWorkflow->observation = $observed['observation'];
         }
 
         $prepared = $this->preparationCoordinator->prepare(
@@ -1123,6 +1133,8 @@ final class ApplyRequestCoordinator {
 
         $performAuthoredTransaction = true;
         $authorIntent = null;
+        $commitScopedAuthoring = null;
+        $rollbackScopedAuthoring = null;
         if ($scoped) {
             if ($this->scopedWorkflow->session === null
                 && (string) ($opts['promotion_owner'] ?? '') === '') {
@@ -1202,17 +1214,9 @@ final class ApplyRequestCoordinator {
                 new LedgerScopedApplySessionStorage(),
                 $authority
             );
-            if ($this->scopedWorkflow->session->is_recovery_required()) {
-                throw new \RuntimeException(
-                    'duo: scoped apply session requires operator reconciliation of its exact retained authority before retry'
-                );
-            }
-            if ($this->scopedWorkflow->session->phase() === ScopedApplySession::PHASE_PLANNED) {
-                $this->scopedWorkflow->session->transition(ScopedApplySession::PHASE_AUTHORING);
-            }
             $authorIntent = $this->scopedWorkflow->intent(
                 1,
-                'duo-scoped-authored-transaction/v1',
+                'duo-scoped-authored-transaction/v2',
                 'author-' . substr($this->scopedWorkflow->session->authority_hash_value(), 0, 32),
                 hash('sha256', Canon::encode([
                     'plan' => $authority['plan'],
@@ -1227,8 +1231,6 @@ final class ApplyRequestCoordinator {
                 ])),
                 (string) $authority['target']['selected_before_hash']
             );
-            $this->scopedWorkflow->session->append_intent($authorIntent);
-
             $authoredState = ScopedApply::authored_state(
                 $freshActual,
                 $compiled,
@@ -1236,57 +1238,68 @@ final class ApplyRequestCoordinator {
                 $this->scopedWorkflow->scopeContract,
                 (string) $authority['target']['selected_before_hash']
             );
+            $this->scopedWorkflow->assert_authored_recovery_boundary(
+                $authoredState,
+                $authorIntent,
+                $this->scopedWorkflow->observation,
+                ApplyPlanner::plan_precondition_hash($plan),
+                $this->scopedWorkflow->guard_witnesses_hash($executeDeletes ? $deleteWork : [])
+            );
+            if ($this->scopedWorkflow->session->recorded_recovery_phase() !== null) {
+                // Recovery remains durable through the phase-appropriate
+                // target/map/receipt checks above. A crash after this CAS
+                // leaves a normal nonterminal phase, which repeats the same
+                // checks on the next request before effects can resume.
+                $this->scopedWorkflow->session->resume_recorded_recovery();
+            }
             $phase = $this->scopedWorkflow->session->phase();
-            if ($authoredState === 'before' && !hash_equals(
-                (string) ($authority['target']['selected_before_ledger_map_hash'] ?? ''),
-                (string) $this->scopedWorkflow->observation['selected_ledger_map_root']
-            )) {
-                $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-selected-ledger-drift'));
-                throw new \RuntimeException(
-                    'duo: scoped apply recovery found selected identity-map drift before authored mutation'
-                );
-            }
-            if ($authoredState === 'before'
-                && (!hash_equals(
-                    (string) ($authority['plan']['precondition_hash'] ?? ''),
-                    ApplyPlanner::plan_precondition_hash($plan)
-                ) || !hash_equals(
-                    (string) ($authority['plan']['guard_witnesses_hash'] ?? ''),
-                    $this->scopedWorkflow->guard_witnesses_hash($executeDeletes ? $deleteWork : [])
-                ))) {
-                $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-plan-or-guard-drift'));
-                throw new \RuntimeException(
-                    'duo: scoped apply recovery found changed locked plan or deletion-guard evidence'
-                );
-            }
-            if ($phase === ScopedApplySession::PHASE_AUTHORING) {
-                if ($authoredState === 'desired') {
-                    $performAuthoredTransaction = false;
-                    $this->scopedWorkflow->session->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
-                    $this->scopedWorkflow->session->append_receipt($this->scopedWorkflow->receipt(
-                        $authorIntent,
-                        (string) $this->scopedWorkflow->observation['selected_before_root']
-                    ));
-                } elseif ($authoredState !== 'before') {
-                    $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-authored-boundary-mixed'));
-                    throw new \RuntimeException(
-                        'duo: scoped apply recovery found a mixed authored boundary; no replay was attempted'
-                    );
-                }
-            } else {
+            if ($phase === ScopedApplySession::PHASE_PLANNED && $authoredState === 'desired') {
                 $performAuthoredTransaction = false;
-                if ($authoredState !== 'desired') {
-                    $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-authored-state-regressed'));
-                    throw new \RuntimeException(
-                        'duo: scoped apply recovery found selected target drift after authored commit'
-                    );
-                }
-                if ($phase === ScopedApplySession::PHASE_AUTHORED_COMMITTED) {
-                    $this->scopedWorkflow->session->append_receipt($this->scopedWorkflow->receipt(
+                $this->scopedWorkflow->session->commit_desired_authoring(
+                    $authorIntent,
+                    $this->scopedWorkflow->receipt(
                         $authorIntent,
-                        (string) $this->scopedWorkflow->observation['selected_before_root']
-                    ));
+                        ScopedApplyCoordinator::authored_ledger_map_hash($this->scopedWorkflow->observation)
+                    )
+                );
+            } else {
+                if ($phase === ScopedApplySession::PHASE_PLANNED) {
+                    $this->scopedWorkflow->session->transition(ScopedApplySession::PHASE_AUTHORING);
+                    $phase = ScopedApplySession::PHASE_AUTHORING;
                 }
+            }
+            if ($phase === ScopedApplySession::PHASE_AUTHORING && $performAuthoredTransaction) {
+                $this->scopedWorkflow->session->append_intent($authorIntent);
+                $session = $this->scopedWorkflow->session;
+                $selectedMapIdentityHashes = ScopedApplyCoordinator::assert_ledger_map_identity_hashes(
+                    $authority['selection']['ledger_map_identity_hashes'] ?? null,
+                    'authority'
+                );
+                $commitScopedAuthoring = static function () use (
+                    $session,
+                    $authorIntent,
+                    $authority,
+                    $selectedMapIdentityHashes
+                ): void {
+                    $mapRoots = ScopedApply::ledger_map_roots($selectedMapIdentityHashes);
+                    if (!hash_equals(
+                        (string) ($authority['target']['protected_ledger_map_hash'] ?? ''),
+                        (string) $mapRoots['protected_ledger_map_root']
+                    )) {
+                        throw new \RuntimeException(
+                            'duo: scoped authored transaction changed a protected identity-map row before commit'
+                        );
+                    }
+                    $session->commit_authored_receipt(ScopedApplyCoordinator::receipt(
+                        $authorIntent,
+                        ScopedApplyCoordinator::authored_ledger_map_hash($mapRoots)
+                    ));
+                };
+                $rollbackScopedAuthoring = static function () use ($session): void {
+                    $session->reload();
+                };
+            } elseif ($phase !== ScopedApplySession::PHASE_PLANNED) {
+                $performAuthoredTransaction = false;
             }
         }
 
@@ -1336,7 +1349,9 @@ final class ApplyRequestCoordinator {
                 scoped: $scoped,
                 scopeContract: $this->scopedWorkflow->scopeContract,
                 performTransaction: $performAuthoredTransaction,
-                defaultAuthor: $this->defaultAuthor
+                defaultAuthor: $this->defaultAuthor,
+                commitScopedAuthoring: $commitScopedAuthoring,
+                rollbackScopedAuthoring: $rollbackScopedAuthoring
             ),
             $this->warnings
         );
@@ -1344,45 +1359,53 @@ final class ApplyRequestCoordinator {
         $regenContext = $authored['regen_context'];
 
         if ($scoped && $this->scopedWorkflow->session !== null) {
-            if ($performAuthoredTransaction) {
-                $afterActual = Capture::snapshot_read_only(
+            $postAuthor = $this->scopedWorkflow->recheck_target_observation(function () use (
+                $opts,
+                $compiled
+            ): array {
+                $actual = Capture::snapshot_read_only(
                     $this->repo,
                     !empty($opts['force_unresolved_refs']),
                     $compiled,
                     $this->policy
                 );
-                $afterObservation = ScopedApply::observe_target(
-                    $this->repo,
-                    $compiled,
-                    $this->policy,
-                    $this->scopedWorkflow->scopeContract,
-                    $afterActual,
-                    $this->scopedWorkflow->ledger_map_identity_hashes(),
-                    false
-                );
-                if (!hash_equals(
-                    (string) $this->scopedWorkflow->session->authority()['target']['protected_out_of_scope_hash'],
-                    (string) $afterObservation['protected_out_of_scope_root']
-                ) || !hash_equals(
-                    (string) $this->scopedWorkflow->session->authority()['target']['protected_ledger_map_hash'],
-                    (string) $afterObservation['protected_ledger_map_root']
-                ) || ScopedApply::authored_state(
-                    $afterActual,
-                    $compiled,
-                    $this->policy,
-                    $this->scopedWorkflow->scopeContract,
-                    (string) $this->scopedWorkflow->session->authority()['target']['selected_before_hash']
-                ) !== 'desired') {
-                    $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-authored-commit-readback-mismatch'));
-                    throw new \RuntimeException('duo: scoped authored transaction committed without exact bounded readback');
-                }
-                $this->scopedWorkflow->observation = $afterObservation;
-                $this->scopedWorkflow->session->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
-                $this->scopedWorkflow->session->append_receipt($this->scopedWorkflow->receipt(
-                    $authorIntent,
-                    (string) $afterObservation['selected_before_root']
-                ));
+                return [
+                    'actual' => $actual,
+                    'observation' => ScopedApply::observe_target(
+                        $this->repo,
+                        $compiled,
+                        $this->policy,
+                        $this->scopedWorkflow->scopeContract,
+                        $actual,
+                        $this->scopedWorkflow->ledger_map_identity_hashes(),
+                        false
+                    ),
+                ];
+            });
+            $afterActual = $postAuthor['actual'];
+            $afterObservation = $postAuthor['observation'];
+            $expectedAuthorReceipt = $this->scopedWorkflow->receipt(
+                $authorIntent,
+                ScopedApplyCoordinator::authored_ledger_map_hash($afterObservation)
+            );
+            if (!hash_equals(
+                (string) $this->scopedWorkflow->session->authority()['target']['protected_out_of_scope_hash'],
+                (string) $afterObservation['protected_out_of_scope_root']
+            ) || !hash_equals(
+                (string) $this->scopedWorkflow->session->authority()['target']['protected_ledger_map_hash'],
+                (string) $afterObservation['protected_ledger_map_root']
+            ) || ScopedApply::authored_state(
+                $afterActual,
+                $compiled,
+                $this->policy,
+                $this->scopedWorkflow->scopeContract,
+                (string) $this->scopedWorkflow->session->authority()['target']['selected_before_hash']
+            ) !== 'desired' || Canon::encode((array) $this->scopedWorkflow->receipt_at(1))
+                !== Canon::encode($expectedAuthorReceipt)) {
+                $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-authored-commit-readback-mismatch'));
+                throw new \RuntimeException('duo: scoped authored transaction committed without exact bounded readback');
             }
+            $this->scopedWorkflow->observation = $afterObservation;
             if ($this->scopedWorkflow->session->phase() === ScopedApplySession::PHASE_AUTHORED_COMMITTED) {
                 $this->scopedWorkflow->session->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
             }

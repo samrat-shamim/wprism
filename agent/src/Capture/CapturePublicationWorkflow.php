@@ -361,7 +361,8 @@ final class CapturePublicationWorkflow {
                     $forceUnresolvedRefs,
                     $previousOptions,
                     $previousUserLogins,
-                    $scoped
+                    $scoped,
+                    $scoped ? ScopedStateOverlay::selected_identities($scopeContract) : null
                 );
                 Identity::assert_entities_unique($candidate['entities']);
                 $candidate['deletions'] = Deletion::capture_tombstones(
@@ -371,9 +372,23 @@ final class CapturePublicationWorkflow {
                     $scoped ? ScopedStateOverlay::selected_identities($scopeContract) : null
                 );
                 $authorizedScopedDeletions = [];
+                $authorizedScopedDeauthorizations = [];
                 $scopedDeletionCount = 0;
                 $selectedObserved = $candidate['entities'];
                 if ($scoped) {
+                    $authorizedScopedDeauthorizations = ScopedStateOverlay::selected_deauthorizations(
+                        $previous,
+                        $scopeContract,
+                        $candidate['entities'],
+                        $candidate['deletions'],
+                        $policy,
+                        $candidate['portable_widget_scan'] ?? null
+                    );
+                    ScopedStateOverlay::assert_shared_row_mutation_bounded(
+                        $previous,
+                        $scopeContract,
+                        $candidate['entities']
+                    );
                     $selectedSourceTombstones = array_fill_keys(
                         array_map('strval', array_column((array) $scopeContract['tombstones'], 'uuid')),
                         true
@@ -412,7 +427,8 @@ final class CapturePublicationWorkflow {
                             $scopeContract,
                             $targetProbe,
                             $policy,
-                            $authorizedScopedDeletions
+                            $authorizedScopedDeletions,
+                            $authorizedScopedDeauthorizations
                         );
                     } finally {
                         if (is_string($targetProbeMedia)) {
@@ -429,7 +445,9 @@ final class CapturePublicationWorkflow {
                         $previous,
                         $scopeContract,
                         $candidate['entities'],
-                        $candidate['deletions']
+                        $candidate['deletions'],
+                        $authorizedScopedDeauthorizations,
+                        $policy
                     );
                     $candidate['entities'] = $overlay['entities'];
                     $candidate['deletions'] = $overlay['deletions'];
@@ -498,7 +516,8 @@ final class CapturePublicationWorkflow {
                             $scopeContract,
                             $compiledCandidate,
                             $policy,
-                            $authorizedScopedDeletions
+                            $authorizedScopedDeletions,
+                            $authorizedScopedDeauthorizations
                         );
                     }
                 }

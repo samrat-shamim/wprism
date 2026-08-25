@@ -13,7 +13,9 @@ require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
  * is a fixed point after the first normalization, which the capture-twice
  * determinism test asserts.
  *
- * block_attrs rules come in three shapes, freely mixed per block name:
+ * block_attrs rules come in four shapes. The first three may be freely mixed
+ * per block name; a whole-block codec is exclusive because it owns the exact
+ * attribute object rather than one independently rewritten leaf:
  * - a static ref: {"kind": "post"|"term"|"tt", "path": ..., "type": "int"|"int[]"}
  * - a polymorphic ref, kind dispatched from a sibling attribute:
  *   {"kind_from": {"attr": ..., "map": {sibling-value: kind}, "default"?: kind},
@@ -29,6 +31,10 @@ require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
  *   (self-closing blocks like core/navigation-link carry no inner content at
  *   all), so this is the only way a URL-shaped attribute gets rebound across
  *   environments.
+ * - a manifest-bound whole-block codec:
+ *   {"codec": manifest-interpreter-name, "path": ...}. Every declared rule
+ *   for that block must name the same codec, and its paths are the closed set
+ *   the codec may return after capture/apply.
  *
  * A "kind"/"kind_from" ref's id_to_token() failing is either DANGLING (no
  * ledger row for that id at all — deleted target, or never existed) or
@@ -53,6 +59,146 @@ require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
 final class Blocks {
     /** Blocks whose inner HTML may carry wp-image-<id> classes. */
     private const IMAGE_CLASS_BLOCKS = ['core/image', 'core/gallery', 'core/media-text', 'core/cover'];
+
+    /**
+     * Discover exact stored core/legacy-widget identities before SidebarState
+     * capture. Authority is closed by the existing whole-block codec rule's
+     * declared `id` path plus only widget types with that same effective
+     * manifest source; merged foreign widget rules and interpreter methods
+     * cannot opt themselves into this engine-owned pre-scan.
+     *
+     * @return list<array{type:string,local_id:int}>
+     */
+    public static function capture_widget_instance_references(string $content, Policy $policy): array {
+        $details = $policy->block_attr_rule_details('core/legacy-widget');
+        $legacyRules = $details['rule'] ?? [];
+        $source = $details['source'] ?? null;
+        if (!is_array($legacyRules) || !is_string($source) || $source === '') {
+            return [];
+        }
+        $codec = null;
+        $paths = [];
+        foreach ($legacyRules as $rule) {
+            if (!is_array($rule) || !is_string($rule['codec'] ?? null) || $rule['codec'] === '') {
+                return [];
+            }
+            if ($codec !== null && !hash_equals($codec, $rule['codec'])) {
+                throw new \RuntimeException(
+                    "duo: block 'core/legacy-widget' has an invalid or mixed whole-block codec registry"
+                );
+            }
+            $codec = $rule['codec'];
+            $paths[(string) ($rule['path'] ?? '')] = true;
+        }
+        if ($codec === null || !isset($paths['id']) || $content === '') {
+            return [];
+        }
+        $widgetTypes = [];
+        $foreignWidgetTypes = [];
+        foreach ($policy->widget_types() as $type => $rule) {
+            $widgetSource = $policy->widget_type_rule_details((string) $type)['source'] ?? null;
+            if (is_string($widgetSource) && hash_equals($source, $widgetSource)) {
+                $widgetTypes[(string) $type] = $rule;
+            } else {
+                $foreignWidgetTypes[(string) $type] = true;
+            }
+        }
+        if ($widgetTypes === []) {
+            return [];
+        }
+        $out = [];
+        foreach (parse_blocks($content) as $block) {
+            if (is_array($block)) {
+                self::collect_widget_instance_keys($block, $widgetTypes, $foreignWidgetTypes, $out);
+            }
+        }
+        ksort($out, SORT_STRING);
+        return array_values($out);
+    }
+
+    /** @param array<string,array{type:string,local_id:int}> $out */
+    private static function collect_widget_instance_keys(
+        array $block,
+        array $widgetTypes,
+        array $foreignWidgetTypes,
+        array &$out
+    ): void {
+        $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
+        if ($name === 'core/legacy-widget') {
+            self::collect_stored_legacy_widget_instance($block, $widgetTypes, $foreignWidgetTypes, $out);
+        }
+        foreach ((array) ($block['innerBlocks'] ?? []) as $inner) {
+            if (is_array($inner)) {
+                self::collect_widget_instance_keys($inner, $widgetTypes, $foreignWidgetTypes, $out);
+            }
+        }
+    }
+
+    /** @param array<string,array> $widgetTypes @param array<string,array{type:string,local_id:int}> $out */
+    private static function collect_stored_legacy_widget_instance(
+        array $block,
+        array $widgetTypes,
+        array $foreignWidgetTypes,
+        array &$out
+    ): void {
+        if (!is_array($block['innerBlocks'] ?? null)
+            || ($block['innerBlocks'] ?? []) !== []
+            || !is_string($block['innerHTML'] ?? null)
+            || trim((string) $block['innerHTML']) !== ''
+            || !is_array($block['innerContent'] ?? null)
+            || ($block['innerContent'] ?? []) !== []) {
+            throw new \RuntimeException(
+                'duo: stored legacy widget reference must be one exact self-closing core block'
+            );
+        }
+        $attrs = $block['attrs'] ?? null;
+        if (!is_array($attrs) || ($attrs !== [] && array_is_list($attrs))) {
+            throw new \RuntimeException('duo: stored legacy widget reference attributes must be one closed object');
+        }
+        if (!array_key_exists('id', $attrs)) {
+            return;
+        }
+        $keys = array_keys($attrs);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['id'] || !is_string($attrs['id'])) {
+            throw new \RuntimeException('duo: stored legacy widget reference has an unknown or malformed field');
+        }
+        foreach (array_keys($foreignWidgetTypes) as $type) {
+            if (self::widget_instance_id($attrs['id'], $type) !== null) {
+                throw new \RuntimeException(
+                    'duo: stored legacy widget reference belongs to a different manifest owner'
+                );
+            }
+        }
+        $matches = [];
+        foreach (array_keys($widgetTypes) as $type) {
+            $localId = self::widget_instance_id($attrs['id'], $type);
+            if ($localId !== null) {
+                $matches[] = ['type' => $type, 'local_id' => $localId];
+            }
+        }
+        if (count($matches) !== 1) {
+            throw new \RuntimeException(
+                'duo: stored legacy widget reference does not bind one declared widget type and canonical instance'
+            );
+        }
+        $reference = $matches[0];
+        $out[$reference['type'] . '-' . $reference['local_id']] = $reference;
+    }
+
+    private static function widget_instance_id(string $id, string $type): ?int {
+        $prefix = $type . '-';
+        if (!str_starts_with($id, $prefix)) {
+            return null;
+        }
+        $local = substr($id, strlen($prefix));
+        if (preg_match('/^[1-9][0-9]*$/D', $local) !== 1
+            || (string) (int) $local !== $local
+            || (int) $local <= 0) {
+            return null;
+        }
+        return (int) $local;
+    }
 
     /**
      * @param string $postLabel human-readable identifying string for the
@@ -100,8 +246,55 @@ final class Blocks {
         bool $forceUnresolvedRefs,
         string $postLabel
     ): array {
-        $name = $block['blockName'];
-        foreach ($rules[$name] ?? [] as $rule) {
+        // parse_blocks() represents whitespace and classic/freeform chunks as
+        // null-name nodes. PHP 8.4 deprecates null array offsets, so normalize
+        // only the dispatch key; the block itself stays byte-faithful.
+        $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
+        $declaredRules = $rules[$name] ?? [];
+        $codec = null;
+        $codecPaths = [];
+        foreach ($declaredRules as $rule) {
+            if (!array_key_exists('codec', $rule)) {
+                continue;
+            }
+            if (!is_string($rule['codec']) || $rule['codec'] === ''
+                || ($codec !== null && !hash_equals($codec, $rule['codec']))) {
+                throw new \RuntimeException("duo: block '$name' has an invalid or mixed whole-block codec registry");
+            }
+            $codec = $rule['codec'];
+            $codecPaths[(string) $rule['path']] = true;
+        }
+        if ($codec !== null) {
+            if (count($codecPaths) !== count($declaredRules)) {
+                throw new \RuntimeException(
+                    "duo: block '$name' mixes whole-block codec and per-attribute rules at runtime"
+                );
+            }
+            $interpreter = $policy->interpreters()[$codec] ?? null;
+            $method = $capture ? 'capture_block_attributes' : 'apply_block_attributes';
+            if (!is_object($interpreter) || !method_exists($interpreter, $method)) {
+                throw new \RuntimeException(
+                    "duo: block '$name' codec '$codec' must implement $method(array, Tokens): array"
+                );
+            }
+            $rewritten = $capture
+                ? $interpreter->$method($block, $tokens, $forceUnresolvedRefs, $postLabel)
+                : $interpreter->$method($block, $tokens);
+            if (!is_array($rewritten) || ($rewritten !== [] && array_is_list($rewritten))) {
+                throw new \RuntimeException(
+                    "duo: block '$name' codec '$codec' returned a malformed attribute object"
+                );
+            }
+            foreach (array_keys($rewritten) as $path) {
+                if (!is_string($path) || !isset($codecPaths[$path])) {
+                    throw new \RuntimeException(
+                        "duo: block '$name' codec '$codec' returned an undeclared attribute"
+                    );
+                }
+            }
+            $block['attrs'] = $rewritten;
+        }
+        foreach ($codec === null ? $declaredRules : [] as $rule) {
             $path = $rule['path'];
             if (!isset($block['attrs'][$path])) {
                 continue;

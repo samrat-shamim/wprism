@@ -275,6 +275,22 @@ final class ApplyPreparationCoordinator {
                 $request->retryingIncompleteApply,
                 $request->scopedPromotion
             );
+            if ($request->recoveringScoped) {
+                if ($this->scopedWorkflow->session === null) {
+                    throw new \RuntimeException('duo: scoped recovery has no durable session selection');
+                }
+                // Authored rows can already be converged while a sealed
+                // provider/native effect remains pending. Re-project the
+                // fresh plan through that frozen selection or the second
+                // pre-mutation check would erase the only retry authority.
+                $freshRebuildWork = ScopedApplyWorkProjector::project(
+                    $freshPlan,
+                    $request->compiled,
+                    $this->scopedWorkflow->session,
+                    $this->scopedWorkflow->scopeContract,
+                    $this->services->apply_planner()
+                );
+            }
             $freshSelectedActions = $this->policy->actions_for(CanonicalSurfaces::for_apply(
                 $freshRebuildWork['work'],
                 $tree,
@@ -298,43 +314,52 @@ final class ApplyPreparationCoordinator {
             );
         }
         if ($request->scoped) {
-            $freshActual = Capture::snapshot_read_only(
-                $this->repo,
-                !empty($opts['force_unresolved_refs']),
-                $request->compiled,
-                $this->policy
-            );
-            $freshObservation = ScopedApply::observe_target(
-                $this->repo,
-                $request->compiled,
-                $this->policy,
-                $this->scopedWorkflow->scopeContract,
-                $freshActual,
-                $this->scopedWorkflow->ledger_map_identity_hashes(),
-                $this->scopedWorkflow->allows_target_old_menu_items($freshActual)
-            );
-            foreach ([
-                'selected_before_root', 'protected_out_of_scope_root',
-                'ledger_map_root', 'protected_ledger_map_root', 'selected_ledger_map_root',
-                'target_observation_hash',
-            ] as $witness) {
-                if (!hash_equals(
-                    (string) ($this->scopedWorkflow->observation[$witness] ?? ''),
-                    (string) ($freshObservation[$witness] ?? '')
-                )) {
+            $observed = $this->scopedWorkflow->recheck_target_observation(function () use (
+                $opts,
+                $request
+            ): array {
+                $freshActual = Capture::snapshot_read_only(
+                    $this->repo,
+                    !empty($opts['force_unresolved_refs']),
+                    $request->compiled,
+                    $this->policy
+                );
+                $freshObservation = ScopedApply::observe_target(
+                    $this->repo,
+                    $request->compiled,
+                    $this->policy,
+                    $this->scopedWorkflow->scopeContract,
+                    $freshActual,
+                    $this->scopedWorkflow->ledger_map_identity_hashes(),
+                    $this->scopedWorkflow->allows_target_old_menu_items($freshActual)
+                );
+                foreach ([
+                    'selected_before_root', 'protected_out_of_scope_root',
+                    'ledger_map_root', 'protected_ledger_map_root', 'selected_ledger_map_root',
+                    'target_observation_hash',
+                ] as $witness) {
+                    if (hash_equals(
+                        (string) ($this->scopedWorkflow->observation[$witness] ?? ''),
+                        (string) ($freshObservation[$witness] ?? '')
+                    )) {
+                        continue;
+                    }
                     throw new \RuntimeException(
                         'duo: scoped target observation changed after planning; no target mutation attempted'
                     );
                 }
-            }
-            if (!hash_equals(
-                ScopedApplySession::hash_value((array) ($this->scopedWorkflow->observation['_ledger_map_identity_hashes'] ?? [])),
-                ScopedApplySession::hash_value((array) ($freshObservation['_ledger_map_identity_hashes'] ?? []))
-            )) {
-                throw new \RuntimeException(
-                    'duo: scoped ledger-map identity selection changed after planning; no target mutation attempted'
-                );
-            }
+                if (!hash_equals(
+                    ScopedApplySession::hash_value((array) ($this->scopedWorkflow->observation['_ledger_map_identity_hashes'] ?? [])),
+                    ScopedApplySession::hash_value((array) ($freshObservation['_ledger_map_identity_hashes'] ?? []))
+                )) {
+                    throw new \RuntimeException(
+                        'duo: scoped ledger-map identity selection changed after planning; no target mutation attempted'
+                    );
+                }
+                return ['actual' => $freshActual, 'observation' => $freshObservation];
+            });
+            $freshActual = $observed['actual'];
+            $freshObservation = $observed['observation'];
             $this->scopedWorkflow->observation = $freshObservation;
         }
 

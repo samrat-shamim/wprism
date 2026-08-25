@@ -43,6 +43,7 @@ function apply_filters(...$args): never { throw new RuntimeException('TARGET CON
 function is_multisite(): bool { return false; }
 
 use Duo\Canon;
+use Duo\CompiledRepository;
 use Duo\Deletion;
 use Duo\OptionState;
 use Duo\Policy;
@@ -50,6 +51,7 @@ use Duo\RepositoryCompiler;
 use Duo\ScopeClosure;
 use Duo\ScopeContract;
 use Duo\ScopedStateOverlay;
+use Duo\SidebarState;
 use Duo\Orchestrator\RefreshPlan;
 
 $failures = 0;
@@ -750,6 +752,329 @@ check((string) $overlayCompiled->tree()[$ids['page']]['content'] !== (string) $c
     && (string) $overlayCompiled->deletions()[$ids['otherTombstone']]['content']
         === (string) $compiled->deletions()[$ids['otherTombstone']]['content'],
     'scoped overlay updates selected bytes while preserving excluded attachment/options/tombstone bytes exactly');
+
+// The inactive widget carrier is shared target state, not a deletable entity.
+// When its final selected post reference disappears, scoped capture may drop
+// only the old canonical ownership row, backed by a capture-local scan receipt.
+$inactivePost = uuid(31);
+$inactiveOtherPost = uuid(32);
+$inactiveWidget = uuid(33);
+$inactiveIdentity = SidebarState::key('wp_inactive_widgets');
+$inactivePostRow = static function (string $uuid, string $slug, string $body) use ($policy): array {
+    $data = front($uuid, 'duo_contract', $slug);
+    $content = Canon::post_file($data, $body);
+    return [
+        'type' => 'post', 'post_type' => 'duo_contract',
+        'path' => "posts/duo_contract/$uuid--$slug.md",
+        'hash' => hash('sha256', Canon::post_hash_basis($data, $body, $policy)),
+        'source_hash' => hash('sha256', $content), 'content' => $content,
+        'data' => $data, 'body' => $body,
+    ];
+};
+$inactiveSidebarContent = Canon::encode(['widgets' => [[
+    'uuid' => $inactiveWidget,
+    'type' => 'text',
+    'settings' => (object) ['filter' => false, 'text' => 'parked', 'title' => 'Parked', 'visual' => true],
+]]]);
+$inactiveSourcePayload = $compiled->export();
+$inactiveSourcePayload['tree'][$inactivePost] = $inactivePostRow(
+    $inactivePost,
+    'inactive-owner',
+    '<p>{{widget_text:' . $inactiveWidget . '}}</p>'
+);
+$inactiveSourcePayload['tree'][$inactiveIdentity] = [
+    'type' => SidebarState::ENTITY_TYPE,
+    'path' => SidebarState::path('wp_inactive_widgets'),
+    'hash' => hash('sha256', $inactiveSidebarContent),
+    'source_hash' => hash('sha256', $inactiveSidebarContent),
+    'content' => $inactiveSidebarContent,
+    'data' => Canon::decode($inactiveSidebarContent),
+];
+ksort($inactiveSourcePayload['tree'], SORT_STRING);
+$inactiveSourcePayload['revision_hash'] = hash('sha256', 'inactive-source-revision');
+$inactiveSource = CompiledRepository::create($inactiveSourcePayload);
+$inactiveContract = ScopeContract::resolve($inactiveSource, $policy, ['post:' . $inactivePost]);
+check(in_array($inactiveIdentity, ScopedStateOverlay::selected_identities($inactiveContract), true),
+    'a stored widget token closes its selected post scope over the inactive owner row');
+
+$inactiveObservedPayload = $inactiveSource->export();
+$inactiveObservedPayload['tree'][$inactivePost] = $inactivePostRow($inactivePost, 'inactive-owner', '<p>reference removed</p>');
+unset($inactiveObservedPayload['tree'][$inactiveIdentity]);
+$inactiveObservedPayload['revision_hash'] = hash('sha256', 'inactive-observed-revision');
+$inactiveObserved = CompiledRepository::create($inactiveObservedPayload);
+$inactiveObservedRows = [];
+foreach ($inactiveObserved->tree() as $identity => $row) {
+    $inactiveObservedRows[] = [
+        'uuid' => (string) $identity, 'type' => (string) $row['type'],
+        'path' => (string) $row['path'], 'content' => (string) $row['content'],
+    ];
+}
+$inactiveEvidence = ScopedStateOverlay::selected_deauthorizations(
+    $inactiveSource,
+    $inactiveContract,
+    $inactiveObservedRows,
+    [],
+    $policy,
+    ['selected_post_uuids' => [$inactivePost], 'reference_count' => 0]
+);
+check(($inactiveEvidence[0] ?? null) === [
+    'format' => 'duo-inactive-overlay-deauthorization/v1',
+    'entity' => $inactiveIdentity,
+    'previous_hash' => (string) $inactiveSource->tree()[$inactiveIdentity]['hash'],
+    'source_revision' => $inactiveSource->revision_hash(),
+    'scanned_selected_post_uuids' => [$inactivePost],
+], 'last-reference removal seals exact prior-row/revision and complete selected-post scan evidence');
+ScopeContract::assert_candidate_bounded($inactiveContract, $inactiveObserved, $policy, [], $inactiveEvidence);
+$inactiveOverlay = ScopedStateOverlay::project_capture_associated(
+    $inactiveSource,
+    $inactiveContract,
+    $inactiveObservedRows,
+    [],
+    $inactiveEvidence,
+    $policy
+);
+check(
+    !in_array($inactiveIdentity, array_column($inactiveOverlay['entities'], 'uuid'), true)
+        && !in_array($inactiveIdentity, array_column($inactiveOverlay['deletions'], 'uuid'), true),
+    'scoped last-reference deauthorization removes only canonical ownership and emits no physical deletion'
+);
+
+$allInactiveContract = ScopeContract::resolve($inactiveSource, $policy, ['all']);
+$allSelectedBlockPosts = [];
+foreach ($inactiveSource->tree() as $identity => $row) {
+    if (($row['type'] ?? null) === 'post'
+        && $policy->body_mode((string) ($row['data']['type'] ?? '')) === 'blocks') {
+        $allSelectedBlockPosts[] = (string) $identity;
+    }
+}
+sort($allSelectedBlockPosts, SORT_STRING);
+$allInactiveDeletionRows = [];
+foreach ($inactiveSource->deletions() as $identity => $row) {
+    $allInactiveDeletionRows[] = [
+        'uuid' => (string) $identity,
+        'type' => 'deletion',
+        'path' => (string) $row['path'],
+        'content' => (string) $row['content'],
+    ];
+}
+$allInactiveEvidence = ScopedStateOverlay::selected_deauthorizations(
+    $inactiveSource,
+    $allInactiveContract,
+    $inactiveObservedRows,
+    $allInactiveDeletionRows,
+    $policy,
+    ['selected_post_uuids' => $allSelectedBlockPosts, 'reference_count' => 0]
+);
+ScopeContract::assert_candidate_bounded(
+    $allInactiveContract,
+    $inactiveObserved,
+    $policy,
+    [],
+    $allInactiveEvidence
+);
+$allInactiveOverlay = ScopedStateOverlay::project_capture_associated(
+    $inactiveSource,
+    $allInactiveContract,
+    $inactiveObservedRows,
+    $allInactiveDeletionRows,
+    $allInactiveEvidence,
+    $policy
+);
+check(
+    !in_array($inactiveIdentity, array_column($allInactiveOverlay['entities'], 'uuid'), true)
+        && !in_array($inactiveIdentity, array_column($allInactiveOverlay['deletions'], 'uuid'), true),
+    'all scope deauthorizes the final inactive-widget carrier without publishing an empty row or tombstone'
+);
+$tamperedInactiveEvidence = $allInactiveEvidence;
+$tamperedInactiveEvidence[0]['previous_hash'] = str_repeat('f', 64);
+expect_throw(
+    static fn() => ScopeContract::assert_candidate_bounded(
+        $allInactiveContract,
+        $inactiveObserved,
+        $policy,
+        [],
+        $tamperedInactiveEvidence
+    ),
+    'deauthorization evidence escaped',
+    'tampered capture-local inactive deauthorization evidence cannot authorize omission'
+);
+
+$directInactiveContract = ScopeContract::resolve($inactiveSource, $policy, ['sidebar:wp_inactive_widgets']);
+expect_throw(
+    static fn() => ScopedStateOverlay::selected_deauthorizations(
+        $inactiveSource,
+        $directInactiveContract,
+        $inactiveObservedRows,
+        [],
+        $policy,
+        ['selected_post_uuids' => [], 'reference_count' => 0]
+    ),
+    'complete selected block-post closure',
+    'a direct inactive-sidebar root has no causal post authority to deauthorize the shared row'
+);
+
+$inboundSourcePayload = $inactiveSource->export();
+$inboundSourcePayload['tree'][$inactiveOtherPost] = $inactivePostRow(
+    $inactiveOtherPost,
+    'excluded-inactive-owner',
+    '<p>{{widget_text:' . $inactiveWidget . '}}</p>'
+);
+ksort($inboundSourcePayload['tree'], SORT_STRING);
+$inboundSourcePayload['revision_hash'] = hash('sha256', 'inactive-inbound-source-revision');
+$inboundSource = CompiledRepository::create($inboundSourcePayload);
+$inboundContract = ScopeContract::resolve($inboundSource, $policy, ['post:' . $inactivePost]);
+$inboundObservedPayload = $inboundSource->export();
+$inboundObservedPayload['tree'][$inactivePost] = $inactivePostRow($inactivePost, 'inactive-owner', '<p>reference removed</p>');
+unset($inboundObservedPayload['tree'][$inactiveIdentity]);
+$inboundObserved = CompiledRepository::create($inboundObservedPayload);
+$inboundObservedRows = [];
+foreach ($inboundObserved->tree() as $identity => $row) {
+    $inboundObservedRows[] = [
+        'uuid' => (string) $identity, 'type' => (string) $row['type'],
+        'path' => (string) $row['path'], 'content' => (string) $row['content'],
+    ];
+}
+expect_throw(
+    static fn() => ScopedStateOverlay::selected_deauthorizations(
+        $inboundSource,
+        $inboundContract,
+        $inboundObservedRows,
+        [],
+        $policy,
+        ['selected_post_uuids' => [$inactivePost], 'reference_count' => 0]
+    ),
+    'excluded inbound reference',
+    'an excluded second post reference blocks deauthorization of the shared inactive row'
+);
+
+$inactiveWidgetTwo = uuid(34);
+$sharedSidebar = static function (array $widgets): array {
+    $content = Canon::encode(['widgets' => $widgets]);
+    return [
+        'type' => SidebarState::ENTITY_TYPE,
+        'path' => SidebarState::path('wp_inactive_widgets'),
+        'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
+        'content' => $content, 'data' => Canon::decode($content),
+    ];
+};
+$widgetOne = [
+    'uuid' => $inactiveWidget, 'type' => 'text',
+    'settings' => (object) ['filter' => false, 'text' => 'one', 'title' => 'One', 'visual' => true],
+];
+$widgetTwo = [
+    'uuid' => $inactiveWidgetTwo, 'type' => 'text',
+    'settings' => (object) ['filter' => false, 'text' => 'two', 'title' => 'Two', 'visual' => true],
+];
+$sharedSourcePayload = $inactiveSource->export();
+$sharedSourcePayload['tree'][$inactiveOtherPost] = $inactivePostRow(
+    $inactiveOtherPost,
+    'excluded-inactive-owner',
+    '<p>{{widget_text:' . $inactiveWidgetTwo . '}}</p>'
+);
+$sharedSourcePayload['tree'][$inactiveIdentity] = $sharedSidebar([$widgetOne, $widgetTwo]);
+ksort($sharedSourcePayload['tree'], SORT_STRING);
+$sharedSourcePayload['revision_hash'] = hash('sha256', 'inactive-shared-source-revision');
+$sharedSource = CompiledRepository::create($sharedSourcePayload);
+$sharedNarrowContract = ScopeContract::resolve($sharedSource, $policy, ['post:' . $inactivePost]);
+$sharedSubsetRows = [];
+foreach ($sharedSource->tree() as $identity => $row) {
+    $content = (string) $row['content'];
+    if ((string) $identity === $inactiveIdentity) {
+        $content = (string) $sharedSidebar([$widgetOne])['content'];
+    }
+    $sharedSubsetRows[] = [
+        'uuid' => (string) $identity, 'type' => (string) $row['type'],
+        'path' => (string) $row['path'], 'content' => $content,
+    ];
+}
+expect_throw(
+    static fn() => ScopedStateOverlay::assert_shared_row_mutation_bounded(
+        $sharedSource,
+        $sharedNarrowContract,
+        $sharedSubsetRows
+    ),
+    'excluded inbound owner',
+    'selected W1 cannot replace the shared inactive row and erase excluded post B owned W2'
+);
+$sharedExactRows = array_map(
+    static fn(string $identity, array $row): array => [
+        'uuid' => $identity, 'type' => (string) $row['type'],
+        'path' => (string) $row['path'], 'content' => (string) $row['content'],
+    ],
+    array_keys($sharedSource->tree()),
+    array_values($sharedSource->tree())
+);
+ScopedStateOverlay::assert_shared_row_mutation_bounded(
+    $sharedSource,
+    $sharedNarrowContract,
+    $sharedExactRows
+);
+check(
+    (string) $sharedSource->tree()[$inactiveIdentity]['content']
+        === (string) $sharedSidebar([$widgetOne, $widgetTwo])['content'],
+    'shared-row refusal leaves exact W1+W2 source bytes for a byte-identical retry'
+);
+
+$sharedWideContract = ScopeContract::resolve(
+    $sharedSource,
+    $policy,
+    ['post:' . $inactivePost, 'post:' . $inactiveOtherPost]
+);
+$selectedSubsetRows = [];
+foreach ($sharedSource->tree() as $identity => $row) {
+    $content = (string) $row['content'];
+    if ((string) $identity === $inactivePost) {
+        $content = (string) $inactivePostRow($inactivePost, 'inactive-owner', '<p>first removed</p>')['content'];
+    } elseif ((string) $identity === $inactiveIdentity) {
+        $content = (string) $sharedSidebar([$widgetTwo])['content'];
+    }
+    $selectedSubsetRows[] = [
+        'uuid' => (string) $identity, 'type' => (string) $row['type'],
+        'path' => (string) $row['path'], 'content' => $content,
+    ];
+}
+ScopedStateOverlay::assert_shared_row_mutation_bounded($sharedSource, $sharedWideContract, $selectedSubsetRows);
+$selectedSubsetOverlay = ScopedStateOverlay::project_capture_associated(
+    $sharedSource,
+    $sharedWideContract,
+    $selectedSubsetRows,
+    []
+);
+$selectedSubsetSidebar = array_values(array_filter(
+    $selectedSubsetOverlay['entities'],
+    static fn(array $row): bool => ($row['uuid'] ?? null) === $inactiveIdentity
+));
+check(
+    count($selectedSubsetSidebar) === 1
+        && (string) $selectedSubsetSidebar[0]['content'] === (string) $sharedSidebar([$widgetTwo])['content'],
+    'two selected owner posts may remove W1 while retaining W2 in the shared inactive carrier'
+);
+
+$excludedOwnerGoneRows = array_values(array_filter(
+    $sharedSubsetRows,
+    static fn(array $row): bool => ($row['uuid'] ?? null) !== $inactiveOtherPost
+));
+expect_throw(
+    static fn() => ScopedStateOverlay::assert_shared_row_mutation_bounded(
+        $sharedSource,
+        $sharedNarrowContract,
+        $excludedOwnerGoneRows
+    ),
+    'excluded inbound owner',
+    'target removal of excluded owner B cannot grant selected A authority over the shared row'
+);
+expect_throw(
+    static fn() => ScopedStateOverlay::selected_deauthorizations(
+        $inactiveSource,
+        $inactiveContract,
+        $inactiveObservedRows,
+        [],
+        $policy,
+        ['selected_post_uuids' => [$inactivePost], 'reference_count' => 1]
+    ),
+    'zero-reference scan',
+    'an active/inactive owner move remains a loud scoped-capture refusal rather than masquerading as deauthorization'
+);
 
 // Exact option roots are virtual identities in a shared physical carrier.
 // Capture must retain every source sibling while it accepts the observed

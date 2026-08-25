@@ -47,7 +47,10 @@
  * wpdb::get_results() returns $this->last_result, which wpdb::flush() already
  * reset to array() at the top of the failing query -- so BOTH return an empty
  * array on a driver error, and get_var()/get_row() return null. last_error is
- * the only positive signal, and it is always set here.
+ * the only positive signal, and it is always set here. The explicit
+ * returnNextGetResultsAs() seam is the one exception: it models defensive
+ * callers running behind a non-core wpdb-compatible driver that violates
+ * this return contract, without teaching the SQL store another behavior.
  *
  * The consequence for a suite author: `if (!is_array($rows))` after a
  * get_col() is dead code against live wpdb (RegenerationContextStore and
@@ -73,6 +76,7 @@
  *          [WHERE <cond>] [GROUP BY <cols>] [ORDER BY <cols> [ASC|DESC]]
  *          [LIMIT n [OFFSET m] | LIMIT m, n]
  *     items: * | alias.* | COUNT(*) | <literal> | [alias.]col | LENGTH(col)
+ *            | OCTET_LENGTH(col) | SHA2(<operand>, 256) | LEFT(<operand>, <length>)
  *            | GET_LOCK(..) | RELEASE_LOCK(..) | IS_USED_LOCK(..)
  *            | CONNECTION_ID() | VERSION()      , each with an optional AS alias
  *     cond:  AND / OR / parentheses over
@@ -90,7 +94,9 @@
  *   UPDATE t SET col = <expr> [, ...] [WHERE <cond>] [LIMIT n]
  *   DELETE FROM t [WHERE <cond>] [LIMIT n]
  *   SHOW TABLES LIKE '<pattern>'      -> the table name, or null
- *   SHOW [FULL] COLUMNS FROM t        -> Field/Type rows (see setColumns)
+ *   SHOW [FULL] COLUMNS FROM t        -> column rows (see setColumns/setColumnDefinitions)
+ *   SHOW INDEX FROM t                 -> configured index rows (see setIndexes)
+ *   SHOW TABLE STATUS LIKE '<name>'   -> configured engine row (see setTableEngine)
  *   START TRANSACTION | BEGIN | COMMIT | ROLLBACK  (single-level, snapshotting)
  *   SET ...                           (accepted no-op)
  *   CREATE / ALTER / DROP / TRUNCATE  (recorded in ddlLog; DROP/TRUNCATE clear rows)
@@ -100,12 +106,11 @@
  * characterizing a query whose behaviour belongs in the live certification,
  * not in an in-memory reimplementation of MySQL.
  *
- * Neither are schema-qualified reads (information_schema.COLUMNS /
- * .STATISTICS) or SHOW INDEX -- parseTableRef() refuses the `db.table` form
- * outright. That is not an oversight to route around: the facts those queries
- * return live in setColumns() / setUniqueKey() / setPrimaryKey(), and a
- * synthetic information_schema fed from them would be asserting this file's
- * bookkeeping rather than the target's schema. Concretely it means
+ * Schema-qualified reads (information_schema.COLUMNS / .STATISTICS) remain
+ * unsupported -- parseTableRef() refuses the `db.table` form outright. SHOW
+ * schema probes are supported only from explicit setColumnDefinitions(),
+ * setIndexes(), and setTableEngine() fixtures; no schema fact is inferred from
+ * stored rows. Concretely it means
  * Ledger::assert_read_only_schema(), Ledger::prune_dead_table_map() (a
  * multi-table DELETE) and Snapshot::assert_all_mapped_rows_managed() (a LEFT
  * JOIN) cannot be migrated to this fake; they stay live-certification paths.
@@ -205,6 +210,12 @@ final class FakeWpdb {
     private array $uniqueKeys = [];
     /** @var array<string,array<string,string>> full table name => column => SQL type */
     private array $columnTypes = [];
+    /** @var array<string,array<string,array{Type:string,Null:string,Default:mixed,Extra:string}>> */
+    private array $columnDefinitions = [];
+    /** @var array<string,list<array{Key_name:string,Non_unique:int,Seq_in_index:int,Column_name:string,Sub_part:?int,Index_type:string}>> */
+    private array $indexes = [];
+    /** @var array<string,string> full table name => storage engine */
+    private array $tableEngines = [];
     /** @var list<array{method:string,sql:string,error:string}> */
     private array $queryLog = [];
     /** @var list<string> */
@@ -213,6 +224,12 @@ final class FakeWpdb {
     private $queryHook = null;
     /** @var list<array{match:?string,error:string,remaining:int}> */
     private array $injectedFailures = [];
+    /** @var list<array{match:?string,value:array|false|null}> explicit non-core driver return probes */
+    private array $getResultsReturnOverrides = [];
+    /** @var list<array{command:string,outcome:string}> one-shot transaction ambiguity probes */
+    private array $transactionOutcomes = [];
+    /** Reconnect immediately before the next transaction-state-bearing SELECT. */
+    private bool $reconnectBeforeTransactionState = false;
     /**
      * Row snapshot taken at START TRANSACTION. Deliberately does NOT include
      * $autoIncrement -- see execTransaction().
@@ -247,6 +264,12 @@ final class FakeWpdb {
 
     /** Full server banner returned by SELECT VERSION(). */
     private string $serverVersion = '8.0.36';
+    /** Session default returned by the MariaDB/MySQL system-variable probe. */
+    private string $transactionIsolation = 'REPEATABLE-READ';
+    /** One-shot SET TRANSACTION characteristic consumed by the next boundary. */
+    private ?string $nextTransactionIsolation = null;
+    /** Isolation selected when the current transaction began. */
+    private ?string $activeTransactionIsolation = null;
 
     /** @var array<string,int> lock name => holding connection id */
     private array $heldLocks = [];
@@ -365,6 +388,54 @@ final class FakeWpdb {
         return $this;
     }
 
+    /**
+     * Configure exact SHOW FULL COLUMNS attributes without inferring schema
+     * from seeded values. Definition order is physical ordinal order.
+     *
+     * @param array<string,array{Type:string,Null:string,Default:mixed,Extra:string}> $definitions
+     */
+    public function setColumnDefinitions(string $table, array $definitions): self {
+        $name = $this->tableName($table);
+        $this->columnDefinitions[$name] = $definitions;
+        $this->columnTypes[$name] = array_map(
+            static fn(array $definition): string => $definition['Type'],
+            $definitions
+        );
+        $this->store[$name] ??= [];
+        return $this;
+    }
+
+    /**
+     * @param list<array{Key_name:string,Non_unique:int,Seq_in_index:int,Column_name:string,Sub_part:?int,Index_type:string}> $indexes
+     */
+    public function setIndexes(string $table, array $indexes): self {
+        $name = $this->tableName($table);
+        $this->indexes[$name] = array_values($indexes);
+        $this->store[$name] ??= [];
+        return $this;
+    }
+
+    public function setTableEngine(string $table, string $engine): self {
+        $name = $this->tableName($table);
+        $this->tableEngines[$name] = $engine;
+        $this->store[$name] ??= [];
+        return $this;
+    }
+
+    public function setTransactionIsolation(string $isolation): self {
+        $this->transactionIsolation = $isolation;
+        return $this;
+    }
+
+    /** @return array{session:string,next:?string,active:?string} */
+    public function transactionIsolationState(): array {
+        return [
+            'session' => $this->transactionIsolation,
+            'next' => $this->nextTransactionIsolation,
+            'active' => $this->activeTransactionIsolation,
+        ];
+    }
+
     /** Result GET_LOCK() reports; 0 makes the engine's lock acquisition fail. */
     public function setLockResult(int $result): self {
         $this->lockResult = $result;
@@ -377,8 +448,19 @@ final class FakeWpdb {
      * which is the discontinuity `ProcessFence::isContinuous()` detects.
      */
     public function setConnectionId(int $id): self {
+        // A real reconnect drops both advisory locks and the server-side
+        // transaction. Restore the START snapshot before exposing the new
+        // identity so continuity regressions cannot accidentally retain
+        // writes that InnoDB would have rolled back on disconnect.
+        if ($this->transactionSnapshot !== null) {
+            $this->store = $this->transactionSnapshot;
+            $this->transactionSnapshot = null;
+        }
         $this->connectionId = $id;
         $this->heldLocks = [];
+        $this->reconnectBeforeTransactionState = false;
+        $this->nextTransactionIsolation = null;
+        $this->activeTransactionIsolation = null;
         return $this;
     }
 
@@ -417,6 +499,51 @@ final class FakeWpdb {
         int $times = 1
     ): self {
         $this->injectedFailures[] = ['match' => $matching, 'error' => $error, 'remaining' => $times];
+        return $this;
+    }
+
+    /**
+     * Override the next matching get_results() return after its SQL executes.
+     * Core wpdb returns an array; null/false exist solely to prove a caller's
+     * fail-closed handling of compatible-but-non-core database drivers.
+     *
+     * @param array<array-key,mixed>|false|null $value
+     */
+    public function returnNextGetResultsAs(array|false|null $value, ?string $matching = null): self {
+        $this->getResultsReturnOverrides[] = ['match' => $matching, 'value' => $value];
+        return $this;
+    }
+
+    /**
+     * Inject one exact transaction-control outcome after ordinary query-hook
+     * failures have been considered. The before/after distinction is the
+     * property an ordinary failNextQuery() cannot model: a real driver may
+     * report COMMIT failure after the server durably applied it.
+     */
+    public function injectTransactionOutcome(string $command, string $outcome): self {
+        $command = strtoupper(trim($command));
+        $outcomes = [
+            'before_false',
+            'before_throw',
+            'after_false',
+            'after_throw',
+            'after_reconnect',
+            'inactive_false',
+            'success_no_apply',
+            'success_no_apply_reconnect_before_state',
+            'success_probe_error',
+            'success_no_apply_probe_error',
+        ];
+        if (!in_array($command, ['START', 'BEGIN', 'COMMIT', 'ROLLBACK'], true)
+            || !in_array($outcome, $outcomes, true)) {
+            throw new \InvalidArgumentException('FakeWpdb: unsupported transaction outcome probe');
+        }
+        $this->transactionOutcomes[] = ['command' => $command, 'outcome' => $outcome];
+        return $this;
+    }
+
+    public function clearTransactionOutcomes(): self {
+        $this->transactionOutcomes = [];
         return $this;
     }
 
@@ -658,10 +785,17 @@ final class FakeWpdb {
      * $this->last_result, which wpdb::flush() reset to array() before the
      * statement ran. Read $last_error to detect the failure.
      *
-     * @return array<array-key,array<string,?string>|object>
+     * @return array<array-key,array<string,?string>|object>|false|null
      */
-    public function get_results(string $query, string $output = OBJECT): array {
+    public function get_results(string $query, string $output = OBJECT): array|false|null {
         $result = $this->run('get_results', $query);
+        foreach ($this->getResultsReturnOverrides as $index => $override) {
+            if ($override['match'] !== null && !str_contains($query, $override['match'])) {
+                continue;
+            }
+            array_splice($this->getResultsReturnOverrides, $index, 1);
+            return $override['value'];
+        }
         if ($result === null || $result['kind'] !== 'rows') {
             return [];
         }
@@ -794,7 +928,76 @@ final class FakeWpdb {
             $this->fail($method, $sql, $error);
             return null;
         }
-        $result = $this->execute($sql);
+        $transactionOutcome = $this->takeTransactionOutcome($sql);
+        if ($transactionOutcome === 'before_false') {
+            $this->fail($method, $sql, 'injected transaction failure before server apply');
+            return null;
+        }
+        if ($transactionOutcome === 'before_throw') {
+            throw new \RuntimeException('injected transaction exception before server apply');
+        }
+        if ($transactionOutcome === 'inactive_false') {
+            $trimmed = rtrim(trim($sql), "; \t\n\r");
+            $command = preg_match('/^[A-Za-z_]+/', $trimmed, $match) === 1
+                ? strtoupper($match[0])
+                : '';
+            if ($command !== 'COMMIT') {
+                throw new \LogicException(
+                    'FakeWpdb: inactive_false is defined only for an ambiguous COMMIT'
+                );
+            }
+            $this->execTransaction('ROLLBACK');
+            $this->fail($method, $sql, 'injected inactive transaction failure before commit apply');
+            return null;
+        }
+        if (in_array($transactionOutcome, [
+            'success_no_apply',
+            'success_no_apply_reconnect_before_state',
+            'success_no_apply_probe_error',
+        ], true)) {
+            $trimmed = rtrim(trim($sql), "; \t\n\r");
+            $command = preg_match('/^[A-Za-z_]+/', $trimmed, $match) === 1
+                ? strtoupper($match[0])
+                : '';
+            if ($command !== 'COMMIT') {
+                throw new \LogicException(
+                    'FakeWpdb: success_no_apply is defined only for an ambiguous COMMIT'
+                );
+            }
+            $result = ['kind' => 'ok'];
+        } else {
+            $result = $this->execute($sql);
+        }
+        if (in_array($transactionOutcome, [
+            'success_probe_error',
+            'success_no_apply_probe_error',
+        ], true)) {
+            $this->failNextQuery(
+                'injected transaction-state probe failure after truthy COMMIT response',
+                'SELECT CONNECTION_ID() AS connection_id, @@in_transaction AS in_transaction'
+            );
+        }
+        if ($transactionOutcome === 'success_no_apply_reconnect_before_state') {
+            // A legacy connection-id query still observes the old owner, then
+            // the following state query sees one idle replacement session.
+            // An atomic session query instead observes both replacement facts.
+            $this->reconnectBeforeTransactionState = true;
+        }
+        if ($transactionOutcome === 'after_reconnect') {
+            $this->setConnectionId($this->connectionId + 1);
+        } elseif ($transactionOutcome === 'after_false') {
+            $this->fail($method, $sql, 'injected transaction failure after server apply');
+            return null;
+        } elseif ($transactionOutcome === 'after_throw') {
+            $this->last_error = 'injected transaction exception after server apply';
+            $this->last_query = $sql;
+            $this->queryLog[] = [
+                'method' => $method,
+                'sql' => $sql,
+                'error' => $this->last_error,
+            ];
+            throw new \RuntimeException('injected transaction exception after server apply');
+        }
         $this->log($method, $sql);
         if ($result['kind'] === 'rows') {
             $this->num_rows = count($result['rows']);
@@ -802,6 +1005,21 @@ final class FakeWpdb {
             $this->rows_affected = $result['affected'];
         }
         return $result;
+    }
+
+    private function takeTransactionOutcome(string $sql): ?string {
+        $trimmed = rtrim(trim($sql), "; \t\n\r");
+        $command = preg_match('/^[A-Za-z_]+/', $trimmed, $match) === 1
+            ? strtoupper($match[0])
+            : '';
+        foreach ($this->transactionOutcomes as $index => $probe) {
+            if ($probe['command'] !== $command) {
+                continue;
+            }
+            array_splice($this->transactionOutcomes, $index, 1);
+            return $probe['outcome'];
+        }
+        return null;
     }
 
     /** @return ?string the driver error text when a failure seam fires */
@@ -1097,14 +1315,66 @@ final class FakeWpdb {
         if ($trimmed === '') {
             throw new \LogicException('FakeWpdb: empty SQL statement');
         }
+        if (preg_match(
+            '/^SELECT TABLE_NAME, ENGINE FROM information_schema\.TABLES\s+'
+                . 'WHERE TABLE_SCHEMA = DATABASE\(\) AND TABLE_NAME IN \((.+)\)\s+'
+                . 'ORDER BY TABLE_NAME ASC$/isD',
+            $trimmed,
+            $tableInventory
+        ) === 1) {
+            preg_match_all("/'((?:''|[^'])*)'/", $tableInventory[1], $names);
+            $rows = [];
+            foreach ($names[1] as $escapedName) {
+                $name = str_replace("''", "'", $escapedName);
+                if (!array_key_exists($name, $this->store)) {
+                    continue;
+                }
+                $rows[] = [
+                    'TABLE_NAME' => $name,
+                    'ENGINE' => $this->tableEngines[$name] ?? null,
+                ];
+            }
+            usort($rows, static fn(array $a, array $b): int =>
+                strcmp((string) $a['TABLE_NAME'], (string) $b['TABLE_NAME'])
+            );
+            return ['kind' => 'rows', 'rows' => $rows];
+        }
         if (strcasecmp($trimmed, 'SELECT @@in_transaction') === 0) {
             return [
                 'kind' => 'rows',
                 'rows' => [['@@in_transaction' => $this->transactionSnapshot === null ? '0' : '1']],
             ];
         }
+        if (strcasecmp($trimmed, 'SELECT @@transaction_isolation') === 0
+            || strcasecmp($trimmed, 'SELECT @@tx_isolation') === 0) {
+            return ['kind' => 'rows', 'rows' => [['isolation' => $this->transactionIsolation]]];
+        }
+        if (strcasecmp(
+            $trimmed,
+            'SELECT CONNECTION_ID() AS connection_id, @@in_transaction AS in_transaction'
+        ) === 0) {
+            if ($this->reconnectBeforeTransactionState) {
+                $this->reconnectBeforeTransactionState = false;
+                $this->setConnectionId($this->connectionId + 1);
+            }
+            return [
+                'kind' => 'rows',
+                'rows' => [[
+                    'connection_id' => (string) $this->connectionId,
+                    'in_transaction' => $this->transactionSnapshot === null ? '0' : '1',
+                ]],
+            ];
+        }
         $this->currentSql = $trimmed;
         $head = preg_match('/^[A-Za-z_]+/', $trimmed, $m) === 1 ? strtoupper($m[0]) : '';
+        if (($head === 'SAVEPOINT' && preg_match('/^SAVEPOINT `[A-Za-z0-9_]+`$/D', $trimmed) === 1)
+            || ($head === 'RELEASE'
+                && preg_match('/^RELEASE SAVEPOINT `[A-Za-z0-9_]+`$/D', $trimmed) === 1)) {
+            if ($this->transactionSnapshot === null) {
+                throw $this->unsupported('savepoint outside a transaction');
+            }
+            return ['kind' => 'ok'];
+        }
         switch ($head) {
             case 'CREATE':
             case 'ALTER':
@@ -1112,6 +1382,18 @@ final class FakeWpdb {
             case 'TRUNCATE':
                 return $this->execDdl($head);
             case 'SET':
+                if (preg_match(
+                    '/^SET\s+TRANSACTION\s+ISOLATION\s+LEVEL\s+'
+                    . '(READ\s+COMMITTED|REPEATABLE\s+READ|SERIALIZABLE)$/iD',
+                    $trimmed,
+                    $isolationMatch
+                ) === 1) {
+                    $this->nextTransactionIsolation = strtoupper(
+                        preg_replace('/\s+/', '-', $isolationMatch[1]) ?? $isolationMatch[1]
+                    );
+                }
+                $this->ddlLog[] = $trimmed;
+                return ['kind' => 'ok'];
             case 'LOCK':
             case 'UNLOCK':
             case 'ANALYZE':
@@ -1322,7 +1604,7 @@ final class FakeWpdb {
         'WHERE', 'GROUP', 'ORDER', 'LIMIT', 'OFFSET', 'SET', 'VALUES', 'FROM', 'INTO',
         'ON', 'AND', 'OR', 'NOT', 'IN', 'IS', 'LIKE', 'JOIN', 'INNER', 'LEFT', 'RIGHT',
         'OUTER', 'CROSS', 'UNION', 'HAVING', 'FORCE', 'USE', 'IGNORE', 'ASC', 'DESC',
-        'DUPLICATE', 'KEY', 'BY', 'NULL', 'BINARY', 'DISTINCT', 'AS',
+        'DUPLICATE', 'KEY', 'BY', 'NULL', 'BINARY', 'DISTINCT', 'AS', 'FOR', 'UPDATE',
     ];
 
     // ------------------------------------------------------------ SELECT
@@ -1359,6 +1641,9 @@ final class FakeWpdb {
         }
         $order = $this->parseOrderBy();
         [$limit, $offset] = $this->parseLimit();
+        if ($this->acceptKeyword('FOR')) {
+            $this->expectKeyword('UPDATE');
+        }
         $this->expectEnd();
 
         if ($table === null) {
@@ -2342,6 +2627,25 @@ final class FakeWpdb {
 
     private function execShow(): array {
         $this->expectKeyword('SHOW');
+        if ($this->acceptKeyword('TABLE', 'STATUS')) {
+            $pattern = null;
+            if ($this->acceptKeyword('LIKE')) {
+                $token = $this->peek();
+                if ($token['t'] !== 'str') {
+                    throw $this->unsupported('SHOW TABLE STATUS LIKE expects a string literal');
+                }
+                $this->tp++;
+                $pattern = (string) $token['v'];
+            }
+            $this->expectEnd();
+            $rows = [];
+            foreach (array_keys($this->store) as $name) {
+                if ($pattern === null || self::likeMatches($pattern, $name)) {
+                    $rows[] = ['Name' => $name, 'Engine' => $this->tableEngines[$name] ?? null];
+                }
+            }
+            return ['kind' => 'rows', 'rows' => $rows];
+        }
         if ($this->acceptKeyword('TABLES')) {
             $pattern = null;
             if ($this->acceptKeyword('LIKE')) {
@@ -2368,18 +2672,28 @@ final class FakeWpdb {
             $this->expectEnd();
             $name = $this->requireTable($table);
             $types = $this->columnTypes[$name] ?? [];
+            $definitions = $this->columnDefinitions[$name] ?? [];
             $rows = [];
-            foreach ($this->knownColumns($name) as $column) {
+            $columns = $definitions === [] ? $this->knownColumns($name) : array_keys($definitions);
+            foreach ($columns as $column) {
+                $definition = $definitions[$column] ?? null;
                 $rows[] = [
                     'Field' => $column,
-                    'Type' => $types[$column] ?? 'longtext',
-                    'Null' => 'YES',
+                    'Type' => $definition['Type'] ?? $types[$column] ?? 'longtext',
+                    'Null' => $definition['Null'] ?? 'YES',
                     'Key' => ($this->primaryKeys[$name] ?? null) === $column ? 'PRI' : '',
-                    'Default' => null,
-                    'Extra' => '',
+                    'Default' => $definition['Default'] ?? null,
+                    'Extra' => $definition['Extra'] ?? '',
                 ];
             }
             return ['kind' => 'rows', 'rows' => $rows];
+        }
+        if ($this->acceptKeyword('INDEX') || $this->acceptKeyword('INDEXES') || $this->acceptKeyword('KEYS')) {
+            $this->expectKeyword('FROM');
+            $table = $this->parseTableRef();
+            $this->expectEnd();
+            $name = $this->requireTable($table);
+            return ['kind' => 'rows', 'rows' => $this->indexes[$name] ?? []];
         }
         throw $this->unsupported('SHOW variant');
     }
@@ -2402,12 +2716,20 @@ final class FakeWpdb {
     private function execTransaction(string $head): array {
         if ($head === 'START' || $head === 'BEGIN') {
             $this->transactionSnapshot = $this->store;
+            $this->activeTransactionIsolation =
+                $this->nextTransactionIsolation ?? $this->transactionIsolation;
+            $this->nextTransactionIsolation = null;
             return ['kind' => 'ok'];
         }
         if ($head === 'ROLLBACK' && $this->transactionSnapshot !== null) {
             $this->store = $this->transactionSnapshot;
         }
         $this->transactionSnapshot = null;
+        $this->activeTransactionIsolation = null;
+        // A transaction boundary consumes a still-pending one-shot SET. The
+        // TEC recovery regression also starts and rolls back one data-free
+        // cleanup transaction so this property is observed, not assumed.
+        $this->nextTransactionIsolation = null;
         return ['kind' => 'ok'];
     }
 
@@ -2429,7 +2751,14 @@ final class FakeWpdb {
             if ($head === 'CREATE') {
                 $this->store[$name] ??= [];
             } elseif ($head === 'DROP') {
-                unset($this->store[$name], $this->autoIncrement[$name], $this->columnTypes[$name]);
+                unset(
+                    $this->store[$name],
+                    $this->autoIncrement[$name],
+                    $this->columnTypes[$name],
+                    $this->columnDefinitions[$name],
+                    $this->indexes[$name],
+                    $this->tableEngines[$name]
+                );
             } elseif ($head === 'TRUNCATE') {
                 $this->store[$name] = [];
             }

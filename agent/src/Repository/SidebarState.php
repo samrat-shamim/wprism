@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/Uuid.php';
 
 /** Canonical sidebar ownership and ledger-only widget instance identity. */
 final class SidebarState {
@@ -121,20 +122,59 @@ final class SidebarState {
         Tokens $tokens,
         bool $mint,
         bool $forceUnresolvedRefs = false,
-        bool $strictReadOnly = false
+        bool $strictReadOnly = false,
+        ?array $portableWidgetReferences = null
     ): array {
         self::assert_policy($policy);
         $declared = $policy->widget_types();
         $sidebars = self::load_sidebars_option();
+        // Active assignments and exact portable-block references below are
+        // the ownership boundary. The loader retains the preexisting loud
+        // undeclared-family gate, but unassigned or unrelated inactive
+        // instances never enter canonical state.
         $options = self::load_widget_options($policy, $declared, true);
         $entities = [];
         $warnings = [];
         $seen = [];
         $inactive = (array) ($sidebars['wp_inactive_widgets'] ?? []);
-        if ($inactive) {
-            $warnings[] = 'wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate';
+        $selectedInactive = [];
+        $requested = [];
+        if ($portableWidgetReferences !== null) {
+            foreach ($portableWidgetReferences as $position => $reference) {
+                if (!is_array($reference)
+                    || array_keys($reference) !== ['type', 'local_id']
+                    || !is_string($reference['type'] ?? null)
+                    || !isset($declared[$reference['type']])
+                    || !is_int($reference['local_id'] ?? null)
+                    || $reference['local_id'] <= 0) {
+                    throw new \RuntimeException(
+                        "duo: portable block widget reference at position $position is malformed"
+                    );
+                }
+                $instanceKey = $reference['type'] . '-' . $reference['local_id'];
+                $requested[$instanceKey] = true;
+            }
+            foreach ($inactive as $instanceKey) {
+                if (is_string($instanceKey) && isset($requested[$instanceKey])) {
+                    $selectedInactive[] = $instanceKey;
+                }
+            }
+            $unselected = count($inactive) - count($selectedInactive);
+            if ($unselected > 0) {
+                $warnings[] = self::inactive_exclusion_warning();
+            }
+            if ($selectedInactive === []) {
+                unset($sidebars['wp_inactive_widgets']);
+            } else {
+                $sidebars['wp_inactive_widgets'] = $selectedInactive;
+            }
+        } elseif ($inactive) {
+            $warnings[] = self::inactive_exclusion_warning();
         }
-        unset($sidebars['array_version'], $sidebars['wp_inactive_widgets']);
+        unset($sidebars['array_version']);
+        if ($portableWidgetReferences === null) {
+            unset($sidebars['wp_inactive_widgets']);
+        }
         ksort($sidebars, SORT_STRING);
         foreach ($sidebars as $sidebar => $instanceKeys) {
             if (!is_string($sidebar) || $sidebar === '' || str_contains($sidebar, '/')
@@ -164,6 +204,18 @@ final class SidebarState {
                 }
                 $kind = self::kind($type);
                 $uuid = Ledger::uuid_for($local, $kind);
+                if ($uuid !== null) {
+                    // uuid_for() proves only the local half. A stale/manual
+                    // tuple with the wrong entity type or reverse binding is
+                    // not authority for this selected physical widget.
+                    Ledger::require_read_only_mapping(
+                        $uuid,
+                        'widget',
+                        $kind,
+                        $local,
+                        "widget '$instanceKey'"
+                    );
+                }
                 if ($strictReadOnly && $uuid === null) {
                     throw new \RuntimeException(
                         "duo: refresh export refused — widget '$instanceKey' has no durable ledger identity; "
@@ -173,9 +225,6 @@ final class SidebarState {
                 if ($uuid === null && $mint) {
                     $uuid = Uuid::v7();
                     Ledger::set($uuid, 'widget', $kind, $local);
-                }
-                if ($strictReadOnly) {
-                    Ledger::require_read_only_mapping($uuid, 'widget', $kind, $local, "widget '$instanceKey'");
                 }
                 $portable = self::capture_settings(
                     $type, $settings, $declared[$type], $policy, $tokens, $sidebar, $forceUnresolvedRefs
@@ -193,6 +242,14 @@ final class SidebarState {
                 'uuid' => self::key($sidebar), 'type' => self::ENTITY_TYPE,
                 'path' => self::path($sidebar), 'content' => Canon::encode($front),
             ];
+        }
+        foreach (array_keys($requested) as $instanceKey) {
+            if (!isset($seen[$instanceKey])) {
+                throw new \RuntimeException(
+                    'duo: portable block widget reference is stale or absent from sidebars_widgets ('
+                    . self::identity_fingerprint($instanceKey) . ')'
+                );
+            }
         }
         return ['entities' => $entities, 'warnings' => $warnings];
     }
@@ -428,6 +485,17 @@ final class SidebarState {
 
     /** @return array<int,array<string,mixed>> */
     private static function decode_widget_family(string $name, string $raw): array {
+        return self::decode_widget_family_state($name, $raw)['instances'];
+    }
+
+    /**
+     * @return array{
+     *   instances:array<int,array<string,mixed>>,
+     *   marker:int|string|null,
+     *   order:list<int|string>
+     * }
+     */
+    private static function decode_widget_family_state(string $name, string $raw): array {
         $value = PlainData::decode($raw, "option '$name'");
         if (!is_array($value)) {
             throw new \RuntimeException("duo: widget option '$name' is not a multi-instance array");
@@ -436,11 +504,15 @@ final class SidebarState {
             throw new \RuntimeException("duo: widget option '$name' exceeds the bounded instance limit");
         }
         $instances = [];
+        $marker = null;
+        $order = [];
         foreach ($value as $key => $settings) {
             if ((string) $key === '_multiwidget') {
                 if (!in_array($settings, [1, '1'], true)) {
                     throw new \RuntimeException("duo: widget option '$name' has an invalid _multiwidget marker");
                 }
+                $marker = $settings;
+                $order[] = '_multiwidget';
                 continue;
             }
             $local = self::canonical_positive_decimal($key);
@@ -454,13 +526,17 @@ final class SidebarState {
                 throw new \RuntimeException("duo: widget option '$name' contains duplicate canonical instance identities");
             }
             $instances[$local] = $settings;
+            $order[] = $local;
         }
-        return $instances;
+        return ['instances' => $instances, 'marker' => $marker, 'order' => $order];
     }
 
     /**
      * @return array{
      *   widgets:array<string,array<int,array<string,mixed>>>,
+     *   markers:array<string,int|string|null>,
+     *   orders:array<string,list<int|string>>,
+     *   present:array<string,bool>,
      *   sidebars:array<string,mixed>
      * }
      */
@@ -480,14 +556,26 @@ final class SidebarState {
             );
         }
         $widgets = [];
+        $markers = [];
+        $orders = [];
+        $present = [];
         foreach ($types as $type) {
             $name = 'widget_' . $type;
             $row = $rows[$name];
-            $widgets[$type] = $row === null ? [] : self::decode_widget_family($name, $row['option_value']);
+            $state = $row === null
+                ? ['instances' => [], 'marker' => null, 'order' => []]
+                : self::decode_widget_family_state($name, $row['option_value']);
+            $widgets[$type] = $state['instances'];
+            $markers[$type] = $state['marker'];
+            $orders[$type] = $state['order'];
+            $present[$type] = $row !== null;
         }
         $sidebarsRow = $rows[self::SIDEBARS_OPTION];
         return [
             'widgets' => $widgets,
+            'markers' => $markers,
+            'orders' => $orders,
+            'present' => $present,
             'sidebars' => $sidebarsRow === null
                 ? []
                 : self::decode_sidebars_option($sidebarsRow['option_value']),
@@ -557,10 +645,13 @@ final class SidebarState {
                 $out[$key] = Blocks::capture_rewrite(
                     $value, $policy, $tokens, $forceUnresolvedRefs, "sidebar '$sidebar'"
                 );
-            } elseif (($rule['ref'] ?? '') === 'term') {
-                $id = (int) $value;
-                $out[$key] = $id > 0 ? ($tokens->id_to_token($id, 'term')
-                    ?? throw new \RuntimeException("duo: widget_$type setting '$key' references unmanaged term $id")) : null;
+            } elseif (in_array(($rule['ref'] ?? ''), ['term', 'post'], true)) {
+                $kind = (string) $rule['ref'];
+                $id = self::captured_reference_id($value, $type, (string) $key, $sidebar, $kind);
+                $out[$key] = $id === null ? null : ($tokens->id_to_token($id, $kind)
+                    ?? throw new \RuntimeException(
+                        "duo: widget_$type setting '$key' references an unmanaged $kind row"
+                    ));
             } else {
                 $out[$key] = self::rewrite_strings($value, fn(string $s): string => $tokens->tokenize_text($s));
             }
@@ -575,13 +666,57 @@ final class SidebarState {
             $rule = (array) (($decl['settings'] ?? [])[$key] ?? []);
             if (($rule['codec'] ?? '') === 'blocks') {
                 $out[$key] = Blocks::apply_rewrite((string) $value, $policy, $tokens);
-            } elseif (($rule['ref'] ?? '') === 'term') {
-                $out[$key] = $value === null ? 0 : $tokens->token_to_id((string) $value);
+            } elseif (in_array(($rule['ref'] ?? ''), ['term', 'post'], true)) {
+                $kind = (string) $rule['ref'];
+                if ($value === null) {
+                    $out[$key] = 0;
+                    continue;
+                }
+                if (!is_string($value)
+                    || preg_match('/^\{\{' . preg_quote($kind, '/') . ':[0-9a-f-]{36}\}\}$/D', $value) !== 1) {
+                    throw new \RuntimeException(
+                        "duo: widget_$type setting '$key' must be null or one canonical {{"
+                        . $kind . ':uuid}} token'
+                    );
+                }
+                $out[$key] = $tokens->token_to_id($value);
             } else {
                 $out[$key] = self::rewrite_strings($value, fn(string $s): string => $tokens->detokenize_text($s));
             }
         }
         return $out;
+    }
+
+    /**
+     * WordPress widget options come from legacy form input and may preserve a
+     * canonical decimal string, while the normal update path stores an int.
+     * Admit only those two exact positive forms plus WordPress's four unset
+     * spellings; a loose `(int)` cast would turn booleans, floats, garbage,
+     * leading zeroes, and overflow into a different entity reference.
+     */
+    private static function captured_reference_id(
+        mixed $value,
+        string $type,
+        string $key,
+        string $sidebar,
+        string $kind
+    ): ?int {
+        if (in_array($value, [null, '', 0, '0'], true)) {
+            return null;
+        }
+        if (is_int($value) && $value > 0) {
+            return $value;
+        }
+        if (is_string($value)
+            && preg_match('/^[1-9][0-9]*$/D', $value) === 1
+            && (string) (int) $value === $value
+            && (int) $value > 0) {
+            return (int) $value;
+        }
+        throw new \RuntimeException(
+            "duo: widget_$type setting '$key' in sidebar '$sidebar' must be an exact positive $kind id "
+            . 'or the native unset value'
+        );
     }
 
     private static function rewrite_strings($value, callable $rewrite) {
@@ -649,6 +784,9 @@ final class SidebarState {
         $declared = $policy->widget_types();
         $state = self::load_locked_sidebar_state($declared);
         $options = $state['widgets'];
+        $markers = $state['markers'];
+        $orders = $state['orders'];
+        $present = $state['present'];
         $sidebars = $state['sidebars'];
         $globallyDesired = [];
         foreach ($tree as $entity) {
@@ -660,16 +798,31 @@ final class SidebarState {
             }
         }
         $touchedTypes = [];
-        foreach ((array) ($sidebars[$sidebar] ?? []) as $oldKey) {
+        $inactiveOverlay = $sidebar === 'wp_inactive_widgets';
+        $inactiveAssignments = array_fill_keys(
+            array_values(array_filter(
+                (array) ($sidebars['wp_inactive_widgets'] ?? []),
+                static fn($key): bool => is_string($key)
+            )),
+            true
+        );
+        $preserveFamilyOrder = [];
+        foreach (array_keys($inactiveAssignments) as $inactiveKey) {
+            $parsedInactive = self::parse_widget_instance_key($inactiveKey);
+            if ($parsedInactive !== null) {
+                $preserveFamilyOrder[$parsedInactive[0]] = true;
+            }
+        }
+        foreach ($inactiveOverlay ? [] : (array) ($sidebars[$sidebar] ?? []) as $oldKey) {
             $parsed = is_string($oldKey) ? self::parse_widget_instance_key($oldKey) : null;
             if ($parsed === null || isset($globallyDesired[$oldKey])) continue;
             [$oldType, $oldLocal] = $parsed;
             if (isset($declared[$oldType])) {
+                $oldUuid = Ledger::uuid_for($oldLocal, self::kind($oldType));
                 if (array_key_exists($oldLocal, $options[$oldType])) {
                     unset($options[$oldType][$oldLocal]);
                     $touchedTypes[$oldType] = true;
                 }
-                $oldUuid = Ledger::uuid_for($oldLocal, self::kind($oldType));
                 if ($oldUuid !== null) Ledger::forget($oldUuid);
             }
         }
@@ -682,17 +835,46 @@ final class SidebarState {
             $options[$type][$local] = self::apply_settings(
                 $type, (array) $widget['settings'], $declared[$type], $policy, $tokens
             );
+            if ($inactiveOverlay || isset($inactiveAssignments["$type-$local"])) {
+                $preserveFamilyOrder[$type] = true;
+            }
             $touchedTypes[$type] = true;
             $keys[] = "$type-$local";
         }
         if ($writeTouchedOnly) {
             ksort($touchedTypes, SORT_STRING);
         }
-        $optionWriteTypes = $writeTouchedOnly ? array_keys($touchedTypes) : array_keys($declared);
+        $optionWriteTypes = ($writeTouchedOnly || $inactiveOverlay)
+            ? array_keys($touchedTypes)
+            : array_keys($declared);
         foreach ($optionWriteTypes as $type) {
-            ksort($options[$type], SORT_NUMERIC);
-            $stored = $options[$type];
-            $stored['_multiwidget'] = 1;
+            if (isset($preserveFamilyOrder[$type])) {
+                $stored = [];
+                $seenStoredKeys = [];
+                foreach ($orders[$type] as $orderedKey) {
+                    if ($orderedKey === '_multiwidget') {
+                        $stored['_multiwidget'] = $markers[$type] ?? 1;
+                        $seenStoredKeys['_multiwidget'] = true;
+                        continue;
+                    }
+                    if (is_int($orderedKey) && array_key_exists($orderedKey, $options[$type])) {
+                        $stored[$orderedKey] = $options[$type][$orderedKey];
+                        $seenStoredKeys[(string) $orderedKey] = true;
+                    }
+                }
+                foreach ($options[$type] as $local => $settings) {
+                    if (!isset($seenStoredKeys[(string) $local])) {
+                        $stored[$local] = $settings;
+                    }
+                }
+                if (!isset($seenStoredKeys['_multiwidget']) && !$present[$type]) {
+                    $stored['_multiwidget'] = $markers[$type] ?? 1;
+                }
+            } else {
+                ksort($options[$type], SORT_NUMERIC);
+                $stored = $options[$type];
+                $stored['_multiwidget'] = $markers[$type] ?? 1;
+            }
             $name = 'widget_' . $type;
             $wire = maybe_serialize($stored);
             $locked = self::lock_authored_option_row($name, "apply widget_$type option locking");
@@ -731,8 +913,7 @@ final class SidebarState {
         // unrelated keys in the other sidebar remain untouched.
         $desiredKeys = array_fill_keys($keys, true);
         foreach ($sidebars as $otherSidebar => $otherKeys) {
-            if ($otherSidebar === $sidebar || $otherSidebar === 'wp_inactive_widgets'
-                || $otherSidebar === 'array_version' || !is_array($otherKeys)) {
+            if ($otherSidebar === $sidebar || $otherSidebar === 'array_version' || !is_array($otherKeys)) {
                 continue;
             }
             $sidebars[$otherSidebar] = array_values(array_filter(
@@ -740,7 +921,20 @@ final class SidebarState {
                 static fn($key): bool => !is_string($key) || !isset($desiredKeys[$key])
             ));
         }
-        $sidebars[$sidebar] = $keys;
+        if ($inactiveOverlay) {
+            $merged = [];
+            foreach ((array) ($sidebars[$sidebar] ?? []) as $oldKey) {
+                if (is_string($oldKey)) {
+                    $merged[$oldKey] = true;
+                }
+            }
+            foreach ($keys as $key) {
+                $merged[$key] = true;
+            }
+            $sidebars[$sidebar] = array_keys($merged);
+        } else {
+            $sidebars[$sidebar] = $keys;
+        }
         $sidebars['array_version'] = max(3, (int) ($sidebars['array_version'] ?? 3));
         $wire = maybe_serialize($sidebars);
         $locked = self::lock_authored_option_row(
@@ -781,8 +975,12 @@ final class SidebarState {
     public static function inactive_warning(): ?string {
         $sidebars = self::load_sidebars_option();
         return !empty($sidebars['wp_inactive_widgets'])
-            ? 'wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate'
+            ? self::inactive_exclusion_warning()
             : null;
+    }
+
+    private static function inactive_exclusion_warning(): string {
+        return 'unreferenced wp_inactive_widgets entries are target-owned; parked widget content will not propagate';
     }
 
     /** Mappings whose backing option instance disappeared, before pruning. */

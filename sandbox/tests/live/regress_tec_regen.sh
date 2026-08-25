@@ -48,9 +48,9 @@
 #        (b) STATUS FAIL-CLOSED — `cli/duo status <env>` (cli/src/
 #            PlanSummary.php, DUO-3221's decision-matrix) reports the
 #            outstanding regen_pending marker and removes that signal once
-#            it resolves — step (7c-status)/(7d-status). TEC's current
-#            capability-registry certification gates independently keep
-#            status non-promotable before and after this marker proof.
+#            it resolves — step (7c-status)/(7d-status). Once the marker
+#            clears, TEC's certified disposition leaves no independent
+#            adapter blocker and status becomes promotable again.
 #   5. ORPHAN SWEEP (design review's second, minor addition): a
 #      regen_pending marker whose post type is no longer declared, or
 #      whose uuid no longer resolves to a local post, gets actively
@@ -233,12 +233,15 @@ OCC_2=$(wp2 db query "SELECT COUNT(*) FROM wp_tec_occurrences WHERE post_id=$EVE
 [ "$OCC_2" = "1" ] || fail "expected exactly 1 tec_occurrences row on side 2 (got $OCC_2) — regen_dependencies() should have created it automatically"
 pass "tec_occurrences row confirmed present on side 2, created automatically by Apply::regen_dependencies()"
 
-# A private manifest directory deliberately has no capability registry. It is
-# used only below for adapter fault injection; ordinary capture/apply above
-# already proved the exact evidence-bound shipped adapter.
-mkdir -p "$TEST_MANIFEST_DIR/regenerators"
+# A private manifest directory isolates the verifier fault while retaining the
+# shipped platform boundary and every manifest-bound hook file that policy
+# resolves before any adapter regenerator may run.
+mkdir -p "$TEST_MANIFEST_DIR/capabilities" "$TEST_MANIFEST_DIR/interpreters" "$TEST_MANIFEST_DIR/providers" "$TEST_MANIFEST_DIR/regenerators"
 cp ../manifests/core.json "$TEST_MANIFEST_DIR/core.json"
+cp ../manifests/capabilities/platform.json "$TEST_MANIFEST_DIR/capabilities/platform.json"
 cp "$SHIPPED_MANIFEST" "$MANIFEST"
+cp ../manifests/interpreters/the-events-calendar.php "$TEST_MANIFEST_DIR/interpreters/the-events-calendar.php"
+cp ../manifests/providers/the-events-calendar-category-colors.php "$TEST_MANIFEST_DIR/providers/the-events-calendar-category-colors.php"
 cp ../manifests/regenerators/the-events-calendar.php "$TEST_MANIFEST_DIR/regenerators/the-events-calendar.php"
 
 say "(4) byte-identical recapture on side 2"
@@ -293,10 +296,13 @@ MARKER=$(wp2 db query "SELECT v FROM wp_duo_kv WHERE k = 'regen_pending:$CAPTURE
 [ "$MARKER" = "tribe_events" ] || fail "expected a regen_pending:<uuid> marker recording post_type=tribe_events, got '$MARKER'"
 pass "regen_pending marker recorded in duo_kv (post_type=$MARKER) — this is what makes the next apply retry"
 
-say "(6d) restore the manifest to its correct, shipped state"
+say "(6d) restore the manifest and physical schema to their correct, shipped state"
 cp "$SHIPPED_MANIFEST" "$MANIFEST"
 jq -e '.post_types.tribe_events.regen_dependency.verify.column == "post_id"' "$MANIFEST" >/dev/null || fail "manifest restoration did not produce the expected verify.column"
-pass "manifest restored"
+wp2 db query "ALTER TABLE wp_tec_occurrences DROP COLUMN duo_regress_never_matches" >/dev/null
+FAULT_COLUMN_COUNT=$(wp2 db query "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_tec_occurrences' AND COLUMN_NAME = 'duo_regress_never_matches'" --skip-column-names 2>/dev/null | tr -d '\r')
+[ "$FAULT_COLUMN_COUNT" = "0" ] || fail "verifier fault column survived restoration (count=$FAULT_COLUMN_COUNT)"
+pass "manifest and verifier-only schema column restored"
 
 say "(6e) THE LOAD-BEARING PROOF: re-run apply with ZERO further content changes — the regen failure still gets retried and resolved automatically, not silently skipped (the exact false-green retry the design review flagged)"
 PLAN3=$(wp2_fault duo plan --repo=/siterepo --format=json | tail -1)
@@ -404,19 +410,20 @@ ISO_MARKER_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'regen
 [ "$ISO_MARKER_AFTER" = "0" ] || fail "expected the manually-planted marker to be cleared after the isolated repair (still present)"
 pass "ISOLATION PROOF confirmed: tec_occurrences row regenerated and marker cleared with NO apply_in_progress involvement whatsoever — regen_pending:<uuid> is independently load-bearing, not merely redundant with DUO-3206"
 
-say "(7d-status) the REGEN_PENDING status signal clears after repair; TEC's separate capability-registry gates remain"
+say "(7d-status) the REGEN_PENDING status signal clears after repair and certified TEC is promotable"
 STATUS_CLEAN_RC=0
 STATUS_CLEAN_OUT=$("$DUO_CLI" status "$ENV_NAME" 2>&1) || STATUS_CLEAN_RC=$?
 echo "$STATUS_CLEAN_OUT"
-[ "$STATUS_CLEAN_RC" -ne 0 ] || fail "expected TEC's adapter-disposition certification gates to keep 'duo status $ENV_NAME' non-promotable"
+[ "$STATUS_CLEAN_RC" -eq 0 ] || fail "expected certified TEC with no recovery marker to make 'duo status $ENV_NAME' promotable (exit=$STATUS_CLEAN_RC)"
 if grep -q "REGEN_PENDING (" <<<"$STATUS_CLEAN_OUT"; then
   fail "duo status still reports an outstanding REGEN_PENDING section after the marker resolved (output: $STATUS_CLEAN_OUT)"
 fi
-grep -q "ADAPTER_DISPOSITIONS (" <<<"$STATUS_CLEAN_OUT" \
-  || fail "expected the remaining nonzero status to identify TEC's independent adapter-disposition gate (output: $STATUS_CLEAN_OUT)"
-grep -Eq "the-events-calendar .*\[authored_state_not_certified\]" <<<"$STATUS_CLEAN_OUT" \
-  || fail "expected TEC's authored-state certification reason in adapter-disposition status (output: $STATUS_CLEAN_OUT)"
-pass "REGEN_PENDING cleared from status after repair; the remaining nonzero result names TEC's independent authored-state certification gate"
+if grep -q "ADAPTER_DISPOSITIONS (" <<<"$STATUS_CLEAN_OUT"; then
+  fail "certified TEC still reports an adapter-disposition blocker after recovery (output: $STATUS_CLEAN_OUT)"
+fi
+grep -q "only optional env value(s) missing — safe to promote" <<<"$STATUS_CLEAN_OUT" \
+  || fail "clean certified TEC status omitted its explicit safe-to-promote result (output: $STATUS_CLEAN_OUT)"
+pass "REGEN_PENDING and adapter-disposition blockers cleared; certified TEC status is safe to promote"
 
 say "(8) ORPHAN-SWEEP PROOF (design review addition 2): a regen_pending marker that can never resolve again must not sit in duo_kv forever — both orphan shapes get swept, loudly, in the same pass that would have processed them"
 

@@ -18,6 +18,7 @@ require_once __DIR__ . '/../Repository/SidebarState.php';
 require_once __DIR__ . '/../Repository/Snapshot.php';
 require_once __DIR__ . '/TermCapture.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
+require_once __DIR__ . '/../Grammar/Blocks.php';
 require_once __DIR__ . '/../Grammar/ShortcodeAlternateRegistrar.php';
 require_once __DIR__ . '/UserMetaCapture.php';
 
@@ -184,6 +185,7 @@ final class CaptureCandidateBuilder {
      * @return array{
      *   entities:array,
      *   media:array<string,array{path?:string,bytes?:string,witness:array{extension:string,sha256:string,size:int}}>,
+     *   portable_widget_scan:?array{selected_post_uuids:list<string>,reference_count:int},
      *   notes:string[],
      *   warnings:string[]
      * }
@@ -193,7 +195,8 @@ final class CaptureCandidateBuilder {
         bool $forceUnresolvedRefs = false,
         ?array $previousOptions = null,
         array $carriedUserLogins = [],
-        bool $strictReadOnly = false
+        bool $strictReadOnly = false,
+        ?array $selectedIdentities = null
     ): array {
         $this->reset($forceUnresolvedRefs);
         $entities = [];
@@ -242,12 +245,15 @@ final class CaptureCandidateBuilder {
         // Table identities must exist before post/sidebar tokenization.
         $tableEntities = Snapshot::capture($this->policy, $this->tokens, $mint, $strictReadOnly);
         CaptureTransaction::check_transient_db_error('Snapshot::capture()');
+        $portableWidgetScan = $this->portableWidgetReferenceScan($posts, $postUuids, $selectedIdentities);
+        $portableWidgetReferences = $portableWidgetScan['references'];
         $sidebarBuild = SidebarState::capture(
             $this->policy,
             $this->tokens,
             $mint,
             $forceUnresolvedRefs,
-            $strictReadOnly
+            $strictReadOnly,
+            $portableWidgetReferences === [] ? null : $portableWidgetReferences
         );
 
         foreach ($terms as $term) {
@@ -322,8 +328,72 @@ final class CaptureCandidateBuilder {
         return [
             'entities' => $entities,
             'media' => $media,
+            'portable_widget_scan' => $selectedIdentities === null ? null : [
+                'selected_post_uuids' => $portableWidgetScan['selected_post_uuids'],
+                'reference_count' => count($portableWidgetReferences),
+            ],
             'notes' => $this->tokens->notes,
             'warnings' => array_merge($sidebarBuild['warnings'], $this->tokens->warnings),
+        ];
+    }
+
+    /**
+     * Discover portable widget owners only in the immutable scoped closure.
+     * Null is the ordinary whole-snapshot path; a list comes only from the
+     * associated ScopeContract in scoped publication.
+     *
+     * @param list<object> $posts
+     * @param array<int,string> $postUuids
+     * @param ?list<string> $selectedIdentities
+     * @return array{
+     *   references:list<array{type:string,local_id:int}>,
+     *   selected_post_uuids:list<string>
+     * }
+     */
+    private function portableWidgetReferenceScan(
+        array $posts,
+        array $postUuids,
+        ?array $selectedIdentities
+    ): array {
+        $selected = null;
+        if ($selectedIdentities !== null) {
+            if (!array_is_list($selectedIdentities)) {
+                throw new \RuntimeException('duo: scoped widget discovery received a malformed selected identity roster');
+            }
+            $selected = [];
+            foreach ($selectedIdentities as $position => $identity) {
+                if (!is_string($identity) || $identity === '' || isset($selected[$identity])) {
+                    throw new \RuntimeException(
+                        "duo: scoped widget discovery received a malformed selected identity at position $position"
+                    );
+                }
+                $selected[$identity] = true;
+            }
+        }
+
+        $referencesByKey = [];
+        $scannedPostUuids = [];
+        foreach ($posts as $post) {
+            $postId = (int) ($post->ID ?? 0);
+            $postUuid = $postUuids[$postId] ?? null;
+            if (!is_string($postUuid)
+                || ($selected !== null && !isset($selected[$postUuid]))
+                || $this->policy->body_mode((string) $post->post_type) !== 'blocks') {
+                continue;
+            }
+            $scannedPostUuids[$postUuid] = true;
+            foreach (Blocks::capture_widget_instance_references(
+                (string) ($post->post_content ?? ''),
+                $this->policy
+            ) as $reference) {
+                $referencesByKey[$reference['type'] . '-' . $reference['local_id']] = $reference;
+            }
+        }
+        ksort($referencesByKey, SORT_STRING);
+        ksort($scannedPostUuids, SORT_STRING);
+        return [
+            'references' => array_values($referencesByKey),
+            'selected_post_uuids' => array_keys($scannedPostUuids),
         ];
     }
 

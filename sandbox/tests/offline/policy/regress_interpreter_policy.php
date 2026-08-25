@@ -206,6 +206,7 @@ $ownerState = (object) [
     'projection_mode' => 'identity',
     'projection_value' => null,
     'projection_args' => null,
+    'runtime_companions' => [],
 ];
 $nonOwnerState = (object) ['calls' => 0, 'result' => true, 'side_effects' => 0];
 $ownerInterpreter = new class ($ownerState) {
@@ -232,6 +233,9 @@ $ownerInterpreter = new class ($ownerState) {
     ): array {
         ++$this->state->normalize_calls;
         return is_array($this->state->normalized) ? $this->state->normalized : $captured;
+    }
+    public function option_sub_key_materialization_runtime_companions(string $name) {
+        return $this->state->runtime_companions;
     }
     public function project_materialized_option_sub_keys(
         string $name,
@@ -270,7 +274,10 @@ $nativePolicy->manifests = [
     [
         'name' => 'native-owner',
         'interpreter' => 'native-owner',
-        'options' => ['native_blob' => $nativeRule],
+        'options' => [
+            'native_blob' => $nativeRule,
+            'runtime_effect' => ['class' => 'runtime'],
+        ],
     ],
     [
         'name' => 'hostile-non-owner',
@@ -298,6 +305,41 @@ check(
         && $ownerState->calls === 1
         && $nonOwnerState->calls === 0,
     'only the interpreter bound to the exact declaring manifest executes; a hostile non-owner has no side effects'
+);
+$ownerState->runtime_companions = ['runtime_effect'];
+check(
+    $nativePolicy->option_sub_key_materialization_runtime_companions(
+        'native_blob',
+        $nativeRule,
+        'native-owner'
+    ) === ['runtime_effect'],
+    'runtime-companion authority resolves only through the exact closed mixed-option owner'
+);
+foreach ([
+    'non-list' => ['runtime_effect' => true],
+    'duplicate' => ['runtime_effect', 'runtime_effect'],
+    'non-string' => [7],
+] as $case => $runtimeRoster) {
+    $ownerState->runtime_companions = $runtimeRoster;
+    check_throws(
+        fn() => $nativePolicy->option_sub_key_materialization_runtime_companions(
+            'native_blob',
+            $nativeRule,
+            'native-owner'
+        ),
+        $case === 'non-list' ? 'must return a list' : 'malformed/duplicate',
+        "native runtime-companion discovery refuses a $case roster"
+    );
+}
+$ownerState->runtime_companions = ['runtime_effect'];
+check_throws(
+    fn() => $nativePolicy->option_sub_key_materialization_runtime_companions(
+        'native_blob',
+        $nativeRule,
+        'site.duo.json'
+    ),
+    'full effective rule/provenance differs',
+    'site policy cannot borrow a digest-bound runtime-companion writer roster'
 );
 $ownerState->normalized = ['portable' => 'canonical'];
 check(

@@ -27,6 +27,11 @@
 #                                       concrete case, split across the two
 #                                       hooks because conf1 is active at
 #                                       seed time and conf2 isn't.
+#   conformance/postapply/<name>.sh    conf2 only, strictly after successful
+#                                       apply and before the generic canonical
+#                                       recapture/diff: assert and remove only
+#                                       test-owned target-local witnesses that
+#                                       must survive apply but are not canonical.
 #   conformance/checks/<name>.sh       conf2 only, after apply: render-level
 #                                       acceptance a byte-diff can't see.
 #   conformance/capture-checks/<name>.sh
@@ -199,7 +204,7 @@ export DUO_PAIR="$CONF_PAIR" DUO_PORT1="$CONF1_PORT" DUO_PORT2="$CONF2_PORT"
 export COMPOSE CONF1_PORT CONF2_PORT
 export -f wp_env wp_conf1 wp_conf2 say pass fail \
   require_fixture_ids require_fixture_values require_fixture_state \
-  require_duo_answered require_observed_nonempty
+  require_duo_answered capture_duo_json_success require_observed_nonempty
 
 # DUO-3377: a sweep IS evidence, so it must be able to state which
 # agent/manifests bytes produced it. CONF_EXPECTED_SOURCE_SHA=$(git rev-parse
@@ -505,11 +510,26 @@ ADOPT_BY_SLUG=terms,posts
 if [ "$MANIFEST" = core ]; then
   ADOPT_BY_SLUG=terms,posts,menus
 fi
-APPLY_JSON=$(wp_conf2 duo apply --repo=/siterepo --adopt-by-slug="$ADOPT_BY_SLUG" --default-author=admin --revision="$REV" --json | tail -1)
+capture_duo_json_success \
+  APPLY_JSON \
+  "conf2 duo apply" \
+  wp_conf2 duo apply --repo=/siterepo --adopt-by-slug="$ADOPT_BY_SLUG" \
+  --default-author=admin --revision="$REV" --json
 export APPLY_JSON
 echo "$APPLY_JSON" | jq .
 [ "$(echo "$APPLY_JSON" | jq -r '.canary')" = "clean" ] || fail "side-effect canary was not clean during apply"
 pass "apply succeeded, side-effect canary clean"
+
+# Optional per-manifest post-apply hook. This is deliberately before the
+# generic recapture: a manifest may manufacture target-local state solely to
+# prove apply preserved it, but that witness is not source-authored canonical
+# state and must be checked and removed before byte identity is measured.
+POSTAPPLY="conformance/postapply/$MANIFEST.sh"
+if [ -f "$POSTAPPLY" ]; then
+  say "post-apply target-local witness acceptance (conformance/postapply/$MANIFEST.sh)"
+  bash "$POSTAPPLY"
+  pass "post-apply target-local witnesses proved and removed"
+fi
 
 say "acceptance: canonical(conf2) == canonical(conf1), byte for byte"
 wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-conf2state >/dev/null

@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Kernel/WpCliChildProcess.php';
+require_once __DIR__ . '/NativeRewriteEffects.php';
 
 /**
  * The closed native-action vocabulary: engine-implemented operations whose
@@ -173,6 +174,40 @@ final class NativeActions {
             'transient.delete' => self::delete_transient_action($args),
             'rewrite.flush' => self::flush_rewrite_action(),
         };
+    }
+
+    /**
+     * Strict read-only evidence for a previously completed rewrite flush.
+     * Unlike rewrite_state(true), this accessor never calls
+     * WP_Rewrite::wp_rewrite_rules(): that method regenerates and persists
+     * rules on a cache miss. The effective runtime projection is the ordinary
+     * option-filtered read which the parent process already uses to verify the
+     * fresh child, while raw durable storage remains an independent witness.
+     *
+     * @return array{permalink_present:bool,permalink_hash:string,runtime_permalink_matches:true,rules_present:true,rules_type:'array'|'string',rules_count:int,rules_hash:string,runtime_rules_type:'array'|'string',runtime_rules_count:int,runtime_rules_hash:string}
+     */
+    public static function rewrite_evidence(): array {
+        global $wp_rewrite;
+        if (!function_exists('maybe_unserialize')
+            || !function_exists('get_option')
+            || !is_object($wp_rewrite)) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' read-only evidence requires a loaded WordPress rewrite runtime"
+            );
+        }
+        $structure = self::permalink_structure_state();
+        $rules = self::raw_option_state('rewrite_rules');
+        $runtimeRules = get_option('rewrite_rules');
+        $evidence = self::rewrite_evidence_from_values($structure, $rules, $runtimeRules);
+        if (!$evidence['runtime_permalink_matches']
+            || !$evidence['rules_present']
+            || !self::valid_rewrite_rules_value($rules['value'], $structure)
+            || !self::valid_rewrite_rules_value($runtimeRules, $structure)) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' read-only evidence found an invalid postcondition; recovery_required"
+            );
+        }
+        return self::validated_rewrite_evidence($evidence);
     }
 
     /**
@@ -491,37 +526,71 @@ final class NativeActions {
             );
         }
 
-        $before = self::rewrite_state(false);
-        $structure = self::permalink_structure_state();
-        if (!self::runtime_structure_matches($wp_rewrite->permalink_structure ?? null, $structure)) {
+        $rewriteEffects = NativeRewriteEffects::prepare();
+        $result = null;
+        $primary = null;
+        try {
+            $before = self::rewrite_state(false);
+            $structure = self::permalink_structure_state();
+            if (!self::runtime_structure_matches($wp_rewrite->permalink_structure ?? null, $structure)) {
+                throw new \RuntimeException(
+                    "duo: native action 'rewrite.flush' fresh WordPress process loaded a permalink runtime "
+                    . 'which disagrees with the checked database row; recovery_required'
+                );
+            }
+            $wp_rewrite->flush_rules(false);
+            $generatedRules = $wp_rewrite->rules ?? null;
+            if (!self::valid_rewrite_rules_value($generatedRules, $structure)) {
+                throw new \RuntimeException(
+                    "duo: native action 'rewrite.flush' did not generate a valid rewrite runtime; "
+                    . 'recovery_required'
+                );
+            }
+            $expectedEffectiveRules = $rewriteEffects->expected_effective_rules($generatedRules);
+            $after = self::rewrite_state(true, $generatedRules, $expectedEffectiveRules);
+            $desired = $structure['present'] ? $structure['value'] : '';
+            if (!hash_equals(hash('sha256', $desired), $after['permalink_hash'])) {
+                throw new \RuntimeException(
+                    "duo: native action 'rewrite.flush' permalink readback changed during regeneration; "
+                    . 'recovery_required'
+                );
+            }
+            $result = [
+                'action' => 'rewrite.flush',
+                'args' => [],
+                'before' => $before,
+                'after' => $after,
+                'verified' => true,
+            ];
+        } catch (\Throwable $failure) {
+            $primary = $failure;
+        }
+        $restoreFailure = null;
+        try {
+            $rewriteEffects->restore();
+        } catch (\Throwable $failure) {
+            $restoreFailure = $failure;
+        }
+        if ($restoreFailure !== null) {
+            $primaryFingerprint = $primary === null
+                ? 'none'
+                : get_class($primary) . ':' . substr(hash('sha256', $primary->getMessage()), 0, 16);
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' fresh WordPress process loaded a permalink runtime "
-                . 'which disagrees with the checked database row; recovery_required'
+                'duo: native rewrite could not restore the proven shipped-plugin runtime; primary='
+                . $primaryFingerprint . '; restore=' . get_class($restoreFailure) . ':'
+                . substr(hash('sha256', $restoreFailure->getMessage()), 0, 16)
+                . '; recovery_required',
+                0,
+                $primary ?? $restoreFailure
             );
         }
-        $wp_rewrite->flush_rules(false);
-        $generatedRules = $wp_rewrite->rules ?? null;
-        if (!self::valid_rewrite_rules_value($generatedRules, $structure)) {
-            throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' did not generate a valid rewrite runtime; "
-                . 'recovery_required'
-            );
+        if ($primary !== null) {
+            throw $primary;
         }
-        $after = self::rewrite_state(true, $generatedRules);
-        $desired = $structure['present'] ? $structure['value'] : '';
-        if (!hash_equals(hash('sha256', $desired), $after['permalink_hash'])) {
-            throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' permalink readback changed during regeneration; "
-                . 'recovery_required'
-            );
+        if (!is_array($result)) {
+            throw new \LogicException('duo: native rewrite completed without a result');
         }
-        return [
-            'action' => 'rewrite.flush',
-            'args' => [],
-            'before' => $before,
-            'after' => $after,
-            'verified' => true,
-        ];
+        return $result;
     }
 
     /** @param array<string,mixed> $after @return array<string,mixed> */
@@ -591,7 +660,11 @@ final class NativeActions {
      *
      * @return array{permalink_present:bool,permalink_hash:string,runtime_permalink_matches:bool,rules_present:bool,rules_type:string,rules_count:?int,rules_hash:?string,runtime_rules_type:string,runtime_rules_count:?int,runtime_rules_hash:?string}
      */
-    private static function rewrite_state(bool $strict, $expectedRules = null): array {
+    private static function rewrite_state(
+        bool $strict,
+        $expectedRules = null,
+        $expectedEffectiveRules = null
+    ): array {
         global $wp_rewrite;
         $structure = self::permalink_structure_state();
         $rules = self::raw_option_state('rewrite_rules');
@@ -616,8 +689,9 @@ final class NativeActions {
                     . 'postcondition; recovery_required'
                 );
             }
-            if ($expectedRules !== null
-                && !self::same_rewrite_rules_value($expectedRules, $runtimeRules)) {
+            $effectiveExpectation = $expectedEffectiveRules ?? $expectedRules;
+            if ($effectiveExpectation !== null
+                && !self::same_rewrite_rules_value($effectiveExpectation, $runtimeRules)) {
                 throw new \RuntimeException(
                     "duo: native action 'rewrite.flush' generated rewrite rules disagree with the loaded "
                     . 'effective rules; recovery_required'
@@ -630,9 +704,17 @@ final class NativeActions {
                 );
             }
         }
+        return self::rewrite_evidence_from_values($structure, $rules, $runtimeRules);
+    }
+
+    /**
+     * @param array{present:bool,value:string} $structure
+     * @param array{present:bool,value:mixed} $rules
+     * @return array{permalink_present:bool,permalink_hash:string,runtime_permalink_matches:bool,rules_present:bool,rules_type:string,rules_count:?int,rules_hash:?string,runtime_rules_type:string,runtime_rules_count:?int,runtime_rules_hash:?string}
+     */
+    private static function rewrite_evidence_from_values(array $structure, array $rules, mixed $runtimeRules): array {
+        global $wp_rewrite;
         $ruleValue = $rules['value'];
-        $ruleHash = self::rewrite_rules_hash($ruleValue);
-        $runtimeHash = self::rewrite_rules_hash($runtimeRules);
         return [
             'permalink_present' => $structure['present'],
             'permalink_hash' => hash('sha256', $structure['present'] ? $structure['value'] : ''),
@@ -643,10 +725,10 @@ final class NativeActions {
             'rules_present' => $rules['present'],
             'rules_type' => get_debug_type($ruleValue),
             'rules_count' => self::rewrite_rules_count($ruleValue),
-            'rules_hash' => $ruleHash,
+            'rules_hash' => self::rewrite_rules_hash($ruleValue),
             'runtime_rules_type' => get_debug_type($runtimeRules),
             'runtime_rules_count' => self::rewrite_rules_count($runtimeRules),
-            'runtime_rules_hash' => $runtimeHash,
+            'runtime_rules_hash' => self::rewrite_rules_hash($runtimeRules),
         ];
     }
 

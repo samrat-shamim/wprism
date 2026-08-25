@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Repository/ReferenceGraph.php';
 require_once __DIR__ . '/../Repository/Snapshot.php';
+require_once __DIR__ . '/../Repository/SidebarState.php';
 require_once __DIR__ . '/IncompleteApplyMarker.php';
 
 /**
@@ -277,6 +278,13 @@ final class ApplyPlanner {
         array $environment,
         ?string $baseHash
     ): array {
+        // wp_inactive_widgets is a reference-selected merge overlay, not an
+        // assignment owner. A source reference disappearing de-authorizes its
+        // physical widget; it does not authorize deletion of target parked
+        // state or its ledger row.
+        if (($row['path'] ?? null) === SidebarState::path('wp_inactive_widgets')) {
+            return $row;
+        }
         $envFront = Canon::decode((string) ($environment['content'] ?? ''));
         $hasUnmanaged = false;
         foreach ((array) ($envFront['widgets'] ?? []) as $widget) {

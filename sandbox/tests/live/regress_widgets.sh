@@ -82,8 +82,8 @@ jq -e '
 pass "block/text/nav-menu capture is canonical, ordered, tokenized, and settings contain no injected identity"
 
 ID_KIND_WIDTH=$(wp1 db query "SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='wp_duo_map' AND COLUMN_NAME='id_kind'" --skip-column-names 2>/dev/null | tr -d '\r')
-[ "$ID_KIND_WIDTH" = 32 ] || fail "duo_map.id_kind width migration did not land at 32 (got $ID_KIND_WIDTH)"
-pass "id_kind schema width is migrated and budgeted for widget_media_gallery"
+[ "$ID_KIND_WIDTH" = 64 ] || fail "duo_map.id_kind width migration did not land at 64 (got $ID_KIND_WIDTH)"
+pass "id_kind schema width is migrated for exact plugin widget id_base families"
 
 SIDE_HASH=$(shasum -a 256 "$SIDEBAR" | awk '{print $1}')
 wp1 duo capture --repo=/siterepo --format=json >/dev/null

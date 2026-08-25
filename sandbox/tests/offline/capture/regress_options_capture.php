@@ -448,6 +448,45 @@ $check(
     'an absent native mixed row projects registered defaults with an exact insertion-storage declaration'
 );
 $wpdb->rows['native_blob'] = $nativeRow;
+$emptyNormalizationInterpreter = new class {
+    public function normalize_captured_option_sub_keys(
+        string $name,
+        array $raw,
+        array $subKeys,
+        array $rawOptionSnapshot
+    ): array {
+        return $raw;
+    }
+};
+$interpreterInstances->setValue($policy, ['fixture-native' => $emptyNormalizationInterpreter]);
+unset($wpdb->rows['native_blob']);
+$absentEmptyNative = OptionState::records($capture->capture(
+    false,
+    false,
+    null,
+    ['active_stylesheet' => 'target']
+)['document']);
+$check(
+    ($absentEmptyNative['native_blob']['state'] ?? null) === 'absent',
+    'an absent native mixed row with empty normalization stays absent despite absent_autoload'
+);
+$wpdb->rows['native_blob'] = [
+    'option_value' => serialize([]),
+    'autoload' => 'yes',
+];
+$presentEmptyNative = OptionState::records($capture->capture(
+    false,
+    false,
+    null,
+    ['active_stylesheet' => 'target']
+)['document']);
+$check(
+    ($presentEmptyNative['native_blob']['state'] ?? null) === 'present'
+        && ($presentEmptyNative['native_blob']['value'] ?? null) === [],
+    'a physically present empty native mixed row remains explicit present-empty intent'
+);
+$interpreterInstances->setValue($policy, ['fixture-native' => $nativeCaptureInterpreter]);
+$wpdb->rows['native_blob'] = $nativeRow;
 $check(
     !array_filter($tokens->warnings, static fn(string $warning): bool => str_contains($warning, 'id -1')),
     'negative sub-key no-object sentinels do not emit false unmanaged-id warnings'

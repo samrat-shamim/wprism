@@ -131,7 +131,12 @@ final class RepositoryReferenceGraphValidator {
         $kind = $m[1];
         $uuid = $m[2];
         if (!isset($kindTypes[$kind])) {
-            $this->add('invalid_reference_kind', $path, $locator, "reference kind '$kind' is not registered by core or a pinned table schema");
+            $this->add(
+                'invalid_reference_kind',
+                $path,
+                $locator,
+                "reference kind '$kind' is not registered by core, a manifest-bound codec, or a pinned table schema"
+            );
             return;
         }
         $this->validate_raw_ref($uuid, $kindTypes[$kind], $path, $locator, $deletions);

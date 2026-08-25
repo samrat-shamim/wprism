@@ -170,7 +170,8 @@ final class ScopedApplyCoordinator {
         if ($session === null) {
             return true;
         }
-        if (!in_array($session->phase(), [
+        $effectivePhase = $session->recorded_recovery_phase() ?? $session->phase();
+        if (!in_array($effectivePhase, [
             ScopedApplySession::PHASE_PLANNED,
             ScopedApplySession::PHASE_AUTHORING,
         ], true) || $scopeContract === null) {
@@ -218,6 +219,11 @@ final class ScopedApplyCoordinator {
         }
         self::sort_rows($rows);
         return hash('sha256', Canon::encode($rows));
+    }
+
+    /** Bind the physical selected map generation committed with authored rows. */
+    public static function authored_ledger_map_hash(array $observation): string {
+        return ScopedApply::authored_ledger_map_hash($observation);
     }
 
     public static function assert_recovery_selection(

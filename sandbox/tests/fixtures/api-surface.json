@@ -1,5 +1,5 @@
 {
-    "class_count": 369,
+    "class_count": 370,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -5282,6 +5282,22 @@
                             "name": "defaultAuthor",
                             "type": "?int",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "commitScopedAuthoring",
+                            "type": "?Closure",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rollbackScopedAuthoring",
+                            "type": "?Closure",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,
@@ -5291,6 +5307,12 @@
             },
             "parent": null,
             "properties": {
+                "commitScopedAuthoring": {
+                    "readonly": true,
+                    "static": false,
+                    "type": "?Closure",
+                    "visibility": "public"
+                },
                 "defaultAuthor": {
                     "readonly": true,
                     "static": false,
@@ -5307,6 +5329,12 @@
                     "readonly": true,
                     "static": false,
                     "type": "bool",
+                    "visibility": "public"
+                },
+                "rollbackScopedAuthoring": {
+                    "readonly": true,
+                    "static": false,
+                    "type": "?Closure",
                     "visibility": "public"
                 },
                 "scopeContract": {
@@ -5477,6 +5505,31 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "capture_widget_instance_references": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "content",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }
@@ -6919,6 +6972,14 @@
                             "has_default": true,
                             "name": "strictReadOnly",
                             "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "selectedIdentities",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],
@@ -11170,6 +11231,23 @@
                         }
                     ],
                     "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "block_attr_rule_details": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "block",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -16872,7 +16950,7 @@
             "abstract": false,
             "constants": {
                 "ID_KIND_WIDTH": {
-                    "value_repr": 32
+                    "value_repr": 64
                 },
                 "KIND_POST": {
                     "value_repr": "post"
@@ -19941,6 +20019,14 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "rewrite_evidence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "scoped_action_digest": {
                     "abstract": false,
                     "final": false,
@@ -20147,6 +20233,51 @@
                             "variadic": false
                         }
                     ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\NativeRewriteEffects": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "expected_effective_rules": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stored",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "prepare": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "Duo\\NativeRewriteEffects",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "restore": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
                     "return_type": "void",
                     "static": false,
                     "visibility": "public"
@@ -38204,6 +38335,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "block_attr_rule_details": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "block",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "block_attr_rules": {
                     "abstract": false,
                     "final": false,
@@ -38894,6 +39042,14 @@
                             "name": "writeStorage",
                             "type": "?Closure",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "writeRuntimeOption",
+                            "type": "?Closure",
+                            "variadic": false
                         }
                     ],
                     "return_type": "bool",
@@ -39294,6 +39450,39 @@
                     "visibility": "public"
                 },
                 "option_sub_key_materialization_companions": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "effectiveRule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "effectiveSource",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "option_sub_key_materialization_runtime_companions": {
                     "abstract": false,
                     "final": false,
                     "parameters": [
@@ -49774,6 +49963,14 @@
                             "name": "authorizedDeletions",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "authorizedDeauthorizations",
+                            "type": "array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "void",
@@ -50159,6 +50356,23 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "authored_ledger_map_hash": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observation",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
                     "static": true,
                     "visibility": "public"
                 },
@@ -50992,6 +51206,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "authored_ledger_map_hash": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observation",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "authority": {
                     "abstract": false,
                     "final": false,
@@ -51806,6 +52037,48 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "commit_authored_receipt": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "receipt",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\ScopedApplySession",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "commit_desired_authoring": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "intent",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "receipt",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\ScopedApplySession",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "complete": {
                     "abstract": false,
                     "final": false,
@@ -52170,6 +52443,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "recorded_recovery_phase": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "recover": {
                     "abstract": false,
                     "final": false,
@@ -52307,6 +52588,14 @@
                             "variadic": false
                         }
                     ],
+                    "return_type": "Duo\\ScopedApplySession",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "resume_recorded_recovery": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
                     "return_type": "Duo\\ScopedApplySession",
                     "static": false,
                     "visibility": "public"
@@ -52671,6 +52960,55 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "assert_authored_recovery_boundary": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authoredState",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authorIntent",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observation",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "currentPlanPreconditionHash",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "currentGuardWitnessesHash",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "assert_recovery_selection": {
                     "abstract": false,
                     "final": false,
@@ -52931,6 +53269,23 @@
                         }
                     ],
                     "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recheck_target_observation": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observer",
+                            "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 }
@@ -53203,6 +53558,39 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "assert_shared_row_mutation_bounded": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "previous",
+                            "type": "Duo\\CompiledRepository",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "contract",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observedEntities",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "discard_media_view": {
                     "abstract": false,
                     "final": false,
@@ -53306,6 +53694,22 @@
                             "name": "selectedDeletions",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "selectedDeauthorizations",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "policy",
+                            "type": "?Duo\\Policy",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -53346,6 +53750,63 @@
                             "has_default": false,
                             "name": "scopeHash",
                             "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "selected_deauthorizations": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "previous",
+                            "type": "Duo\\CompiledRepository",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "contract",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observedEntities",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "selectedDeletions",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "scan",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],
@@ -54148,6 +54609,14 @@
                             "has_default": true,
                             "name": "strictReadOnly",
                             "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "portableWidgetReferences",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],

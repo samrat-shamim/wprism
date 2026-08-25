@@ -32,6 +32,12 @@ $GLOBALS['core_rewrite_child_flushes'] = 0;
 $GLOBALS['core_rewrite_child_hard_flushes'] = 0;
 $GLOBALS['core_rewrite_child_stdout_prefix'] = '';
 $GLOBALS['core_rewrite_child_stderr'] = '';
+$GLOBALS['wp_filter'] = [];
+
+final class WP_Hook {
+    /** @var array<int,array<string,array{function:mixed,accepted_args:int}>> */
+    public array $callbacks = [];
+}
 
 function did_action(string $hook): int {
     return $hook === 'wp_loaded' ? (int) $GLOBALS['core_rewrite_wp_loaded'] : 0;
@@ -187,6 +193,8 @@ final class CoreRewriteRuntime {
     public int $initCalls = 0;
     public int $flushCalls = 0;
     public int $hardFlushes = 0;
+    /** @var array<string,array{}> */
+    public array $extra_permastructs = [];
 
     public function init(): void {
         $this->initCalls++;
@@ -334,19 +342,39 @@ $effects = array_column($selected[0]['effects'] ?? [], 'id');
 duo_check_same(
     [
         'core-rewrite-rules',
+        'core-tec-last-generate-rewrite-rules',
+        'core-tec-last-updated-option',
+        'core-tec-last-save-post',
         'core-rewrite-rules-cache',
+        'core-tec-last-generate-rewrite-rules-cache',
+        'core-tec-last-updated-option-cache',
+        'core-tec-last-save-post-cache',
+        'core-tec-rewrite-listener-runtime',
         'core-permalink-pre-option-filter',
         'core-permalink-pre-option-generic-filter',
         'core-permalink-option-filter',
         'core-permalink-default-option-filter',
         'core-rewrite-rules-array-filter',
+        'core-rewrite-generate-hook',
+        'core-rewrite-generation-runtime',
+        'core-rewrite-pre-option-filter',
+        'core-rewrite-preload-filter',
+        'core-rewrite-cache-preload-filter',
+        'core-rewrite-alloptions-filter',
+        'core-rewrite-default-option-filter',
         'core-rewrite-sanitize-filter',
         'core-rewrite-option-filter',
         'core-rewrite-pre-update-filter',
         'core-rewrite-pre-update-generic-filter',
         'core-rewrite-update-option-hook',
+        'core-rewrite-autoload-values-filter',
+        'core-rewrite-default-autoload-filter',
+        'core-rewrite-autoload-size-filter',
         'core-rewrite-update-specific-hook',
         'core-rewrite-updated-option-hook',
+        'core-rewrite-add-option-hook',
+        'core-rewrite-add-specific-hook',
+        'core-rewrite-added-option-hook',
     ],
     $effects,
     'core inventories the database, cache, filters, and hooks reached by the native path'
@@ -365,6 +393,31 @@ core_rewrite_refuses(
     'a manifest cannot turn the soft flush into a filesystem-writing hard flush'
 );
 
+core_rewrite_reset();
+$foreignRewriteHook = new WP_Hook();
+$foreignRewriteHook->callbacks[10]['foreign'] = [
+    'function' => static fn(object $runtime): object => $runtime,
+    'accepted_args' => 1,
+];
+$GLOBALS['wp_filter']['generate_rewrite_rules'] = $foreignRewriteHook;
+$launchesBeforeForeignRewrite = $GLOBALS['core_rewrite_child_launches'];
+$flushesBeforeForeignRewrite = $GLOBALS['core_rewrite_child_flushes'];
+core_rewrite_refuses(
+    static fn() => Duo\NativeActions::execute('rewrite.flush', []),
+    'fresh WordPress process exited 1',
+    'an unknown plugin rewrite callback refuses even when TEC is absent'
+);
+unset($GLOBALS['wp_filter']['generate_rewrite_rules']);
+duo_check_same(
+    $launchesBeforeForeignRewrite + 1,
+    $GLOBALS['core_rewrite_child_launches'],
+    'the TEC-absent topology refusal stays inside the bounded fresh child'
+);
+duo_check_same(
+    $flushesBeforeForeignRewrite,
+    $GLOBALS['core_rewrite_child_flushes'],
+    'the TEC-absent topology refusal executes no rewrite generation'
+);
 core_rewrite_reset();
 $first = Duo\NativeActions::execute('rewrite.flush', []);
 duo_check(($first['verified'] ?? null) === true, 'dirty target rewrite regeneration returns only after verified readback');
@@ -401,6 +454,15 @@ duo_check(
         && in_array('updated_option', $GLOBALS['core_rewrite_action_calls'], true),
     'the fake observes the exact native rewrite/update extension points inventoried by core.json'
 );
+
+$evidenceRows = $wpdb->optionRows;
+$evidenceLaunches = $GLOBALS['core_rewrite_child_launches'];
+$evidenceFlushes = $GLOBALS['core_rewrite_child_flushes'];
+$readOnlyEvidence = Duo\NativeActions::rewrite_evidence();
+duo_check_same($first['after'], $readOnlyEvidence, 'the public read-only accessor returns the exact validated-after projection');
+duo_check_same($evidenceRows, $wpdb->optionRows, 'read-only rewrite evidence performs no durable mutation');
+duo_check_same($evidenceLaunches, $GLOBALS['core_rewrite_child_launches'], 'read-only rewrite evidence launches no child process');
+duo_check_same($evidenceFlushes, $GLOBALS['core_rewrite_child_flushes'], 'read-only rewrite evidence generates no rewrite rules');
 
 $stableRows = $wpdb->optionRows;
 $second = Duo\NativeActions::execute('rewrite.flush', []);

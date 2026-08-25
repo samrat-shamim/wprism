@@ -46,7 +46,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [ninja-forms](#ninja-forms) | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [paid-memberships-pro](#paid-memberships-pro) | certified | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.2 <3.8.4 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.5 <4.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
-| [the-events-calendar](#the-events-calendar) | experimental | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.4 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [the-events-calendar](#the-events-calendar) | certified | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.4 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [wps-hide-login](#wps-hide-login) | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [yoast](#yoast) | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -298,22 +298,27 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## the-events-calendar
 
-**Status: experimental.** Experimental exact-artifact target round-trip and hard regeneration-dependency recovery proof; dirty-target, deletion, lifecycle, concurrency, and difficult-value matrices remain open.
+**Status: certified.** Certified for official free The Events Calendar 6.17.2 and 6.17.3 on single-site WordPress: exact clean/dirty canonical round trips; populated 6.17.2-to-6.17.3 upgrade; native event, venue, organizer, category, settings, Customizer, widget, REST, and frontend behavior; divergent huge identities and ordered repeated organizers; Category Colors and Custom Tables V1 regeneration; scoped receipt-loss and selected-map ABA inverse recovery; database, filter, provider, and transaction failure rollback/retry; competing applies; lifecycle recovery; byte-identical recapture; and official 6.17.1 plus synthetic 6.17.4 refusal controls. Pro/add-on/import/credential/runtime surfaces, plugin-specific deletion, out-of-range releases, and multisite remain explicit loud boundaries.
 
 - **Plugin:** `the-events-calendar/the-events-calendar.php`
 - **Version range:** >=6.17.2 <6.17.4
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
-- **Lifecycle phases:** none declared
-- **Declared entities:** `post_types` (1: tribe_events), `tables` (3: tec_events, tec_kv_cache, tec_occurrences)
-- **Declared fields:** `options` (13 keys), `post_meta` (23 keys)
+- **Lifecycle phases:** retire, activate, verify
+- **Declared entities:** `post_types` (3: tribe_events, tribe_organizer, tribe_venue), `tables` (3: tec_events, tec_kv_cache, tec_occurrences), `taxonomies` (1: tribe_events_cat)
+- **Declared fields:** `options` (57 keys), `post_meta` (48 keys), `term_meta` (5: tec-events-cat-colors-hidden, tec-events-cat-colors-primary, tec-events-cat-colors-priority, tec-events-cat-colors-secondary, tec-events-cat-colors-text), `block_attrs` (2: core/legacy-widget, tribe/event-organizer), `interpreter` (`the-events-calendar`)
+- **Adapter hooks:** 1 provider, 2 structured actions, interpreter `the-events-calendar`
 - **Deletions supported:** none
-- **Deletions unsupported:** plugin-specific deletes
-- **Exercised by:** `conformance-the-events-calendar`, `exact-artifact-version-matrix`, `regress-tec-regen`
+- **Deletions unsupported:** post:tribe_events, post:tribe_organizer, post:tribe_venue, term:tribe_events_cat
+- **Exercised by:** `conformance-the-events-calendar`, `exact-artifact-version-matrix`
 
 **Unsupported, explicitly.**
 
-- `deletions.*` / `delete` — Event/venue/organizer deletion, occurrence cleanup, reverse-reference guards, rollback, and retry are not certified.
-- `production` / `promote` — Dirty-target, lifecycle, concurrency, and difficult-value production-readiness scenarios remain open.
+- `option:tribe_events_calendar_options.multiDayCutoff` / `capture,apply` — The native end-of-day cutoff callback performs unchecked global postmeta rewrites without bounded preimages, UTC/Custom Tables closure, query verification, or cache invalidation. multiDayCutoff therefore remains target-owned; Duo binds the exact native callback identities and replaces the mixed settings row only when strict old/new equality proves the callbacks are no-ops.
+- `post:tribe_events|tribe_organizer|tribe_venue|term:tribe_events_cat` / `delete` — TEC events, venues, organizers, and event categories own occurrence, linked-post, relationship, Category Colors, and optional-add-on effects; generic hook-free entity deletion cannot prove that complete semantic boundary, so capture refuses before publishing a tombstone.
+- `optional-and-extension-owned` / `capture` — Events Calendar Pro recurrence/series, Event Tickets, Event Aggregator remote records, legacy Category Colors plugin residue, and third-party add-on entities are outside the reviewed free-plugin inventory and remain unclassified and loud.
+- `options:tribe_events_calendar_options:target-runtime-and-integrations` / `apply` — Credentials, remote-import state, schema/migration markers, telemetry, schedules, calculated date ranges, caches, and undeclared mixed-option siblings remain target-owned and are verified to survive apply.
+- `version:<6.17.2|>=6.17.4` / `all` — The Events Calendar releases before 6.17.2 and 6.17.4 or later are outside the source-audited and exact-artifact-tested range; the exclusive minor-patch maximum prevents a future 6.17.4 release from being silently admitted.
+- `multisite` / `all` — Duo v1 refuses multisite; TEC network/global behavior is outside this single-site adapter.
 
 ## woocommerce
 
