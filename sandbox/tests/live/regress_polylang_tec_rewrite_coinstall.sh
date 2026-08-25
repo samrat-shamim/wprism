@@ -75,7 +75,8 @@ if (!$category instanceof WP_Term || !$menu instanceof WP_Term) throw new Runtim
 $o=get_option("polylang"); $o["default_lang"]="fr"; update_option("polylang",$o);
 update_option("default_category",(int)$category->term_id);
 set_theme_mod("nav_menu_locations",["primary"=>(int)$menu->term_id]);
-$locations=get_theme_mod("nav_menu_locations",[]);
+$theme_mods=get_option("theme_mods_".get_option("stylesheet"),[]);
+$locations=is_array($theme_mods) ? ($theme_mods["nav_menu_locations"]??[]) : [];
 if ((int)get_option("default_category")!==(int)$category->term_id || (int)($locations["primary"]??0)!==(int)$menu->term_id) throw new RuntimeException("Polylang French projection source graph is incoherent");
 ' >/dev/null
 wp1 duo capture --repo=/siterepo >/dev/null; git -C "$R1" add -A; git -C "$R1" -c user.name=duo-polylang-tec -c user.email=polylang-tec@example.test commit -qm 'capture: Polylang projection retry'; git -C "$R1" push -qu origin main; git -C "$R2" pull -q origin main; REVISION=$(git -C "$R2" rev-parse HEAD)
