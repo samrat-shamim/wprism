@@ -817,6 +817,7 @@ evidence before this line changes.
 | v3.10 | reserved-but-refusing slots | WP-4.11 | YES — four slots refuse by name; the graduated verdict shipped as a word (WP-2.8) |
 | v3.11 | the executable lane's evidence contract (gate G5) | WP-7.1 (shut) | n/a — the lane is shut and the reservations refuse |
 | v3.13 | the `invalidate[]` vocabulary and its two-demand admission rule | WP-6.2 | YES — three verbs; the third gated on `invalidate-vocabulary/v1`, the first section shipped POST-v3 with no bump |
+| v3.17 | a signing profile that accepts an author-written disposition | WP-5.3 | YES — `certify --ratification-file`, judged by the shipped disposition validator; the derivation stays the floor |
 
 The flip itself — the two defines, the migration verbs, the cohorted rollout and the rollback rehearsal —
 is WP-4.12, is DONE, and § v3.12 is the record of what it deliberately left alone. The runbook that
@@ -2022,6 +2023,70 @@ shipped manifest's bytes at runtime and driven through the real `duo manifest-va
 (`sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php`); the shipped manifest is deliberately
 NOT re-stamped, because a byte under `manifests/` is adapter identity and moving it would cost every pin
 and certificate over that adapter for a point already proven.
+
+### v3.17 A signing profile that accepts an author-written disposition
+
+**Rider: WP-5.3. Enforced today: yes — `duo adapter certify --ratification-file`, judged by the shipped
+disposition validator and by nothing else.**
+The site profile could sign only a claim the engine wrote. `siteRatification()` derives every field from
+the manifest and stamps `deletion_semantics.supported: []`, `lifecycle_phases: []` and one canned sentence
+on each refusal, so `--reason` was the operator's ONLY input — one string, for a document whose every
+`unsupported[]` row and every `default_authored_keyspaces[]` row the shipped validator requires a separate
+non-empty prose reason on (`ManifestDispositions::validate_entry()`). A site organization that
+had actually reviewed its adapter's deletion semantics had no way to say so, and a site organization that
+had reviewed nothing signed the same sentences — which is the shape of a claim nobody can weigh.
+
+**The entry is the author's; the envelope is the signer's.** `--ratification-file` takes ONE disposition
+entry — the exact document shape `manifests/dispositions/<name>.json` carries since § v3.4, not a new
+dialect — and `sign_site()` wraps it in the `duo-manifest-dispositions/v1` envelope it already owns.
+`format`, `profiles: []` and the single `manifests.<name>` key are never authored, so an authored document
+cannot ratify a second adapter, smuggle a profile, or name a subject other than the one being signed. That
+is the same posture as the certificate PATH being derived rather than declared.
+
+**What validates it is the shipped validator, and this is the whole property.** The authored entry goes
+through the identical chain the derived one goes through — `verifyRatification()` →
+`validateDisposition()` → `ManifestDispositions::validate_external_entry()` — with the same
+`$evidenceSchema` and the same `$requireExerciseTests` the bundle's own `exercised` flag decides. The
+docblock on that seam already named this purpose: it exists so an entry living outside the shipped
+registry "keeps section, version, capability, and evidence grammar identical instead of growing a second
+long-lived validator beside it". Nothing on the path has any notion of who wrote the bytes, which is what
+makes the property federated rather than delegated. So a blank refusal reason, a section the manifest does
+not declare, an intent-only table the entry does not mark unsupported, a version range the manifest does
+not carry, a cited test the bundle does not hold, and a boilerplate entry that refuses nothing
+(`unsupported: []`, "a malformed required field") are all refused by code that shipped before this rider.
+
+**One rule the profile adds, and why it is not a second grammar.** An authored entry must name every
+surface the manifest declares, in the arm this engine's own vocabulary gives it. `validate_entry()`
+refuses a section the manifest does not declare and has nothing to say about one it OMITS — while
+`claim_from_disposition()` builds the claim's `surfaces` list from exactly those two lists, so an omitted
+section is a surface that is simply blocked later with nothing saying why. It is the signer's own existing
+sentence pointed at the authored profile: **narrow a claim with an `unsupported[]` row and its reason,
+which a reader can weigh, never by leaving a surface out, which no reader can see.** Strength is the
+author's to argue; scope is not.
+
+**Nothing about the wire moves.** The ratification document's format, the six-member statement, the
+signature domain and every verifier are untouched: an authored certificate and a derived one are the same
+bytes with different content, and a deployed verifier cannot tell which profile signed — because there is
+nothing there for it to tell. The honesty is carried where it already was: the bundle still records
+`exercised: false`, `evidence.tests` is still empty by construction, and the claim still reads
+`Site-certified`. What changed is that the sentences inside it can now be the site's own.
+
+**`recertify` will not re-derive over an authored claim.** The flag-day verb replays the inputs a
+certificate carries and derives the ratification, which was total before this rider and is a choice after
+it. Re-deriving over an authored entry would replace a site's own argument with the canned floor, under
+the site's own key, with nothing in the report saying a claim had changed. So it compares the ratified
+disposition against the one it WOULD derive (`AdapterCertification::site_disposition_is_derived()`) and
+reports a mismatch as a `blocked` row naming the remedy verb — the same loud-and-scoped posture as its
+existing blocked row for a certificate under another key.
+
+**What this does not fix, stated so it is not mistaken for coverage.** An author can still write
+self-serving prose; no code answers that, and pretending otherwise would be the false assurance this
+document exists to refuse. What is enforced is the SHAPE of the argument — per-refusal reasons, complete
+scope, a claim checked against the manifest in five directions — by shipped code. WP-5.2's reviewer tier
+records someone other than the author having read it, and WP-5.4's graded axis is where a claim the prose
+cannot support goes, so the pressure to relax this requirement has somewhere else to land.
+`sandbox/tests/offline/adapter/regress_authored_ratification.php` drives all of it, including the derived
+floor still standing for an author who writes no file.
 
 ## Ledger tables (per environment, never in the repo)
 

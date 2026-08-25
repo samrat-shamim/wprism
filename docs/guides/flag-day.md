@@ -155,6 +155,14 @@ each certificate already names.
 - **One key per invocation.** A certificate under a different key is reported as
   a blocked row naming that key id, and the run is not green. Two keys means
   two invocations.
+- **It re-signs only claims it could have DERIVED.** A certificate carrying a
+  disposition the site wrote itself (`duo adapter certify --ratification-file`,
+  spec/repo-format.md § v3.17) is a blocked row too: re-deriving here would
+  replace that site's own argument, per-refusal prose and all, with the canned
+  floor — under the site's own key, and with nothing in the report saying a
+  claim had changed. Re-sign those with
+  `duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
+  --ratification-file=<the document the site wrote>`.
 
 > **This step closes the rollback window for that site.** See gate G3 below.
 

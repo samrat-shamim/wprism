@@ -48,7 +48,9 @@ use Duo\ScopeAdoption;
  * ## What this class does NOT build, and why
  *
  * It builds no certification bundle. `AdapterCertification::sign_site()`
- * does: it derives the ratification from the manifest, runs the real loader
+ * does: it derives the ratification from the manifest — or, with WP-5.3's
+ * `--ratification-file`, takes the entry the AUTHOR wrote and puts it through
+ * the identical shipped disposition validator — runs the real loader
  * for the `grammar` verdict, assembles the unexercised
  * `duo-site-adapter-certification-bundle/v1` in memory, verifies its own
  * output through the same validator that re-verifies it at every load, and
@@ -219,12 +221,27 @@ final class AdapterCertify {
 
     /**
      * `duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
-     *  [--key-id=<id>] [--reason=<text>] [--pin] [--adopt-scope]`
+     *  [--key-id=<id>] [--reason=<text>] [--ratification-file=<f>] [--pin]
+     *  [--adopt-scope]`
+     *
+     * `--ratification-file` is WP-5.3's signing profile (spec/repo-format.md
+     * § v3.17): the disposition the AUTHOR wrote, in place of the one
+     * `sign_site()` derives. This verb reads the file and decodes it — the
+     * operator-named-path half it already owns for `--secret-key-file` — and
+     * judges NOTHING about its content. Every rule that decides whether those
+     * bytes may be signed is `ManifestDispositions::validate_external_entry()`,
+     * reached through the same chain the derived profile goes through, because
+     * a second opinion here is exactly the drift the split in this file's
+     * header exists to prevent.
      *
      * @param list<string> $args
      */
     private static function certify(array $args): int {
-        $flags = self::flags($args, ['name', 'secret-key-file', 'key-id', 'reason'], ['pin', 'adopt-scope']);
+        $flags = self::flags(
+            $args,
+            ['name', 'secret-key-file', 'key-id', 'reason', 'ratification-file'],
+            ['pin', 'adopt-scope']
+        );
         $repo = self::onlySiteRepo($flags['positional'], 'certify');
         if (is_int($repo)) {
             return $repo;
@@ -241,6 +258,7 @@ final class AdapterCertify {
         if ($reason === '') {
             $reason = self::DEFAULT_REASON;
         }
+        $authoredDisposition = self::authoredDisposition((string) ($flags['ratification-file'] ?? ''));
         $pinRequested = ($flags['pin'] ?? false) === true;
         $adoptScope = ($flags['adopt-scope'] ?? false) === true;
         if ($adoptScope && !$pinRequested) {
@@ -325,7 +343,8 @@ final class AdapterCertify {
                 $name,
                 $keyId,
                 base64_encode($secret),
-                $reason
+                $reason,
+                $authoredDisposition
             );
         } catch (\Throwable $t) {
             // The pre-flight is a load, the signature step is the certifier's
@@ -361,6 +380,13 @@ final class AdapterCertify {
         echo 'trust tier: ' . (string) ($summary['trust_tier'] ?? $tier) . "\n";
         echo 'claim:      ' . (string) ($summary['status'] ?? 'certified') . "\n";
         echo "evidence:   grammar=ok, exercised=false, reason stated in the signed bundle\n";
+        // Which of the two profiles signed this is not cosmetic: an authored
+        // claim is the site's own argument and `duo adapter recertify` will not
+        // re-derive over it (SpecMigration::recertify()), so the operator is
+        // told here, where they can still keep the file beside the repository.
+        echo 'claim basis: ' . ($authoredDisposition === null
+            ? 'DERIVED from the manifest — every surface unsupported that a grammar verdict cannot review'
+            : 'AUTHORED (--ratification-file), validated by the engine\'s own disposition validator') . "\n";
         echo 'certificate: ' . AdapterSources::SITE_DIR . '/' . AdapterSources::CERTIFICATION_DIR . "/$name.json\n";
         echo "\npin object for site.duo.json manifests[]:\n";
         echo rtrim(Canon::encode($pinObject)) . "\n";
@@ -1226,6 +1252,45 @@ final class AdapterCertify {
                 "duo: --secret-key-file does not hold a base64 or hexadecimal Ed25519 secret key: $path"
             );
         }
+
+        return $decoded;
+    }
+
+    /**
+     * Read `--ratification-file` — the disposition entry an author wrote.
+     *
+     * NOT canonicalized in place, unlike the adapter file above, and the
+     * asymmetry is the design: the adapter's raw bytes are content-addressed
+     * inside the signed statement (`adapter.raw_sha256`), so an operator who
+     * hand-edits one has to be handed back the exact bytes the engine reads.
+     * A ratification's authored formatting reaches no signature at all —
+     * `sign_site()` wraps the decoded entry in the envelope it owns and
+     * `Canon::encode()`s that — so rewriting the author's file would move bytes
+     * on disk that nothing downstream depends on.
+     *
+     * @return null|array<string,mixed> null when the flag was not supplied,
+     *         which is what keeps the derived floor the default
+     */
+    private static function authoredDisposition(string $path): ?array {
+        if ($path === '') {
+            return null;
+        }
+        if (!is_file($path) || is_link($path)) {
+            throw new \RuntimeException(
+                "--ratification-file must be a regular non-symlink file: $path"
+            );
+        }
+        $raw = file_get_contents($path);
+        if ($raw === false) {
+            throw new \RuntimeException("cannot read --ratification-file: $path");
+        }
+        // typedObject() first, for its two sentences: an author hand-writing
+        // JSON meets "is not valid JSON: <parser's own words>" or "must be a
+        // JSON object" rather than a shape refusal three layers down about a
+        // list it never meant to write.
+        self::typedObject($raw, "authored ratification $path");
+        /** @var array<string,mixed> $decoded */
+        $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
 
         return $decoded;
     }

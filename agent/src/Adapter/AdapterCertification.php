@@ -1038,7 +1038,25 @@ final class AdapterCertification {
      * `created_at` records when this claim changed, not how often an idempotent
      * command was invoked; any changed signed input mints a fresh statement.
      *
+     * $authoredDisposition IS THE SIGNING PROFILE'S SECOND MODE (WP-5.3,
+     * spec/repo-format.md § v3.17), and the floor below is what it is measured
+     * against. `siteRatification()` forces `deletion_semantics.supported: []`,
+     * `lifecycle_phases: []` and one canned sentence on every refusal, so the
+     * only human input a site certificate could carry was `--reason` — one
+     * string for a claim whose every `unsupported[]` row the shipped validator
+     * requires a SEPARATE non-empty prose reason on
+     * (ManifestDispositions::validate_entry(), :996-1002). Passing the entry an
+     * author wrote replaces the derivation and NOTHING ELSE: the same
+     * `validateDisposition()` → `validate_external_entry()` seam judges it,
+     * with the same evidence schema and the same exercise-test strictness, so
+     * there is no second grammar and no notion anywhere of who wrote the bytes.
+     * `null` keeps the derivation, which stays the honest floor for an author
+     * who writes none.
+     *
      * @param string $reason the operator's stated basis, signed and reported
+     * @param null|array<string,mixed> $authoredDisposition the author's own
+     *        disposition entry — the exact document shape
+     *        `manifests/dispositions/<name>.json` carries — or null to derive
      * @return string canonical duo-adapter-certification/v1 bytes
      */
     public static function sign_site(
@@ -1047,7 +1065,8 @@ final class AdapterCertification {
         string $name,
         string $authorityId,
         string $secretKey,
-        string $reason
+        string $reason,
+        ?array $authoredDisposition = null
     ): string {
         self::assertSodium();
         $name = self::adapterName($name);
@@ -1085,7 +1104,9 @@ final class AdapterCertification {
         }
 
         $grammar = self::siteGrammarVerdict($manifestDir, $repo, $name);
-        $ratification = self::siteRatification($name, $manifest, $reason);
+        $ratification = $authoredDisposition === null
+            ? self::siteRatification($name, $manifest, $reason)
+            : self::authoredRatification($name, $manifest, $authoredDisposition);
         $ratificationRaw = Canon::encode($ratification);
         $authorityBinding = [
             'fingerprint' => hash('sha256', $configured),
@@ -1313,24 +1334,7 @@ final class AdapterCertification {
      * @return array<string,mixed>
      */
     private static function siteRatification(string $name, array $manifest, string $reason): array {
-        $entity = [];
-        $field = [];
-        foreach (array_keys($manifest) as $key) {
-            $key = (string) $key;
-            if (in_array($key, self::ENTITY_SECTIONS, true)) {
-                $entity[] = $key;
-            } elseif (in_array($key, self::FIELD_SECTIONS, true)) {
-                $field[] = $key;
-            } elseif (!in_array($key, self::NON_SURFACE_KEYS, true)) {
-                throw new \RuntimeException(
-                    "duo: site adapter '$name' declares '$key', which this signer cannot classify as an entity "
-                    . 'or field surface — a certificate that silently omitted it would cover less than the '
-                    . 'adapter does. Certify it through a reviewed bundle, or teach the signer this section'
-                );
-            }
-        }
-        sort($entity, SORT_STRING);
-        sort($field, SORT_STRING);
+        ['entity' => $entity, 'field' => $field] = self::siteSurfaceSections($name, $manifest);
 
         $unsupported = [[
             'operation' => 'delete',
@@ -1397,6 +1401,194 @@ final class AdapterCertification {
             ],
             'profiles' => [],
         ];
+    }
+
+    /**
+     * The manifest's own declared surfaces, split into the two arms a
+     * disposition names them under.
+     *
+     * Lifted out of siteRatification() by WP-5.3 rather than copied: the
+     * authored profile below has to hold an author to the SAME partition the
+     * derivation produces, and two spellings of "which key is an entity
+     * surface" is the second definition this file's constants exist to
+     * prevent. The unclassifiable-key refusal therefore fires on both profiles
+     * with one wording — an author cannot certify a section the signer cannot
+     * classify merely by naming it in a file.
+     *
+     * @param array<string,mixed> $manifest
+     * @return array{entity:list<string>,field:list<string>}
+     */
+    private static function siteSurfaceSections(string $name, array $manifest): array {
+        $entity = [];
+        $field = [];
+        foreach (array_keys($manifest) as $key) {
+            $key = (string) $key;
+            if (in_array($key, self::ENTITY_SECTIONS, true)) {
+                $entity[] = $key;
+            } elseif (in_array($key, self::FIELD_SECTIONS, true)) {
+                $field[] = $key;
+            } elseif (!in_array($key, self::NON_SURFACE_KEYS, true)) {
+                throw new \RuntimeException(
+                    "duo: site adapter '$name' declares '$key', which this signer cannot classify as an entity "
+                    . 'or field surface — a certificate that silently omitted it would cover less than the '
+                    . 'adapter does. Certify it through a reviewed bundle, or teach the signer this section'
+                );
+            }
+        }
+        sort($entity, SORT_STRING);
+        sort($field, SORT_STRING);
+
+        return ['entity' => $entity, 'field' => $field];
+    }
+
+    /**
+     * The ratification an AUTHOR wrote, wrapped in the envelope the signer owns
+     * (WP-5.3, spec/repo-format.md § v3.17).
+     *
+     * WHAT THIS METHOD DOES NOT DO IS THE POINT. It runs no semantic rule of
+     * its own: `siteCertificateCandidate()` puts the result through the same
+     * `verifyRatification()` → `validateDisposition()` →
+     * `ManifestDispositions::validate_external_entry()` chain the derived
+     * profile goes through, with the same `$evidenceSchema` and the same
+     * `$requireExerciseTests` the bundle's `exercised` flag decides. A blank
+     * `unsupported[].reason`, an absent manifest section, an intent-only table
+     * the entry does not mark unsupported, a version range the manifest does
+     * not declare, an entry that refuses nothing (`unsupported: []`) — every
+     * one of those is refused by shipped code that has no notion of who wrote
+     * the bytes, which is exactly the property being federated.
+     *
+     * The AUTHOR OWNS THE ENTRY, THE SIGNER OWNS THE ENVELOPE. `format`,
+     * `profiles: []` and the single `manifests.<name>` key are not authored at
+     * all, so an authored document cannot ratify a second adapter, cannot
+     * smuggle a profile, and cannot name a subject other than the one being
+     * signed. That is the same posture as the certificate PATH being derived
+     * (certificatePath()) rather than declared.
+     *
+     * THE ONE RULE THIS METHOD ADDS, and why it is not a second grammar: an
+     * authored entry must name every surface the manifest declares, in the arm
+     * this file's own vocabulary gives it. `validate_entry()` refuses a section
+     * the manifest does not declare but has nothing to say about one it
+     * OMITS — and `claim_from_disposition()` builds the claim's `surfaces`
+     * list from exactly these two lists
+     * (ManifestDispositions.php:563-578), so an omitted section is a surface
+     * that is simply blocked later with nothing saying why. It is the
+     * constant's own sentence (:636) pointed at the authored profile: narrow a
+     * claim with an `unsupported[]` row and its reason, which a reader can
+     * weigh, never by leaving a surface out, which no reader can see.
+     *
+     * @param array<string,mixed> $manifest
+     * @param array<string,mixed> $entry
+     * @return array<string,mixed>
+     */
+    private static function authoredRatification(string $name, array $manifest, array $entry): array {
+        if ($entry === [] || array_is_list($entry)) {
+            throw new \RuntimeException(
+                "duo: authored site adapter disposition for '$name' must be a JSON object holding one "
+                . 'disposition entry — the exact document manifests/dispositions/<name>.json carries'
+            );
+        }
+        self::assertAuthoredSurfaceCoverage($name, $manifest, $entry);
+
+        return [
+            'format' => self::RATIFICATION_FORMAT,
+            'manifests' => [$name => $entry],
+            'profiles' => [],
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $manifest
+     * @param array<string,mixed> $entry
+     */
+    private static function assertAuthoredSurfaceCoverage(string $name, array $manifest, array $entry): void {
+        $capabilities = $entry['capabilities'] ?? null;
+        if (!is_array($capabilities) || array_is_list($capabilities)) {
+            // Shape is validate_entry()'s question, not this one's. Returning
+            // here rather than refusing keeps the wording an author meets on a
+            // malformed entry the SHIPPED wording, instead of a lookalike
+            // sentence this profile invented for the same defect.
+            return;
+        }
+        $arms = self::siteSurfaceSections($name, $manifest);
+        foreach (['entity' => 'entity_sections', 'field' => 'field_sections'] as $arm => $key) {
+            $claimed = $capabilities[$key] ?? null;
+            if (!is_array($claimed) || !array_is_list($claimed)) {
+                return;
+            }
+            $other = $arm === 'entity' ? 'field' : 'entity';
+            foreach ($arms[$arm] as $declared) {
+                if (!in_array($declared, $claimed, true)) {
+                    throw new \RuntimeException(
+                        "duo: authored site adapter disposition '$name' omits declared $arm section "
+                        . "'$declared' — narrow a claim with an unsupported[] row and its reason, never by "
+                        . 'leaving a surface out: a certificate naming fewer surfaces than the adapter '
+                        . 'declares covers less than the adapter does, and the uncovered surface is blocked '
+                        . 'later with nothing saying why'
+                    );
+                }
+            }
+            foreach ($claimed as $section) {
+                if (!is_string($section) || in_array($section, $arms[$arm], true)
+                    || !array_key_exists($section, $manifest)) {
+                    // A section the manifest does not declare at all is
+                    // validate_entry()'s refusal ("names absent manifest
+                    // section"), and it stays that refusal.
+                    continue;
+                }
+                $classified = in_array($section, $arms[$other], true)
+                    ? "this manifest's vocabulary classifies as " . self::surfaceArmArticle($other) . ' section'
+                    : 'declares no state surface of its own';
+                throw new \RuntimeException(
+                    "duo: authored site adapter disposition '$name' names '$section' as "
+                    . self::surfaceArmArticle($arm) . ' section, which ' . $classified
+                );
+            }
+        }
+    }
+
+    /** `an entity` / `a field` — one spelling, so neither refusal above reads as machine output. */
+    private static function surfaceArmArticle(string $arm): string {
+        return $arm === 'entity' ? 'an entity' : 'a field';
+    }
+
+    /**
+     * Is this disposition the one sign_site() would DERIVE for these inputs?
+     *
+     * `duo adapter recertify` re-signs a claim under a moved boundary by
+     * replaying the inputs a certificate already carries, and it derives the
+     * ratification — which was total before WP-5.3 and is now a choice. Without
+     * this predicate the remedy verb would silently replace an author's own
+     * disposition, per-refusal prose and all, with the canned floor: a claim
+     * the site never wrote, signed under the site's key. The comparison is over
+     * canonical bytes because that is what the signature covers.
+     *
+     * IT DOES NOT SWALLOW THE DERIVATION'S OWN REFUSALS, which is load-bearing
+     * rather than incidental. A manifest declaring a section this signer cannot
+     * classify makes the floor UNDERIVABLE — a refusal about the ADAPTER, not a
+     * fact about who wrote its disposition. Caught here it would become a
+     * per-certificate `blocked` row and the caller's all-or-nothing restore
+     * would never run, leaving exactly the half-recertified repository that
+     * discipline exists to make unreachable. Measured:
+     * `sandbox/tests/offline/cli/regress_spec_migration_verbs.php` PART 2 drives
+     * that mid-run signing failure and expects exit 2 with every staged file
+     * restored, and a `try/catch` here turned it into exit 1 with the first
+     * adapter left re-signed.
+     *
+     * @param array<string,mixed> $manifest
+     * @param array<string,mixed> $disposition
+     */
+    public static function site_disposition_is_derived(
+        string $name,
+        array $manifest,
+        string $reason,
+        array $disposition
+    ): bool {
+        $derived = self::siteRatification(self::adapterName($name), $manifest, $reason);
+
+        return hash_equals(
+            Canon::encode($derived['manifests'][$name] ?? null),
+            Canon::encode($disposition)
+        );
     }
 
     /**

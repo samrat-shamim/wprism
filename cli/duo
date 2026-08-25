@@ -300,7 +300,8 @@ Usage:
                      [--snapshot=<snapshot.json>] [--format=json]
   duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
   duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
-                      [--key-id=<id>] [--reason=<text>] [--pin [--adopt-scope]]
+                      [--key-id=<id>] [--reason=<text>]
+                      [--ratification-file=<f>] [--pin [--adopt-scope]]
   duo adapter recertify <site-repo> --secret-key-file=<f> [--format=json]
   duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
   duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
@@ -589,6 +590,7 @@ Verbs:
     --secret-key-file=<f> over the adapter, builds a
     [--key-id=<id>]       duo-site-adapter-certification-bundle/v1 whose
     [--reason=<text>]     evidence is exactly {grammar: <validator verdict>,
+    [--ratification-file=<f>]
     [--pin]               exercised: false, reason}, signs
                           adapters/certifications/<n>.json, verifies what it
                           just wrote through the live verifier, and prints the
@@ -601,6 +603,16 @@ Verbs:
                           `exercised: false` and the stated reason, and
                           deletion semantics are declared unsupported because
                           a validator run cannot review them.
+                          --ratification-file signs the disposition YOU wrote
+                          instead of the derived one: the same document shape
+                          manifests/dispositions/<name>.json carries, judged by
+                          the engine's own disposition validator, which wants a
+                          separate non-empty reason on every unsupported[] row
+                          and every default-authored keyspace. Without it the
+                          derivation stands — the honest floor, not a lesser
+                          certificate. `adapter recertify` re-derives, so it
+                          reports an authored claim as blocked rather than
+                          replacing it; re-sign that one here with the file.
   adapter recertify       Re-sign EVERY certified site adapter in one repo,
     <site-repo>           under the key each certificate already names, in one
     --secret-key-file=<f> idempotent invocation. The flag day's remedy: a
