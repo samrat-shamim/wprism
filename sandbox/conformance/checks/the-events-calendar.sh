@@ -1705,6 +1705,7 @@ fi
 TEC_WIDGET_SCOPE_BASE="${CONF_REPO1:-siterepo/conf1}"
 TEC_WIDGET_SCOPE_HOST="$TEC_WIDGET_SCOPE_BASE/.tmp-tec-widget-scoped-capture"
 TEC_WIDGET_SCOPE_REPO='/siterepo/.tmp-tec-widget-scoped-capture'
+TEC_SCOPE_ENVS="$TEC_WIDGET_SCOPE_BASE/.tmp-tec-scope-envs.json"
 TEC_WIDGET_SCOPE_MUTATED=0
 TEC_WIDGET_PHYSICAL_ORIGINAL=''
 TEC_WIDGET_LEDGER_ORIGINAL=''
@@ -1906,6 +1907,7 @@ cleanup_tec_widget_scope() {
     fi
   fi
   [ "$remove_repo" -ne 1 ] || rm -rf -- "$TEC_WIDGET_SCOPE_HOST"
+  rm -f -- "$TEC_SCOPE_ENVS"
 }
 trap cleanup_tec_widget_scope EXIT
 rm -rf -- "$TEC_WIDGET_SCOPE_HOST"
@@ -1916,16 +1918,34 @@ TEC_WIDGET_SCOPE_CLONE_HEAD=$(git -C "$TEC_WIDGET_SCOPE_HOST" rev-parse --verify
   && cmp -s "$TEC_WIDGET_SCOPE_BASE/site.duo.json" "$TEC_WIDGET_SCOPE_HOST/site.duo.json" \
   && [ -z "$(git -C "$TEC_WIDGET_SCOPE_HOST" status --porcelain=v1 --untracked-files=all)" ] \
   || fail "TEC scoped inactive-widget clone did not bind the exact source HEAD/site identity"
+# pair.yml's CLI runs as uid/gid 33 while this disposable clone is created by
+# the host. Match run.sh's cooperative umask contract before scoped capture
+# writes its ignored publication/backup files, without changing Git modes.
+chmod -R a+rwX -- "$TEC_WIDGET_SCOPE_HOST" \
+  || fail "TEC scoped inactive-widget clone could not establish cooperative bind permissions"
+[ -z "$(git -C "$TEC_WIDGET_SCOPE_HOST" status --porcelain=v1 --untracked-files=all)" ] \
+  || fail "TEC scoped inactive-widget permission preparation changed repository identity"
+TEC_SCOPE_COMPOSE="$(pwd -P)/pair.yml"
+[ -f "$TEC_SCOPE_COMPOSE" ] \
+  || fail "TEC scoped evidence cannot resolve the exact pair compose file"
+jq -n --arg compose "$TEC_SCOPE_COMPOSE" --arg widgetRepo "$TEC_WIDGET_SCOPE_REPO" '
+  {envs: {
+    "tec-widget-source": {
+      transport: "docker", compose_file: $compose, service: "cli1", repo_path: $widgetRepo
+    },
+    "tec-source": {
+      transport: "docker", compose_file: $compose, service: "cli1", repo_path: "/siterepo"
+    }
+  }}
+' >"$TEC_SCOPE_ENVS" \
+  || fail "TEC scoped evidence could not write its isolated control-plane registry"
 
 TEC_WIDGET_SCOPE_ONE="$TEC_WIDGET_SCOPE_HOST/.first.scope.json"
-TEC_WIDGET_SCOPE_ONE_RC=0
-TEC_WIDGET_SCOPE_ONE_OUT=$(wp_conf1 duo scope \
-  --repo="$TEC_WIDGET_SCOPE_REPO" \
+capture_duo_json_success TEC_WIDGET_SCOPE_ONE_OUT \
+  "TEC scoped inactive-widget first contract" \
+  php ../cli/duo --envs-file="$TEC_SCOPE_ENVS" scope tec-widget-source \
   --roots="post:$TEC_WIDGET_PAGE_UUID" \
-  --contract --format=json 2>&1) || TEC_WIDGET_SCOPE_ONE_RC=$?
-[ "$TEC_WIDGET_SCOPE_ONE_RC" -eq 0 ] \
-  || fail "TEC scoped inactive-widget first contract failed: $TEC_WIDGET_SCOPE_ONE_OUT"
-require_duo_answered "TEC scoped inactive-widget first contract" json "$TEC_WIDGET_SCOPE_ONE_OUT"
+  --contract --format=json
 printf '%s\n' "$TEC_WIDGET_SCOPE_ONE_OUT" >"$TEC_WIDGET_SCOPE_ONE"
 jq -e --arg uuid "$TEC_WIDGET_PAGE_UUID" '
   .format == "duo-scope-contract/v1" and
@@ -2049,14 +2069,11 @@ jq -en --argjson actual "$TEC_WIDGET_CANONICAL_FIRST" --argjson expected "$TEC_W
 
 TEC_WIDGET_REPO_FIRST=$(tec_widget_scope_repo_hash "$TEC_WIDGET_SCOPE_HOST")
 TEC_WIDGET_SCOPE_TWO="$TEC_WIDGET_SCOPE_HOST/.second.scope.json"
-TEC_WIDGET_SCOPE_TWO_RC=0
-TEC_WIDGET_SCOPE_TWO_OUT=$(wp_conf1 duo scope \
-  --repo="$TEC_WIDGET_SCOPE_REPO" \
+capture_duo_json_success TEC_WIDGET_SCOPE_TWO_OUT \
+  "TEC scoped inactive-widget second contract" \
+  php ../cli/duo --envs-file="$TEC_SCOPE_ENVS" scope tec-widget-source \
   --roots="post:$TEC_WIDGET_PAGE_UUID" \
-  --contract --format=json 2>&1) || TEC_WIDGET_SCOPE_TWO_RC=$?
-[ "$TEC_WIDGET_SCOPE_TWO_RC" -eq 0 ] \
-  || fail "TEC scoped inactive-widget second contract failed: $TEC_WIDGET_SCOPE_TWO_OUT"
-require_duo_answered "TEC scoped inactive-widget second contract" json "$TEC_WIDGET_SCOPE_TWO_OUT"
+  --contract --format=json
 printf '%s\n' "$TEC_WIDGET_SCOPE_TWO_OUT" >"$TEC_WIDGET_SCOPE_TWO"
 jq -e '
   .format == "duo-scope-contract/v1" and
@@ -2094,7 +2111,6 @@ tec_widget_scope_restore_physical_preimage
   || fail "TEC scoped inactive-widget cleanup did not restore exact target and Duo ledger bytes"
 TEC_WIDGET_SCOPE_MUTATED=0
 rm -rf -- "$TEC_WIDGET_SCOPE_HOST"
-trap - EXIT
 pass "real scoped capture deauthorizes only stored inactive ownership, preserves target/ledger bytes, and reaches a receipt-free fixed point"
 
 # Category metadata commits before required actions (the same recovery boundary
@@ -2115,9 +2131,13 @@ tec_category_uuid() {
 }
 
 tec_category_scope() { # <target-host-path> <category-uuid>
-  local output=$1 uuid=$2
+  local output=$1 uuid=$2 scoped
   [[ "$uuid" =~ ^[a-f0-9-]{36}$ ]] || fail "TEC Category Colors scope received a malformed category UUID"
-  wp_conf1 duo scope --repo=/siterepo --roots="term:${uuid}" --contract --format=json >"$output"
+  capture_duo_json_success scoped \
+    "TEC Category Colors scope contract" \
+    php ../cli/duo --envs-file="$TEC_SCOPE_ENVS" scope tec-source \
+    --roots="term:${uuid}" --contract --format=json
+  printf '%s\n' "$scoped" >"$output"
   jq -e --arg uuid "$uuid" '
     .format == "duo-scope-contract/v1" and .selectors == ["term:" + $uuid] and
     any(.potential_actions[];
@@ -2242,6 +2262,7 @@ restore_tec_scoped_color_faults() {
   fi
   [ -z "${TEC_COLOR_PRECOMMIT_SCOPE:-}" ] || rm -f -- "$TEC_COLOR_PRECOMMIT_SCOPE"
   [ -z "${TEC_COLOR_SCOPE:-}" ] || rm -f -- "$TEC_COLOR_SCOPE"
+  [ -z "${TEC_SCOPE_ENVS:-}" ] || rm -f -- "$TEC_SCOPE_ENVS"
 }
 cleanup_tec_scoped_color_faults() {
   local status=$?

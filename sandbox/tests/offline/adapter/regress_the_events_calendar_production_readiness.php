@@ -8356,18 +8356,27 @@ foreach ([
     );
 }
 foreach ([
-    'TEC_WIDGET_SCOPE_ONE_OUT=$(wp_conf1 duo scope',
-    'TEC scoped inactive-widget first contract failed:',
-    'require_duo_answered "TEC scoped inactive-widget first contract" json',
-    'TEC_WIDGET_SCOPE_TWO_OUT=$(wp_conf1 duo scope',
-    'TEC scoped inactive-widget second contract failed:',
-    'require_duo_answered "TEC scoped inactive-widget second contract" json',
+    'TEC_SCOPE_ENVS="$TEC_WIDGET_SCOPE_BASE/.tmp-tec-scope-envs.json"',
+    'chmod -R a+rwX -- "$TEC_WIDGET_SCOPE_HOST"',
+    'TEC scoped inactive-widget permission preparation changed repository identity',
+    'TEC_SCOPE_COMPOSE="$(pwd -P)/pair.yml"',
+    'transport: "docker", compose_file: $compose, service: "cli1", repo_path: $widgetRepo',
+    'capture_duo_json_success TEC_WIDGET_SCOPE_ONE_OUT',
+    'php ../cli/duo --envs-file="$TEC_SCOPE_ENVS" scope tec-widget-source',
+    'capture_duo_json_success TEC_WIDGET_SCOPE_TWO_OUT',
+    'php ../cli/duo --envs-file="$TEC_SCOPE_ENVS" scope tec-source',
+    '[ -z "${TEC_SCOPE_ENVS:-}" ] || rm -f -- "$TEC_SCOPE_ENVS"',
 ] as $scopedWidgetDiagnostic) {
     duo_check(
         str_contains($deletionCheck, $scopedWidgetDiagnostic),
         "the exact scoped inactive-widget path emits diagnostic evidence for $scopedWidgetDiagnostic"
     );
 }
+duo_check_same(
+    0,
+    substr_count($deletionCheck, 'wp_conf1 duo scope'),
+    'exact scoped evidence never bypasses the isolated host control plane through ordinary WP-CLI'
+);
 $overflowCreateAt = strpos($deletionCheck, "\$createCategory('duo-second-page-refusal'");
 $overflowCachePrimeAt = strpos(
     $deletionCheck,
