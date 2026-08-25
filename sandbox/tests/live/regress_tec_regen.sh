@@ -296,10 +296,13 @@ MARKER=$(wp2 db query "SELECT v FROM wp_duo_kv WHERE k = 'regen_pending:$CAPTURE
 [ "$MARKER" = "tribe_events" ] || fail "expected a regen_pending:<uuid> marker recording post_type=tribe_events, got '$MARKER'"
 pass "regen_pending marker recorded in duo_kv (post_type=$MARKER) — this is what makes the next apply retry"
 
-say "(6d) restore the manifest to its correct, shipped state"
+say "(6d) restore the manifest and physical schema to their correct, shipped state"
 cp "$SHIPPED_MANIFEST" "$MANIFEST"
 jq -e '.post_types.tribe_events.regen_dependency.verify.column == "post_id"' "$MANIFEST" >/dev/null || fail "manifest restoration did not produce the expected verify.column"
-pass "manifest restored"
+wp2 db query "ALTER TABLE wp_tec_occurrences DROP COLUMN duo_regress_never_matches" >/dev/null
+FAULT_COLUMN_COUNT=$(wp2 db query "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_tec_occurrences' AND COLUMN_NAME = 'duo_regress_never_matches'" --skip-column-names 2>/dev/null | tr -d '\r')
+[ "$FAULT_COLUMN_COUNT" = "0" ] || fail "verifier fault column survived restoration (count=$FAULT_COLUMN_COUNT)"
+pass "manifest and verifier-only schema column restored"
 
 say "(6e) THE LOAD-BEARING PROOF: re-run apply with ZERO further content changes — the regen failure still gets retried and resolved automatically, not silently skipped (the exact false-green retry the design review flagged)"
 PLAN3=$(wp2_fault duo plan --repo=/siterepo --format=json | tail -1)

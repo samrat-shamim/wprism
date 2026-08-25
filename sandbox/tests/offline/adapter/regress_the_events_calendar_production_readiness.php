@@ -8772,6 +8772,31 @@ duo_check_same(
 $versionMatrix = (string) file_get_contents(
     $root . '/sandbox/tests/certify/certify_version_matrix.sh'
 );
+$tecRegenLive = (string) file_get_contents(
+    $root . '/sandbox/tests/live/regress_tec_regen.sh'
+);
+foreach ([
+    'cp ../manifests/capabilities/platform.json "$TEST_MANIFEST_DIR/capabilities/platform.json"' => 'the mandatory platform boundary',
+    'cp ../manifests/interpreters/the-events-calendar.php "$TEST_MANIFEST_DIR/interpreters/the-events-calendar.php"' => 'the manifest-bound interpreter',
+    'cp ../manifests/providers/the-events-calendar-category-colors.php "$TEST_MANIFEST_DIR/providers/the-events-calendar-category-colors.php"' => 'the manifest-bound provider',
+    'cp ../manifests/regenerators/the-events-calendar.php "$TEST_MANIFEST_DIR/regenerators/the-events-calendar.php"' => 'the manifest-bound regenerator',
+] as $regenFixtureEvidence => $regenFixtureLabel) {
+    duo_check(
+        str_contains($tecRegenLive, $regenFixtureEvidence),
+        "the private TEC regenerator fixture retains $regenFixtureLabel"
+    );
+}
+$tecRegenRestoreManifest = strpos($tecRegenLive, 'cp "$SHIPPED_MANIFEST" "$MANIFEST"', strpos($tecRegenLive, 'say "(6d)'));
+$tecRegenDropFaultColumn = strpos($tecRegenLive, 'ALTER TABLE wp_tec_occurrences DROP COLUMN duo_regress_never_matches');
+$tecRegenRetryPlan = strpos($tecRegenLive, 'PLAN3=$(wp2_fault duo plan');
+duo_check(
+    $tecRegenRestoreManifest !== false
+        && $tecRegenDropFaultColumn !== false
+        && $tecRegenRetryPlan !== false
+        && $tecRegenRestoreManifest < $tecRegenDropFaultColumn
+        && $tecRegenDropFaultColumn < $tecRegenRetryPlan,
+    'the TEC verifier fault restores both manifest and physical schema before exercising recovery authority'
+);
 $tecMatrixWrapperStart = strpos($versionMatrix, 'check_the_events_calendar_boundary_content() {');
 $tecMatrixWrapperEnd = strpos($versionMatrix, 'seed_advanced_editor_tools_content() {', $tecMatrixWrapperStart);
 duo_check(
