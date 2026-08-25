@@ -1671,16 +1671,45 @@ function ws_rows(): array {
             . 'generation member OUTSIDE the statement, beside `format` — but it cannot make it '
             . 'authenticated, for the same reason the first sentence gives.',
     ];
-    // WP-4.11's row. Every name below is READ from the shipped constants and
-    // every refusal is RUN, so a slot that was quietly admitted, renamed or
-    // reworded moves this document and fails the byte-compare in
-    // `make release-gate` before anyone can call the lane still shut.
+    // WP-4.11's row, and WP-5.2's redemption of two of its slots. Every name
+    // below is READ from the shipped constants and every verdict is RUN, so a
+    // slot that was quietly admitted, renamed or reworded moves this document
+    // and fails the byte-compare in `make release-gate` before anyone can call
+    // a lane shut that is not.
     $reservedStatement = (array) ws_const(AdapterCertification::class, 'STATEMENT_RESERVED_KEYS');
-    $reservedWord = (string) ws_const(AdapterSources::class, 'CERTIFICATION_RESERVED_REVIEWER');
+    $reviewerWord = (string) ws_const(AdapterSources::class, 'CERTIFICATION_REVIEWER_SIGNED');
+    $reviewerMember = (string) ws_const(AdapterCertification::class, 'EVIDENCE_REVIEWER');
+    // The evidence grammar, driven twice at the one function that owns it: with
+    // a reviewer named, and with the same reviewer named as its own signer. The
+    // first is what "opened" means and the second is what stops the word being
+    // reachable by relabelling; printing the VERDICTS rather than asserting
+    // them is what makes this row a measurement.
+    $reviewerAdmitted = ws_verdict(ws_probe(AdapterCertification::class, 'bundleEvidence', [
+        [
+            'exercised' => true,
+            'grammar' => AdapterSources::GRAMMAR_OK,
+            'reason' => 'reviewed',
+            'reviewer' => 'acme-conformance-lab',
+        ],
+        'site certification bundle manifest',
+        AdapterCertification::TRUST_ROOT_PLATFORM,
+        'acme-ops',
+    ]));
+    $selfReview = (string) ws_probe(AdapterCertification::class, 'bundleEvidence', [
+        [
+            'exercised' => true,
+            'grammar' => AdapterSources::GRAMMAR_OK,
+            'reason' => 'reviewed',
+            'reviewer' => 'acme-ops',
+        ],
+        'site certification bundle manifest',
+        AdapterCertification::TRUST_ROOT_PLATFORM,
+        'acme-ops',
+    ]);
     $rows[] = [
         'id' => 'R-28',
         'title' => 'The reserved slots are REFUSALS, never admitted members',
-        'now' => 'Four attachment points refuse by name, each naming the gate that would open it '
+        'now' => 'THREE attachment points refuse by name, each naming the gate that would open it '
             . '(spec/repo-format.md § v3.10): the manifest key `'
             . (string) ws_const(AdapterContractGrammar::class, 'RESERVED_PACKAGE_KEY')
             . '` inside the closed key set (§ v3.3, so at `spec_version '
@@ -1691,24 +1720,16 @@ function ws_rows(): array {
             . '` and therefore '
             . (DUO_SPEC_VERSION >= (int) ws_const(AdapterContractGrammar::class, 'CLOSED_KEY_SET_SINCE')
                 ? 'live at' : 'inert at')
-            . ' `DUO_SPEC_VERSION ' . (string) DUO_SPEC_VERSION . '`); the statement '
-            . 'members `' . implode('`, `', array_keys($reservedStatement)) . '`; the bundle evidence '
-            . 'member `' . (string) ws_const(AdapterCertification::class, 'RESERVED_EVIDENCE_REVIEWER')
-            . '`; and the certification word `' . $reservedWord . '`. None of them is in any closed set: '
-            . 'the statement is still ' . ws_spelled(count((array) ws_const(AdapterCertification::class, 'STATEMENT_KEYS')))
-            . ' members (R-06) and the evidence object is still '
-            . ws_set($sets, 'bundleEvidence') . '. Run, not restated — the '
-            . 'evidence slot answers: "' . (string) ws_probe(AdapterCertification::class, 'bundleEvidence', [
-                [
-                    'exercised' => true,
-                    'grammar' => AdapterSources::GRAMMAR_OK,
-                    'reason' => 'reviewed',
-                    'reviewer' => 'acme',
-                ],
-                'site certification bundle manifest',
-                AdapterCertification::TRUST_ROOT_PLATFORM,
-            ]) . '", and the word answers: "'
-            . (string) AdapterSources::reserved_certification_refusal($reservedWord) . '".',
+            . ' `DUO_SPEC_VERSION ' . (string) DUO_SPEC_VERSION . '`); and the statement '
+            . 'members `' . implode('`, `', array_keys($reservedStatement)) . '`. Neither is in any closed '
+            . 'set: the statement is still ' . ws_spelled(count((array) ws_const(AdapterCertification::class, 'STATEMENT_KEYS')))
+            . ' members (R-06). TWO MORE WERE OPENED at gate G4 by WP-5.2 (§ v3.16), which is what this row '
+            . 'was written to make possible: the bundle evidence member `' . $reviewerMember . '` is now '
+            . 'ADMITTED as an optional member beside ' . ws_set($sets, 'bundleEvidence')
+            . ', and the certification word `' . $reviewerWord . '` is MINTED. Run, not restated — a bundle '
+            . 'naming a reviewing party is ' . $reviewerAdmitted . ', while one naming its own signer '
+            . 'answers: "' . $selfReview . '". A bundle declaring no reviewer produces the identical '
+            . 'disposition it produced before that rider, which is why opening the slot moved no certificate.',
         'permanent' => 'A reservation on a SIGNED surface can only be a refusal, and that is a property '
             . 'of signatures rather than a style choice: the statement member set is closed in both '
             . 'directions AND is the generation discriminator a verifier reads before it has a domain to '
@@ -1719,17 +1740,22 @@ function ws_rows(): array {
             . 'be undone is the OPPOSITE direction: once one of these words is minted by a shipped '
             . 'engine, every deployed verifier that refuses it is refusing a live document, so the '
             . 'refusal has to exist in the field BEFORE the policy that mints it — which is why these '
-            . 'ride v3 rather than the change that opens them.',
+            . 'ride v3 rather than the change that opens them. WP-5.2 spent that credit exactly as '
+            . 'described: the reviewer word\'s refusal shipped one release ahead of the first engine '
+            . 'able to mint it, so a host that is behind answers with a version fact instead of `invalid '
+            . 'enum`. That ordering is the part that cannot be redone later.',
         'reserved' => 'What is deliberately NOT reserved: any SCHEMA for what eventually rides on these '
             . 'points. A reservation that guessed the shape would have to be right about a design nobody '
             . 'has reviewed; § v3.2\'s `engine_features` channel carries the detail later, so a slot need '
             . 'only be right about WHERE an extension attaches. Also not reserved, and recorded so it is '
             . 'not re-taken: the graduated `outside_version_range` verdict, which is a SHIPPED word '
-            . '(`version_range_graduated`, WP-2.8) and not a slot at all. Opening any of the four is a '
-            . 'policy flip proven by '
-            . '`sandbox/tests/offline/adapter/regress_v3_reservations.php`, which pins each sentence and '
-            . 'the statement\'s exact canonical bytes and signature — gate G5\'s condition 7 '
-            . '(spec/repo-format.md § v3.11).',
+            . '(`version_range_graduated`, WP-2.8) and not a slot at all. Opening a slot is a policy flip '
+            . 'proven by `sandbox/tests/offline/adapter/regress_v3_reservations.php`, which pins each '
+            . 'surviving sentence, measures each opened one as opened, and holds the statement\'s exact '
+            . 'canonical bytes and signature — gate G5\'s condition 7 (spec/repo-format.md § v3.11). '
+            . 'WP-5.2 has now done it once, for the two reviewer-tier slots '
+            . '(`sandbox/tests/offline/adapter/regress_reviewer_evidence_tier.php`), so the mechanism is '
+            . 'a worked example rather than an intention.',
     ];
 
     // WP-6.4's row. It exists because this section is the first wire surface

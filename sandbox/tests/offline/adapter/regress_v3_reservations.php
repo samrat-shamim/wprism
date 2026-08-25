@@ -1,6 +1,16 @@
 <?php
 /**
- * WP-4.11 — the reserved-but-refusing slots (spec/repo-format.md § v3.10).
+ * WP-4.11 — the reserved-but-refusing slots (spec/repo-format.md § v3.10),
+ * and WP-5.2's flip of two of them (§ v3.16).
+ *
+ * THE CONTRACT THIS FILE MADE WITH ITS OWN FUTURE, now honoured once. WP-4.11's
+ * PART 5 wrote down that opening a slot would be "an edit to the pins in this
+ * file — visible in a diff, and failing here until someone makes it
+ * deliberately". WP-5.2 made that edit for the two reviewer-tier slots: PART 2
+ * lost two rows, PART 2b gained them as ADMISSIONS, and the sentences they used
+ * to raise moved into § v3.10's second table as what a v3-era reader still
+ * says. Nothing about the reservation mechanism was relaxed to allow it, and
+ * the three slots that belong to gate G5 are untouched.
  *
  * WHAT A RESERVATION IS HERE, AND WHY IT IS NOT AN ADMITTED KEY
  * -------------------------------------------------------------
@@ -21,19 +31,29 @@
  *   the host validator, and a well-formed six-member statement and a
  *   well-formed evidence object still pass the two functions this rider edited.
  *
- *   PART 2 — THE FOUR PINNED REFUSALS, each driven at its shipped attachment
- *   point and compared against the exact sentence spec/repo-format.md § v3.10
- *   publishes. A refusal that drifts from the published sentence is a
- *   reservation an author was promised and the engine does not keep;
- *   regress_spec_v3_document.php owns the other direction of that pair.
+ *   PART 2 — THE PINNED REFUSALS THAT REMAIN, each driven at its shipped
+ *   attachment point and compared against the exact sentence
+ *   spec/repo-format.md § v3.10 publishes. A refusal that drifts from the
+ *   published sentence is a reservation an author was promised and the engine
+ *   does not keep; regress_spec_v3_document.php owns the other direction.
  *
- *   PART 3 — NO VERDICT MOVES. Each reserved input was refused BEFORE this
- *   rider and is refused after it, by the same exception class and with the
- *   same consequence. The sharp case is the certificate: `RuntimeException` is
- *   a hard refusal while `SupersededWireSiteAdapterCertificate` degrades ONE
- *   adapter to uncertified and leaves the site's others alone, so a reservation
- *   that moved an input between those two arms would have changed a fleet
- *   behaviour while claiming to change a message. Both arms are asserted.
+ *   PART 2b — THE TWO SLOTS WP-5.2 OPENED, measured as opened (§ v3.16). This
+ *   is the part the whole reservation was bought for, and it is why the header
+ *   above says a flip is an edit to the pins in THIS file: the assertions that
+ *   used to demand two refusals now demand two admissions, in one visible diff.
+ *   The retired sentences are still asserted to be PUBLISHED, because they are
+ *   live bytes on every host that has not taken WP-5.2's release.
+ *
+ *   PART 3 — NO VERDICT MOVES THAT WAS NOT DELIBERATELY MOVED. Each input that
+ *   is still reserved was refused BEFORE WP-4.11 and is refused after it, by
+ *   the same exception class and with the same consequence. The sharp case is
+ *   the certificate: `RuntimeException` is a hard refusal while
+ *   `SupersededWireSiteAdapterCertificate` degrades ONE adapter to uncertified
+ *   and leaves the site's others alone, so a reservation that moved an input
+ *   between those two arms would have changed a fleet behaviour while claiming
+ *   to change a message. Both arms are asserted. The two OPENED slots are
+ *   asserted to raise nothing, which is the only shape "opened" can take on a
+ *   closed set.
  *
  *   PART 4 — THE FLAG-DAY INVARIANT, on the one surface a stranger already
  *   holds bytes of. A pinned six-member statement's canonical bytes, their
@@ -289,12 +309,32 @@ foreach (explode("\n", $reservationSection) as $line) {
     }
 }
 duo_check_same(
-    5,
+    3,
     count($pinned),
-    'the five pinned refusal sentences are read out of spec/repo-format.md § v3.10 itself, so this suite and '
-    . 'the published table cannot disagree about what the engine promises to say'
+    'the three STILL-RESERVED refusal sentences are read out of spec/repo-format.md § v3.10\'s first table, so '
+    . 'this suite and the published table cannot disagree about what the engine promises to say'
 );
-[$pinPackage, $pinCodeDigest, $pinDelegated, $pinReviewerWord, $pinReviewerEvidence] = $pinned + array_fill(0, 5, '');
+[$pinPackage, $pinCodeDigest, $pinDelegated] = $pinned + array_fill(0, 3, '');
+
+// THE TWO SENTENCES THE FLIP RETIRED, read out of § v3.10's SECOND table — the
+// five-column one, which is why the four-column regex above does not see them.
+// They are not dead text: those bytes are live on every host that has not taken
+// WP-5.2's release, and the paragraph beside them says so. This suite therefore
+// keeps asserting they are published, and asserts BELOW that this engine no
+// longer says them.
+$opened = [];
+foreach (explode("\n", $reservationSection) as $line) {
+    if (preg_match('/^\| [^|]+ \| [^|]+ \| [^|]+ \| `(duo: [^`]+)` \| [^|]+ \|$/', $line, $rowMatch) === 1) {
+        $opened[] = $rowMatch[1];
+    }
+}
+duo_check_same(
+    2,
+    count($opened),
+    'and § v3.10 records the two sentences WP-5.2 retired rather than deleting them, because a v3-era host '
+    . 'still answers with those exact bytes and an operator meeting one has to recognise them'
+);
+[$retiredReviewerWord, $retiredReviewerEvidence] = $opened + array_fill(0, 2, '');
 
 // ===========================================================================
 echo "\nPART 1 — nothing the engine accepts today moved\n";
@@ -353,9 +393,18 @@ duo_check_same(
     'a well-formed six-member statement still passes assertStatementShape() unchanged — the reserved-member '
     . 'test runs first and answers nothing about a statement that declares neither'
 );
+// The fourth argument is the SIGNING key id, threaded in by WP-5.2 so that
+// § v3.16's reviewer-is-not-the-signer rule is judged at the one function that
+// owns the evidence grammar. It answers nothing about an object declaring no
+// reviewer, which is what this assertion measures.
 $goodEvidence = $refusal(static fn() => $invoke(
     'bundleEvidence',
-    [['exercised' => true, 'grammar' => AdapterSources::GRAMMAR_OK, 'reason' => 'exercised offline'], 'bundle', 'platform']
+    [
+        ['exercised' => true, 'grammar' => AdapterSources::GRAMMAR_OK, 'reason' => 'exercised offline'],
+        'bundle',
+        'platform',
+        'acme-ops',
+    ]
 ));
 duo_check_same(
     null,
@@ -439,39 +488,110 @@ duo_check_same(
     . 'gate: a delegation is verified through its own signed document (§ v3.8), not through a statement member'
 );
 
-$reviewerWord = $refusal(static fn() => $validateCatalog($catalog(AdapterSources::CERTIFICATION_RESERVED_REVIEWER)));
-duo_check_same(
-    $pinReviewerWord,
-    (string) $reviewerWord['message'],
-    'the reserved certification word refuses at the host boundary with § v3.10\'s exact sentence — the case it '
-    . 'exists for is a host at this version reading a target whose agent has already flipped gate G4'
-);
-duo_check_same(
-    $pinReviewerWord,
-    (string) AdapterSources::reserved_certification_refusal(AdapterSources::CERTIFICATION_RESERVED_REVIEWER),
-    'and the agent-side definition of that sentence is the SAME STRING as the host-side one, which is what '
-    . 'keeps the two copies of a closed vocabulary from drifting into two different answers'
-);
+// ===========================================================================
+echo "\nPART 2b — the TWO SLOTS WP-5.2 OPENED, measured as opened (§ v3.16)\n";
+// ===========================================================================
+
+// THE POLICY FLIP, and this is what a reservation was bought for. The pins in
+// this block used to assert the two sentences above; editing them here is the
+// visible, single-diff act § v3.11 condition 7 describes, and it fails until
+// somebody makes it deliberately — which is exactly what happened.
+$reviewerWord = $refusal(static fn() => $validateCatalog($catalog(AdapterSources::CERTIFICATION_REVIEWER_SIGNED)));
 duo_check_same(
     null,
-    AdapterSources::reserved_certification_refusal(AdapterSources::CERTIFICATION_SITE_SIGNED),
-    'and it answers null for a word that is NOT reserved, so the reservation cannot grow into a second '
-    . 'vocabulary by accident'
+    $reviewerWord['message'],
+    'the certification word `reviewer_signed` is ADMITTED at the host boundary: the observation validator that '
+    . 'refused it by name now reads it, because this engine can mint it and a closed enum the target emits and '
+    . 'the host cannot read refuses the whole document'
+);
+duo_check_same(
+    ['certification_unjudged', 'registry', 'reviewer_signed', 'signed_unpinned', 'site_signed', 'third_party_signed', 'uncertified'],
+    (static function (array $words): array {
+        sort($words, SORT_STRING);
+        return $words;
+    })((array) (new ReflectionClass(AdapterObservation::class))->getConstant('CERTIFICATIONS')),
+    'and the host vocabulary is the six it was PLUS exactly one — nothing renamed, nothing dropped, which is '
+    . 'what makes this an addition to a closed set rather than a new set'
+);
+duo_check(
+    !method_exists(AdapterSources::class, 'reserved_certification_refusal'),
+    'and the agent-side reserved-word channel is GONE rather than left answering null for everything: a '
+    . 'reservation mechanism with no members is the dead code a reader would mistake for a live rule'
+);
+duo_check(
+    str_contains($retiredReviewerWord, "is reserved") && str_contains($retiredReviewerWord, 'gate G4'),
+    'the sentence it used to raise is still PUBLISHED in § v3.10 as what a v3-era host says, so the two '
+    . 'releases can be told apart from the message alone'
 );
 
 $reviewerEvidence = $refusal(static fn() => $invoke(
     'bundleEvidence',
     [
-        ['exercised' => true, 'grammar' => AdapterSources::GRAMMAR_OK, 'reason' => 'reviewed', 'reviewer' => 'acme'],
+        [
+            'exercised' => true,
+            'grammar' => AdapterSources::GRAMMAR_OK,
+            'reason' => 'reviewed',
+            'reviewer' => 'acme-conformance-lab',
+        ],
         'bundle',
         'platform',
+        'acme-ops',
     ]
 ));
 duo_check_same(
-    str_replace('<label>', 'bundle', $pinReviewerEvidence),
-    (string) $reviewerEvidence['message'],
-    'the `evidence.reviewer` slot refuses with § v3.10\'s exact sentence, naming gate G4 rather than reporting '
-    . 'a bundle minted for the reviewer tier as a malformed evidence object'
+    null,
+    $reviewerEvidence['message'],
+    'and `evidence.reviewer` is ADMITTED by the evidence grammar rather than refused by name (§ v3.16)'
+);
+duo_check_same(
+    ['exercised' => true, 'reviewer' => 'acme-conformance-lab'],
+    (array) $invoke('bundleEvidence', [
+        [
+            'exercised' => true,
+            'grammar' => AdapterSources::GRAMMAR_OK,
+            'reason' => 'reviewed',
+            'reviewer' => 'acme-conformance-lab',
+        ],
+        'bundle',
+        'platform',
+        'acme-ops',
+    ]),
+    'returning the party it read, which is the fact the claim then projects the reviewer word from'
+);
+duo_check_same(
+    ['exercised' => true, 'reviewer' => null],
+    (array) $invoke('bundleEvidence', [
+        ['exercised' => true, 'grammar' => AdapterSources::GRAMMAR_OK, 'reason' => 'reviewed'],
+        'bundle',
+        'platform',
+        'acme-ops',
+    ]),
+    'while the three-member object — every bundle ever minted before this rider — is accepted unchanged and '
+    . 'names no reviewer, which is what keeps the flip free for the fleet'
+);
+$stillClosed = $refusal(static fn() => $invoke(
+    'bundleEvidence',
+    [
+        [
+            'exercised' => true,
+            'grammar' => AdapterSources::GRAMMAR_OK,
+            'reason' => 'reviewed',
+            'reviewer' => 'acme-conformance-lab',
+            'totally_made_up_member' => true,
+        ],
+        'bundle',
+        'platform',
+        'acme-ops',
+    ]
+));
+duo_check(
+    str_contains((string) $stillClosed['message'], 'must contain exactly exercised, grammar, reason'),
+    'and the evidence object is STILL CLOSED around the admitted member: WP-5.2 opened one named slot, not the '
+    . 'key set, so an ordinary unknown member gets the sentence it always got'
+);
+duo_check(
+    str_contains($retiredReviewerEvidence, 'is reserved') && str_contains($retiredReviewerEvidence, 'gate G4'),
+    'and § v3.10 still publishes the sentence this slot used to raise, for the same field reason as the word'
 );
 
 // ===========================================================================
@@ -507,15 +627,15 @@ duo_check(
 );
 duo_check_same(
     \RuntimeException::class,
-    (string) $reviewerEvidence['class'],
-    'the evidence slot is the same story: a hard refusal of the bundle, exactly as an unknown evidence member '
-    . 'has always been'
+    (string) $stillClosed['class'],
+    'the evidence slot is the same story for what it still refuses: an unknown member is a hard refusal of the '
+    . 'bundle, exactly as it has always been — WP-5.2 admitted one name and moved no verdict beside it'
 );
 duo_check_same(
-    \RuntimeException::class,
-    (string) $reviewerWord['class'],
-    'and so is the reserved word at the host boundary — the observation is refused either way; what changed '
-    . 'is that a version skew no longer reads as target corruption'
+    [null, null],
+    [$reviewerEvidence['class'], $reviewerWord['class']],
+    'and the two OPENED slots raise nothing at all now, which is the only shape "opened" can take on a closed '
+    . 'set: not a softer refusal, not a warning — an accepted document'
 );
 duo_check(
     (string) ($nextEngine['unknown_only'] ?? '') !== ''
@@ -631,6 +751,12 @@ duo_check(
     str_contains($reservationSection, 'regress_v3_reservations.php'),
     'and § v3.10 names THIS file as that evidence, so the flip WP-7.1 makes is an edit to the pins above: '
     . 'visible in a diff, and failing here until someone makes it deliberately'
+);
+duo_check(
+    str_contains($reservationSection, 'OPENED at gate G4 by WP-5.2')
+        && str_contains($laneSection, 'WP-5.2 has now DONE this once'),
+    'and the mechanism has been redeemed once already: WP-5.2 opened two of the five slots by editing PART 2b '
+    . 'above, which is what turns condition 7 from an argument into a worked example'
 );
 
 duo_check_summary('v3 reserved slots');

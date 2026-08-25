@@ -938,15 +938,18 @@ final class SurfaceCatalog {
             // ever read on the path where a real signature did NOT produce a
             // certified claim.
             //
-            // All three signed words belong here, not just `signed_unpinned`.
+            // All FOUR signed words belong here, not just `signed_unpinned`.
             // The commonest cause is an unexact pin, and that word says so
             // itself; but a `site_signed` adapter whose evidence went stale
             // reaches the same place, and dropping it would print
             // `Uncertified` beside a valid certificate with nothing saying
-            // which of the two happened.
+            // which of the two happened. `reviewer_signed` (§ v3.16) is the
+            // same certificate with one more named party in it, so leaving it
+            // out would print `Uncertified` for the STRONGEST evidence shape
+            // the engine can verify.
             'site_certified' => in_array(
                 $certification,
-                ['signed_unpinned', 'site_signed', 'third_party_signed'],
+                ['reviewer_signed', 'signed_unpinned', 'site_signed', 'third_party_signed'],
                 true
             ),
             // T6 §3.2: `{source, trust_root, principal, signed_at}` from the
@@ -989,7 +992,11 @@ final class SurfaceCatalog {
                 'signed_at' => is_string($block['signed_at'] ?? null) ? $block['signed_at'] : null,
             ];
         }
-        if (!in_array($certification, ['site_signed', 'third_party_signed'], true)) {
+        // The three words that mean a site certificate VERIFIED — `site_signed`,
+        // `third_party_signed`, and § v3.16's `reviewer_signed`. Not
+        // `signed_unpinned`, which means the repository has not reviewed the
+        // evidence yet and is handled by the `site_certified` arm above.
+        if (!in_array($certification, ['reviewer_signed', 'site_signed', 'third_party_signed'], true)) {
             return null;
         }
         $source = is_array($manifest['source'] ?? null) ? $manifest['source'] : [];
