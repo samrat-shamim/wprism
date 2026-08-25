@@ -8412,6 +8412,7 @@ foreach ([
     '.author_action_matches == true',
     'tec_category_scope "$TEC_COLOR_SCOPE" "$TEC_COLOR_UUID"',
     '--scope-contract=/siterepo/.tmp-tec-category-colors-provider.scope.json',
+    "provider 'the-events-calendar-category-colors' capability 'regenerate_css' scoped invocation failed",
     '$session=\\Duo\\ScopedApplySession::open(new \\Duo\\LedgerScopedApplySessionStorage())',
     '$current=\\Duo\\ScopedApplyCoordinator::authored_ledger_map_hash($roots)',
     'UPDATE wp_terms SET term_id=${COLOR_ABA_NEW_ID}',
