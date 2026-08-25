@@ -211,11 +211,28 @@ function site_repo(array $pins, array $adapters = [], array $extra = [], array $
     return $root;
 }
 
-/** Minimal, valid, purely declarative out-of-tree adapter. */
+/**
+ * Minimal, valid, purely declarative out-of-tree adapter.
+ *
+ * WP-4.12: stamped at N-1, not at N, and the reason is this suite's subject.
+ *
+ * Its fixtures are deliberately UNPREFIXED (`keeper`, `CORE`, `core`) because
+ * what they measure is source discovery and refusal isolation — one bad file
+ * must not black out its neighbours. At `spec_version` N the namespace grammar
+ * (§ v3.9, `IdentityNamespaces::NAMESPACED_SINCE` = 3) refuses every one of
+ * those names first, so after the flip the whole fixture set would be testing
+ * WP-4.10's rule instead of this one.
+ *
+ * N-1 is not a dodge: it is what an out-of-tree adapter authored before the
+ * flip declares, it is inside the window, and it keeps loading — which is the
+ * no-restamp rule's promise to exactly this population. The namespace rule's
+ * own behaviour at N is measured where it belongs, in
+ * `sandbox/tests/offline/guards/regress_identity_namespaces.php`.
+ */
 function site_adapter(string $name, array $extra = []): array {
     return $extra + [
         'name' => $name,
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => DUO_SPEC_VERSION - 1,
         'option_autoload' => 'preserve',
         'options' => ['acme_widget_layout' => ['class' => 'authored']],
     ];

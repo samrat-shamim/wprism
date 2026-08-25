@@ -37,24 +37,38 @@
  *       CERTIFICATE, because the withdrawal changes the certificate-derived
  *       digest folded into `manifest_rows()`.
  *
- * WP-4.7 narrowed (b)'s trigger and this suite follows it. A certificate used
- * to bind the whole platform record byte for byte, so the release this estate
- * drives — `agent_version` and nothing an adapter was exercised against —
- * withdrew every certificate on the fleet and (b) fired for all three
- * certificate-holding sites. Since § v3.6 a certificate binds the exercised
- * compatibility CELLS, so that release withdraws nothing; what still fires (b)
- * is a target that moved a BOUND cell, and the flag day's own `spec_version`
- * move is one. Finding (b)'s block below therefore asserts BOTH ends against the
- * same estate: the release leaves the certificates standing, and a library with
- * one exercised series removed brings all four predicted movements back from the
- * same certificate gate. Asserting only the first half would leave the predictor
- * untested — a preflight that had simply stopped reading certificates passes it.
+ * WP-4.7 narrowed (b)'s trigger and WP-4.12 then pointed the estate at the one
+ * transition that still fires it on every certificate at once. A certificate
+ * used to bind the whole platform record byte for byte, so any release withdrew
+ * every certificate on the fleet. Since § v3.6 it binds the exercised
+ * compatibility CELLS, and an ordinary agent-version release moves none of them
+ * — that release withdraws nothing. THE FLAG DAY IS NOT AN ORDINARY RELEASE:
+ * `spec_version` is inside the signed `statement.platform` and
+ * `assertPlatformBinding()` compares it FIRST (AdapterCertification.php:3723-
+ * 3727), ahead of `site_mode` and ahead of every bound cell, so § v3.6's axis
+ * binding never gets a say. The estate now crosses 0.5.0/2 -> 0.6.0/3
+ * (`rehearsal_state_versions()`, spec_migration_estate.php:124-143), every
+ * certificate on it is withdrawn with "certification was signed under spec
+ * version 2, which is not the spec version 3 this agent publishes", and (b)
+ * fires for all three certificate-holding sites — inside the cross-check
+ * itself, not only in its own block. Finding (b)'s block below therefore drives
+ * THREE targets against the one estate: the flip, an ordinary agent-version
+ * release, and that same release with one exercised cell dropped. Only the
+ * three together separate the spec half from the cell half. The flip alone
+ * would leave § v3.6 unstated in both directions — a gate that had gone back to
+ * binding the whole platform record, and a gate whose cell binding had come
+ * loose, each still pass the flip, because the spec comparison refuses ahead of
+ * either of them.
  *
  * Both findings are load-bearing here rather than decorative: the cross-check
  * FAILS if the predictor drops either class. Dropping (a) costs every one of the
- * seven cohort sites one predicted row; dropping (b) costs each of the three
- * certificate-holding sites two more on the moved-cell run. Measured by removing
- * each class in turn while writing this suite, which is what makes the
+ * seven cohort sites one predicted row. Dropping (b) costs promoted-frozen four
+ * of its five — its artifact was never kept, so the certificate gate is its ONLY
+ * source and it falls to `artifact_hash` alone — and costs certified-alpha and
+ * certified-beta the `certificate:<name>` row outright; their other three rows
+ * carry a second `held-artifact` basis and would be re-derived, which is why the
+ * frozen site is the one that has to be in the cohort. Read off the per-row
+ * `basis` members the flip actually emits, not assumed, which is what makes the
  * cross-check a test rather than a coincidence.
  *
  * WHAT THE CROSS-CHECK COMPARES, AND WHAT IT DELIBERATELY DOES NOT
@@ -464,23 +478,49 @@ duo_check_same(
     . 'code, never artifact_hash — so the movement is real and the refusal is not'
 );
 
-// FINDING (b), AND WHAT WP-4.7 DID TO IT. Until § v3.6 a certificate bound the
-// WHOLE platform record byte for byte, so the release this estate drives — which
-// moves `agent_version` and nothing else an adapter was exercised against —
-// withdrew every certificate on the fleet, and finding (b) fired for all three
-// certificate-holding sites. It no longer does, and that is the deliverable
-// rather than a regression: `assertPlatformBinding()` re-binds the exercised
-// compatibility CELLS, and this release moves none of them.
+// FINDING (b), AND WHY THE EXPECTATION IN THIS BLOCK MOVED.
 //
-// The finding itself is NOT retired, because the gate is not retired: it still
-// fires on a bump that moves a bound cell, and the flag day's own
-// `spec_version` move is exactly such a bump. So this block asserts both ends —
-// the release the estate drives leaves the certificates standing, and a
-// boundary that DOES move a bound cell brings all four predicted movements
-// back, sourced from the same certificate gate. Asserting only the first half
-// would leave the predictor untested: a preflight that had simply stopped
-// looking at certificates would pass it.
-echo "\n== finding (b): what a certified site adapter does across a release, both directions ==\n";
+// THE ERA CHANGED, NOT THE ASSERTION'S STANDARD. Until § v3.6 a certificate
+// bound the WHOLE platform record byte for byte, so every release withdrew
+// every certificate on the fleet. WP-4.7 narrowed it to the exercised
+// compatibility CELLS, and this block used to assert the good news that
+// followed: the release the estate then drove moved `agent_version` and nothing
+// an adapter was exercised against, so it withdrew NOTHING.
+//
+// WP-4.12 changed what the estate drives, not what the gate does. State B is
+// now the tree's own pair and state A is one minor and one SPEC version behind
+// (`rehearsal_state_versions()`, spec_migration_estate.php:124-143), so the
+// transition under test is the flag day itself, 0.5.0/2 -> 0.6.0/3.
+// `assertPlatformBinding()` compares the signed `spec_version` FIRST
+// (AdapterCertification.php:3723-3727) — before `site_mode`, before any bound
+// cell — so § v3.6's axis binding is never reached and all three certificates
+// withdraw. The rehearsal OBSERVES exactly that, independently: the cross-check
+// above has certified-alpha at 6 predicted == 6 observed, and 4 of those 6 rows
+// are this finding. Asserting "withdraws NOTHING" here would now be asserting a
+// FALSE GREEN on the one release this verb exists to preflight.
+//
+// So the expectation moved and the coverage did not. § v3.6 is not deleted, it
+// is driven at the state where it is true. Three targets against the one estate,
+// each reaching a DIFFERENT one of assertPlatformBinding()'s answers:
+//
+//   1. libs/B at 0.6.0/3            the flag day. Rule 8 moves both defines
+//                                   together and the SPEC comparison refuses
+//                                   first, before a cell is read
+//   2. libs/A restated to 0.5.1/2   an ordinary agent release: spec held, every
+//                                   compatibility cell byte-identical — nothing
+//                                   is withdrawn (§ v3.6)
+//   3. (2) minus one exercised cell the CELL comparison, reached only because
+//                                   (2) established that nothing refuses ahead
+//                                   of it
+//
+// Each catches a failure the others cannot. A gate that had gone back to
+// binding the whole platform record — the pre-§ v3.6 behaviour — passes (1) and
+// (3) and fails (2). A gate whose cell binding had come loose passes (1),
+// because the spec refuses anyway, and passes (2), because holding is what (2)
+// wants — only (3) fails. And a preflight that had stopped reading certificates
+// altogether fails (1) and (3). That is why (1) cannot stand in for the block
+// on its own, and why none of the three is redundant.
+echo "\n== finding (b) 1/3: THE FLIP withdraws every certificate, on the spec comparison ==\n";
 $certifiedCohort = ['certified-alpha' => 'estate-forms', 'certified-beta' => 'estate-shop', 'promoted-frozen' => 'estate-catalog'];
 foreach ($certifiedCohort as $id => $adapter) {
     $args = ['doctor', '--migration', '--repo=' . $estate . '/sites/' . $id, '--format=json'];
@@ -493,14 +533,146 @@ foreach ($certifiedCohort as $id => $adapter) {
         $classes[(string) $movement['id']] = $movement;
     }
     duo_check(
+        isset($classes["certificate:$adapter"]) && isset($classes["adapter_digest:$adapter"])
+            && isset($classes['manifest_hash']) && isset($classes['revision_hash']),
+        "(b) $id: the spec flip withdraws the certificate and moves all four with it — the certificate row, the "
+        . 'certificate-derived adapter digest, and this site\'s own manifest_hash and revision_hash'
+    );
+    duo_check(
+        in_array('certificate-gate', (array) ($classes['manifest_hash']['basis'] ?? []), true)
+            && in_array('certificate-gate', (array) ($classes['revision_hash']['basis'] ?? []), true),
+        "(b) $id: and both identities are sourced from the CERTIFICATE gate, so they are predicted without a held "
+        . 'artifact — which is how promoted-frozen, whose artifact was never kept, is predicted at all'
+    );
+    $certificate = null;
+    foreach ((array) $document['certificates'] as $row) {
+        if ((string) $row['name'] === $adapter) {
+            $certificate = $row;
+        }
+    }
+    duo_check_same(
+        'stale_platform',
+        (string) ($certificate['outcome'] ?? ''),
+        "(b) $id: the certificate is WITHDRAWN against the target — the answer comes from "
+        . 'AdapterCertification::verifyFile() raising StalePlatformSiteAdapterCertificate, never from a digest '
+        . 'this command hashed itself'
+    );
+    duo_check_same(
+        false,
+        $certificate['matches_target_platform'] ?? null,
+        "(b) $id: and its platform answer is false: the gate REACHED the platform question and answered it, which "
+        . 'is the only signal MigrationPreflight.php:620-622 lets report `false` rather than `null`'
+    );
+    duo_check_same(
+        "duo: site adapter '$adapter' certification was signed under spec version "
+        . (string) ($certificate['certificate_spec_version'] ?? '') . ', which is not the spec version '
+        . $targetSpec . ' this agent publishes',
+        (string) ($certificate['reason'] ?? ''),
+        "(b) $id: carrying the engine's own sentence byte for byte — the SPEC halves of the two states named in "
+        . 'it, so an operator reads why the claim went rather than that it did'
+    );
+    duo_check_same(
+        (int) $observedA['spec_version'],
+        $certificate['certificate_spec_version'] ?? null,
+        "(b) $id: and the withdrawal really is the spec half: the certificate binds spec "
+        . (string) $observedA['spec_version'] . ' while the target publishes ' . $targetSpec . ', which is the '
+        . 'FIRST of assertPlatformBinding()\'s three questions and the reason no bound cell is ever consulted'
+    );
+    duo_check(
+        str_contains((string) ($classes['manifest_hash']['remedy'] ?? ''), 'compiled_artifact_manifest_mismatch'),
+        "(b) $id: with the fleet-visible cost stated in the remedy, not left to be discovered — the held compiled "
+        . 'artifact refuses with compiled_artifact_manifest_mismatch (CompiledArtifactReader.php:56-57) until the '
+        . 'repository is recompiled and re-pinned'
+    );
+    if ($id !== 'promoted-frozen') {
+        // Measured on the two documents rather than argued: the site HOLDS a
+        // state-A artifact, so this is the identity a deployed site would find
+        // moved under it on the flag day.
+        $manifestIdentity = (array) ($document['identity']['manifest_hash'] ?? []);
+        duo_check(
+            (string) ($manifestIdentity['verdict'] ?? '') === 'moves'
+                && (string) ($manifestIdentity['held'] ?? '') !== (string) ($manifestIdentity['target'] ?? ''),
+            "(b) $id: and the movement is measured, not asserted — held manifest_hash "
+            . substr((string) ($manifestIdentity['held'] ?? ''), 0, 12) . '… -> target '
+            . substr((string) ($manifestIdentity['target'] ?? ''), 0, 12) . '…, held read through '
+            . 'CompiledRepository::from_array() and target through RepositoryCompiler::compile()'
+        );
+    }
+    duo_check_same(
+        (string) $observedA['agent_version'],
+        (string) ($certificate['certificate_agent_version'] ?? ''),
+        "(b) $id: while the certificate still NAMES the agent it was signed against — read facts survive a refused "
+        . 'verification, so an operator can still see both ends of the transition'
+    );
+    duo_check_same(
+        true,
+        $certificate['key_reachable'] ?? null,
+        "(b) $id: the signing key id is reachable by id in the site trust root — the reachability question is "
+        . 'answered over identifiers, with no public_key byte read, and a withdrawal does not make it unknown'
+    );
+}
+
+// PROBE 2, THE CONTRAST: an ORDINARY agent-version release, which is exactly
+// what § v3.6 bought and what the flip above is NOT. Built by restating libs/A's
+// own boundary with the patch component advanced and `spec_version` left alone
+// — `rehearsal_platform_document()` (spec_migration_estate.php:229-235) is the
+// estate's own idiom for a state, and copying a boundary rather than authoring
+// one keeps every compatibility cell byte-identical to the ones these
+// certificates digested into their `axes` member. agent_version is then the
+// only byte in the whole library that differs from the one they were minted
+// against, so the certificate gate is being asked precisely the § v3.6
+// question. The version is DERIVED from state A rather than written down, for
+// the reason the estate derives its own (a literal drifts).
+$ordinaryParts = explode('.', (string) $observedA['agent_version']);
+$ordinaryPatch = count($ordinaryParts) - 1;
+$ordinaryParts[$ordinaryPatch] = (string) (((int) $ordinaryParts[$ordinaryPatch]) + 1);
+$ordinaryAgent = implode('.', $ordinaryParts);
+$ordinaryLib = $scratch . '/libs-ordinary-release';
+preflight_copy_tree($estate . '/libs/A', $ordinaryLib);
+$ordinaryBoundary = json_decode((string) file_get_contents($ordinaryLib . '/capabilities/platform.json'), true);
+$ordinaryBoundary['platform']['agent_version'] = $ordinaryAgent;
+file_put_contents($ordinaryLib . '/capabilities/platform.json', \Duo\Canon::encode($ordinaryBoundary));
+
+echo "\n== finding (b) 2/3: an ordinary agent release ($ordinaryAgent, spec {$observedA['spec_version']}) "
+    . "withdraws nothing ==\n";
+duo_check(
+    $ordinaryAgent !== (string) $observedA['agent_version'] && $ordinaryAgent !== $targetAgent
+    && (int) $ordinaryBoundary['platform']['spec_version'] === (int) $observedA['spec_version'],
+    "(b) fixture: $ordinaryAgent is a third agent state, neither A (" . (string) $observedA['agent_version']
+    . ") nor B ($targetAgent), and it restates state A's spec version unchanged — so agent_version is the single "
+    . 'variable between it and the boundary these certificates were signed against'
+);
+foreach ($certifiedCohort as $id => $adapter) {
+    $args = ['doctor', '--migration', '--repo=' . $estate . '/sites/' . $id, '--format=json'];
+    if ($id !== 'promoted-frozen') {
+        $args[] = '--artifact=' . $estate . '/holdings/' . $id . '/artifact.json';
+    }
+    [, $document] = preflight_at(
+        $stateDriver,
+        $ordinaryAgent,
+        (int) $observedA['spec_version'],
+        $ordinaryLib,
+        $args
+    );
+    $classes = [];
+    foreach ((array) $document['movements'] as $movement) {
+        $classes[(string) $movement['id']] = $movement;
+    }
+    duo_check(
         !isset($classes["certificate:$adapter"]) && !isset($classes["adapter_digest:$adapter"]),
         "(b) $id: an agent release that moves no exercised compatibility cell withdraws NOTHING — no certificate "
         . 'row and no certificate-derived adapter digest (§ v3.6)'
     );
     duo_check(
-        !in_array('certificate-gate', (array) ($classes['manifest_hash']['basis'] ?? []), true),
+        !isset($classes['manifest_hash']) && !isset($classes['revision_hash']),
         "(b) $id: so this site's manifest_hash is not predicted from the certificate gate either — the identity "
-        . 'the withdrawal used to move stays put, which is what makes the release pin-neutral for it'
+        . 'the flip moves stays put, which is what makes an additive release pin-neutral for it'
+    );
+    duo_check(
+        isset($classes['artifact_hash']),
+        "(b) $id: while artifact_hash still moves for it (basis "
+        . implode(', ', (array) ($classes['artifact_hash']['basis'] ?? [])) . ') — the green above is a certificate '
+        . 'that survived a REAL agent move, not a target that turned out to be the same agent'
     );
     $certificate = null;
     foreach ((array) $document['certificates'] as $row) {
@@ -511,37 +683,28 @@ foreach ($certifiedCohort as $id => $adapter) {
     duo_check_same(
         'holds',
         (string) ($certificate['outcome'] ?? ''),
-        "(b) $id: the certificate HOLDS against the target — the answer comes from "
+        "(b) $id: the certificate HOLDS against this target — the answer comes from "
         . 'AdapterCertification::verifyFile() completing, never from a digest this command hashed itself'
     );
     duo_check_same(
         true,
         $certificate['matches_target_platform'] ?? null,
         "(b) $id: and its platform answer is true: every cell it was exercised against is still carried and still "
-        . 'stated the same way by the target'
-    );
-    duo_check_same(
-        (string) $observedA['agent_version'],
-        (string) ($certificate['certificate_agent_version'] ?? ''),
-        "(b) $id: while the certificate still NAMES the agent it was signed against — recorded inside the "
-        . 'signature, no longer the thing validity turns on, so an operator can still see both ends'
-    );
-    duo_check_same(
-        true,
-        $certificate['key_reachable'] ?? null,
-        "(b) $id: the signing key id is reachable by id in the site trust root — the reachability question is "
-        . 'answered over identifiers, with no public_key byte read'
+        . 'stated the same way by the target, while the agent name beside them moved'
     );
 }
 
-// The other end: a target whose boundary DROPPED a cell these certificates were
-// exercised against. Built by copying libs/B and removing one `verified` series,
-// which is the live matrix's own documented remedy on a failure ("drop the entry
-// ... never widen around a failure"). agent_version and spec_version are left
-// alone so currentPlatform()'s agreement checks still pass and the only thing
-// that differs is a bound cell.
+// PROBE 3, THE CELL AXIS: the same ordinary release, minus one cell these
+// certificates were exercised against. Built from the probe-2 library — NOT
+// from libs/B — because libs/B refuses on `spec_version` before a cell is ever
+// read (AdapterCertification.php:3723-3727), so a cell probe based on it would
+// pass with the cell binding entirely disconnected. Removing one `verified`
+// series is the live matrix's own documented remedy on a failure ("drop the
+// entry ... never widen around a failure"), and agent_version and spec_version
+// are left as probe 2 set them so currentPlatform()'s agreement checks still
+// pass and the only thing that differs from probe 2 is a bound cell.
 $movedLib = $scratch . '/libs-axis-moved';
-preflight_copy_tree($estate . '/libs/B', $movedLib);
+preflight_copy_tree($ordinaryLib, $movedLib);
 $movedBoundary = json_decode((string) file_get_contents($movedLib . '/capabilities/platform.json'), true);
 $movedSeries = (array) ($movedBoundary['platform']['compatibility']['wordpress']['verified'] ?? []);
 $droppedCell = (string) array_key_last($movedSeries);
@@ -553,12 +716,20 @@ file_put_contents(
     $movedLib . '/capabilities/platform.json',
     \Duo\Canon::encode($movedBoundary)
 );
+
+echo "\n== finding (b) 3/3: the same release minus the exercised '$droppedCell' cell withdraws all three ==\n";
 foreach ($certifiedCohort as $id => $adapter) {
     $args = ['doctor', '--migration', '--repo=' . $estate . '/sites/' . $id, '--format=json'];
     if ($id !== 'promoted-frozen') {
         $args[] = '--artifact=' . $estate . '/holdings/' . $id . '/artifact.json';
     }
-    [, $document] = preflight_at($stateDriver, $targetAgent, $targetSpec, $movedLib, $args);
+    [, $document] = preflight_at(
+        $stateDriver,
+        $ordinaryAgent,
+        (int) $observedA['spec_version'],
+        $movedLib,
+        $args
+    );
     $classes = [];
     foreach ((array) $document['movements'] as $movement) {
         $classes[(string) $movement['id']] = $movement;
@@ -585,6 +756,14 @@ foreach ($certifiedCohort as $id => $adapter) {
         $certificate['matches_target_platform'] ?? null,
         "(b) $id: and the platform answer is false, from AdapterCertification::verifyFile() raising "
         . 'StalePlatformSiteAdapterCertificate rather than from a comparison this command performed'
+    );
+    duo_check_same(
+        "duo: site adapter '$adapter' certification was exercised against 'wordpress' cell '$droppedCell', "
+        . 'which the agent-owned platform boundary no longer carries',
+        (string) ($certificate['reason'] ?? ''),
+        "(b) $id: and the sentence is the CELL one (AdapterCertification.php:3753-3754), not the spec one probe "
+        . '1/3 got — which is the whole point of running this at the same spec version: the § v3.6 cell binding '
+        . 'is what refused here, reached because nothing refused ahead of it'
     );
 }
 
@@ -696,6 +875,23 @@ duo_check(
 
 // F2: the same adapter, UNCERTIFIED — the certificate removed, the pin left as
 // a source-only override, which is the shape a site carries before it signs.
+//
+// WHY THIS RUNS AT THE TREE'S OWN DEFINES AND USED TO RUN AT STATE A'S. The
+// fixture half's whole premise (its block comment above) is that it runs at the
+// TREE's agent state, and until WP-4.12 that was the same pair as state A, so
+// passing `$observedA`'s versions here was a distinction without a difference.
+// The flip separated them: this fixture's site adapter is authored at
+// DUO_SPEC_VERSION — 3 — while state A is spec 2, whose acceptance window is
+// {1, 2}, so `Policy::load()` refused it outright with "duo: manifest
+// 'preflight-forms' declares spec_version 3 but this engine accepts
+// spec_version {1, 2} — the acceptance window is exactly N and N-1, where N is
+// this engine's DUO_SPEC_VERSION (spec/repo-format.md § v3.1) — pin a
+// compatible manifest or update it" and the run exited 1. That refusal is the
+// spec window working, not the certificate question this case is about, and it
+// would have made F2 report `refused` no matter what the preflight did with
+// certificates. The state is corrected rather than the expectation, and the
+// load verdict is now asserted too so a future divergence between the fixture's
+// bytes and the state driving them can never hide behind a green exit code.
 $uncertified = $sites . '/uncertified';
 preflight_write($uncertified . '/site.duo.json', \Duo\Canon::encode([
     'manifests' => ['core', ['name' => 'preflight-forms', 'source' => 'site']],
@@ -708,13 +904,19 @@ preflight_write(
 );
 [$uncertifiedExit, $uncertifiedDocument] = preflight_at(
     $stateDriver,
-    (string) $observedA['agent_version'],
-    (int) $observedA['spec_version'],
+    DUO_AGENT_VERSION,
+    DUO_SPEC_VERSION,
     $fixtureLib,
     ['doctor', '--migration', '--repo=' . $uncertified, '--format=json']
 );
 duo_check_same(0, $uncertifiedExit, 'F2 uncertified adapter: a site with no certificate at all is green — there is '
     . 'no claim for the bump to withdraw');
+duo_check_same(
+    'ok',
+    (string) ($uncertifiedDocument['site']['load'] ?? ''),
+    'F2: and the green is one the repository EARNED — Policy::load() accepted it, so the exit code is about the '
+    . 'absent certificate and not about a site the engine never got to read'
+);
 duo_check_same([], (array) $uncertifiedDocument['certificates'], 'F2: and it reports no certificates rather than an empty verdict about one');
 duo_check_same(
     'no_content_pin',

@@ -9,8 +9,8 @@ if (!defined('ABSPATH') && !(defined('WP_CLI') && WP_CLI)) {
     return;
 }
 
-define('DUO_AGENT_VERSION', '0.5.0');
-define('DUO_SPEC_VERSION', 2);
+define('DUO_AGENT_VERSION', '0.6.0');
+define('DUO_SPEC_VERSION', 3);
 
 require_once __DIR__ . '/src/Kernel/Uuid.php';
 require_once __DIR__ . '/src/Kernel/OrderPreserved.php';

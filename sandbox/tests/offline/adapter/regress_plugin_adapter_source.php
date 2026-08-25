@@ -115,11 +115,21 @@ function write_file(string $path, string $contents): void {
     file_put_contents($path, $contents);
 }
 
-/** A minimal, valid, purely declarative adapter manifest. */
+/**
+ * A minimal, valid, purely declarative adapter manifest.
+ *
+ * WP-4.12: stamped at N-1. This suite's subject is SOURCE isolation — a
+ * refused plugin-bundled file must not re-judge the operator's own adapters —
+ * and its fixture names are unprefixed by design, so at N the namespace
+ * grammar (§ v3.9) would refuse them before the source rule was reached. N-1
+ * is an accepted version inside the window and is what an adapter authored
+ * before the flip declares; the namespace rule is measured in
+ * `regress_identity_namespaces.php`, which owns it.
+ */
 function adapter(string $name, array $extra = []): array {
     return $extra + [
         'name' => $name,
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => DUO_SPEC_VERSION - 1,
         'option_autoload' => 'preserve',
         'options' => ['acme_widget_layout' => ['class' => 'authored']],
     ];

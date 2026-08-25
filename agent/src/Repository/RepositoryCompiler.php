@@ -2,6 +2,14 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Code/CodeCompatibility.php';
+// WP-4.12: the repository's own `spec_version` is judged against the one
+// {N-1, N} window definition, not against a second copy of it. The KERNEL
+// file rather than AdapterContractGrammar, which owns the manifest half:
+// Adapter is layer 5 and this file is layer 3, so referencing the grammar
+// here is the upward edge regress_agent_src_requires.php refuses by name.
+// Required here rather than left to duo.php's order, exactly as the siblings
+// below are, so this file's load graph stays closed (AGENTS.md rule 1).
+require_once __DIR__ . '/../Kernel/SpecVersionWindow.php';
 require_once __DIR__ . '/ReferenceGraph.php';
 // DUO-3348 slice 2: CompiledRepository and RepositoryCompilationException moved
 // to their own file (the "CompiledArtifact value object" target seam). Required
@@ -297,12 +305,50 @@ final class RepositoryCompiler {
             $this->add('state_directory_missing', 'state', '', 'repository has no state/ directory');
             $this->fail();
         }
+        // WP-4.12 — THE FLIP's repository half. This gate was `$spec !==
+        // $supported`, and that exact equality was invisible for as long as
+        // DUO_SPEC_VERSION never moved: every repository in the field declares
+        // the version of the agent that adopted it, so the first bump would
+        // have refused compilation on EVERY deployed site at once, on
+        // `site.duo.json:spec_version`, with no remedy but a hand edit per
+        // repository. That is the fleet-wide event the no-restamp rule exists
+        // to prevent (spec/repo-format.md § v3.12), arriving through a
+        // different door than the manifest one it guards.
+        //
+        // So the repository takes the SAME window § v3.1 installs for
+        // manifests, from the SAME definition (`SpecVersionWindow`, which the
+        // manifest grammar delegates to for exactly this reason) — floor
+        // exactly N-1, refusal naming the window in the identical shape.
+        // Consequences, stated:
+        // a v2 repository compiles unchanged on this v3 engine, so THIS door
+        // moves no `site_hash`, `state_site_hash` or `revision_hash` and costs
+        // no compiled artifact its verification. (A site holding a certified
+        // site adapter still moves `revision_hash` on the flip — through the
+        // withdrawn certificate, a different door, measured by
+        // sandbox/tests/offline/guards/regress_spec_migration_rehearsal.php.
+        // Neither claim covers the other.) And a repository RE-STAMPED to N no
+        // longer compiles on the N-1 agent, which is why the runbook
+        // (docs/guides/flag-day.md) files that re-stamp as one of the three
+        // acts that close G3, rather than as routine tidying.
+        //
+        // An absent or non-integer value keeps its own refusal, exactly as
+        // AdapterContractGrammar::validate_adapter_contract() does at :243-249
+        // for the same reason: it is not a version, so there is no window for
+        // it to be outside of.
         $spec = $this->policy->site['spec_version'] ?? null;
         $supported = defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 0;
-        if (!is_int($spec) || $spec !== $supported) {
+        $accepted = SpecVersionWindow::accepted($supported);
+        if (!is_int($spec)) {
             $this->add(
                 'manifest_compatibility', 'site.duo.json', 'spec_version',
                 'repository spec_version ' . var_export($spec, true) . " is incompatible with compiler version $supported"
+            );
+        } elseif (!in_array($spec, $accepted, true)) {
+            $this->add(
+                'manifest_compatibility', 'site.duo.json', 'spec_version',
+                'repository spec_version ' . var_export($spec, true) . ' is outside the acceptance window '
+                . SpecVersionWindow::text($accepted) . " this compiler version $supported publishes"
+                . ' (spec/repo-format.md § v3.1)'
             );
         }
 

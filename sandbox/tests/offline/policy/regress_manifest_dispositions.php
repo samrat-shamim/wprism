@@ -1,9 +1,8 @@
 <?php
 /** Offline contract for DUO-3224's external manifest ratification registry. */
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 function is_multisite(): bool { return false; }
 
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';

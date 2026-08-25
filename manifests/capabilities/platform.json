@@ -1,7 +1,7 @@
 {
     "format": "duo-platform-boundary/v1",
     "platform": {
-        "agent_version": "0.5.0",
+        "agent_version": "0.6.0",
         "branchable_state": "only manifest-declared, disposition-reviewed surfaces and operations",
         "compatibility": {
             "database": {
@@ -74,6 +74,6 @@
         },
         "plugin_execution": "unmodified",
         "site_mode": "single-site",
-        "spec_version": 2
+        "spec_version": 3
     }
 }

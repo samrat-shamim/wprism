@@ -1746,11 +1746,11 @@ final class AdapterCertification {
     }
 
     private static function agentVersion(): string {
-        return defined('DUO_AGENT_VERSION') ? (string) DUO_AGENT_VERSION : '0.5.0';
+        return defined('DUO_AGENT_VERSION') ? (string) DUO_AGENT_VERSION : '0.6.0';
     }
 
     private static function specVersion(): int {
-        return defined('DUO_SPEC_VERSION') ? (int) DUO_SPEC_VERSION : 2;
+        return defined('DUO_SPEC_VERSION') ? (int) DUO_SPEC_VERSION : 3;
     }
 
     private static function adapterName(string $name): string {

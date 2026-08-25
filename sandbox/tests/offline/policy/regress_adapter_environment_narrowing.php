@@ -50,12 +50,8 @@ require_once __DIR__ . '/../../lib/check.php';
 
 $root = dirname(__DIR__, 4);
 
-if (!defined('DUO_AGENT_VERSION')) {
-    define('DUO_AGENT_VERSION', '0.5.0');
-}
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 
 // The platform gate probes WordPress and the database before it compares
 // anything, so the injected-facts path still needs these two to exist.
@@ -361,10 +357,22 @@ duo_check_same(
     Canon::encode($claim($inert, $subjectDisposition)['environment_assumptions']),
     'a v2 manifest declaring the channel projects the WHOLE boundary — identical to declaring nothing, including the widening it names'
 );
+// WP-4.12 flipped this. The assertion was "DUO_SPEC_VERSION is still 2",
+// which pinned WP-4.6's own claim: it landed the ENFORCEMENT ahead of the
+// bump. That claim was about a moment, and the moment passed. What survives
+// the flip is the property the moment existed to protect, and it is the one
+// worth asserting from here on: the engine is now AT the enforcing version
+// and the shipped subject is still stamped one below it, so PART 4 above is
+// still measuring the inert arm on a manifest inside the window — not an arm
+// that stopped existing.
 duo_check_same(
-    2,
+    3,
     DUO_SPEC_VERSION,
-    'DUO_SPEC_VERSION is still 2: WP-4.6 lands enforcement for a declaration surface, never the flip (WP-4.12)'
+    'DUO_SPEC_VERSION is 3: the flip landed (WP-4.12), and the narrowing channel WP-4.6 shipped ahead of it is now the engine\'s own version'
+);
+duo_check(
+    $subject['spec_version'] === DUO_SPEC_VERSION - 1,
+    'and the shipped subject sits at N-1 inside the window, which is what keeps PART 4\'s inert arm reachable after the flip rather than dead code'
 );
 
 echo "\nPART 5 — narrowing relaxes NO load-time assertion\n";

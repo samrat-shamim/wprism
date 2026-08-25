@@ -5,12 +5,18 @@
  *
  * WHAT THIS SUITE ANSWERS
  * -----------------------
- * The migration this program is building toward moves two files together — the
+ * The migration this program was building toward moves two files together — the
  * two `define()` lines in `agent/duo.php` and
  * `manifests/capabilities/platform.json`, which restates them (AGENTS.md rule
- * 8). The plan's central engineering claim is that such a bump is DIGEST-
- * NEUTRAL: no adapter digest, no `manifest_hash`, no content pin moves, so
- * pins, compiled artifacts, scope contracts, identity sidecars and recovery
+ * 8). WP-4.12 PERFORMED IT: `DUO_SPEC_VERSION` 2 -> 3, `DUO_AGENT_VERSION`
+ * 0.5.0 -> 0.6.0. So this estate no longer rehearses a hypothesis one minor
+ * ahead of the tree — the tree IS the far end now, and state A is the release
+ * the fleet is coming FROM (`spec_migration_estate.php:122-141` states why the
+ * derivation can only run downward).
+ *
+ * The plan's central engineering claim is that such a bump is DIGEST-NEUTRAL:
+ * no adapter digest, no `manifest_hash`, no content pin moves, so pins,
+ * compiled artifacts, scope contracts, identity sidecars and recovery
  * checkpoints all survive and rollback is a bundle swap rather than a
  * migration. That claim was an argument. This suite measures it, on nine
  * synthetic site repositories whose pin shapes are the ones real sites carry,
@@ -18,6 +24,15 @@
  * `spec_migration_estate.php` — build at state A, observe at A, observe at B,
  * observe at A again — because a state is a pair of `define()`s and a PHP
  * process can hold one of those pairs (that file's header states why).
+ *
+ * MEASURED, THE CLAIM HOLDS AT A NARROWER SCOPE THAN IT WAS WRITTEN, and this
+ * suite is where that was found. Digest neutrality is complete for the four
+ * sites pinning only shipped adapters. It is PARTIAL for the three holding a
+ * certified site adapter: their `site_hash` and every shipped digest hold, but
+ * the flip withdraws their certificates, and the certificate-derived row folded
+ * into `manifest_rows()` takes `manifest_hash` and `revision_hash` with it, so
+ * a held compiled artifact refuses. The per-site transition report this suite
+ * prints is the evidence, and `docs/guides/flag-day.md` step 6 is the remedy.
  *
  * THE ANTI-FALSE-GREEN DISCIPLINE, WHICH IS THE POINT
  * --------------------------------------------------
@@ -65,18 +80,23 @@
  *     `source.artifact_hash` refuses re-association. The plan's deployed-sites
  *     section says scope contracts do not move. On this measurement they do,
  *     and the correct remedy is a re-projection verb, not a widened comparison.
- *   - A site holding a CERTIFIED SITE ADAPTER used to move that adapter's
- *     digest, and therefore its own `manifest_hash` and `revision_hash`,
- *     because the withdrawal changed the certificate-derived digest; its held
- *     compiled artifact then refused with `compiled_artifact_manifest_mismatch`
- *     and had to be recompiled. WP-4.7 (spec/repo-format.md § v3.6) ended that:
- *     a certificate binds the exercised compatibility CELLS rather than the
- *     whole platform record, and this release moves none of them, so all three
- *     certificate-holding sites are now inside the digest-neutral cohort and
- *     their artifacts still verify. WP-1.1's `source:"site"` + uncertified pin
- *     concession (PinResolver.php:206) is still what keeps such a site off the
- *     rocks WHEN a withdrawal does happen, and the withdrawal is rehearsed
- *     against a boundary that moved a bound cell rather than assumed away.
+ *   - A site holding a CERTIFIED SITE ADAPTER moves that adapter's digest, and
+ *     therefore its own `manifest_hash` and `revision_hash`, because the
+ *     withdrawal changes the certificate-derived digest; its held compiled
+ *     artifact then refuses with `compiled_artifact_manifest_mismatch` and must
+ *     be recompiled. WP-4.7 (spec/repo-format.md § v3.6) ended that for an
+ *     ORDINARY release — a certificate binds the exercised compatibility CELLS
+ *     rather than the whole platform record, and moving `agent_version` alone
+ *     moves no cell — but it deliberately does not spare a SPEC bump: R7 put a
+ *     version INSIDE the signed statement so a wire change would read as a
+ *     named refusal rather than as corruption, and `assertPlatformBinding()`
+ *     compares it BEFORE any cell (AdapterCertification.php:3721-3727 vs
+ *     :3753). The state-A pass measures the § v3.6 behaviour and the state-B
+ *     pass measures the pre-emption, on the same fixture, so neither can be
+ *     mistaken for the other. WP-1.1's `source:"site"` + uncertified pin
+ *     concession (PinResolver.php:206) is what keeps such a site off the rocks
+ *     while it is withdrawn: it degrades to `uncertified` and keeps loading,
+ *     which is what makes `duo adapter recertify` reachable on it at all.
  *   - Zero unloadable sites: every site that loaded before the bump loads after
  *     it, including the promoted site that verifies only from its frozen
  *     snapshot.
@@ -87,18 +107,25 @@
  *     WHILE at B, which is withdrawn again on rollback and re-certified by the
  *     same command that minted it.
  *
- * SCOPE LIMIT, STATED RATHER THAN IMPLIED. State B moves `DUO_AGENT_VERSION`
- * and `platform.json`; it does NOT move `DUO_SPEC_VERSION`. Until WP-4.2 that
- * limit was forced: `AdapterContractGrammar` was exact equality, so a v3 agent
- * refused every v2 manifest by name and EVERY site in this estate would have
- * been unloadable — which was not a rehearsal finding but the reason the
- * acceptance window was the one rider that could not be cut. The window has
- * since shipped ({N-1, N}, spec/repo-format.md § v3.1; pinned at both spec eras
- * by sandbox/tests/offline/policy/regress_spec_window.php), so the blocker is
- * gone and the limit is now a SCOPE choice: moving the spec half of state B is
- * the flip itself and belongs to WP-4.12, together with the `platform.json`
- * restatement that AGENTS.md rule 8 binds to it. When that rider lands, state B
- * gains the spec half and the same estate answers the same question.
+ * THE SCOPE LIMIT IS GONE, AND WHAT REPLACED IT. This header used to record
+ * that state B moved `DUO_AGENT_VERSION` and `platform.json` but NOT
+ * `DUO_SPEC_VERSION` — first because `AdapterContractGrammar` was exact
+ * equality (a v3 agent refused every v2 manifest by name, so every site here
+ * would have been unloadable, which is why the acceptance window was the one
+ * rider that could not be cut), and afterwards as a scope choice deferred to
+ * WP-4.12. WP-4.12 landed. State B now carries both halves of the pair rule 8
+ * binds, and the same estate answers the same question about the real
+ * transition.
+ *
+ * What remains is a genuinely different limit, stated so it is not mistaken for
+ * coverage: this estate can only ever look BACKWARDS from the tree. An engine
+ * at N accepts {N-1, N} (`SpecVersionWindow::accepted()`), so a synthetic state
+ * one spec AHEAD would put the window at {N, N+1} while every manifest in the
+ * estate declares N-1 — all nine sites unloadable for a reason about the
+ * fixture rather than about any migration. Forward-looking window evidence
+ * belongs to `sandbox/tests/offline/policy/regress_spec_window.php`, which
+ * probes one manifest set against a child engine at N+1 for exactly that
+ * reason.
  */
 declare(strict_types=1);
 
@@ -115,7 +142,14 @@ $driver = __DIR__ . '/spec_migration_estate.php';
  * the agent under it moved, before WP-1.1: `verifyCertificate()` threw this
  * message as a bare RuntimeException, `scan_site_source()` did not catch it,
  * and the whole site source refused — taking every command on the site with it,
- * including the `duo adapter certify --pin` that repairs it. Captured from
+ * including the `duo adapter certify --pin` that repairs it.
+ *
+ * ASSERTED AT STATE A SINCE WP-4.12, and the move is not a demotion. This is a
+ * refusal about a moved CELL, so it is only reachable where the certificate's
+ * spec era and the engine's agree — at state B the flip's own spec comparison
+ * answers first (:3721-3727, ahead of :3753) and the cell is never read. Both
+ * sentences are asserted, one per state, which is how the pre-emption itself
+ * became a measurement instead of a lost row. Captured from
  * WP-1.1's own suite, which drives the identical condition
  * (`sandbox/tests/offline/adapter/regress_site_adapter_certification.php:1863`
  * and the case (d) assertions below it); `<name>` is this estate's adapter.
@@ -143,6 +177,21 @@ const REHEARSAL_GAPS = [
     // measured here, per site. Driving them from inside the estate as well
     // would be the same command exercised twice under two names, and would put
     // the cross-check's own subject inside the fixture it is checked against.
+    // WP-4.12's remedy verb, for the same reason and with the same shape: it
+    // CONSUMES this transition rather than living inside it. What this estate
+    // owns is the re-mint SYMMETRY — that a certificate minted at B is
+    // withdrawn again after the rollback and restored by the same command —
+    // and it measures that through `AdapterCertify::certify` in the remedy
+    // block below. `recertify`'s own subjects are different questions
+    // (idempotence by created_at reuse, the all-or-nothing restore of
+    // adapters/authorities.json, a blocked row for a certificate under another
+    // key), none of which is about crossing a version boundary, and its
+    // refusals are written to STDERR — reachable only through a child process.
+    'cli/src/Adapter/SpecMigration.php::recertify' =>
+        'the flag day\'s remedy verb. Exercised end to end — idempotence, prior-pin journaling, and the '
+        . 'all-or-nothing restore on a signing failure — by sandbox/tests/offline/cli/'
+        . 'regress_spec_migration_verbs.php, against certificates a child process mints at the PRIOR spec era. '
+        . 'This estate measures the property that suite cannot: that re-minting is symmetric across a rollback.',
     'cli/src/Adapter/MigrationPreflight.php::certificates' =>
         'the preflight\'s certificate half, which classifies the refusal AdapterCertification::verifyCertificate '
         . 'raises (an anchor gate this estate DOES exercise) into predicted invalidation rows. Exercised by '
@@ -331,11 +380,17 @@ $rolledBack = rehearsal_pass($driver, $estate, 'A', 'observe');
 $libraryA = (array) $materialized['libraries']['A'];
 $libraryB = (array) $materialized['libraries']['B'];
 $shipped = (array) $materialized['libraries']['shipped'];
+// WP-4.12 inverted which end of the transition the tree is. The flip HAPPENED,
+// so state B is the shipped state and state A is the release the fleet is
+// coming from; `spec_migration_estate.php:122-141` states why the derivation
+// can only ever run downward from the tree. The premise this assertion carries
+// is unchanged: one end of the rehearsal must be the real library, or the whole
+// estate is a differently-built tree that happens to load.
 duo_check_same(
     $shipped,
-    $libraryA,
-    'the pre-flag library IS the shipped library, file for file and byte for byte — the estate is not a '
-    . 'differently-built tree that happens to load'
+    $libraryB,
+    'the POST-flag library IS the shipped library, file for file and byte for byte — state B is not a '
+    . 'differently-built tree that happens to load, it is this repository'
 );
 $movedPaths = [];
 foreach ($libraryA as $path => $digest) {
@@ -351,10 +406,27 @@ duo_check_same(
 );
 duo_check(
     $observedA['agent_version'] !== $observedB['agent_version']
-    && $observedA['spec_version'] === $observedB['spec_version']
+    && $observedB['spec_version'] === $observedA['spec_version'] + 1
     && $observedA['platform_sha256'] !== $observedB['platform_sha256'],
-    'state B is a real release bump — a different agent version and a different platform digest under the same '
-    . 'spec version (' . $observedA['agent_version'] . ' -> ' . $observedB['agent_version'] . ')'
+    'STATE B IS THE FLIP, not a release bump: BOTH defines moved, one minor and exactly one spec version, and '
+    . 'the platform digest with them ('
+    . $observedA['agent_version'] . '/' . $observedA['spec_version'] . ' -> '
+    . $observedB['agent_version'] . '/' . $observedB['spec_version'] . '). AGENTS.md rule 8 binds the pair, so a '
+    . 'transition that moved only one of them would be rehearsing a state the product cannot ship'
+);
+// The window is what makes this transition survivable at all, and it is
+// asymmetric: an engine at N accepts {N-1, N} (SpecVersionWindow::accepted()).
+// Every manifest in this estate declares state A's version, so B accepts them
+// and A accepts them — which is the no-restamp rule's whole payoff, measured
+// here rather than argued. Had the estate been driven the other way, a state
+// one spec AHEAD of the tree would put the window at {3, 4} and every site
+// would be unloadable for a reason about the fixture, not about the migration.
+duo_check(
+    in_array($observedA['spec_version'], [$observedB['spec_version'] - 1, $observedB['spec_version']], true),
+    'and state A is INSIDE state B\'s acceptance window {' . ($observedB['spec_version'] - 1) . ', '
+    . $observedB['spec_version'] . '} — the one rider that could not be cut (§ v3.1), without which a v'
+    . $observedB['spec_version'] . ' agent would refuse every manifest in this estate by name and there would be '
+    . 'no flag day to rehearse, only a brick'
 );
 $authorities = json_decode((string) file_get_contents($root . '/manifests/capabilities/adapter-authorities.json'), true);
 duo_check_same(
@@ -445,12 +517,26 @@ duo_check_same(
     . 'both certified-site-adapter sites included'
 );
 
-// The certified sites JOINED this list in WP-4.7. They were excluded because
-// the bump withdrew their certificates and moved the certificate-derived digest
-// folded into manifest_rows(); § v3.6 stopped that happening for a release that
-// moves no exercised cell, so digest neutrality now covers every loadable site
-// in the cohort rather than the shipped-only half of it.
-$digestNeutral = ['certified-alpha', 'certified-beta', 'core-only', 'editorial', 'multilingual', 'pinned-shop', 'promoted-frozen'];
+// THE ESTATE HAS TWO POPULATIONS ON A SPEC FLIP, AND SAYING SO IS THE POINT.
+//
+// The certified sites joined the neutral list in WP-4.7, when § v3.6 made a
+// certificate bind the exercised compatibility CELLS instead of the whole
+// platform record — an ordinary `agent_version` release moves no cell, so it
+// withdraws nothing and moves nothing. WP-4.12 is not an ordinary release.
+// `spec_version` sits INSIDE the signed `statement.platform` and
+// assertPlatformBinding() compares it first (AdapterCertification.php:3721-
+// 3727, ahead of the cell comparison at :3753), so on the flag day every
+// certificate withdraws, the certificate-derived digest folded into
+// ArtifactPolicyIdentity::manifest_rows() moves with it, and the holder's own
+// manifest_hash and revision_hash move with THAT.
+//
+// So the three certificate-holding sites leave this list again — measured, not
+// assumed: the per-site transition report below prints `MOVED` for exactly
+// those three and `held` for the other four. Splitting them is not a weakening
+// of the neutrality claim; it is the claim stated at its true scope. What the
+// no-restamp rule buys is that the SHIPPED half never moves for anybody, which
+// is asserted for the holders too, one block down.
+$digestNeutral = ['core-only', 'editorial', 'multilingual', 'pinned-shop'];
 foreach ($digestNeutral as $id) {
     duo_check_same(
         [
@@ -474,17 +560,69 @@ foreach ($digestNeutral as $id) {
         "DIGEST NEUTRALITY: $id keeps every shipped adapter digest, its manifest_hash, its site_hash and its "
         . 'revision_hash byte-identical across the bump'
     );
-    if ($id === 'promoted-frozen') {
-        // Its artifact was removed at materialization on purpose — that site
-        // exists to exercise the frozen path with nothing held — so there is no
-        // artifact to verify and asserting one would be asserting the fixture.
-        continue;
-    }
     duo_check_same(
         'verified',
         $observedB['sites'][$id]['artifact'] ?? null,
         "state B: $id's compiled artifact still verifies — read_artifact() compares site_hash, manifest_hash, "
         . 'effects and code, none of which moved'
+    );
+}
+
+// THE SECOND POPULATION, MEASURED IN BOTH DIRECTIONS AT ONCE.
+//
+// A site holding a certified site adapter is where the flag day is NOT
+// digest-neutral, and the runbook's step 6 exists for exactly these sites. The
+// block asserts both halves on the same fixture, because either half alone is
+// misleading: the SHIPPED digests and `site_hash` hold (the no-restamp rule
+// covers every site, certificate or not), while `manifest_hash`,
+// `revision_hash` and the certificate-derived adapter digest MOVE and the held
+// compiled artifact refuses. A suite that reported only the neutral half would
+// be describing the flag day the plan hoped for rather than the one it ships.
+$certificateHolders = ['certified-alpha' => 'estate-forms', 'certified-beta' => 'estate-shop', 'promoted-frozen' => 'estate-catalog'];
+foreach ($certificateHolders as $id => $adapter) {
+    $shippedDigests = static function (array $rows) use ($adapter): array {
+        $out = [];
+        foreach ($rows as $row) {
+            if ($row['name'] !== $adapter) {
+                $out[(string) $row['name']] = (string) $row['digest'];
+            }
+        }
+        ksort($out, SORT_STRING);
+        return $out;
+    };
+    duo_check_same(
+        [
+            'site_hash' => $observedA['sites'][$id]['site_hash'],
+            'shipped_digests' => $shippedDigests($observedA['sites'][$id]['adapters']),
+        ],
+        [
+            'site_hash' => $observedB['sites'][$id]['site_hash'],
+            'shipped_digests' => $shippedDigests($observedB['sites'][$id]['adapters']),
+        ],
+        "PARTIAL NEUTRALITY: $id keeps its site_hash and every SHIPPED adapter digest byte-identical — the "
+        . 'no-restamp rule covers a certificate-holding site exactly as it covers any other, so nothing it pins '
+        . 'from the shipped library moves'
+    );
+    duo_check(
+        $observedA['sites'][$id]['manifest_hash'] !== $observedB['sites'][$id]['manifest_hash']
+        && $observedA['sites'][$id]['revision_hash'] !== $observedB['sites'][$id]['revision_hash'],
+        "...AND $id's manifest_hash and revision_hash BOTH MOVE, because the withdrawn certificate moves the "
+        . 'certificate-derived row manifest_rows() folds (ArtifactPolicyIdentity.php:75-140). This is the flag '
+        . "day's one non-neutral cohort, and `duo adapter doctor --migration` predicts it per site before the bump"
+    );
+    if ($id === 'promoted-frozen') {
+        // Its artifact was removed at materialization on purpose — that site
+        // exists to exercise the frozen path with nothing held — so there is no
+        // artifact to refuse and asserting one would be asserting the fixture.
+        continue;
+    }
+    duo_check_same(
+        'compiled_artifact_manifest_mismatch',
+        $observedB['sites'][$id]['artifact_reason'] ?? null,
+        "...and $id's held compiled artifact therefore REFUSES with rule 2's own refusal "
+        . '(CompiledArtifactReader.php:56) — the same sentence the artifact-drift control raises at state A, '
+        . 'reached here by a moved certificate rather than a moved manifest. Recompile-and-re-pin is the remedy '
+        . 'the runbook schedules at step 6; there is no fallback and rule 9 would refuse one'
     );
 }
 
@@ -519,18 +657,26 @@ duo_check_same(
     . 'the two are not the same claim and the flag day separates them'
 );
 
-// THE MEASUREMENT WP-4.7 CHANGED, and the reason this block reads as it does.
-// Until spec/repo-format.md § v3.6 a certificate bound the whole platform
-// record byte for byte, so this release — `agent_version` and the prose the
-// boundary restates with it — withdrew all three of these claims, moved each
-// site's own manifest_hash with them, and refused each held artifact with
-// `compiled_artifact_manifest_mismatch`. A certificate now binds the exercised
-// compatibility CELLS, and this release moves none of them, so the three sites
-// join the digest-neutral cohort above instead of forming a second population.
-// The withdrawal machinery is not retired and is not untested: the estate's own
-// assertPlatformBinding probe drives it against a boundary that moved a bound
-// cell, and the brick reproduction below drives it end to end.
-foreach (['certified-alpha' => 'estate-forms', 'certified-beta' => 'estate-shop', 'promoted-frozen' => 'estate-catalog'] as $id => $adapter) {
+// THE M6 CONSEQUENCE, DRIVEN THROUGH THE PRODUCT PATH ON ALL THREE HOLDERS.
+//
+// This is the flag day's central cost and the block that has to be hardest to
+// misread. § v3.6 (WP-4.7) rebound a certificate to the exercised compatibility
+// CELLS instead of the whole platform record, which is why an ordinary
+// `agent_version` release now withdraws nothing — still true, still measured,
+// by the state-A pass of the estate's verifyCertificate probe and by
+// regress_migration_preflight.php's 0.5.1-only contrast.
+//
+// The spec half is deliberately not covered by that. R7 put a version INSIDE
+// the signed statement precisely so a future wire change would read as a named
+// refusal rather than as corruption, and assertPlatformBinding() honours that by
+// comparing `spec_version` before any cell (:3721-3727 vs :3753). So the flip
+// withdraws all three claims by name. What it does NOT do is take the sites
+// down: WP-1.1's typed signal degrades the adapter to `uncertified` and
+// PinResolver skips the resulting mismatch for a `source:"site"` pin, so the
+// adapter keeps loading and every command stays available. That distinction —
+// withdrawn, not bricked — is the whole reason this bump is shippable, and it
+// is asserted rather than described.
+foreach ($certificateHolders as $id => $adapter) {
     $held = null;
     foreach ($observedB['sites'][$id]['adapters'] as $row) {
         if ($row['name'] === $adapter) {
@@ -538,11 +684,18 @@ foreach (['certified-alpha' => 'estate-forms', 'certified-beta' => 'estate-shop'
         }
     }
     duo_check(
-        is_array($held) && $held['certified'] === true && $held['capability'] !== 'none',
-        "state B: $id's certified adapter '$adapter' still HOLDS its claim across the release — the bump moved no "
-        . 'cell it was exercised against (' . (string) ($held['reason'] ?? 'no row') . ')'
+        is_array($held) && $held['certified'] === false
+        && str_contains((string) ($held['reason'] ?? ''), 'no longer publishes'),
+        "THE M6 CONSEQUENCE: $id's certified adapter '$adapter' WITHDRAWS to uncertified across the flip, by name "
+        . 'and with the reason attached (' . (string) ($held['reason'] ?? 'no row') . ')'
     );
-    duo_check_same(
+    duo_check(
+        is_array($held) && ($observedB['sites'][$id]['load'] ?? '') === 'ok',
+        "...and $id STILL LOADS with it: the withdrawal is a degradation to `uncertified`, never the whole-source "
+        . 'refusal WP-1.1 removed, so `plan`, `apply` and the `duo adapter recertify` that repairs it all stay '
+        . 'reachable on the degraded site — the precondition G2 condition (1) gates the flag day on'
+    );
+    duo_check(
         (static function (array $rows, string $name): string {
             foreach ($rows as $row) {
                 if ($row['name'] === $name) {
@@ -550,20 +703,11 @@ foreach (['certified-alpha' => 'estate-forms', 'certified-beta' => 'estate-shop'
                 }
             }
             return '(absent)';
-        })($observedA['sites'][$id]['adapters'], $adapter),
-        is_array($held) ? (string) $held['digest'] : '(absent)',
-        "state B: and '$adapter' keeps its exact digest, so the certificate-derived half of this site's identity "
-        . 'is as pin-neutral as the shipped half'
+        })($observedA['sites'][$id]['adapters'], $adapter) !== (is_array($held) ? (string) $held['digest'] : '(absent)'),
+        "...and '$adapter''s own digest MOVES with the withdrawal, which is the mechanism — not a second "
+        . 'independent effect — by which this site\'s manifest_hash and revision_hash moved two blocks above'
     );
 }
-duo_check_same(
-    'verified',
-    $observedB['sites']['certified-alpha']['artifact'] ?? null,
-    'MEASURED CONSEQUENCE, INVERTED: a site holding a CERTIFIED site adapter no longer moves its own manifest_hash '
-    . 'on an ordinary release, so its held compiled artifact still verifies. Before § v3.6 this row read '
-    . '`compiled_artifact_manifest_mismatch` and the certificate-holding population was the one population the '
-    . 'flag day forced to recompile'
-);
 duo_check_same(
     'rehydrated',
     $observedB['sites']['promoted-frozen']['snapshot'] ?? null,
@@ -577,19 +721,46 @@ foreach ((array) ($observedB['sites']['promoted-frozen']['snapshot_adapters'] ??
     }
 }
 duo_check(
-    ($frozenWithdrawn['certified'] ?? null) === true,
-    'and the frozen record is still RE-DERIVED rather than trusted — verifyFrozen() re-binds the certificate to '
-    . 'the boundary now installed on every rehydration — but the answer it re-derives is now `certified`, because '
-    . 'the release moved no cell that certificate was exercised against'
+    ($frozenWithdrawn['certified'] ?? null) === false,
+    'and the frozen record is RE-DERIVED rather than trusted: verifyFrozen() re-binds the certificate to the '
+    . 'boundary installed NOW on every rehydration, so a snapshot taken before the flip does not carry a stale '
+    . '`certified` into a v' . $observedB['spec_version'] . ' engine — it re-derives `uncertified`, the same answer '
+    . 'the live path gives. G2 condition (2) names this path explicitly because it is the one an operator cannot '
+    . 'repair in place: a promoted site may not reopen its mutable repository'
 );
 
 echo "\n== WP-1.1's brick, as a recorded expectation ==\n";
+$prefixA = $observedA['prefix_reproduction'];
 $prefixB = $observedB['prefix_reproduction'];
+// The recorded artifact is asserted AT STATE A, where the certificate's era and
+// the engine's agree and the moved cell is therefore the only variable. That is
+// the condition WP-1.1 bricked on, reproduced rather than described.
 duo_check_same(
     str_replace('<name>', 'estate-forms', REHEARSAL_PREFIX_REFUSAL),
-    (string) $prefixB['verify'],
+    (string) $prefixA['verify'],
     'the platform comparison still raises the RECORDED pre-fix refusal, byte for byte: the condition the pre-fix '
     . 'engine bricked on is reproduced here, not merely described'
+);
+// ...and at state B the SAME probe, against the SAME moved cell, answers with a
+// different sentence — because the flip moved the spec half too and
+// assertPlatformBinding() compares that first (:3721-3727, ahead of the cell
+// comparison at :3753). Recording the pre-emption is the point: it is why
+// § v3.6's axis binding does not spare a spec bump, and a reviewer who only saw
+// the state-A row would conclude the opposite.
+duo_check_same(
+    "duo: site adapter 'estate-forms' certification was signed under spec version "
+    . $observedA['spec_version'] . ', which is not the spec version ' . $observedB['spec_version']
+    . ' this agent publishes',
+    (string) $prefixB['verify'],
+    'and ACROSS THE FLIP the identical probe raises the SPEC sentence instead: the spec comparison PRE-EMPTS the '
+    . 'cell comparison, so a certificate cannot survive a spec bump by having been exercised against cells that '
+    . 'did not move — the deliberate consequence of putting a version inside the signed statement (R7)'
+);
+duo_check_same(
+    'Duo\\StalePlatformSiteAdapterCertificate',
+    (string) $prefixA['verify_class'],
+    'both sentences are the SAME TYPED SIGNAL — state A\'s cell refusal is a StalePlatformSiteAdapterCertificate '
+    . 'too, so WP-1.1\'s degradation covers the flag day\'s refusal without a new arm being added for it'
 );
 duo_check_same(
     false,

@@ -1,5 +1,5 @@
 {
-    "class_count": 385,
+    "class_count": 387,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -211,6 +211,14 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "closed_key_set_since": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "int",
                     "static": true,
                     "visibility": "public"
                 },
@@ -22327,6 +22335,14 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "bootPublic": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "readSecretKey": {
                     "abstract": false,
                     "final": false,
@@ -30614,6 +30630,39 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "enumerate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifestDir",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "held",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "run": {
                     "abstract": false,
                     "final": false,
@@ -36667,6 +36716,73 @@
                     "parameters": [],
                     "return_type": "array",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\SpecMigration": {
+            "abstract": false,
+            "constants": {
+                "JOURNAL_FORMAT": {
+                    "value_repr": "duo-spec-migration-journal/v1"
+                },
+                "JOURNAL_RELATIVE": {
+                    "value_repr": ".duo/migrations"
+                },
+                "RECERTIFY_FORMAT": {
+                    "value_repr": "duo-adapter-recertify/v1"
+                },
+                "RELEASE_FLAG": {
+                    "value_repr": "--spec-v3"
+                },
+                "RELEASE_FORMAT": {
+                    "value_repr": "duo-spec-migration/v1"
+                },
+                "VERBS": {
+                    "value_repr": [
+                        "recertify"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "runRelease": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
                     "visibility": "public"
                 }
             },
@@ -57936,6 +58052,52 @@
                     ],
                     "return_type": "void",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\SpecVersionWindow": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "accepted": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "supported",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "text": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "accepted",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
                     "visibility": "public"
                 }
             },

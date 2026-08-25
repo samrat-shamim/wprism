@@ -119,6 +119,26 @@ function rehearsal_tree_hashes(string $dir): array {
 /**
  * The two defines for a state, resolved from `agent/duo.php`'s own source.
  *
+ * WP-4.12 INVERTED WHICH END OF THE TRANSITION THE TREE IS. Before the flip,
+ * state A was the tree and B was a synthetic minor ahead of it, because the
+ * flag day had not happened and the only thing available to rehearse was a
+ * hypothetical next release. It has now happened, and the tree IS the far end:
+ *
+ *   B = the tree's own pair — 0.6.0 / 3, THE REAL SHIPPED STATE;
+ *   A = the release the fleet is coming FROM — one minor and one spec behind.
+ *
+ * So the estate no longer rehearses a hypothesis. It rehearses THE flag day,
+ * forward and back, on the exact pair of versions the fleet is crossing.
+ *
+ * A IS DERIVED, NOT WRITTEN DOWN, for the same reason B was: a literal drifts.
+ * Deriving it downward is sound in a way deriving B upward would no longer be —
+ * a state one spec version AHEAD of the tree would put the window at {3, 4},
+ * and every manifest in this estate declares 2, so all nine sites would be
+ * unloadable at B for a reason that is about the fixture rather than about the
+ * migration. Downward, both states accept the estate's manifests: {1, 2} at A
+ * and {2, 3} at B. That asymmetry is the acceptance window's whole shape, and
+ * it is why the rehearsal can only ever look backwards from the tree.
+ *
  * @return array{agent_version:string,spec_version:int}
  */
 function rehearsal_state_versions(string $repoRoot, string $state): array {
@@ -127,19 +147,27 @@ function rehearsal_state_versions(string $repoRoot, string $state): array {
         || preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $spec) !== 1) {
         throw new RuntimeException('rehearsal estate: cannot resolve the agent defines from agent/duo.php');
     }
-    if ($state === 'A') {
+    if ($state === 'B') {
         return ['agent_version' => $agent[1], 'spec_version' => (int) $spec[1]];
     }
-    // B is one MINOR release ahead, the smallest shape a release bump can take.
-    // The patch component is reset the way a real minor release resets it, so
-    // the string is a version an operator could actually be handed.
+    // A is one MINOR release and one SPEC version behind — the pair AGENTS.md
+    // rule 8 binds together, moved together, which is exactly what the flip
+    // did. The patch component is reset the way a real minor release resets
+    // it, so the string is a version an operator was actually handed.
     $parts = explode('.', $agent[1]);
-    if (count($parts) !== 3 || !ctype_digit($parts[1])) {
-        throw new RuntimeException("rehearsal estate: DUO_AGENT_VERSION '{$agent[1]}' is not major.minor.patch");
+    if (count($parts) !== 3 || !ctype_digit($parts[1]) || (int) $parts[1] < 1) {
+        throw new RuntimeException(
+            "rehearsal estate: DUO_AGENT_VERSION '{$agent[1]}' is not major.minor.patch with a minor above 0, "
+            . 'so there is no prior release for this estate to come from'
+        );
     }
-    $parts[1] = (string) (((int) $parts[1]) + 1);
+    $parts[1] = (string) (((int) $parts[1]) - 1);
     $parts[2] = '0';
-    return ['agent_version' => implode('.', $parts), 'spec_version' => (int) $spec[1]];
+    $priorSpec = (int) $spec[1] - 1;
+    if ($priorSpec < 1) {
+        throw new RuntimeException('rehearsal estate: there is no spec version below ' . $spec[1] . ' to come from');
+    }
+    return ['agent_version' => implode('.', $parts), 'spec_version' => $priorSpec];
 }
 
 /**
@@ -333,15 +361,17 @@ function rehearsal_site_adapter(string $name): array {
 function rehearsal_materialize(string $repoRoot, string $estate, array $versions): array {
     $record = ['format' => 'duo-rehearsal-estate/v1', 'sites' => [], 'keys' => [], 'libraries' => []];
 
-    // libs/A is the shipped library byte for byte; libs/B differs in exactly
-    // one path. The suite asserts that "exactly one" — it is the premise the
-    // whole digest-neutrality claim rests on, and it is cheaper to prove than
-    // to trust.
-    rehearsal_copy_tree($repoRoot . '/manifests', $estate . '/libs/A');
-    rehearsal_copy_tree($estate . '/libs/A', $estate . '/libs/B');
+    // WP-4.12: libs/B is now the SHIPPED library byte for byte — B is the
+    // tree's own state — and libs/A is the one that gets a restated
+    // platform.json, because A is the release the fleet is coming from. The
+    // libraries still differ in exactly ONE path, which the suite asserts: it
+    // is the premise the whole digest-neutrality claim rests on, and it is
+    // cheaper to prove than to trust.
+    rehearsal_copy_tree($repoRoot . '/manifests', $estate . '/libs/B');
+    rehearsal_copy_tree($estate . '/libs/B', $estate . '/libs/A');
     rehearsal_write_canon(
-        $estate . '/libs/B/capabilities/platform.json',
-        rehearsal_platform_document($repoRoot . '/manifests', rehearsal_state_versions($repoRoot, 'B'))
+        $estate . '/libs/A/capabilities/platform.json',
+        rehearsal_platform_document($repoRoot . '/manifests', rehearsal_state_versions($repoRoot, 'A'))
     );
     $record['libraries'] = [
         'A' => rehearsal_tree_hashes($estate . '/libs/A'),
@@ -538,17 +568,6 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
 }
 
 /**
- * Run `duo adapter certify` in this process, at THIS state's defines.
- *
- * `AdapterCertify::boot()` resolves the two defines only when they are not
- * already defined (:1156-1166), so the command runs under the rehearsal state
- * rather than under the tree's — which is what makes a certificate minted at
- * state B a B certificate. Output is captured because this process's STDOUT is
- * the observation document.
- *
- * @param list<string> $args
- */
-/**
  * Run the shipped `duo` executable and return its exit code and both streams.
  *
  * @param list<string> $args
@@ -574,6 +593,17 @@ function rehearsal_run_duo(string $repoRoot, string $manifestDir, array $args): 
     return 'exit ' . $exit . ': ' . trim($stdout . "\n" . $stderr);
 }
 
+/**
+ * Run `duo adapter certify` in this process, at THIS state's defines.
+ *
+ * `AdapterCertify::boot()` resolves the two defines only when they are not
+ * already defined (:1463-1481), so the command runs under the rehearsal state
+ * rather than under the tree's — which is what makes a certificate minted at
+ * state B a B certificate. Output is captured because this process's STDOUT is
+ * the observation document.
+ *
+ * @param list<string> $args
+ */
 function rehearsal_run_certify(array $args): int {
     ob_start();
     try {
@@ -847,10 +877,27 @@ function rehearsal_probes(string $estate, string $state): array {
     // agrees with the loaded agent and disagrees about an exercised cell.
     // `static fn` captures $estate/$state from this scope by value, which is
     // why they need no `use` clause here.
+    //
+    // WHY THE EXPECTATION IS STATE-DEPENDENT SINCE WP-4.12. Both arms live
+    // inside this one gate, and the flip decides which of them answers first:
+    // assertPlatformBinding() compares the SPEC VERSION carried in the signed
+    // `statement.platform` before it compares any exercised cell
+    // (AdapterCertification.php:3721-3727, ahead of the cell comparison at
+    // :3753). The estate's certificates are all minted at state A, so at B the
+    // spec half disagrees and PRE-EMPTS the cell half — the cell boundary this
+    // probe hands it is never reached. Declaring the cell sentence at both
+    // states would therefore have been a probe asserting a condition the flip
+    // makes unreachable. Declaring the real answer at each state records the
+    // pre-emption itself, which is the flag day's defining behaviour and the
+    // reason § v3.6's axis binding does not save a spec bump the way it saves
+    // an ordinary release.
     $probe(
         'agent/src/Adapter/AdapterCertification.php::assertPlatformBinding',
         'AdapterCertification::verifyFile(<boundary with a moved database engine range>, certified-alpha)',
-        "certification binds compatibility axis 'database'",
+        $state === 'A'
+            ? "certification binds compatibility axis 'database'"
+            : 'certification was signed under spec version ' . (DUO_SPEC_VERSION - 1)
+                . ', which is not the spec version ' . DUO_SPEC_VERSION,
         static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
             rehearsal_cell_moved_library($estate, $state),
             $certSite,
@@ -896,16 +943,33 @@ function rehearsal_probes(string $estate, string $state): array {
 
     // --- the certificate boundary -----------------------------------------
 
-    // WAS "the one fleet-visible consequence", and § v3.6 is why it no longer
-    // is: the release this estate drives moves `agent_version` and no exercised
-    // compatibility cell, so the certificate verifies at BOTH states now. The
-    // probe therefore records `certified` at both — the withdrawal it used to
-    // record is driven, on the same fixture, by the assertPlatformBinding probe
-    // above against a boundary that actually moved a bound cell.
+    // THE ONE FLEET-VISIBLE CONSEQUENCE, back on the estate's own library
+    // rather than a hand-moved one — and the reason it reads differently at the
+    // two states is the whole shape of the flag day.
+    //
+    // § v3.6 (WP-4.7) ended the withdrawal for an ORDINARY release: a
+    // certificate binds the exercised compatibility CELLS rather than the whole
+    // platform record, and moving `agent_version` alone moves no cell. That is
+    // still true and is still measured — by the state-A pass of this probe and
+    // by the 0.5.1-only contrast in
+    // sandbox/tests/offline/cli/regress_migration_preflight.php.
+    //
+    // A SPEC bump is deliberately NOT saved by it. `spec_version` sits inside
+    // the signed `statement.platform` and is compared first (:3721-3727),
+    // because R7's whole reason for putting a version INSIDE the statement was
+    // that a future wire change must read as a named refusal rather than as
+    // corruption. So on the flag day every certificate in the field withdraws
+    // — an operator's own site-rooted signature, degraded to `uncertified`,
+    // adapter still loading — and `duo adapter recertify` is the remedy the
+    // runbook schedules (docs/guides/flag-day.md step 5). Recording `certified`
+    // at B would have been recording the flip's central cost as absent.
     $probe(
         'agent/src/Adapter/AdapterCertification.php::verifyCertificate',
         'AdapterCertification::verifyFile(libs/' . $state . ', certified-alpha)',
-        'certified',
+        $state === 'A'
+            ? 'certified'
+            : 'certification was signed under spec version ' . (DUO_SPEC_VERSION - 1)
+                . ', which is not the spec version ' . DUO_SPEC_VERSION,
         static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
             $lib, $certSite, $certName, $certManifest, $certFile
         )['disposition']['certification'] ?? '?')
@@ -1161,12 +1225,13 @@ function rehearsal_probes(string $estate, string $state): array {
  * The projections and orchestrator-side gates, for one state.
  *
  * These live in `cli/` and `recovery/`, which the flag day ships beside the
- * agent (`Adopt.php:147-150` tars `agent manifests recovery`; `cli/` is the
+ * agent (`Adopt.php:153-155` tars `agent manifests recovery`; `cli/` is the
  * operator's own checkout). They are driven in-process at this state's defines
  * rather than through the `duo` executable: that shell resolves the defines
- * from the checkout's `agent/duo.php` (`AdapterCertify::boot()`:1151-1166) and
- * would therefore always run at state A, which is the one thing a rehearsal of
- * state B must not do.
+ * from the checkout's `agent/duo.php` (`AdapterCertify::boot()`:1465-1481) and
+ * therefore always runs at the TREE's state — which since WP-4.12 is state B,
+ * the far end of the flip. In-process is the only way a probe can be asked the
+ * same question at BOTH ends of the transition, which is what a rehearsal is.
  *
  * @return list<array<string,mixed>>
  */
@@ -1183,17 +1248,28 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
     // --- the operator's certify command -----------------------------------
     //
     // These two run the SHIPPED `duo` executable as a child process, and only
-    // at state A. Two facts force both halves. `AdapterCertify::fail()` writes
+    // at state B. Two facts force both halves. `AdapterCertify::fail()` writes
     // its refusal to STDERR, which an in-process call cannot capture (PHP
     // cannot rebind the STDERR constant), so the message — the evidence — is
     // only reachable through a child. And that child resolves its defines from
-    // the checkout's own `agent/duo.php` (:1151-1166), so it is an A-state
-    // agent by construction; running it against the B library would produce the
-    // mixed-bundle refusal instead of the gate under test. Neither condition
-    // here is about the boundary: a manifest that does not load and a key id
-    // already bound to another key refuse identically at both states, and the
-    // suite requires only that a gate be exercised at SOME state.
-    if ($state === 'A') {
+    // the checkout's own `agent/duo.php` (`AdapterCertify::boot()`:1465-1481),
+    // so it is a B-state agent BY CONSTRUCTION — the shipped `duo` is the
+    // flip's own binary and there is no flag that makes it pretend otherwise.
+    //
+    // WP-4.12 FLIPPED WHICH STATE THAT IS, and the measurement says so rather
+    // than the prose: at state A the same two probes now report
+    // `duo: agent capability platform boundary disagrees with the loaded agent`
+    // (AdapterCertification.php:3559) — a 0.6.0/3 executable reading the
+    // 0.5.0/2 library — which is the mixed-bundle refusal, not the gate under
+    // test. Leaving them at A would have kept the `certify` probe green for
+    // the WRONG REASON (its expectation is the substring 'does not load', which
+    // that refusal also contains) while `registerAuthority` went red; a probe
+    // that passes on a refusal about something else is the exact false green
+    // this estate's enumeration exists to remove. Neither condition here is
+    // about the boundary — a manifest that does not load and a key id already
+    // bound to another key refuse identically at both states — and the suite
+    // requires only that a gate be exercised at SOME state.
+    if ($state === 'B') {
         $brokenSite = $scratch . '/certify-broken';
         rehearsal_copy_tree($estate . '/sites/certified-beta', $brokenSite);
         $broken = \Duo\Canon::decode(\Duo\Canon::read_file($brokenSite . '/adapters/estate-shop.json'));
@@ -1439,13 +1515,24 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
     $probe(
         'cli/src/Transport/CodeDeploy.php::dispositionBlockers',
         'CodeDeploy::dispositionBlockers(<compiled summary carrying certified-beta\'s site adapter>)',
-        // ONE branch at both states since § v3.6: the certificate survives this
-        // release, so the adapter still carries its signed-but-unpinned claim
-        // at B exactly as at A and the blocker stays the pin-shape one. Before
-        // WP-4.7 the bump withdrew the certificate, the claim went with it, and
-        // this gate reported the missing-claim blocker instead — a second
-        // branch that existed only because the flag day destroyed the claim.
-        'the repository pin does not bind both source',
+        // BOTH BRANCHES, one per state, and the split is the flag day itself.
+        //
+        // § v3.6 made this a single branch for an ORDINARY release: the
+        // certificate survives, so the adapter still carries its signed-but-
+        // unpinned claim and the blocker stays the pin-shape one. WP-4.12
+        // brings the second branch back — but only for the flip, and only
+        // because the flip genuinely withdraws the claim (:3721-3727). At B
+        // `dispositionBlockers()` finds a compiled site adapter with no reviewed
+        // capability bound to it and reports that instead (CodeDeploy.php:208).
+        //
+        // This is a REAL operator-facing consequence, not fixture noise: a code
+        // deploy attempted on a certificate-holding site between the bump and
+        // the recertify of runbook step 5 is BLOCKED, by name, until the
+        // certificate is re-minted. Declaring one branch at both states would
+        // have hidden a blocked deploy behind a green rehearsal.
+        $state === 'A'
+            ? 'the repository pin does not bind both source'
+            : 'no reviewed capability claim is bound to this compiled adapter',
         static function () use ($estate, $lib): string {
             putenv('DUO_MANIFESTS_DIR=' . $lib);
             $policy = \Duo\Policy::load($estate . '/sites/certified-beta');

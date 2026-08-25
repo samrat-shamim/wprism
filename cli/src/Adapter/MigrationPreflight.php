@@ -299,6 +299,26 @@ final class MigrationPreflight {
     }
 
     /**
+     * The preflight document for one site, as a value.
+     *
+     * WP-4.12 needs the ENUMERATION without the rendering: `duo release
+     * --spec-v3` is the per-repository migration act, and its whole first step
+     * is "what does the preflight say about this site". Re-deriving that would
+     * be a second answer to the question this file exists to answer once —
+     * which is the drift `run()`'s own header warns about for the gates it
+     * calls rather than restates.
+     *
+     * The caller owns booting the engine (`Policy::manifests_dir()` must
+     * already resolve) and owns every verdict; this returns facts.
+     *
+     * @param array<string,?string> $held `artifact`, `scope-contract`, `snapshot` paths, each optional
+     * @return array<string,mixed>
+     */
+    public static function enumerate(string $repo, string $manifestDir, array $held = []): array {
+        return self::report($repo, $manifestDir, $held + ['artifact' => null, 'scope-contract' => null, 'snapshot' => null]);
+    }
+
+    /**
      * The whole document. Built in the order an operator reads it: what the
      * target IS, then what the site holds against it, then the movement list
      * those two produce.

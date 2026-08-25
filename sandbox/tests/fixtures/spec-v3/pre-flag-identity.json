@@ -1,0 +1,109 @@
+{
+    "adapter_digests": {
+        "acf": "59bcfb5c04958c9e4b340f2c47772b245f4afee15e358eef692c0887365450c3",
+        "advanced-editor-tools": "f053a9a1974869ae957795357282250ef664194ed3be192d97222789a4b755c3",
+        "classic-editor": "33ba7b66daadcf52f0103d7a6abd2594d98067ba22f82e0c2751ac25e106bd29",
+        "code-snippets": "b65ed9be8c7ddbe4436bf98bbaf0bb1dbf412b67817f1884082fe1df56c1851b",
+        "contact-form-7": "8b85b02e7cc816799be570b1e86e0fa16502628771abd66dbe74415e85f34553",
+        "core": "9c07275d02d726336a2270ce4260403f40dc406c3353470adf714cf753905aa2",
+        "duo-agency-cpt": "77ba41d17579c97ee27cd30a3eac67224c66f9244d74e349b29035cd3ae95362",
+        "elementor": "80df69cc238bf8859b02635519d562e069442b5948091fe666bfaab81d4bf42b",
+        "ninja-forms": "54a069f27fb1518f7a7dee825fb004cf1cdecb95024f83f6b51fd87e7d32352c",
+        "paid-memberships-pro": "ec1109615042d839f4958319bfe1b52be98f95a3024748c91f92f6ce5d27bf72",
+        "polylang": "99a32be4ecbd016f548f3e9352855281a8a9a6d3775322c5f71b599f0f95c07d",
+        "the-events-calendar": "8e9bc8095835916f70866c903e520610c18fd760ed246e4b755389e281e2cf61",
+        "woocommerce": "fe4edd96fed1ab7dc54a204bf270792cb01f7f434c51897beab27055c0133b0b",
+        "wps-hide-login": "d98e5643027fdf941239a32c4e95bbd2bac68a29b326e0b4fbb5a9a3395e060e",
+        "yoast": "652bff48b6f28beb40e667da31f498a7d0d7dde68693e3c2f92977affe6cdbaa",
+        "yoast-duplicate-post": "123547fbbbdcba321dbc99d6d16482e443f3eed5edb0d2ac7965690a23144fa3"
+    },
+    "captured_at_spec_version": 2,
+    "format": "duo-pre-flag-identity/v1",
+    "manifest_bytes_sha256": {
+        "acf": "565df38254cf1b18c8ef171eb64e138a547a5c228670c5c0167570d7462c37d0",
+        "advanced-editor-tools": "047d6d21b86301a52c8681d9623a0588f1f6e458a58a01b0b8b1735e84942f03",
+        "classic-editor": "cebfb83406f3c202a3f3c7e9e98ab8a3661769f7422fcc2a29f8fdc93d25beca",
+        "code-snippets": "1eaf474d65b304729f1f037b9ded6dbdc63c4c3b102d829ab1da73700b94b155",
+        "contact-form-7": "e10ded5c834156f36d87df7103c255899606bd650e5291d6e317ce1cd0688bbc",
+        "core": "05c2ce5a5b88750c644e8955792829b788c1802208e879fc83e81ee2f3503ad2",
+        "duo-agency-cpt": "d3168fe1a8b398b378d87dd7ba876015c3665d5cf7afc7d7cb8364bd365279c8",
+        "elementor": "dfc9dc4e3c02f342773d5ca9cd52b4b9b47905f9e6f2ba0635cc03a1e8604245",
+        "ninja-forms": "2df0ef67e0945a0603f425940022ec3c8bfd1bc6af0493f0309aa33f0ad2dd4d",
+        "paid-memberships-pro": "4432b94dc56dbd610eadff8120ee9a78ec1318647f2f8e29d995a3fc744a6a43",
+        "polylang": "1a68571972a8d91e73271a95510cb66a688af368d3f9f75b1d488e4ed55c667f",
+        "the-events-calendar": "0562f5bfd50b6c8c9d507253d08cfe4d7242eb0bfd41871ad5ce0ae3cad00103",
+        "woocommerce": "210eb6aece76235cd3c8fef489be694b8604a0ca7a9b232c0ccfe72e830ef507",
+        "wps-hide-login": "9a9f56ffc5bb46adbae48b6f0b4f6875505440b2eef6c9fee5e0945a00c0b50d",
+        "yoast": "19d0f4dca6be17b7284b8c91ba6252513a4a5d755dc4d01e19f8b10c8cd7e6fd",
+        "yoast-duplicate-post": "63387df3faaece1e4493b74092c0d46bf8ce8fe38b737844b2e22c299981f0a7"
+    },
+    "pin_sets": {
+        "all-16": {
+            "manifest_hash": "937450d86d3ac3e216979c204e3952c543572ce194da5bc34b2a0c9c3e891393",
+            "pins": [
+                "acf",
+                "advanced-editor-tools",
+                "classic-editor",
+                "code-snippets",
+                "contact-form-7",
+                "core",
+                "duo-agency-cpt",
+                "elementor",
+                "ninja-forms",
+                "paid-memberships-pro",
+                "polylang",
+                "the-events-calendar",
+                "woocommerce",
+                "wps-hide-login",
+                "yoast",
+                "yoast-duplicate-post"
+            ]
+        },
+        "core+elementor+yoast+contact-form-7": {
+            "manifest_hash": "66d402796177b83a288398b94f75039f89fabc50291f18d926a972567e92bccd",
+            "pins": [
+                "contact-form-7",
+                "core",
+                "elementor",
+                "yoast"
+            ]
+        },
+        "core+paid-memberships-pro+code-snippets": {
+            "manifest_hash": "06c1924b80f9e2a52d7eec4dac7c4ff04fbbee75d23220c62750a7f82ab1bf60",
+            "pins": [
+                "code-snippets",
+                "core",
+                "paid-memberships-pro"
+            ]
+        },
+        "core+polylang+the-events-calendar": {
+            "manifest_hash": "b4bf7502a3be29890319b39eacfe825dc4f71ed477770a89ff9843d0c977c171",
+            "pins": [
+                "core",
+                "polylang",
+                "the-events-calendar"
+            ]
+        },
+        "core+woocommerce+acf": {
+            "manifest_hash": "48087cda488da6c3900d0bee4a88d093c05776f8b678c10c5ddbf9469c3fc70f",
+            "pins": [
+                "acf",
+                "core",
+                "woocommerce"
+            ]
+        },
+        "core-only": {
+            "manifest_hash": "106e89c3665657e323863fd2735e15c0017c4a2efe44948dc10f16635be9cf67",
+            "pins": [
+                "core"
+            ]
+        },
+        "duo-agency-cpt-only": {
+            "manifest_hash": "1bdf6c48f1ef65e0e384ec92ea3d7f25b40bc08ee7f5db7679d40183bda4c453",
+            "pins": [
+                "duo-agency-cpt"
+            ]
+        }
+    },
+    "registry_sha256": "8d6c35cfe4c5f21193e83cc4707a11359680df8e95e48e087387fe00ef491744"
+}

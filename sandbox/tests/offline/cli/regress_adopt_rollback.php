@@ -11,6 +11,14 @@ declare(strict_types=1);
  * only the verification exception.
  */
 
+// WP-4.12: the fixture transport below reports the agent version the remote
+// says it is running, and `Adopt::install()` compares it against the version
+// in THIS checkout. A literal there is a copy of `agent/duo.php`'s define, so
+// it reads as an adoption failure the day the define moves rather than as a
+// stale fixture. Derived from the source of record instead.
+require dirname(__DIR__, 2) . '/lib/agent_version.php';
+duo_test_define_agent_versions();
+
 require dirname(__DIR__, 4) . '/cli/src/Transport/Transport.php';
 require dirname(__DIR__, 4) . '/recovery/rollback-control.php';
 require dirname(__DIR__, 4) . '/cli/src/Onboarding/Adopt.php';
@@ -104,7 +112,7 @@ final class AdoptCommittedCleanupFailureTransport implements AdoptionTransport {
             1 => ['exit' => 0, 'stdout' => '', 'stderr' => ''],
             2 => ['exit' => 0, 'stdout' => "/fixture/mu-plugins\n", 'stderr' => ''],
             3 => ['exit' => 0, 'stdout' => "duo-single-site\n", 'stderr' => ''],
-            4 => ['exit' => 0, 'stdout' => "0.5.0\n", 'stderr' => ''],
+            4 => ['exit' => 0, 'stdout' => DUO_AGENT_VERSION . "\n", 'stderr' => ''],
             5 => ['exit' => 0, 'stdout' => "duo-policy-ok\n", 'stderr' => ''],
             default => ['exit' => 94, 'stdout' => '', 'stderr' => 'unexpected wp fixture call'],
         };
