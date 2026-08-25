@@ -200,7 +200,7 @@
       "not_applicable": {}
     },
     "polylang": {
-      "readiness": "unready",
+      "readiness": "ready",
       "covered": {
         "contract-dependency": [
           "manifests/polylang.json",
@@ -208,7 +208,9 @@
           "manifests/providers/polylang-nav-menus.php",
           "sandbox/conformance/artifacts.lock.json",
           "sandbox/tests/certify/certify_version_matrix.sh",
-          "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php"
+          "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php",
+          "sandbox/tests/live/regress_polylang_multisite_refusal.sh",
+          "sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
         ],
         "clean-target": [
           "sandbox/conformance/manifests.json",
@@ -216,6 +218,12 @@
           "sandbox/conformance/seeds/polylang.sh",
           "sandbox/conformance/checks/polylang.sh",
           "sandbox/tests/certify/certify_version_matrix.sh"
+        ],
+        "native-behavior": [
+          "sandbox/conformance/seeds/polylang.sh",
+          "sandbox/conformance/checks/polylang.sh",
+          "sandbox/tests/certify/certify_version_matrix.sh",
+          "sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
         ],
         "dirty-target": [
           "sandbox/conformance/postdeploy/polylang.sh",
@@ -232,7 +240,8 @@
         "derived-state": [
           "manifests/providers/polylang-nav-menus.php",
           "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php",
-          "sandbox/conformance/checks/polylang.sh"
+          "sandbox/conformance/checks/polylang.sh",
+          "sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
         ],
         "deletion": [
           "sandbox/conformance/checks/polylang.sh",
@@ -241,7 +250,8 @@
         "failure-recovery": [
           "sandbox/conformance/checks/polylang.sh",
           "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php",
-          "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"
+          "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php",
+          "sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
         ],
         "concurrency-idempotence": [
           "sandbox/conformance/checks/polylang.sh",
@@ -257,14 +267,17 @@
           "sandbox/conformance/checks/polylang.sh",
           "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php",
           "sandbox/tests/offline/reference-scope/regress_scope_discovery.php"
+        ],
+        "scope-platform": [
+          "manifests/interpreters/polylang.php",
+          "sandbox/conformance/checks/polylang.sh",
+          "sandbox/tests/live/regress_multisite_refusal.sh",
+          "sandbox/tests/live/regress_polylang_multisite_refusal.sh",
+          "sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
         ]
       },
-      "gaps": {
-        "native-behavior": "The restored deterministic matrix has not yet been exercised by its exact Polylang pair; no production-ready claim may be published before that result is retained."
-      },
-      "blocked": {
-        "scope-platform": "The final Polylang/shared bounded-WP-CLI-child-process co-install sweep waits for the reviewed shared effect SHA."
-      },
+      "gaps": {},
+      "blocked": {},
       "not_applicable": {}
     },
     "the-events-calendar": {

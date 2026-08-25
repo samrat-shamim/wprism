@@ -194,13 +194,12 @@
     "polylang": {
       "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]}, "entity_sections": ["taxonomies"], "field_sections": ["options", "post_meta", "term_meta", "user_meta", "widgets"], "lifecycle_phases": ["retire", "activate", "verify"], "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]},
       "default_authored_keyspaces": [],
-      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-polylang", "exact-artifact-version-matrix", "regress-polylang-production-readiness"]},
-      "reason": "Experimental deterministic reconstruction for the reviewed Polylang 3.8.x boundary; exact-artifact, lifecycle, multisite-refusal, and shared child-process co-install live evidence remain incomplete.",
-      "status": "experimental",
+      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-polylang", "exact-artifact-version-matrix", "regress-polylang-production-readiness", "regress-polylang-multisite-refusal", "regress-polylang-tec-rewrite-coinstall"]},
+      "reason": "Certified for the reviewed Polylang 3.8.x boundary: exact 3.8/3.8.6/3.8.7 artifact pins and adjacent 3.7/3.8.8 refusal controls, multilingual post/page/pattern/term/media/menu/widget graph, populated string-catalog term metadata, native API/render behavior, warning-free clean-target capture/deploy/apply, byte-identical recapture, provider projection plus fresh-process native rewrite action, failure-before-effect/retry, clean no-op recapture, lifecycle recovery, and exact 3.8.6 populated multisite refusal. Polylang Pro/add-ons, plugin-specific deletes, WPML state, domain/subdomain URL topology, and multisite remain explicit refusals.",
+      "status": "certified",
       "supported_versions": {"plugin": "polylang/polylang.php", "range": {"max": "3.8.8", "min": "3.8"}},
       "unsupported": [
-        {"operation": "delete", "reason": "No Polylang deletion selector is declared.", "surface": "deletions.*"},
-        {"operation": "promote", "reason": "Exact-artifact, lifecycle, multisite-refusal, and shared child-process co-install live evidence remain incomplete.", "surface": "production"}
+        {"operation": "delete", "reason": "No Polylang deletion selector is declared.", "surface": "deletions.*"}
       ]
     },
     "the-events-calendar": {
