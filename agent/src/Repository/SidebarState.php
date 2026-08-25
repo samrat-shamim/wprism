@@ -123,8 +123,7 @@ final class SidebarState {
         bool $mint,
         bool $forceUnresolvedRefs = false,
         bool $strictReadOnly = false,
-        ?array $portableWidgetReferences = null
-        ,
+        ?array $portableWidgetReferences = null,
         ?array $canonicalTree = null
     ): array {
         // The sixth argument is historically the portable-widget reference

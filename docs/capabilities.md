@@ -287,7 +287,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** `taxonomies` (4: language, post_translations, term_language, term_translations)
 - **Declared fields:** `options` (5: pll_dismissed_notices, pll_language_from_content_available, pll_language_taxonomies, polylang, polylang_licenses), `post_meta` (1: _pll_menu_item), `term_meta` (1: _pll_strings_translations), `user_meta` (3: description, pll_dismissed_notices, pll_filter_content), `widgets` (1: polylang)
-- **Adapter hooks:** 1 provider, 1 structured action, interpreter `polylang`
+- **Adapter hooks:** 1 provider, 2 structured actions, interpreter `polylang`
 - **Deletions supported:** none
 - **Deletions unsupported:** plugin-specific deletes
 - **Exercised by:** `conformance-polylang`, `exact-artifact-version-matrix`, `regress-polylang-production-readiness`

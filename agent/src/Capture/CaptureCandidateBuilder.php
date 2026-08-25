@@ -253,8 +253,7 @@ final class CaptureCandidateBuilder {
             $mint,
             $forceUnresolvedRefs,
             $strictReadOnly,
-            $portableWidgetReferences === [] ? null : $portableWidgetReferences
-            ,
+            $portableWidgetReferences === [] ? null : $portableWidgetReferences,
             $this->canonicalShortcodeTree
         );
 

@@ -607,10 +607,9 @@ namespace {
             'args' => [],
             'reads' => [
                 'option:polylang', 'option:stylesheet', 'option:default_category',
-                'option:permalink_structure', 'option:rewrite_rules',
                 'term:language', 'entity:nav-menu',
             ],
-            'writes' => ['entity:theme-mods-nav-menu-locations', 'option:default_category', 'option:rewrite_rules'],
+            'writes' => ['entity:theme-mods-nav-menu-locations', 'option:default_category'],
             'scope' => 'site',
             'idempotent' => true,
             'timeout_seconds' => 120,
@@ -647,29 +646,24 @@ namespace {
         get_option('theme_mods_twentytwentyone')['custom_target_neighbor'] ?? null,
         'provider preserves unrelated target theme-mod bytes'
     );
-    duo_check_same(2, $receipt['after']['rewrite_rules_count'] ?? null, 'receipt counts the fresh native rewrite projection');
     duo_check_same('en', $receipt['after']['default_category_language'] ?? null, 'receipt proves the native category language');
     duo_check_same(2, $receipt['after']['nav_menu_locations_count'] ?? null, 'receipt bounds the complete raw menu projection');
     duo_check(
-        preg_match('/^[0-9a-f]{64}$/D', (string) ($receipt['after']['rewrite_rules_hash'] ?? '')) === 1
-            && preg_match('/^[0-9a-f]{64}$/D', (string) ($receipt['after']['nav_menu_locations_hash'] ?? '')) === 1
+        preg_match('/^[0-9a-f]{64}$/D', (string) ($receipt['after']['nav_menu_locations_hash'] ?? '')) === 1
             && preg_match('/^[0-9a-f]{64}$/D', (string) ($receipt['after']['native_catalogs_hash'] ?? '')) === 1,
         'receipt publishes bounded fingerprints rather than option contents'
     );
     duo_check(
-        count($GLOBALS['pll_command_calls']) === 1
-            && ($GLOBALS['pll_command_calls'][0] ?? null) === [
-                'rewrite flush', ['launch' => true, 'return' => 'all', 'exit_error' => false],
-            ]
+        count($GLOBALS['pll_command_calls']) === 0
             && count($GLOBALS['pll_child_calls']) === 1
             && str_starts_with((string) ($GLOBALS['pll_child_calls'][0][0] ?? ''), 'eval ')
             && array_slice($GLOBALS['pll_child_calls'][0] ?? [], 1) === [120, 262144, 131072],
         'provider uses a bounded fresh catalog-verification child with fixed process limits'
     );
     duo_check_same(
-        [['rewrite_rules', 'options'], ['alloptions', 'options']],
+        [],
         $GLOBALS['pll_cache_deletes'],
-        'parent option caches expire after the child process commits rewrite rules'
+        'provider does not mutate core rewrite caches; the distinct native action owns that boundary'
     );
     $published = json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     duo_check(
@@ -812,75 +806,39 @@ namespace {
         'raw nav_menu_locations does not match'
     );
 
+    $providerSource = (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/providers/polylang-nav-menus.php');
+    duo_check(
+        !str_contains($providerSource, "runcommand('rewrite flush'")
+            && !str_contains($providerSource, 'NativeActions::'),
+        'Polylang provider models plugin projections without invoking the native rewrite action'
+    );
+    $polylangManifest = json_decode(
+        (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/polylang.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $selectedPolylangActions = array_values(array_filter(
+        (array) ($polylangManifest['actions'] ?? []),
+        static fn(array $action): bool => in_array('option:polylang', (array) ($action['triggers'] ?? []), true)
+    ));
+    duo_check(
+        count($selectedPolylangActions) >= 2
+            && ($selectedPolylangActions[0]['kind'] ?? null) === 'provider'
+            && ($selectedPolylangActions[1]['kind'] ?? null) === 'native'
+            && ($selectedPolylangActions[1]['action'] ?? null) === 'rewrite.flush',
+        'Polylang selects projection first and the distinct native rewrite action second'
+    );
     $provider = pll_reset();
-    $GLOBALS['pll_command_throw'] = new \RuntimeException('fixture launch credential');
-    try {
-        $provider->invoke('synchronize_runtime', []);
-        duo_check(false, 'native command throw is wrapped at the launch boundary');
-    } catch (\RuntimeException $e) {
-        duo_check(
-            $e->getMessage() === "duo: Polylang 'wp rewrite flush' could not start"
-                && $e->getPrevious()?->getMessage() === 'fixture launch credential',
-            'native command throw is wrapped at the launch boundary'
-        );
-    }
-
-    foreach ([null, (object) ['return_code' => '0', 'stdout' => 'Success: Rewrite rules flushed.', 'stderr' => '']] as $result) {
-        $provider = pll_reset();
-        $GLOBALS['pll_command_result'] = $result;
-        duo_check_throws(
-            static fn(): array => $provider->invoke('synchronize_runtime', []),
-            \RuntimeException::class,
-            'malformed native process result refuses without coercion',
-            'returned an unreadable process result'
-        );
-    }
-
-    $provider = pll_reset();
-    $GLOBALS['pll_command_result'] = (object) ['return_code' => 70, 'stdout' => 'context', 'stderr' => 'secret'];
+    $beforeTheme = get_option('theme_mods_twentytwentyone');
+    $GLOBALS['pll_options']['polylang']['nav_menus']['twentytwentyone']['primary']['en'] = 999;
     duo_check_throws(
         static fn(): array => $provider->invoke('synchronize_runtime', []),
         \RuntimeException::class,
-        'nonzero native rewrite refuses with bounded exit context',
-        'exited 70'
+        'projection validation fails before any provider effect',
+        'missing target menu'
     );
-
-    $provider = pll_reset();
-    $GLOBALS['pll_command_result'] = (object) [
-        'return_code' => 0,
-        'stdout' => "Success: Rewrite rules flushed.\n",
-        'stderr' => 'AKIAABCDEFGHIJKLMNOP',
-    ];
-    try {
-        $provider->invoke('synchronize_runtime', []);
-        duo_check(false, 'exit-zero stderr refuses without exposing its bytes');
-    } catch (\RuntimeException $e) {
-        duo_check(
-            str_contains($e->getMessage(), 'emitted stderr despite exit 0')
-                && !str_contains($e->getMessage(), 'AKIAABCDEFGHIJKLMNOP'),
-            'exit-zero stderr refuses without exposing its bytes'
-        );
-    }
-
-    $provider = pll_reset();
-    $GLOBALS['pll_command_result'] = (object) ['return_code' => 0, 'stdout' => 'Success: unrelated', 'stderr' => ''];
-    duo_check_throws(
-        static fn(): array => $provider->invoke('synchronize_runtime', []),
-        \RuntimeException::class,
-        'exit zero without the native rewrite receipt refuses',
-        'without its native success receipt'
-    );
-
-    $provider = pll_reset();
-    $GLOBALS['pll_after_command'] = static function (): void {
-        $GLOBALS['pll_options']['rewrite_rules'] = [];
-    };
-    duo_check_throws(
-        static fn(): array => $provider->invoke('synchronize_runtime', []),
-        \RuntimeException::class,
-        'native success with empty rewrite state refuses',
-        'rewrite_rules postcondition is missing or invalid'
-    );
+    duo_check_same($beforeTheme, get_option('theme_mods_twentytwentyone'), 'projection failure leaves native theme state untouched');
 
     $provider = pll_reset();
     $GLOBALS['pll_options']['theme_mods_twentytwentyone']['nav_menu_locations'] = 'broken';

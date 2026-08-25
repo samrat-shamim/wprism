@@ -9,15 +9,15 @@ if (!class_exists(WpCliChildProcess::class, false)) {
 }
 
 /**
- * Close Polylang's hook-free apply gap for its three derived projections.
+ * Close Polylang's hook-free apply gap for its derived projections.
  *
  * Polylang 3.8 through 3.8.7 updates nav-menu locations, the translated
- * default category, and rewrite rules only from its settings save path
+ * default category only from its settings save path
  * (`Model\Languages::update_default()` and `Settings\Settings_Module`). Duo
  * writes the reviewed option sub-keys without those hooks, so a target can
- * otherwise retain the previous default language's menu/category and stale
- * routes indefinitely. This provider reproduces those bounded native effects
- * and refuses unless fresh readback proves all three values agree.
+ * otherwise retain the previous default language's menu/category indefinitely.
+ * This provider models those bounded plugin-owned effects; core's separate
+ * `rewrite.flush` action owns WordPress rewrite regeneration.
  */
 final class PolylangNavMenus {
     private const LANGUAGE_SLUG_MAX_BYTES = 200;
@@ -53,20 +53,17 @@ final class PolylangNavMenus {
                     'option:polylang',
                     'option:stylesheet',
                     'option:default_category',
-                    'option:permalink_structure',
-                    'option:rewrite_rules',
                     'term:language',
                     'entity:nav-menu',
                 ],
                 'writes' => [
                     'entity:theme-mods-nav-menu-locations',
                     'option:default_category',
-                    'option:rewrite_rules',
                 ],
                 'scope' => 'site',
                 'idempotent' => true,
-                // A fresh `wp rewrite flush` child is deliberately bounded;
-                // it has no site-size-dependent traversal.
+                // The provider projection is deliberately bounded; the
+                // engine-owned rewrite action has its own contract.
                 'timeout_seconds' => 120,
                 'scoped' => [
                     'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
@@ -90,7 +87,6 @@ final class PolylangNavMenus {
         $before = $this->observe(false, $configuration);
         $this->synchronize_default_category($configuration);
         $this->synchronize_nav_menu_locations($configuration);
-        $this->flush_rewrite_rules();
         $this->purge_polylang_language_cache();
         $nativeCatalogs = $this->verify_fresh_native_catalogs();
         $after = $this->observe(true, $configuration);
@@ -154,11 +150,6 @@ final class PolylangNavMenus {
                     "duo: Polylang runtime synchronization requires WordPress/Polylang's $required()"
                 );
             }
-        }
-        if (!class_exists('WP_CLI') || !is_callable(['WP_CLI', 'runcommand'])) {
-            throw new \RuntimeException(
-                'duo: Polylang runtime synchronization requires WP_CLI::runcommand()'
-            );
         }
     }
 
@@ -253,16 +244,10 @@ final class PolylangNavMenus {
             }
         }
 
-        $permalinkStructure = get_option('permalink_structure', '');
-        if (!is_string($permalinkStructure)) {
-            throw new \RuntimeException('duo: Polylang permalink_structure is invalid; recovery_required');
-        }
-
         return [
             'default_lang' => $defaultLang,
             'expected_category' => $expectedCategory,
             'expected_locations' => $defaultLang === '' || !$activeThemeDeclared ? null : $expected,
-            'permalink_structure' => $permalinkStructure,
             'stylesheet' => $stylesheet,
         ];
     }
@@ -291,50 +276,6 @@ final class PolylangNavMenus {
         update_option('default_category', $configuration['expected_category']);
     }
 
-    private function flush_rewrite_rules(): void {
-        try {
-            $result = \WP_CLI::runcommand('rewrite flush', [
-                'launch' => true,
-                'return' => 'all',
-                'exit_error' => false,
-            ]);
-        } catch (\Throwable $t) {
-            throw new \RuntimeException(
-                "duo: Polylang 'wp rewrite flush' could not start",
-                0,
-                $t
-            );
-        }
-        if (!is_object($result)
-            || !is_int($result->return_code ?? null)
-            || !is_string($result->stdout ?? null)
-            || !is_string($result->stderr ?? null)) {
-            throw new \RuntimeException(
-                "duo: Polylang 'wp rewrite flush' returned an unreadable process result"
-            );
-        }
-        if ($result->return_code !== 0) {
-            throw new \RuntimeException(
-                "duo: Polylang 'wp rewrite flush' exited {$result->return_code}; recovery_required"
-            );
-        }
-        if ($result->stderr !== '') {
-            throw new \RuntimeException(
-                "duo: Polylang 'wp rewrite flush' emitted stderr despite exit 0; recovery_required"
-            );
-        }
-        if (preg_match('/Success:\s+Rewrite rules flushed\./i', $result->stdout) !== 1) {
-            throw new \RuntimeException(
-                "duo: Polylang 'wp rewrite flush' exited 0 without its native success receipt"
-            );
-        }
-
-        // The launched command is a child process. Expire this process's
-        // option caches before the postcondition reads the committed row.
-        wp_cache_delete('rewrite_rules', 'options');
-        wp_cache_delete('alloptions', 'options');
-    }
-
     /** @return array<string,mixed> */
     private function observe(bool $verify, array $configuration): array {
         $rawLocations = $this->raw_locations($configuration['stylesheet']);
@@ -346,10 +287,6 @@ final class PolylangNavMenus {
         $categoryLanguage = $configuration['default_lang'] !== '' && $defaultCategory > 0
             ? pll_get_term_language($defaultCategory, 'slug')
             : false;
-        $rewriteRules = get_option('rewrite_rules');
-        $validRules = is_array($rewriteRules);
-        $prettyPermalinks = $configuration['permalink_structure'] !== '';
-
         if ($verify) {
             if ($configuration['expected_locations'] !== null
                 && $rawLocations !== $configuration['expected_locations']) {
@@ -363,11 +300,6 @@ final class PolylangNavMenus {
                     'duo: Polylang default category does not match the exact translated term; recovery_required'
                 );
             }
-            if ($prettyPermalinks && (!$validRules || $rewriteRules === [])) {
-                throw new \RuntimeException(
-                    'duo: Polylang rewrite_rules postcondition is missing or invalid; recovery_required'
-                );
-            }
         }
 
         return [
@@ -376,8 +308,6 @@ final class PolylangNavMenus {
             'default_lang' => $configuration['default_lang'],
             'nav_menu_locations_count' => count($rawLocations),
             'nav_menu_locations_hash' => hash('sha256', serialize($rawLocations)),
-            'rewrite_rules_count' => $validRules ? count($rewriteRules) : 0,
-            'rewrite_rules_hash' => $validRules ? hash('sha256', serialize($rewriteRules)) : '',
             'stylesheet' => $configuration['stylesheet'],
         ];
     }

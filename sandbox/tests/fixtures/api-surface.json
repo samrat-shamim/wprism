@@ -54677,6 +54677,14 @@
                             "name": "portableWidgetReferences",
                             "type": "?array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "canonicalTree",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
