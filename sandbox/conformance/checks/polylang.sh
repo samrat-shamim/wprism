@@ -563,9 +563,10 @@ jq -e '
 ' <<<"$CONVERGED" >/dev/null || fail "Polylang conflict recovery lost repository or target runtime state: $CONVERGED"
 pass 'dirty translation conflicts refuse atomically; explicit authority converges without crossing runtime state'
 
-# Change the default language and suppress the raw theme-mod write in a real
-# MU hook. Authored intent must survive for retry, but publication must remain
-# incomplete until every provider postcondition verifies.
+# Change the default language, then make the provider's fresh-process native
+# catalog verification child fail from a real MU hook. Authored intent must
+# survive for retry, but publication must remain incomplete until every
+# provider postcondition verifies.
 wp_conf1 eval '
   $category=get_term_by("slug","uncategorized-fr","category");
   $menu=wp_get_nav_menu_object("Polylang Principal Français");
@@ -588,9 +589,12 @@ commit_polylang_source 'conformance: Polylang provider-fault recovery intent'
 FAULT_HOOK="$CONF_REPO2/.tmp-polylang-provider-fault.php"
 cat > "$FAULT_HOOK" <<'PHPEOF'
 <?php
-add_filter('pre_update_option_theme_mods_twentytwentyone', static function ($new, $old) {
-    return is_file(WP_CONTENT_DIR . '/.duo-polylang-provider-fault') ? $old : $new;
-}, 10, 2);
+if (is_file(WP_CONTENT_DIR . '/.duo-polylang-provider-fault')
+    && ($GLOBALS['argv'][1] ?? null) === 'eval'
+    && str_contains((string) ($GLOBALS['argv'][2] ?? ''), 'DUO_PLL_NATIVE:')) {
+    fwrite(STDERR, "injected Polylang native-catalog verification child failure\n");
+    exit(70);
+}
 PHPEOF
 $COMPOSE run --rm -T --user=0 cli2 sh -c '
   install -m 0644 /siterepo/.tmp-polylang-provider-fault.php /var/www/html/wp-content/mu-plugins/duo-polylang-provider-fault.php
@@ -604,7 +608,7 @@ FAULT_RC=0
 FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
 require_duo_answered 'Polylang provider retained-write failure' human "$FAULT_OUT"
 [ "$FAULT_RC" -ne 0 ] && grep -q "provider 'polylang-nav-menus' capability 'synchronize_runtime' failed" <<<"$FAULT_OUT" \
-  || fail "Polylang retained provider write did not refuse exactly: $FAULT_OUT"
+  || fail "Polylang retained provider verification did not refuse exactly: $FAULT_OUT"
 [ "$(wp_conf2 eval 'echo (string)\Duo\Ledger::kv_get("applied_revision");')" = "$FAILURE_REV_BEFORE" ] \
   || fail 'Polylang provider failure advanced applied_revision'
 [ "$(wp_conf2 eval 'echo null===\Duo\Ledger::kv_get("apply_in_progress")?"clear":"retained";')" = retained ] \
@@ -614,7 +618,7 @@ require_duo_answered 'Polylang provider retained-write failure' human "$FAULT_OU
 [ "$(wp_conf2 option get duo_polylang_undeclared_neighbor)" = target-only-preserved ] \
   || fail 'Polylang provider failure crossed the unrelated target option boundary'
 [ "$(wp_conf2 db query "SELECT SHA2(option_value,256) FROM wp_options WHERE option_name='rewrite_rules'" --skip-column-names)" = "$FAULT_REWRITE_BEFORE" ] \
-  || fail 'Polylang projection failure ran rewrite generation despite the preceding action refusal'
+  || fail 'Polylang provider verification failure ran rewrite generation despite the preceding action refusal'
 $COMPOSE run --rm -T --user=0 cli2 rm -f \
   /var/www/html/wp-content/.duo-polylang-provider-fault \
   /var/www/html/wp-content/mu-plugins/duo-polylang-provider-fault.php \

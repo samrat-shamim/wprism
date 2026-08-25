@@ -99,6 +99,7 @@ for needle in \
   'get_term_by("slug","uncategorized-fr","category")' \
   'wp_get_nav_menu_object("Polylang Principal Français")' \
   'Polylang French projection source graph is incoherent' \
+  'injected Polylang native-catalog verification child failure' \
   'RETRY_RC=0' \
   'Polylang provider retry after exact repair failed'; do
   grep -Fq "$needle" "$CONF" || fail "Polylang provider-retry fixture lost coherent source or surfaced failure guard: $needle"
