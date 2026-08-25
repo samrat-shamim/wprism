@@ -18,6 +18,11 @@ require_once __DIR__ . '/StructuredEvidence.php';
 // caller that reaches this file first. ManifestGrammar requires nothing itself
 // — that is its stated design property — so this costs one stat.
 require_once __DIR__ . '/../Policy/ManifestGrammar.php';
+// WP-6.5: the same one-definition rule as the line above, for the feature name
+// and the section name `structured-body-refs/v1` claims. BodyRefGrammar is a
+// leaf in Grammar (JsonRefs/ReferenceRules/Secrets, all Kernel), so this costs
+// the same one stat and cannot circle back through this file.
+require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 // Circular with Policy.php's require_once of this file: safe because
 // require_once records the currently included path before the nested require
 // is reached, while these methods only resolve Policy at call time.
@@ -161,6 +166,29 @@ final class AdapterContractGrammar {
             'since' => 3,
             'keys' => [],
         ],
+        // WP-6.5 (spec/repo-format.md § v3.20), and the first row that does
+        // BOTH of the two things the four above each did one of: it claims a
+        // top-level key (`body_refs`) AND widens a value vocabulary inside a
+        // section that already exists (`post_types.<type>.body` gains `json`).
+        // That combination is the reason both halves are gated on ONE name
+        // rather than two — a manifest could otherwise declare the paths
+        // without the mode, or the mode without the paths, and each half alone
+        // is a declaration that captures nothing and says nothing.
+        //
+        // `since: 3` for the same reason as every row above: `since` is the
+        // first version whose grammar HAS the section, and this engine's does.
+        // `regress_body_ref_grammar.php` asserts that 3 against the define in
+        // the same run as its three § v3.2 verdicts, so the channel cannot
+        // quietly become a bump.
+        //
+        // The name is read from BodyRefGrammar rather than spelled here because
+        // Grammar is BELOW Adapter on tools/modules.json's ladder and the
+        // body-mode gate — which lives down there, where the declaring manifest
+        // is in hand — must be asking about the same string this row admits.
+        BodyRefGrammar::FEATURE => [
+            'since' => 3,
+            'keys' => [BodyRefGrammar::SECTION],
+        ],
     ];
 
     /**
@@ -289,6 +317,36 @@ final class AdapterContractGrammar {
         sort($names, SORT_STRING);
 
         return $names;
+    }
+
+    /**
+     * The same rows, whole: feature => `{since, keys}`, sorted by name.
+     *
+     * Published for `duo manifest-validate --emit-schema` (WP-6.5), which used
+     * to be unable to describe the channel at all — the four post-v3 SECTIONS
+     * and the `engine_features` key itself appeared nowhere in the emitted
+     * grammar document, so an author could not learn from the engine's own
+     * answer that the features exist. This exposes no information the two
+     * accessors above did not already publish between them (`implemented_
+     * features()` the names, `section_min_spec()` the sections and their
+     * versions); what it adds is the PAIRING, which is the half a consumer
+     * needs and the half neither accessor alone can state.
+     *
+     * A copy, not the constant: the rows are engine-owned and a caller that
+     * could mutate them would be a second vocabulary.
+     *
+     * @return array<string,array{since:int,keys:list<string>}>
+     */
+    public static function implemented_feature_rows(): array {
+        $rows = [];
+        foreach (self::implemented_features() as $name) {
+            $rows[$name] = [
+                'since' => self::IMPLEMENTED_FEATURES[$name]['since'],
+                'keys' => self::IMPLEMENTED_FEATURES[$name]['keys'],
+            ];
+        }
+
+        return $rows;
     }
 
     /**

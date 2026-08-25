@@ -668,6 +668,7 @@ final class ManifestValidate {
                 'Duo\\NativeActions::vocabulary()',
                 'Duo\\NativeActions::arg_schemas()',
                 'Duo\\AdapterContractGrammar::validate_adapter_contract() (probed)',
+                'Duo\\AdapterContractGrammar::implemented_feature_rows()',
                 'Duo\\AdapterCertification::topLevelKeyPartition()',
             ],
             // Every consumer of this document is entitled to know what it does
@@ -704,8 +705,30 @@ final class ManifestValidate {
                     . 'top-level key and is refused only at signing time, and a v3 manifest may declare keys '
                     . 'BEYOND these arms when a declared engine feature claims them, so this block is the base '
                     . 'set rather than the whole answer for one manifest (see `enforced_by`, `status`).',
+                // WP-6.5. The gap this closes was found by walking the
+                // decentralized authoring path as a stranger: the four
+                // post-v3 SECTIONS (`attr_id_codecs`, `column_codecs`,
+                // `declaration_evidence`, `body_refs`) and the channel key
+                // `engine_features` itself appeared NOWHERE in this document —
+                // not in `vocabularies` (they are keys, not values), not in
+                // `top_level_keys` (which publishes the signer's base partition
+                // and says so), and not in `not_included`. So an author
+                // reading the engine's own answer could not learn that the
+                // features exist, and had to read three engine source files to
+                // author one. It is published rather than added to
+                // `not_included` because the answer is DERIVABLE from the same
+                // validator every other block here is derived from — and a
+                // boundary a document could have simply stated is not a
+                // boundary, it is an omission.
+                'engine_features' => 'The post-v3 declaration channel (spec/repo-format.md § v3.2), derived from '
+                    . 'the same `IMPLEMENTED_FEATURES` rows the validator refuses against: each feature\'s '
+                    . '`since` is the first spec_version whose grammar HAS its sections, and `keys` are the '
+                    . 'top-level sections declaring it ADMITS (§ v3.3\'s growth rule). A feature may legitimately '
+                    . 'claim no key — one that widens a value vocabulary inside a section that already exists. '
+                    . 'Names are ENGINE-OWNED: an adapter declares one and never mints one.',
             ],
             'spec_window' => self::specWindow(),
+            'engine_features' => self::engineFeatures(),
             'top_level_keys' => self::topLevelKeys(),
             'vocabularies' => Policy::closed_vocabularies(),
             'patterns' => Policy::grammar_patterns(),
@@ -754,6 +777,35 @@ final class ManifestValidate {
      *
      * @return array<string,mixed>
      */
+    /**
+     * The engine features this engine IMPLEMENTS, and what each one claims
+     * (WP-6.5).
+     *
+     * DERIVED, from the exact rows the validator itself refuses against:
+     * `implemented_feature_rows()` is the same constant `assert_engine_
+     * features()` compares a declaration against and `assert_section_versions()`
+     * reads section versions out of. So a feature added to the engine appears
+     * here on the very next emission with no edit in this file — the same
+     * technique, and the same argument, as `specWindow()` below: a literal typed
+     * here would equal the engine on the day it is typed and stop equalling it
+     * on the day the engine grows, which is the day a consumer needs this
+     * document to be right.
+     *
+     * @return array<string,mixed>
+     */
+    private static function engineFeatures(): array {
+        return [
+            'declared_by' => 'the manifest\'s own top-level `engine_features` list (a non-empty, sorted, '
+                . 'duplicate-free list of strings)',
+            'implemented' => AdapterContractGrammar::implemented_feature_rows(),
+            'enforced_by' => 'Duo\\AdapterContractGrammar::assert_engine_features()',
+            'status' => 'A manifest declaring a name in `implemented` loads; one declaring any other name is '
+                . 'refused BY FEATURE NAME, naming this list. A declared feature\'s `keys` are admitted as '
+                . 'top-level sections on top of `top_level_keys` (§ v3.3\'s growth rule), which is why that block '
+                . 'is the base set rather than the whole answer for one manifest.',
+        ];
+    }
+
     private static function specWindow(): array {
         $supported = DUO_SPEC_VERSION;
         $probed = [];

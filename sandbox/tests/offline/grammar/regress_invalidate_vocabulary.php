@@ -342,11 +342,20 @@ duo_check(
 );
 
 duo_check_same(
-    // The four sections the OTHER features claim (WP-4.2, WP-6.1, WP-6.4) —
-    // and deliberately NOT a fifth for this rider: the assertion's point is
-    // that a feature with no `keys` contributes no section floor, and the
-    // merged roster is what makes that visible rather than vacuous.
-    ['attr_id_codecs' => 3, 'column_codecs' => 3, 'declaration_evidence' => 3, 'engine_features' => 3],
+    // The sections the OTHER features claim (WP-4.2, WP-6.1, WP-6.4, WP-6.5) —
+    // and deliberately NOT one for this rider: the assertion's point is that a
+    // feature with no `keys` contributes no section floor, and the merged
+    // roster is what makes that visible rather than vacuous. It grows with
+    // every feature that DOES claim a key, which is the half that keeps this
+    // assertion honest — `body_refs` (WP-6.5) is here and
+    // `invalidate-vocabulary/v1` is still not.
+    [
+        'attr_id_codecs' => 3,
+        'body_refs' => 3,
+        'column_codecs' => 3,
+        'declaration_evidence' => 3,
+        'engine_features' => 3,
+    ],
     AdapterContractGrammar::section_min_spec(),
     'section_min_spec() gains no floor from this rider: a feature with no `keys` contributes none, so no manifest '
         . 'starts refusing a section it already declares'

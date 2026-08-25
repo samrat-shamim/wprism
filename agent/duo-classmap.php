@@ -44,6 +44,7 @@ return [
     'Duo\\AuthoredTransactionRequest' => 'src/Apply/AuthoredTransactionRequest.php',
     'Duo\\BlockReferenceScanner' => 'src/Review/BlockReferenceScanner.php',
     'Duo\\Blocks' => 'src/Grammar/Blocks.php',
+    'Duo\\BodyRefGrammar' => 'src/Grammar/BodyRefGrammar.php',
     'Duo\\BoundHelper' => 'src/Publication/PublicationJournal.php',
     'Duo\\CacheInvalidationTransaction' => 'src/Apply/CacheInvalidationTransaction.php',
     'Duo\\Canary' => 'src/Review/Canary.php',

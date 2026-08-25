@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Grammar/Blocks.php';
+require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/EntityMetaCapture.php';
@@ -155,6 +156,46 @@ final class PostCapture {
             if ($body !== '' && str_contains($body, $this->tokens->home())) {
                 $this->tokens->warnings[] =
                     "verbatim body of {$post->post_type} '{$post->post_name}' contains this environment's home URL — it will NOT be re-bound on apply";
+            }
+        } elseif ($bodyMode === BodyRefGrammar::BODY_MODE) {
+            // WP-6.5. The rule is guaranteed present: a post type in `json`
+            // mode with no `body_refs` entry refuses at manifest load
+            // (BodyRefGrammar::validate_body_refs()), so reaching here with
+            // null would mean a Policy that never validated.
+            $context = "{$post->post_type} '{$post->post_name}'";
+            $rule = $this->policy->body_ref_rule((string) $post->post_type)
+                ?? throw new \RuntimeException(
+                    "duo: $context declares body=" . BodyRefGrammar::BODY_MODE . ' but no body_refs paths are '
+                    . 'loaded for it — the manifest that declared the mode is not the manifest that is pinned'
+                );
+            $body = BodyRefGrammar::capture(
+                (string) $post->post_content,
+                $rule,
+                fn(int $id, string $kind): ?string => $this->tokens->id_to_token($id, $kind),
+                function (string $warning): void { $this->tokens->warnings[] = $warning; },
+                $context
+            );
+            // The same sentence the verbatim arm has always emitted, and for the
+            // same reason: this mode rewrites DECLARED reference paths and
+            // nothing else, so an absolute home URL elsewhere in the document
+            // (measured on WPForms' own
+            // `settings.confirmations.<n>.redirect`) crosses environments
+            // unchanged. Saying so is the difference between a scoped claim and
+            // an implied one.
+            //
+            // BOTH FORMS, and the escaped one is the one that actually fires. A
+            // JSON body is `wp_json_encode()` output, which escapes every '/',
+            // so the URL is on disk as `https:\/\/host\/path` and the verbatim
+            // arm's plain str_contains() would never match it — the same
+            // asymmetry `Lint::flag_escaped_home()` exists for
+            // (Lint.php:183 builds the identical escaped form). Measured: the
+            // recon's `"redirect":"http:\/\/localhost:9620\/recon-thank-you\/"`
+            // is invisible to a plain scan.
+            $homeEscaped = str_replace('/', '\/', $this->tokens->home());
+            if ($body !== ''
+                && (str_contains($body, $this->tokens->home()) || str_contains($body, $homeEscaped))) {
+                $this->tokens->warnings[] =
+                    "json body of {$post->post_type} '{$post->post_name}' contains this environment's home URL outside any declared reference path — it will NOT be re-bound on apply";
             }
         } else {
             $secretLabel = Secrets::hard_match((string) $post->post_content);

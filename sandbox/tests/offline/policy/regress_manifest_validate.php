@@ -1586,6 +1586,22 @@ refuses(
     'the vocabulary is closed (' . implode(', ', $vocabularies['post_type_body_modes']) . ')',
     'and a body mode outside the published set is refused with that exact set printed back'
 );
+// WP-6.5: the gated body modes are published as a SEPARATE vocabulary keyed by
+// the feature that admits each, and the separation is the fact being exercised.
+// A manifest that declares no feature must not be able to write one of these —
+// otherwise the gate is decorative — and the refusal it gets names the FEATURE
+// rather than pretending the value is a misspelling, because there is no
+// spelling of it this manifest would have been allowed.
+$covered['feature_gated_post_type_body_modes'] = true;
+foreach ($vocabularies['feature_gated_post_type_body_modes'] as $feature => $gatedModes) {
+    foreach ($gatedModes as $mode) {
+        refuses(
+            $postType(['class' => 'authored', 'body' => $mode]),
+            "which the engine feature '$feature' gates",
+            "gated body mode '$mode' is refused for a manifest that declares no engine feature, naming '$feature'"
+        );
+    }
+}
 $covered['post_type_phases'] = true;
 foreach ($vocabularies['post_type_phases'] as $phase) {
     accepts($postType(['class' => 'authored', 'phase' => $phase]), "post_types phase '$phase' is published as legal and loads");

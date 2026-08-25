@@ -8,6 +8,7 @@ require_once __DIR__ . '/ShortcodeReferenceScanner.php';
 require_once __DIR__ . '/StructuredReferenceScanner.php';
 require_once __DIR__ . '/LintFinding.php';
 require_once __DIR__ . '/LintEnvironment.php';
+require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 require_once __DIR__ . '/../Repository/StateTreeWalker.php';
 
 /**
@@ -439,6 +440,81 @@ final class Lint {
                 $env->defer(self::BLOCK_DEFERRAL);
             }
             self::scan_shortcodes($body, $shortcodeRules, $rel, $env, $findings);
+        }
+
+        // (d) unrewritten_registered_ref inside a `json` body (WP-6.5). The
+        // measured gap this closes: on the 2026-08-25 recon site four true
+        // cross-entity references existed and `wp duo lint` found TWO — both
+        // block attributes — because nothing looked inside a JSON post_content
+        // at all. Needs no live environment beyond the id resolver: the body is
+        // already in captured state, so this is a pure read of what the
+        // declared rewrite did or did not do.
+        if ($body !== '' && $policy->body_mode($postType) === BodyRefGrammar::BODY_MODE) {
+            self::scan_body_refs($body, $policy->body_ref_rule($postType) ?? [], $rel, $env, $findings);
+        }
+    }
+
+    /**
+     * The `json` body twin of scan_blocks(): DECLARED reference paths only.
+     *
+     * The scoping is a measurement, not a convenience, and it is the one place
+     * this class deliberately does NOT reach for its own undeclared-key
+     * heuristic. `StructuredReferenceScanner::scanUndeclared()` flags an
+     * `id`/`*Id`-named key whose value resolves to a live entity, which is right
+     * for an opaque meta blob and wrong for a form body: the same recon measured
+     * `$.field_id` (a next-field-id ALLOCATOR, `"0"` on one write path and an
+     * int on two others), `$.fields.<n>.id` (form-local field ids "1".."4", both
+     * as the object key and as the member), and field ids embedded in prose
+     * smart tags (`"replyto": "{field_id=\"2\"}"`). Every one is a small number
+     * that collides with a real post id on any site and none is a reference, so
+     * the heuristic would have produced three false findings per form — the
+     * DUO-3508 class of noise `Pending::ref_hint()`'s own guard exists to
+     * suppress, reintroduced under a different name.
+     *
+     * @param array<string,mixed> $rule
+     * @param list<array<string,mixed>> $findings
+     */
+    private static function scan_body_refs(
+        string $body,
+        array $rule,
+        string $rel,
+        LintEnvironment $env,
+        array &$findings
+    ): void {
+        if (($rule['json_refs'] ?? []) === []) {
+            return;
+        }
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            // Not a finding here: an undecodable json body refuses at CAPTURE
+            // with its own named diagnostic (BodyRefGrammar::decode()), and a
+            // second differently-worded copy in the lint vocabulary would make
+            // an operator reconcile two sentences about one fact.
+            return;
+        }
+        $resolve = $env->resolver();
+        foreach (BodyRefGrammar::reference_positions($decoded, $rule) as $position) {
+            $value = $position['value'];
+            if (is_string($value) && str_starts_with($value, '{{')) {
+                continue; // the declared rewrite ran
+            }
+            foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
+                if ($id <= 0) {
+                    continue;
+                }
+                $findings[] = LintFinding::make(
+                    'unrewritten_registered_ref',
+                    $rel,
+                    'body' . $position['locator'] . $locSuffix,
+                    $id,
+                    $resolve($id),
+                    "body_refs path '" . (string) $position['ref']['path'] . "' declares this value as a "
+                        . (string) $position['ref']['kind'] . ' reference, but it is still numeric in captured '
+                        . 'state — the declared rewrite to a {{...}} token never ran. This id is silently '
+                        . 'environment-bound and will point at the wrong entity (or nothing) once ids diverge on '
+                        . 'another environment.'
+                );
+            }
         }
     }
 

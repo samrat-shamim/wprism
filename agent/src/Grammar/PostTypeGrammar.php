@@ -1,6 +1,11 @@
 <?php
 namespace Duo;
 
+// WP-6.5: the feature name and the body-mode value `structured-body-refs/v1`
+// admits, read from the one file that defines them rather than restated here —
+// two spellings of one gated value agree until the day one of them moves.
+require_once __DIR__ . '/BodyRefGrammar.php';
+
 /**
  * The pure post-type behavior grammar extracted from Policy.php
  * (DUO-3348): the closed `post_types.<type>.body` and `.phase` switches and
@@ -177,8 +182,48 @@ final class PostTypeGrammar {
         }
     }
 
-    /** The closed `post_types.<type>.body` vocabulary. */
+    /**
+     * The closed `post_types.<type>.body` vocabulary, ungated.
+     *
+     * These three are legal for every manifest at every accepted spec_version,
+     * and this list is deliberately NOT widened by WP-6.5: a fourth member
+     * added here would be legal for a `spec_version: 2` manifest too, which is
+     * the flag day § v3.2's channel exists to avoid. `json` is admitted
+     * per-manifest instead, by the feature that claims it — see
+     * featureGatedBodyModes() and admitted_body_modes() below.
+     */
     private const BODY_MODES = ['blocks', 'verbatim', 'serialized'];
+
+    /**
+     * The `body` values a DECLARED ENGINE FEATURE admits, feature => modes.
+     *
+     * `json` (WP-6.5, spec/repo-format.md § v3.20) is a body mode rather than a
+     * new top-level switch because the question it answers — how is this post
+     * type's body read — is exactly the question the three above answer, and a
+     * second switch beside them would let two declarations disagree. The price
+     * is that a value inside a closed vocabulary cannot be staged the way a
+     * top-level key can, which is why the feature ALSO claims the top-level
+     * `body_refs` key: an engine that lacks the feature meets the paths as an
+     * unrecognised top-level key and refuses BY FEATURE NAME (§ v3.3's growth
+     * rule), instead of meeting `json` alone and refusing it as a typo.
+     */
+    private const FEATURE_GATED_BODY_MODES = [BodyRefGrammar::FEATURE => [BodyRefGrammar::BODY_MODE]];
+
+    /**
+     * feature => the predicate that answers "did THIS manifest declare it".
+     *
+     * Asked of the feature's own collaborator rather than by reading
+     * `engine_features` here, so the file that owns the name owns the read too.
+     * Two spellings of one declaration check would agree until one of them
+     * learned about, say, a `/v2` successor — and `regress_spec_v3_dry_run.php`
+     * ratchets the census of shipped files that consult the channel precisely so
+     * an incidental third reader has to be argued for.
+     *
+     * @return array<string,callable(array<string,mixed>):bool>
+     */
+    private static function gated_body_mode_predicates(): array {
+        return [BodyRefGrammar::FEATURE => static fn(array $m): bool => BodyRefGrammar::declares_feature($m)];
+    }
 
     /** The closed `post_types.<type>.phase` vocabulary. */
     private const POST_TYPE_PHASES = ['normal', 'early'];
@@ -186,6 +231,47 @@ final class PostTypeGrammar {
     /** @return list<string> Policy::closed_vocabularies()'s body vocabulary. */
     public static function bodyModes(): array {
         return self::BODY_MODES;
+    }
+
+    /**
+     * The gated body modes, keyed by the engine feature that admits each.
+     *
+     * Published beside `post_type_body_modes` rather than folded into it, for
+     * the reason the constant above states: they are not the same set for the
+     * same reader. A manifest declaring no feature may write the three; one
+     * declaring `structured-body-refs/v1` may write four. Publishing the union
+     * would tell an editor to offer `json` to every author, which is precisely
+     * the mis-read the gate exists to convert into a named refusal.
+     *
+     * @return array<string,list<string>>
+     */
+    public static function featureGatedBodyModes(): array {
+        return self::FEATURE_GATED_BODY_MODES;
+    }
+
+    /**
+     * The `body` values ONE manifest may declare: the base three, plus the
+     * modes its own declared engine features admit.
+     *
+     * Answered from THIS manifest's own declaration and nothing else, exactly
+     * as `ManifestGrammar::assert_invalidate_feature_gate()` answers its own:
+     * the declaring document is in hand here (validate_post_type_contracts() is
+     * called once per manifest from ManifestValidator and from nowhere else),
+     * and a gate that consulted the loaded pin set instead would let one
+     * adapter's feature declaration widen another adapter's vocabulary.
+     *
+     * @param array<string,mixed> $manifest
+     * @return list<string>
+     */
+    private static function admitted_body_modes(array $manifest): array {
+        $modes = self::BODY_MODES;
+        foreach (self::gated_body_mode_predicates() as $feature => $declares) {
+            if ($declares($manifest)) {
+                $modes = array_merge($modes, self::FEATURE_GATED_BODY_MODES[$feature]);
+            }
+        }
+
+        return $modes;
     }
 
     /** @return list<string> Policy::closed_vocabularies()'s phase vocabulary. */
@@ -201,26 +287,60 @@ final class PostTypeGrammar {
         return self::POST_TYPE_PHASES[0];
     }
 
-    /** Validate the closed body/phase switches in one manifest. */
+    /**
+     * Validate the closed body/phase switches in one manifest.
+     *
+     * The `body` legal set is now per-manifest (admitted_body_modes()), and the
+     * existing refusal is byte for byte what it always was for every manifest
+     * that declares no engine feature — which is all 16 shipped adapters, so no
+     * manifest byte and no adapter digest moves (AGENTS.md rule 2). A manifest
+     * that DOES declare `structured-body-refs/v1` sees `json` listed in the same
+     * sentence, because the vocabulary a refusal prints has to be the vocabulary
+     * that refused.
+     *
+     * A GATED value declared WITHOUT its feature is RECOGNISED here and refused
+     * later, by `BodyRefGrammar::assert_body_mode_gate()`, and the deferral is
+     * the contract rather than an omission. This validator runs early — before
+     * `AdapterContractGrammar::validate_adapter_contract()` — and § v3.2/§ v3.3
+     * require their three verdicts to arrive FIRST and stay distinct: a
+     * `spec_version: 2` manifest must be refused BY SECTION, a v3 one without
+     * the feature BY KEY, and an engine lacking the feature BY FEATURE NAME.
+     * Refusing `body: "json"` here would pre-empt all three with a fourth
+     * sentence about a body mode, telling an author about a feature when the
+     * real problem is the spec_version their whole manifest declares. So the
+     * gated member is not treated as a typo here, and the ONE case the later
+     * validator is left to answer is the case no top-level key can express:
+     * the mode declared with no `body_refs` section at all.
+     *
+     * What is NOT deferred is the printed vocabulary: a value that is neither
+     * legal nor gated still refuses here, and the list it prints is the list
+     * that refused for THIS manifest.
+     */
     public static function validate_post_type_contracts(array $manifest): void {
         $name = (string) ($manifest['name'] ?? '?');
+        $bodyModes = self::admitted_body_modes($manifest);
+        $gated = array_merge(...array_values(self::FEATURE_GATED_BODY_MODES));
         foreach ($manifest['post_types'] ?? [] as $postType => $decl) {
             if (!is_array($decl)) {
                 continue; // shape already refused by validate_scope_classes()
             }
-            foreach ([['body', self::BODY_MODES], ['phase', self::POST_TYPE_PHASES]] as [$key, $legal]) {
+            foreach ([['body', $bodyModes], ['phase', self::POST_TYPE_PHASES]] as [$key, $legal]) {
                 if (!array_key_exists($key, $decl)) {
                     continue;
                 }
-                if (!in_array($decl[$key], $legal, true)) {
-                    throw new \RuntimeException(
-                        "duo: manifest '$name' declares post_types.$postType.$key="
-                        . var_export($decl[$key], true) . ' but the vocabulary is closed ('
-                        . implode(', ', $legal) . ') — it is engine-owned, because each value names engine '
-                        . 'behavior the engine implements; a new one is an engine change with a spec bump, not a '
-                        . 'manifest declaration'
-                    );
+                if (in_array($decl[$key], $legal, true)) {
+                    continue;
                 }
+                if ($key === 'body' && in_array($decl[$key], $gated, true)) {
+                    continue; // recognised; the feature gate answers for it later
+                }
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares post_types.$postType.$key="
+                    . var_export($decl[$key], true) . ' but the vocabulary is closed ('
+                    . implode(', ', $legal) . ') — it is engine-owned, because each value names engine '
+                    . 'behavior the engine implements; a new one is an engine change with a spec bump, not a '
+                    . 'manifest declaration'
+                );
             }
         }
     }

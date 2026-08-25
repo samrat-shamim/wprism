@@ -586,22 +586,59 @@ duo_check_same([], $featureDeclarers, 'V3-FEAT: no shipped manifest declares `en
 // because Policy sits below Adapter on tools/modules.json's ladder; what it
 // does instead is own the feature NAME as a constant the contract grammar
 // reads back, so there is still exactly one spelling of it in the tree.
+// WP-6.5 added the THIRD gate reader and the FIRST publisher, and the two are
+// different roles that this census now has to keep separate.
+//
+// BodyRefGrammar is the same shape as ManifestGrammar rather than a new one: it
+// owns the name `structured-body-refs/v1` as a constant the contract grammar
+// reads back, and reads a manifest's DECLARED list to answer one narrower
+// question — may this document use the feature-gated `json` body MODE. Same
+// reason it cannot delegate: Grammar sits below Adapter on
+// tools/modules.json's ladder.
+//
+// cli/src/Adapter/ManifestValidate.php is not a gate at all. It PUBLISHES the
+// channel in `duo manifest-validate --emit-schema`'s grammar document, which
+// until WP-6.5 could not describe the channel it was documenting: neither
+// `engine_features` nor any of the sections a feature claims appeared anywhere
+// in the emitted grammar, so an author had to read engine source to learn the
+// features exist. It refuses nothing and decides nothing.
+//
+// The invariant the census is really protecting is unchanged and is what the
+// assertion says: exactly ONE file owns the vocabulary and can refuse an
+// unimplemented name.
 duo_check_same(
-    ['agent/src/Adapter/AdapterContractGrammar.php', 'agent/src/Policy/ManifestGrammar.php'],
+    [
+        'agent/src/Adapter/AdapterContractGrammar.php',
+        'agent/src/Grammar/BodyRefGrammar.php',
+        'agent/src/Policy/ManifestGrammar.php',
+        'cli/src/Adapter/ManifestValidate.php',
+    ],
     $featureReaders,
-    'V3-FEAT: the channel has exactly two shipped readers — the contract grammar, which owns the vocabulary '
-        . 'and refuses an unimplemented name, and the manifest grammar, which asks only whether THIS document '
-        . 'declared the feature its gated verbs need'
+    'V3-FEAT: the channel has exactly one shipped OWNER — the contract grammar, which holds the vocabulary and '
+        . 'refuses an unimplemented name — beside two gate readers (body mode, invalidate verbs) that ask only '
+        . 'whether THIS document declared the feature their gated declaration needs, and one publisher that '
+        . 'refuses nothing'
 );
 // WP-6.4: two names, not one. The dry run's own posture — measure what is
 // there, do not assert what ought to be — makes the COUNT the interesting fact:
 // a vocabulary of one is a special case that happens to satisfy the channel's
 // requirement, and a vocabulary of two is a set the refusal enumerates, the
-// author declares from, and register row R-19 projects.
+// author declares from, and register row R-19 projects. WP-6.5 makes it six,
+// and the count is now evidence for a different claim than the one it started
+// as: § v3.12 asks for "at least one grammar section shipped post-v3 through
+// engine_features with no version bump" before the window may ever close, and
+// five of these six shipped after the flip with DUO_SPEC_VERSION left at 3.
 duo_check_same(
-    ['attr-id-codecs/v1', 'invalidate-vocabulary/v1', 'spec-window/v1', 'structured-evidence/v1', 'typed-column-codecs/v1'],
+    [
+        'attr-id-codecs/v1',
+        'invalidate-vocabulary/v1',
+        'spec-window/v1',
+        'structured-body-refs/v1',
+        'structured-evidence/v1',
+        'typed-column-codecs/v1',
+    ],
     \Duo\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: the vocabulary carries four names, so an engine that lacks a declared name has something to '
+    'V3-FEAT: the vocabulary carries six names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented

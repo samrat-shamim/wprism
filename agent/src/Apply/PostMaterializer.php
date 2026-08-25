@@ -9,6 +9,7 @@ require_once __DIR__ . '/RelationshipMaterializer.php';
 require_once __DIR__ . '/AttachmentMaterializer.php';
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
 require_once __DIR__ . '/../Grammar/Blocks.php';
+require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 // Deliberately NOT require_once('Ledger.php') or require_once('Db.php') here:
 // sandbox/tests/offline/code-half/regress_code_revision_enforcement.php and
 // regress_scoped_promotion_target.php both reach this file transitively
@@ -171,6 +172,20 @@ final class PostMaterializer {
             'serialized' => serialize($this->tokens->plain_data_apply(
                 PlainData::decode_serialized($body, "{$front['type']} '{$front['slug']}' repository body")
             )),
+            // WP-6.5. The rule cannot be absent: `json` with no `body_refs`
+            // entry refuses at manifest load, so a null here means the pinned
+            // policy is not the policy that validated.
+            BodyRefGrammar::BODY_MODE => BodyRefGrammar::apply(
+                $body,
+                $this->policy->body_ref_rule((string) $front['type'])
+                    ?? throw new \RuntimeException(
+                        "duo: {$front['type']} '{$front['slug']}' declares body=" . BodyRefGrammar::BODY_MODE
+                        . ' but no body_refs paths are loaded for it — the manifest that declared the mode is not '
+                        . 'the manifest that is pinned'
+                    ),
+                fn(string $token): int => $this->tokens->token_to_id($token),
+                "{$front['type']} '{$front['slug']}'"
+            ),
             default => Blocks::apply_rewrite($body, $this->policy, $this->tokens),
         };
         $fields = [
