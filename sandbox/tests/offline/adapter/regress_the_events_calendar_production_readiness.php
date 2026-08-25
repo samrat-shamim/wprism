@@ -4730,6 +4730,8 @@ duo_check_same(
             '7ed2774c6c73c514c64fc1a4b6533e41bacc8278a54785e8246492ce597bfdc5',
         'src/modules/sitemaps/sitemaps.php' =>
             '364cf0f52c51aeba8702e5108e2ddc66c35dc7b93bb4f694a3c35f862ed25856',
+        'src/modules/sitemaps/load.php' =>
+            'f8f29cc916bd931ad1d2e886fff55beabba537ffcf21af055dddf4b918b24e8e',
         'src/links-directory.php' =>
             '5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0',
         'src/links-permalinks.php' =>
@@ -4740,7 +4742,7 @@ duo_check_same(
             '4ff84b4c80783cefaa497009812b492d816ad6be8f5f5c79613f18906a462793',
     ],
     $coinstallSourceHashes['polylang'] ?? null,
-    'the exact Polylang admin runtime, sitemap service, directory model, and dynamic type roster are source-hash bound'
+    'the exact Polylang admin runtime, conditional sitemap boot, service, directory model, and dynamic type roster are source-hash bound'
 );
 $tecRewriteSourceHashes = array_intersect_key(
     $coinstallSourceHashes['the-events-calendar'] ?? [],
@@ -10009,6 +10011,82 @@ duo_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring the canonical Polylang admin runtime permits checked retry'
+);
+
+$canonicalPolylangSitemaps = $canonicalPolylangRuntime->sitemaps;
+remove_filter('rewrite_rules_array', [$canonicalPolylangSitemaps, 'rewrite_rules'], 10);
+unset($canonicalPolylangRuntime->sitemaps);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'a pre-language Polylang runtime admits the exact paired absence of its deferred sitemap service and callback'
+);
+add_filter('rewrite_rules_array', [$canonicalPolylangSitemaps, 'rewrite_rules'], 10, 1);
+$flushesBeforeOrphanedSitemap = $GLOBALS['wp_rewrite']->flushCalls;
+$orphanedSitemapFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $orphanedSitemapFailure = $failure;
+}
+duo_check(
+    $orphanedSitemapFailure instanceof RuntimeException
+        && str_contains($orphanedSitemapFailure->getMessage(), 'incomplete Polylang sitemap runtime'),
+    'a sitemap callback without its exact runtime-owned service refuses before rewrite generation'
+);
+duo_check_same(
+    $flushesBeforeOrphanedSitemap,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the orphaned Polylang sitemap callback performs no native mutation'
+);
+$canonicalPolylangRuntime->sitemaps = $canonicalPolylangSitemaps;
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring the exact Polylang sitemap property permits checked retry'
+);
+remove_filter('rewrite_rules_array', [$canonicalPolylangSitemaps, 'rewrite_rules'], 10);
+$flushesBeforeMissingSitemapCallback = $GLOBALS['wp_rewrite']->flushCalls;
+$missingSitemapCallbackFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $missingSitemapCallbackFailure = $failure;
+}
+duo_check(
+    $missingSitemapCallbackFailure instanceof RuntimeException
+        && str_contains($missingSitemapCallbackFailure->getMessage(), 'incomplete Polylang sitemap runtime'),
+    'a runtime-owned sitemap service without its exact callback refuses before rewrite generation'
+);
+duo_check_same(
+    $flushesBeforeMissingSitemapCallback,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the missing Polylang sitemap callback performs no native mutation'
+);
+add_filter('rewrite_rules_array', [$canonicalPolylangSitemaps, 'rewrite_rules'], 10, 1);
+$canonicalPolylangRuntime->sitemaps = new stdClass();
+$flushesBeforeSubstitutedSitemap = $GLOBALS['wp_rewrite']->flushCalls;
+$substitutedSitemapFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $substitutedSitemapFailure = $failure;
+}
+duo_check(
+    $substitutedSitemapFailure instanceof RuntimeException
+        && str_contains($substitutedSitemapFailure->getMessage(), 'substituted Polylang sitemap service'),
+    'a wrong-class runtime-owned sitemap service refuses before rewrite generation'
+);
+duo_check_same(
+    $flushesBeforeSubstitutedSitemap,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the substituted Polylang sitemap service performs no native mutation'
+);
+$canonicalPolylangRuntime->sitemaps = $canonicalPolylangSitemaps;
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring the exact paired Polylang sitemap service and callback permits checked retry'
 );
 
 $polylangTypesProperty = new ReflectionProperty(PLL_Links_Directory::class, 'types');

@@ -116,12 +116,9 @@ namespace {
         }
     }
 
+    #[AllowDynamicProperties]
     final class PLL_Admin {
-        public object $sitemaps;
-
-        public function __construct(public object $links_model) {
-            $this->sitemaps = new PLL_Sitemaps();
-        }
+        public function __construct(public object $links_model) {}
     }
 
     final class PLL_Frontend {
@@ -190,6 +187,7 @@ namespace {
         ];
         $polylangLinks = new PLL_Links_Directory($polylangTypes);
         $polylang = new PLL_Admin($polylangLinks);
+        $polylang->sitemaps = new PLL_Sitemaps();
         $GLOBALS['polylang'] = $polylang;
         add_filter('rewrite_rules_array', [$polylang->sitemaps, 'rewrite_rules'], 10, 1);
         add_filter('rewrite_rules_array', [$polylangLinks, 'rewrite_rules'], 10, 1);
