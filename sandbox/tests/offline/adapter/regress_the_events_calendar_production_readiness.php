@@ -8380,6 +8380,10 @@ duo_check_same(
     'every late TEC conflict/recovery/concurrency mutation crosses the native link-preserving update helper'
 );
 foreach ([
+    '$hasPreviewVenue!==$hasPreviewOrganizers',
+    '$previewVenues!==[$venue]||$previewOrganizers!==$expectedOrganizers',
+    'delete_post_meta($event->ID,"_preview_venues")',
+    'delete_post_meta($event->ID,"_preview_organizers")',
     '$args=["description"=>$description,"venue"=>$venue,"organizers"=>$organizers]',
     '$afterVenue!==$venue||$afterOrganizers!==$organizers',
     'TEC repository update replaced a linked entity',

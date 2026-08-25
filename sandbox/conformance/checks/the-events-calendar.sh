@@ -2930,6 +2930,23 @@ tec_update_event_preserving_links() { # <conf1|conf2> <description> <url-path-or
         throw new RuntimeException("TEC linked update organizer preimage is incomplete");
       }
     }
+    $hasPreviewVenue=metadata_exists("post",$event->ID,"_preview_venues");
+    $hasPreviewOrganizers=metadata_exists("post",$event->ID,"_preview_organizers");
+    if($hasPreviewVenue!==$hasPreviewOrganizers){
+      throw new RuntimeException("TEC linked update preview receipt is partial");
+    }
+    if($hasPreviewVenue){
+      $previewVenues=array_map("intval",(array)get_post_meta($event->ID,"_preview_venues",true));
+      $previewOrganizers=array_map("intval",(array)get_post_meta($event->ID,"_preview_organizers",true));
+      $expectedOrganizers=$organizers;
+      sort($previewOrganizers,SORT_NUMERIC);
+      sort($expectedOrganizers,SORT_NUMERIC);
+      if($previewVenues!==[$venue]||$previewOrganizers!==$expectedOrganizers){
+        throw new RuntimeException("TEC linked update preview receipt exceeds the authored graph");
+      }
+      delete_post_meta($event->ID,"_preview_venues");
+      delete_post_meta($event->ID,"_preview_organizers");
+    }
     $description=$duo_override["description"];
     if($duo_override["url_path"]!=="")$description.=" ".home_url($duo_override["url_path"]);
     $args=["description"=>$description,"venue"=>$venue,"organizers"=>$organizers];
