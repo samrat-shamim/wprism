@@ -36,7 +36,7 @@ require_once __DIR__ . '/../Assess/FleetCensus.php';
  * shell.
  */
 final class CensusCommand {
-    private const FLAGS = ['--site', '--dir', '--manifests', '--format', '--limit', '--health'];
+    private const FLAGS = ['--site', '--dir', '--manifests', '--format', '--limit', '--health', '--baseline', '--current'];
 
     /** Human rows only; the JSON document is never truncated. */
     private const DEFAULT_LIMIT = 20;
@@ -66,7 +66,13 @@ final class CensusCommand {
         $json = $options['format'] === 'json';
 
         try {
-            $document = FleetCensus::run($options);
+            // One verb, two documents. `--baseline=` is the whole switch: with
+            // it this run answers "what moved", without it "what is". Both
+            // still exit 0/1/2 — a cohort FINDING is a fact inside the
+            // document, never a fourth code (CohortRebaseline.php's header).
+            $document = $options['baseline'] === null
+                ? FleetCensus::run($options)
+                : FleetCensus::rebaseline($options);
         } catch (FleetCensusRefusal $refusal) {
             return self::refuse(
                 $json,
@@ -92,7 +98,11 @@ final class CensusCommand {
             echo \Duo\Canon::encode($document);
             return FleetCensus::EXIT_OK;
         }
-        self::render($document, $options['limit']);
+        if ($options['baseline'] === null) {
+            self::render($document, $options['limit']);
+        } else {
+            self::renderRebaseline($document, $options['limit']);
+        }
         return FleetCensus::EXIT_OK;
     }
 
@@ -227,6 +237,107 @@ final class CensusCommand {
         echo 'basis: ' . (string) $basis['caveat'] . "\n";
     }
 
+    /**
+     * The re-baseline view, in the order the decision is made: is this even a
+     * comparison, did the ratio move, where did the funnel move, which
+     * adapters moved which surfaces, and what does that add up to.
+     *
+     * The verdict line is LAST and unbounded — `--limit` bounds the
+     * attribution listing above it, never the finding, because the one row a
+     * truncated view must never drop is the one that says the cohort failed.
+     *
+     * @param array<string,mixed> $document
+     */
+    private static function renderRebaseline(array $document, int $limit): void {
+        $comparability = (array) $document['comparability'];
+        $sites = (array) $comparability['sites'];
+        $library = (array) $comparability['library'];
+        echo 'rebaseline: ' . (int) $sites['baseline'] . ' -> ' . (int) $sites['current']
+            . ' labelled site(s) (' . (string) $comparability['class'] . ")\n";
+        echo 'comparability: ' . (string) $comparability['disclosure'] . "\n";
+        echo 'library: ' . (int) $library['baseline_adapters'] . ' -> ' . (int) $library['current_adapters']
+            . ' adapter(s), ' . (int) $library['baseline_reviewed'] . ' -> ' . (int) $library['current_reviewed']
+            . ' reviewed, coverage oracle '
+            . ($library['moved'] === true ? 'MOVED' : 'unchanged (identical surfaces_sha256)') . "\n";
+
+        $coverage = (array) $document['coverage'];
+        $baseline = (array) $coverage['baseline'];
+        $current = (array) $coverage['current'];
+        $delta = (array) $coverage['delta'];
+        echo 'coverage: ' . self::percent($baseline['covered_ppm'] ?? null) . ' -> '
+            . self::percent($current['covered_ppm'] ?? null) . ' ('
+            . self::signedPpm($delta['covered_ppm'] ?? null) . ') over '
+            . (int) $baseline['total'] . ' -> ' . (int) $current['total'] . " surface(s)\n";
+
+        $parts = [];
+        foreach (FleetCensus::FUNNEL_STAGES as $stage) {
+            $row = (array) ((array) $document['funnel'])[$stage];
+            $parts[] = $stage . '=' . (int) ((array) $row['baseline'])['plugins']
+                . '->' . (int) ((array) $row['current'])['plugins']
+                . '(' . self::signed((int) ((array) $row['delta'])['plugins']) . ')';
+        }
+        echo 'funnel: ' . implode(' ', $parts) . "\n";
+
+        $attribution = (array) $document['attribution'];
+        $moved = (array) $attribution['moved'];
+        $shown = 0;
+        foreach ($moved as $row) {
+            $row = (array) $row;
+            if ($shown >= $limit) {
+                break;
+            }
+            $shown++;
+            echo 'moved ' . (string) $row['slug'] . ': adapter='
+                . (($row['adapter_baseline'] ?? null) === null ? 'none' : (string) $row['adapter_baseline'])
+                . '->' . (($row['adapter_current'] ?? null) === null ? 'none' : (string) $row['adapter_current'])
+                . ' (' . (string) $row['adapter_change'] . ')'
+                . ' claimed=' . count((array) $row['surfaces_claimed'])
+                . ' regressed=' . count((array) $row['surfaces_regressed'])
+                . ' appeared=' . count((array) $row['surfaces_appeared'])
+                . ' resolved=' . count((array) $row['surfaces_resolved'])
+                . ' pins=' . self::signed((int) $row['sites_pinning_delta'])
+                . ' [' . (($row['stage_baseline'] ?? null) === null ? 'absent' : (string) $row['stage_baseline'])
+                . '->' . (($row['stage_current'] ?? null) === null ? 'absent' : (string) $row['stage_current'])
+                . "]\n";
+        }
+        if (count($moved) > $shown) {
+            echo 'moved: ' . (count($moved) - $shown) . " further row(s) in --format=json\n";
+        }
+        echo 'attribution: ' . count($moved) . ' slug row(s) moved, '
+            . (int) $attribution['unchanged'] . " unchanged\n";
+
+        $cohort = (array) $document['cohort'];
+        echo 'cohort: ' . count((array) $cohort['adapters_added']) . ' adapter(s) added, '
+            . count((array) $cohort['slugs_newly_covered']) . ' slug(s) newly covered, '
+            . count((array) $cohort['slugs_newly_reviewed']) . ' newly reviewed, '
+            . count((array) $cohort['slugs_newly_pinned']) . ' newly pinned; '
+            . (int) $cohort['surfaces_claimed'] . ' surface(s) claimed, '
+            . (int) $cohort['surfaces_regressed'] . " regressed\n";
+        echo 'verdict: ' . (string) $cohort['verdict'] . ' — ' . (string) $cohort['disclosure'] . "\n";
+
+        $finding = $cohort['finding'] ?? null;
+        if (is_array($finding)) {
+            // stdout, not stderr: this is the ANSWER the run was asked for,
+            // and a caller redirecting stdout to a file must find it there.
+            echo 'FINDING ' . (string) $finding['code'] . ': ' . (string) $finding['statement'] . "\n";
+            echo 'remedy: ' . (string) $finding['remedy'] . "\n";
+        }
+    }
+
+    /** A ppm delta with its sign, and the percentage-point move a human reads. */
+    private static function signedPpm(mixed $ppm): string {
+        if (!is_int($ppm)) {
+            return 'delta n/a';
+        }
+        return 'delta ' . self::signed($ppm) . ' ppm / '
+            . ($ppm < 0 ? '-' : '+') . number_format(abs($ppm) / 10000, 1) . 'pp';
+    }
+
+    /** An integer that always carries its sign, so `0` cannot read as "unmeasured". */
+    private static function signed(int $value): string {
+        return ($value < 0 ? '-' : '+') . abs($value);
+    }
+
     /** A ppm integer rendered as the percentage a human reads; `n/a` when nothing was measured. */
     private static function percent(mixed $ppm): string {
         if (!is_int($ppm)) {
@@ -242,12 +353,14 @@ final class CensusCommand {
      * census it could express.
      *
      * @param list<string> $args
-     * @return array{sites:array<string,string>,manifests:string,format:string,limit:int,health:?string}
+     * @return array{sites:array<string,string>,manifests:string,format:string,limit:int,health:?string,baseline:?string,current:?string}
      */
     private static function options(array $args): array {
         $sites = [];
         $manifests = null;
         $health = null;
+        $baseline = null;
+        $current = null;
         $format = 'human';
         $limit = self::DEFAULT_LIMIT;
         $dirs = [];
@@ -291,6 +404,18 @@ final class CensusCommand {
                     }
                     $health = $value;
                     break;
+                case '--baseline':
+                    if ($baseline !== null) {
+                        throw new \RuntimeException('duplicate flag \'--baseline\'');
+                    }
+                    $baseline = $value;
+                    break;
+                case '--current':
+                    if ($current !== null) {
+                        throw new \RuntimeException('duplicate flag \'--current\'');
+                    }
+                    $current = $value;
+                    break;
                 case '--format':
                     if ($value !== 'json') {
                         throw new \RuntimeException('--format must be json');
@@ -305,6 +430,22 @@ final class CensusCommand {
                     break;
             }
         }
+        // The current side has exactly one source. `--current` names a census
+        // measured by the engine of its own day — the only way to compare
+        // across a spec flag day — and submissions name one measured here; a
+        // call that supplied both would be asking this verb to choose which of
+        // the operator's two answers is the real present, which is not a
+        // choice a tool gets to make silently.
+        if ($current !== null && $baseline === null) {
+            throw new \RuntimeException('--current needs --baseline: a re-baseline is a comparison, not one document');
+        }
+        if ($current !== null && ($sites !== [] || $dirs !== [])) {
+            throw new \RuntimeException('--current and --site/--dir both name the current side; pass exactly one');
+        }
+        if ($current !== null && $health !== null) {
+            throw new \RuntimeException('--health ranks a census this run does not measure; drop it when --current is a document');
+        }
+
         foreach ($dirs as $dir) {
             foreach (self::submissionsIn($dir) as $label => $path) {
                 if (isset($sites[$label])) {
@@ -329,6 +470,11 @@ final class CensusCommand {
             // assume one was left at — an assumed default that happened to be
             // stale would rank yesterday's backlog as today's.
             'health' => $health,
+            // No default for either side, for the same reason: a re-baseline
+            // against a baseline nobody named is a comparison against a file
+            // this process happened to find.
+            'baseline' => $baseline,
+            'current' => $current,
         ];
     }
 

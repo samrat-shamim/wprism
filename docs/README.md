@@ -9,7 +9,7 @@ The normative wire contract is not here — it is
 
 | Path | What it is | Who reads it |
 |---|---|---|
-| [guides/](guides/README.md) | Ten task-shaped operator guides (quickstart → assess → daily-workflow → release → limits; recovery, code-updates, adapter-authoring, internals). Every command in them is mechanically checked against the shipped CLI. | Operators, first |
+| [guides/](guides/README.md) | Twelve task-shaped operator guides (quickstart → assess → daily-workflow → release → limits; recovery, flag-day, code-updates, adapter-authoring, coverage-cohort, trust-enrollment, internals). Every command in them is mechanically checked against the shipped CLI. | Operators, first |
 | [capabilities.md](capabilities.md) | **Generated** — the certified capability matrix. Written by `tools/capability-doc.php` from the manifests + `manifests/dispositions/`; `make release-gate` byte-compares it. Never hand-edited. | Anyone asking "will Duo manage this?" |
 | [adapter-grades.md](adapter-grades.md) | **Generated** — the *computed* evidence grade beside each reviewed status: scenario-family coverage, the certification bundle's per-test pass map, and exercised platform cells (spec § v3.18). A grade is arithmetic, re-derived on every run and stored nowhere; it qualifies no status. Written by `tools/adapter-grade.php`; `make release-gate` byte-compares it. Never hand-edited. | Anyone comparing two adapters that share a status |
 | [adoption.md](adoption.md) | The SSH adoption contract in full: installing and upgrading Duo on an existing WordPress host. | Operators adopting a real host |

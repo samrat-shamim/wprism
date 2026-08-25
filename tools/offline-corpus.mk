@@ -100,6 +100,7 @@ regress-offline-corpus: code-half-unit \
 	regress-code-stage-lock-unit \
 	regress-code-stage-transaction-unit \
 	regress-code-stage-unchanged-skip \
+	regress-cohort-rebaseline \
 	regress-column-codec-grammar \
 	regress-command-output \
 	regress-compiled-artifact \
