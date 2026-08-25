@@ -846,9 +846,7 @@ final class FakeWpdb {
             }
             return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
         }
-        if ($this->fullApplySqlExtensionsEnabled
-            && str_contains(strtolower($query), 'lower(left(k')
-            && str_contains(strtolower($query), 'attachment_fs:')) {
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyAttachmentMarkerQuery($query)) {
             $rows = [];
             foreach ($this->store[$this->tableName('duo_kv')] ?? [] as $row) {
                 $key = (string) ($row['k'] ?? '');
@@ -864,10 +862,7 @@ final class FakeWpdb {
             $rows = array_slice($rows, 0, 2);
             return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
         }
-        $lowerQuery = strtolower($query);
-        if ($this->fullApplySqlExtensionsEnabled
-            && str_contains($lowerQuery, 'from wp_posts')
-            && str_contains($lowerQuery, 'count(*) as row_count')) {
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPostStatsQuery($query)) {
             $rows = $this->capturePostRowsForFullApply($query);
             $bytes = static function (array $row): int {
                 $columns = ['ID', 'post_author', 'post_date', 'post_date_gmt', 'post_content', 'post_title', 'post_excerpt', 'post_status', 'comment_status', 'ping_status', 'post_password', 'post_name', 'post_modified', 'post_modified_gmt', 'post_parent', 'menu_order', 'post_type', 'post_mime_type'];
@@ -878,9 +873,7 @@ final class FakeWpdb {
             $stats = [['row_count' => count($rows), 'total_bytes' => array_sum(array_map($bytes, $rows)), 'max_row_bytes' => $rows === [] ? 0 : max(array_map($bytes, $rows))]];
             return array_map(fn(array $row): array|object => $this->shape($row, $output), $stats);
         }
-        if ($this->fullApplySqlExtensionsEnabled
-            && str_contains($lowerQuery, 'from wp_options')
-            && str_contains($lowerQuery, 'count(*) as row_count')) {
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyOptionsStatsQuery($query)) {
             $rows = $this->store[$this->tableName('options')] ?? [];
             $nameBytes = array_map(static fn(array $row): int => strlen((string) ($row['option_name'] ?? '')), $rows);
             $valueBytes = array_map(static fn(array $row): int => strlen((string) ($row['option_value'] ?? '')), $rows);
@@ -893,9 +886,7 @@ final class FakeWpdb {
             ]];
             return array_map(fn(array $row): array|object => $this->shape($row, $output), $stats);
         }
-        if ($this->fullApplySqlExtensionsEnabled
-            && str_contains($lowerQuery, 'from wp_posts')
-            && str_contains($lowerQuery, 'post_type, count(*) as entities')) {
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPostGroupsQuery($query)) {
             $groups = [];
             foreach ($this->capturePostRowsForFullApply($query) as $row) $groups[(string) $row['post_type']] = ($groups[(string) $row['post_type']] ?? 0) + 1;
             $rows = [];
@@ -903,14 +894,12 @@ final class FakeWpdb {
             ksort($rows);
             return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
         }
-        if ($this->fullApplySqlExtensionsEnabled
-            && str_contains($lowerQuery, 'select id, post_author, post_date, post_date_gmt')) {
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPostListQuery($query)) {
             $rows = $this->capturePostRowsForFullApply($query);
             usort($rows, static fn(array $a, array $b): int => ((int) $a['ID']) <=> ((int) $b['ID']));
             return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
         }
-        if ($this->fullApplySqlExtensionsEnabled
-            && str_contains($lowerQuery, 'from wp_terms t join wp_term_taxonomy tt')) {
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyTermsQuery($query)) {
             return [];
         }
         $result = $this->run('get_results', $query);
@@ -932,6 +921,130 @@ final class FakeWpdb {
             return $keyed;
         }
         return array_map(fn(array $row): array|object => $this->shape($row, $output), $result['rows']);
+    }
+
+    private function fullApplySql(string $query): string {
+        $normalized = preg_replace('/\s+/', ' ', trim($query));
+        return is_string($normalized) ? $normalized : trim($query);
+    }
+
+    private function fullApplyPostBytes(): string {
+        return "OCTET_LENGTH(CAST(ID AS CHAR)) + OCTET_LENGTH(CAST(post_author AS CHAR)) "
+            . "+ OCTET_LENGTH(COALESCE(post_date,'')) + OCTET_LENGTH(COALESCE(post_date_gmt,'')) "
+            . "+ OCTET_LENGTH(COALESCE(post_content,'')) + OCTET_LENGTH(COALESCE(post_title,'')) "
+            . "+ OCTET_LENGTH(COALESCE(post_excerpt,'')) + OCTET_LENGTH(COALESCE(post_status,'')) "
+            . "+ OCTET_LENGTH(COALESCE(comment_status,'')) + OCTET_LENGTH(COALESCE(ping_status,'')) "
+            . "+ OCTET_LENGTH(COALESCE(post_password,'')) + OCTET_LENGTH(COALESCE(post_name,'')) "
+            . "+ OCTET_LENGTH(COALESCE(post_modified,'')) + OCTET_LENGTH(COALESCE(post_modified_gmt,'')) "
+            . "+ OCTET_LENGTH(CAST(post_parent AS CHAR)) + OCTET_LENGTH(CAST(menu_order AS CHAR)) "
+            . "+ OCTET_LENGTH(COALESCE(post_type,'')) + OCTET_LENGTH(COALESCE(post_mime_type,''))";
+    }
+
+    private function isFullApplyAttachmentMarkerQuery(string $query): bool {
+        return $this->fullApplySql($query) === 'SELECT k, OCTET_LENGTH(v) AS v_bytes, '
+            . 'CASE WHEN v IS NOT NULL AND OCTET_LENGTH(v) <= 512 THEN v ELSE NULL END AS bounded_v '
+            . 'FROM `' . $this->tableName('duo_kv') . '` WHERE LOWER(LEFT(k, 14)) = \'attachment_fs:\' '
+            . 'ORDER BY BINARY k ASC LIMIT 2';
+    }
+
+    private function isFullApplyPostStatsQuery(string $query): bool {
+        $bytes = $this->fullApplyPostBytes();
+        return $this->fullApplySql($query) === 'SELECT COUNT(*) AS row_count, COALESCE(SUM('
+            . $bytes . '), 0) AS total_bytes, COALESCE(MAX(' . $bytes . '), 0) AS max_row_bytes '
+            . 'FROM ' . $this->tableName('posts') . " WHERE (post_type = 'attachment' AND post_status = 'inherit')";
+    }
+
+    private function isFullApplyOptionsStatsQuery(string $query): bool {
+        return $this->fullApplySql($query) === 'SELECT COUNT(*) AS row_count, '
+            . 'COALESCE(SUM(OCTET_LENGTH(option_name) + OCTET_LENGTH(option_value)), 0) AS total_bytes, '
+            . 'COALESCE(MAX(OCTET_LENGTH(option_name)), 0) AS max_name_bytes, '
+            . 'COALESCE(MAX(CHAR_LENGTH(option_name)), 0) AS max_name_characters, '
+            . 'COALESCE(MAX(OCTET_LENGTH(option_value)), 0) AS max_value_bytes '
+            . 'FROM ' . $this->tableName('options');
+    }
+
+    private function isFullApplyPostGroupsQuery(string $query): bool {
+        return $this->fullApplySql($query) === 'SELECT post_type, COUNT(*) AS entities FROM '
+            . $this->tableName('posts') . " WHERE (post_status IN ('publish','draft','pending','private','future') "
+            . "OR (post_type = 'attachment' AND post_status = 'inherit')) GROUP BY post_type "
+            . 'ORDER BY post_type ASC LIMIT 4097';
+    }
+
+    private function isFullApplyPostListQuery(string $query): bool {
+        return $this->fullApplySql($query) === 'SELECT ID, post_author, post_date, post_date_gmt, '
+            . 'post_content, post_title, post_excerpt, post_status, comment_status, ping_status, post_password, '
+            . 'post_name, post_modified, post_modified_gmt, post_parent, menu_order, post_type, post_mime_type '
+            . 'FROM ' . $this->tableName('posts')
+            . " WHERE (post_type = 'attachment' AND post_status = 'inherit') ORDER BY ID ASC LIMIT 1000001";
+    }
+
+    private function isFullApplyTermsQuery(string $query): bool {
+        return $this->fullApplySql($query) === 'SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, '
+            . 'tt.taxonomy, tt.description, tt.parent FROM ' . $this->tableName('terms')
+            . ' t JOIN ' . $this->tableName('term_taxonomy')
+            . " tt ON tt.term_id = t.term_id WHERE tt.taxonomy = 'nav_menu' ORDER BY t.term_id ASC";
+    }
+
+    private function isFullApplyPromotionInsertQuery(string $query): bool {
+        $normalized = $this->fullApplySql($query);
+        $prefix = "INSERT INTO `{$this->tableName('duo_kv')}` (k, v) VALUES ('promotion_lock', '";
+        $delimiter = "') ON DUPLICATE KEY UPDATE v = IF( ( ";
+        if (!str_starts_with($normalized, $prefix)) return false;
+        $delimiterPosition = strpos($normalized, $delimiter, strlen($prefix));
+        if ($delimiterPosition === false) return false;
+        $payload = json_decode(stripslashes(substr($normalized, strlen($prefix), $delimiterPosition - strlen($prefix))), true);
+        if (!is_array($payload)
+            || array_keys($payload) !== ['owner', 'artifact_hash', 'phase', 'acquired_at', 'expires_at']
+            || !is_string($payload['owner'])
+            || preg_match('/^[a-z0-9-]+$/D', $payload['owner']) !== 1
+            || !is_string($payload['artifact_hash'])
+            || preg_match('/^[a-f0-9]{64}$/D', $payload['artifact_hash']) !== 1
+            || !is_string($payload['phase'])
+            || preg_match('/^[a-z0-9-]+$/D', $payload['phase']) !== 1
+            || !is_int($payload['acquired_at'])
+            || !is_int($payload['expires_at'])) {
+            return false;
+        }
+        $suffix = "CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(v, '$.expires_at')), '0') AS UNSIGNED) <= {$payload['acquired_at']} "
+            . "AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) <> '{$payload['owner']}' ) OR ( "
+            . "CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(v, '$.expires_at')), '0') AS UNSIGNED) > {$payload['acquired_at']} "
+            . "AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = '{$payload['owner']}' "
+            . "AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = '{$payload['artifact_hash']}' ), VALUES(v), v )";
+        return substr($normalized, $delimiterPosition + strlen($delimiter)) === $suffix;
+    }
+
+    private function isFullApplyPromotionUpdateQuery(string $query): bool {
+        $normalized = $this->fullApplySql($query);
+        $prefix = "UPDATE `{$this->tableName('duo_kv')}` SET v = '";
+        $delimiter = "' WHERE k = 'promotion_lock' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = '";
+        if (!str_starts_with($normalized, $prefix)) return false;
+        $delimiterPosition = strpos($normalized, $delimiter, strlen($prefix));
+        if ($delimiterPosition === false) return false;
+        $payload = json_decode(stripslashes(substr($normalized, strlen($prefix), $delimiterPosition - strlen($prefix))), true);
+        if (!is_array($payload)
+            || array_keys($payload) !== ['owner', 'artifact_hash', 'phase', 'acquired_at', 'expires_at']
+            || !is_string($payload['owner'])
+            || preg_match('/^[a-z0-9-]+$/D', $payload['owner']) !== 1
+            || !is_string($payload['artifact_hash'])
+            || preg_match('/^[a-f0-9]{64}$/D', $payload['artifact_hash']) !== 1
+            || !is_string($payload['phase'])
+            || preg_match('/^[a-z0-9-]+$/D', $payload['phase']) !== 1
+            || !is_int($payload['acquired_at'])
+            || !is_int($payload['expires_at'])) {
+            return false;
+        }
+        $suffix = "{$payload['owner']}' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = '{$payload['artifact_hash']}'";
+        return substr($normalized, $delimiterPosition + strlen($delimiter)) === $suffix;
+    }
+
+    private function isFullApplyPruneQuery(string $query): bool {
+        $map = $this->tableName('duo_map');
+        $expected = [
+            "DELETE m FROM $map m LEFT JOIN {$this->tableName('posts')} po ON po.ID = m.local_id WHERE m.id_kind = 'post' AND po.ID IS NULL",
+            "DELETE m FROM $map m LEFT JOIN {$this->tableName('terms')} t ON t.term_id = m.local_id WHERE m.id_kind = 'term' AND t.term_id IS NULL",
+            "DELETE m FROM $map m LEFT JOIN {$this->tableName('term_taxonomy')} tt ON tt.term_taxonomy_id = m.local_id WHERE m.id_kind = 'term_taxonomy' AND tt.term_taxonomy_id IS NULL",
+        ];
+        return in_array($this->fullApplySql($query), $expected, true);
     }
 
     /** @return list<array<string,mixed>> */
@@ -1112,9 +1225,7 @@ final class FakeWpdb {
         // loud, but model this one reviewed target-lease statement so a full
         // apply fixture can exercise the real lease lifecycle without a
         // second hand-written database fake.
-        if ($this->fullApplySqlExtensionsEnabled
-            && str_contains(strtolower($sql), 'insert into `wp_duo_kv`')
-            && str_contains(strtolower($sql), 'json_extract')) {
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPromotionInsertQuery($sql)) {
             if (preg_match("/VALUES \('promotion_lock', '((?:\\\\'|[^'])*)'\)/", $sql, $match) !== 1) {
                 throw $this->unsupported('malformed promotion_lock JSON upsert');
             }
@@ -1135,9 +1246,7 @@ final class FakeWpdb {
             $this->rows_affected = 1;
             return ['kind' => 'affected', 'affected' => 1];
         }
-        if ($this->fullApplySqlExtensionsEnabled
-            && str_contains(strtolower($sql), 'update `wp_duo_kv`')
-            && str_contains(strtolower($sql), 'json_extract')) {
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPromotionUpdateQuery($sql)) {
             preg_match("/SET v = '((?:\\\\'|[^'])*)'/", $sql, $valueMatch);
             preg_match("/JSON_UNQUOTE\(JSON_EXTRACT\(v, '\$\.owner'\)\) = '([^']+)'/", $sql, $ownerMatch);
             preg_match("/JSON_UNQUOTE\(JSON_EXTRACT\(v, '\$\.artifact_hash'\)\) = '([^']+)'/", $sql, $artifactMatch);
@@ -1160,8 +1269,7 @@ final class FakeWpdb {
             $this->rows_affected = $affected;
             return ['kind' => 'affected', 'affected' => $affected];
         }
-        if ($this->fullApplySqlExtensionsEnabled
-            && preg_match('/^DELETE m FROM wp_duo_map m LEFT JOIN wp_[a-z0-9_]+/i', trim($sql)) === 1) {
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPruneQuery($sql)) {
             // Ledger::prune_dead_map() is a deliberately live-only LEFT JOIN
             // in the general fake grammar. Full apply's fixture seeds no
             // orphan rows; preserve that exact no-op result while keeping the
