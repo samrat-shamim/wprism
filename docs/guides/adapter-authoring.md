@@ -1019,6 +1019,21 @@ duo adapter-draft <site-repo> --name=wpforms --evidence=probe.json \
   --out=<site-repo>/adapters/wpforms.json --force
 ```
 
+Note what that example gives you on a **freshly activated** plugin, because it
+is the state you are most likely to run it in. A plugin creates its tables at
+activation and fills them only through use, so every one of the six
+`wp_wpforms_*` tables exists and holds **zero rows** — and a natural key over an
+empty keyspace measures nothing. `natural_key` comes back
+`{"rows": 0, "distinct": 0, "unique": false}`, and that `false` is the absence
+of an answer rather than a duplicate. The human summary says so in as many
+words (`natural key wpforms_payments.transaction_id: 0 row(s) — nothing to
+measure yet`); exercise the plugin until the table holds real rows before you
+ratify anything from that line. `--tables=` never takes the site's table
+prefix, and a table reported `absent on this target` is a name, prefix or
+not-yet-activated question — never a "no rows yet" one. This verb also takes no
+`--repo`: unlike `wp duo coverage`, `pending`, `lint` and `adapter-observe`, it
+reads the target's live schema and owns no repository.
+
 Each fact lands as an `evidence[]` row at confidence 1.0 naming the question it
 closes, and **nothing else moves**. If the live PRIMARY KEY is not the column
 the offline proposer guessed, the guess still stands in the fragment and the

@@ -3206,15 +3206,46 @@ final class Cli {
         // an argument refusal, where bootstrap has already buffered.
         Journal::suspend_for_observation();
         $document = null;
+        $naturalKeys = [];
         try {
             require_once __DIR__ . '/../Adapter/AdapterProbe.php';
-            if ($args !== [] || array_diff(array_keys($assoc), ['tables', 'natural-keys', 'format']) !== []) {
+            // NAME the offending flag. This gate used to answer an unknown
+            // flag and a stray positional with one sentence about the flag
+            // SYNTAX and the remediation "name the tables one adapter draft
+            // proposes" — which is not the problem in either case. Measured:
+            // `wp duo coverage`, `pending`, `lint` and `adapter-observe` all
+            // REQUIRE `--repo`, adapter-probe is the one verb that rejects it,
+            // and an author who carried the flag over from the previous
+            // command was told to re-check a `--tables=` spelling that was
+            // already correct.
+            $unknownFlags = array_values(array_diff(array_keys($assoc), ['tables', 'natural-keys', 'format']));
+            if ($unknownFlags !== []) {
+                sort($unknownFlags, SORT_STRING);
+                $named = implode(', ', array_map(
+                    // An option name is argv: vetted before it is echoed, the
+                    // same screen every other authored string here passes.
+                    static fn(string $flag): string => preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/D', $flag) === 1
+                        ? '--' . $flag
+                        : '(a flag outside the option-name grammar)',
+                    array_map('strval', $unknownFlags)
+                ));
                 throw new CommandRefusalException(
                     'invalid_arguments',
-                    'adapter-probe accepts only --tables=<names>, optional --natural-keys=<table.column,…> and optional --format=json',
-                    'name the tables one adapter draft proposes, then rerun adapter-probe',
+                    "adapter-probe does not take $named",
+                    'adapter-probe reads this target\'s live schema and owns no repository; drop ' . $named
+                        . ' and rerun with --tables=<names>, optional --natural-keys=<table.column,…> '
+                        . 'and optional --format=json',
                     [],
-                    'adapter-probe received unsupported positional arguments or flags'
+                    'adapter-probe received unsupported flags'
+                );
+            }
+            if ($args !== []) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'adapter-probe takes no positional arguments: the tables are named by --tables=<names>',
+                    'move the table names into --tables=<comma-separated names>, then rerun adapter-probe',
+                    [],
+                    'adapter-probe received unsupported positional arguments'
                 );
             }
             if (!is_string($assoc['tables'] ?? null) || trim((string) $assoc['tables']) === '') {
@@ -3230,7 +3261,6 @@ final class Cli {
                 );
             }
             $tables = array_values(array_filter(array_map('trim', explode(',', (string) $assoc['tables'])), 'strlen'));
-            $naturalKeys = [];
             foreach (explode(',', (string) ($assoc['natural-keys'] ?? '')) as $pair) {
                 $pair = trim($pair);
                 if ($pair === '') {
@@ -3273,12 +3303,62 @@ final class Cli {
         WP_CLI::line('format: ' . AdapterProbe::FORMAT);
         WP_CLI::line('authority: false; redaction: ' . AdapterProbe::REDACTION);
         foreach ($document['tables'] as $table => $facts) {
+            if (empty($facts['present'])) {
+                // "absent" alone leaves the author to guess between two very
+                // different things. A plugin creates its tables at ACTIVATION,
+                // so on a fresh install the tables exist and hold no rows —
+                // absent therefore means the NAME, the prefix or the
+                // activation, never "nothing has used it yet".
+                WP_CLI::line(
+                    "$table: absent on this target — no such table exists, so this is a name, prefix or "
+                    . 'not-yet-activated question; an activated plugin already has its tables (with no rows)'
+                );
+                continue;
+            }
             WP_CLI::line(sprintf(
                 '%s: %s',
                 $table,
-                empty($facts['present'])
-                    ? 'absent on this target'
-                    : count($facts['columns']) . ' column(s), pk (' . implode(', ', $facts['primary_key']) . ')'
+                count($facts['columns']) . ' column(s), pk (' . implode(', ', $facts['primary_key']) . ')'
+            ));
+        }
+        // Every natural key the author ASKED for gets a line, including the
+        // ones the document cannot answer. Measured: the guide's own worked
+        // example (`docs/guides/adapter-authoring.md:1016`) run verbatim on a
+        // freshly activated WPForms Lite 2.0.0.5 answered
+        // `{"rows":0,"distinct":0,"unique":false}` — and `unique: false` over
+        // an empty keyspace is not a measurement of the key at all. The JSON
+        // is unchanged (its numbers are exact and its consumer reads them);
+        // what was missing is a reader being told what a zero row count means.
+        foreach ($naturalKeys as $table => $column) {
+            $facts = $document['tables'][$table] ?? [];
+            $answer = is_array($facts) ? ($facts['natural_key'] ?? null) : null;
+            if (!is_array($answer)) {
+                WP_CLI::line(sprintf(
+                    'natural key %s.%s: UNANSWERED — %s',
+                    $table,
+                    $column,
+                    empty($facts['present'])
+                        ? "$table is absent on this target"
+                        : "$table has no `$column` column"
+                ));
+                continue;
+            }
+            if ((int) $answer['rows'] === 0) {
+                WP_CLI::line(sprintf(
+                    'natural key %s.%s: 0 row(s) — nothing to measure yet; a freshly activated plugin creates its '
+                        . 'tables EMPTY, so exercise the plugin before reading this as uniqueness',
+                    $table,
+                    $column
+                ));
+                continue;
+            }
+            WP_CLI::line(sprintf(
+                'natural key %s.%s: %d row(s), %d distinct — %s',
+                $table,
+                $column,
+                (int) $answer['rows'],
+                (int) $answer['distinct'],
+                !empty($answer['unique']) ? 'unique across the keyspace' : 'NOT unique'
             ));
         }
         WP_CLI::line('probe hash: ' . $document['probe_hash']);
