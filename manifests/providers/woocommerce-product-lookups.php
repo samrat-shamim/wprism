@@ -52,6 +52,7 @@ final class WoocommerceProductLookups {
     private const MAX_VISIBILITY_PRODUCTS = 50000;
     private const MAX_ATTRIBUTE_LOOKUP_ROWS = 200000;
     private const MAX_GROUPED_PARENTS = 50000;
+    private const MAX_GROUPED_CHILD_BYTES = 4194304;
     private const MAX_LOOKUP_SCALAR_BYTES = 1024;
     private const MAX_LOOKUP_ROW_BYTES = 16384;
     private const MAX_TABLE_COLUMNS = 4096;
@@ -287,6 +288,7 @@ final class WoocommerceProductLookups {
             array_values($liveIds),
             $deletionContext
         );
+        $this->assert_product_scope_snapshot($preflightScope);
         $visibilityIntent = $this->visibility_snapshot(
             array_values($liveIds),
             true,
@@ -2668,9 +2670,8 @@ final class WoocommerceProductLookups {
     ): void {
         if ($preflightScope === null) {
             $preflightScope = $this->preflight_product_scope($liveIds, $deletionContext, $heartbeat);
-        } else {
-            $this->assert_product_scope_aggregate([array_keys($preflightScope)]);
         }
+        $this->assert_product_scope_snapshot($preflightScope, $heartbeat);
         global $wpdb;
         $currentVisibility = $this->visibility_snapshot(
             $liveIds,
@@ -2802,6 +2803,7 @@ final class WoocommerceProductLookups {
             if (!$product) {
                 throw new \RuntimeException("duo: WooCommerce product lookup regeneration could not load live product $id");
             }
+            $this->bind_product_scope_children($product, $id, $preflightScope);
             $products[$id] = $product;
             $type = (string) $product->get_type();
             if ($type === 'variation') {
@@ -2817,6 +2819,7 @@ final class WoocommerceProductLookups {
                 }
                 $parent = $parentId > 0 ? $this->load_product($parentId) : false;
                 if ($parent && $this->is_variable($parent)) {
+                    $this->bind_product_scope_children($parent, $parentId, $preflightScope);
                     $variableRoots[$parentId] = $parent;
                     $attributeRoots[$parentId] = $parent;
                     // A variation-path write still requires the complete
@@ -2825,7 +2828,7 @@ final class WoocommerceProductLookups {
                     // child. Refresh each sibling here as well so a stale
                     // sibling lookup (or _price input) converges in one pass,
                     // without widening into a catalog-wide scan.
-                    foreach ((array) $parent->get_children() as $childId) {
+                    foreach ($this->snapshot_children($preflightScope, $parentId) as $childId) {
                         $childId = (int) $childId;
                         if ($childId <= 0 || isset($deletionIds[$childId])) {
                             continue;
@@ -2850,7 +2853,7 @@ final class WoocommerceProductLookups {
                 $attributeRoots[$id] = $product;
                 // sync_price() reads every child _price row.  Recompute all
                 // child prices first, including children not in this batch.
-                foreach ((array) $product->get_children() as $childId) {
+                foreach ($this->snapshot_children($preflightScope, $id) as $childId) {
                     $childId = (int) $childId;
                     if ($childId <= 0 || isset($deletionIds[$childId])) {
                         continue;
@@ -2873,6 +2876,7 @@ final class WoocommerceProductLookups {
                     $products,
                     $priceIds,
                     $deletionIds,
+                    $preflightScope,
                     $heartbeat
                 );
             } else {
@@ -2907,7 +2911,8 @@ final class WoocommerceProductLookups {
                 if (!$parent || !$this->is_grouped($parent)) {
                     continue;
                 }
-                $children = array_map('intval', (array) $parent->get_children());
+                $this->bind_product_scope_children($parent, $parentId, $preflightScope);
+                $children = $this->snapshot_children($preflightScope, $parentId);
                 if (!in_array($childId, $children, true)) {
                     continue;
                 }
@@ -2919,6 +2924,7 @@ final class WoocommerceProductLookups {
                     $products,
                     $priceIds,
                     $deletionIds,
+                    $preflightScope,
                     $heartbeat
                 );
             }
@@ -2934,9 +2940,10 @@ final class WoocommerceProductLookups {
             $this->heartbeat($heartbeat);
             $parent = $this->load_product($parentId);
             if ($parent && $this->is_variable($parent)) {
+                $this->bind_product_scope_children($parent, $parentId, $preflightScope);
                 $variableRoots[$parentId] = $parent;
                 $attributeRoots[$parentId] = $parent;
-                foreach ((array) $parent->get_children() as $childId) {
+                foreach ($this->snapshot_children($preflightScope, $parentId) as $childId) {
                     $childId = (int) $childId;
                     if ($childId <= 0 || isset($deletionIds[$childId])) {
                         continue;
@@ -2961,7 +2968,7 @@ final class WoocommerceProductLookups {
         // while Woo objects are refreshed, before any price/lookup/scheduler
         // projection can consume a widened set.
         $this->assert_product_scope_aggregate([
-            array_keys($preflightScope),
+            array_keys($preflightScope['ids']),
             $liveIds,
             array_keys($products),
             array_keys($variableRoots),
@@ -3035,6 +3042,7 @@ final class WoocommerceProductLookups {
                 $attributeRoots,
                 $products,
                 $deletionIds,
+                $preflightScope,
                 $heartbeat
             );
             $groupedStore = \WC_Data_Store::load('product-grouped');
@@ -3104,6 +3112,7 @@ final class WoocommerceProductLookups {
             $products,
             $variableRoots,
             $deletionIds,
+            $preflightScope,
             $heartbeat
         );
         $this->verify_sale_schedules(array_values($saleIds), $deletionIds, $saleProducts, $heartbeat);
@@ -3204,6 +3213,7 @@ final class WoocommerceProductLookups {
         array &$attributeRoots,
         array &$products,
         array $deletionIds,
+        array $preflightScope,
         ?callable $heartbeat = null
     ): void {
         foreach ($groupedRoots as $rootId => $root) {
@@ -3219,10 +3229,11 @@ final class WoocommerceProductLookups {
                     "duo: grouped product $rootId disappeared before public grouped price synchronization"
                 );
             }
+            $this->bind_product_scope_children($freshRoot, $rootId, $preflightScope);
             $groupedRoots[$rootId] = $freshRoot;
             $attributeRoots[$rootId] = $freshRoot;
             $products[$rootId] = $freshRoot;
-            foreach ((array) $freshRoot->get_children() as $childId) {
+            foreach ($this->snapshot_children($preflightScope, $rootId) as $childId) {
                 $childId = (int) $childId;
                 if ($childId <= 0 || isset($deletionIds[$childId])) {
                     continue;
@@ -3754,17 +3765,19 @@ final class WoocommerceProductLookups {
         array &$products,
         array &$priceIds,
         array $deletionIds,
+        array $preflightScope,
         ?callable $heartbeat = null
     ): void {
         $rootId = (int) $root->get_id();
         if ($rootId <= 0) {
             return;
         }
+        $this->bind_product_scope_children($root, $rootId, $preflightScope);
         $groupedRoots[$rootId] = $root;
         $attributeRoots[$rootId] = $root;
         $products[$rootId] = $root;
         $priceIds[$rootId] = true;
-        foreach ((array) $root->get_children() as $childId) {
+        foreach ($this->snapshot_children($preflightScope, $rootId) as $childId) {
             $childId = (int) $childId;
             if ($childId <= 0 || isset($deletionIds[$childId])) {
                 continue;
@@ -3776,12 +3789,13 @@ final class WoocommerceProductLookups {
                 $products[$childId] = $child;
                 $priceIds[$childId] = true;
                 if ($this->is_variable($child)) {
+                    $this->bind_product_scope_children($child, $childId, $preflightScope);
                     $variableRoots[$childId] = $child;
                     $attributeRoots[$childId] = $child;
                     // A grouped child may itself be a variable product. Its
                     // variation prices must be repaired before the grouped
                     // store reads the variable root's effective price.
-                    foreach ((array) $child->get_children() as $variationId) {
+                    foreach ($this->snapshot_children($preflightScope, $childId) as $variationId) {
                         $variationId = (int) $variationId;
                         if ($variationId <= 0 || isset($deletionIds[$variationId])) {
                             continue;
@@ -3848,6 +3862,7 @@ final class WoocommerceProductLookups {
         array $products,
         array $variableRoots,
         array $deletionIds,
+        array $preflightScope,
         ?callable $heartbeat = null
     ): void {
         global $wpdb;
@@ -3881,7 +3896,7 @@ final class WoocommerceProductLookups {
             $id = (int) $id;
             $this->heartbeat($heartbeat);
             $this->verify_meta_row($productStore, $id, $heartbeat);
-            foreach ((array) $root->get_children() as $childId) {
+            foreach ($this->snapshot_children($preflightScope, $id) as $childId) {
                 $childId = (int) $childId;
                 if ($childId > 0 && !isset($deletionIds[$childId])) {
                     $this->heartbeat($heartbeat);
@@ -4272,7 +4287,7 @@ final class WoocommerceProductLookups {
      *
      * @param list<int> $liveIds
      * @param array<int,array> $deletionContext
-     * @return array<int,true>
+     * @return array{ids:array<int,true>,children:array<int,list<int>>,visible_children:array<int,list<int>>}
      */
     private function preflight_product_scope(
         array $liveIds,
@@ -4280,6 +4295,8 @@ final class WoocommerceProductLookups {
         ?callable $heartbeat = null
     ): array {
         $scope = [];
+        $children = [];
+        $visibleChildren = [];
         $queue = [];
         $queued = [];
         $excluded = [];
@@ -4387,6 +4404,18 @@ final class WoocommerceProductLookups {
                 );
             }
             $type = (string) $product->get_type();
+            // A variable product can itself be a grouped child. Discover
+            // that reverse edge while walking the graph, not only from the
+            // originally selected ids; otherwise a selected variation can
+            // miss its grouped grandparent and leave that root outside the
+            // single bounded witness. Restrict the extra reverse probes to
+            // composite rows: probing every variation/simple descendant
+            // would turn a bounded grouped list into a reverse-query storm.
+            if ($this->is_variable($product) || $this->is_grouped($product)) {
+                foreach ($this->find_grouped_parent_ids($id) as $parentId) {
+                    $enqueue($parentId, true);
+                }
+            }
             if ($type === 'variation') {
                 if (!is_callable([$product, 'get_parent_id'])) {
                     throw new \RuntimeException(
@@ -4402,12 +4431,20 @@ final class WoocommerceProductLookups {
             if (!$this->is_variable($product) && !$this->is_grouped($product)) {
                 continue;
             }
-            if (!is_callable([$product, 'get_children'])) {
-                throw new \RuntimeException(
-                    'duo: WooCommerce composite product lookup scope lacks the public child boundary'
+            $childIds = $this->bounded_product_children($product, $id, 'product lookup scope');
+            $children[$id] = $childIds;
+            if ($this->is_variable($product)) {
+                $visibleChildren[$id] = $this->bounded_visible_product_children(
+                    $id,
+                    'product lookup scope'
+                );
+                $this->assert_visible_child_subset(
+                    $childIds,
+                    $visibleChildren[$id],
+                    "product lookup scope for product $id"
                 );
             }
-            foreach ((array) $product->get_children() as $childId) {
+            foreach ($childIds as $childId) {
                 $childId = (int) $childId;
                 if ($childId > 0 && !isset($excluded[$childId])) {
                     $enqueue($childId, true);
@@ -4415,7 +4452,292 @@ final class WoocommerceProductLookups {
             }
         }
 
-        return $scope;
+        ksort($scope, SORT_NUMERIC);
+        ksort($children, SORT_NUMERIC);
+        ksort($visibleChildren, SORT_NUMERIC);
+        return [
+            'ids' => $scope,
+            'children' => $children,
+            'visible_children' => $visibleChildren,
+        ];
+    }
+
+    /**
+     * Re-read every composite membership through the same bounded public
+     * boundary used by preflight. This is deliberately before the first cache
+     * invalidation: a child list that widens after preflight must refuse with
+     * no derived effect, not be discovered by a later verification pass.
+     *
+     * @param array{ids:array<int,true>,children:array<int,list<int>>,visible_children:array<int,list<int>>} $snapshot
+     */
+    private function assert_product_scope_snapshot(
+        array $snapshot,
+        ?callable $heartbeat = null
+    ): void {
+        $ids = $snapshot['ids'] ?? null;
+        $children = $snapshot['children'] ?? null;
+        $visibleChildren = $snapshot['visible_children'] ?? null;
+        if (!is_array($ids) || !is_array($children) || !is_array($visibleChildren)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product lookup scope snapshot is missing its bounded child witness'
+            );
+        }
+        $sets = [array_keys($ids)];
+        foreach ($children as $id => $expected) {
+            $id = (int) $id;
+            if ($id <= 0 || !isset($ids[$id]) || !is_array($expected)) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product lookup scope snapshot contains malformed child state'
+                );
+            }
+            $this->heartbeat($heartbeat);
+            $product = $this->load_product($id);
+            if (!$product || (!$this->is_variable($product) && !$this->is_grouped($product))) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce composite product $id disappeared before bounded scope verification"
+                );
+            }
+            $actual = $this->bounded_product_children($product, $id, 'product lookup scope verification');
+            if ($actual !== array_values(array_map('intval', $expected))) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product lookup child scope changed before native projection; recovery_required"
+                );
+            }
+            $sets[] = $actual;
+            if ($this->is_variable($product)) {
+                $expectedVisible = $visibleChildren[$id] ?? null;
+                if (!is_array($expectedVisible)) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce variable product $id is missing its bounded visible-child witness"
+                    );
+                }
+                $actualVisible = $this->bounded_visible_product_children(
+                    $id,
+                    'product lookup scope visibility verification'
+                );
+                $this->assert_visible_child_subset(
+                    $actual,
+                    $actualVisible,
+                    "product lookup scope visibility verification for product $id"
+                );
+                if ($actualVisible !== array_values(array_map('intval', $expectedVisible))) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce variable child visibility changed before native projection; recovery_required'
+                    );
+                }
+            }
+        }
+        $this->assert_product_scope_aggregate($sets);
+    }
+
+    /**
+     * Return one canonical, deduplicated child list. Variable products use a
+     * bounded SQL projection matching Woo 11.0.x's public data-store query;
+     * this is the only way to reject a saturated child set before PHP
+     * materializes all descendants. Grouped membership is one serialized
+     * _children value, so its count header is checked before unserialization.
+     *
+     * @return list<int>
+     */
+    private function bounded_product_children(object $product, int $id, string $context): array {
+        if ($this->is_variable($product)) {
+            return $this->bounded_variable_children($id, $context, false);
+        }
+        if (!$this->is_grouped($product) || !is_callable([$product, 'get_children'])) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $context lacks the public child boundary for product $id"
+            );
+        }
+        $raw = $this->bounded_grouped_children($id, $context);
+        if (!is_array($raw) || count($raw) > self::MAX_SCOPED_PRODUCTS) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $context exceeds its bounded aggregate product count"
+            );
+        }
+        $children = [];
+        foreach ($raw as $childId) {
+            $childId = (int) $childId;
+            if ($childId <= 0) {
+                continue;
+            }
+            $children[$childId] = $childId;
+            if (count($children) > self::MAX_SCOPED_PRODUCTS) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce $context exceeds its bounded aggregate product count"
+                );
+            }
+        }
+        return array_values($children);
+    }
+
+    /** @return list<int> */
+    private function bounded_variable_children(int $id, string $context, bool $visibleOnly): array {
+        global $wpdb;
+        $statuses = $visibleOnly ? "'publish'" : "'publish', 'private'";
+        $visibilityFilter = '';
+        if ($visibleOnly && (string) \get_option('woocommerce_hide_out_of_stock_items', 'no') === 'yes') {
+            $visibilityFilter = "
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM {$wpdb->term_relationships} tr
+                   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+                   INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+                   WHERE tr.object_id = {$wpdb->posts}.ID
+                     AND tt.taxonomy = 'product_visibility'
+                     AND t.slug = 'outofstock'
+               )";
+        }
+        $rows = \Duo\ProviderSdk::checked_get_col($wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts}
+             WHERE post_parent = %d
+               AND post_type = 'product_variation'
+               AND post_status IN ($statuses)$visibilityFilter
+             ORDER BY menu_order ASC, ID ASC
+             LIMIT " . (self::MAX_SCOPED_PRODUCTS + 1),
+            $id
+        ), "$context variable child inventory for product $id");
+        if (count($rows) > self::MAX_SCOPED_PRODUCTS) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $context exceeds its bounded aggregate product count"
+            );
+        }
+        $children = [];
+        foreach ($rows as $row) {
+            $childId = $this->strict_positive_db_uint($row, "$context variation child ID");
+            $children[$childId] = $childId;
+        }
+        return array_values($children);
+    }
+
+    /** @return list<int> */
+    private function bounded_visible_product_children(int $id, string $context): array {
+        return $this->bounded_variable_children($id, $context . ' visible', true);
+    }
+
+    /** @param list<int> $children @param list<int> $visible */
+    private function assert_visible_child_subset(array $children, array $visible, string $context): void {
+        $allowed = array_fill_keys($children, true);
+        foreach ($visible as $childId) {
+            if (!isset($allowed[$childId])) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce $context returned a visible child outside its all-child witness"
+                );
+            }
+        }
+    }
+
+    /** @return list<int> */
+    private function bounded_grouped_children(int $id, string $context): array {
+        global $wpdb;
+        $sizeRows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            "SELECT meta_id, LENGTH(meta_value) AS value_bytes FROM {$wpdb->postmeta}
+             WHERE post_id = %d AND meta_key = '_children'
+             ORDER BY meta_id ASC LIMIT 2",
+            $id
+        ), "$context grouped child inventory for product $id");
+        if (count($sizeRows) > 1) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $context found duplicate _children rows for product $id"
+            );
+        }
+        if ($sizeRows === []) {
+            return [];
+        }
+        $valueBytes = $this->strict_nonnegative_db_uint(
+            $sizeRows[0]['value_bytes'] ?? null,
+            "$context grouped child payload bytes"
+        );
+        if ($valueBytes > self::MAX_GROUPED_CHILD_BYTES) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $context returned an oversized _children payload for product $id"
+            );
+        }
+        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            "SELECT meta_id, meta_value FROM {$wpdb->postmeta}
+             WHERE post_id = %d AND meta_key = '_children'
+               AND LENGTH(meta_value) <= " . self::MAX_GROUPED_CHILD_BYTES . "
+             ORDER BY meta_id ASC LIMIT 2",
+            $id
+        ), "$context grouped child payload for product $id");
+        if (count($rows) > 1) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $context found duplicate _children rows for product $id"
+            );
+        }
+        if ($rows === []) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $context lost its _children row after the bounded size witness"
+            );
+        }
+        $raw = $rows[0]['meta_value'] ?? null;
+        if (!is_string($raw)) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $context returned malformed _children data for product $id"
+            );
+        }
+        if (strlen($raw) > self::MAX_GROUPED_CHILD_BYTES) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $context returned an oversized _children payload for product $id"
+            );
+        }
+        if (preg_match('/^a:([0-9]+):\{/', $raw, $match) !== 1) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $context returned non-array _children data for product $id"
+            );
+        }
+        $declared = (int) $match[1];
+        if ($declared > self::MAX_SCOPED_PRODUCTS) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $context exceeds its bounded aggregate product count"
+            );
+        }
+        $decoded = @unserialize($raw, ['allowed_classes' => false]);
+        if (!is_array($decoded)) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $context returned malformed _children data for product $id"
+            );
+        }
+        $children = [];
+        foreach ($decoded as $childValue) {
+            if (!is_int($childValue) && !is_string($childValue)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce $context returned a non-scalar _children id for product $id"
+                );
+            }
+            $childId = $this->strict_positive_db_uint($childValue, "$context child ID");
+            $children[$childId] = $childId;
+        }
+        return array_values($children);
+    }
+
+    /** @param array{children:array<int,list<int>>,visible_children:array<int,list<int>>} $snapshot */
+    private function bind_product_scope_children(object $product, int $id, array $snapshot): void {
+        $children = $snapshot['children'][$id] ?? null;
+        if (!is_array($children)) {
+            return;
+        }
+        if (!is_callable([$product, 'set_children'])) {
+            throw new \RuntimeException(
+                "duo: WooCommerce composite product $id lacks public set_children(); cannot bind its bounded child witness"
+            );
+        }
+        $product->set_children(array_values(array_map('intval', $children)));
+        if (isset($snapshot['visible_children'][$id])
+            && is_callable([$product, 'set_visible_children'])) {
+            $product->set_visible_children(array_values(array_map(
+                'intval',
+                $snapshot['visible_children'][$id]
+            )));
+        }
+    }
+
+    /** @param array{children:array<int,list<int>>} $snapshot @return list<int> */
+    private function snapshot_children(array $snapshot, int $id): array {
+        $children = $snapshot['children'][$id] ?? null;
+        if (!is_array($children)) {
+            return [];
+        }
+        return array_values(array_map('intval', $children));
     }
 
     /**

@@ -346,6 +346,8 @@ namespace {
         public bool $attributePayloadDropLast = false;
         public mixed $afterAttributePayload = null;
         public ?array $groupedParentOverride = null;
+        /** @var callable|null invoked at each bounded child inventory read */
+        public mixed $childScopeReadHook = null;
         public mixed $afterDownloadWitness = null;
         public ?string $downloadMetaKeyOverride = null;
         public ?array $lookupSchemaRowsOverride = null;
@@ -457,10 +459,37 @@ namespace {
          * validates each candidate with the public Woo product object.
          */
         public function get_col(string $query): array {
-            global $fakeGroupedChildren;
+            global $fakeGroupedChildren, $fakeProducts;
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
                 return [];
+            }
+            if (preg_match(
+                '/SELECT ID FROM wp_posts\s+WHERE post_parent = (\d+)\s+AND post_type = \'product_variation\'.*?LIMIT ([0-9]+)/s',
+                $query,
+                $match
+            )) {
+                if (is_callable($this->childScopeReadHook)) {
+                    ($this->childScopeReadHook)();
+                }
+                $parentId = (int) $match[1];
+                $rows = [];
+                $parent = $fakeProducts[$parentId] ?? null;
+                foreach ((array) ($parent?->get_children() ?? []) as $id) {
+                    $id = (int) $id;
+                    $product = $fakeProducts[$id] ?? null;
+                    if ($product !== null
+                        && ($product->get_type() !== 'variation'
+                            || (int) $product->get_parent_id('edit') !== $parentId
+                            || !in_array($product->get_status(), ['publish', 'private'], true))) {
+                        continue;
+                    }
+                    if ($id > 0) {
+                        $rows[$id] = $id;
+                    }
+                }
+                ksort($rows, SORT_NUMERIC);
+                return array_slice(array_values($rows), 0, (int) $match[2]);
             }
             if (!str_contains($query, "meta_key = '_children'")) {
                 return [];
@@ -498,11 +527,38 @@ namespace {
         public function get_results(string $query, $output = null): array {
             global $fakeAttrLookup, $fakeMeta, $fakeMetaLookup, $fakeDownloadMetaRows, $fakeCogsMetaRows,
                 $fakeProducts, $fakePostTypeOverrides, $fakeVisibilityRelationships, $fakeVisibilityTerms,
-                $fakeVisibilityQueries, $fakeVisibilityChildFlood;
+                $fakeVisibilityQueries, $fakeVisibilityChildFlood, $fakeGroupedChildren;
             $fakeVisibilityQueries[] = $query;
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
                 return [];
+            }
+            if (preg_match(
+                "/SELECT meta_id, LENGTH\\(meta_value\\) AS value_bytes FROM wp_postmeta\\s+WHERE post_id = (\\d+) AND meta_key = '_children'.*?LIMIT 2/s",
+                $query,
+                $match
+            )) {
+                if (is_callable($this->childScopeReadHook)) {
+                    ($this->childScopeReadHook)();
+                }
+                $id = (int) $match[1];
+                $children = $fakeGroupedChildren[$id]
+                    ?? (($fakeProducts[$id] ?? null)?->get_children() ?? []);
+                $serialized = serialize(array_values($children));
+                return [['meta_id' => '1', 'value_bytes' => (string) strlen($serialized)]];
+            }
+            if (preg_match(
+                "/SELECT meta_id, meta_value FROM wp_postmeta\\s+WHERE post_id = (\\d+) AND meta_key = '_children'.*?LIMIT 2/s",
+                $query,
+                $match
+            )) {
+                if (is_callable($this->childScopeReadHook)) {
+                    ($this->childScopeReadHook)();
+                }
+                $id = (int) $match[1];
+                $children = $fakeGroupedChildren[$id]
+                    ?? (($fakeProducts[$id] ?? null)?->get_children() ?? []);
+                return [['meta_id' => '1', 'meta_value' => serialize(array_values($children))]];
             }
             if (preg_match(
                 '/SELECT ID, post_parent, post_type FROM wp_posts WHERE ID IN \(([0-9, ]+)\) ORDER BY ID ASC/',
@@ -2740,7 +2796,7 @@ namespace {
     $fakeGroupedChildren[70000] = [70001, 70001, 70002];
     $fakeGroupedChildren[70002] = [70003, 70005];
     $nestedScope = $preflightScope->invoke($adapter, [$nestedRoot], []);
-    $nestedScopeIds = array_map('intval', array_keys($nestedScope));
+    $nestedScopeIds = array_map('intval', array_keys($nestedScope['ids']));
     sort($nestedScopeIds, SORT_NUMERIC);
     $check($nestedScopeIds === [70000, 70001, 70002, 70003, 70004, 70005],
         'nested and duplicate grouped/variation expansion contributes one exact deduplicated scope id per product');
@@ -2785,6 +2841,112 @@ namespace {
         'a 50,000-id aggregate is accepted at the boundary before the first cache mutation');
     unset($fakeProducts[$boundaryRoot], $fakeMeta[$boundaryRoot], $fakeMetaLookup[$boundaryRoot],
         $fakeVisibilityRelationships[$boundaryRoot], $fakeProductCache[$boundaryRoot]);
+
+    // A bounded preflight is only useful if its witness is checked again
+    // before the first effect. Widen the same 50,000-id grouped root between
+    // those two reads and prove the provider refuses with no cache, lookup,
+    // price, or scheduler work having happened.
+    $groupedRaceRoot = 71500;
+    $groupedRaceChildren = range($groupedRaceRoot + 1, $groupedRaceRoot + 49999);
+    $groupedRaceWidened = $groupedRaceChildren;
+    $groupedRaceWidened[] = $groupedRaceRoot + 50000;
+    fake_add_visibility_product($groupedRaceRoot, 'grouped', 0, $groupedRaceChildren);
+    $fakeGroupedChildren[$groupedRaceRoot] = $groupedRaceChildren;
+    $groupedRaceReads = 0;
+    $wpdb->childScopeReadHook = static function () use (
+        &$groupedRaceReads,
+        &$fakeGroupedChildren,
+        $groupedRaceRoot,
+        $groupedRaceWidened
+    ): void {
+        $groupedRaceReads++;
+        if ($groupedRaceReads === 4) {
+            $fakeGroupedChildren[$groupedRaceRoot] = $groupedRaceWidened;
+        }
+    };
+    $groupedRaceCacheStart = count($fakeCacheEvents);
+    $groupedRaceLookupStart =
+        (\Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::$instance?->createCalls ?? 0);
+    $groupedRaceVariableStart = WC_Data_Store::$variable?->calls ?? 0;
+    $groupedRaceGroupedStart = WC_Data_Store::$grouped?->calls ?? 0;
+    $groupedRaceScheduleStart = array_sum(array_map('count', $fakeSaleSchedules));
+    $groupedRaceFailure = '';
+    try {
+        $adapter->regenerate_batch([$groupedRaceRoot], []);
+    } catch (\Throwable $failure) {
+        $groupedRaceFailure = $failure->getMessage();
+    }
+    $wpdb->childScopeReadHook = null;
+    $groupedRaceEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $groupedRaceCacheStart),
+        static fn(string $event): bool => str_starts_with($event, 'remove:')
+    ));
+    $groupedRaceLookupCalls =
+        (\Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::$instance?->createCalls ?? 0)
+        - $groupedRaceLookupStart;
+    $groupedRaceScheduleCalls = array_sum(array_map('count', $fakeSaleSchedules)) - $groupedRaceScheduleStart;
+    $check(str_contains($groupedRaceFailure, 'child scope changed')
+        && $groupedRaceEffects === []
+        && $groupedRaceLookupCalls === 0
+        && (WC_Data_Store::$variable?->calls ?? 0) === $groupedRaceVariableStart
+        && (WC_Data_Store::$grouped?->calls ?? 0) === $groupedRaceGroupedStart
+        && $groupedRaceScheduleCalls === 0,
+        'a grouped child list widening from 50,000 to 50,001 after preflight refuses before every derived effect');
+    unset($fakeProducts[$groupedRaceRoot], $fakeMeta[$groupedRaceRoot], $fakeMetaLookup[$groupedRaceRoot],
+        $fakeVisibilityRelationships[$groupedRaceRoot], $fakeProductCache[$groupedRaceRoot],
+        $fakeGroupedChildren[$groupedRaceRoot]);
+
+    // Exercise the same mutable sequence through Woo's variable-product
+    // post_parent reader. The all-child witness is fixed at 50,000 ids, then
+    // the native membership widens before the assertion read; no later
+    // consumer is allowed to observe or project that widened set.
+    $variableRaceRoot = 71600;
+    $variableRaceChildren = range($variableRaceRoot + 1, $variableRaceRoot + 49999);
+    $variableRaceWidened = $variableRaceChildren;
+    $variableRaceWidened[] = $variableRaceRoot + 50000;
+    fake_add_visibility_product($variableRaceRoot, 'variable', 0, $variableRaceChildren);
+    $variableRaceReads = 0;
+    $wpdb->childScopeReadHook = static function () use (
+        &$variableRaceReads,
+        &$fakeProducts,
+        $variableRaceRoot,
+        $variableRaceWidened
+    ): void {
+        $variableRaceReads++;
+        if ($variableRaceReads === 3) {
+            $fakeProducts[$variableRaceRoot]->set_children($variableRaceWidened);
+        }
+    };
+    $variableRaceCacheStart = count($fakeCacheEvents);
+    $variableRaceLookupStart =
+        (\Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::$instance?->createCalls ?? 0);
+    $variableRaceVariableStart = WC_Data_Store::$variable?->calls ?? 0;
+    $variableRaceGroupedStart = WC_Data_Store::$grouped?->calls ?? 0;
+    $variableRaceScheduleStart = array_sum(array_map('count', $fakeSaleSchedules));
+    $variableRaceFailure = '';
+    try {
+        $adapter->regenerate_batch([$variableRaceRoot], []);
+    } catch (\Throwable $failure) {
+        $variableRaceFailure = $failure->getMessage();
+    }
+    $wpdb->childScopeReadHook = null;
+    $variableRaceEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $variableRaceCacheStart),
+        static fn(string $event): bool => str_starts_with($event, 'remove:')
+    ));
+    $variableRaceLookupCalls =
+        (\Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::$instance?->createCalls ?? 0)
+        - $variableRaceLookupStart;
+    $variableRaceScheduleCalls = array_sum(array_map('count', $fakeSaleSchedules)) - $variableRaceScheduleStart;
+    $check(str_contains($variableRaceFailure, 'child scope changed')
+        && $variableRaceEffects === []
+        && $variableRaceLookupCalls === 0
+        && (WC_Data_Store::$variable?->calls ?? 0) === $variableRaceVariableStart
+        && (WC_Data_Store::$grouped?->calls ?? 0) === $variableRaceGroupedStart
+        && $variableRaceScheduleCalls === 0,
+        'a variable child list widening from 50,000 to 50,001 after preflight refuses before every derived effect');
+    unset($fakeProducts[$variableRaceRoot], $fakeMeta[$variableRaceRoot], $fakeMetaLookup[$variableRaceRoot],
+        $fakeVisibilityRelationships[$variableRaceRoot], $fakeProductCache[$variableRaceRoot]);
 
     // MAX+1 must fail before visibility/cache work and must not partially
     // mutate the root lookup witness.
@@ -4059,7 +4221,13 @@ namespace {
         'grouped-parent IDs use canonical bounded integer parsing rather than loose casts');
 
     $verifyExactState = new \ReflectionMethod($adapter, 'verify_exact_state');
-    $verifyExactStateArgs = [WC_Data_Store::load('product'), [], [], [999 => 999], null];
+    $verifyExactStateArgs = [
+        WC_Data_Store::load('product'),
+        [],
+        [],
+        [999 => 999],
+        ['ids' => [], 'children' => [], 'visible_children' => []],
+    ];
     $wpdb->failReadContaining = 'wc_product_meta_lookup';
     $deletionReadFailedClosed = false;
     try {
