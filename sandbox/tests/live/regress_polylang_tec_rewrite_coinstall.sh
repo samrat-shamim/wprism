@@ -66,9 +66,19 @@ echo "$HOOKS" | jq -e '([.[]|select(.hook=="pll_rewrite_rules" or .hook=="pll_mo
 pass 'dynamic Polylang filters are empty; only source-pinned Polylang/TEC callbacks are present'
 
 say 'failure-before-effect and retry on a hostile Polylang dynamic callback'
-witness() { wp2 eval 'global $wpdb; $n=["polylang","rewrite_rules","default_category","tribe_last_generate_rewrite_rules","tribe_last_updated_option","tribe_last_save_post"]; $o=[]; foreach($n as $x){$o[$x]=$wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name=%s LIMIT 1",$x));} echo hash("sha256",serialize($o));' | tail -1; }
+witness() { wp2 eval 'global $wpdb; $n=["polylang","theme_mods_twentytwentyone","rewrite_rules","default_category","tribe_last_generate_rewrite_rules","tribe_last_updated_option","tribe_last_save_post"]; $o=[]; foreach($n as $x){$o[$x]=$wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name=%s LIMIT 1",$x));} echo hash("sha256",serialize($o));' | tail -1; }
 BEFORE=$(witness)
-wp1 eval '$o=get_option("polylang"); $o["browser"]=true; update_option("polylang",$o);' >/dev/null; wp1 duo capture --repo=/siterepo >/dev/null; git -C "$R1" add -A; git -C "$R1" -c user.name=duo-polylang-tec -c user.email=polylang-tec@example.test commit -qm 'capture: Polylang projection retry'; git -C "$R1" push -qu origin main; git -C "$R2" pull -q origin main; REVISION=$(git -C "$R2" rev-parse HEAD)
+wp1 eval '
+$category=get_term_by("slug","uncategorized-fr","category");
+$menu=wp_get_nav_menu_object("Polylang Principal Français");
+if (!$category instanceof WP_Term || !$menu instanceof WP_Term) throw new RuntimeException("Polylang French projection premise is missing");
+$o=get_option("polylang"); $o["default_lang"]="fr"; update_option("polylang",$o);
+update_option("default_category",(int)$category->term_id);
+set_theme_mod("nav_menu_locations",["primary"=>(int)$menu->term_id]);
+$locations=get_theme_mod("nav_menu_locations",[]);
+if ((int)get_option("default_category")!==(int)$category->term_id || (int)($locations["primary"]??0)!==(int)$menu->term_id) throw new RuntimeException("Polylang French projection source graph is incoherent");
+' >/dev/null
+wp1 duo capture --repo=/siterepo >/dev/null; git -C "$R1" add -A; git -C "$R1" -c user.name=duo-polylang-tec -c user.email=polylang-tec@example.test commit -qm 'capture: Polylang projection retry'; git -C "$R1" push -qu origin main; git -C "$R2" pull -q origin main; REVISION=$(git -C "$R2" rev-parse HEAD)
 HOSTILE_MU=/var/www/html/wp-content/mu-plugins/duo-polylang-tec-hostile.php
 "${PAIR_COMPOSE[@]}" exec -T --user root wp2 sh -c 'umask 022; target=$1; tmp="${target}.tmp"; cat > "$tmp"; chmod 0644 "$tmp"; mv "$tmp" "$target"' sh "$HOSTILE_MU" <<'PHPEOF'
 <?php

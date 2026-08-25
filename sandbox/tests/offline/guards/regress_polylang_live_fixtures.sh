@@ -75,6 +75,9 @@ for needle in \
   'provider:polylang-nav-menus/synchronize_runtime' \
   'native:rewrite.flush' \
   'pll_modify_rewrite_rule' \
+  'uncategorized-fr' \
+  'Polylang Principal Français' \
+  'theme_mods_twentytwentyone' \
   'exec -T --user root wp2' \
   "<<'PHPEOF'" \
   'unsupported open Polylang rewrite filter' \
