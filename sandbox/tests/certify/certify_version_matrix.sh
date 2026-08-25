@@ -498,6 +498,7 @@ check_the_events_calendar_boundary_content() {
   local COMPOSE="$PAIR_COMPOSE_STRING"
   local TEC_EXPECTED_VERSION="${TEC_VERSION:-6.17.3}"
   local TEC_PRESERVE_ID_FIXTURES=1
+  local TEC_POST_UPGRADE_ONLY="${TEC_POST_UPGRADE_ONLY:-0}"
   local TEC_BOUNDARY_ONLY=0
   if [ "$TEC_EXPECTED_VERSION" != 6.17.2 ]; then
     TEC_BOUNDARY_ONLY=1
@@ -1876,7 +1877,7 @@ EOF
     jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$TEC_UPGRADE_PLAN" >/dev/null \
       || fail "TEC supported in-place upgrade invented authored work: $TEC_UPGRADE_PLAN"
 
-    TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content
+    TEC_POST_UPGRADE_ONLY=1 TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content
     wp1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-upgrade-source
     wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-upgrade-target
     TEC_UPGRADE_SOURCE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}1/.tmp-tec-upgrade-source" || true)

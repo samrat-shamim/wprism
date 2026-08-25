@@ -8848,12 +8848,13 @@ foreach ([
 }
 foreach ([
     'local TEC_BOUNDARY_ONLY=0',
+    'local TEC_POST_UPGRADE_ONLY="${TEC_POST_UPGRADE_ONLY:-0}"',
     'if [ "$TEC_EXPECTED_VERSION" != 6.17.2 ]; then',
     '. conformance/postapply/the-events-calendar.sh',
     '"taxonomies": ["category", "post_tag", "tribe_events_cat"]',
     'TEC_UPGRADE_DEPLOY_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1)',
     'wp2 duo deploy --repo=/siterepo --force-code-drift',
-    'TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content',
+    'TEC_POST_UPGRADE_ONLY=1 TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content',
     'TEC_OUT_OF_RANGE_ARTIFACT=$(fetch_artifact the-events-calendar 6.17.1 cli1)',
 ] as $matrixEvidence) {
     duo_check(
@@ -8873,7 +8874,10 @@ duo_check(
     'the exact matrix proves and removes target-local witnesses after apply and before plugin checks/recapture'
 );
 $tecMatrixFirstCheck = strpos($tecMatrixCase, 'check_the_events_calendar_boundary_content');
-$tecMatrixUpgradeCheck = strpos($tecMatrixCase, 'TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content');
+$tecMatrixUpgradeCheck = strpos(
+    $tecMatrixCase,
+    'TEC_POST_UPGRADE_ONLY=1 TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content'
+);
 $tecMatrixIdentityCleanup = strpos(
     $tecMatrixCase,
     'rm -f "siterepo/${PAIR}1/.tmp-tec-source-ids.json" "siterepo/${PAIR}2/.tmp-tec-target-ids.json"'
@@ -8885,6 +8889,50 @@ duo_check(
         && $tecMatrixFirstCheck < $tecMatrixUpgradeCheck
         && $tecMatrixUpgradeCheck < $tecMatrixIdentityCleanup,
     'the matrix retains TEC identity premises through the populated upgrade check and removes them afterward'
+);
+
+$tecFreshSeedGuard = strpos($deletionCheck, 'if [ "${TEC_POST_UPGRADE_ONLY:-0}" != 1 ]; then');
+$tecFreshSeedSource = strpos($deletionCheck, 'TEC_SOURCE_EVENT_STATE=');
+$tecFreshSeedRender = strpos(
+    $deletionCheck,
+    'pass "native Gutenberg meta, ordered organizers/statuses, legacy widgets, and Category Colors render exactly"'
+);
+$tecCategoryBoundary = strpos($deletionCheck, 'TEC_COLOR_BOUNDARY_FILE=');
+$tecLifecycleBoundary = strpos(
+    $deletionCheck,
+    'tec_deactivate_reactivate_cycle "${TEC_EXPECTED_VERSION:-6.17.3}"'
+);
+duo_check(
+    $tecFreshSeedGuard !== false
+        && $tecFreshSeedSource !== false
+        && $tecFreshSeedRender !== false
+        && $tecCategoryBoundary !== false
+        && $tecLifecycleBoundary !== false
+        && $tecFreshSeedGuard < $tecFreshSeedSource
+        && $tecFreshSeedSource < $tecFreshSeedRender
+        && $tecFreshSeedRender < $tecCategoryBoundary
+        && $tecCategoryBoundary < $tecLifecycleBoundary,
+    'the populated-upgrade path skips only stale seed-shaped assertions before exact native services and lifecycle evidence'
+);
+$tecUpgradeForce = strpos($tecMatrixCase, 'wp2 duo deploy --repo=/siterepo --force-code-drift');
+$tecUpgradeSourceCapture = strpos($tecMatrixCase, 'wp1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-upgrade-source');
+duo_check(
+    $tecUpgradeForce !== false
+        && $tecMatrixUpgradeCheck !== false
+        && $tecUpgradeSourceCapture !== false
+        && $tecUpgradeForce < $tecMatrixUpgradeCheck
+        && $tecMatrixUpgradeCheck < $tecUpgradeSourceCapture,
+    'the populated-upgrade check runs after explicit code-baseline authority and before byte-identity capture'
+);
+duo_check_same(
+    1,
+    substr_count($tecMatrixCase, 'TEC_POST_UPGRADE_ONLY=1'),
+    'only the populated TEC upgrade check suppresses stale seed-shaped assertions'
+);
+duo_check_same(
+    1,
+    substr_count($tecMatrixCase, "\n  check_the_events_calendar_boundary_content\n\n  wp2 duo capture"),
+    'the fresh exact-artifact TEC boundary remains a full seed, graph, and render check'
 );
 
 foreach ([

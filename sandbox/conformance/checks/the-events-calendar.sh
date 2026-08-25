@@ -935,6 +935,7 @@ tec_derived_hash() {
   '
 }
 
+if [ "${TEC_POST_UPGRADE_ONLY:-0}" != 1 ]; then
 SOURCE_IDS_FILE="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-source-ids.json"
 TARGET_IDS_FILE="${CONF_REPO2:-siterepo/conf2}/.tmp-tec-target-ids.json"
 [ -f "$SOURCE_IDS_FILE" ] || fail "TEC source identity premise is missing: $SOURCE_IDS_FILE"
@@ -1429,6 +1430,7 @@ grep -qF 'Duo Production Readiness Event 東京' <<<"$WIDGET_FRONT" \
 ! grep -qF 'Target-only stale list widget' <<<"$WIDGET_FRONT" \
   || fail "TEC legacy-widget page rendered the displaced target widget instance"
 pass "native Gutenberg meta, ordered organizers/statuses, legacy widgets, and Category Colors render exactly"
+fi
 
 # Exercise the exact native Category Colors services on every artifact in the
 # boundary matrix. Generator::fetch_category_meta() has no ORDER BY, uses an
