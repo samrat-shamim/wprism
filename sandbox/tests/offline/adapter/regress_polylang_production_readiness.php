@@ -1168,9 +1168,20 @@ namespace {
             && str_contains($checksScript, '.source == "native:rewrite.flush"')
             && str_contains($checksScript, '.after.native_catalogs_hash')
             && str_contains($checksScript, 'populated Polylang string translations were not captured as the reviewed plain-data termmeta shape')
-            && str_contains($checksScript, 'Polylang projection failure ran rewrite generation despite the preceding action refusal')
+            && str_contains($checksScript, 'DUO_PLL_NATIVE:')
+            && str_contains($checksScript, "provider 'polylang-nav-menus' capability 'synchronize_runtime' failed")
+            && str_contains($checksScript, 'Polylang provider verification failure ran rewrite generation despite the preceding action refusal')
+            && str_contains($checksScript, 'Polylang provider retry after exact repair')
+            && str_contains($checksScript, '.after.rules_count > 0')
+            && str_contains($checksScript, 'Polylang destructive-uninstall recovery sidecar omitted the owned widget identity')
+            && str_contains($checksScript, 'Polylang destructive-uninstall recovery database backup is empty')
+            && str_contains($checksScript, 'PLL_REMOVE_ALL_DATA')
+            && str_contains($checksScript, 'widget identity history is missing')
+            && str_contains($checksScript, 'identity sidecar witness mismatch')
+            && str_contains($checksScript, 'wp_conf2 db import /siterepo/.tmp-polylang-remove-all.sql')
+            && str_contains($checksScript, 'Polylang database recovery did not restore the exact active-plugin preimage')
             && !str_contains($checksScript, '.after.rewrite_rules_count'),
-        'Polylang checker proves source-authored status/content, native translation-group id rewrites, hostile target adoption, split projection/rewrite receipts, reviewed string catalogs, page routing and recapture idempotence'
+        'Polylang checker proves source-authored status/content, native translation-group id rewrites, hostile target adoption, split projection/rewrite receipts, reviewed string catalogs, page routing, provider-child atomic refusal, destructive-uninstall backup/refusal/restore and recapture idempotence'
     );
     duo_check(
         substr_count($versionMatrix, '"post_types": ["post", "page", "wp_block", "attachment"],') === 2,

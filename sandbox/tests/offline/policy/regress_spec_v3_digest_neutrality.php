@@ -156,29 +156,29 @@ const REVIEWED_MOVES = [
         // The reviewed Polylang production-readiness port pins its 3.8.x
         // range, expanded authored surface, interpreter, manifest provider,
         // and per-subject disposition.
-        'polylang' => '953e84c39d44143be5ee583aaaf626fba51ca8130844753b88eca7fe0d74ae18',
+        'polylang' => '99d82ecc6402fda3a8d651d56ca07ae4a73836947ed5f2ecca11c0df4472e9a4',
         // manifests/the-events-calendar.json rewritten (block_attrs, widgets,
         // interpreter, option_autoload) AND dispositions/the-events-calendar
         // .json promoted experimental -> certified. Both halves are inside the
         // digest row, so one number carries both.
-        'the-events-calendar' => '69f6b3e55b01cf92ed25090ef70fc6bed9a58b47ec65e60eb68255000ad4736a',
+        'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
     ],
     'manifest_bytes_sha256' => [
         'core' => 'a2f673cd4107e7b32cc6cfff6e84e7f6aca68b789234cbc8c686458fee4de5b3',
-        'polylang' => 'd8ffa458d6a0088999487c3f47aec787f141b9425757d73c241988e5e77b7cff',
-        'the-events-calendar' => '2f9d089a18581383d7dcd2b508b54c34674a4ae1e5fb4f424499e6328010936c',
+        'polylang' => 'db7130aecf89217cdca8f6591f4481391f61ae84632478f89191bdda74b488d3',
+        'the-events-calendar' => '0c72e83a62ba5d461d975fd5380f49eab139d5413edaade07f7f47e396d80729',
     ],
     'pin_sets' => [
-        'all-16' => 'f4cd670c575541cc2649c4a4e4722d7820f700e3ad79825721ee01ddcdabe976',
+        'all-16' => 'b6cbc30ddc3c5ecf089ed0836294fb82a5b6f8f9017980c54610bd0e3c815bed',
         'core+elementor+yoast+contact-form-7' => '52200323db9516a2eb7b5738540534aa58e9115c04fb3ddf0b182ea4089d27f9',
         'core+paid-memberships-pro+code-snippets' => '9d89e59d838e145cbd64c6b172ad5634886bdae6ea027eb8f41e57bcd1b048dc',
-        'core+polylang+the-events-calendar' => '19d9d2d078a13a7d68765bf740b90bbc717e49eebda974b1739eafaa2936b35f',
+        'core+polylang+the-events-calendar' => '1d26c4687a24e143c8a24045ba85b370bd6d3aad11b16898b4f13966ba76e6e6',
         'core+woocommerce+acf' => '247e7b9f084d050259130eee1d7bbb42aa1732dc9cd410df165a8c36a51f22b3',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC
     // and certifying Polylang move the whole-registry address every host pins.
-    'registry_sha256' => '074fa8c9ce484c04577dd5449853b8f025c733a9e40faa3789a9614425ad6f53',
+    'registry_sha256' => 'f98de94d550375201697cd2e8c507f7b2f0941b9e92dab4bc85d77635ec10746',
 ];
 
 duo_check(is_file($fixturePath), 'the frozen pre-flag identity fixture is in the tree');
