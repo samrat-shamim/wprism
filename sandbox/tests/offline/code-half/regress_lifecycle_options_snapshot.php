@@ -2578,6 +2578,175 @@ $check(
     'scoped sidebar finalization writes only selected touched families and preserves protected assignments/cache state'
 );
 
+// wp_inactive_widgets is a reference-selected merge overlay, never a
+// deletion owner. Moving one exact desired mapped key out of or into the
+// inactive bucket must preserve the assignment order, option bytes, and map
+// rows of both an unrelated mapped orphan and an unrelated unmapped widget.
+$movingInactiveWidget = '00000000-0000-4000-8000-000000000703';
+$mappedInactiveOrphan = '00000000-0000-4000-8000-000000000704';
+$inactiveOptionValue = serialize([
+    2 => ['title' => 'Mapped target-local orphan'],
+    1 => ['title' => 'Moving widget'],
+    3 => ['title' => 'Unmapped target-local widget'],
+    '_multiwidget' => '1',
+]);
+$wpdb->map = [
+    [
+        'uuid' => $movingInactiveWidget,
+        'entity_type' => 'widget',
+        'kind' => SidebarState::kind('text'),
+        'id' => 1,
+    ],
+    [
+        'uuid' => $mappedInactiveOrphan,
+        'entity_type' => 'widget',
+        'kind' => SidebarState::kind('text'),
+        'id' => 2,
+    ],
+];
+$wpdb->optionRows = [
+    'widget_text' => ['option_value' => $inactiveOptionValue, 'autoload' => 'yes'],
+    'widget_block' => ['option_value' => serialize(['_multiwidget' => 1]), 'autoload' => 'yes'],
+    'sidebars_widgets' => ['option_value' => serialize([
+        'selected' => [],
+        'wp_inactive_widgets' => ['text-2', 'text-1', 'text-3'],
+        'array_version' => 3,
+    ]), 'autoload' => 'yes'],
+];
+$activeMoveTree = [
+    'sidebar/selected' => [
+        'type' => SidebarState::ENTITY_TYPE,
+        'data' => ['widgets' => [[
+            'uuid' => $movingInactiveWidget,
+            'type' => 'text',
+            'settings' => ['title' => 'Moving widget'],
+        ]]],
+    ],
+];
+$inactiveMapPreimage = serialize($wpdb->map);
+$wpdb->transactionState = '1';
+$fieldMaterializer->begin_authored_transaction();
+SidebarState::begin_authored_transaction(
+    static fn(string $name, string $purpose): ?array =>
+        \Duo\CacheInvalidationTransaction::lock_option_row($name, $purpose),
+    static function (string $name, string $purpose): void {
+        \Duo\CacheInvalidationTransaction::queue_option($name, $purpose);
+    },
+    static function (string $name, string $value, string $autoload, string $purpose): void {
+        \Duo\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
+    }
+);
+SidebarState::finalize_sidebar(
+    $sidebarPolicy,
+    $tokens,
+    $activeMoveTree['sidebar/selected']['data'],
+    'selected',
+    $activeMoveTree,
+    true
+);
+$activeMoveAssignments = maybe_unserialize($wpdb->optionRows['sidebars_widgets']['option_value']);
+$activeMoveFirst = [
+    'assignments' => $wpdb->optionRows['sidebars_widgets']['option_value'],
+    'settings' => $wpdb->optionRows['widget_text']['option_value'],
+    'map' => serialize($wpdb->map),
+];
+$check(
+    ($activeMoveAssignments['selected'] ?? null) === ['text-1']
+        && ($activeMoveAssignments['wp_inactive_widgets'] ?? null) === ['text-2', 'text-3']
+        && $activeMoveFirst['settings'] === $inactiveOptionValue
+        && $activeMoveFirst['map'] === $inactiveMapPreimage,
+    'inactive-to-active move removes only the exact desired key and preserves mapped/unmapped inactive bytes and maps'
+);
+SidebarState::finalize_sidebar(
+    $sidebarPolicy,
+    $tokens,
+    $activeMoveTree['sidebar/selected']['data'],
+    'selected',
+    $activeMoveTree,
+    true
+);
+$check(
+    $activeMoveFirst === [
+        'assignments' => $wpdb->optionRows['sidebars_widgets']['option_value'],
+        'settings' => $wpdb->optionRows['widget_text']['option_value'],
+        'map' => serialize($wpdb->map),
+    ],
+    'inactive-to-active same-process retry is byte-identical and does not duplicate the selected assignment'
+);
+SidebarState::end_authored_transaction();
+$fieldMaterializer->end_authored_transaction();
+
+$wpdb->optionRows['sidebars_widgets']['option_value'] = serialize([
+    'selected' => ['text-1'],
+    'wp_inactive_widgets' => ['text-2', 'text-3'],
+    'array_version' => 3,
+]);
+$inactiveMoveTree = [
+    'sidebar/wp_inactive_widgets' => [
+        'type' => SidebarState::ENTITY_TYPE,
+        'data' => ['widgets' => [[
+            'uuid' => $movingInactiveWidget,
+            'type' => 'text',
+            'settings' => ['title' => 'Moving widget'],
+        ]]],
+    ],
+];
+$fieldMaterializer->begin_authored_transaction();
+SidebarState::begin_authored_transaction(
+    static fn(string $name, string $purpose): ?array =>
+        \Duo\CacheInvalidationTransaction::lock_option_row($name, $purpose),
+    static function (string $name, string $purpose): void {
+        \Duo\CacheInvalidationTransaction::queue_option($name, $purpose);
+    },
+    static function (string $name, string $value, string $autoload, string $purpose): void {
+        \Duo\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
+    }
+);
+SidebarState::finalize_sidebar(
+    $sidebarPolicy,
+    $tokens,
+    $inactiveMoveTree['sidebar/wp_inactive_widgets']['data'],
+    'wp_inactive_widgets',
+    $inactiveMoveTree,
+    true
+);
+$inactiveMoveAssignments = maybe_unserialize($wpdb->optionRows['sidebars_widgets']['option_value']);
+$check(
+    ($inactiveMoveAssignments['selected'] ?? null) === []
+        && ($inactiveMoveAssignments['wp_inactive_widgets'] ?? null) === ['text-2', 'text-3', 'text-1']
+        && $wpdb->optionRows['widget_text']['option_value'] === $inactiveOptionValue
+        && serialize($wpdb->map) === $inactiveMapPreimage,
+    'active-to-inactive move appends the exact desired key and preserves every preexisting inactive value/order/map'
+);
+
+$deauthorizedInactivePreimage = [
+    'assignments' => $wpdb->optionRows['sidebars_widgets']['option_value'],
+    'settings' => $wpdb->optionRows['widget_text']['option_value'],
+    'map' => serialize($wpdb->map),
+];
+SidebarState::finalize_sidebar(
+    $sidebarPolicy,
+    $tokens,
+    ['widgets' => []],
+    'wp_inactive_widgets',
+    ['sidebar/wp_inactive_widgets' => [
+        'type' => SidebarState::ENTITY_TYPE,
+        'data' => ['widgets' => []],
+    ]],
+    true
+);
+$check(
+    $deauthorizedInactivePreimage === [
+        'assignments' => $wpdb->optionRows['sidebars_widgets']['option_value'],
+        'settings' => $wpdb->optionRows['widget_text']['option_value'],
+        'map' => serialize($wpdb->map),
+    ],
+    'removing the source block reference de-authorizes inactive state without deleting its assignment, option, or map'
+);
+SidebarState::end_authored_transaction();
+$fieldMaterializer->end_authored_transaction();
+$wpdb->transactionState = '0';
+
 // Restore the canonical loader fixture used by the hostile-value matrix.
 $wpdb->optionRows = [
     'widget_text' => ['option_value' => serialize($sidebarWidgetValue), 'autoload' => 'yes'],

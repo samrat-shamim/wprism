@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/ScopedApplyCoordinator.php';
 require_once __DIR__ . '/ScopedApplySession.php';
+require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 if (!class_exists(CompiledRepository::class, false)) {
     require_once __DIR__ . '/../Repository/CompiledArtifact.php';

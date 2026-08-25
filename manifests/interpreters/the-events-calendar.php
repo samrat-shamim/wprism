@@ -381,6 +381,18 @@ final class TheEventsCalendar {
      *
      * @return array<string,mixed>
      */
+    /** @return ?array{type:string,local_id:int} */
+    public function capture_block_widget_instance_reference(array $block): ?array {
+        $this->assert_widget_block_shell($block);
+        $attrs = $this->widget_attrs($block);
+        if (!array_key_exists('id', $attrs)) {
+            return null;
+        }
+        $this->assert_exact_keys($attrs, ['id'], 'stored legacy widget attributes');
+        [$idBase, $localId] = $this->physical_widget_id($attrs['id']);
+        return ['type' => $idBase, 'local_id' => $localId];
+    }
+
     public function capture_block_attributes(
         array $block,
         Tokens $tokens,
@@ -394,8 +406,14 @@ final class TheEventsCalendar {
         }
 
         if (array_key_exists('id', $attrs)) {
-            $this->assert_exact_keys($attrs, ['id'], 'stored legacy widget attributes');
-            [$idBase, $localId] = $this->physical_widget_id($attrs['id']);
+            $reference = $this->capture_block_widget_instance_reference($block);
+            if (!is_array($reference)) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar stored legacy widget reference discovery returned no identity'
+                );
+            }
+            $idBase = $reference['type'];
+            $localId = $reference['local_id'];
             $uuid = Ledger::uuid_for($localId, SidebarState::kind($idBase));
             if ($uuid === null) {
                 throw new \RuntimeException(

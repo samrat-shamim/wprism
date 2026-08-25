@@ -5507,6 +5507,31 @@
                     "return_type": "string",
                     "static": true,
                     "visibility": "public"
+                },
+                "capture_widget_instance_references": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "content",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
                 }
             },
             "parent": null,
@@ -54428,6 +54453,14 @@
                             "has_default": true,
                             "name": "strictReadOnly",
                             "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "portableWidgetReferences",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],

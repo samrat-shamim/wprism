@@ -234,6 +234,22 @@ $check($order === array_values($order) && $order === array_unique($order)
     && $order === (function (array $positions): array { sort($positions); return $positions; })($order),
     'candidate construction preserves its identity/entity/gate ordering');
 
+$widgetReferenceScan = strpos($candidateBuild, 'Blocks::capture_widget_instance_references(');
+$widgetIdentityGuard = strpos($candidateBuild, 'isset($postUuids[$postId])');
+$widgetBodyGuard = strpos($candidateBuild, '$this->policy->body_mode((string) $post->post_type) !== \'blocks\'');
+$sidebarCapture = strpos($candidateBuild, 'SidebarState::capture(');
+$postCapture = strpos($candidateBuild, '$this->postCapture->capture(');
+$check(
+    $widgetReferenceScan !== false
+        && $widgetIdentityGuard !== false
+        && $widgetBodyGuard !== false
+        && $sidebarCapture !== false
+        && $postCapture !== false
+        && $widgetReferenceScan < $sidebarCapture
+        && $sidebarCapture < $postCapture,
+    'whole-block widget references are discovered only from selected mapped block posts before SidebarState identity capture'
+);
+
 $check(str_contains($identity, 'public function ensurePost(')
     && str_contains($identity, 'public function ensureTerm(')
     && str_contains($identity, 'Ledger::require_read_only_mapping('),

@@ -3409,6 +3409,9 @@ duo_check(
 
 $widgetDb = FakeWpdb::install();
 $widgetMapTable = $widgetDb->prefix . 'duo_map';
+$widgetDb
+    ->setUniqueKey($widgetMapTable, ['uuid', 'id_kind'])
+    ->setUniqueKey($widgetMapTable, ['id_kind', 'local_id']);
 $sourceWidgetRows = [
     [
         'uuid' => TEC_LIST_WIDGET_UUID,
@@ -3623,7 +3626,8 @@ $widgetDb->seedTable($widgetDb->options, [
         'option_id' => 1,
         'option_name' => 'sidebars_widgets',
         'option_value' => serialize([
-            'primary' => [
+            'wp_inactive_widgets' => [
+                'tribe-widget-events-list-8000000099',
                 'tribe-widget-events-list-8000000001',
                 'tribe-widget-events-qr-code-8000000002',
             ],
@@ -3635,6 +3639,14 @@ $widgetDb->seedTable($widgetDb->options, [
         'option_id' => 2,
         'option_name' => 'widget_tribe-widget-events-list',
         'option_value' => serialize([
+            8000000099 => [
+                'title' => 'Unrelated parked target widget',
+                'limit' => '3',
+                'no_upcoming_events' => true,
+                'featured_events_only' => false,
+                'jsonld_enable' => false,
+                'tribe_is_list_widget' => true,
+            ],
             8000000001 => [
                 'title' => 'Calendar https://target.example/events',
                 'limit' => '10',
@@ -3663,9 +3675,90 @@ $widgetDb->seedTable($widgetDb->options, [
         'autoload' => 'yes',
     ],
 ]);
-$capturedTecSidebars = \Duo\SidebarState::capture($policy, $targetWidgetTokens, false);
+$storedWidgetReferences = Blocks::capture_widget_instance_references(
+    $targetStoredList . $targetStoredQr . $targetStoredList,
+    $policy
+);
+duo_check_same(
+    [
+        ['type' => 'tribe-widget-events-list', 'local_id' => 8000000001],
+        ['type' => 'tribe-widget-events-qr-code', 'local_id' => 8000000002],
+    ],
+    $storedWidgetReferences,
+    'the manifest-bound pre-capture scan deduplicates only exact stored TEC widget references'
+);
+duo_check_same(
+    [],
+    Blocks::capture_widget_instance_references($targetEmbeddedList . $targetEmbeddedQr, $policy),
+    'embedded TEC widget blocks carry no SidebarState assignment reference'
+);
+$interpreterInstances = new ReflectionProperty(Policy::class, 'interpreterInstances');
+$canonicalInterpreterRoster = $interpreterInstances->getValue($policy);
+foreach ([
+    'list result' => [['tribe-widget-events-list', 8000000001]],
+    'undeclared type' => ['type' => 'foreign-widget', 'local_id' => 8000000001],
+    'non-integer local id' => ['type' => 'tribe-widget-events-list', 'local_id' => '8000000001'],
+] as $label => $malformedReference) {
+    $hostileRoster = $canonicalInterpreterRoster;
+    $hostileRoster['the-events-calendar'] = new class($malformedReference) {
+        public function __construct(private mixed $reference) {}
+        public function capture_block_widget_instance_reference(array $_block): mixed {
+            return $this->reference;
+        }
+    };
+    $interpreterInstances->setValue($policy, $hostileRoster);
+    duo_check_throws(
+        static fn(): ?array => Blocks::capture_widget_instance_references($targetStoredList, $policy),
+        RuntimeException::class,
+        "the whole-block widget reference seam rejects a codec $label",
+        'returned a malformed widget instance reference'
+    );
+}
+$interpreterInstances->setValue($policy, $canonicalInterpreterRoster);
+
+// Source capture starts with no widget ledger history in the product path.
+// The reference-selected inactive overlay must mint only the two referenced
+// identities; the unrelated parked instance is neither captured nor mapped.
+$widgetDb->seedTable($widgetMapTable, [$targetWidgetRows[2]]);
+$mintedInactive = \Duo\SidebarState::capture(
+    $policy,
+    $targetWidgetTokens,
+    true,
+    false,
+    false,
+    $storedWidgetReferences
+);
+$mintedWidgetMaps = array_values(array_filter(
+    $widgetDb->rows($widgetMapTable),
+    static fn(array $row): bool => str_starts_with((string) ($row['id_kind'] ?? ''), 'widget_')
+));
+duo_check_same(
+    [8000000001, 8000000002],
+    array_column($mintedWidgetMaps, 'local_id'),
+    'empty-ledger capture mints only reference-selected inactive widget instances'
+);
+duo_check(
+    !in_array(8000000099, array_column($mintedWidgetMaps, 'local_id'), true)
+        && count($mintedInactive['entities'] ?? []) === 1,
+    'empty-ledger capture never maps or emits an unrelated inactive target/theme widget'
+);
+
+$widgetDb->seedTable($widgetMapTable, $targetWidgetRows);
+$capturedTecSidebars = \Duo\SidebarState::capture(
+    $policy,
+    $targetWidgetTokens,
+    false,
+    false,
+    false,
+    $storedWidgetReferences
+);
 $capturedTecWidgets = $capturedTecSidebars['entities'][0]['content'] ?? '';
 $capturedTecSidebarData = json_decode((string) $capturedTecWidgets, true, 32, JSON_THROW_ON_ERROR);
+duo_check_same(
+    'sidebars/wp_inactive_widgets.json',
+    $capturedTecSidebars['entities'][0]['path'] ?? null,
+    'stored TEC block references own one exact inactive overlay instead of a synthetic sidebar'
+);
 duo_check_same(
     [TEC_LIST_WIDGET_UUID, TEC_QR_WIDGET_UUID],
     array_column($capturedTecSidebarData['widgets'] ?? [], 'uuid'),
@@ -3680,6 +3773,113 @@ duo_check_same(
     'Calendar {{home}}/events',
     $capturedTecSidebarData['widgets'][0]['settings']['title'] ?? null,
     'SidebarState tokenizes TEC widget authored text independently of the embedded block codec'
+);
+duo_check(
+    !in_array(8000000099, array_column($capturedTecSidebarData['widgets'] ?? [], 'local_id'), true)
+        && count($capturedTecSidebars['warnings'] ?? []) === 1
+        && str_contains($capturedTecSidebars['warnings'][0], 'target-owned'),
+    'unreferenced inactive widgets remain target-owned and are noted without entering canonical state'
+);
+duo_check_same(
+    $capturedTecWidgets,
+    \Duo\SidebarState::capture(
+        $policy,
+        $targetWidgetTokens,
+        false,
+        false,
+        false,
+        $storedWidgetReferences
+    )['entities'][0]['content'] ?? null,
+    'reference-selected inactive capture is a canonical fixed point'
+);
+$widgetOptionsPreimage = $widgetDb->rows($widgetDb->options);
+$widgetMapsPreimage = $widgetDb->rows($widgetMapTable);
+$missingSettings = maybe_unserialize($widgetOptionsPreimage[1]['option_value']);
+unset($missingSettings[8000000001]);
+$widgetDb->update(
+    $widgetDb->options,
+    ['option_value' => serialize($missingSettings)],
+    ['option_name' => 'widget_tribe-widget-events-list']
+);
+duo_check_throws(
+    static fn(): array => \Duo\SidebarState::capture(
+        $policy,
+        $targetWidgetTokens,
+        false,
+        false,
+        false,
+        $storedWidgetReferences
+    ),
+    RuntimeException::class,
+    'a reference-selected inactive assignment without exact settings refuses capture',
+    'is absent from option widget_tribe-widget-events-list'
+);
+$widgetDb->seedTable($widgetDb->options, $widgetOptionsPreimage);
+
+$duplicateAssignments = maybe_unserialize($widgetOptionsPreimage[0]['option_value']);
+$duplicateAssignments['primary'] = ['tribe-widget-events-list-8000000001'];
+$widgetDb->update(
+    $widgetDb->options,
+    ['option_value' => serialize($duplicateAssignments)],
+    ['option_name' => 'sidebars_widgets']
+);
+duo_check_throws(
+    static fn(): array => \Duo\SidebarState::capture(
+        $policy,
+        $targetWidgetTokens,
+        false,
+        false,
+        false,
+        $storedWidgetReferences
+    ),
+    RuntimeException::class,
+    'an inactive widget also assigned to an active sidebar refuses before selection',
+    'assigns one widget instance more than once'
+);
+$widgetDb->seedTable($widgetDb->options, $widgetOptionsPreimage);
+
+$contradictoryWidgetMaps = $widgetMapsPreimage;
+$contradictoryWidgetMaps[0]['entity_type'] = 'post';
+$widgetDb->seedTable($widgetMapTable, $contradictoryWidgetMaps);
+duo_check_throws(
+    static fn(): array => \Duo\SidebarState::capture(
+        $policy,
+        $targetWidgetTokens,
+        false,
+        false,
+        false,
+        $storedWidgetReferences
+    ),
+    RuntimeException::class,
+    'a selected inactive widget refuses a contradictory durable map tuple',
+    'durable identity contradicts live widget'
+);
+$widgetDb->seedTable($widgetMapTable, $widgetMapsPreimage);
+duo_check_throws(
+    static fn(): array => \Duo\SidebarState::capture(
+        $policy,
+        $targetWidgetTokens,
+        false,
+        false,
+        false,
+        [['type' => 'tribe-widget-events-list', 'local_id' => 8999999999]]
+    ),
+    RuntimeException::class,
+    'a stale stored-widget id refuses before canonical publication',
+    'stale or absent from sidebars_widgets'
+);
+duo_check_throws(
+    static fn(): array => \Duo\SidebarState::capture(
+        $policy,
+        $targetWidgetTokens,
+        false,
+        false,
+        false,
+        [['type' => 'tribe-widget-events-list', 'local_id' => '8000000001']]
+    ),
+    RuntimeException::class,
+    'a malformed codec reference roster refuses before widget option materialization',
+    'reference at position 0 is malformed'
 );
 duo_check_same(
     '<!-- wp:legacy-widget /-->',

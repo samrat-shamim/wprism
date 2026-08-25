@@ -288,6 +288,15 @@ namespace Duo {
         array_map(static fn(object $row): int => (int) $row->ID, $scope['posts']) === [2, 9],
         'post discovery returns the database order unchanged'
     );
+    $postQuery = implode("\n", array_filter(
+        $wpdb->queries,
+        static fn(mixed $query): bool => is_string($query) && str_contains($query, 'FROM wp_posts')
+    ));
+    $check(
+        str_contains($postQuery, "post_status IN ('publish','draft','pending','private','future')")
+            && str_contains($postQuery, "post_type = 'attachment' AND post_status = 'inherit'"),
+        'post discovery includes every supported hidden/authored status and only inherited attachments'
+    );
     $check(
         array_map(static fn(object $row): int => (int) $row->term_id, $scope['terms']) === [4, 11],
         'term discovery returns the database order unchanged'
