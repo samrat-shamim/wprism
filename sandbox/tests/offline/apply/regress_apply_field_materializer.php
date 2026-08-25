@@ -1357,6 +1357,27 @@ $check(
         && count($wpdb->duoMapRows) === 2,
     'term adoption installs one exact UUID sidecar and both term ledger identities'
 );
+$menuAdoptionUuid = '00000000-0000-4000-8000-000000000098';
+$wpdb->termTaxonomyRows = [[
+    'term_taxonomy_id' => 72,
+    'term_id' => 42,
+    'taxonomy' => 'nav_menu',
+]];
+$wpdb->termMetaRows = [];
+$wpdb->duoMapRows = [];
+$menuAdoptionWarnings = [];
+$adopterMaterializer->begin_authored_transaction();
+$adopter->adopt(
+    ['env_id' => 42, 'uuid' => $menuAdoptionUuid, 'path' => 'menus/portable-source.json'],
+    ['type' => 'menu', 'data' => ['items' => []]],
+    $menuAdoptionWarnings
+);
+$adopterMaterializer->end_authored_transaction();
+$check(
+    $menuAdoptionWarnings === ["adopted env term 42 as $menuAdoptionUuid (menus/portable-source.json)"]
+        && count($wpdb->duoMapRows) === 2,
+    'menu adoption uses the canonical nav_menu taxonomy instead of treating a menu as a malformed term'
+);
 
 if ($failures) {
     \Duo\CacheInvalidationTransaction::end();

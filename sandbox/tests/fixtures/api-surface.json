@@ -1,5 +1,5 @@
 {
-    "class_count": 394,
+    "class_count": 395,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -4937,6 +4937,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "attempt_identity": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "cleanup_complete": {
                     "abstract": false,
                     "final": false,
@@ -5280,7 +5288,32 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "assert_native_authority_secret": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "secret",
+                            "type": "object",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "commit_authored_transaction": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "discard_native_rebuild_authority": {
                     "abstract": false,
                     "final": false,
                     "parameters": [],
@@ -5291,7 +5324,16 @@
                 "end_authored_transaction": {
                     "abstract": false,
                     "final": false,
-                    "parameters": [],
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "retainNativeRebuildAuthority",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
                     "return_type": "void",
                     "static": false,
                     "visibility": "public"
@@ -5425,14 +5467,38 @@
             "properties": [],
             "readonly": false
         },
-        "Duo\\AttachmentNativeMetadataGenerator": {
+        "Duo\\AttachmentNativeMetadataAuthority": {
             "abstract": false,
             "constants": [],
             "final": true,
             "interfaces": [],
             "kind": "class",
             "methods": {
-                "__construct": {
+                "adapter_manifests": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "compiled_artifact_hash": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "compiled_manifest_hash": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "from_materializer": {
                     "abstract": false,
                     "final": false,
                     "parameters": [
@@ -5440,21 +5506,131 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "lockTarget",
-                            "type": "Closure",
+                            "name": "owner",
+                            "type": "Duo\\AttachmentMaterializer",
                             "variadic": false
                         },
                         {
                             "by_ref": false,
-                            "default": [],
-                            "has_default": true,
+                            "default": null,
+                            "has_default": false,
+                            "name": "secret",
+                            "type": "object",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "compiled",
+                            "type": "Duo\\CompiledRepository",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "filesystem",
+                            "type": "Duo\\AttachmentFilesystemTransaction",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
                             "name": "adapterManifests",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "lockTarget",
+                            "type": "Closure",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\AttachmentNativeMetadataAuthority",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "lock_target": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "Closure",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "post_commit_context": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\AttachmentNativeMetadataGenerator": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "__clone": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "__serialize": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "__unserialize": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "data",
                             "type": "array",
                             "variadic": false
                         }
                     ],
-                    "return_type": null,
+                    "return_type": "void",
                     "static": false,
+                    "visibility": "public"
+                },
+                "from_authority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authority",
+                            "type": "Duo\\AttachmentNativeMetadataAuthority",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\AttachmentNativeMetadataGenerator",
+                    "static": true,
                     "visibility": "public"
                 },
                 "generate": {
@@ -5479,6 +5655,14 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "has_polylang_no_language_handoff": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
                     "static": false,
                     "visibility": "public"
                 },
@@ -7687,6 +7871,14 @@
                             "default": false,
                             "has_default": true,
                             "name": "bindMissingDynamicDesired",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "strictReadOnly",
                             "type": "bool",
                             "variadic": false
                         }
@@ -41993,13 +42185,21 @@
                             "name": "rawOptionSnapshot",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "strictReadOnly",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
-                "object_type_option_ref": {
+                "object_type_option_refs": {
                     "abstract": false,
                     "final": false,
                     "parameters": [
@@ -42012,7 +42212,7 @@
                             "variadic": false
                         }
                     ],
-                    "return_type": "?array",
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -42685,6 +42885,31 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "taxonomy_description_lint_rule": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "taxonomy",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "description",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "taxonomy_object_keyspace": {
                     "abstract": false,
                     "final": false,
@@ -42774,6 +42999,23 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "taxonomy_term_group_is_authored": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tax",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
                     "static": false,
                     "visibility": "public"
                 },
@@ -57406,6 +57648,14 @@
                             "name": "portableWidgetReferences",
                             "type": "?array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "canonicalTree",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -60990,7 +61240,7 @@
                     "static": false,
                     "visibility": "public"
                 },
-                "resolve": {
+                "resolve_all": {
                     "abstract": false,
                     "final": false,
                     "parameters": [

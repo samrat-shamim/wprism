@@ -11,7 +11,10 @@
         ],
         "field_sections": [
             "options",
-            "menu_fields"
+            "post_meta",
+            "term_meta",
+            "user_meta",
+            "widgets"
         ],
         "lifecycle_phases": [
             "retire",
@@ -33,16 +36,19 @@
         "bundle_schema": "duo-subject-certification-bundle/v1",
         "tests": [
             "conformance-polylang",
-            "exact-artifact-version-matrix"
+            "exact-artifact-version-matrix",
+            "regress-polylang-production-readiness",
+            "regress-polylang-multisite-refusal",
+            "regress-polylang-tec-rewrite-coinstall"
         ]
     },
-    "reason": "Certified bilingual entity/ref behavior and rendered output at both admitted boundaries.",
+    "reason": "Certified for the reviewed Polylang 3.8.x boundary: exact 3.8/3.8.6/3.8.7 artifact pins and adjacent 3.7/3.8.8 refusal controls, multilingual post/page/pattern/term/media/menu/widget graph, populated string-catalog term metadata, native API/render behavior, warning-free clean-target capture/deploy/apply, byte-identical recapture, provider projection plus fresh-process native rewrite action, failure-before-effect/retry, clean no-op recapture, lifecycle recovery, and exact 3.8.6 populated multisite refusal. Polylang Pro/add-ons, plugin-specific deletes, WPML state, domain/subdomain URL topology, and multisite remain explicit refusals.",
     "status": "certified",
     "supported_versions": {
         "plugin": "polylang/polylang.php",
         "range": {
-            "max": "4.0.0",
-            "min": "3.5"
+            "max": "3.8.8",
+            "min": "3.8"
         }
     },
     "unsupported": [

@@ -12,11 +12,12 @@
 # Covers, against a fresh, from-scratch pair (own pair.sh-managed pair,
 # default `asub3233`/:8910/:8911, parameterized -- see DUO-3276 note below
 # -- the driver never tears it down):
-#   (1) capture carves out ONLY the declared sub-keys of `polylang`
-#       (post_types/taxonomies/nav_menus) — none of force_lang/domains/
-#       hide_default/rewrite/redirect_lang/browser/media_support/sync/
-#       default_lang/first_activation/previous_version/version ever enter
-#       canonical state; nav_menus' per-language menu-term-ids are
+#   (1) capture carves out ONLY the declared portable sub-keys of `polylang`
+#       (browser/default_lang/force_lang/hide_default/media_support/nav_menus/
+#       post_types/redirect_lang/rewrite/sync/taxonomies) — none of domains/
+#       first_activation/language_taxonomies/previous_version/uninstall/version
+#       enter canonical state;
+#       nav_menus' per-language menu-term-ids are
 #       correctly tokenized (json_refs, kind: term).
 #   (2) apply on a genuinely fresh target (Polylang installed+active,
 #       ZERO manual language/Settings config) MERGES the captured sub-keys
@@ -70,7 +71,7 @@
 #       at its own top-of-function gate, before ever reaching ref
 #       resolution. The real fix: Apply's own taxes_by_object_type() now
 #       ALSO consults a manifest-declared, generic supplement (Policy::
-#       object_type_option_ref() -- "taxonomy X's object_type is
+#       object_type_option_refs() -- "taxonomy X's object_type is
 #       additionally driven by option O's sub-key K"; the engine knows
 #       nothing about Polylang specifically). NOT via a live database
 #       read, on purpose -- an earlier version of this fix tried exactly
@@ -270,8 +271,13 @@ PLL()->model->languages->add(['locale'=>'de_DE','slug'=>'de','name'=>'Deutsch'])
 say "side1: enable project/project_type for translation via the polylang option's post_types/taxonomies sub-keys (a real admin action, done ONCE here -- the fresh target below gets this AUTOMATICALLY via duo apply, never by hand)"
 wp1 eval "
 \$o = get_option('polylang');
+\$o['browser'] = false;
 \$o['default_lang'] = 'en';
+\$o['force_lang'] = 1;
+\$o['hide_default'] = false;
 \$o['post_types'] = array_values(array_unique(array_merge(\$o['post_types'] ?? [], ['project'])));
+\$o['redirect_lang'] = false;
+\$o['rewrite'] = true;
 \$o['taxonomies'] = array_values(array_unique(array_merge(\$o['taxonomies'] ?? [], ['project_type'])));
 update_option('polylang', \$o);
 "
@@ -351,12 +357,12 @@ say "(1) capture: sub_keys carves out ONLY the declared keys"
 wp1 duo capture --repo=/siterepo >/dev/null
 assert_language_descriptions 1 "after source capture"
 POLYLANG_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; print(sorted(d['polylang']['value'].keys()))")
-[ "$POLYLANG_KEYS" = "['nav_menus', 'post_types', 'taxonomies']" ] || fail "expected captured polylang option to carry EXACTLY [nav_menus, post_types, taxonomies], got: $POLYLANG_KEYS"
-for excluded in force_lang domains hide_default rewrite redirect_lang browser media_support sync default_lang first_activation previous_version version; do
+[ "$POLYLANG_KEYS" = "['browser', 'default_lang', 'force_lang', 'hide_default', 'media_support', 'nav_menus', 'post_types', 'redirect_lang', 'rewrite', 'sync', 'taxonomies']" ] || fail "expected captured polylang option to carry EXACTLY its eleven reviewed portable keys, got: $POLYLANG_KEYS"
+for excluded in domains first_activation language_taxonomies previous_version uninstall version; do
   python3 -c "import json,sys; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; sys.exit(1 if '$excluded' in d['polylang']['value'] else 0)" \
     || fail "excluded sub-key '$excluded' leaked into captured polylang option"
 done
-pass "captured polylang option carries exactly nav_menus/post_types/taxonomies -- every env-bound/bookkeeping sibling excluded"
+pass "captured polylang option carries exactly eleven reviewed portable sub-keys -- every env-bound/bookkeeping sibling excluded"
 
 WPSEO_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; print(sorted(d['wpseo']['value'].keys()))")
 [ "$WPSEO_KEYS" = "['disableadvanced_meta']" ] || fail "expected captured wpseo option to carry EXACTLY [disableadvanced_meta], got: $WPSEO_KEYS"
@@ -402,33 +408,33 @@ say "DUO-3282/DUO-3338: this apply's own polylang.json action (DUO-3272's nav_me
 grep -q "provider capability fired: polylang-nav-menus@" <<<"$APPLY1" || fail "expected an unconditional 'provider capability fired' confirmation line in apply's warnings (got no match in: $APPLY1)"
 pass "confirmed: Apply::rebuild() reports back per-declaration with the provider identity and its value-level verification, no more inferring it indirectly from a declaration's own side-effect table"
 
-say "(6) sub-key merge, re-asserted directly against the database: side2's OWN pre-existing polylang/wpseo bookkeeping survives untouched"
+say "(6) sub-key merge, re-asserted directly against the database: every authored Polylang key converges while side2's env/bookkeeping siblings survive untouched"
 POLYLANG_AFTER=$(wp2 option get polylang --format=json | tail -1)
 echo "side2 polylang option AFTER apply: $POLYLANG_AFTER"
-python3 - "$POLYLANG_BEFORE" "$POLYLANG_AFTER" <<'PYEOF'
+POLYLANG_CAPTURED=$(python3 -c "import json; print(json.dumps(json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']['polylang']['value']))")
+python3 - "$POLYLANG_BEFORE" "$POLYLANG_AFTER" "$POLYLANG_CAPTURED" <<'PYEOF'
 import json, sys
 before = json.loads(sys.argv[1])
 after = json.loads(sys.argv[2])
-for key in ["force_lang", "domains", "hide_default", "rewrite", "redirect_lang", "browser",
-            "media_support", "sync", "first_activation", "previous_version", "version"]:
+captured = json.loads(sys.argv[3])
+for key in ["domains", "first_activation", "language_taxonomies", "previous_version", "uninstall", "version"]:
     if before.get(key) != after.get(key):
         print(f"CLOBBERED: {key} was {before.get(key)!r}, now {after.get(key)!r}")
         sys.exit(1)
-if after.get("post_types") != ["project"]:
-    print(f"post_types did not merge in correctly: {after.get('post_types')!r}")
-    sys.exit(1)
-if after.get("taxonomies") != ["project_type"]:
-    print(f"taxonomies did not merge in correctly: {after.get('taxonomies')!r}")
-    sys.exit(1)
+for key in ["browser", "default_lang", "force_lang", "hide_default", "media_support", "post_types",
+            "redirect_lang", "rewrite", "sync", "taxonomies"]:
+    if after.get(key) != captured.get(key):
+        print(f"PORTABLE KEY MISMATCH: {key} expected {captured.get(key)!r}, got {after.get(key)!r}")
+        sys.exit(1)
 nav = after.get("nav_menus") or {}
 ids = list(nav.get("twentytwentyone", {}).get("primary", {}).values())
 if len(ids) != 2 or len(set(ids)) != 2:
     print(f"nav_menus did not merge in two distinct local menu ids: {nav!r}")
     sys.exit(1)
-print("MERGE OK: every excluded sibling byte-identical; post_types/taxonomies/nav_menus correctly overlaid")
+print("MERGE OK: every authored scalar/list key converged; env/bookkeeping siblings remain byte-identical; nav_menus uses target-local ids")
 PYEOF
 [ $? -eq 0 ] || fail "sub-key merge check failed (see output above)"
-pass "excluded siblings (force_lang, hide_default, rewrite, ..., first_activation, version, ...) survived apply untouched; post_types/taxonomies/nav_menus correctly merged in with side2's OWN local menu-term-ids"
+pass "all eleven authored Polylang keys converged; only env/bookkeeping siblings survived untouched; nav_menus uses side2's OWN local menu-term-ids"
 
 WPSEO_AFTER=$(wp2 option get wpseo --format=json | tail -1)
 python3 -c "
@@ -440,7 +446,7 @@ print('wpseo merge OK:', d['disableadvanced_meta'], d['version'])
 " || fail "wpseo sub-key merge check failed"
 pass "wpseo.disableadvanced_meta merged correctly; version/first_activated_on (target's OWN) preserved -- second real-plugin proof of the same grammar"
 
-say "(3) the documented Polylang timing hazard (manifests/polylang.json's own CLOSED note, task #121/DUO-3280): taxes_by_object_type()'s manifest-declared option supplement (Policy::object_type_option_ref(), reading polylang.post_types from THIS apply's own compiled tree, not a live DB read -- see Apply::option_driven_object_type()'s comment for why) means the SAME single apply that first writes post_types now ALSO sees it for relationship-writing purposes -- no second process, no retry required. Checked below on the output of the single APPLY1 attempt above, not a subsequent process's read of it."
+say "(3) the documented Polylang timing hazard (manifests/polylang.json's own CLOSED note, task #121/DUO-3280): taxes_by_object_type()'s manifest-declared option supplement (Policy::object_type_option_refs(), reading polylang.post_types from THIS apply's own compiled tree, not a live DB read -- see Apply::option_driven_object_type()'s comment for why) means the SAME single apply that first writes post_types now ALSO sees it for relationship-writing purposes -- no second process, no retry required. Checked below on the output of the single APPLY1 attempt above, not a subsequent process's read of it."
 OBJTYPE_B2=$(wp2 eval "\$t=get_taxonomy('language'); echo implode(',', (array) \$t->object_type);")
 echo "side2 language taxonomy object_type in a fresh process after the single apply attempt: $OBJTYPE_B2"
 grep -q "project" <<<"$OBJTYPE_B2" || fail "expected 'project' in language's object_type after the single apply attempt (got: $OBJTYPE_B2) -- the post_types write itself did not land"
@@ -467,7 +473,7 @@ echo "pll_get_post_language immediately after the SINGLE, unretried apply attemp
 # pll_get_post_language(), which hits the DB directly and would report the
 # same answer whether checked in-process or, as here, from a separate
 # `wp2 eval` process; a fresh process was never what made this pass.
-[ "$LANG_BEFORE_FIX" = "'en'" ] || fail "expected pll_get_post_language already resolved to 'en' after the single, unretried apply attempt (got: $LANG_BEFORE_FIX) -- DUO-3280's fix did not close the gap; re-check taxes_by_object_type()/object_type_option_ref()"
+[ "$LANG_BEFORE_FIX" = "'en'" ] || fail "expected pll_get_post_language already resolved to 'en' after the single, unretried apply attempt (got: $LANG_BEFORE_FIX) -- DUO-3280's fix did not close the gap; re-check taxes_by_object_type()/object_type_option_refs()"
 pass "confirmed: the SINGLE, unretried apply attempt already resolved the documented Polylang object_type timing gap -- zero manual Settings replication, zero retry, zero drift left for the checks below to find"
 
 say "confirming the above leaves nothing to self-heal: a no-op re-apply -- ZERO content changes anywhere -- should show ZERO drift, not the 'drift (env ahead, untouched)' this suite originally documented here (that characterization described the pre-fix apply's own gap; see note (3) above for why the single apply above already closed it). Kept as a real assertion, not just a description, precisely because a regression back to the old behavior should fail loudly here, not slide by unnoticed."
@@ -563,7 +569,7 @@ cp siterepo/${PAIR}2/site.duo.json "$HOST_BAD_REPO/site.duo.json"
 # the race" bug this step's own history below already fixed once for
 # missing required OPTION records; this is the same class one directory
 # level up. Copying the whole tree makes every ref this pair's real state
-# actually contains resolvable, isolating the injected 'sync' key as the
+# actually contains resolvable, isolating the injected unreviewed key as the
 # ONLY difference from a genuinely valid repo -- matching the "based on the
 # REAL, already-captured state" intent the note below already commits to.
 cp -r siterepo/${PAIR}2/state "$HOST_BAD_REPO/state"
@@ -589,9 +595,9 @@ cp -r siterepo/${PAIR}2/state "$HOST_BAD_REPO/state"
 # a fabricated single-record fixture reproduces the exact reported
 # symptom byte-for-byte; the SAME fixture with every required option
 # given an explicit record instead correctly reaches assert_tree() and
-# throws `[repository_field_not_authored] ... field=polylang.sync
+# throws `[repository_field_not_authored] ... field=polylang.duo_unreviewed_key
 # classification=unclassified declared_by=polylang` -- matching this
-# step's own existing assertion (`polylang.sync\|option_sub_key`)
+# step's own existing assertion (`polylang.duo_unreviewed_key\|option_sub_key`)
 # unchanged below.
 #
 # Fix: base the smuggled-key fixture on the REAL, already-captured
@@ -599,21 +605,21 @@ cp -r siterepo/${PAIR}2/state "$HOST_BAD_REPO/state"
 # already has a correct record, from the actual capture pipeline --
 # `git -C siterepo/${PAIR}2 pull` a few lines above this step is the
 # last write to this file, and nothing between there and here touches
-# it again) and inject ONLY the undeclared 'sync' key into polylang's
+# it again) and inject ONLY the undeclared `duo_unreviewed_key` into polylang's
 # own value, rather than hand-reconstructing every option's record --
 # robust against this option set changing later, unlike a hardcoded
 # snapshot would be.
-jq '.records.polylang.value.sync = ["taxonomies"]' siterepo/${PAIR}2/state/options/core.json > "$HOST_BAD_REPO/state/options/core.json"
+jq '.records.polylang.value.duo_unreviewed_key = ["taxonomies"]' siterepo/${PAIR}2/state/options/core.json > "$HOST_BAD_REPO/state/options/core.json"
 set +e
 BAD_OUT=$($COMPOSE run --rm -T cli2 wp duo apply --repo="$BAD_REPO" --format=json 2>&1)
 BAD_RC=$?
 set -e
 echo "$BAD_OUT"
-[ "$BAD_RC" -ne 0 ] || fail "expected apply to REFUSE an undeclared polylang sub-key ('sync'), got exit 0"
-grep -qE "polylang.sync|option_sub_key" <<<"$BAD_OUT" || fail "refusal doesn't name the undeclared sub-key (got: $BAD_OUT)"
+[ "$BAD_RC" -ne 0 ] || fail "expected apply to REFUSE an undeclared polylang sub-key ('duo_unreviewed_key'), got exit 0"
+grep -qE "polylang.duo_unreviewed_key|option_sub_key" <<<"$BAD_OUT" || fail "refusal doesn't name the undeclared sub-key (got: $BAD_OUT)"
 normalize_repo_permissions
 rm -rf "$HOST_BAD_REPO"
-pass "an undeclared sub-key ('sync') smuggled into a captured polylang value is refused loudly, naming the offending key"
+pass "an undeclared sub-key ('duo_unreviewed_key') smuggled into a captured polylang value is refused loudly, naming the offending key"
 
 say "(9) negative: wp duo lint flags a bare numeric id smuggled into a PLAIN (no json_refs) sub-key's own value"
 # post_types/taxonomies declare no ref/json_refs/key_refs, so

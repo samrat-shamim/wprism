@@ -167,7 +167,8 @@ final class CaptureCandidateBuilder {
         bool $forceUnresolvedRefs,
         ?array $previousOptions = null,
         array $dynamicResolverValues = [],
-        bool $bindMissingDynamicDesired = false
+        bool $bindMissingDynamicDesired = false,
+        bool $strictReadOnly = false
     ): array {
         $this->reset($forceUnresolvedRefs);
         $options = $this->buildOptions(
@@ -175,7 +176,8 @@ final class CaptureCandidateBuilder {
             $forceUnresolvedRefs,
             $previousOptions,
             $dynamicResolverValues,
-            $bindMissingDynamicDesired
+            $bindMissingDynamicDesired,
+            $strictReadOnly
         );
         $this->assertOptionGates();
         return $options;
@@ -253,7 +255,8 @@ final class CaptureCandidateBuilder {
             $mint,
             $forceUnresolvedRefs,
             $strictReadOnly,
-            $portableWidgetReferences === [] ? null : $portableWidgetReferences
+            $portableWidgetReferences === [] ? null : $portableWidgetReferences,
+            $this->canonicalShortcodeTree
         );
 
         foreach ($terms as $term) {

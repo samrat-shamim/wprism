@@ -200,23 +200,83 @@
       "not_applicable": {}
     },
     "polylang": {
-      "readiness": "unready",
+      "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/polylang.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "clean-target": ["sandbox/conformance/entries/polylang.json", "sandbox/conformance/seeds/polylang.sh", "sandbox/conformance/checks/polylang.sh"],
-        "identity-references": ["sandbox/conformance/checks/polylang.sh"],
-        "native-behavior": ["sandbox/conformance/checks/polylang.sh"],
-        "derived-state": ["manifests/providers/polylang-nav-menus.php", "sandbox/conformance/checks/polylang.sh"]
+        "contract-dependency": [
+          "manifests/polylang.json",
+          "manifests/interpreters/polylang.php",
+          "manifests/providers/polylang-nav-menus.php",
+          "sandbox/conformance/artifacts.lock.json",
+          "sandbox/tests/certify/certify_version_matrix.sh",
+          "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php",
+          "sandbox/tests/live/regress_polylang_multisite_refusal.sh",
+          "sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
+        ],
+        "clean-target": [
+          "sandbox/conformance/manifests.json",
+          "sandbox/conformance/entries/polylang.json",
+          "sandbox/conformance/seeds/polylang.sh",
+          "sandbox/conformance/checks/polylang.sh",
+          "sandbox/tests/certify/certify_version_matrix.sh"
+        ],
+        "native-behavior": [
+          "sandbox/conformance/seeds/polylang.sh",
+          "sandbox/conformance/checks/polylang.sh",
+          "sandbox/tests/certify/certify_version_matrix.sh",
+          "sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
+        ],
+        "dirty-target": [
+          "sandbox/conformance/postdeploy/polylang.sh",
+          "sandbox/conformance/checks/polylang.sh"
+        ],
+        "identity-references": [
+          "agent/src/Policy/ScopeDiscovery.php",
+          "agent/src/Apply/TermMaterializer.php",
+          "sandbox/conformance/seeds/polylang.sh",
+          "sandbox/conformance/postdeploy/polylang.sh",
+          "sandbox/conformance/checks/polylang.sh",
+          "sandbox/tests/certify/certify_version_matrix.sh"
+        ],
+        "derived-state": [
+          "manifests/providers/polylang-nav-menus.php",
+          "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php",
+          "sandbox/conformance/checks/polylang.sh",
+          "sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
+        ],
+        "deletion": [
+          "sandbox/conformance/checks/polylang.sh",
+          "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php"
+        ],
+        "failure-recovery": [
+          "sandbox/conformance/checks/polylang.sh",
+          "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php",
+          "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php",
+          "sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
+        ],
+        "concurrency-idempotence": [
+          "sandbox/conformance/checks/polylang.sh",
+          "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+        ],
+        "lifecycle": [
+          "sandbox/conformance/checks/polylang.sh",
+          "sandbox/tests/certify/certify_version_matrix.sh"
+        ],
+        "data-boundary": [
+          "manifests/interpreters/polylang.php",
+          "sandbox/conformance/seeds/polylang.sh",
+          "sandbox/conformance/checks/polylang.sh",
+          "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php",
+          "sandbox/tests/offline/reference-scope/regress_scope_discovery.php"
+        ],
+        "scope-platform": [
+          "manifests/interpreters/polylang.php",
+          "sandbox/conformance/checks/polylang.sh",
+          "sandbox/tests/live/regress_multisite_refusal.sh",
+          "sandbox/tests/live/regress_polylang_multisite_refusal.sh",
+          "sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
+        ]
       },
-      "gaps": {
-        "dirty-target": "No conflicting language/translation graph, existing menu mapping, and target-runtime matrix exists.",
-        "deletion": "The unsupported translation-graph delete boundary lacks a live no-partial-mutation refusal exercise.",
-        "failure-recovery": "The real menu provider lacks injected throw/bad-receipt/crash-after-intent and retry evidence.",
-        "concurrency-idempotence": "No competing translation graph/menu repair exercise exists.",
-        "lifecycle": "No in-place supported upgrade, downgrade handling, deactivate/reactivate, residue, and reinstall exercise exists.",
-        "data-boundary": "UTF-8/RTL language values, malformed serialized relations, huge IDs, and schema drift lack a closed matrix.",
-        "scope-platform": "Optional language modes, multisite, and the shared platform boundary are not exercised per adapter."
-      },
+      "gaps": {},
       "blocked": {},
       "not_applicable": {}
     },

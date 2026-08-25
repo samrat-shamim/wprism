@@ -38,11 +38,25 @@ require_once $resolverPath;
 
 use Duo\TaxonomyObjectTypeOptionResolver;
 
+$resolverSource = (string) file_get_contents($resolverPath);
+$check(
+    !str_contains($resolverSource, 'public function resolve(string $tax)')
+        && str_contains($resolverSource, 'public function resolve_all(string $tax)'),
+    'resolver exposes only the complete declaration list and has no lossy singular projection'
+);
+
 $manifests = [
     [
         'name' => 'first',
         'taxonomies' => [
-            'first_wins' => ['object_type_from_option' => ['option' => 'first_option', 'sub_key' => 'first_key']],
+            'first_wins' => ['object_type_from_option' => [
+                ['option' => 'first_option', 'sub_key' => 'first_key'],
+                [
+                    'option' => 'first_option',
+                    'sub_key' => 'media_enabled',
+                    'object_types_when_truthy' => ['attachment'],
+                ],
+            ]],
             'projected' => ['object_type_from_option' => ['option' => 17, 'sub_key' => 9]],
         ],
     ],
@@ -55,12 +69,20 @@ $manifests = [
     ],
 ];
 $resolver = new TaxonomyObjectTypeOptionResolver($manifests);
+$firstRows = [
+    ['option' => 'first_option', 'sub_key' => 'first_key'],
+    [
+        'option' => 'first_option',
+        'sub_key' => 'media_enabled',
+        'object_types_when_truthy' => ['attachment'],
+    ],
+];
 $check(
-    $resolver->resolve('first_wins') === ['option' => 'first_option', 'sub_key' => 'first_key']
-        && $resolver->resolve('later_only') === ['option' => 'later_option', 'sub_key' => 'later_key']
-        && $resolver->resolve('projected') === ['option' => '17', 'sub_key' => '9']
-        && $resolver->resolve('absent') === null,
-    'resolver preserves first-manifest precedence, later declarations, exact string projection, and absent null semantics'
+    $resolver->resolve_all('first_wins') === $firstRows
+        && $resolver->resolve_all('later_only') === [['option' => 'later_option', 'sub_key' => 'later_key']]
+        && $resolver->resolve_all('projected') === [['option' => '17', 'sub_key' => '9']]
+        && $resolver->resolve_all('absent') === null,
+    'plural resolver preserves every ordered direct and truthy compiled-option contribution'
 );
 
 require_once "$root/agent/src/Kernel/Canon.php";
@@ -70,16 +92,16 @@ require_once "$root/agent/src/Policy/Policy.php";
 $policy = new Duo\Policy();
 $policy->manifests = $manifests;
 $check(
-    $policy->object_type_option_ref('first_wins') === $resolver->resolve('first_wins')
-        && $policy->object_type_option_ref('later_only') === $resolver->resolve('later_only'),
-    'Policy retains its public option-derived object-type facade over the pure resolver'
+    $policy->object_type_option_refs('first_wins') === $firstRows
+        && $policy->object_type_option_refs('later_only') === [['option' => 'later_option', 'sub_key' => 'later_key']],
+    'Policy exposes the complete apply-time declaration list without a lossy singular facade'
 );
 $policy->manifests[0]['taxonomies']['first_wins']['object_type_from_option'] = [
     'option' => 'mutated_option', 'sub_key' => 'mutated_key',
 ];
 $check(
-    $policy->object_type_option_ref('first_wins') === ['option' => 'mutated_option', 'sub_key' => 'mutated_key'],
-    'Policy builds a fresh resolver for every facade call so mutable fixture manifests stay observable'
+    $policy->object_type_option_refs('first_wins') === [['option' => 'mutated_option', 'sub_key' => 'mutated_key']],
+    'Policy builds a fresh resolver for every plural call so mutable fixture manifests stay observable'
 );
 
 $policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
@@ -87,10 +109,11 @@ $oldLoop = '        foreach ($this->manifests as $m) {' . "\n"
     . "            \$decl = \$m['taxonomies'][\$tax]['object_type_from_option'] ?? null;";
 $check(
     substr_count($policySource, "require_once __DIR__ . '/../Grammar/TaxonomyObjectTypeOptionResolver.php';") === 1
-        && str_contains($policySource, 'return $this->taxonomy_object_type_option_resolver()->resolve($tax);')
+        && str_contains($policySource, 'return $this->taxonomy_object_type_option_resolver()->resolve_all($tax) ?? [];')
         && str_contains($policySource, 'new TaxonomyObjectTypeOptionResolver($this->manifests)')
+        && !str_contains($policySource, 'object_type_option_ref(string $tax)')
         && !str_contains($policySource, $oldLoop),
-    'Policy requires the resolver once, retains a fresh facade factory, and leaves no duplicate raw manifest lookup loop'
+    'Policy requires the resolver once, exposes only the complete declaration list, and leaves no duplicate raw manifest lookup loop'
 );
 
 if ($failures !== []) {

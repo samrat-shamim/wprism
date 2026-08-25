@@ -34,6 +34,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-delete-guard-value-codec
 .PHONY: regress-delete-guard-evaluator
 .PHONY: regress-scope-discovery regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner
+.PHONY: regress-full-apply-attachment-recovery
 
 .PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations-live regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-adapter-plugin-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-stage-unchanged-skip regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-transport regress-local-verified-rollback regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve regress-code-import code-half-unit \
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
@@ -62,7 +63,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-env-provider-conformance-live \
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-suite-wiring regress-platform-move-gates \
-	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification regress-certificate-axis-binding regress-cross-root-replay \
+	regress-multisite-refusal regress-polylang-multisite-refusal regress-polylang-tec-rewrite-coinstall regress-polylang-live-fixtures regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification regress-certificate-axis-binding regress-cross-root-replay \
 	regress-post-field-classification regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
 	regress-lint-host-verb regress-lint-type-exemptions \
@@ -635,6 +636,17 @@ release-gate:
 regress-multisite-refusal:
 	bash sandbox/tests/live/regress_multisite_refusal.sh
 
+# Exact Polylang 3.8.6 populated-network refusal.  This is a dedicated
+# candidate-bound fixture; the generic multisite gate does not prove the
+# plugin's own graph and exact artifact remain untouched.
+regress-polylang-multisite-refusal:
+	bash sandbox/tests/live/regress_polylang_multisite_refusal.sh
+
+# Bounded Polylang + TEC co-install rewrite topology, including the shared
+# fresh-process native action and provider-before-effect retry proof.
+regress-polylang-tec-rewrite-coinstall:
+	bash sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh
+
 # Exact TEC scope boundary: native-populated 6.17.2 and 6.17.3 sites are
 # converted to real networks before capture/plan/deploy/apply. Candidate SHA,
 # exact artifacts, adapter storage, repository absence, and activation state
@@ -670,6 +682,9 @@ regress-ninja-forms-production-readiness:
 
 regress-the-events-calendar-production-readiness:
 	php sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php
+
+regress-polylang-production-readiness:
+	php sandbox/tests/offline/adapter/regress_polylang_production_readiness.php
 
 # DUO-3222's one genuinely live leg: Deploy::code_mismatch()'s new THEME
 # version_range check, called directly against a real bundled WordPress
@@ -1001,6 +1016,9 @@ regress-target-observation-premises:
 # echo+exit. Static, offline.
 regress-polylang-fail-helper:
 	bash sandbox/tests/offline/guards/regress_polylang_fail_helper.sh
+
+regress-polylang-live-fixtures:
+	bash sandbox/tests/offline/guards/regress_polylang_live_fixtures.sh
 
 # DUO-3393: checks/elementor.sh's seeded-page id read must be guarded by
 # require_fixture_ids, not a dead `$(wp post list) || fail` (empty-at-exit-0
@@ -1372,6 +1390,12 @@ regress-relationship-materializer:
 # every live conformance manifest sweep, unchanged by this extraction.
 regress-attachment-materializer:
 	php sandbox/tests/offline/apply/regress_attachment_materializer.php
+
+# Full public ApplyRequestCoordinator recovery: authored commit, the
+# post-authored lease refusal, durable attachment journal handoff, and the
+# second request's native metadata pass before cross-process convergence.
+regress-full-apply-attachment-recovery:
+	php sandbox/tests/offline/apply/regress_full_apply_attachment_recovery.php
 
 # DUO-3347 slice 10: ensure_post_row() moved from Apply.php into a new
 # PostMaterializer.php (the "posts" entity materializer target seam),
@@ -2733,6 +2757,8 @@ regress-live-list:
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
+	@echo "  regress-polylang-multisite-refusal        own disposable pair (parameterized: POLYLANG_MULTISITE_PAIR/PORT1/PORT2; exact Polylang 3.8.6 populated multisite refusal)"
+	@echo "  regress-polylang-tec-rewrite-coinstall    own disposable pair (parameterized: POLYLANG_TEC_REWRITE_PAIR/PORT1/PORT2; exact Polylang 3.8.6 + TEC 6.17.2 child-process/topology sweep)"
 	@echo "  regress-the-events-calendar-multisite-refusal own disposable pair (parameterized: TEC_MULTISITE_PAIR/TEC_MULTISITE_PORT1/TEC_MULTISITE_PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact TEC 6.17.2/6.17.3 populated multisite refusal)"
 	@echo "  regress-adapter-theme-range               pair asub3222tr 8918/8919"
 	@echo "  regress-adapter-plugin-range              pair a3487pr 8988/8989 (parameterized: PLUGIN_RANGE_PAIR/PLUGIN_RANGE_PORT1/PLUGIN_RANGE_PORT2)"

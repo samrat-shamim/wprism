@@ -149,6 +149,32 @@ $assertAccepted(
 $assertAccepted(
     static fn() => TaxonomyGrammar::validate_object_type_option_refs([
         'name' => 'acme',
+        'options' => [
+            'acme_settings' => [
+                'sub_keys' => [
+                    'object_types' => ['class' => 'authored'],
+                    'media_enabled' => ['class' => 'authored'],
+                ],
+            ],
+        ],
+        'taxonomies' => [
+            'acme_tax' => [
+                'object_type_from_option' => [
+                    ['option' => 'acme_settings', 'sub_key' => 'object_types'],
+                    [
+                        'option' => 'acme_settings',
+                        'sub_key' => 'media_enabled',
+                        'object_types_when_truthy' => ['attachment'],
+                    ],
+                ],
+            ],
+        ],
+    ]),
+    'object_type_from_option accepts ordered array and strict truthy-gate contributions'
+);
+$assertAccepted(
+    static fn() => TaxonomyGrammar::validate_object_type_option_refs([
+        'name' => 'acme',
         'taxonomies' => [
             'acme_tax' => [
                 'object_type_from_option' => [
@@ -191,6 +217,56 @@ $assertThrows(
     ]),
     'json_refs/key_refs',
     'object_type_from_option refuses a ref-typed local sub-key'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_object_type_option_refs([
+        'name' => 'acme',
+        'taxonomies' => ['acme_tax' => ['object_type_from_option' => []]],
+    ]),
+    'not a declaration object or non-empty declaration list',
+    'object_type_from_option refuses an empty contribution list'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_object_type_option_refs([
+        'name' => 'acme',
+        'options' => ['acme_settings' => ['sub_keys' => [
+            'media_enabled' => ['class' => 'authored'],
+        ]]],
+        'taxonomies' => ['acme_tax' => ['object_type_from_option' => [[
+            'option' => 'acme_settings',
+            'sub_key' => 'media_enabled',
+            'object_types_when_truthy' => [],
+        ]]]],
+    ]),
+    'without a non-empty list of object type names',
+    'object_type_from_option refuses a truthy gate that authorizes no object type'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_object_type_option_refs([
+        'name' => 'acme',
+        'options' => ['acme_settings' => ['sub_keys' => [
+            'media_enabled' => ['class' => 'authored'],
+        ]]],
+        'taxonomies' => ['acme_tax' => ['object_type_from_option' => [[
+            'option' => 'acme_settings',
+            'sub_key' => 'media_enabled',
+            'object_types_when_truthy' => ['attachment', 'attachment'],
+        ]]]],
+    ]),
+    'with duplicate object types',
+    'object_type_from_option refuses duplicate truthy-gate ownership'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_object_type_option_refs([
+        'name' => 'acme',
+        'taxonomies' => ['acme_tax' => ['object_type_from_option' => [[
+            'option' => 'acme_settings',
+            'sub_key' => 'media_enabled',
+            'truthy_object_types' => ['attachment'],
+        ]]]],
+    ]),
+    "with unsupported key 'truthy_object_types'",
+    'object_type_from_option refuses a misspelled conditional authority key'
 );
 
 // ------------------------------------------------------ frozen Policy entry point

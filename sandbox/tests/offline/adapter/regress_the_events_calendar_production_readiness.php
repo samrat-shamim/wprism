@@ -6831,15 +6831,16 @@ function tec_readiness_capture_customizer_record(
         $captureSubKeys = new ReflectionMethod($capture, 'capture_option_sub_keys');
         // The shared FakeWpdb deliberately has no SUM/COALESCE aggregate
         // grammar. Invoke the exact private product method with the complete
-        // same-snapshot raw map rather than teaching this adapter suite a
-        // bespoke SQL answer; OptionsCapture's namespace reader has its own
-        // bounded-reader regressions.
+        // same-snapshot raw map and strict-read-only authority rather than
+        // teaching this adapter suite a bespoke SQL answer; OptionsCapture's
+        // namespace reader has its own bounded-reader regressions.
         $captureSubKeys->invokeArgs($capture, [
             'tribe_customizer',
             $rule,
             $source,
             $rawOptionSnapshot,
             false,
+            true,
             &$liveCanonicalNames,
             &$out,
         ]);

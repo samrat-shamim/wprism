@@ -134,6 +134,7 @@ final class OptionsCapture {
                 $source,
                 $allOptionValues,
                 $forceUnresolvedRefs,
+                $strictReadOnly,
                 $liveCanonicalNames,
                 $out
             );
@@ -163,6 +164,7 @@ final class OptionsCapture {
                 'dynamic_options',
                 $allOptionValues,
                 $forceUnresolvedRefs,
+                $strictReadOnly,
                 $liveCanonicalNames,
                 $out
             );
@@ -337,6 +339,7 @@ final class OptionsCapture {
         ?string $ruleSource,
         array $allOptionValues,
         bool $forceUnresolvedRefs,
+        bool $strictReadOnly,
         array &$liveCanonicalNames,
         array &$out
     ): void {
@@ -372,7 +375,8 @@ final class OptionsCapture {
             $rawAuthored,
             $rule,
             $ruleSource,
-            $allOptionValues
+            $allOptionValues,
+            $strictReadOnly
         );
         // `absent_autoload` authorizes storage only when native
         // normalization actually supplied authored defaults. An absent row

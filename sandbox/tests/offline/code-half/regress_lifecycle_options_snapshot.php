@@ -1268,6 +1268,28 @@ $nativeInterpreter = new class ($nativeState) {
         if ($this->state->projection_mode === 'mismatch') {
             return array_replace($rawAuthored, ['portable' => 'projection-mismatch']);
         }
+        if ($this->state->projection_mode === 'reorder-authored'
+            && is_array($rawAuthored['portable'] ?? null)) {
+            $ordered = [];
+            foreach (['en', 'fr', 'ar'] as $language) {
+                if (array_key_exists($language, $rawAuthored['portable'])) {
+                    $ordered[$language] = $rawAuthored['portable'][$language];
+                }
+            }
+            $rawAuthored['portable'] = $ordered;
+        }
+        if ($this->state->projection_mode === 'ordered-list-change'
+            && is_array($rawAuthored['portable'] ?? null)
+            && array_is_list($rawAuthored['portable'])) {
+            $rawAuthored['portable'] = array_reverse($rawAuthored['portable']);
+        }
+        if ($this->state->projection_mode === 'scalar-type-change') {
+            $rawAuthored['portable'] = ['value' => $rawAuthored['portable'] ?? null];
+        }
+        if ($this->state->projection_mode === 'ref-token-substitution'
+            && is_array($rawAuthored['portable'] ?? null)) {
+            $rawAuthored['portable']['term'] = '{{term:01a0389c-dad9-7d5e-a594-1261dde21a64}}';
+        }
         if ($this->state->projection_mode === 'drop-desired') {
             unset($rawAuthored['portable']);
             return $rawAuthored;
@@ -1881,6 +1903,78 @@ $check(
         && $wpdb->optionRows === $projectionMismatchBefore,
     'projection cannot hide a physically retained carrier while that authored key is desired'
 );
+
+$wpdb->optionRows['native_blob'] = [
+    'option_value' => serialize([
+        'portable' => ['ar' => 3, 'en' => 1, 'fr' => 2],
+        'runtime' => 'keep',
+    ]),
+    'autoload' => 'yes',
+];
+$wpdb->optionRows['pll_language_from_content_available'] = [
+    'option_value' => 'yes',
+    'autoload' => 'no',
+];
+$nativeState->projection_mode = 'reorder-authored';
+$invokeNative('yes', ['portable' => ['ar' => 3, 'en' => 1, 'fr' => 2]]);
+$nativeState->projection_mode = 'identity';
+$check(
+    unserialize($wpdb->optionRows['native_blob']['option_value'], ['allowed_classes' => false]) === [
+        'portable' => ['ar' => 3, 'en' => 1, 'fr' => 2],
+        'runtime' => 'keep',
+    ],
+    'native projection accepts associative authored object-key reordering while preserving list/scalar strictness'
+);
+$wpdb->optionRows = $projectionMismatchBefore;
+
+foreach ([
+    'ordered-list-change' => [
+        'portable' => ['en', 'fr', 'ar'],
+    ],
+    'scalar-type-change' => [
+        'portable' => 'desired',
+    ],
+    'ref-token-substitution' => [
+        'portable' => ['term' => 5100001],
+    ],
+] as $projectionShape => $desiredShape) {
+    $wpdb->optionRows = [
+        'native_blob' => [
+            'option_value' => serialize($desiredShape + ['runtime' => 'keep']),
+            'autoload' => 'yes',
+        ],
+        'pll_language_from_content_available' => [
+            'option_value' => 'yes',
+            'autoload' => 'no',
+        ],
+    ];
+    $nativeState->projection_mode = $projectionShape;
+    try {
+        $invokeNative('yes', $desiredShape);
+        $shapeRefused = false;
+    } catch (Throwable $failure) {
+        $shapeRefused = str_contains($failure->getMessage(), 'did not persist the exact authored group');
+    }
+    $nativeState->projection_mode = 'identity';
+    $afterShape = $wpdb->optionRows;
+    ksort($afterShape, SORT_STRING);
+    $beforeShape = [
+        'native_blob' => [
+            'option_value' => serialize($desiredShape + ['runtime' => 'keep']),
+            'autoload' => 'yes',
+        ],
+        'pll_language_from_content_available' => [
+            'option_value' => 'yes',
+            'autoload' => 'no',
+        ],
+    ];
+    ksort($beforeShape, SORT_STRING);
+    $check(
+        $shapeRefused && $afterShape === $beforeShape,
+        "native post-projection proof refuses $projectionShape without changing storage"
+    );
+}
+$wpdb->optionRows = $projectionMismatchBefore;
 
 $nativeState->mutate_target_sibling = true;
 $nativeState->projection_calls = 0;
@@ -2765,6 +2859,71 @@ $check(
 SidebarState::end_authored_transaction();
 $fieldMaterializer->end_authored_transaction();
 $wpdb->transactionState = '0';
+
+// A complete repository sidebar treats a Polylang uninstall's contentless
+// sidebars_widgets key as target-only deletion evidence. Exercise the actual
+// finalizer, not just planner projection: both a populated desired sidebar
+// and an explicitly empty one must overwrite the raw native assignment.
+$finalizeContentlessSidebar = static function (array $widgets) use (
+    $sidebarPolicy,
+    $tokens,
+    $fieldMaterializer,
+    $wpdb,
+    $selectedSidebarWidget
+): array {
+    $tree = [
+        'sidebar/selected' => [
+            'type' => SidebarState::ENTITY_TYPE,
+            'data' => ['widgets' => $widgets],
+        ],
+    ];
+    $wpdb->map = $widgets === [] ? [] : [[
+        'uuid' => $selectedSidebarWidget,
+        'entity_type' => 'widget',
+        'kind' => SidebarState::kind('text'),
+        'id' => 7,
+    ]];
+    $wpdb->writes = [];
+    $wpdb->optionRows = [
+        'widget_text' => ['option_value' => serialize(['_multiwidget' => 1]), 'autoload' => 'yes'],
+        'sidebars_widgets' => ['option_value' => serialize([
+            'selected' => ['text-4'], 'array_version' => 3,
+        ]), 'autoload' => 'yes'],
+    ];
+    $wpdb->transactionState = '1';
+    $fieldMaterializer->begin_authored_transaction();
+    SidebarState::begin_authored_transaction(
+        static fn(string $name, string $purpose): ?array =>
+            \Duo\CacheInvalidationTransaction::lock_option_row($name, $purpose),
+        static function (string $name, string $purpose): void {
+            \Duo\CacheInvalidationTransaction::queue_option($name, $purpose);
+        },
+        static function (string $name, string $value, string $autoload, string $purpose): void {
+            \Duo\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
+        }
+    );
+    try {
+        SidebarState::finalize_sidebar($sidebarPolicy, $tokens, $tree['sidebar/selected']['data'], 'selected', $tree, true);
+        return maybe_unserialize((string) $wpdb->optionRows['sidebars_widgets']['option_value']);
+    } finally {
+        SidebarState::end_authored_transaction();
+        $fieldMaterializer->end_authored_transaction();
+        $wpdb->transactionState = '0';
+    }
+};
+$contentlessPopulatedAssignments = $finalizeContentlessSidebar([[
+    'uuid' => $selectedSidebarWidget,
+    'type' => 'text',
+    'settings' => ['title' => 'Replacement'],
+]]);
+$contentlessEmptyAssignments = $finalizeContentlessSidebar([]);
+$check(
+    ($contentlessPopulatedAssignments['selected'] ?? null) === ['text-7']
+        && !in_array('text-4', (array) ($contentlessPopulatedAssignments['selected'] ?? []), true)
+        && ($contentlessEmptyAssignments['selected'] ?? null) === []
+        && !in_array('text-4', (array) ($contentlessEmptyAssignments['selected'] ?? []), true),
+    'sidebar finalizer removes a raw contentless assignment for both populated and empty desired complete sidebars'
+);
 
 // Restore the canonical loader fixture used by the hostile-value matrix.
 $wpdb->optionRows = [

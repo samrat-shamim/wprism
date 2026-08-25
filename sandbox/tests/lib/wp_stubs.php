@@ -442,6 +442,16 @@ if (!function_exists('add_filter')) {
             'accepted_args' => $accepted_args,
             'seq' => $store->hookSeq++,
         ];
+        global $wp_filter;
+        if (isset($wp_filter) && is_array($wp_filter) && class_exists('WP_Hook')) {
+            $hook = $wp_filter[$hook_name] ??= new \WP_Hook();
+            if (is_object($hook) && property_exists($hook, 'callbacks')) {
+                $hook->callbacks[$priority][] = [
+                    'function' => $callback,
+                    'accepted_args' => $accepted_args,
+                ];
+            }
+        }
         return true;
     }
 }
@@ -465,6 +475,19 @@ if (!function_exists('remove_filter')) {
             if ($entry['priority'] === $priority && $entry['callback'] == $callback) {
                 unset($store->hooks[$hook_name][$index]);
                 $store->hooks[$hook_name] = array_values($store->hooks[$hook_name]);
+                global $wp_filter;
+                $hook = is_array($wp_filter ?? null) ? ($wp_filter[$hook_name] ?? null) : null;
+                if (is_object($hook) && property_exists($hook, 'callbacks')) {
+                    foreach ($hook->callbacks[$priority] ?? [] as $callbackIndex => $registered) {
+                        if (($registered['function'] ?? null) == $callback) {
+                            unset($hook->callbacks[$priority][$callbackIndex]);
+                            $hook->callbacks[$priority] = array_values($hook->callbacks[$priority]);
+                            if ($hook->callbacks[$priority] === []) unset($hook->callbacks[$priority]);
+                            break;
+                        }
+                    }
+                    if ($hook->callbacks === []) unset($wp_filter[$hook_name]);
+                }
                 return true;
             }
         }
