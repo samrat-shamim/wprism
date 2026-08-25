@@ -323,6 +323,11 @@ namespace Duo {
         public const TIER_COMPATIBILITY_SHIM = 'compatibility_shim';
         public const SCOPE_SOURCE = 'source';
         public const SCOPE_ADAPTER = 'adapter';
+        // The third scope word (G2-FIXES C2): a row about the agent's own
+        // manifest library rather than about an adapter or a source. Restated
+        // in this stub because catalog_projection() reads the constant to
+        // decide what a refusal row's scope may say.
+        public const SCOPE_LIBRARY = 'library';
         public const GRAMMAR_OK = 'ok';
         public const GRAMMAR_ERROR = 'error';
         public const GRAMMAR_BLOCKED = 'blocked_by_source_refusal';

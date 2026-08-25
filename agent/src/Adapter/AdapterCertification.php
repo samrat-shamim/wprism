@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/AdapterSources.php';
+require_once __DIR__ . '/IdentityNamespaces.php';
 require_once __DIR__ . '/../Policy/ManifestDispositions.php';
 
 /**
@@ -133,6 +134,74 @@ final class StalePlatformSiteAdapterCertificate extends \RuntimeException {
  * and one term wider would launder a forgery into unsigned support.
  */
 final class SupersededWireSiteAdapterCertificate extends \RuntimeException {
+}
+
+/**
+ * THE THIRD TYPED WITHDRAWAL: the authority that signed this companion is no
+ * longer entitled to certify — its validity window has lapsed (or the host
+ * reads a clock before its issuance), or the typed revocation channel names its
+ * key material. G2-FIXES C3.
+ *
+ * WHY IT HAD TO BE TYPED, AND WHY NOW. Every refusal WP-4.8/4.9 added to the
+ * authority seat threw a bare \RuntimeException, so `scan_site_source()` could
+ * not tell it from a forgery: `guarded()` re-threw it (`AdapterSources.php:2377`),
+ * `discover()` refused the WHOLE site source, and `Policy::load()` propagated it
+ * uncaught (`Policy.php:415`, `:508`) — every command on the site, including the
+ * `duo adapter certify --pin` that repairs it. On the frozen path the same
+ * refusal was worse: `from_snapshot()` caught exactly the two existing typed
+ * withdrawals (`AdapterSources.php:4359-4362`), so a promoted site met it as a
+ * whole-policy refusal. A v2 authority record's window is MANDATORY
+ * (`AUTHORITY_RECORD_V2_KEYS`), which makes that a DATED fleet-brick: every
+ * certificate under a v2 key becomes a site-wide refusal at its `not_after`,
+ * with no operator act in between. That is the third door to the exact brick
+ * WP-1.1 closed through StalePlatformSiteAdapterCertificate.
+ *
+ * THE DESTINATION IS UNCERTIFIED SUPPORT, which is what makes it a WITHDRAWAL
+ * rather than a fallback: the adapter loses its certified grants until it is
+ * re-signed under an entitled key, which is strictly MORE conservative for it
+ * — an expired or revoked authority must not confer anything — and strictly
+ * less destructive for the unrelated adapters the same site pins. Nothing is
+ * laundered: an expired key cannot sign a new certificate either (the same
+ * `assertAuthorityScope()` seat refuses at mint time), and the revocation
+ * channel still reaches the frozen path, where it now withdraws the one adapter
+ * instead of refusing the snapshot.
+ *
+ * WHAT IS NOT TYPED, deliberately: forgery and tamper. A bad signature, a wrong
+ * authority binding, a key that is not installed at all, an unparseable or
+ * malformed authority document and every grammar refusal in this file stay hard
+ * whole-source \RuntimeExceptions. The line is "this key is no longer entitled"
+ * versus "this file is not what it claims to be".
+ *
+ * ORDERING, stated rather than implied: this signal is raised BEFORE the
+ * Ed25519 signature is verified (`verifyCertificate()` resolves and scopes the
+ * authority at `:1575-1588`, the signature at `:1602-1610`), because a key that
+ * may not certify is not asked to. So — exactly as
+ * SupersededWireSiteAdapterCertificate already accepts for the generation test —
+ * whoever can write the companion file can reach `uncertified` by naming an
+ * expired or revoked key in it. That is the same state deleting the companion
+ * has always reached, so it buys an attacker nothing; what it costs is
+ * tamper-evidence, and the alternative costs every site the certificate is not
+ * about. The authority binding (`assertAuthorityBinding()`) still runs first, so
+ * the named key, its fingerprint and its identity record must all match the
+ * CURRENT root before this can be raised at all.
+ */
+final class WithdrawnAuthoritySiteAdapterCertificate extends \RuntimeException {
+    /**
+     * The withdrawal tag AdapterSources renders into the provenance record's
+     * IDENTITY-BEARING `reason` (see `AdapterSources::withdrawal_clause()`).
+     * Carried on the exception rather than re-derived from its message, because
+     * a sentence match would make the adapter digest depend on prose.
+     */
+    private string $withdrawal;
+
+    public function __construct(string $message, string $withdrawal) {
+        parent::__construct($message);
+        $this->withdrawal = $withdrawal;
+    }
+
+    public function withdrawal(): string {
+        return $this->withdrawal;
+    }
 }
 
 final class AdapterCertification {
@@ -1529,6 +1598,18 @@ final class AdapterCertification {
                 "duo: site adapter '$name' certification authority binding must carry its exact authority record"
             );
         }
+        if ($claimedRoot === self::TRUST_ROOT_SITE) {
+            // SHIPPED WINS THE KEY-ID NAMESPACE ON BOTH PATHS (G2-FIXES m3).
+            // The frozen branch below has always asked this; the LIVE path did
+            // not, and got its refusal by accident instead: `authority()` finds
+            // the shipped record first, resolves trust root `platform`, and the
+            // binding check then answers "does not match the current platform
+            // authority record" — true, and about the wrong thing. An operator
+            // who re-pointed a key id this project reviews needs to be told
+            // THAT, which is the sentence R-13 records. Hoisted rather than
+            // duplicated so one rule has one call site.
+            self::assertKeyIdNotPlatformOwned($manifestDir, self::keyId($selectedAuthority));
+        }
         if ($claimedRoot === self::TRUST_ROOT_SITE && $repoRoot === null) {
             // THE ONE ASYMMETRY BETWEEN THE TWO ROOTS, and it is a property of
             // where each root LIVES rather than a weaker rule.
@@ -1566,7 +1647,6 @@ final class AdapterCertification {
                 "site adapter certification key '$selectedAuthority'",
                 $selectedAuthority
             );
-            self::assertKeyIdNotPlatformOwned($manifestDir, self::keyId($selectedAuthority));
             self::assertNotRevoked($manifestDir, self::keyId($selectedAuthority), $embeddedRecord);
             $authority = $embeddedRecord;
             $keyId = self::keyId($selectedAuthority);
@@ -1911,7 +1991,8 @@ final class AdapterCertification {
         $id = self::keyId($id);
         $platform = self::authorityKeys(
             rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE,
-            'adapter certification authorities'
+            'adapter certification authorities',
+            true
         );
         $site = $repoRoot === null
             ? []
@@ -2210,6 +2291,47 @@ final class AdapterCertification {
                 . self::AUTHORITIES_RELATIVE . " record's for '$delegatorId' — the key under that id moved"
             );
         }
+        // CRYPTO FIRST, and the ordering is the rule (G2-FIXES M7). Everything
+        // above resolves the DELEGATOR — an identity looked up in the shipped
+        // root, whose fingerprint the statement had to match. Everything below
+        // reads what the STATEMENT CLAIMS: the names it grants, the tiers, the
+        // window. Verifying the signature between the two is what makes every
+        // refusal below a statement about a document its delegator actually
+        // signed. Before it, a tampered delegation reported the narrowing rule
+        // it happened to break — an attacker-chosen sentence, and one that
+        // reads as a policy problem rather than as forgery.
+        //
+        // No refusal moved a byte; only their order did. The narrowing rules
+        // are still enforced by the verifier and not merely by the producer,
+        // and `regress_authority_delegation.php` pins that a widened grant
+        // signed by the WRONG key now answers with the signature.
+        $signature = $delegation['signature'] ?? null;
+        if (!is_array($signature) || array_is_list($signature)
+            || !isset($typed->signature) || !is_object($typed->signature)) {
+            throw new \RuntimeException("duo: $label signature must be a JSON object");
+        }
+        self::assertExactKeys($signature, self::DELEGATION_SIGNATURE_KEYS, "$label signature");
+        if (($signature['key_id'] ?? null) !== $delegatorId) {
+            throw new \RuntimeException(
+                "duo: $label is signed by " . var_export($signature['key_id'] ?? null, true)
+                . " but its statement names delegator '$delegatorId' — the signer and the delegator are one key"
+            );
+        }
+        $encoded = $signature['value'] ?? null;
+        $bytes = is_string($encoded) ? base64_decode($encoded, true) : false;
+        if ($bytes === false || !is_string($encoded) || !self::isCanonicalBase64($encoded, $bytes)
+            || strlen($bytes) !== SODIUM_CRYPTO_SIGN_BYTES
+            || !sodium_crypto_sign_verify_detached(
+                $bytes,
+                self::delegationSignatureBytes($typed->statement),
+                $delegatorPublic
+            )) {
+            throw new \RuntimeException(
+                "duo: $label does not verify under delegator '$delegatorId'; an unsigned or tampered delegation is"
+                . ' refused, never read as an absent grant'
+            );
+        }
+
         // (4) THE DELEGATOR IS JUDGED LIVE, against the CURRENT shipped root, so
         // a revoked delegator invalidates every delegate it made at once and
         // without touching a site. Both revocation mechanisms are asked: the
@@ -2269,33 +2391,6 @@ final class AdapterCertification {
                     . self::stamp($rootAfter) . ' — time is a scope like any other and narrows the same way'
                 );
             }
-        }
-
-        $signature = $delegation['signature'] ?? null;
-        if (!is_array($signature) || array_is_list($signature)
-            || !isset($typed->signature) || !is_object($typed->signature)) {
-            throw new \RuntimeException("duo: $label signature must be a JSON object");
-        }
-        self::assertExactKeys($signature, self::DELEGATION_SIGNATURE_KEYS, "$label signature");
-        if (($signature['key_id'] ?? null) !== $delegatorId) {
-            throw new \RuntimeException(
-                "duo: $label is signed by " . var_export($signature['key_id'] ?? null, true)
-                . " but its statement names delegator '$delegatorId' — the signer and the delegator are one key"
-            );
-        }
-        $encoded = $signature['value'] ?? null;
-        $bytes = is_string($encoded) ? base64_decode($encoded, true) : false;
-        if ($bytes === false || !is_string($encoded) || !self::isCanonicalBase64($encoded, $bytes)
-            || strlen($bytes) !== SODIUM_CRYPTO_SIGN_BYTES
-            || !sodium_crypto_sign_verify_detached(
-                $bytes,
-                self::delegationSignatureBytes($typed->statement),
-                $delegatorPublic
-            )) {
-            throw new \RuntimeException(
-                "duo: $label does not verify under delegator '$delegatorId'; an unsigned or tampered delegation is"
-                . ' refused, never read as an absent grant'
-            );
         }
 
         $record = [
@@ -2382,12 +2477,42 @@ final class AdapterCertification {
      * @param array<string,mixed> $record the authority record being judged
      */
     private static function assertNotRevoked(string $manifestDir, string $keyId, array $record): void {
-        $entry = self::revocations($manifestDir)[hash('sha256', self::publicKey($record))] ?? null;
+        $channel = self::revocations($manifestDir);
+        $entry = $channel['entries'][hash('sha256', self::publicKey($record))] ?? null;
         if ($entry === null) {
             return;
         }
+        $now = self::now();
+        // IMPLAUSIBLE CLOCK FIRST, exactly as assertAuthorityWindow() orders it
+        // and for the identical reason (G2-FIXES C1). The scheduled-revocation
+        // arm below GRANTS its subject while `now < effective_at`, so a host
+        // reading before the document was even issued would find every already-
+        // effective revocation "scheduled" and hand the key back — the channel
+        // failing OPEN, which is the one direction a revocation channel may
+        // never fail. `issued_at` was parsed and discarded before this; it is
+        // kept now precisely to be the anchor this test needs.
+        //
+        // Judged only once an entry NAMES this key, so a backwards clock
+        // withdraws exactly the adapters the document is about instead of every
+        // certified adapter on a host whose clock is wrong.
+        //
+        // RESIDUAL, recorded in R-14/R-26 rather than argued away: a clock set
+        // INSIDE a lapsed window still resurrects what that window retired.
+        // Both tests read `self::now()`, and no wall clock can witness its own
+        // wrongness; closing it needs a monotonic anchor this product does not
+        // have (a signed time beacon, or state the agent refuses to move
+        // backwards).
+        if ($channel['issued'] !== null && $now < $channel['issued']) {
+            throw new WithdrawnAuthoritySiteAdapterCertificate(
+                "duo: this host's own wall clock reads " . self::stamp($now)
+                . ', before the platform-signed revocation record at ' . self::REVOCATIONS_RELATIVE
+                . ' was issued at ' . self::stamp($channel['issued'])
+                . " — an implausible clock refuses rather than resurrecting the revoked key '$keyId'",
+                AdapterSources::WITHDRAWN_AUTHORITY_REVOKED
+            );
+        }
         $effective = self::instant($entry['effective_at'], "authority revocation '{$entry['key_id']}'.effective_at");
-        if (self::now() < $effective) {
+        if ($now < $effective) {
             // A revocation with a future instant is a SCHEDULED one and grants
             // nothing until it arrives — judged through now(), the one named
             // clock every window in this file reads, so there is no second time
@@ -2398,12 +2523,19 @@ final class AdapterCertification {
             // (`tests/Tooling/WireSurfaceTest.php:213-225` is the mutation).
             return;
         }
-        throw new \RuntimeException(
+        // TYPED since G2-FIXES C3, with the sentence byte-identical. This
+        // channel is the one that reaches a FROZEN snapshot on purpose, so
+        // leaving it untyped meant the act of revoking a key bricked every
+        // promoted site holding a certificate under it — the remedy taking the
+        // patient with the disease. The adapter loses its certified grants,
+        // which is what the revocation was for; the site keeps working.
+        throw new WithdrawnAuthoritySiteAdapterCertificate(
             "duo: authority key '$keyId' is revoked by the platform-signed revocation record at "
             . self::REVOCATIONS_RELATIVE . ' — effective ' . self::stamp($effective) . ', reason: '
             . (string) $entry['reason']
             . '. This channel reaches the frozen path, which a status flip in the operator\'s own '
-            . self::SITE_AUTHORITIES_RELATIVE . ' deliberately does not'
+            . self::SITE_AUTHORITIES_RELATIVE . ' deliberately does not',
+            AdapterSources::WITHDRAWN_AUTHORITY_REVOKED
         );
     }
 
@@ -2419,13 +2551,39 @@ final class AdapterCertification {
      * to prevent. Same sentence authorityKeys() already states about the trust
      * root it sits beside.
      *
-     * @return array<string,array<string,mixed>>
+     * THE THIRD ANSWER IS `inert`, AND IT IS WHY THIS CHANNEL IS INSTALLABLE AT
+     * ALL (G2-FIXES C2). The shipped platform root is `{"keys":{}}` and stays
+     * that way through the flag day (§ v3.12), so on a STOCK agent there is no
+     * key that could have signed a revocation — and the signer test below used
+     * to be a hard \RuntimeException, which meant the first correctly-signed
+     * revocation document an operator installed took the site down instead of
+     * revoking anything. Nobody is enrolled yet, so that was the only outcome
+     * the channel had.
+     *
+     * A signer this root does not carry is now a NAMED NON-FATAL STATE: the
+     * document is REPORTED (`AdapterSources::survey()` raises a library-scoped
+     * row for it, so `duo adapter doctor` and `wp duo adapter-survey` exit 1 and
+     * print the sentence) and its entries DO NOT APPLY. That is the honest
+     * posture — inert until enrollment — and it takes nothing away: this agent
+     * cannot authenticate a document signed by a key it does not hold, so it
+     * could never have honoured those entries either way. What it must never do
+     * is read them, and it does not.
+     *
+     * TAMPERING IS STILL FATAL, and the two are distinguishable by construction:
+     * an unreadable file, a malformed envelope or statement, a version this
+     * agent does not implement, a bad entry, a REVOKED signer, and a signature
+     * that does not verify UNDER A KEY THIS ROOT CARRIES all stay hard
+     * refusals. Only "this agent holds no key by that id" is inert, because that
+     * is the one condition under which no verdict about the bytes is available.
+     *
+     * @return array{entries:array<string,array<string,mixed>>, issued:?int, inert:?array{message:string, signer:string}}
      */
     private static function revocations(string $manifestDir): array {
         $file = rtrim($manifestDir, '/') . '/' . self::REVOCATIONS_RELATIVE;
         $label = 'adapter certification authority revocations';
+        $absent = ['entries' => [], 'inert' => null, 'issued' => null];
         if (!file_exists($file) && !is_link($file)) {
-            return [];
+            return $absent;
         }
         if (!is_file($file) || is_link($file)) {
             throw new \RuntimeException("duo: $label must be an ordinary regular file: $file");
@@ -2455,7 +2613,11 @@ final class AdapterCertification {
                 . ' inside its own signature; the envelope\'s format is outside every signature and proves nothing'
             );
         }
-        self::instant($statement['issued_at'] ?? null, "$label.issued_at");
+        // KEPT, not merely parsed (G2-FIXES C1): assertNotRevoked() needs a
+        // stated issuance instant to recognise a backwards clock, exactly as
+        // assertWindowShape()'s `not_before` is what makes the same test
+        // expressible for an authority record.
+        $issued = self::instant($statement['issued_at'] ?? null, "$label.issued_at");
 
         // THE SIGNER IS A PLATFORM KEY, AND ITS WINDOW IS NOT APPLIED. The
         // status check is here for the same reason assertAuthoritiesEnvelope()
@@ -2465,7 +2627,8 @@ final class AdapterCertification {
         // way to RESURRECT the exact identities this document exists to burn.
         $platform = self::authorityKeys(
             rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE,
-            'adapter certification authorities'
+            'adapter certification authorities',
+            true
         );
         $signature = $data['signature'] ?? null;
         if (!is_array($signature) || array_is_list($signature)
@@ -2474,12 +2637,31 @@ final class AdapterCertification {
         }
         self::assertExactKeys($signature, self::AUTHORITIES_SIGNATURE_KEYS, "$label signature");
         $signer = $signature['key_id'] ?? null;
-        if (!is_string($signer) || !isset($platform[$signer])) {
+        if (!is_string($signer)) {
             throw new \RuntimeException(
-                "duo: $label are signed by key " . var_export($signer, true) . ', which is not installed in '
-                . self::AUTHORITIES_RELATIVE
-                . ' — revocation is a platform-rooted statement and a site key cannot make one'
+                "duo: $label signature key_id must be a canonical string selector"
             );
+        }
+        if (!isset($platform[$signer])) {
+            // INERT, not fatal (G2-FIXES C2): this agent holds no key by that
+            // id, so it has no verdict about these bytes at all — neither
+            // "authentic" nor "forged". Reading the entries would honour a
+            // statement nobody this root reviews made; refusing the site takes
+            // every command down over a document that grants nothing. The third
+            // answer is the true one, and the sentence is preserved verbatim so
+            // an operator reads the same words the hard refusal used to print.
+            return [
+                'entries' => [],
+                'inert' => [
+                    'message' => "duo: $label are signed by key " . var_export($signer, true)
+                        . ', which is not installed in ' . self::AUTHORITIES_RELATIVE
+                        . ' — revocation is a platform-rooted statement and a site key cannot make one.'
+                        . ' The document is installed and its entries do NOT apply: this channel is inert until'
+                        . ' a key that signs it is enrolled in the shipped trust root',
+                    'signer' => $signer,
+                ],
+                'issued' => null,
+            ];
         }
         if (($platform[$signer]['status'] ?? null) !== 'trusted') {
             throw new \RuntimeException("duo: $label were signed by revoked key '$signer'");
@@ -2532,7 +2714,29 @@ final class AdapterCertification {
             $out[(string) $row['fingerprint']] = $row;
         }
 
-        return $out;
+        return ['entries' => $out, 'inert' => null, 'issued' => $issued];
+    }
+
+    /**
+     * The typed revocation channel's state, for the surfaces that REPORT it.
+     *
+     * `null` is the shipped answer and means the channel is doing its job:
+     * either no document is installed (absence means "nothing is revoked") or
+     * the installed one verifies under an enrolled key and its entries apply.
+     * A row means the document is installed and INERT — see revocations() — and
+     * the caller is expected to print it, because an operator who installed a
+     * revocation document believes those keys are burnt and they are not.
+     *
+     * Throws exactly what a certificate verification would throw for the same
+     * bytes: a malformed or tampered document is a refusal on both surfaces, and
+     * a reporter that swallowed it would be the one place this channel could go
+     * quiet. `AdapterSources::survey()` catches it into its own row so an
+     * inventory still renders.
+     *
+     * @return ?array{message:string, signer:string}
+     */
+    public static function revocation_channel(string $manifestDir): ?array {
+        return self::revocations($manifestDir)['inert'];
     }
 
     /** The exact bytes one revocation statement's signature covers. */
@@ -2631,7 +2835,8 @@ final class AdapterCertification {
         $root = self::repoRoot($repo, 'site repository');
         $platform = self::authorityKeys(
             rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE,
-            'adapter certification authorities'
+            'adapter certification authorities',
+            true
         );
         $site = self::authorityKeys(
             $root . '/' . self::SITE_AUTHORITIES_RELATIVE,
@@ -2652,7 +2857,7 @@ final class AdapterCertification {
      *
      * @return array<string,array<string,mixed>>
      */
-    private static function authorityKeys(string $file, string $label): array {
+    private static function authorityKeys(string $file, string $label, bool $platformRoot = false): array {
         if (!file_exists($file) && !is_link($file)) {
             return [];
         }
@@ -2705,7 +2910,7 @@ final class AdapterCertification {
             if (!isset($typed->keys->{$keyId}) || !is_object($typed->keys->{$keyId})) {
                 throw new \RuntimeException("duo: adapter certification key '$keyId' must be a JSON object");
             }
-            self::validateAuthorityRecord($record, "adapter certification key '$keyId'", $keyId);
+            self::validateAuthorityRecord($record, "adapter certification key '$keyId'", $keyId, $platformRoot);
             // The document's format and each record's own `record_version` are
             // two statements of one fact, and a disagreement is refused rather
             // than resolved: a v1 envelope holding a windowed record would put
@@ -2740,7 +2945,8 @@ final class AdapterCertification {
     private static function assertKeyIdNotPlatformOwned(string $manifestDir, string $id): void {
         $platform = self::authorityKeys(
             rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE,
-            'adapter certification authorities'
+            'adapter certification authorities',
+            true
         );
         if (isset($platform[$id])) {
             throw new \RuntimeException(
@@ -2756,8 +2962,18 @@ final class AdapterCertification {
      * signed statement) the record answers for. v1 does not read it — its
      * grammar is the shared identity slug and nothing more — and v2 binds it to
      * the record's own key material (§ v3.7 change (a)).
+     *
+     * $platformRoot is true ONLY for the agent's own reviewed
+     * `capabilities/adapter-authorities.json`. It gates one rule — the shipped
+     * library's name namespace, below — and nothing else, so every other member
+     * is judged identically wherever the record came from.
      */
-    private static function validateAuthorityRecord(array $record, string $label, string $keyId): void {
+    private static function validateAuthorityRecord(
+        array $record,
+        string $label,
+        string $keyId,
+        bool $platformRoot = false
+    ): void {
         $version = $record['record_version'] ?? null;
         if ($version === null) {
             self::assertExactKeys($record, self::AUTHORITY_RECORD_KEYS, $label);
@@ -2784,6 +3000,9 @@ final class AdapterCertification {
                 self::adapterName($name);
             } else {
                 self::assertScopeEntry($name, "$label.adapter_names");
+            }
+            if (!$platformRoot) {
+                self::assertScopeEntryLeavesShippedNames($name, $label);
             }
         }
         $tiers = self::stringList($record['trust_tiers'] ?? null, "$label.trust_tiers", false);
@@ -2865,6 +3084,60 @@ final class AdapterCertification {
         // adapter name is held to, so a namespace can only ever name a prefix
         // an adapter name could actually have.
         self::adapterName(substr($entry, 0, -2));
+    }
+
+    /**
+     * THE SHIPPED LIBRARY WINS THE ADAPTER-NAME NAMESPACE — against a PATTERN
+     * (G2-FIXES M4). R-13's key-id half of this rule has always been enforced
+     * (assertKeyIdNotPlatformOwned()); this is the name half, and it was
+     * missing.
+     *
+     * THE ESCALATION IT CLOSES, exactly. 10 of the 16 grandfathered shipped
+     * names sit inside a legal `<vendor>-*` namespace: `ninja-forms` is inside
+     * `ninja-*`, `yoast-duplicate-post` inside `yoast-*`, `duo-agency-cpt`
+     * inside `duo-*`, and so on. So enrolling one vendor with the namespace its
+     * own products live in — the whole point of § v3.8's federation — silently
+     * handed that vendor the SHIPPED adapter of the same name. It could then
+     * certify `adapters/ninja-forms.json`, which as a reviewed override
+     * INHERITS the shipped adapter's interpreter, regenerator and provider
+     * grants byte for byte (`AdapterSources::assert_out_of_tree_contract()`,
+     * `:3694-3697`) — executable privilege reached through a name nobody
+     * intended to grant. The window to fix it closes the moment the first vendor
+     * key is issued, because narrowing a namespace afterwards orphans whatever
+     * was certified under it.
+     *
+     * EXACT NAMES ARE STILL LEGAL, and that is a decision rather than a gap.
+     * Out of tree, a shipped name is reachable only as the reviewed
+     * `{name, source: "site"}` override of that same adapter (T6 §3.3, restated
+     * in `IdentityNamespaces`' own header as "the case the closed list must not
+     * break"), and `duo adapter certify` writes the operator's own key record by
+     * EXACT name — `regress_adapter_certify.php:855-875` walks exactly that:
+     * an operator overriding `woocommerce` under their own site key. Refusing
+     * the exact form would delete a shipped capability to close a hole the
+     * pattern form is the whole of. Naming a reserved adapter exactly is a
+     * deliberate act by whoever writes the record; sweeping one up in a vendor
+     * namespace is an accident of shape, and only the accident is refused.
+     *
+     * The platform root is exempt because it IS the reviewed library: a record
+     * this project ships may say `acf-*` and mean it.
+     */
+    private static function assertScopeEntryLeavesShippedNames(string $entry, string $label): void {
+        if (!str_ends_with($entry, '-*')) {
+            return;
+        }
+        foreach (IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES as $shipped) {
+            if (!self::scopeCoversName([$entry], $shipped)) {
+                continue;
+            }
+            throw new \RuntimeException(
+                "duo: $label entry '$entry' covers '$shipped', which is one of the "
+                . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES)
+                . ' adapter names the shipped library reserves — a namespace grant may not reach a shipped'
+                . ' adapter, whose out-of-tree override inherits that adapter\'s interpreter, regenerator and'
+                . " provider declarations. Grant the names outside it, or name '$shipped' exactly and review"
+                . ' what that override may do'
+            );
+        }
     }
 
     /** True when an authority's scope list covers this exact adapter name. */
@@ -2962,17 +3235,25 @@ final class AdapterCertification {
         // record inside its window, so testing expiry first would let a wrong
         // clock RESURRECT a record its issuer has already retired.
         if ($now < $issued) {
-            throw new \RuntimeException(
+            // TYPED since G2-FIXES C3, with the sentence byte-identical. The
+            // window is mandatory at record v2, so an untyped refusal here was
+            // a DATED whole-source brick: every certificate under the key took
+            // the site down at its own `not_after`, with no operator act in
+            // between. The type routes it to the same uncertified destination
+            // StalePlatform reaches; nothing about WHAT is refused moved.
+            throw new WithdrawnAuthoritySiteAdapterCertificate(
                 "duo: this host's own wall clock reads " . self::stamp($now) . ", before authority key '$keyId'"
                 . ' was issued at ' . self::stamp($issued)
-                . ' — an implausible clock refuses rather than resurrecting an expired record'
+                . ' — an implausible clock refuses rather than resurrecting an expired record',
+                AdapterSources::WITHDRAWN_AUTHORITY_WINDOW
             );
         }
         if ($now >= $expires) {
-            throw new \RuntimeException(
+            throw new WithdrawnAuthoritySiteAdapterCertificate(
                 "duo: authority key '$keyId' expired at " . self::stamp($expires) . ', judged against this'
                 . " host's own wall clock, which reads " . self::stamp($now)
-                . ' — there is no skew allowance in either direction'
+                . ' — there is no skew allowance in either direction',
+                AdapterSources::WITHDRAWN_AUTHORITY_WINDOW
             );
         }
     }
@@ -3207,9 +3488,40 @@ final class AdapterCertification {
         self::assertAuthorityScope($authority, $keyId, $name, $tier);
     }
 
-    /** The key-identity half of an authority record: everything but its scope lists. */
+    /**
+     * The key-identity half of an authority record: everything but the scope
+     * lists AND the validity window.
+     *
+     * THE WINDOW LEFT THIS SET IN G2-FIXES M1, and the argument is R-08's own,
+     * applied to the member R-08 did not reach. A window is a SCOPE — the same
+     * sentence assertAuthorityScope() already makes by judging expiry in the
+     * seat revocation occupies — and every scope this binding drops is enforced
+     * LIVE against the CURRENT record instead: assertAuthorityBinding() calls
+     * assertAuthorityScope(), which calls assertAuthorityWindow(), on every
+     * verification, live and frozen. So nothing stops being checked; what stops
+     * is the record's window being part of the identity a certificate froze.
+     *
+     * WHY IT HAD TO CHANGE. `not_after` is mandatory at record v2, so with the
+     * window inside the identity there was NO RENEWAL PATH: extending it
+     * invalidated every certificate ever signed under that key (the binding
+     * compares the embedded record with the current one), and not extending it
+     * expired them. Every v2 key therefore had exactly one lifetime, ending in a
+     * fleet-wide re-signing event nobody could stage.
+     *
+     * WHY IT IS DECIDABLE NOW AND NEVER AGAIN. Per R-08 a root chooses one
+     * binding at the moment its first certificate is signed and never after: a
+     * NARROWING (this change) admits certificates a wider binding refused, so it
+     * can only be made while nothing in the field depends on the refusal. The
+     * platform root has still signed nothing —
+     * `manifests/capabilities/adapter-authorities.json` is `{"keys": {}}`, which
+     * `regress_authority_record_v2.php` asserts on every run beside this change
+     * — and a SITE root's certificates only ever gain by it, because dropping a
+     * member from an equality can turn a refusal into an acceptance and never
+     * the reverse. Going back — putting the window into the identity — would
+     * invalidate every certificate whose key was ever renewed, silently.
+     */
     private static function authorityIdentity(array $record): array {
-        unset($record['adapter_names'], $record['trust_tiers']);
+        unset($record['adapter_names'], $record['trust_tiers'], $record['not_after'], $record['not_before']);
         ksort($record, SORT_STRING);
 
         return $record;

@@ -1379,6 +1379,47 @@ is uncertified support either way, and no certified claim is ever granted by it
 about a signer. If you see one on a site you did not upgrade, treat the
 companion as edited and look at it, rather than assuming the agent moved.
 
+**A third withdrawal: the authority itself.** The same one-adapter degradation
+covers the key that signed. If that key's validity window has lapsed — or if the
+platform-signed revocation document names its key material — the adapter drops
+back to uncertified with a reason naming the authority ("the authority that
+signed its certification is revoked", or "…is outside its own validity window on
+this host"), and every other adapter the site pins keeps loading. It is
+deliberately not a refusal: an expiry date arriving, or an incident response
+burning a key, must not be the thing that takes a site's commands away. Re-sign
+under a key that may still certify. This withdrawal sits between the other two
+on the authenticity scale: the agent has proved the named key, its fingerprint
+and its identity record against the current trust root before it can be raised,
+but it has not yet checked the signature — a key that may not certify is not
+asked to sign. Treat it the way you treat the wire-version case: a report about
+a file, and worth looking at the file.
+
+**The revocation channel is inert until a key is enrolled, and it says so.** The
+agent ships `manifests/capabilities/adapter-authorities.json` as an empty
+registry, so on a stock agent no key exists that could have signed a revocation
+document. Installing one anyway is not fatal: the document is REPORTED — `duo
+adapter doctor` and `wp duo adapter-survey` print "the document is installed and
+its entries do NOT apply: this channel is inert until a key that signs it is
+enrolled in the shipped trust root" and exit 1 — and nothing is revoked by it. A
+document whose signer IS enrolled and does not verify is a different thing
+entirely and still refuses. If you are running an incident response through this
+channel, check for that row first: an inert document looks exactly like a
+working one from the outside.
+
+**Revoking a delegator does not reach promoted sites.** A revocation of the
+PLATFORM key that delegated to a vendor invalidates that vendor's grant on every
+live scan at once — but a promoted site verifies its certificates from a frozen
+snapshot, which holds no repository and therefore reads no
+`adapters/delegations.json`. To reach those, revoke the DELEGATE's own
+fingerprint. Revoking only the delegator will look like it worked everywhere you
+can see and will not have.
+
+**Re-adopting an agent erases an installed revocation document.** The document
+lives in the agent's manifest library, which is what `duo adopt` replaces — and
+absence means "nothing is revoked", so the erasure is silent. Re-install it after
+an adopt, or point `DUO_MANIFESTS_DIR` at a library the adoption tar does not
+overwrite.
+
 **Key custody is yours.** A lost key cannot re-sign. A leaked key can certify
 any adapter in a repository whose `adapters/authorities.json` names it. Back it
 up where you back up deploy keys; production-grade custody (HSMs, rotation,

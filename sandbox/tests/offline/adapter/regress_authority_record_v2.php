@@ -47,7 +47,9 @@ require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterSources.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterCertification.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterSources;
 use Duo\Canon;
+use Duo\WithdrawnAuthoritySiteAdapterCertificate;
 
 $repo = dirname(__DIR__, 4);
 $root = $repo . '/sandbox/tmp/authority-record-v2-' . getmypid();
@@ -309,28 +311,84 @@ duo_check(
     'a clock BEFORE the record\'s own issuance instant refuses rather than finding an already-retired record '
     . 'inside its window — the resurrection this ordering exists to prevent (' . $implausible . ')'
 );
-// The ordering is the rule, not an accident of which test ran first: a record
-// that is BOTH expired and read on a backwards clock must answer with the
-// clock, because "expired" computed from a clock nobody trusts is not a fact.
+// The ordering is the rule, not an accident of which test ran first — and the
+// assertion has to be DISCRIMINATING about that (G2 review, m5). "Both expired
+// and backwards" is unrepresentable by construction: it needs
+// `not_after <= now < not_before`, which assertWindowShape() already refuses as
+// a window that has never been open. So what the epoch case actually proves is
+// the reachable half — a host far below the window is told its CLOCK is wrong
+// and never that the record is fine — and it is pinned by the whole sentence
+// plus the absence of the expiry one, rather than by a two-word substring that
+// no reordering could have removed.
 $setClock(0);
+$epochRefusal = (string) $refusal($inScope);
 duo_check(
-    str_contains((string) $refusal($inScope), 'implausible clock'),
-    'and the implausible-clock test runs FIRST: a host at the epoch is told its clock is wrong, not that the '
-    . 'record is fine'
+    str_contains($epochRefusal, "this host's own wall clock reads 1970-01-01T00:00:00Z")
+        && str_contains($epochRefusal, "before authority key '$keyId' was issued at 2026-01-01T00:00:00Z")
+        && !str_contains($epochRefusal, 'expired at'),
+    'and the implausible-clock test runs FIRST: a host at the epoch is told its clock is wrong, naming both '
+    . 'instants, and the expiry sentence does not appear (' . $epochRefusal . ')'
 );
-$setClock(null);
+// C3 — THE WINDOW'S REFUSAL IS A TYPED WITHDRAWAL, NOT A WHOLE-SOURCE REFUSAL
+// (G2 review). `not_after` is MANDATORY at record v2, and until this fix the
+// expiry refusal was a bare \RuntimeException: `guarded()` re-threw it,
+// `discover()` refused the whole site source and `Policy::load()` propagated it
+// uncaught, so every site holding a certificate under a v2 key lost every
+// command — including the `duo adapter certify --pin` that repairs it — at that
+// key's own expiry, with no operator act in between. A DATED fleet-brick.
+//
+// The routing itself (typed signal → uncertified, live and frozen) is driven
+// end to end in `regress_site_adapter_certification.php` case (l); what is
+// asserted here is that this seat raises the type carrying the WINDOW tag, so
+// the two halves cannot drift into one signal with one sentence.
+$setClock($expiryEpoch + 86400);
+$expiredTyped = null;
+try {
+    $inScope();
+} catch (Throwable $t) {
+    $expiredTyped = $t;
+}
+duo_check(
+    $expiredTyped instanceof WithdrawnAuthoritySiteAdapterCertificate
+        && $expiredTyped->withdrawal() === AdapterSources::WITHDRAWN_AUTHORITY_WINDOW,
+    'an EXPIRED authority raises the typed withdrawal carrying the `' . AdapterSources::WITHDRAWN_AUTHORITY_WINDOW
+    . '` tag: one adapter loses its certified grants at the key\'s expiry, and the site does not lose every '
+    . 'command with it (' . ($expiredTyped === null ? 'no exception' : get_class($expiredTyped)) . ')'
+);
+$setClock($issuedEpoch - 1);
+$implausibleTyped = null;
+try {
+    $inScope();
+} catch (Throwable $t) {
+    $implausibleTyped = $t;
+}
+duo_check(
+    $implausibleTyped instanceof WithdrawnAuthoritySiteAdapterCertificate
+        && $implausibleTyped->withdrawal() === AdapterSources::WITHDRAWN_AUTHORITY_WINDOW,
+    'and so does the implausible-clock arm beside it — a host with a wrong clock withdraws claims rather than '
+    . 'refusing to run, which is the same conservative direction with a much smaller blast radius'
+);
+
+// DISCRIMINATING, and no longer wall-clock dependent (G2 review, m5). Read on
+// the host's real clock this proved nothing about ORDER — the window was open,
+// so only one refusal could fire. It is asked past `not_after` instead, where
+// both are live, and it asserts the expiry sentence is ABSENT: that is what
+// "revocation answers first" means, and it is now falsifiable.
+$setClock($expiryEpoch + 86400);
 $revokedWindowed = $windowed;
 $revokedKeys = (array) $revokedWindowed['keys'];
 $revokedKeys[$keyId]['status'] = 'revoked';
 $revokedRecord = $revokedKeys[$keyId];
-duo_check(
-    str_contains(
-        (string) $refusal(static fn() => $scope->invoke(null, $revokedRecord, $keyId, 'acme-forms', 'declarative_manifest')),
-        'is revoked and cannot certify adapters'
-    ),
-    'revocation still answers before the window does: an operator who revoked a key is told that, not that it '
-    . 'has not expired yet'
+$revokedAndExpired = (string) $refusal(
+    static fn() => $scope->invoke(null, $revokedRecord, $keyId, 'acme-forms', 'declarative_manifest')
 );
+duo_check(
+    str_contains($revokedAndExpired, "authority key '$keyId' is revoked and cannot certify adapters")
+        && !str_contains($revokedAndExpired, 'expired at'),
+    'revocation still answers before the window does, asked on a record that is BOTH revoked and expired: an '
+    . 'operator who revoked a key is told that, not that it has also lapsed (' . $revokedAndExpired . ')'
+);
+$setClock(null);
 $badWindow = [
     'not_before after not_after' => ['2027-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'a window that has never been open'],
     'not_before equal to not_after' => ['2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'a window that has never been open'],
@@ -393,6 +451,107 @@ foreach (['*', '*-forms', 'acme-*-pro', 'ac*me', 'acme-**'] as $illegal) {
     );
 }
 
+echo "\n== M4: a namespace grant may not reach a name the shipped library reserves ==\n";
+
+// THE ESCALATION (G2 review, M4). 10 of the 16 grandfathered names sit inside a
+// legal `<vendor>-*` namespace, so enrolling a vendor with the namespace its own
+// products live in silently handed it the SHIPPED adapter of the same name — and
+// an out-of-tree adapter answering a shipped name is the reviewed OVERRIDE,
+// which inherits that adapter's interpreter, regenerator and provider grants.
+// Executable privilege, reached through a name nobody meant to grant.
+$readRoot = new ReflectionMethod(AdapterCertification::class, 'authorityKeys');
+$readAs = static function (array $document, bool $platformRoot) use ($root, $readRoot): array {
+    $file = $root . '/capabilities/adapter-authorities.json';
+    file_put_contents($file, Canon::encode($document));
+
+    return (array) $readRoot->invoke(null, $file, 'adapter certification authorities', $platformRoot);
+};
+$patternDocument = static fn(string $entry): array => [
+    'format' => 'duo-adapter-authorities/v2',
+    'keys' => (object) [$keyId => $v2Record(base64_encode($public), [$entry])],
+    'signature' => (object) ['key_id' => $keyId, 'value' => base64_encode(str_repeat("\x00", SODIUM_CRYPTO_SIGN_BYTES))],
+];
+foreach ([
+    'ninja-*' => 'ninja-forms',
+    'yoast-*' => 'yoast-duplicate-post',
+    'duo-*' => 'duo-agency-cpt',
+    'code-*' => 'code-snippets',
+    'paid-*' => 'paid-memberships-pro',
+] as $entry => $covered) {
+    $reserved = (string) $refusal(static fn() => $readAs($patternDocument($entry), false));
+    duo_check(
+        str_contains($reserved, "entry '$entry' covers '$covered'")
+            && str_contains($reserved, 'adapter names the shipped library reserves')
+            && str_contains($reserved, 'inherits that adapter\'s interpreter, regenerator and'),
+        "a non-platform record scoped `$entry` is refused because it covers the shipped '$covered', and the "
+        . 'refusal NAMES the covered member and what an override of it would inherit (' . $reserved . ')'
+    );
+}
+// Signed through the engine's own framer rather than through signAuthorities(),
+// because the PRODUCER holds every record to the site-root rule: it writes bytes
+// without knowing which file they land in, and the strict answer is the safe one
+// for a guard rail. Asserted immediately below, so the exemption is proved on
+// the READER — the security boundary — and the producer's refusal is proved as
+// the separate, weaker fact it is.
+$framer = new ReflectionMethod(AdapterCertification::class, 'authoritiesSignatureBytes');
+$forgeAuthorities = static function (array $keys) use ($framer, $keyId, $secret): array {
+    $document = (object) ['format' => 'duo-adapter-authorities/v2', 'keys' => (object) $keys];
+
+    return [
+        'format' => $document->format,
+        'keys' => $document->keys,
+        'signature' => (object) [
+            'key_id' => $keyId,
+            'value' => base64_encode(sodium_crypto_sign_detached(
+                (string) $framer->invoke(null, $document->format, json_decode(Canon::encode($document->keys))),
+                $secret
+            )),
+        ],
+    ];
+};
+duo_check_same(
+    [$keyId],
+    array_keys($readAs($forgeAuthorities([$keyId => $v2Record(base64_encode($public), ['ninja-*'])]), true)),
+    'the PLATFORM root is exempt: it is the reviewed library, so a record this project ships may say `ninja-*` '
+    . 'and mean it'
+);
+duo_check(
+    str_contains(
+        (string) $refusal(static fn() => $sign([$keyId => $v2Record(base64_encode($public), ['ninja-*'])], $keyId, $secret)),
+        "entry 'ninja-*' covers 'ninja-forms'"
+    ),
+    'and the shipped PRODUCER refuses to assemble that document at all: it cannot know which root the bytes are '
+    . 'for, so it holds every record to the stricter rule — the guard rail in front of the boundary, never '
+    . 'instead of it'
+);
+duo_check_same(
+    [$keyId],
+    array_keys($readAs(
+        $sign([$keyId => $v2Record(base64_encode($public), ['acme-*', 'woocommerce'])], $keyId, $secret),
+        false
+    )),
+    'an EXACT reserved name is still admitted under a site key, and that is the decision rather than the gap: '
+    . 'out of tree a shipped name is reachable only as the reviewed {name, source:"site"} override (T6 §3.3), '
+    . 'which `duo adapter certify` records by exact name. Naming one is deliberate; a namespace sweeping one up '
+    . 'is an accident of shape, and only the accident is refused'
+);
+duo_check_same(
+    [$keyId],
+    array_keys($readAs($sign([$keyId => $v2Record(base64_encode($public), ['ninjax-*'])], $keyId, $secret), false)),
+    'and the coverage test is the shipped `<vendor>-` one, not a string prefix: `ninjax-*` reaches no reserved '
+    . 'name and is admitted'
+);
+$v1Reserved = $refusal(static fn() => $readAs([
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => (object) [$keyId => $v1Record(base64_encode($public), ['yoast-duplicate-post'])],
+], false));
+duo_check_same(
+    null,
+    $v1Reserved,
+    'a v1 record naming a reserved adapter EXACTLY still loads byte for byte — v1 has no pattern vocabulary at '
+    . 'all, so this rule can refuse nothing that exists in the field today'
+);
+
 echo "\n== change (d): the v2 document attests to itself ==\n";
 
 duo_check(
@@ -439,10 +598,16 @@ $revokedSignerKeys = (array) $revokedSigner['keys'];
 $revokedSignerKeys[$keyId]['status'] = 'revoked';
 $revokedSigner['keys'] = (object) $revokedSignerKeys;
 $revokedSignerRefusal = (string) $refusal(static fn() => $readAuthorities($revokedSigner));
+// ONE SENTENCE, not either-of-two (G2 review, m5). The status flip also breaks
+// the signature, so a disjunction passed whichever way the engine ordered the
+// two tests — which is exactly the thing worth pinning: the STATUS is asked
+// first, so an operator reading the refusal is told the signer is revoked
+// rather than being sent to look for a tampered document.
 duo_check(
-    str_contains($revokedSignerRefusal, 'does not verify under key')
-        || str_contains($revokedSignerRefusal, 'revoked key'),
-    'and a revoked signer cannot attest the registry it sits in (' . $revokedSignerRefusal . ')'
+    str_contains($revokedSignerRefusal, "envelope signature was made by revoked key '$keyId'")
+        && !str_contains($revokedSignerRefusal, 'does not verify under key'),
+    'and a revoked signer cannot attest the registry it sits in, and is told SO — the status test runs ahead of '
+    . 'the signature it also broke (' . $revokedSignerRefusal . ')'
 );
 $twoKeys = $sign(
     [$keyId => $v2Record(base64_encode($public)), $otherId => $v2Record(base64_encode($otherPublic), ['zeta-catalog'])],
@@ -592,10 +757,9 @@ duo_check(
 echo "\n== what the identity-only binding must NOT have laundered ==\n";
 
 // Change (e) narrows what a certificate binds to the key IDENTITY. The whole
-// safety of that narrowing rests on `authorityIdentity()` dropping the two
-// scope lists AND NOTHING ELSE, so the members a v2 record adds are inside the
-// binding: a moved window or a moved version is an identity move, not a scope
-// move, and must still invalidate a certificate signed over the old one.
+// safety of that narrowing rests on `authorityIdentity()` dropping the SCOPES
+// and nothing else, so every member that says WHO this key is stays inside the
+// binding and cannot be edited under a signature that covered the old one.
 $identity = new ReflectionMethod(AdapterCertification::class, 'authorityIdentity');
 $base = $v2Record(base64_encode($public), ['acme-*']);
 $baseIdentity = Canon::encode($identity->invoke(null, $base));
@@ -608,14 +772,73 @@ duo_check_same(
     'growing the two SCOPE LISTS leaves the bound identity byte-identical — this is the enrollment case, and '
     . 'the reason both roots can now bind identity'
 );
-foreach (['not_after', 'not_before', 'record_version', 'public_key', 'status', 'algorithm', 'scope'] as $member) {
+foreach (['record_version', 'public_key', 'status', 'algorithm', 'scope'] as $member) {
     $moved = $base;
     $moved[$member] = $member === 'record_version' ? 3 : 'moved-' . $member;
     duo_check(
         Canon::encode($identity->invoke(null, $moved)) !== $baseIdentity,
-        "moving `$member` MOVES the bound identity: the narrowing dropped the scope lists and nothing else, so "
-        . 'a v2 window or version cannot be edited under a signature that covered the old one'
+        "moving `$member` MOVES the bound identity: it says WHO this key is, so it cannot be edited under a "
+        . 'signature that covered the old one'
     );
 }
+
+echo "\n== M1: the WINDOW is a scope, so a key can be RENEWED ==\n";
+
+// THE DEFECT (G2 review, M1). `not_after` is mandatory at record v2, and the
+// window used to be inside the bound identity — so extending it invalidated
+// every certificate ever signed under that key, and not extending it expired
+// them. Every v2 key had exactly one lifetime and NO renewal path, ending in a
+// fleet-wide re-signing event nobody could stage.
+//
+// The fix drops both window members from authorityIdentity(), on R-08's own
+// argument: a window is a SCOPE, and every scope this binding drops is enforced
+// LIVE against the CURRENT record instead (assertAuthorityScope() →
+// assertAuthorityWindow(), the seat revocation already occupies). Below: the
+// renewal is admitted, and the enforcement that replaces the binding is proved
+// on the same record rather than assumed.
+$renewed = $base;
+$renewed['not_after'] = '2030-01-01T00:00:00Z';
+duo_check_same(
+    $baseIdentity,
+    Canon::encode($identity->invoke(null, $renewed)),
+    'EXTENDING `not_after` leaves the bound identity byte-identical: a certificate signed before the renewal '
+    . 'keeps verifying, which is the renewal path record v2 shipped without'
+);
+$reissued = $base;
+$reissued['not_before'] = '2026-06-01T00:00:00Z';
+duo_check_same(
+    $baseIdentity,
+    Canon::encode($identity->invoke(null, $reissued)),
+    'and so does moving `not_before` — the window is one scope and both ends leave the binding together, so a '
+    . 'renewal cannot half-invalidate anything'
+);
+$setClock((int) strtotime('2030-06-01T00:00:00Z'));
+$renewedRefusal = (string) $refusal(
+    static fn() => $scope->invoke(null, $renewed, $keyId, 'acme-forms', 'declarative_manifest')
+);
+duo_check(
+    str_contains($renewedRefusal, "authority key '$keyId' expired at 2030-01-01T00:00:00Z")
+        && !str_contains($renewedRefusal, 'not scoped'),
+    'NOTHING WAS LAUNDERED: the renewed window is still enforced live, at its own new instant and by the same '
+    . 'refusal, so what the binding stopped carrying the scope check still asks (' . $renewedRefusal . ')'
+);
+$setClock(null);
+// The PRECONDITION that made this decidable at all, asserted beside the change
+// rather than in prose: per R-08 a root chooses its binding when its first
+// certificate is signed and never after. A narrowing admits certificates the
+// wider binding refused, so it may only be made while nothing in the field
+// depends on that refusal — and the shipped platform root has still signed
+// nothing. The `{"keys": {}}` assertion at the head of this suite is that fact;
+// this restates what it licenses, at the change it licenses.
+duo_check_same(
+    [],
+    (array) (json_decode(
+        (string) file_get_contents($repo . '/manifests/capabilities/adapter-authorities.json'),
+        true
+    )['keys'] ?? null),
+    'and it was decidable NOW only because the shipped platform root holds zero keys, so no platform-rooted '
+    . 'certificate exists whose binding this narrowing could have moved (R-08: one binding, chosen at the first '
+    . 'signature, never after)'
+);
 
 duo_check_summary('authority record v2');

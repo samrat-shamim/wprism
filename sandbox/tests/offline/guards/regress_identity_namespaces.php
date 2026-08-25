@@ -297,6 +297,71 @@ duo_check_same(
     . 'of a shipped adapter (T6 §3.3), which the closed list exists to keep loading'
 );
 
+// M2 (G2 review) — THE GRANDFATHER EXEMPTION IS THE NAME'S ALONE.
+//
+// The early return used to sit AHEAD of the provider loop, so a grandfathered
+// name skipped the provider rule entirely: 10 of the 16 shipped names have a
+// vendor half, and an out-of-tree manifest answering one of them could declare
+// provider ids in any vendor's namespace at all — the one door left open in the
+// binding § v3.9 exists to make transitive. Both arms are pinned, because the
+// fix has a deliberate second arm and an untested one is an accident.
+$grandfatheredForeignProvider = $namespaceVerdict($manifest('ninja-forms', 3, [
+    'providers' => [['id' => 'zeta-thing', 'source' => 'plugin', 'plugin' => 'zeta/zeta.php']],
+]), 'ninja-forms');
+duo_check(
+    is_string($grandfatheredForeignProvider)
+        && str_contains($grandfatheredForeignProvider, "providers[0].id 'zeta-thing'")
+        && str_contains($grandfatheredForeignProvider, "outside the 'ninja-' namespace"),
+    'a GRANDFATHERED name that HAS a vendor half is still held to the provider rule: the exemption was argued '
+    . 'for the name, and it now covers exactly the name (' . $grandfatheredForeignProvider . ')'
+);
+duo_check_same(
+    null,
+    $namespaceVerdict($manifest('ninja-forms', 3, [
+        'providers' => [['id' => 'ninja-forms-cache-table', 'source' => 'plugin', 'plugin' => 'ninja/ninja.php']],
+    ]), 'ninja-forms'),
+    'and the shipped adapter\'s OWN provider id passes that rule, so the reviewed override of it still loads — '
+    . 'the case the closed list exists to keep working is not broken by closing the door beside it'
+);
+duo_check_same(
+    null,
+    $namespaceVerdict($manifest('woocommerce', 3, [
+        'providers' => [['id' => 'zeta-thing', 'source' => 'plugin', 'plugin' => 'zeta/zeta.php']],
+    ]), 'woocommerce'),
+    'while a grandfathered name with NO vendor half skips the provider rule — `woocommerce` has no `<vendor>-` '
+    . 'for a provider id to be bound to, so there is no rule to apply rather than a rule being waived'
+);
+// The measurement that keeps the second arm honest as the library grows: every
+// shipped provider id is inside its declaring adapter's vendor namespace, or
+// that adapter has no vendor half at all. A seventeenth adapter that broke this
+// would make its own reviewed override unloadable at v3 — a reviewed edit, and
+// this is where it is noticed.
+$providerNamespaceMisfits = [];
+foreach (glob($repo . '/manifests/*.json') ?: [] as $shippedFile) {
+    $shippedManifest = json_decode((string) file_get_contents($shippedFile), true);
+    if (!is_array($shippedManifest)) {
+        continue;
+    }
+    $shippedName = (string) ($shippedManifest['name'] ?? basename($shippedFile, '.json'));
+    $shippedVendor = IdentityNamespaces::vendor($shippedName);
+    if ($shippedVendor === null) {
+        continue;
+    }
+    foreach ((array) ($shippedManifest['providers'] ?? []) as $shippedProvider) {
+        $shippedId = is_array($shippedProvider) ? ($shippedProvider['id'] ?? null) : null;
+        if (is_string($shippedId) && IdentityNamespaces::vendor($shippedId) !== $shippedVendor) {
+            $providerNamespaceMisfits[] = "$shippedName:$shippedId";
+        }
+    }
+}
+duo_check_same(
+    [],
+    $providerNamespaceMisfits,
+    'and the shipped library already satisfies that rule, measured rather than assumed: every provider id an '
+    . 'adapter with a vendor half declares sits inside that vendor namespace, so the reviewed override of any '
+    . 'of the 16 loads at v3'
+);
+
 $providerRefusal = $namespaceVerdict($manifest('acme-cache', 3, [
     'providers' => [
         ['id' => 'acme-cache-state', 'source' => 'plugin', 'plugin' => 'acme/acme.php'],

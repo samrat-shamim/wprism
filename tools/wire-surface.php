@@ -1130,9 +1130,12 @@ function ws_rows(): array {
         'id' => 'R-08',
         'title' => 'The authority binding inside the statement: BOTH roots bind the key identity',
         'now' => ws_set($sets, 'certification authority binding')
-            . '. Both trust roots bind the key IDENTITY — everything but `adapter_names`/`trust_tiers` — '
-            . 'self-consistently by digest, and re-check the two scope lists LIVE against the current '
-            . 'record, revocation and (at record v2) the validity window with them.',
+            . '. Both trust roots bind the key IDENTITY — everything but `adapter_names`, `trust_tiers` and '
+            . '(at record v2) `not_before`/`not_after` — self-consistently by digest, and re-check all four '
+            . 'LIVE against the current record, revocation with them. The WINDOW left the binding in '
+            . 'G2-FIXES M1: a window is a scope, and with it inside the identity a v2 key had NO renewal '
+            . 'path — extending `not_after` invalidated every certificate ever signed under that key, and '
+            . 'not extending it expired them.',
         'permanent' => 'A trust root is a LIVING registry: it grows every time another adapter is '
             . 'certified under a key, so whole-record binding invalidates every earlier certificate under '
             . 'that key the moment a second one is signed. The site root has bound identity since T6 for '
@@ -1145,7 +1148,10 @@ function ws_rows(): array {
             . 'enrollment, silently.',
         'reserved' => 'A future root chooses one of these two bindings at the moment its first '
             . 'certificate is signed, and never after. There is no third choice, because the scope lists '
-            . 'are either inside the signature or enforced live, and doing both is the first option.',
+            . 'are either inside the signature or enforced live, and doing both is the first option. The '
+            . 'same one-way rule is why dropping the window was decidable NOW and never again: a '
+            . 'NARROWING admits certificates the wider binding refused, so it may only be made while the '
+            . 'root has signed nothing — and this one has not.',
     ];
     $rows[] = [
         'id' => 'R-09',
@@ -1241,7 +1247,16 @@ function ws_rows(): array {
             . 'operator clock refuses rather than accepts, which is the safe failure and is now the '
             . 'behaviour holders depend on. The adapter root additionally refuses an IMPLAUSIBLE clock — '
             . 'one reading before the record\'s own `not_before` — BEFORE it tests expiry, because a '
-            . 'backwards clock would otherwise find every retired record inside its window.',
+            . 'backwards clock would otherwise find every retired record inside its window; G2-FIXES C1 '
+            . 'gave the typed revocation channel the same test against its own `issued_at`, where the '
+            . 'failure was OPEN (a backwards clock read an in-force revocation as merely scheduled). '
+            . 'WHAT NO CLOCK TEST CAN CLOSE, recorded rather than left to be discovered: a host clock set '
+            . 'INSIDE a lapsed window resurrects what that window retired, because both tests read the '
+            . 'same wall clock and no clock can witness its own wrongness. Closing it needs a monotonic '
+            . 'anchor this product does not have — a signed time beacon, or persisted state the agent '
+            . 'refuses to move backwards — and both are new permanent decisions rather than fixes. What '
+            . 'IS bounded is the blast radius: since G2-FIXES C3 an expired authority WITHDRAWS the '
+            . 'adapters it certified to uncertified instead of refusing the whole site source.',
         'reserved' => 'Expiry on the CERTIFICATE itself, as opposed to the authority that signed it, is '
             . 'still a statement member (R-06) and therefore a new format, not a field. A future skew '
             . 'allowance would have to be a REFUSAL widening, which no deployed verifier would apply to '
@@ -1257,7 +1272,13 @@ function ws_rows(): array {
             . '— every entry names key material. A revoked site key still verifies inside an '
             . 'already-frozen snapshot through channel 1, because frozen verification reopens no mutable '
             . 'site file (`verifyCertificate()`\'s site branch, AdapterCertification.php:1338-1379); '
-            . 'channel 2 and a revoked platform key both DO reach a frozen snapshot.',
+            . 'channel 2 and a revoked platform key both DO reach a frozen snapshot. WHAT DOES NOT REACH '
+            . 'ONE, recorded here because it looks like it should: revoking a DELEGATOR. A frozen '
+            . 'snapshot holds no repository, so it reads no `adapters/delegations.json` '
+            . '(`delegatedKeys()` returns `[]` without one) and the delegate\'s record is the one inside '
+            . 'the signature. Burning a vendor\'s grant therefore reaches every LIVE scan at once and no '
+            . 'promoted site: an incident response must name the DELEGATE\'s own fingerprint to reach '
+            . 'those, and the operator guide says so in the same words.',
         'permanent' => 'Revoking a key revokes EVERY artifact it ever signed, retroactively and all at '
             . 'once — there is no way to revoke one certificate, on either channel. Operators sign under '
             . 'per-adapter keys or accept that blast radius; that trade is fixed the moment a second '
@@ -1407,6 +1428,41 @@ function ws_rows(): array {
             . 'carries `{since, keys}` and no arm, and an arm is what decides whether a certificate covers '
             . 'the key as a surface.',
     ];
+    // R-22 was minted and never spent: a tranche-1 rider held it in its
+    // disjoint range and shipped nothing that needed a row, so the register
+    // printed R-21 followed by R-23. G2-FIXES M4 allocates it rather than
+    // leaving a hole, and ws_assert_row_continuity() below now refuses a
+    // register with a gap in it — an id nobody can account for reads as a row
+    // somebody deleted.
+    $rows[] = [
+        'id' => 'R-22',
+        'title' => 'The shipped library wins the adapter-NAME namespace, against a pattern',
+        'now' => 'A non-platform authority record\'s `adapter_names` entry may not be a `<vendor>-*` '
+            . 'namespace that COVERS one of the '
+            . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . ' names the shipped library '
+            . 'reserves (R-27\'s list). Judged at authority-record validation time, so it fires on both '
+            . 'roots\' registration and verification paths — the site trust root, a delegated grant, and '
+            . 'the record embedded in a certificate the frozen path re-validates. The refusal names the '
+            . 'covered member. The platform root is exempt, and an EXACT reserved name stays legal '
+            . 'everywhere: out of tree a shipped name is reachable only as the reviewed '
+            . '`{name, source:"site"}` override (T6 §3.3), which `duo adapter certify` records by exact '
+            . 'name.',
+        'permanent' => 'Without it, enrolling a vendor with the namespace its own products live in '
+            . 'silently handed that vendor the SHIPPED adapter of the same name — 10 of the '
+            . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . ' sit inside a legal one '
+            . '(`ninja-*`, `yoast-*`, `duo-*`, `code-*` …) — and an out-of-tree adapter answering a '
+            . 'shipped name is the override, which INHERITS that adapter\'s interpreter, regenerator and '
+            . 'provider declarations. That is executable privilege reached through a name nobody meant '
+            . 'to grant. The window closes at the first vendor key: narrowing a namespace after one is '
+            . 'issued orphans whatever was certified under it, so this is decidable only while the '
+            . 'platform root is empty.',
+        'reserved' => 'Nothing for the EXACT form, deliberately. A record that names a reserved adapter '
+            . 'exactly is a decision someone wrote down — the operator overriding their own site, or a '
+            . 'platform grant that names the adapter on purpose — and refusing it would delete a shipped '
+            . 'capability to close a hole the pattern form is the whole of. What is not reserved either '
+            . 'is a way to make the list itself grow at a site: R-27 keeps it a closed enumeration in '
+            . 'agent code.',
+    ];
     // WP-4.9's two rows. Ids R-25/R-26 rather than R-21: the tranche-1
     // integrator's note on R-20 above records that two riders both minted R-18
     // in parallel worktrees, so this program now assigns each rider a DISJOINT
@@ -1456,14 +1512,32 @@ function ws_rows(): array {
             . 'LIBRARY — the only path frozen verification holds — is signed by a key the shipped '
             . 'platform root carries, and ships ABSENT. An entry binds `fingerprint` = '
             . '`sha256(public_key)`, never the key id. The signer\'s own window is deliberately not '
-            . 'applied.',
+            . 'applied; its `issued_at` IS, as the anchor that stops a backwards clock reading an '
+            . 'in-force revocation as merely scheduled (R-14, G2-FIXES C1). THREE STATES, not two '
+            . '(G2-FIXES C2): absent means nothing is revoked; a document signed by an ENROLLED key '
+            . 'applies; and a document whose signer this root does not carry is INERT — reported as a '
+            . 'library-scoped row by `AdapterSources::survey()`, entries not applied, site not refused. '
+            . 'That third state is what makes the channel installable at all: the shipped root is '
+            . '`{"keys":{}}`, so before enrollment a hard refusal was the ONLY outcome a correctly-signed '
+            . 'revocation could produce. Tampering is unchanged and still fatal. What the channel takes '
+            . 'away is the certified claim of the adapters that key signed, not the site: a revoked '
+            . 'authority is the third typed withdrawal (C3), on the live path and inside a frozen '
+            . 'snapshot alike.',
         'permanent' => 'The FINGERPRINT binding cannot be exchanged for an id binding afterwards: an id '
             . 'can be re-minted over new key material, so an id-bound revocation would be escapable by '
             . 'rotating a name. Absence meaning "nothing is revoked" is equally fixed — every deployed '
             . 'agent already reads it that way, so a future "absent means refuse" would brick every site '
             . 'that never installed one. And the reachability itself is one-way: this is the only channel '
             . 'that reaches an already-frozen snapshot for a site-rooted key, so removing it restores a '
-            . 'gap for every vendor key already federated by copy, silently.',
+            . 'gap for every vendor key already federated by copy, silently. And its LOCATION is a '
+            . 'residual with a name: the manifest library is inside the adoption tar, so `duo adopt` '
+            . 'replaces the library and takes any installed revocation document with it — absence means '
+            . '"nothing is revoked", so the erasure is SILENT. Re-install it after an adopt, or point '
+            . '`DUO_MANIFESTS_DIR` at a library the tar does not overwrite. A detector (recording the '
+            . 'installed digest where adopt does not overwrite, and a diagnostic row when a '
+            . 'previously-present document disappears) is deferred: it needs durable state outside the '
+            . 'library, which is its own decision about where an agent may keep memory a re-adopt cannot '
+            . 'reach.',
         'reserved' => 'The signer\'s window is unapplied ON PURPOSE and that is not an oversight to fix '
             . 'later: applying it would let a lapsed window RESURRECT the exact identities this document '
             . 'exists to burn. A future per-certificate revocation still needs R-06\'s missing '
@@ -1489,9 +1563,14 @@ function ws_rows(): array {
             . implode('`, `', IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . '`) and '
             . count(IdentityNamespaces::GRANDFATHERED_ID_KINDS) . ' `id_kind`s (`'
             . implode('`, `', IdentityNamespaces::GRANDFATHERED_ID_KINDS) . '`), living in `agent/src` and '
-            . 'never under `manifests/`. Gate 7 below asserts both halves. Ownership of a namespace is the '
+            . 'never under `manifests/`. Gate 9 below asserts both halves. Ownership of a namespace is the '
             . "authority record's, not this list's: `adapter_names: [\"<vendor>-*\"]` (R-20) is what decides "
-            . 'which names a key may certify.',
+            . 'which names a key may certify — except that no non-platform grant may reach a name on this '
+            . 'list through a pattern (R-22). The grandfather exemption is the NAME\'s alone: a '
+            . 'grandfathered name that has a vendor half is still held to the provider-id rule '
+            . '(G2-FIXES M2), and one with no vendor half — `core`, `acf`, `woocommerce`, `elementor`, '
+            . '`polylang`, `yoast` — has no namespace for a provider id to be bound to, so that rule has '
+            . 'nothing to say about it.',
         'permanent' => 'The separator forecloses every other scheme: `<vendor>-<name>` cannot later become '
             . '`<vendor>/<name>` or `<vendor>.<name>` without re-spelling every out-of-tree identity already '
             . 'authored, and an adapter name is inside the manifest bytes '
@@ -1503,7 +1582,16 @@ function ws_rows(): array {
             . 'admits precisely the rows a reviewer would want to see. And the list can never simply grow: '
             . 'each addition hands one more unprefixed identity to the shipped library permanently, which is '
             . 'why the release gate refuses any membership but equality with the library itself.',
-        'reserved' => 'This row deliberately reserves NOTHING for `tables.<t>.id_kind`. R-17 rules the prefix '
+        'reserved' => 'ONE HYPHEN DEEP, and no deeper — stated because the binding reads stronger than it '
+            . 'is (G2-FIXES M3). `IdentityNamespaces::vendor()` splits on the FIRST hyphen, so a '
+            . 'sub-vendor delegated `acme-forms-*` may name its adapter `acme-forms-widget`, whose vendor '
+            . 'half is `acme`, and mint provider ids across the PARENT\'s whole `acme-` space rather than '
+            . 'inside the scope its own certificate was checked against. A provider id is bound to the '
+            . 'first segment of the declaring adapter\'s name — the top of the namespace its scope lies '
+            . 'within — and not to the narrowest scope entry that certified it. Binding it to the matched '
+            . 'scope entry means carrying a certificate into a loader that runs with no certificate in '
+            . 'hand, which is a new permanent decision rather than a correction. '
+            . 'This row deliberately reserves NOTHING for `tables.<t>.id_kind`. R-17 rules the prefix '
             . 'RULE out permanently — captured state and `duo_map` rows embed the bare kind — so the '
             . (string) count(IdentityNamespaces::GRANDFATHERED_ID_KINDS) . ' shipped kinds are recorded here '
             . 'as a permanent floor and a CONVENTION for authors, never as a break list. A future scheme for '
@@ -1628,6 +1716,52 @@ function ws_rows(): array {
 }
 
 /**
+ * GATE 10: the register is CONTINUOUS — R-01 … R-NN, each id exactly once.
+ *
+ * Register ids are ordinal bookkeeping and nothing on disk or in a certificate
+ * embeds one, which is exactly why a gap is worth refusing: it costs nothing to
+ * keep and it is the only visible trace a deleted row would leave. The register
+ * carried one for three tranches — R-22, minted inside a rider's disjoint range
+ * and never spent, so §2 printed R-21 followed by R-23 and no reader could tell
+ * "never used" from "removed". G2-FIXES allocated it; this stops the next one
+ * from going unnoticed.
+ *
+ * A DUPLICATE is refused for the sharper reason the R-20 note records: two
+ * riders in parallel worktrees have already minted the same id twice, and the
+ * integrator caught it by reading. This is that reading, mechanised.
+ */
+function ws_assert_row_continuity(): void {
+    $ids = [];
+    foreach (ws_rows() as $row) {
+        $id = (string) $row['id'];
+        if (preg_match('/^R-([0-9]{2})$/D', $id, $m) !== 1) {
+            ws_fail("register row id '$id' is not of the form R-NN; §2's ids are ordinal and two digits wide");
+        }
+        $ordinal = (int) $m[1];
+        if (isset($ids[$ordinal])) {
+            ws_fail(
+                "register row id '$id' appears twice — two riders minting one id is how R-18 was spent "
+                . 'twice already (see the note above R-20); renumber one of them at integration'
+            );
+        }
+        $ids[$ordinal] = true;
+    }
+    if ($ids === []) {
+        ws_fail('the register carries no rows at all');
+    }
+    $highest = max(array_keys($ids));
+    for ($ordinal = 1; $ordinal <= $highest; $ordinal++) {
+        if (!isset($ids[$ordinal])) {
+            ws_fail(
+                'the register skips R-' . str_pad((string) $ordinal, 2, '0', STR_PAD_LEFT)
+                . ' — allocate it or record its withdrawal, because an id nobody can account for reads as a '
+                . 'row somebody deleted'
+            );
+        }
+    }
+}
+
+/**
  * The partition as `5 entity + 14 field + 14 non-surface` — projected, never typed.
  */
 function ws_partition_text(): string {
@@ -1714,6 +1848,7 @@ function ws_build(string $repo): string {
     ws_assert_shipped_authorities($repo);
     ws_assert_closed_key_set();
     ws_assert_grandfather_list($repo);
+    ws_assert_row_continuity();
     $domains = [
         (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN'),
         (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_AUTHORITIES'),
@@ -1813,7 +1948,7 @@ function ws_build(string $repo): string {
     }
 
     $out .= "\n## 5. What the checker proves, and what it does not\n\n";
-    $out .= "`php tools/wire-surface.php --check` proves eight things and refuses the run rather than\n";
+    $out .= "`php tools/wire-surface.php --check` proves ten things and refuses the run rather than\n";
     $out .= "printing a register it cannot stand behind:\n\n";
     $out .= "1. **Every value above is the shipped value.** The document is rebuilt from the code and\n";
     $out .= "   byte-compared; a moved constant, a renamed key, a widened grammar or a reworded refusal\n";
@@ -1835,7 +1970,11 @@ function ws_build(string $repo): string {
     // Numbered 7 and not 6: the trust-root gate arrived with WP-4.8's merge and
     // kept the previous item's number, so this list printed "6." twice. A
     // one-character correction, made here because the item below it would
-    // otherwise be unreadable.
+    // otherwise be unreadable. It happened AGAIN with WP-4.10's grandfather
+    // gate, which is why item 9 below is numbered 9 and why the register now
+    // carries a continuity gate of its own (ws_assert_row_continuity()): a list
+    // that miscounts itself is the cheapest possible evidence that nobody read
+    // it.
     $out .= "7. **The shipped platform trust root is one of its two legal states.** It is the empty\n";
     $out .= '   `' . AdapterCertification::AUTHORITIES_FORMAT . "` registry byte for byte, or a\n";
     $out .= '   `' . AdapterCertification::AUTHORITIES_FORMAT_V2 . "` document that VERIFIES through the\n";
@@ -1845,13 +1984,18 @@ function ws_build(string $repo): string {
     $out .= "   validator admits at `spec_version: 3` and the partition the shipped signer\n";
     $out .= "   classifies against are compared in both directions, and the only excess admitted is what\n";
     $out .= "   an implemented engine feature claims (R-21).\n\n";
-    $out .= "8. **The § v3.9 grandfather list is in its place and is still closed.** Its constants are\n";
+    $out .= "9. **The § v3.9 grandfather list is in its place and is still closed.** Its constants are\n";
     $out .= "   declared under `agent/src` — never under `manifests/`, where AGENTS.md rule 2 would fold\n";
     $out .= '   them into every adapter digest — and their membership equals the shipped library exactly: '
         . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . " adapter\n";
     $out .= '   names and ' . count(IdentityNamespaces::GRANDFATHERED_ID_KINDS)
         . " `id_kind`s, in both directions, so a seventeenth unprefixed name is a reviewed\n";
-    $out .= "   edit rather than a file appearing in a directory (R-27).\n\n";
+    $out .= "   edit rather than a file appearing in a directory (R-27).\n";
+    $out .= '10. **The register has no gaps and no duplicates.** Row ids run R-01 … R-'
+        . str_pad((string) count(ws_rows()), 2, '0', STR_PAD_LEFT) . " with every integer\n";
+    $out .= "    present exactly once. Ids are ordinal bookkeeping — nothing on disk or in a certificate\n";
+    $out .= "    embeds one — but an id nobody can account for reads as a row somebody deleted, and this\n";
+    $out .= "    document is the only place a deleted decision would be missed.\n\n";
     $out .= "What it does not prove: that the decisions are *right*, that any artifact in the field was\n";
     $out .= "signed under these exact rules, or that a holder's verifier implements them. The rationale\n";
     $out .= "halves of §2 are prose, reviewed by a human, and the register is only as good as the review\n";
