@@ -342,9 +342,13 @@ duo_check(
 );
 
 duo_check_same(
-    ['engine_features' => 3],
+    // The four sections the OTHER features claim (WP-4.2, WP-6.1, WP-6.4) —
+    // and deliberately NOT a fifth for this rider: the assertion's point is
+    // that a feature with no `keys` contributes no section floor, and the
+    // merged roster is what makes that visible rather than vacuous.
+    ['attr_id_codecs' => 3, 'column_codecs' => 3, 'declaration_evidence' => 3, 'engine_features' => 3],
     AdapterContractGrammar::section_min_spec(),
-    'section_min_spec() is unchanged: a feature with no `keys` contributes no section floor, so no manifest '
+    'section_min_spec() gains no floor from this rider: a feature with no `keys` contributes none, so no manifest '
         . 'starts refusing a section it already declares'
 );
 
@@ -369,7 +373,12 @@ $materializer = new TypedTableMaterializer(
     static function (string|int $key, string $group) use (&$cacheDeletes, $store): void {
         $cacheDeletes[] = "$group/$key";
         unset($store->cache[$group][(string) $key]);
-    }
+    },
+    // WP-6.1's tenth capability, added by the sibling rider merged beside this
+    // one: the column-codec projection. These fixtures declare no
+    // `column_codecs`, so the honest answer for every table is the empty rule
+    // set — supplied HERE because the constructor deliberately has no default.
+    static fn(string $table): array => []
 );
 
 // No setAccessible(): it is a no-op since PHP 8.1 and deprecated in 8.5, and a
@@ -408,7 +417,9 @@ $survives = new TypedTableMaterializer(
     static fn(mixed $v): mixed => (string) $v,
     static function (string|int $key, string $group) use (&$cacheDeletes): void {
         $cacheDeletes[] = "$group/$key"; // a backend that acknowledges and keeps the value
-    }
+    },
+    // The codec projection again — empty for these codec-less fixtures.
+    static fn(string $table): array => []
 );
 $store->cache['pmpro_membership_level_meta']['9'] = ['stale' => true];
 duo_check_throws(
