@@ -319,29 +319,87 @@ $decode_widget_instance = static function (mixed $instance, string $label): arra
         'settings' => $settings,
     ];
 };
-$widget_instance = static function (string $name): array {
+$stored_widget_local = static function (array $attrs, string $type): int {
+    $id = $attrs['id'] ?? null;
+    $prefix = $type . '-';
+    if (!is_string($id)
+        || !str_starts_with($id, $prefix)
+        || preg_match('/^[1-9][0-9]*$/D', substr($id, strlen($prefix))) !== 1) {
+        throw new RuntimeException("TEC stored widget identity for $type is malformed");
+    }
+    return (int) substr($id, strlen($prefix));
+};
+$widget_family = static function (string $name, int $selectedLocal): array {
     $value = get_option($name, null);
     if (!is_array($value)) {
         throw new RuntimeException("TEC widget option $name is malformed");
     }
+    $multiwidget = [
+        'present' => array_key_exists('_multiwidget', $value),
+        'value' => $value['_multiwidget'] ?? null,
+    ];
     unset($value['_multiwidget']);
-    if (count($value) !== 1) {
-        throw new RuntimeException("TEC widget option $name does not contain exactly one owned instance");
+    if (!isset($value[$selectedLocal]) || !is_array($value[$selectedLocal])) {
+        throw new RuntimeException("TEC widget option $name lacks its selected stored instance");
     }
-    $local = array_key_first($value);
-    if (!is_int($local) || $local <= 0 || !is_array($value[$local])) {
-        throw new RuntimeException("TEC widget option $name has a malformed local identity");
+    $residue = [];
+    foreach ($value as $local => $settings) {
+        if (!is_int($local) || $local <= 0 || !is_array($settings)) {
+            throw new RuntimeException("TEC widget option $name has a malformed local identity");
+        }
+        if ($local !== $selectedLocal) {
+            $residue[] = ['local_id' => $local, 'settings' => $settings];
+        }
     }
-    return ['local_id' => $local, 'settings' => $value[$local]];
+    return [
+        'local_id' => $selectedLocal,
+        'multiwidget' => $multiwidget,
+        'residue' => $residue,
+        'settings' => $value[$selectedLocal],
+    ];
 };
+$list_local = $stored_widget_local(
+    (array) ($widget_blocks[0]['attrs'] ?? []),
+    'tribe-widget-events-list'
+);
+$qr_local = $stored_widget_local(
+    (array) ($widget_blocks[1]['attrs'] ?? []),
+    'tribe-widget-events-qr-code'
+);
+$selected_assignments = [
+    'tribe-widget-events-list-' . $list_local,
+    'tribe-widget-events-qr-code-' . $qr_local,
+];
 $sidebars = get_option('sidebars_widgets', null);
 if (!is_array($sidebars)
-    || !is_array($sidebars['wp_inactive_widgets'] ?? null)
-    || count($sidebars['wp_inactive_widgets']) !== 2) {
+    || !is_array($sidebars['wp_inactive_widgets'] ?? null)) {
     throw new RuntimeException('TEC legacy-widget sidebar assignment is missing or malformed');
 }
-$list_widget_instance = $widget_instance('widget_tribe-widget-events-list');
-$qr_widget_instance = $widget_instance('widget_tribe-widget-events-qr-code');
+$sidebar_assignments = array_values($sidebars['wp_inactive_widgets']);
+if (count($sidebar_assignments) !== count(array_unique($sidebar_assignments, SORT_STRING))) {
+    throw new RuntimeException('TEC inactive widget assignments contain a duplicate identity');
+}
+foreach ($selected_assignments as $selected_assignment) {
+    if (count(array_keys($sidebar_assignments, $selected_assignment, true)) !== 1) {
+        throw new RuntimeException('TEC inactive widget assignments lack one exact selected identity');
+    }
+}
+$sidebar_residue = array_values(array_filter(
+    $sidebar_assignments,
+    static fn(mixed $id): bool => !in_array($id, $selected_assignments, true)
+));
+$list_widget_instance = $widget_family('widget_tribe-widget-events-list', $list_local);
+$qr_widget_instance = $widget_family('widget_tribe-widget-events-qr-code', $qr_local);
+$expected_residue = [];
+foreach ($list_widget_instance['residue'] as $row) {
+    $expected_residue[] = 'tribe-widget-events-list-' . $row['local_id'];
+}
+foreach ($qr_widget_instance['residue'] as $row) {
+    $expected_residue[] = 'tribe-widget-events-qr-code-' . $row['local_id'];
+}
+if ($sidebar_residue !== $expected_residue) {
+    throw new RuntimeException('TEC inactive widget residue disagrees with target-owned option instances');
+}
 $safe_serialized = serialize(['title' => 'native-safe-probe', 'limit' => 5]);
 $object_serialized = serialize(['title' => (object) ['hostile' => true]]);
 $native_filter_probe = static function (string $serialized): array {
@@ -514,7 +572,9 @@ echo wp_json_encode([
         'page_id' => (int) $widget_page->ID,
         'permalink' => get_permalink($widget_page),
         'qr' => $qr_widget_instance,
-        'sidebar' => array_values($sidebars['wp_inactive_widgets']),
+        'sidebar' => $sidebar_assignments,
+        'sidebar_residue' => $sidebar_residue,
+        'sidebar_selected' => $selected_assignments,
     ],
     'home' => home_url('/'),
     'map_boundary_venues' => [
@@ -1074,6 +1134,11 @@ printf '%s\n' "$SOURCE" | jq -e \
     ("tribe-widget-events-list-" + ($source.widget_list|tostring)),
     ("tribe-widget-events-qr-code-" + ($source.widget_qr|tostring))
   ] and
+  .widget_surface.sidebar_selected == .widget_surface.sidebar and
+  .widget_surface.sidebar_residue == [] and
+  .widget_surface.list.multiwidget == {present:true,value:1} and
+  .widget_surface.qr.multiwidget == {present:true,value:1} and
+  .widget_surface.list.residue == [] and .widget_surface.qr.residue == [] and
   .widget_surface.blocks.stored_list == {id:("tribe-widget-events-list-" + ($source.widget_list|tostring))} and
   .widget_surface.blocks.stored_qr == {id:("tribe-widget-events-qr-code-" + ($source.widget_qr|tostring))} and
   .widget_surface.blocks.embedded_list.hash_valid == true and
@@ -1220,10 +1285,40 @@ printf '%s\n' "$TARGET" | jq -e \
   .widget_surface.page_id != $source.widget_page and .widget_surface.page_id >= 7000000000 and
   .widget_surface.list.local_id > 0 and .widget_surface.list.local_id != $source.widget_list and
   .widget_surface.qr.local_id > 0 and .widget_surface.qr.local_id != $source.widget_qr and
-  .widget_surface.sidebar == [
+  .widget_surface.sidebar_selected == [
     ("tribe-widget-events-list-" + (.widget_surface.list.local_id|tostring)),
     ("tribe-widget-events-qr-code-" + (.widget_surface.qr.local_id|tostring))
   ] and
+  .widget_surface.sidebar_residue == [
+    "tribe-widget-events-list-1",
+    "tribe-widget-events-qr-code-1"
+  ] and
+  .widget_surface.sidebar == (
+    .widget_surface.sidebar_residue + .widget_surface.sidebar_selected
+  ) and
+  .widget_surface.list.multiwidget == {present:true,value:1} and
+  .widget_surface.qr.multiwidget == {present:true,value:1} and
+  .widget_surface.list.residue == [{
+    local_id:1,
+    settings:{
+      featured_events_only:true,
+      jsonld_enable:false,
+      limit:1,
+      no_upcoming_events:true,
+      title:"Target-only stale list widget",
+      tribe_is_list_widget:true
+    }
+  }] and
+  .widget_surface.qr.residue == [{
+    local_id:1,
+    settings:{
+      event_id:0,
+      qr_code_size:"4",
+      redirection:"current",
+      series_id:0,
+      widget_title:"Target-only stale QR widget"
+    }
+  }] and
   .widget_surface.blocks.stored_list == {id:("tribe-widget-events-list-" + (.widget_surface.list.local_id|tostring))} and
   .widget_surface.blocks.stored_qr == {id:("tribe-widget-events-qr-code-" + (.widget_surface.qr.local_id|tostring))} and
   .widget_surface.list.settings.title == ("Duo Sidebar Calendar 東京 " + $home + "calendar-readiness/") and

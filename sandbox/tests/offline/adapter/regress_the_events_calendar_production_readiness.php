@@ -8249,6 +8249,37 @@ foreach ([$deletionSeed, $deletionPostdeploy, $deletionCheck] as $widgetFixtureS
         'the exact stored-widget fixture never depends on an unregistered synthetic sidebar'
     );
 }
+foreach ([
+    '$sidebar_residue !== $expected_residue',
+    "'sidebar_residue' => \$sidebar_residue",
+    "'sidebar_selected' => \$selected_assignments",
+    '.widget_surface.sidebar == (',
+    '.widget_surface.sidebar_residue + .widget_surface.sidebar_selected',
+    '.widget_surface.list.residue == [{',
+    '.widget_surface.qr.residue == [{',
+] as $inactiveResidueEvidence) {
+    duo_check(
+        str_contains($deletionCheck, $inactiveResidueEvidence),
+        "the exact TEC observer binds selected ownership and target-only inactive residue: $inactiveResidueEvidence"
+    );
+}
+foreach ([
+    'Target-only stale list widget',
+    'Target-only stale QR widget',
+    'tribe-widget-events-list-1',
+    'tribe-widget-events-qr-code-1',
+] as $inactiveResidueFixture) {
+    duo_check(
+        str_contains($deletionPostdeploy, $inactiveResidueFixture)
+            && str_contains($deletionCheck, $inactiveResidueFixture),
+        "the exact TEC pair proves target-owned inactive residue survives selected widget projection: $inactiveResidueFixture"
+    );
+}
+duo_check(
+    !str_contains($deletionCheck, "count(\$sidebars['wp_inactive_widgets']) !== 2")
+        && str_contains($deletionCheck, 'inactive widget assignments lack one exact selected identity'),
+    'the native observer validates exact selected widget identities without claiming the shared inactive bucket wholesale'
+);
 foreach (['duo_source_only_secret', 'duo_target_only_runtime'] as $undeclaredFixtureKey) {
     duo_check(
         !str_contains($deletionSeed, $undeclaredFixtureKey)
