@@ -9,11 +9,21 @@ if (!defined('DUO_SPEC_VERSION')) {
 
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Uuid.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../manifests/interpreters/woocommerce.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryAuthorization.php';
 
 use Duo\Interpreters\Woocommerce;
 use Duo\Policy;
+use Duo\Canon;
+use Duo\RepositoryCompilationException;
+use Duo\RepositoryCompiler;
 
 $GLOBALS['wooReadinessBlogId'] = 1;
 $GLOBALS['wooReadinessNativeUrlCalls'] = [];
@@ -106,6 +116,9 @@ function woo_readiness_entity(
             'type' => $type,
             'uuid' => '11111111-1111-4111-8111-111111111111',
             'slug' => 'catalog-item',
+            'parent' => $type === 'product_variation'
+                ? '{{post:11111111-1111-4111-8111-111111111112}}'
+                : null,
             'meta' => [$metaKey => $value],
             'terms' => $type === 'product'
                 ? ['product_type' => ['20000000-0000-4000-8000-000000000001']]
@@ -160,6 +173,37 @@ function woo_readiness_product_type_terms(): array {
     ]];
 }
 
+/** @return array<string,mixed> */
+function woo_readiness_valid_variation_parent(): array {
+    return [
+        'type' => 'post',
+        'path' => 'state/posts/product/11111111-1111-4111-8111-111111111112--variation-parent.md',
+        'data' => [
+            'type' => 'product',
+            'uuid' => '11111111-1111-4111-8111-111111111112',
+            'slug' => 'variation-parent',
+            'meta' => [],
+            'terms' => ['product_type' => ['20000000-0000-4000-8000-000000000002']],
+        ],
+        'body' => '',
+    ];
+}
+
+/** @return array<string,mixed> */
+function woo_readiness_valid_variable_type_term(): array {
+    return [
+        'type' => 'term',
+        'path' => 'state/terms/product_type/20000000-0000-4000-8000-000000000002--variable.json',
+        'data' => [
+            'taxonomy' => 'product_type',
+            'uuid' => '20000000-0000-4000-8000-000000000002',
+            'slug' => 'variable',
+            'name' => 'variable',
+            'meta' => [],
+        ],
+    ];
+}
+
 /** @return list<array<string,mixed>> */
 function woo_readiness_diagnostics(
     Woocommerce $interpreter,
@@ -167,10 +211,18 @@ function woo_readiness_diagnostics(
     string $type = 'product',
     string $metaKey = '_product_attributes'
 ): array {
+    $entities = [woo_readiness_entity($value, $type, $metaKey)];
+    $typeTerms = [];
+    if ($type === 'product') {
+        $typeTerms = woo_readiness_product_type_terms();
+    } elseif ($type === 'product_variation') {
+        $entities = array_merge([woo_readiness_valid_variation_parent()], $entities);
+        $typeTerms = [woo_readiness_valid_variable_type_term()];
+    }
     return $interpreter->repository_diagnostics(array_merge(
-        [woo_readiness_entity($value, $type, $metaKey)],
+        $entities,
         woo_readiness_visibility_terms(),
-        $type === 'product' ? woo_readiness_product_type_terms() : []
+        $typeTerms
     ));
 }
 
@@ -237,6 +289,209 @@ function woo_readiness_option_diagnostics(Woocommerce $interpreter, array $recor
 /** @return list<string> */
 function woo_readiness_messages(array $diagnostics): array {
     return array_map(static fn(array $diagnostic): string => (string) $diagnostic['message'], $diagnostics);
+}
+
+/**
+ * Build a captured-style repository and send it through the production
+ * compiler.  The direct interpreter fixture above is intentionally cheap,
+ * but it cannot prove that Canon parsing, identity indexing, reference
+ * validation, and Policy::repository_constraint_diagnostics() reach the same
+ * Woo parent invariant as a real compile does.
+ */
+function woo_readiness_compile_put(string $root, string $relative, string $bytes): void {
+    Canon::write_file(rtrim($root, '/') . '/' . ltrim($relative, '/'), $bytes);
+}
+
+function woo_readiness_compile_post_front(
+    string $uuid,
+    string $type,
+    string $slug,
+    array $terms = []
+): array {
+    return [
+        'author' => 'user:admin',
+        'comment_status' => 'open',
+        'date' => '2026-08-06 00:00:00',
+        'date_gmt' => '2026-08-06 00:00:00',
+        'excerpt' => '',
+        'menu_order' => 0,
+        'meta' => [],
+        'modified_gmt' => '2026-08-06 00:00:00',
+        'parent' => null,
+        'ping_status' => 'closed',
+        'slug' => $slug,
+        'status' => 'publish',
+        'terms' => $terms,
+        'title' => ucfirst(str_replace('-', ' ', $slug)),
+        'type' => $type,
+        'uuid' => $uuid,
+    ];
+}
+
+function woo_readiness_compile_term_front(
+    string $uuid,
+    string $taxonomy,
+    string $slug
+): array {
+    return [
+        'description' => '',
+        'meta' => [],
+        'name' => $slug,
+        'parent' => null,
+        'relationships' => [],
+        'slug' => $slug,
+        'taxonomy' => $taxonomy,
+        'uuid' => $uuid,
+    ];
+}
+
+/** @return array{root:string,variation_path:string} */
+function woo_readiness_compile_repository(string $parentShape): array {
+    $root = sys_get_temp_dir() . '/duo_woo_variation_parent_' . $parentShape . '_' . bin2hex(random_bytes(5));
+    mkdir($root . '/media', 0777, true);
+    register_shutdown_function(static function () use ($root): void {
+        if (!is_dir($root)) {
+            return;
+        }
+        $files = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($files as $file) {
+            $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());
+        }
+        @rmdir($root);
+    });
+    woo_readiness_compile_put($root, 'site.duo.json', Canon::encode([
+        'manifests' => ['woocommerce'],
+        'policy' => [
+            'options' => (object) [],
+            'post_meta' => (object) [],
+            'term_meta' => (object) [],
+            'post_types' => ['product', 'product_variation'],
+            'taxonomies' => ['product_type', 'product_visibility'],
+        ],
+        'spec_version' => DUO_SPEC_VERSION,
+    ]));
+
+    $parentUuid = '51000000-0000-4000-8000-000000000001';
+    $variationUuid = '51000000-0000-4000-8000-000000000002';
+    $variableTypeUuid = '52000000-0000-4000-8000-000000000001';
+    $simpleTypeUuid = '52000000-0000-4000-8000-000000000002';
+    $parentTypeUuid = $parentShape === 'non-variable' ? $simpleTypeUuid : $variableTypeUuid;
+
+    $parentType = $parentShape === 'wrong-target-type' ? 'post' : 'product';
+    $parentTerms = $parentType === 'product'
+        ? ['product_type' => [$parentTypeUuid]]
+        : [];
+    $parentFront = woo_readiness_compile_post_front(
+        $parentUuid,
+        $parentType,
+        'captured-variable-parent',
+        $parentTerms
+    );
+    if ($parentShape !== 'missing-target') {
+        woo_readiness_compile_put(
+            $root,
+            "state/posts/$parentType/$parentUuid--captured-variable-parent.md",
+            Canon::post_file($parentFront, '')
+        );
+    }
+
+    $variationFront = woo_readiness_compile_post_front(
+        $variationUuid,
+        'product_variation',
+        'captured-variation',
+        ['product_visibility' => ['30000000-0000-4000-8000-000000000004']]
+    );
+    switch ($parentShape) {
+        case 'canonical':
+            $variationFront['parent'] = '{{post:' . $parentUuid . '}}';
+            break;
+        case 'raw':
+            $variationFront['parent'] = $parentUuid;
+            break;
+        case 'malformed':
+            $variationFront['parent'] = '{{post:not-a-uuid}}';
+            break;
+        case 'null':
+            $variationFront['parent'] = null;
+            break;
+        case 'absent':
+            unset($variationFront['parent']);
+            break;
+        case 'missing-target':
+            $variationFront['parent'] = '{{post:' . $parentUuid . '}}';
+            break;
+        case 'wrong-target-type':
+        case 'non-variable':
+            $variationFront['parent'] = '{{post:' . $parentUuid . '}}';
+            break;
+        default:
+            throw new \InvalidArgumentException("unknown Woo parent fixture '$parentShape'");
+    }
+    $variationPath = "state/posts/product_variation/$variationUuid--captured-variation.md";
+    woo_readiness_compile_put($root, $variationPath, Canon::post_file($variationFront, ''));
+
+    foreach (woo_readiness_visibility_terms() as $term) {
+        $termData = woo_readiness_compile_term_front(
+            (string) $term['data']['uuid'],
+            'product_visibility',
+            (string) $term['data']['slug']
+        );
+        woo_readiness_compile_put($root, $term['path'], Canon::encode($termData));
+    }
+    foreach (['variable' => $variableTypeUuid, 'simple' => $simpleTypeUuid] as $slug => $uuid) {
+        $term = woo_readiness_compile_term_front($uuid, 'product_type', $slug);
+        woo_readiness_compile_put(
+            $root,
+            "state/terms/product_type/$uuid--$slug.json",
+            Canon::encode($term)
+        );
+    }
+
+    return ['root' => $root, 'variation_path' => substr($variationPath, strlen('state/'))];
+}
+
+function woo_readiness_compile_has_parent_diagnostic(
+    RepositoryCompilationException $failure,
+    string $path,
+    string $locator,
+    string $message
+): bool {
+    foreach ($failure->diagnostics as $diagnostic) {
+        if (($diagnostic['code'] ?? null) === 'adapter_schema_content_mismatch'
+            && ($diagnostic['path'] ?? null) === $path
+            && ($diagnostic['locator'] ?? null) === $locator
+            && ($diagnostic['message'] ?? null) === $message) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function woo_readiness_compile_expect_parent_refusal(
+    string $shape,
+    string $locator,
+    string $message
+): void {
+    $fixture = woo_readiness_compile_repository($shape);
+    $policy = Policy::load($fixture['root'], ['woocommerce']);
+    try {
+        RepositoryCompiler::compile($fixture['root'], $policy);
+        duo_check(false, "RepositoryCompiler accepts invalid Woo variation parent shape '$shape'");
+    } catch (RepositoryCompilationException $failure) {
+        $matched = woo_readiness_compile_has_parent_diagnostic($failure, $fixture['variation_path'], $locator, $message);
+        duo_check(
+            $matched,
+            "RepositoryCompiler refuses Woo variation parent shape '$shape' with the exact parent diagnostic"
+                . ($matched ? '' : ': ' . implode(' | ', array_map(
+                    static fn(array $diagnostic): string => ($diagnostic['path'] ?? '') . ':'
+                        . ($diagnostic['locator'] ?? '') . '=' . ($diagnostic['message'] ?? ''),
+                    $failure->diagnostics
+                )))
+        );
+    }
 }
 
 function woo_readiness_reports(
@@ -361,6 +616,29 @@ duo_check(
         'exact product parent in the repository'
     ),
     'a malformed parent token is refused before parent-type checks'
+);
+
+$compiledCanonicalFixture = woo_readiness_compile_repository('canonical');
+try {
+    $compiledCanonical = RepositoryCompiler::compile(
+        $compiledCanonicalFixture['root'],
+        Policy::load($compiledCanonicalFixture['root'], ['woocommerce'])
+    );
+    duo_check(
+        isset($compiledCanonical->tree()['51000000-0000-4000-8000-000000000002']),
+        'RepositoryCompiler compiles a captured-style Woo variation with one canonical post parent'
+    );
+} catch (\Throwable $failure) {
+    duo_check(false, 'RepositoryCompiler compiles a captured-style Woo variation with one canonical post parent: ' . $failure->getMessage());
+}
+$exactParentDiagnostic = 'WooCommerce variation visibility requires an exact product parent in the repository';
+foreach (['raw', 'malformed', 'null', 'absent', 'missing-target', 'wrong-target-type'] as $invalidParentShape) {
+    woo_readiness_compile_expect_parent_refusal($invalidParentShape, 'parent', $exactParentDiagnostic);
+}
+woo_readiness_compile_expect_parent_refusal(
+    'non-variable',
+    'parent.terms.product_type',
+    'WooCommerce variations require exactly one variable product_type parent'
 );
 
 $missingVisibilityInventory = $visibilityTree;
@@ -892,8 +1170,10 @@ woo_readiness_reports(
 duo_check_same(
     [],
     $interpreter->repository_diagnostics(array_merge([
+        woo_readiness_valid_variation_parent(),
         woo_readiness_entity('2.5', 'product_variation', '_cogs_total_value'),
         woo_readiness_entity('yes', 'product_variation', '_cogs_value_is_additive'),
+        woo_readiness_valid_variable_type_term(),
     ], woo_readiness_visibility_terms())),
     'variation Cost of Goods value and additive inheritance marker are jointly valid'
 );

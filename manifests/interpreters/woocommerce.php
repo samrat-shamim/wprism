@@ -1463,7 +1463,13 @@ final class Woocommerce {
                 );
             }
         } else {
-            $parentReference = $front['parent'] ?? '';
+            // A variation's parent is an authored repository edge, not an
+            // optional runtime convenience.  The compiler accepts a null or
+            // absent post.parent field syntactically, but Woo's visibility
+            // projection cannot prove inheritance without one exact
+            // canonical post token.  Refuse every other shape before POS
+            // inheritance can make a parentless variation look valid.
+            $parentReference = $front['parent'] ?? null;
             $parentUuid = null;
             if (is_string($parentReference)
                 && preg_match('/^\{\{post:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\}\}$/D', $parentReference, $match) === 1) {
@@ -1472,8 +1478,7 @@ final class Woocommerce {
             $parent = $parentUuid !== null && is_array($postIndex[$parentUuid] ?? null)
                 ? $postIndex[$parentUuid]
                 : null;
-            if (($parentReference !== '' || $pos !== [])
-                && ($parent === null || ($parent['type'] ?? null) !== 'product')) {
+            if ($parent === null || ($parent['type'] ?? null) !== 'product') {
                 $out[] = $this->diagnostic(
                     $path,
                     'parent',
