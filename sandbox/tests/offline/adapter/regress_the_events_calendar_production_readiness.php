@@ -8355,6 +8355,19 @@ foreach ([
         "the exact live matrix binds Category Colors boundary evidence $categoryColorsBoundaryEvidence"
     );
 }
+foreach ([
+    'TEC_WIDGET_SCOPE_ONE_OUT=$(wp_conf1 duo scope',
+    'TEC scoped inactive-widget first contract failed:',
+    'require_duo_answered "TEC scoped inactive-widget first contract" json',
+    'TEC_WIDGET_SCOPE_TWO_OUT=$(wp_conf1 duo scope',
+    'TEC scoped inactive-widget second contract failed:',
+    'require_duo_answered "TEC scoped inactive-widget second contract" json',
+] as $scopedWidgetDiagnostic) {
+    duo_check(
+        str_contains($deletionCheck, $scopedWidgetDiagnostic),
+        "the exact scoped inactive-widget path emits diagnostic evidence for $scopedWidgetDiagnostic"
+    );
+}
 $overflowCreateAt = strpos($deletionCheck, "\$createCategory('duo-second-page-refusal'");
 $overflowCachePrimeAt = strpos(
     $deletionCheck,

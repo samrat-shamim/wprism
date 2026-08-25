@@ -1918,10 +1918,15 @@ TEC_WIDGET_SCOPE_CLONE_HEAD=$(git -C "$TEC_WIDGET_SCOPE_HOST" rev-parse --verify
   || fail "TEC scoped inactive-widget clone did not bind the exact source HEAD/site identity"
 
 TEC_WIDGET_SCOPE_ONE="$TEC_WIDGET_SCOPE_HOST/.first.scope.json"
-wp_conf1 duo scope \
+TEC_WIDGET_SCOPE_ONE_RC=0
+TEC_WIDGET_SCOPE_ONE_OUT=$(wp_conf1 duo scope \
   --repo="$TEC_WIDGET_SCOPE_REPO" \
   --roots="post:$TEC_WIDGET_PAGE_UUID" \
-  --contract --format=json >"$TEC_WIDGET_SCOPE_ONE"
+  --contract --format=json 2>&1) || TEC_WIDGET_SCOPE_ONE_RC=$?
+[ "$TEC_WIDGET_SCOPE_ONE_RC" -eq 0 ] \
+  || fail "TEC scoped inactive-widget first contract failed: $TEC_WIDGET_SCOPE_ONE_OUT"
+require_duo_answered "TEC scoped inactive-widget first contract" json "$TEC_WIDGET_SCOPE_ONE_OUT"
+printf '%s\n' "$TEC_WIDGET_SCOPE_ONE_OUT" >"$TEC_WIDGET_SCOPE_ONE"
 jq -e --arg uuid "$TEC_WIDGET_PAGE_UUID" '
   .format == "duo-scope-contract/v1" and
   .selectors == ["post:" + $uuid] and
@@ -2044,10 +2049,15 @@ jq -en --argjson actual "$TEC_WIDGET_CANONICAL_FIRST" --argjson expected "$TEC_W
 
 TEC_WIDGET_REPO_FIRST=$(tec_widget_scope_repo_hash "$TEC_WIDGET_SCOPE_HOST")
 TEC_WIDGET_SCOPE_TWO="$TEC_WIDGET_SCOPE_HOST/.second.scope.json"
-wp_conf1 duo scope \
+TEC_WIDGET_SCOPE_TWO_RC=0
+TEC_WIDGET_SCOPE_TWO_OUT=$(wp_conf1 duo scope \
   --repo="$TEC_WIDGET_SCOPE_REPO" \
   --roots="post:$TEC_WIDGET_PAGE_UUID" \
-  --contract --format=json >"$TEC_WIDGET_SCOPE_TWO"
+  --contract --format=json 2>&1) || TEC_WIDGET_SCOPE_TWO_RC=$?
+[ "$TEC_WIDGET_SCOPE_TWO_RC" -eq 0 ] \
+  || fail "TEC scoped inactive-widget second contract failed: $TEC_WIDGET_SCOPE_TWO_OUT"
+require_duo_answered "TEC scoped inactive-widget second contract" json "$TEC_WIDGET_SCOPE_TWO_OUT"
+printf '%s\n' "$TEC_WIDGET_SCOPE_TWO_OUT" >"$TEC_WIDGET_SCOPE_TWO"
 jq -e '
   .format == "duo-scope-contract/v1" and
   ([.live.roots[], .live.closure[]] | any(.entity == "sidebar/wp_inactive_widgets") | not)
