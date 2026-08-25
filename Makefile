@@ -59,7 +59,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-env-provider-conformance-live \
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-suite-wiring \
-	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
+	regress-multisite-refusal regress-polylang-multisite-refusal regress-polylang-tec-rewrite-coinstall regress-polylang-live-fixtures regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
 	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-scope-wire regress-conformance-asserts \
@@ -394,6 +394,17 @@ release-gate:
 regress-multisite-refusal:
 	bash sandbox/tests/live/regress_multisite_refusal.sh
 
+# Exact Polylang 3.8.6 populated-network refusal.  This is a dedicated
+# candidate-bound fixture; the generic multisite gate does not prove the
+# plugin's own graph and exact artifact remain untouched.
+regress-polylang-multisite-refusal:
+	bash sandbox/tests/live/regress_polylang_multisite_refusal.sh
+
+# Bounded Polylang + TEC co-install rewrite topology, including the shared
+# fresh-process native action and provider-before-effect retry proof.
+regress-polylang-tec-rewrite-coinstall:
+	bash sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh
+
 # Exact TEC scope boundary: native-populated 6.17.2 and 6.17.3 sites are
 # converted to real networks before capture/plan/deploy/apply. Candidate SHA,
 # exact artifacts, adapter storage, repository absence, and activation state
@@ -681,6 +692,9 @@ regress-target-observation-premises:
 # echo+exit. Static, offline.
 regress-polylang-fail-helper:
 	bash sandbox/tests/offline/guards/regress_polylang_fail_helper.sh
+
+regress-polylang-live-fixtures:
+	bash sandbox/tests/offline/guards/regress_polylang_live_fixtures.sh
 
 # DUO-3393: checks/elementor.sh's seeded-page id read must be guarded by
 # require_fixture_ids, not a dead `$(wp post list) || fail` (empty-at-exit-0
@@ -2289,7 +2303,7 @@ regress-user-meta:
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 297 offline suites green"
+	@echo "regress-offline-all: 298 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-ecosystem-adapter-batch regress-code-snippets-state-provider regress-yoast-duplicate-post-role-provider regress-yoast-index-provider regress-elementor-css-provider regress-adapter-production-readiness regress-manifest-dispositions regress-platform-compatibility regress-topology-gate regress-interpreter-policy regress-proof-legacy-pair \
@@ -2308,10 +2322,10 @@ regress-offline-corpus: code-half-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-drift-convergence regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-lifecycle-planner regress-capture-code-baseline regress-state-handoff-verifier regress-lifecycle-executor regress-cli-json-refusals regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-pending-command regress-classify-command regress-capture-command regress-status-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-scope-command regress-refresh-command regress-rebase-command regress-adopt-command regress-init-command \
-	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-delete-guard-value-codec regress-delete-guard-evaluator regress-scope-discovery regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-offline-diagnostics regress-promotion-abort-reason regress-delete-authorization-receipt \
+	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-polylang-live-fixtures regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-delete-guard-value-codec regress-delete-guard-evaluator regress-scope-discovery regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-offline-diagnostics regress-promotion-abort-reason regress-delete-authorization-receipt \
 	regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve regress-code-resolve-push \
 	regress-code-import regress-checkpoint-prune
-	@echo "regress-offline-corpus: 297 offline suites green"
+	@echo "regress-offline-corpus: 298 offline suites green"
 
 regress-offline-diagnostics:
 	bash sandbox/tests/offline/guards/regress_offline_diagnostics.sh
@@ -2341,6 +2355,8 @@ regress-live-list:
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
+	@echo "  regress-polylang-multisite-refusal        own disposable pair (parameterized: POLYLANG_MULTISITE_PAIR/PORT1/PORT2; exact Polylang 3.8.6 populated multisite refusal)"
+	@echo "  regress-polylang-tec-rewrite-coinstall    own disposable pair (parameterized: POLYLANG_TEC_REWRITE_PAIR/PORT1/PORT2; exact Polylang 3.8.6 + TEC 6.17.2 child-process/topology sweep)"
 	@echo "  regress-the-events-calendar-multisite-refusal own disposable pair (parameterized: TEC_MULTISITE_PAIR/TEC_MULTISITE_PORT1/TEC_MULTISITE_PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact TEC 6.17.2/6.17.3 populated multisite refusal)"
 	@echo "  regress-adapter-theme-range               pair asub3222tr 8918/8919"
 	@echo "  regress-adapter-plugin-range              pair a3487pr 8988/8989 (parameterized: PLUGIN_RANGE_PAIR/PLUGIN_RANGE_PORT1/PLUGIN_RANGE_PORT2)"
