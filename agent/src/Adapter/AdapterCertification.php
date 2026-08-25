@@ -192,6 +192,54 @@ final class AdapterCertification {
     private const STATEMENT_V1_KEYS = ['adapter', 'authority', 'bundle', 'platform', 'ratification'];
 
     /**
+     * The two RESERVED statement members, and what a reservation is here
+     * (spec/repo-format.md § v3.10, WP-4.11).
+     *
+     * A reservation on a SIGNED statement cannot be an admitted-but-ignored
+     * key. `assertExactKeys()` closes STATEMENT_KEYS in both directions (R-06),
+     * and the member set is also the generation discriminator — the one thing
+     * decidable before a signature (R-24) — so admitting a seventh member would
+     * move the wire, change what every deployed verifier accepts, and change
+     * the bytes every certificate is signed over. The reservation is therefore
+     * the REFUSAL: the member is named, the gate that would open it is named,
+     * and STATEMENT_KEYS is untouched. Neither the six-member set nor any
+     * certificate's canonical bytes move, which is the property WP-7.1's later
+     * opening rests on.
+     *
+     * `code_digest` and `delegated_authority` differ in WHY they are shut, so
+     * they carry different messages rather than one generic sentence.
+     * `code_digest` waits on gate G5 — there is nothing to bind a digest over
+     * until executable adapter code exists. `delegated_authority` is shut
+     * PERMANENTLY as a statement member: a delegation is verified through its
+     * own signed, domain-separated delegation document (§ v3.8, R-25), and a
+     * member here would be an unsigned second copy of a fact a signature
+     * already carries.
+     *
+     * @var array<string,string>
+     */
+    private const STATEMENT_RESERVED_KEYS = [
+        // Each pinned phrase is written CONTIGUOUSLY, never split across a
+        // concatenation, so `grep` and the document suite find the spec's own
+        // sentence in the shipped bytes.
+        'code_digest' => 'a signed binding over adapter code is reserved and shut; it opens with the executable lane at gate G5',
+        'delegated_authority' => 'delegated authority is verified through its own signed delegation document, not through a member of this statement (spec/repo-format.md § v3.8)',
+    ];
+
+    /**
+     * The RESERVED bundle-evidence member: the reviewer tier's attachment point
+     * (spec/repo-format.md § v3.10, WP-4.11; gate G4).
+     *
+     * Same shape as the statement reservation and for the same reason —
+     * `bundleEvidence()` closes `{exercised, grammar, reason}` with
+     * `assertExactKeys()`, and the evidence object is inside the bundle digest
+     * a certificate binds — so the slot is a named refusal rather than an
+     * admitted key. WP-5.2 is the rider that flips it: `bundleEvidence()` then
+     * ADMITS the member and the claim projects the reviewer-tier word instead
+     * of collapsing into `site_signed`.
+     */
+    public const RESERVED_EVIDENCE_REVIEWER = 'reviewer';
+
+    /**
      * The v2 `statement.platform` member.
      *
      * `axes` is the binding; `agent_version` is RECORDED and deliberately not
@@ -3520,6 +3568,28 @@ final class AdapterCertification {
      * been proved.
      */
     private static function assertStatementShape(string $name, object $typed, array $statement): void {
+        // THE RESERVED MEMBERS, FIRST (§ v3.10, WP-4.11). Before the generation
+        // discriminator rather than after it, because a reserved member answers
+        // the operator's question and a generation verdict does not: a
+        // statement carrying `code_digest` is not a v1 statement and is not an
+        // unimplemented generation either — it is a document asking for a lane
+        // that is shut, and telling its author "this agent verifies generation
+        // 2" would send them to re-mint bytes that will be refused again.
+        //
+        // NO VERDICT MOVES. A statement carrying either member cannot be the
+        // exact v1 five (that is six members, so the `$keys !== $v1` branch is
+        // taken) and cannot be the exact v2 six either, so today it reaches
+        // `assertExactKeys()` and is refused as malformed — a hard failure, not
+        // the per-adapter withdrawal a generation mismatch takes. Both arms of
+        // that are preserved: same exception class, same hard failure, same
+        // certificate refused. Only the message becomes specific.
+        foreach (self::STATEMENT_RESERVED_KEYS as $reserved => $why) {
+            if (array_key_exists($reserved, $statement)) {
+                throw new \RuntimeException(
+                    "duo: site adapter certification statement declares '$reserved' — $why"
+                );
+            }
+        }
         $keys = array_keys($statement);
         sort($keys, SORT_STRING);
         $v1 = self::STATEMENT_V1_KEYS;
@@ -3839,6 +3909,19 @@ final class AdapterCertification {
     private static function bundleEvidence($evidence, string $label, string $trustRoot): bool {
         if (!is_array($evidence) || array_is_list($evidence)) {
             throw new \RuntimeException("duo: $label.evidence must be an object");
+        }
+        // The reviewer tier's reserved slot (§ v3.10, WP-4.11), named before
+        // `assertExactKeys()` reaches it. Refused either way — the key set is
+        // closed in both directions — so the verdict does not move; what moves
+        // is that an author holding a bundle minted for the reviewer tier is
+        // told the tier is shut and which gate opens it, rather than being told
+        // their evidence object "must contain exactly exercised, grammar,
+        // reason", which reads as a malformed bundle.
+        if (array_key_exists(self::RESERVED_EVIDENCE_REVIEWER, $evidence)) {
+            throw new \RuntimeException(
+                "duo: $label.evidence declares '" . self::RESERVED_EVIDENCE_REVIEWER
+                . "' — the reviewer evidence member is reserved; it is admitted when the reviewer tier opens at gate G4"
+            );
         }
         self::assertExactKeys($evidence, ['exercised', 'grammar', 'reason'], "$label.evidence");
         $exercised = $evidence['exercised'] ?? null;

@@ -796,7 +796,7 @@ evidence before this line changes.
 | v3.7 | authority record v2, and the platform root's identity-only binding | WP-4.8 | YES — v2 records enforce; v1 unchanged; both roots bind identity |
 | v3.8 | depth-1 delegation and typed revocation | WP-4.9 | no — no chain, one `status` word per key |
 | v3.9 | namespace grammar and the closed grandfather list | WP-4.10 | names and provider ids: yes at `spec_version: 3`, inert at v2; `id_kind`: convention only (R-17) |
-| v3.10 | reserved-but-refusing slots | WP-4.11 | partly — the graduated verdict already shipped |
+| v3.10 | reserved-but-refusing slots | WP-4.11 | YES — four slots refuse by name; the graduated verdict shipped as a word (WP-2.8) |
 | v3.11 | the executable lane's evidence contract (gate G5) | WP-7.1 (shut) | n/a — the lane is shut and the reservations refuse |
 
 The flip itself — the two defines, the migration verbs, the cohorted rollout and the rollback rehearsal —
@@ -1445,9 +1445,11 @@ adding one would be overruling the register rather than implementing this sectio
 
 ### v3.10 Reserved-but-refusing slots
 
-**Rider: WP-4.11. Enforced today: partly.** The graduated verdict below already shipped; the other four
-slots do not exist, so a document using one is refused by the closed key set it lands in rather than by a
-message naming the gate.
+**Rider: WP-4.11. Enforced today: YES — all four slots refuse with the pinned messages below.** The
+manifest slot refuses at `spec_version: 3`, where the key set is closed (§ v3.3), and is therefore inert
+at this engine's `DUO_SPEC_VERSION` 2 exactly as § v3.3 and § v3.5 are; the other three refuse at every
+version, on every certificate and every observation the engine reads today. The fifth line this section
+used to reserve — the graduated verdict — is not a reservation at all and is recorded as delivered below.
 
 v3 ships attachment points that REFUSE, each with a pinned message naming the gate that would open it.
 Reserving an attachment point — a member slot or a vocabulary value, never a schema — is what makes each
@@ -1455,30 +1457,54 @@ later opening a policy flip proven by suite instead of a second flag day; the de
 rides on it arrives through `engine_features` (§ v3.2), so the reservation need only be right about WHERE
 an extension attaches.
 
-| slot | where it attaches | pinned refusal |
-|---|---|---|
-| manifest `package` | manifest top level, inside the closed key set | `duo: manifest '<name>' declares 'package' — the executable adapter lane is reserved and shut. It opens only at gate G5 (spec/repo-format.md § v3.11), never by declaring the key` |
-| statement `code_digest` | the signed certification statement | `duo: site adapter certification statement declares 'code_digest' — a signed binding over adapter code is reserved and shut; it opens with the executable lane at gate G5` |
-| statement `delegated_authority` | the signed certification statement | `duo: site adapter certification statement declares 'delegated_authority' — delegated authority is verified through its own signed delegation document, not through a member of this statement (spec/repo-format.md § v3.8)` |
-| certification word `reviewer_signed` | the certification vocabulary | `duo: certification 'reviewer_signed' is reserved — the reviewer tier opens at gate G4 with an 'evidence.reviewer' bundle, and no engine mints it today` |
-| `evidence.reviewer` | the bundle evidence object | `duo: <label>.evidence declares 'reviewer' — the reviewer evidence member is reserved; it is admitted when the reviewer tier opens at gate G4` |
+**A reservation here is a REFUSAL, never an admitted-and-ignored key**, and that distinction is the whole
+of the rider. Every one of these slots lands inside a closed set that already refuses it, so admitting the
+member instead would move a wire: the statement's member set is closed in both directions AND is the
+generation discriminator (R-06, R-24), the bundle evidence object is inside the digest a certificate
+binds, and the certification vocabulary refuses a whole document on a word it does not know. What each
+reservation changes is WHICH refusal an author gets — the gate that decides, rather than "correct the
+spelling" or "must contain exactly …", which are false about a document that is asking for a lane. No
+verdict moves in either direction: every input below was refused before this rider and is refused after
+it, with the same exception and the same failure.
 
-Two consequences worth stating. First, the signed statement is exactly six members today — `adapter`,
+| slot | where it attaches | shipped refusal site | pinned refusal |
+|---|---|---|---|
+| manifest `package` | manifest top level, inside the closed key set | `AdapterContractGrammar::assert_top_level_keys()` | `duo: manifest '<name>' declares 'package' — the executable adapter lane is reserved and shut. It opens only at gate G5 (spec/repo-format.md § v3.11), never by declaring the key` |
+| statement `code_digest` | the signed certification statement | `AdapterCertification::assertStatementShape()` | `duo: site adapter certification statement declares 'code_digest' — a signed binding over adapter code is reserved and shut; it opens with the executable lane at gate G5` |
+| statement `delegated_authority` | the signed certification statement | `AdapterCertification::assertStatementShape()` | `duo: site adapter certification statement declares 'delegated_authority' — delegated authority is verified through its own signed delegation document, not through a member of this statement (spec/repo-format.md § v3.8)` |
+| certification word `reviewer_signed` | the certification vocabulary | `AdapterSources::reserved_certification_refusal()` defines the sentence; the host observer raises it | `duo: certification 'reviewer_signed' is reserved — the reviewer tier opens at gate G4 with an 'evidence.reviewer' bundle, and no engine mints it today` |
+| `evidence.reviewer` | the bundle evidence object | `AdapterCertification::bundleEvidence()` | `duo: <label>.evidence declares 'reviewer' — the reviewer evidence member is reserved; it is admitted when the reviewer tier opens at gate G4` |
+
+Three consequences worth stating. First, the signed statement is still exactly six members — `adapter`,
 `authority`, `bundle`, `platform`, `ratification`, `version` (`AdapterCertification::STATEMENT_KEYS`) —
-checked with a MISSING-and-UNKNOWN refusal, which is register row R-06: a seventh member changes the
-signed bytes AND is refused by every deployed verifier. Reserving the two statement members above is
-therefore only possible in a change that moves the statement wire (§ v3.6). WP-4.7 was such a change and
-it reserved neither, so a slot here now waits on the next wire generation — which is what `version` makes
-a version question rather than a corruption one (R-24). Second, the bundle evidence object is likewise closed —
-`exercised`, `grammar`, `reason` (`:2049`) — and the certification and observation vocabularies refuse a
-whole document on an unrecognised word, which is exactly why the slot must exist before any policy can
-flip into it.
+checked with a MISSING-and-UNKNOWN refusal, which is register row R-06: a seventh member would change the
+signed bytes AND be refused by every deployed verifier. The two statement slots above are reserved
+WITHOUT touching that set, which is why this rider moves no certificate: the canonical bytes of every
+statement already signed are byte-identical before and after it, and opening a member later is still a
+wire generation (§ v3.6, R-24) rather than something a reservation quietly pre-paid for. Second, the
+reserved statement members are shut for different reasons and say so: `code_digest` waits on gate G5,
+while `delegated_authority` is shut permanently as a statement member — a delegation is verified through
+its own signed, domain-separated document (§ v3.8), and a member here would be an unsigned second copy of
+a fact a signature already carries. Third, the reviewer word's refusal is enforced at the HOST boundary,
+where a foreign word can actually arrive: no shipped derivation mints anything but `site_signed` or
+`third_party_signed`, so the case the slot exists for is version skew — a host at this version reading a
+target whose agent has flipped gate G4 — and without the slot that reads as document corruption.
+
+`sandbox/tests/offline/adapter/regress_v3_reservations.php` drives all four, pins each message, proves
+that no current verdict moves and that the six-member statement's canonical bytes and signature are
+unchanged. It is also § v3.11 condition 7's evidence: WP-7.1's later opening is a policy flip this suite
+measures, not a format break taken on faith. Register row R-28 records the decision beside the other
+irreversible ones.
 
 **Already delivered, and recorded here so the reservation is not re-taken:** the graduated
 `outside_version_range` verdict shipped as `version_range_graduated` (WP-2.8), a third evidence-bound
 state between "inside the certified window" and "deploy blocked", minted only when every recorded release
 between the declared window and the installed bytes probed green. It is a shipped word, not a reserved
-one.
+one — `VersionEvidenceGrammar::VERDICT` and `PlanContract::GRADUATED_VERSION_RANGE` are the same string,
+`LifecyclePlanner::code_mismatch()` mints it, and `wp duo plan` renders it as its own block. WP-4.11
+therefore reserved four slots and not five: re-reserving a word the engine already mints would have
+described the shipped library falsely, and un-shipping it to make the count match the plan that predates
+WP-2.8 would have been the same error in the other direction.
 
 ### v3.11 The executable lane: what gate G5 requires
 

@@ -1105,11 +1105,12 @@ function ws_rows(): array {
             . 'five-member set (`adapter`, `authority`, `bundle`, `platform`, `ratification`) is still '
             . 'read, for one purpose: it is how a v1-generation statement is RECOGNISED, before any '
             . 'signature, so it can be withdrawn by name instead of refused as corruption.',
-        'reserved' => 'Nothing, again, and the reservation window closed harder than it looks: the '
-            . 'reserved-but-refusing statement slots spec/repo-format.md § v3.10 names (`code_digest`, '
-            . '`delegated_authority`) were not taken in the v2 generation either, so they now wait on a '
-            . 'v3 one. Facts that need signing meanwhile go inside an existing member — `bundle` and '
-            . '`ratification` are whole objects the signature already covers.',
+        'reserved' => 'Nothing, again, and WP-4.11 kept it that way on purpose: the reserved slots '
+            . 'spec/repo-format.md § v3.10 names (`code_digest`, `delegated_authority`) are REFUSALS '
+            . 'that name the member and its gate, never admitted members, so this set is the same six '
+            . 'and every statement already signed keeps its exact bytes (R-28). Admitting either is '
+            . 'still a wire generation. Facts that need signing meanwhile go inside an existing member '
+            . '— `bundle` and `ratification` are whole objects the signature already covers.',
     ];
     $rows[] = [
         'id' => 'R-07',
@@ -1567,6 +1568,60 @@ function ws_rows(): array {
             . 'deleting the file reaches. A future generation may make the discriminator cheaper — a '
             . 'generation member OUTSIDE the statement, beside `format` — but it cannot make it '
             . 'authenticated, for the same reason the first sentence gives.',
+    ];
+    // WP-4.11's row. Every name below is READ from the shipped constants and
+    // every refusal is RUN, so a slot that was quietly admitted, renamed or
+    // reworded moves this document and fails the byte-compare in
+    // `make release-gate` before anyone can call the lane still shut.
+    $reservedStatement = (array) ws_const(AdapterCertification::class, 'STATEMENT_RESERVED_KEYS');
+    $reservedWord = (string) ws_const(AdapterSources::class, 'CERTIFICATION_RESERVED_REVIEWER');
+    $rows[] = [
+        'id' => 'R-28',
+        'title' => 'The reserved slots are REFUSALS, never admitted members',
+        'now' => 'Four attachment points refuse by name, each naming the gate that would open it '
+            . '(spec/repo-format.md § v3.10): the manifest key `'
+            . (string) ws_const(AdapterContractGrammar::class, 'RESERVED_PACKAGE_KEY')
+            . '` inside the closed key set (§ v3.3, so at `spec_version '
+            . (string) ws_const(AdapterContractGrammar::class, 'CLOSED_KEY_SET_SINCE')
+            . '` and inert at `DUO_SPEC_VERSION ' . (string) DUO_SPEC_VERSION . '`); the statement '
+            . 'members `' . implode('`, `', array_keys($reservedStatement)) . '`; the bundle evidence '
+            . 'member `' . (string) ws_const(AdapterCertification::class, 'RESERVED_EVIDENCE_REVIEWER')
+            . '`; and the certification word `' . $reservedWord . '`. None of them is in any closed set: '
+            . 'the statement is still ' . ws_spelled(count((array) ws_const(AdapterCertification::class, 'STATEMENT_KEYS')))
+            . ' members (R-06) and the evidence object is still '
+            . ws_set($sets, 'bundleEvidence') . '. Run, not restated — the '
+            . 'evidence slot answers: "' . (string) ws_probe(AdapterCertification::class, 'bundleEvidence', [
+                [
+                    'exercised' => true,
+                    'grammar' => AdapterSources::GRAMMAR_OK,
+                    'reason' => 'reviewed',
+                    'reviewer' => 'acme',
+                ],
+                'site certification bundle manifest',
+                AdapterCertification::TRUST_ROOT_PLATFORM,
+            ]) . '", and the word answers: "'
+            . (string) AdapterSources::reserved_certification_refusal($reservedWord) . '".',
+        'permanent' => 'A reservation on a SIGNED surface can only be a refusal, and that is a property '
+            . 'of signatures rather than a style choice: the statement member set is closed in both '
+            . 'directions AND is the generation discriminator a verifier reads before it has a domain to '
+            . 'check a signature with (R-06, R-24), and the evidence object sits inside the bundle digest '
+            . 'the statement binds. Admitting either member "for later" would therefore change the bytes '
+            . 'every holder recomputes on the day it was admitted, for a capability that does not exist '
+            . 'yet — the flag day this program exists to avoid, paid early and for nothing. What cannot '
+            . 'be undone is the OPPOSITE direction: once one of these words is minted by a shipped '
+            . 'engine, every deployed verifier that refuses it is refusing a live document, so the '
+            . 'refusal has to exist in the field BEFORE the policy that mints it — which is why these '
+            . 'ride v3 rather than the change that opens them.',
+        'reserved' => 'What is deliberately NOT reserved: any SCHEMA for what eventually rides on these '
+            . 'points. A reservation that guessed the shape would have to be right about a design nobody '
+            . 'has reviewed; § v3.2\'s `engine_features` channel carries the detail later, so a slot need '
+            . 'only be right about WHERE an extension attaches. Also not reserved, and recorded so it is '
+            . 'not re-taken: the graduated `outside_version_range` verdict, which is a SHIPPED word '
+            . '(`version_range_graduated`, WP-2.8) and not a slot at all. Opening any of the four is a '
+            . 'policy flip proven by '
+            . '`sandbox/tests/offline/adapter/regress_v3_reservations.php`, which pins each sentence and '
+            . 'the statement\'s exact canonical bytes and signature — gate G5\'s condition 7 '
+            . '(spec/repo-format.md § v3.11).',
     ];
 
     return $rows;
