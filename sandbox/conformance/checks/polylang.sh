@@ -567,9 +567,22 @@ pass 'dirty translation conflicts refuse atomically; explicit authority converge
 # MU hook. Authored intent must survive for retry, but publication must remain
 # incomplete until every provider postcondition verifies.
 wp_conf1 eval '
+  $category=get_term_by("slug","uncategorized-fr","category");
+  $menu=wp_get_nav_menu_object("Polylang Principal Français");
+  if (!$category instanceof WP_Term || !$menu instanceof WP_Term) {
+    throw new RuntimeException("Polylang French projection premise is missing");
+  }
   $option=get_option("polylang"); $option["default_lang"]="fr";
   $option["sync"]=["post_date","post_meta","taxonomies"];
   update_option("polylang",$option);
+  update_option("default_category",(int)$category->term_id);
+  set_theme_mod("nav_menu_locations",["primary"=>(int)$menu->term_id]);
+  $theme_mods=get_option("theme_mods_".get_option("stylesheet"),[]);
+  $locations=is_array($theme_mods) ? ($theme_mods["nav_menu_locations"]??[]) : [];
+  if ((int)get_option("default_category")!==(int)$category->term_id
+      || (int)($locations["primary"]??0)!==(int)$menu->term_id) {
+    throw new RuntimeException("Polylang French projection source graph is incoherent");
+  }
 ' >/dev/null
 commit_polylang_source 'conformance: Polylang provider-fault recovery intent'
 FAULT_HOOK="$CONF_REPO2/.tmp-polylang-provider-fault.php"
@@ -606,8 +619,11 @@ $COMPOSE run --rm -T --user=0 cli2 rm -f \
   /var/www/html/wp-content/.duo-polylang-provider-fault \
   /var/www/html/wp-content/mu-plugins/duo-polylang-provider-fault.php \
   || fail 'could not remove the Polylang provider fault hook from the disposable target volume'
-RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+RETRY_RC=0
+RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }') \
+  || RETRY_RC=$?
 require_duo_answered 'Polylang provider retry after exact repair' json "$RETRY"
+[ "$RETRY_RC" -eq 0 ] || fail "Polylang provider retry after exact repair failed: $RETRY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
   any(.actions[]?; .source == "provider:polylang-nav-menus/synchronize_runtime" and

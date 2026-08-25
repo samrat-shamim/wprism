@@ -95,6 +95,14 @@ fi
 for needle in 'add_term_meta(' 'update_term_meta(' "[['Hello', 'Bonjour']]" 'exact empty string-catalog sentinel entered canonical authored state'; do
   grep -Fq "$needle" "$CONF" || fail "Polylang string-catalog fixture lost native-value setup: $needle"
 done
+for needle in \
+  'get_term_by("slug","uncategorized-fr","category")' \
+  'wp_get_nav_menu_object("Polylang Principal Français")' \
+  'Polylang French projection source graph is incoherent' \
+  'RETRY_RC=0' \
+  'Polylang provider retry after exact repair failed'; do
+  grep -Fq "$needle" "$CONF" || fail "Polylang provider-retry fixture lost coherent source or surfaced failure guard: $needle"
+done
 if grep -Eq 'wp_conf1 term meta (add|update).*_pll_strings_translations.*a:[0-9]+:' "$CONF"; then
   fail 'Polylang string-catalog fixture passes serialized-looking text through maybe_serialize'
 fi
