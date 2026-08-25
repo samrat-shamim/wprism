@@ -8273,7 +8273,10 @@ foreach ([
     "tec_compile_refusal status-malformed 'TEC unknown event status'",
     "tec_compile_refusal status-reason-malformed 'TEC non-string event status reason'",
     "tec_compile_refusal impossible-date 'TEC impossible date'",
-    "tec_compile_refusal structured-cost 'TEC structured cost'",
+    "tec_compile_refusal structured-cost 'TEC structured cost' 'one scalar string' \\",
+    'structured-event-cost',
+    '$front["meta"]["_EventCost"]=["future"=>"schema"]',
+    '$mutated=\\Duo\\Canon::post_file($front,$body)',
     'capture_out=$(wp_conf1 duo capture --repo=/siterepo --out="$repo/state"',
     'compile_out=$(wp_conf1 duo compile --repo="$repo"',
 ] as $interpreterFixtureEvidence) {

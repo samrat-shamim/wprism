@@ -2643,8 +2643,8 @@ wp_conf1 eval '
 ' >/dev/null
 rm -rf "$ORGANIZER_BLOCK_DIR"
 
-tec_compile_refusal() { # <scratch-suffix> <evidence-label> <diagnostic-regex>
-  local suffix=$1 label=$2 expected=$3
+tec_compile_refusal() { # <scratch-suffix> <evidence-label> <diagnostic-regex> [fixture-transform]
+  local suffix=$1 label=$2 expected=$3 transform=${4:-none}
   local host="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-${suffix}"
   local repo="/siterepo/.tmp-tec-${suffix}"
   local capture_rc=0 capture_out compile_rc=0 compile_out
@@ -2657,6 +2657,28 @@ tec_compile_refusal() { # <scratch-suffix> <evidence-label> <diagnostic-regex>
   require_duo_answered "$label capture" human "$capture_out"
   [ "$capture_rc" -eq 0 ] && grep -Fq 'Success: captured' <<<"$capture_out" \
     || fail "$label did not traverse capture/tokenization: $capture_out"
+  case "$transform" in
+    none) ;;
+    structured-event-cost)
+      wp_conf1 eval "\$repo='$repo';"'
+        $matches=[];
+        foreach(glob($repo."/state/posts/tribe_events/*.md")?:[] as $path){
+          $bytes=file_get_contents($path);
+          if(!is_string($bytes))throw new RuntimeException("TEC structured-cost fixture could not read canonical bytes");
+          [$front,$body]=\Duo\Canon::parse_post_file($bytes);
+          if(($front["title"]??null)==="Duo Production Readiness Event 東京")$matches[]=[$path,$front,$body];
+        }
+        if(count($matches)!==1)throw new RuntimeException("TEC structured-cost fixture event is not unique");
+        [$path,$front,$body]=$matches[0];
+        $front["meta"]["_EventCost"]=["future"=>"schema"];
+        $mutated=\Duo\Canon::post_file($front,$body);
+        if(file_put_contents($path,$mutated)!==strlen($mutated)){
+          throw new RuntimeException("TEC structured-cost fixture could not write canonical bytes");
+        }
+      ' >/dev/null
+      ;;
+    *) fail "$label received unknown fixture transform '$transform'" ;;
+  esac
   compile_out=$(wp_conf1 duo compile --repo="$repo" 2>&1) || compile_rc=$?
   require_duo_answered "$label compile" human "$compile_out"
   [ "$compile_rc" -ne 0 ] && grep -Eqi -- "$expected" <<<"$compile_out" \
@@ -2752,16 +2774,8 @@ wp_conf1 eval '
   delete_post_meta($v->ID,"_VenueLat");
 ' >/dev/null
 
-wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
-  update_post_meta($p->ID,"_EventCost",["future"=>"schema"]);
-' >/dev/null
-tec_compile_refusal structured-cost 'TEC structured cost' 'one scalar string'
-wp_conf1 eval '
-  $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
-  update_post_meta($p->ID,"_EventCost",$b["cost"]);
-' >/dev/null
+tec_compile_refusal structured-cost 'TEC structured cost' 'one scalar string' \
+  structured-event-cost
 unset -f tec_compile_refusal
 rm -f "$SCHEMA_BACKUP"
 pass "body warnings redact; authored secrets, malformed status/organizers, dates/scalars, and paid/import/coordinate surfaces refuse atomically"
