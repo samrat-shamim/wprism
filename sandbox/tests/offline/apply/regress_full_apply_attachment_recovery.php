@@ -23,9 +23,54 @@ if (!class_exists('WP_Hook')) {
 }
 if (!class_exists('WP_CLI')) {
     final class WP_CLI {
+        /** @var list<string> */
+        public static array $commands = [];
+
         use \DuoTest\WpCliChildRuntime;
+
+        public static function accepts_verify_command(string $command): bool {
+            $repo = (string) ($GLOBALS['full_apply_repo'] ?? '');
+            $separator = ' -- ';
+            $prefix = 'exec ' . escapeshellarg(PHP_BINARY) . ' -r ';
+            $separatorPosition = strpos($command, $separator);
+            if ($repo === '' || !str_starts_with($command, $prefix) || $separatorPosition === false) return false;
+            $inner = self::decode_shell_arg(substr($command, $separatorPosition + strlen($separator)));
+            $argv0 = $GLOBALS['argv'][0] ?? null;
+            $innerPrefix = is_string($argv0)
+                ? escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($argv0) . '  '
+                : '';
+            if ($inner === null || $innerPrefix === '' || !str_starts_with($inner, $innerPrefix)) return false;
+            $verify = substr($inner, strlen($innerPrefix));
+            return preg_match(
+                '/^duo verify-canonical --repo=' . preg_quote(escapeshellarg($repo), '/')
+                    . ' --expected-artifact=[a-f0-9]{64}'
+                    . " --compiled='[^']+'"
+                    . " --policy-snapshot='[^']+' --format=json$/D",
+                $verify
+            ) === 1;
+        }
+
+        private static function decode_shell_arg(string $encoded): ?string {
+            if ($encoded === '' || $encoded[0] !== "'") return null;
+            $out = '';
+            $length = strlen($encoded);
+            for ($index = 1; $index < $length; $index++) {
+                if (substr($encoded, $index, 4) === "'\\''") {
+                    $out .= "'";
+                    $index += 3;
+                    continue;
+                }
+                if ($encoded[$index] === "'") {
+                    return trim(substr($encoded, $index + 1)) === '' ? $out : null;
+                }
+                $out .= $encoded[$index];
+            }
+            return null;
+        }
+
         public static function runcommand(string $command, array $options): object {
-            if (!str_contains($command, 'verify-canonical')) {
+            self::$commands[] = $command;
+            if (!self::accepts_verify_command($command)) {
                 return (object) ['return_code' => 126, 'stdout' => '', 'stderr' => 'unknown child command'];
             }
             return (object) [
@@ -35,17 +80,6 @@ if (!class_exists('WP_CLI')) {
             ];
         }
     }
-}
-
-// The bounded child argv shape is an explicit refusal boundary. Never rerun
-// this fixture recursively when WpCliChildProcess asks for verify-canonical.
-if (($argv[1] ?? null) !== null) {
-    if (($argv[1] ?? '') === 'duo' && ($argv[2] ?? '') === 'verify-canonical') {
-        fwrite(STDERR, "offline verifier child has no shared target database; convergence refused\n");
-        exit(1);
-    }
-    fwrite(STDERR, "unknown offline child command\n");
-    exit(2);
 }
 
 require_once __DIR__ . '/../../lib/check.php';
@@ -197,6 +231,7 @@ $repo = $tmp . '/repo';
 mkdir($repo . '/state/posts/attachment', 0777, true);
 mkdir($repo . '/media', 0777, true);
 $repo = (string) realpath($repo);
+$GLOBALS['full_apply_repo'] = $repo;
 register_shutdown_function(static function () use ($tmp): void {
     if (!is_dir($tmp)) return;
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($tmp, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
@@ -242,7 +277,7 @@ $store = WpStore::reset()->seedOptions([
     'admin_email' => 'admin@full-apply.example.test',
 ]);
 $store->ensureUploadDir();
-$wpdb = FakeWpdb::install()->enableInformationSchema();
+$wpdb = FakeWpdb::install()->enableInformationSchema()->enableFullApplySqlExtensions();
 foreach (full_apply_attachment_core_columns() as $table => $columns) {
     $wpdb->seedTable('wp_' . $table, [])->setColumns(
         'wp_' . $table,
@@ -352,6 +387,19 @@ try {
 }
 duo_check($secondFailure !== null, 'second identical public apply reaches native rebuild then refuses unavailable cross-process convergence');
 if ($secondFailure !== null) duo_check_detail(get_class($secondFailure) . ': ' . $secondFailure->getMessage());
+$childCommands = WP_CLI::$commands;
+duo_check(count($childCommands) === 1, 'native convergence launched exactly one bounded child command');
+if (count($childCommands) === 1) {
+    duo_check(
+        WP_CLI::accepts_verify_command($childCommands[0]),
+        'bounded child command has the exact verify-canonical argv grammar and no extras'
+    );
+    $extra = WP_CLI::runcommand($childCommands[0] . ' --unexpected', []);
+    duo_check(($extra->return_code ?? null) === 126, 'bounded child command refuses an unexpected extra argv token');
+    $missingFormat = str_replace('--format=json', '--format=xml', $childCommands[0]);
+    $malformed = WP_CLI::runcommand($missingFormat, []);
+    duo_check(($malformed->return_code ?? null) === 126, 'bounded child command refuses malformed argv missing format');
+}
 duo_check(count(array_filter($wpdb->rows('wp_postmeta'), static fn(array $row): bool => ($row['meta_key'] ?? '') === '_wp_attachment_metadata')) === 1, 'retry settles exactly one native attachment metadata row before convergence refusal');
 duo_check(count(array_filter($wpdb->rows('wp_postmeta'), static fn(array $row): bool => ($row['meta_key'] ?? '') === '_wp_attached_file')) === 1, 'retry preserves exactly one managed attached-file sidecar');
 $metadataRows = array_values(array_filter($wpdb->rows('wp_postmeta'), static fn(array $row): bool => ($row['meta_key'] ?? '') === '_wp_attachment_metadata'));

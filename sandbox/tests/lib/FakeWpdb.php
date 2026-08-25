@@ -228,6 +228,8 @@ final class FakeWpdb {
     private array $getResultsReturnOverrides = [];
     /** Full-apply offline fixtures may opt into the reviewed information_schema projection. */
     private bool $informationSchemaEnabled = false;
+    /** Full-apply offline fixtures may opt into the reviewed apply-only SQL extensions. */
+    private bool $fullApplySqlExtensionsEnabled = false;
     /** @var list<array{command:string,outcome:string}> one-shot transaction ambiguity probes */
     private array $transactionOutcomes = [];
     /** Reconnect immediately before the next transaction-state-bearing SELECT. */
@@ -431,6 +433,16 @@ final class FakeWpdb {
      */
     public function enableInformationSchema(): self {
         $this->informationSchemaEnabled = true;
+        return $this;
+    }
+
+    /**
+     * Enable the small SQL projection set required by the full ApplyRequestCoordinator
+     * fixture. The default interpreter stays loud: a malformed or unrelated SELECT
+     * cannot become fabricated apply statistics merely because it mentions a core table.
+     */
+    public function enableFullApplySqlExtensions(): self {
+        $this->fullApplySqlExtensionsEnabled = true;
         return $this;
     }
 
@@ -834,7 +846,8 @@ final class FakeWpdb {
             }
             return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
         }
-        if (str_contains(strtolower($query), 'lower(left(k')
+        if ($this->fullApplySqlExtensionsEnabled
+            && str_contains(strtolower($query), 'lower(left(k')
             && str_contains(strtolower($query), 'attachment_fs:')) {
             $rows = [];
             foreach ($this->store[$this->tableName('duo_kv')] ?? [] as $row) {
@@ -852,7 +865,8 @@ final class FakeWpdb {
             return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
         }
         $lowerQuery = strtolower($query);
-        if (str_contains($lowerQuery, 'from wp_posts')
+        if ($this->fullApplySqlExtensionsEnabled
+            && str_contains($lowerQuery, 'from wp_posts')
             && str_contains($lowerQuery, 'count(*) as row_count')) {
             $rows = $this->capturePostRowsForFullApply($query);
             $bytes = static function (array $row): int {
@@ -864,7 +878,8 @@ final class FakeWpdb {
             $stats = [['row_count' => count($rows), 'total_bytes' => array_sum(array_map($bytes, $rows)), 'max_row_bytes' => $rows === [] ? 0 : max(array_map($bytes, $rows))]];
             return array_map(fn(array $row): array|object => $this->shape($row, $output), $stats);
         }
-        if (str_contains($lowerQuery, 'from wp_options')
+        if ($this->fullApplySqlExtensionsEnabled
+            && str_contains($lowerQuery, 'from wp_options')
             && str_contains($lowerQuery, 'count(*) as row_count')) {
             $rows = $this->store[$this->tableName('options')] ?? [];
             $nameBytes = array_map(static fn(array $row): int => strlen((string) ($row['option_name'] ?? '')), $rows);
@@ -878,7 +893,8 @@ final class FakeWpdb {
             ]];
             return array_map(fn(array $row): array|object => $this->shape($row, $output), $stats);
         }
-        if (str_contains($lowerQuery, 'from wp_posts')
+        if ($this->fullApplySqlExtensionsEnabled
+            && str_contains($lowerQuery, 'from wp_posts')
             && str_contains($lowerQuery, 'post_type, count(*) as entities')) {
             $groups = [];
             foreach ($this->capturePostRowsForFullApply($query) as $row) $groups[(string) $row['post_type']] = ($groups[(string) $row['post_type']] ?? 0) + 1;
@@ -887,12 +903,14 @@ final class FakeWpdb {
             ksort($rows);
             return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
         }
-        if (str_contains($lowerQuery, 'select id, post_author, post_date, post_date_gmt')) {
+        if ($this->fullApplySqlExtensionsEnabled
+            && str_contains($lowerQuery, 'select id, post_author, post_date, post_date_gmt')) {
             $rows = $this->capturePostRowsForFullApply($query);
             usort($rows, static fn(array $a, array $b): int => ((int) $a['ID']) <=> ((int) $b['ID']));
             return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
         }
-        if (str_contains($lowerQuery, 'from wp_terms t join wp_term_taxonomy tt')) {
+        if ($this->fullApplySqlExtensionsEnabled
+            && str_contains($lowerQuery, 'from wp_terms t join wp_term_taxonomy tt')) {
             return [];
         }
         $result = $this->run('get_results', $query);
@@ -1094,7 +1112,8 @@ final class FakeWpdb {
         // loud, but model this one reviewed target-lease statement so a full
         // apply fixture can exercise the real lease lifecycle without a
         // second hand-written database fake.
-        if (str_contains(strtolower($sql), 'insert into `wp_duo_kv`')
+        if ($this->fullApplySqlExtensionsEnabled
+            && str_contains(strtolower($sql), 'insert into `wp_duo_kv`')
             && str_contains(strtolower($sql), 'json_extract')) {
             if (preg_match("/VALUES \('promotion_lock', '((?:\\\\'|[^'])*)'\)/", $sql, $match) !== 1) {
                 throw $this->unsupported('malformed promotion_lock JSON upsert');
@@ -1116,7 +1135,8 @@ final class FakeWpdb {
             $this->rows_affected = 1;
             return ['kind' => 'affected', 'affected' => 1];
         }
-        if (str_contains(strtolower($sql), 'update `wp_duo_kv`')
+        if ($this->fullApplySqlExtensionsEnabled
+            && str_contains(strtolower($sql), 'update `wp_duo_kv`')
             && str_contains(strtolower($sql), 'json_extract')) {
             preg_match("/SET v = '((?:\\\\'|[^'])*)'/", $sql, $valueMatch);
             preg_match("/JSON_UNQUOTE\(JSON_EXTRACT\(v, '\$\.owner'\)\) = '([^']+)'/", $sql, $ownerMatch);
@@ -1140,7 +1160,8 @@ final class FakeWpdb {
             $this->rows_affected = $affected;
             return ['kind' => 'affected', 'affected' => $affected];
         }
-        if (preg_match('/^DELETE m FROM wp_duo_map m LEFT JOIN wp_[a-z0-9_]+/i', trim($sql)) === 1) {
+        if ($this->fullApplySqlExtensionsEnabled
+            && preg_match('/^DELETE m FROM wp_duo_map m LEFT JOIN wp_[a-z0-9_]+/i', trim($sql)) === 1) {
             // Ledger::prune_dead_map() is a deliberately live-only LEFT JOIN
             // in the general fake grammar. Full apply's fixture seeds no
             // orphan rows; preserve that exact no-op result while keeping the

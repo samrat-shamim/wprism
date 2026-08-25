@@ -229,6 +229,34 @@ final class HarnessLibTest extends TestCase
         $db->get_results('SELECT * FROM information_schema.STATISTICS WHERE TABLE_NAME = \'wp_options\'');
     }
 
+    public function testFullApplySqlExtensionsRefuseWithoutExplicitOptIn(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_posts', [
+            ['ID' => 7, 'post_type' => 'attachment', 'post_status' => 'inherit'],
+        ]);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('unknown column');
+        $db->get_results(
+            'SELECT COUNT(*) AS row_count, bogus AS total_bytes FROM wp_posts WHERE post_status = \'inherit\''
+        );
+    }
+
+    public function testFullApplySqlExtensionsRefuseMalformedSelectProbesByDefault(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_posts', [
+            ['ID' => 7, 'post_type' => 'attachment', 'post_status' => 'inherit'],
+        ]);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('unknown column');
+        $db->get_results(
+            'SELECT post_type, COUNT(*) AS entities, bogus FROM wp_posts /* malformed full-apply probe */'
+        );
+    }
+
     public function testWpStubsMirrorNativeHookRegistryForTopologyAudits(): void
     {
         if (!class_exists('WP_Hook')) {
