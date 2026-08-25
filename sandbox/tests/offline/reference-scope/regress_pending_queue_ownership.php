@@ -36,6 +36,15 @@
  * `sidebars_widgets` and both `theme_mods_*` rows appear in the queue) and at
  * the ref-hint assertion (`acme_public_flag`, whole value '1', is decorated
  * `-> post #1 'Hello world!'`).
+ *
+ * The final section is the WPForms Lite recon's measured ref-hint scoreboard
+ * (2026-08-25): three hints emitted, all three false, none of the site's four
+ * real cross-entity references found. Against the prior engine it fails four
+ * ways at once — each false hint reappears, `wpforms_form_locations` has no
+ * hint at all, and `wpforms_forms_first_created`'s unix timestamp is chased
+ * all the way into `resolve_id()`'s term JOIN (which is where the prior engine
+ * spends two SELECTs on an epoch, and where FakeWpdb's deliberate JOIN refusal
+ * ends the run).
  */
 declare(strict_types=1);
 
@@ -282,14 +291,176 @@ namespace {
         "acme_public_flag's whole value of '1' gets no hint, though post #1 ('Hello world!') exists and used to be offered as one"
     );
     duo_check_same(
-        ['kind' => 'post', 'id' => 42, 'title' => 'Featured', 'post_type' => 'page'],
+        ['kind' => 'post', 'id' => 42, 'title' => 'Featured', 'post_type' => 'page', 'at' => ''],
         $byKey['options:acme_featured_post']['ref_hint'] ?? null,
-        'a genuine id-shaped value still gets its hint — the linter is narrowed, not disabled'
+        'a genuine id-shaped value still gets its hint — the linter is narrowed, not disabled; `at` is empty because the id IS the value'
     );
     duo_check_same(
         [[1, '']],
         Pending::numeric_candidates('1'),
         'numeric_candidates() is unchanged: Lint::scan_tree() shares it at eight call sites and a bare 1 stays a candidate there'
+    );
+
+    // ==================================================================
+    // THE WPFORMS LITE RECON SCOREBOARD (measured 2026-08-25, site
+    // running wpforms-lite 2.0.0.5 with its bundled Action Scheduler).
+    //
+    // The site held FOUR genuine cross-entity references:
+    //   1. settings.confirmations.1.page = "4"   (in a wpforms post's BODY)
+    //   2. wpforms_form_locations[0].id = 5      (postmeta on a wpforms post)
+    //   3. block formId "6"                      (in a page's BODY)
+    //   4. block formId "14"                     (in a page's BODY)
+    // `duo pending` found ZERO of them and emitted THREE hints, all wrong:
+    //   wpforms_settings                          -> post:1 "Hello world!"
+    //   wpforms_constant_contact_version = '3'    -> post:3 "Privacy Policy"
+    //   action_scheduler_hybrid_store_demarkation = '4'
+    //                                             -> post:4 "Recon Thank You"
+    // Every option value below is the byte-for-byte measured one
+    // (sandbox/tmp/wpforms-recon/option-values.txt and
+    // postmeta-and-as.side1.json), and every post id/title is the recon
+    // site's own, so what these assertions pin is the real scoreboard
+    // flipping rather than a fixture's idea of it.
+    //
+    // Against the prior engine this whole block fails: the three false hints
+    // are all present, and post_meta:wpforms_form_locations has none.
+    // ==================================================================
+
+    echo "\n== the recon's three false hints are gone ==\n";
+
+    // The recon site's own posts, ids and titles as measured.
+    $wpdb->seedTable('wp_posts', [
+        ['ID' => 1, 'post_type' => 'post', 'post_status' => 'publish', 'post_title' => 'Hello world!'],
+        ['ID' => 3, 'post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Privacy Policy'],
+        ['ID' => 4, 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Recon Thank You'],
+        ['ID' => 5, 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Recon Contact Page'],
+        ['ID' => 6, 'post_type' => 'wpforms', 'post_status' => 'publish', 'post_title' => 'Recon Contact Form'],
+        ['ID' => 14, 'post_type' => 'wpforms', 'post_status' => 'publish', 'post_title' => 'Recon Path C Form'],
+    ]);
+    $wpdb->seedTable('wp_options', [
+        // The plugin's ONE operator-authored option. Its first extractable id
+        // is the `"1"` of `s:13:"modern-markup";s:1:"1"`, two levels down —
+        // which is how it became a confident `post:1 "Hello world!"`.
+        ['option_id' => 1, 'option_name' => 'wpforms_settings', 'autoload' => 'yes',
+            'option_value' => 'a:3:{s:13:"modern-markup";s:1:"1";s:20:"modern-markup-is-set";b:1;s:26:"modern-markup-hide-setting";b:1;}'],
+        // A provider SCHEMA version that happens to be a live page id.
+        ['option_id' => 2, 'option_name' => 'wpforms_constant_contact_version', 'option_value' => '3', 'autoload' => 'yes'],
+        // An action-id watermark that happens to be a live page id. No value
+        // shape can tell '4' here from confirmations.1.page = "4" above; only
+        // the KEY can, which is why the key vocabulary is the load-bearing rule.
+        ['option_id' => 3, 'option_name' => 'action_scheduler_hybrid_store_demarkation', 'option_value' => '4', 'autoload' => 'yes'],
+        // An epoch under a key whose `forms` token DOES claim a reference —
+        // the measured case the timestamp veto exists for.
+        ['option_id' => 4, 'option_name' => 'wpforms_forms_first_created', 'option_value' => '1787672947', 'autoload' => 'yes'],
+        // A JSON map, version-keyed, holding one epoch. Reaches the JSON
+        // decoder AND the version veto; measured verbatim.
+        ['option_id' => 5, 'option_name' => 'wpforms_versions_lite', 'autoload' => 'yes',
+            'option_value' => '{"1.5.9":0,"1.6.7.2":0,"1.7.5":0,"1.9.8.6":0,"2.0.0":0,"2.0.0.5":1787672785}'],
+    ]);
+    $wpdb->seedTable('wp_duo_journal', [
+        $journalRow(1, 'options', 'wpforms_settings', 'admin', 'manage_options', 'authored'),
+        $journalRow(2, 'options', 'wpforms_constant_contact_version', 'cron', '', 'review'),
+        $journalRow(3, 'options', 'action_scheduler_hybrid_store_demarkation', 'cron', '', 'review'),
+        $journalRow(4, 'options', 'wpforms_forms_first_created', 'admin', 'manage_options', 'review'),
+        $journalRow(5, 'options', 'wpforms_versions_lite', 'cron', '', 'review'),
+    ]);
+    // The one real reference pending's surfaces CAN reach: postmeta on the
+    // form post, byte-for-byte as measured. `type`/`title`/`status`/`url` sit
+    // beside the two ids and must contribute nothing.
+    $wpdb->seedTable('wp_postmeta', [
+        ['meta_id' => 1, 'post_id' => 6, 'meta_key' => 'wpforms_form_locations',
+            'meta_value' => 'a:1:{i:0;a:6:{s:4:"type";s:4:"page";s:5:"title";s:18:"Recon Contact Page";s:7:"form_id";i:6;s:2:"id";i:5;s:6:"status";s:7:"publish";s:3:"url";s:20:"/recon-contact-page/";}}'],
+    ]);
+    \Duo\Capture::$gate = [
+        'scope' => [], 'options' => [], 'widgets' => [],
+        'post_meta' => ['wpforms_form_locations' => ['entities' => 2, 'post_types' => ['wpforms']]],
+        'term_meta' => [], 'user_meta' => [],
+    ];
+
+    $reconItems = Pending::scan_read_only($repoRoot . '/sandbox/tmp', $policy);
+    $reconByKey = [];
+    foreach ($reconItems as $item) {
+        $reconByKey[$item['section'] . ':' . $item['key']] = $item;
+    }
+
+    foreach ([
+        'options:wpforms_settings' =>
+            'a boolean two levels inside a serialized settings array is still a boolean — DUO-3508\'s rule now holds at every depth, not just on a whole value',
+        'options:wpforms_constant_contact_version' =>
+            'a key naming a VERSION holds a version, even when the version is also a live page id',
+        'options:action_scheduler_hybrid_store_demarkation' =>
+            'a watermark under a key that claims no reference gets no hint, however cleanly the integer resolves',
+        'options:wpforms_forms_first_created' =>
+            'an epoch under an id-shaped key is vetoed by value: `forms` claims a reference, 1787672947 is not one',
+        'options:wpforms_versions_lite' =>
+            'a JSON version map is decoded and still yields nothing — the version veto runs before the walk',
+    ] as $reconKey => $why) {
+        duo_check(isset($reconByKey[$reconKey]), "$reconKey is in the queue at all (otherwise the hint assertion proves nothing)");
+        duo_check_same(null, $reconByKey[$reconKey]['ref_hint'] ?? null, $why);
+    }
+
+    echo "\n== the reference inside a structure is now reachable ==\n";
+
+    duo_check_same(
+        ['kind' => 'post', 'id' => 6, 'title' => 'Recon Contact Form', 'post_type' => 'wpforms', 'at' => '[0].form_id'],
+        $reconByKey['post_meta:wpforms_form_locations']['ref_hint'] ?? null,
+        'wpforms_form_locations now yields a hint at the exact member that matched — the prior engine offered NOTHING here, '
+        . 'because its extractor never descended into the nested array'
+    );
+
+    // Both ids the value really holds, in value order: the form\'s own id and
+    // the id of the PAGE that embeds it (the recon\'s cross-entity reference).
+    // First-that-resolves wins, so the published hint is form_id; an operator
+    // following `at [0].form_id` sees `id` sitting next to it.
+    $collect = new ReflectionMethod(Pending::class, 'collect_ref_candidates');
+    $walk = static function ($value, ?string $refKey) use ($collect): array {
+        $found = [];
+        $args = [$value, '', $refKey, 0, &$found];
+        $collect->invokeArgs(null, $args);
+        return $found;
+    };
+    duo_check_same(
+        [[6, '[0].form_id'], [5, '[0].id']],
+        $walk(
+            unserialize('a:1:{i:0;a:6:{s:4:"type";s:4:"page";s:5:"title";s:18:"Recon Contact Page";s:7:"form_id";i:6;s:2:"id";i:5;s:6:"status";s:7:"publish";s:3:"url";s:20:"/recon-contact-page/";}}', ['allowed_classes' => false]),
+            'wpforms_form_locations'
+        ),
+        'the walk offers exactly the two id-shaped members under id-shaped keys, in value order, and nothing from type/title/status/url'
+    );
+
+    echo "\n== the three refs pending cannot see, and why ==\n";
+
+    // Naming the misses rather than implying they were found. All three live
+    // in `post_content`: `settings.confirmations.1.page` inside a wpforms
+    // post's body, and two `wpforms/form-selector` `formId` block attributes
+    // inside a page's body. `Pending::current_value()` reads exactly four
+    // surfaces — options, post_meta, term_meta, user_meta — so no body-borne
+    // reference has a queue row to carry a hint in the first place. `wp duo
+    // lint` is the body scanner, and on the recon site it DID find both block
+    // attrs (`unregistered_block_attr … attrs.formId value=6 matches=post:6`).
+    foreach (['post_content', 'post_body', 'blocks'] as $bodySection) {
+        duo_check_same(
+            null,
+            Pending::current_value($bodySection, 'anything'),
+            "current_value('$bodySection') is null: the review queue has no body surface, which is why refs 1, 3 and 4 stay out of reach here"
+        );
+    }
+    duo_check(
+        !in_array('post_content', array_map(static fn(array $i): string => $i['section'], $reconItems), true),
+        'and no queue row claims one either — the miss is structural, not a heuristic failure'
+    );
+
+    // The heuristic is nevertheless not what blocks them: walked directly,
+    // the measured confirmations block yields page 4 at the member that holds
+    // it, and leaves the `previous_page` sentinel alone (includes/class-process.php:1553-1562
+    // branches on that literal before casting, so a rule that coerced this
+    // slot to int would destroy it).
+    // The locator reads `[1].page`, not `.1.page`: WPForms numbers its
+    // confirmations `"1"`, `"3"`, and PHP turns a numeric string key into an
+    // int on decode, so the walk sees a list position and says so.
+    duo_check_same(
+        [[4, '[1].page']],
+        $walk(json_decode('{"1":{"type":"page","page":"4","page_url_parameters":"src=recon"},"3":{"type":"page","page":"previous_page"}}', true), null),
+        'the same walk resolves confirmations.1.page = "4" and offers nothing for the non-numeric `previous_page` sentinel'
     );
 
     // ------------------------------------------------- the ownership claim (a)
