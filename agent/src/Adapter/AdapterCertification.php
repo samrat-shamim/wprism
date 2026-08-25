@@ -280,10 +280,23 @@ final class AdapterCertification {
      * consequence of the alternative: a key in no arm makes the whole adapter
      * unsignable (rule V3-KEYS, the `theme_version_range` case), so a narrowing
      * adapter could not be certified at all.
+     *
+     * `theme_version_range` closed that very case with WP-4.3 (spec § v3.3,
+     * reviewed resolution 1). It is not a state surface and not a new one: it
+     * is the bound on the SUBJECT that `validate_adapter_contract()` already
+     * makes mandatory beside every `theme`
+     * (AdapterContractGrammar.php:265-301) and that
+     * ArtifactPolicyIdentity::resolved_adapters() already folds into the
+     * adapter identity row (ArtifactPolicyIdentity.php:167-168) — precisely the
+     * standing `version_range` has in this arm. Until it joined, a theme
+     * adapter validated `[ok]` and was then unsignable by name, which is the
+     * partition being incomplete against the shipped grammar rather than an
+     * adapter being wrong. No shipped adapter declares `theme`, so admitting
+     * its companion moved no digest and no certificate.
      */
     private const NON_SURFACE_KEYS = [
         'actions', 'deletions', 'environment', 'lifecycle_effects', 'name', 'note', 'notes', 'option_autoload',
-        'plugin', 'providers', 'spec_version', 'theme', 'version_range',
+        'plugin', 'providers', 'spec_version', 'theme', 'theme_version_range', 'version_range',
     ];
 
     /**
@@ -309,15 +322,25 @@ final class AdapterCertification {
      * precisely because a copy would be the second definition the wire-surface
      * register exists to forbid. `duo manifest-validate --emit-schema` now
      * publishes it in `duo-manifest-grammar/v2`, so this accessor exists
-     * rather than a fourth spelling of 31 strings.
+     * rather than a fourth spelling of 33 strings.
      *
-     * Publishing is NOT enforcement, and this method changes none: the only
-     * consumer of the constants is still siteRatification()'s
-     * classify-or-throw loop (`:779-789`), so a manifest declaring an
-     * unclassifiable key is refused at SIGNING and still admitted by
-     * `ManifestValidator`. Closing that gap is spec v3's V3-KEYS rule
-     * (spec/repo-format.md § v3.3 "The closed top-level key set"), which
-     * WP-4.3 implements by making the validator the partition's second reader.
+     * WP-4.3 made it the LOAD-TIME set as well, and this accessor is how:
+     * `AdapterContractGrammar::admitted_top_level_keys()` reads the partition
+     * from here and refuses a key in no arm of it for a `spec_version: 3`
+     * manifest (spec/repo-format.md § v3.3). There is still exactly one
+     * definition — `php tools/wire-surface.php --check`, a `make release-gate`
+     * step, asserts that the validator's admitted set and this partition are
+     * the SAME SET, in both directions, so a second list cannot be introduced
+     * on either side without the release refusing (register row R-21).
+     *
+     * The two readers ask different questions of it and that asymmetry is
+     * deliberate. The validator asks only whether a key is IN the set; the
+     * signer needs the ARM, because a key's arm decides what a derived
+     * ratification says about it. So § v3.2's growth rule — a key claimed by a
+     * declared engine feature this engine implements — admits at LOAD and does
+     * not classify: a feature record carries `{since, keys}` and no arm, so a
+     * feature whose key must also be SIGNABLE gives it an arm here in the same
+     * change, exactly as WP-4.6 did for `environment`.
      *
      * @return array{entity_sections: list<string>, field_sections: list<string>, non_surface_keys: list<string>}
      */

@@ -52,7 +52,7 @@ declare(strict_types=1);
  *
  * The prose halves of each row (why a decision cannot change, what it
  * reserves) are this file's own bytes, because a rationale lives nowhere in
- * the engine. Everything factual beside them is projected, and four
+ * the engine. Everything factual beside them is projected, and the
  * completeness gates below refuse the whole run rather than emit a register
  * that has gone quiet about a surface:
  *
@@ -67,18 +67,27 @@ declare(strict_types=1);
  *   5. the shipped `spec_version` acceptance window is exactly {N-1, N} — the
  *      floor is `DUO_SPEC_VERSION - 1` and never deeper (row R-18), measured
  *      by probing the shipped validator rather than by reading its condition.
+ *   6. the shipped platform trust root is either the empty v1 registry byte for
+ *      byte or a v2 document that VERIFIES through the shipped reader (row
+ *      R-20), so an unsigned or tampered root never ships.
+ *   7. the validator's admitted top-level key set and the signer's partition
+ *      are the SAME SET, in both directions, and the only excess is what an
+ *      implemented `engine_features` value claims (row R-21). § v3.3's "one
+ *      definition, not two" is a property a copy satisfies on the day it is
+ *      typed, so it is asserted rather than reviewed.
  *
  * A new signed surface therefore cannot be added quietly: it fails gate 1 or 2
  * until it is registered, and any moved constant fails the byte-compare with
  * the first differing line named.
  *
- * Two rows here are not about a signature (R-17, R-19) and one is not either
- * (R-18). They are in the register because it is the list of decisions an
- * external party's bytes make permanent, and a bare `id_kind`, a declared
- * engine feature name and an accepted `spec_version` are each inside bytes this
- * product cannot rewrite afterwards — captured state and `duo_map` rows for the
- * first, the manifest bytes an adapter digest folds for the second, and every
- * adapter in the field authored against the window for the third.
+ * Four rows here are not about a signature (R-17, R-18, R-19, R-21). They are
+ * in the register because it is the list of decisions an external party's bytes
+ * make permanent, and a bare `id_kind`, an accepted `spec_version`, a declared
+ * engine feature name and a recognised top-level manifest key are each inside
+ * bytes this product cannot rewrite afterwards — captured state and `duo_map`
+ * rows for the first, every adapter in the field authored against the window
+ * for the second, and the manifest bytes an adapter digest folds for the last
+ * two.
  */
 
 // $_SERVER['argv'] rather than the bare superglobal, for the reason
@@ -500,6 +509,72 @@ function ws_assert_spec_window(): void {
         . implode(', ', $expected) . '} — row R-18 records the floor as exactly DUO_SPEC_VERSION - 1, so '
         . 'N-2 can never accumulate by inattention and a widened window is a reviewed change here first'
     );
+}
+
+/**
+ * Gate 7 (WP-4.3, spec § v3.3): ONE closed top-level key set, not two.
+ *
+ * § v3.3's load-bearing sentence is "the set has one definition, not two": the
+ * validator refuses an unrecognised top-level key at `spec_version: 3` and the
+ * signer refuses one it cannot classify at any version, and those two must be
+ * refusing over the SAME SET. The failure this gate is written against is not a
+ * disagreement anyone would introduce deliberately — it is the copy. A list
+ * typed into the validator equals the signer's partition on the day it is
+ * typed; it stops equalling it the day one arm grows, which is the day nobody
+ * is looking, and the symptom is a manifest that loads on every site and cannot
+ * be certified (or, worse, one that certifies and then refuses to load).
+ * `regress_spec_v3_dry_run.php` measured that exact shape before the rule
+ * shipped: `theme_version_range` was mandatory in the grammar and in no arm of
+ * the partition, so a theme adapter validated `[ok]` and was unsignable.
+ *
+ * Asserted in BOTH directions and against the shipped accessor, so neither side
+ * can quietly hold a key the other does not. The feature arm is asserted too:
+ * § v3.2's growth rule is the only way the admitted set may exceed the
+ * partition, so a manifest declaring an implemented feature must admit exactly
+ * the partition plus that feature's claimed keys and nothing else.
+ */
+function ws_assert_closed_key_set(): void {
+    $partition = AdapterCertification::topLevelKeyPartition();
+    $arms = array_merge(
+        $partition['entity_sections'],
+        $partition['field_sections'],
+        $partition['non_surface_keys']
+    );
+    sort($arms, SORT_STRING);
+    if (count($arms) !== count(array_unique($arms))) {
+        ws_fail(
+            'the signer partition\'s three arms overlap; row R-21 records them as disjoint, because a key in '
+            . 'two arms would make what a derived ratification says about it depend on iteration order'
+        );
+    }
+
+    // No `engine_features` declared, so this is the BASE set — the one that has
+    // to be the partition exactly.
+    $admitted = AdapterContractGrammar::admitted_top_level_keys([]);
+    if ($admitted !== $arms) {
+        $onlyValidator = array_values(array_diff($admitted, $arms));
+        $onlySigner = array_values(array_diff($arms, $admitted));
+        ws_fail(
+            'the validator\'s admitted top-level key set and the signer\'s partition are not the same set — '
+            . 'admitted-but-unclassifiable {' . implode(', ', $onlyValidator) . '}, classifiable-but-refused {'
+            . implode(', ', $onlySigner) . '}. Row R-21 records ONE definition (spec/repo-format.md § v3.3): '
+            . 'both readers must resolve AdapterCertification::topLevelKeyPartition(), never a second list'
+        );
+    }
+
+    foreach (AdapterContractGrammar::implemented_features() as $feature) {
+        $claimed = AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$feature]]);
+        $expected = array_values(array_unique(array_merge($arms, $claimed)));
+        sort($expected, SORT_STRING);
+        $withFeature = AdapterContractGrammar::admitted_top_level_keys(['engine_features' => [$feature]]);
+        if ($withFeature !== $expected) {
+            ws_fail(
+                "declaring the implemented engine feature '$feature' admits {" . implode(', ', $withFeature)
+                . '} rather than the partition plus its claimed keys {' . implode(', ', $expected)
+                . '} — row R-21 records § v3.2\'s channel as the ONLY way the admitted set exceeds the partition'
+            );
+        }
+    }
 }
 
 /**
@@ -1111,8 +1186,50 @@ function ws_rows(): array {
             . 'own signed statement type with its own domain (spec/repo-format.md § v3.8), never a member '
             . 'or an arm inside this one.',
     ];
+    // R-21 and not R-18: tranche 1 had two riders mint R-18 in parallel
+    // worktrees and the integrator renumbered (see the R-20 note above), so
+    // ids through R-20 are spent. Nothing on disk embeds a register id.
+    $rows[] = [
+        'id' => 'R-21',
+        'title' => 'The top-level manifest key set is closed at `spec_version: 3`, from one definition',
+        'now' => 'A `spec_version: 3` manifest may declare '
+            . (string) count(AdapterContractGrammar::admitted_top_level_keys([]))
+            . ' top-level keys — the signer\'s three-arm partition, '
+            . ws_partition_text() . ' — plus whatever keys its own declared, IMPLEMENTED `engine_features` '
+            . 'values claim (`engine_features` itself, via `'
+            . implode('`, `', AdapterContractGrammar::implemented_features())
+            . '`). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar '
+            . '`duo adapter-draft` writes — refuses with its own remedy, to strip it. v2 manifests keep the '
+            . 'open behaviour byte for byte, so none of the shipped library changes. Measured here by asking '
+            . 'the shipped validator and the shipped signer for their sets and comparing them in both '
+            . 'directions.',
+        'permanent' => 'A key REMOVED from the set later refuses every manifest in the field that declared '
+            . 'it, and takes its adapter digest with it: the key is inside the manifest bytes '
+            . '`ArtifactPolicyIdentity::manifest_rows()` folds, so the remedy is an edit that moves every '
+            . '`site.duo.json` content pin and invalidates every certificate over that adapter (R-19 records '
+            . 'the same irreversibility for a feature name). Closing the set is therefore a one-way door: it '
+            . 'can be opened wider through the growth rule and can never be narrowed. The one definition is '
+            . 'load-bearing for the same reason — two lists that agree today diverge silently, and the '
+            . 'symptom is an adapter that loads everywhere and cannot be certified.',
+        'reserved' => 'Growth is § v3.2\'s channel and nothing else: a post-v3 primitive ships as an engine '
+            . 'feature name, the top-level keys that feature claims, and a refusal for the engine that lacks '
+            . 'it — so no key is ever added by widening this set for everyone. A feature whose key must also '
+            . 'be SIGNABLE gives it an arm in the partition in the same change, because a feature record '
+            . 'carries `{since, keys}` and no arm, and an arm is what decides whether a certificate covers '
+            . 'the key as a surface.',
+    ];
 
     return $rows;
+}
+
+/**
+ * The partition as `5 entity + 14 field + 14 non-surface` — projected, never typed.
+ */
+function ws_partition_text(): string {
+    $partition = AdapterCertification::topLevelKeyPartition();
+
+    return count($partition['entity_sections']) . ' entity + ' . count($partition['field_sections'])
+        . ' field + ' . count($partition['non_surface_keys']) . ' non-surface';
 }
 
 /**
@@ -1190,6 +1307,7 @@ function ws_build(string $repo): string {
     ws_assert_rollback_is_domain_free();
     ws_assert_spec_window();
     ws_assert_shipped_authorities($repo);
+    ws_assert_closed_key_set();
     $domains = [
         (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN'),
         (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_AUTHORITIES'),
@@ -1299,11 +1417,19 @@ function ws_build(string $repo): string {
     $out .= "6. **The spec-version window has not accumulated.** The shipped validator is probed over\n";
     $out .= '   N-3 … N+2 and must accept exactly {N-1, N} — floor `DUO_SPEC_VERSION - 1`, never deeper'
         . " (R-18).\n\n";
-    $out .= "6. **The shipped platform trust root is one of its two legal states.** It is the empty\n";
+    // Numbered 7 and not 6: the trust-root gate arrived with WP-4.8's merge and
+    // kept the previous item's number, so this list printed "6." twice. A
+    // one-character correction, made here because the item below it would
+    // otherwise be unreadable.
+    $out .= "7. **The shipped platform trust root is one of its two legal states.** It is the empty\n";
     $out .= '   `' . AdapterCertification::AUTHORITIES_FORMAT . "` registry byte for byte, or a\n";
     $out .= '   `' . AdapterCertification::AUTHORITIES_FORMAT_V2 . "` document that VERIFIES through the\n";
     $out .= "   shipped reader — envelope signature, fingerprint-bound ids, windows and namespaces all\n";
-    $out .= "   checked by the code a site runs (R-08, R-18).\n\n";
+    $out .= "   checked by the code a site runs (R-08, R-18).\n";
+    $out .= "8. **The closed top-level manifest key set has one definition.** The set the shipped\n";
+    $out .= "   validator admits at `spec_version: 3` and the partition the shipped signer\n";
+    $out .= "   classifies against are compared in both directions, and the only excess admitted is what\n";
+    $out .= "   an implemented engine feature claims (R-21).\n\n";
     $out .= "What it does not prove: that the decisions are *right*, that any artifact in the field was\n";
     $out .= "signed under these exact rules, or that a holder's verifier implements them. The rationale\n";
     $out .= "halves of §2 are prose, reviewed by a human, and the register is only as good as the review\n";

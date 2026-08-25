@@ -789,7 +789,7 @@ evidence before this line changes.
 |---|---|---|---|
 | v3.1 | N/N-1 acceptance window, per-section refusal by name | WP-4.2 | yes — {N-1, N}, floor gated at release |
 | v3.2 | `engine_features` declaration channel | WP-4.2 | yes — one implemented feature, no shipped declarer |
-| v3.3 | closed top-level key set and its growth rule | WP-4.3 | signing only, never the validator |
+| v3.3 | closed top-level key set and its growth rule | WP-4.3 | yes at `spec_version: 3`; open at v2; one set, gated at release |
 | v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | no — one monolith, one whole-document hash |
 | v3.5 | per-adapter environment narrowing | WP-4.6 | yes at `spec_version: 3`; inert at v2 |
 | v3.6 | certificates bind exercised axes; in-statement version; domain `/v2` | WP-4.7 | no — whole-`platform.json` byte equality |
@@ -879,19 +879,30 @@ says so.
 
 ### v3.3 The closed top-level key set, and how it grows
 
-**Rider: WP-4.3. Enforced today: at signing only.** The set exists, is maintained, and refuses — but only
-in `AdapterCertification::siteRatification()` (`agent/src/Adapter/AdapterCertification.php:816`), which
-most authors reach long after the typo. `ManifestValidator` does not consult it, so a manifest carrying
-`totally_made_up_section` and a transposed `optoins` validates `[ok]` today and is then unsignable
-(measured, both halves, in `regress_spec_v3_dry_run.php` under rule V3-KEYS).
+**Rider: WP-4.3. Enforced today: yes, for a `spec_version: 3` manifest; open at v2.**
+`AdapterContractGrammar::validate_adapter_contract()` refuses an unrecognised top-level key by name
+(`assert_top_level_keys()`, `agent/src/Adapter/AdapterContractGrammar.php:459`), reading the set from
+`AdapterCertification::topLevelKeyPartition()` rather than from a list of its own; `php
+tools/wire-surface.php --check`, a `make release-gate` step, asserts that the validator's admitted set
+and the signer's partition are the SAME SET in both directions (register row R-21).
 
-At `spec_version: 3` the top-level key set is CLOSED: a key in no arm of the partition refuses at load,
-by name. v2 manifests keep today's open behaviour exactly, so no shipped manifest changes behaviour by a
-byte.
+Before this rider the set refused in exactly one place — `AdapterCertification::siteRatification()`
+(`agent/src/Adapter/AdapterCertification.php:943`), which most authors reach long after the typo — so a
+manifest carrying `totally_made_up_section` and a transposed `optoins` validated `[ok]` and was then
+unsignable. Both halves were measured in `regress_spec_v3_dry_run.php` under rule V3-KEYS before the rule
+was turned on, and the same fixtures now refuse.
+
+At `spec_version: 3` the top-level key set is CLOSED: a key in no arm of the partition, and claimed by no
+implemented engine feature, refuses at load, by name. v2 manifests keep today's open behaviour exactly —
+asserted on the same fixture bytes, not assumed — so no shipped manifest changes behaviour by a byte and
+no adapter digest moves. At `DUO_SPEC_VERSION` 2 the rule is unreachable through the product path, because § v3.1
+refuses a `spec_version` 3 manifest wholesale one step earlier; it is exercised against a synthetic N+1
+engine in `sandbox/tests/offline/policy/regress_closed_top_level_keys.php`, the two-era technique § v3.2's
+channel already needed.
 
 The set has one definition, not two. It is the signer's own three-arm partition
-(`AdapterCertification.php:173-183`), published by `AdapterCertification::topLevelKeyPartition()`
-(`:220`) and emitted by `duo manifest-validate --emit-schema` as `duo-manifest-grammar/v2`'s
+(`AdapterCertification.php:265-300`), published by `AdapterCertification::topLevelKeyPartition()`
+(`:347`) and emitted by `duo manifest-validate --emit-schema` as `duo-manifest-grammar/v2`'s
 `top_level_keys` block. The arms are kept apart because a key's arm decides what a derived ratification
 says about it — an entity section becomes a covered surface, a non-surface key covers nothing — so
 flattening them would publish less than the engine knows:
@@ -900,43 +911,57 @@ flattening them would publish less than the engine knows:
 - **field sections** (14): `block_attrs`, `dynamic_options`, `interpreter`, `menu_fields`,
   `meta_patterns`, `option_name_refs`, `option_namespaces`, `option_patterns`, `options`, `post_meta`,
   `post_meta_patterns`, `shortcode_attrs`, `term_meta`, `user_meta`;
-- **non-surface keys** (13, declaring no branchable state surface of their own): `actions`, `deletions`,
+- **non-surface keys** (14, declaring no branchable state surface of their own): `actions`, `deletions`,
   `environment`, `lifecycle_effects`, `name`, `note`, `notes`, `option_autoload`, `plugin`, `providers`,
-  `spec_version`, `theme`, `version_range`.
+  `spec_version`, `theme`, `theme_version_range`, `version_range`.
 
-`environment` is the newest member and the growth rule's first live exercise: WP-4.6 added it with the
-rule that reads it (§ v3.5), because a key in no arm makes its whole adapter unsignable and a narrowing
-channel nobody can certify is not a channel. No shipped adapter declares it, so admitting it moved no
-digest and no certificate — the same standing `theme` has below.
+`environment` and `theme_version_range` are the two newest members, and each is this rule's own discipline
+exercised once: a key joins the partition in the change that reads it, never ahead of one. WP-4.6 added
+the first with the narrowing rule (§ v3.5) and WP-4.3 added the second with resolution 1 below, both
+because a key in no arm makes its whole adapter unsignable and a channel nobody can certify is not a
+channel. No shipped adapter declares either, or `theme`, so admitting them moved no digest and no
+certificate.
 
 **The growth rule.** A closed set that cannot grow is the next flag day. It grows in exactly one way: a
 key claimed by a declared `engine_features` value the engine IMPLEMENTS is admitted; a key claimed by a
 declared feature the engine does NOT implement refuses by feature name (§ v3.2); a key nothing claims
 refuses as an unrecognised section. Those three verdicts are distinct and each is pinned by suite. There
 is no fourth answer, and in particular there is no "unknown keys are ignored" answer — that is the
-behaviour v3 removes.
+behaviour v3 removes. `engine_features` itself is the worked example: it is in no arm of the partition and
+is admitted only because `spec-window/v1` — a feature this engine implements — claims it.
+
+**What the growth rule admits, and what it does not.** It admits at LOAD and does not classify. A feature
+record carries `{since, keys}` and no arm (`AdapterContractGrammar::IMPLEMENTED_FEATURES`), so a
+feature-claimed key has no reviewed answer to the only question the signer asks — whether a certificate
+covers it as a surface — and `siteRatification()` still refuses it by name with "teach the signer this
+section". That is the honest refusal and not an oversight: a certificate that silently omitted a declared
+section would cover less than the adapter does. A feature whose key must also be SIGNABLE therefore gives
+that key an arm in the partition in the same change, exactly as WP-4.6 did for `environment`. Until one
+does, an adapter using the channel loads everywhere and is not certifiable, which is a state an operator
+can see rather than one they discover from a missing surface.
 
 **Two reviewed decisions, resolved here rather than left as findings.** WP-1.6's dry run measured the
-partition against every key in use and found the difference in both directions. Both findings are settled
-as follows, and a rider implementing § v3.3 implements these with it:
+partition against every key in use and found the difference in both directions. Both are settled as
+follows, and WP-4.3 implemented them with the rule:
 
-1. **`theme_version_range` JOINS the partition, as a non-surface key.** The partition knows `theme` but
-   not its mandatory companion, while `validate_adapter_contract()` (`AdapterContractGrammar.php:178`)
+1. **`theme_version_range` JOINS the partition, as a non-surface key.** The partition knew `theme` but
+   not its mandatory companion, while `validate_adapter_contract()` (`AdapterContractGrammar.php:507`)
    refuses a `theme` declared without a `theme_version_range` and `ArtifactPolicyIdentity` folds the range
    into the adapter identity row (`agent/src/Policy/ArtifactPolicyIdentity.php:167-168`). A theme adapter
-   therefore validates and is then unsignable — the partition is incomplete against the shipped grammar by
+   therefore validated and was then unsignable — the partition incomplete against the shipped grammar by
    exactly one key. It is a field-adjacent contract key with precisely the standing `version_range`
    already has (a bound on the subject, not a state surface), so it takes `version_range`'s arm. No
-   shipped adapter declares `theme`, so admitting it moves no digest and no certificate.
+   shipped adapter declares `theme`, so admitting it moved no digest and no certificate.
 2. **`_draft` is REFUSED at v3, as an authoring artifact.** `duo adapter-draft` writes a top-level
    `_draft` into the manifest it hands the author (`cli/src/Adapter/AdapterDraft.php:379`); the key is in
-   no arm, so draft output is unsignable today and would be refused by name at v3. That refusal is
-   correct and is kept: a `_draft` sidecar is a proposal record for a human, its contents are inert by
-   construction, and admitting it into the closed set would put unreviewed proposals inside the identity
-   row every certificate covers. The remedy is that a draft is STRIPPED before install —
-   `duo manifest-validate` already reports the sidecar's facts/proposals/unsupported counts on every run,
-   and a v3 refusal names `_draft` and says to strip it. A drafting tool may keep the sidecar in its own
-   working copy; a manifest with a `_draft` key is not installable at v3.
+   no arm, so draft output is unsignable and is refused by name at v3. That refusal is correct and is
+   kept: a `_draft` sidecar is a proposal record for a human, its contents are inert by construction, and
+   admitting it into the closed set would put unreviewed proposals inside the identity row every
+   certificate covers. The remedy is that a draft is STRIPPED before install —
+   `duo manifest-validate` already reports the sidecar's facts/proposals/unsupported counts on every run —
+   so the v3 refusal names `_draft`, says it is the drafting sidecar, and says to strip it, rather than
+   telling the author to declare an engine feature they may not mint. A drafting tool may keep the sidecar
+   in its own working copy; a manifest with a `_draft` key is not installable at v3.
 
 ### v3.4 Per-adapter disposition addressing, and per-subject registry pins
 

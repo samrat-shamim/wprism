@@ -193,6 +193,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "admitted_top_level_keys": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "implemented_features": {
                     "abstract": false,
                     "final": false,

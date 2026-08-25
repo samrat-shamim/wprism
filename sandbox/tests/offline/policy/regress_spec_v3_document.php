@@ -201,8 +201,10 @@ duo_check(
     'v3.2 x v3.1: at DUO_SPEC_VERSION ' . $specVersion . ' the key is a v3-only SECTION, so declaring it refuses by section name — the channel opens with the flip'
 );
 
-// v3.3 — the closed key set still refuses in exactly one place. The validator
-// admitting an invented section is the measured defect the rule closes.
+// v3.3 — ENFORCED (WP-4.3), and the two halves that make it flag-day-safe. The
+// v2 era is asserted UNCHANGED rather than merely assumed: the rule is gated at
+// spec_version 3, so a v2 manifest declaring an invented section still loads,
+// which is what keeps all 16 shipped manifests and every adapter digest still.
 $vocabulary = (array) (new ReflectionMethod(Policy::class, 'manifest_validator_vocabulary'))->invoke(null);
 $invented = [
     'name' => 'v3-keys-probe',
@@ -210,16 +212,36 @@ $invented = [
     'options' => ['acme_probe_option' => ['class' => 'authored', 'autoload' => 'yes']],
     'totally_made_up_section' => ['acme_thing' => ['class' => 'authored']],
 ];
-$validatorVerdict = null;
-try {
-    ManifestValidator::validate_manifest($invented, "manifest 'v3-keys-probe'", $vocabulary);
-} catch (\Throwable $e) {
-    $validatorVerdict = $e->getMessage();
-}
+$manifestVerdict = static function (array $manifest) use ($vocabulary): ?string {
+    try {
+        ManifestValidator::validate_manifest($manifest, "manifest 'v3-keys-probe'", $vocabulary);
+        return null;
+    } catch (\Throwable $e) {
+        return $e->getMessage();
+    }
+};
 duo_check_same(
     null,
-    $validatorVerdict,
-    'v3.3 NOT enforced: the manifest validator still admits a top-level section in no arm of the signer partition'
+    $manifestVerdict($invented),
+    'v3.3 INERT at v2: the manifest validator still admits a top-level section in no arm of the partition, so no shipped manifest changed behaviour by a byte'
+);
+// The v3 half cannot be walked in this process — § v3.1 refuses spec_version 3
+// wholesale at DUO_SPEC_VERSION 2, one step before the key rule — so what is
+// asserted here is that the refusal is the WINDOW's and that the rule exists,
+// with its own two-era suite named. regress_closed_top_level_keys.php drives
+// the N+1 engine.
+$inventedV3 = $invented;
+$inventedV3['spec_version'] = $specVersion + 1;
+duo_check(
+    str_contains((string) $manifestVerdict($inventedV3), 'accepts spec_version'),
+    'v3.3 x v3.1: at DUO_SPEC_VERSION ' . $specVersion . ' the rule is unreachable through the product path — the window refuses a spec_version ' . ($specVersion + 1) . ' manifest first'
+);
+duo_check(
+    str_contains(
+        (string) file_get_contents($repo . '/agent/src/Adapter/AdapterContractGrammar.php'),
+        'private static function assert_top_level_keys('
+    ),
+    'v3.3 ENFORCED: the contract grammar carries the closed-key-set refusal, gated at spec_version 3 (WP-4.3)'
 );
 $ratify = (new ReflectionClass(AdapterCertification::class))->getMethod('siteRatification');
 $signerVerdict = null;
@@ -230,37 +252,51 @@ try {
 }
 duo_check(
     is_string($signerVerdict) && str_contains($signerVerdict, 'which this signer cannot classify'),
-    'v3.3: ...while the SIGNER refuses the same manifest by name — the one-sided enforcement § v3.3 describes'
+    'v3.3: ...and the SIGNER still refuses the same manifest by name, at every version — the arm it cannot assign is what a certificate would have to cover'
 );
 
-// Publication is not enforcement: WP-4.1 gave the partition a public accessor
-// so `--emit-schema` can name the set, and that must not have taught any
-// validator to consult it. Measured as "the constants still have one reader".
-$partitionReaders = [];
-foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
-    $walk = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($repo . '/' . $tree, FilesystemIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::LEAVES_ONLY,
-        RecursiveIteratorIterator::CATCH_GET_CHILD
-    );
-    foreach ($walk as $file) {
-        if (!$file->isFile() || $file->getExtension() !== 'php') {
-            continue;
-        }
-        $body = (string) file_get_contents($file->getPathname());
-        foreach (['ENTITY_SECTIONS', 'FIELD_SECTIONS', 'NON_SURFACE_KEYS'] as $token) {
-            if (str_contains($body, $token)) {
-                $partitionReaders[] = substr($file->getPathname(), strlen($repo) + 1);
-                break;
+// ONE DEFINITION, NOT TWO. WP-4.1 gave the partition a public accessor so
+// `--emit-schema` could name the set; WP-4.3 made the contract grammar enforce
+// through that same accessor. Two facts, measured separately: the three private
+// constants must stay in ONE file (the definition), while the accessor is what
+// every other file reads.
+$namingFiles = static function (array $tokens) use ($repo): array {
+    $hits = [];
+    foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
+        $walk = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($repo . '/' . $tree, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::LEAVES_ONLY,
+            RecursiveIteratorIterator::CATCH_GET_CHILD
+        );
+        foreach ($walk as $file) {
+            if (!$file->isFile() || $file->getExtension() !== 'php') {
+                continue;
+            }
+            $body = (string) file_get_contents($file->getPathname());
+            foreach ($tokens as $token) {
+                if (str_contains($body, $token)) {
+                    $hits[] = substr($file->getPathname(), strlen($repo) + 1);
+                    break;
+                }
             }
         }
     }
-}
-sort($partitionReaders, SORT_STRING);
+    sort($hits, SORT_STRING);
+    return $hits;
+};
 duo_check_same(
     ['agent/src/Adapter/AdapterCertification.php'],
-    $partitionReaders,
-    'v3.3: the partition constants still have exactly one shipped reader — publishing them through topLevelKeyPartition() enforced nothing'
+    $namingFiles(['ENTITY_SECTIONS', 'FIELD_SECTIONS', 'NON_SURFACE_KEYS']),
+    'v3.3: the partition constants are declared in exactly one shipped file — enforcing the set did not copy it'
+);
+duo_check_same(
+    [
+        'agent/src/Adapter/AdapterCertification.php',
+        'agent/src/Adapter/AdapterContractGrammar.php',
+        'cli/src/Adapter/ManifestValidate.php',
+    ],
+    $namingFiles(['topLevelKeyPartition']),
+    'v3.3: and the accessor has three readers — the owner, the enforcing validator, and the emitter that publishes it'
 );
 
 // v3.4 — one monolith, one whole-document hash.
@@ -490,13 +526,13 @@ $report(sprintf(
 // nothing.
 duo_check(
     str_contains($keysBody, '`theme_version_range` JOINS the partition')
-        && !in_array('theme_version_range', array_merge(...array_values($partition)), true),
-    'v3.3 resolves the `theme_version_range` gap, and the key is indeed still absent from the shipped partition'
+        && in_array('theme_version_range', array_merge(...array_values($partition)), true),
+    'v3.3 resolves the `theme_version_range` gap, and the key is indeed IN the shipped partition now (WP-4.3, resolution 1)'
 );
 $grammarSource = (string) file_get_contents($repo . '/agent/src/Adapter/AdapterContractGrammar.php');
 duo_check(
     str_contains($grammarSource, "['theme', 'theme_version_range']"),
-    'and the shipped grammar still makes `theme_version_range` mandatory beside `theme`, which is what makes a theme adapter unsignable today'
+    'and the shipped grammar still makes `theme_version_range` mandatory beside `theme`, which is the constraint the resolution reconciled the partition with'
 );
 duo_check(
     str_contains($keysBody, '`_draft` is REFUSED at v3')

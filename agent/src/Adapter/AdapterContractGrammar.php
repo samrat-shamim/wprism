@@ -24,6 +24,14 @@ require_once __DIR__ . '/../Policy/Policy.php';
  * stage through the window, or through the per-adapter `engine_features`
  * channel below (§ v3.2), one adapter at a time — so v3 is meant to be the last
  * flag day rather than one of a series.
+ *
+ * Since WP-4.3 it is also where the top-level key set is CLOSED for a
+ * `spec_version: 3` manifest (§ v3.3): a key in no arm of the signer's own
+ * partition and claimed by no implemented feature refuses BY NAME, instead of
+ * loading and meaning nothing. The set is not defined here — it is read from
+ * `AdapterCertification::topLevelKeyPartition()`, which is what makes the
+ * validator and the signer two readers of one definition rather than two lists
+ * that agree until they do not.
  */
 final class AdapterContractGrammar {
     /**
@@ -60,6 +68,23 @@ final class AdapterContractGrammar {
             'keys' => ['engine_features'],
         ],
     ];
+
+    /**
+     * The first `spec_version` at which the top-level key set is CLOSED
+     * (spec/repo-format.md § v3.3, WP-4.3).
+     *
+     * 3 and not 2, and that is the whole flag-day safety of this rule: a v2
+     * manifest keeps today's open behaviour byte for byte, so none of the 16
+     * shipped manifests changes behaviour, no manifest byte moves and no
+     * adapter digest moves (AGENTS.md rule 2). At this engine's
+     * `DUO_SPEC_VERSION` 2 the branch below is unreachable through the product
+     * path — `validate_adapter_contract()` refuses `spec_version` 3 wholesale
+     * one step earlier, since 3 is outside the window {1, 2} — which is why
+     * the rule's behaviour is measured against a synthetic N+1 engine in
+     * `sandbox/tests/offline/policy/regress_closed_top_level_keys.php`, the
+     * same two-era technique § v3.2's channel needed.
+     */
+    private const CLOSED_KEY_SET_SINCE = 3;
 
     /**
      * The `spec_version` integers this engine accepts: exactly N and N-1.
@@ -120,6 +145,43 @@ final class AdapterContractGrammar {
     }
 
     /**
+     * Every top-level key a `spec_version: 3` manifest may declare.
+     *
+     * ONE definition, read from the signer rather than restated:
+     * `AdapterCertification::topLevelKeyPartition()` (WP-4.1) is the base set,
+     * and the manifest's own declared, implemented features add the keys they
+     * claim (§ v3.2's growth rule). The alternative — a list typed here —
+     * equals the partition on the day it is typed and stops equalling it on the
+     * day the engine moves, which is the day nobody is looking; `php
+     * tools/wire-surface.php --check` asserts the equality under `make
+     * release-gate` (register row R-21) so that it cannot be reintroduced.
+     *
+     * The require is lazy, and deliberately: `AdapterCertification` is one of
+     * the four names `agent/duo.php`'s bootstrap does NOT declare, and it is
+     * require_once'd at each use site instead (agent/duo.php:124-128). A v2
+     * manifest never reaches this method, so the open v2 era loads exactly the
+     * files it loads today; the require is here rather than at the top of the
+     * file for that reason and no other.
+     *
+     * @param array<string,mixed> $manifest
+     * @return list<string>
+     */
+    public static function admitted_top_level_keys(array $manifest): array {
+        require_once __DIR__ . '/AdapterCertification.php';
+        $partition = AdapterCertification::topLevelKeyPartition();
+        $admitted = array_merge(
+            $partition['entity_sections'],
+            $partition['field_sections'],
+            $partition['non_surface_keys'],
+            self::admitted_feature_keys($manifest)
+        );
+        $admitted = array_values(array_unique($admitted));
+        sort($admitted, SORT_STRING);
+
+        return $admitted;
+    }
+
+    /**
      * The top-level sections a manifest's DECLARED features admit.
      *
      * The other half of § v3.2's channel, and the seam § v3.3's closed key set
@@ -177,6 +239,18 @@ final class AdapterContractGrammar {
         }
         self::assert_section_versions($name, $spec, $manifest, $accepted);
         self::assert_engine_features($name, $manifest);
+        // AFTER the feature channel and BEFORE every value check below, and
+        // both halves of that placement are the contract. After, because §
+        // v3.3's three verdicts must stay distinct: a key claimed by a feature
+        // this engine LACKS has to refuse by FEATURE name (assert_engine_
+        // features(), one line up), never as a typo naming the key. Before,
+        // because whether a key EXISTS is a different question from whether its
+        // value is well-formed — an author who misspelled a section should be
+        // told that, not handed a refusal about the contents of a section the
+        // engine does not have.
+        if ($spec >= self::CLOSED_KEY_SET_SINCE) {
+            self::assert_top_level_keys($name, $spec, $manifest);
+        }
         // Validate the interpreter name at load rather than waiting for the
         // lazy interpreters() lookup to hand a non-string to preg_match().
         if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null) {
@@ -348,6 +422,83 @@ final class AdapterContractGrammar {
                 . '. Remedy: drop the declaration, or run an engine that has the feature'
             );
         }
+    }
+
+    /**
+     * The closed top-level key set (spec/repo-format.md § v3.3, WP-4.3).
+     *
+     * WHAT THIS REPLACES. The set already existed, was already maintained and
+     * already refused — but only in `AdapterCertification::siteRatification()`,
+     * which most authors reach long after the typo. So a manifest carrying
+     * `totally_made_up_section` and a transposed `optoins` validated `[ok]` and
+     * was then unsignable, measured both ways in
+     * `sandbox/tests/offline/policy/regress_spec_v3_dry_run.php` under rule
+     * V3-KEYS. That silence is the failure ManifestGrammar.php:50-56 already
+     * states one level down for a table `class` value: an unrecognised
+     * declaration that means nothing is indistinguishable from a deliberate
+     * one, which is how a whole plugin's authored rows go missing from
+     * canonical state because of one transposed letter.
+     *
+     * WHY IT IS SAFE TO CLOSE. Because the set can GROW without a flag day. A
+     * closed set that cannot grow is simply the next flag day deferred, so §
+     * v3.2's channel is the growth rule: a key claimed by a declared feature
+     * this engine IMPLEMENTS is admitted (`admitted_top_level_keys()`), a key
+     * claimed by a declared feature it does NOT implement has already refused
+     * by feature name, and a key nothing claims refuses here. Three verdicts,
+     * no fourth — and in particular no "unknown keys are ignored", which is the
+     * behaviour v3 removes.
+     *
+     * WHY THE REFUSAL NAMES EVERY OFFENDING KEY. `sort()` and then all of them,
+     * not the first: an author who transposed one letter in two sections would
+     * otherwise pay two round trips to learn two facts the engine knew at once,
+     * and a refusal whose content depends on PHP's key order is not a refusal a
+     * harness can pin.
+     *
+     * @param array<string,mixed> $manifest
+     */
+    private static function assert_top_level_keys(string $name, int $spec, array $manifest): void {
+        $admitted = self::admitted_top_level_keys($manifest);
+        $unknown = array_values(array_diff(array_map('strval', array_keys($manifest)), $admitted));
+        if ($unknown === []) {
+            return;
+        }
+        sort($unknown, SORT_STRING);
+
+        // `_draft` gets its own sentence, and it wins over every other unknown
+        // key, because it says something about the whole document rather than
+        // about one section: this is `duo adapter-draft` output
+        // (cli/src/Adapter/AdapterDraft.php:379), and the first thing its author
+        // has to do is strip the sidecar and re-validate — at which point any
+        // remaining unrecognised key is reported with the remedy that fits it.
+        // Its own remedy is the opposite of the general one: nothing is
+        // misspelled and nothing is missing an engine feature, and telling that
+        // author to "declare the feature that claims it" would send them to
+        // invent a feature name they may not mint (§ v3.2). Admitting it is
+        // what § v3.3 refuses on the merits: the key would land inside the
+        // identity row every certificate covers
+        // (ArtifactPolicyIdentity::manifest_rows()), putting unreviewed
+        // proposals under a signature.
+        if (in_array('_draft', $unknown, true)) {
+            throw new \RuntimeException(
+                "duo: manifest '$name' declares spec_version $spec and the top-level key '_draft' — that is the "
+                . 'proposal sidecar `duo adapter-draft` writes for a human reviewer, and it is an authoring '
+                . 'artifact rather than a declaration: admitting it would put unreviewed proposals inside the '
+                . 'identity row every certificate covers (spec/repo-format.md § v3.3). Remedy: strip the `_draft` '
+                . 'key before install — `duo manifest-validate` reports the sidecar\'s facts, proposals and '
+                . 'unsupported counts on every run, so nothing in it is lost by removing it'
+            );
+        }
+
+        throw new \RuntimeException(
+            "duo: manifest '$name' declares spec_version $spec and the top-level "
+            . (count($unknown) === 1 ? 'key ' : 'keys ')
+            . implode(', ', array_map(static fn(string $k): string => "'" . $k . "'", $unknown))
+            . ', which this engine does not recognise — at spec_version ' . self::CLOSED_KEY_SET_SINCE
+            . ' the top-level key set is CLOSED, so an unrecognised section is a misspelling rather than an inert '
+            . 'marker (spec/repo-format.md § v3.3). Remedy: correct the spelling, remove the section, or declare '
+            . 'the `engine_features` value that claims it (§ v3.2) — this engine implements: '
+            . implode(', ', self::implemented_features())
+        );
     }
 
     /**
