@@ -403,7 +403,7 @@ check(
 $statuses = array_values(array_unique(array_column($listReport['adapters'] ?? [], 'disposition_status')));
 sort($statuses, SORT_STRING);
 check(
-    $statuses === ['certified', 'excluded', 'experimental'],
+    $statuses === ['certified', 'excluded'],
     "every shipped row carries its REVIEWED disposition status, from the reviewed set's own vocabulary (found: "
     . implode(', ', array_map(fn($s) => var_export($s, true), $statuses)) . ')'
 );
@@ -462,7 +462,7 @@ check(
 );
 check(
     is_array($adapter) && is_array($adapter['claim'] ?? null)
-    && ($adapter['claim']['status'] ?? null) === 'experimental',
+    && ($adapter['claim']['status'] ?? null) === 'certified',
     'MERGED FROM dispositions.json: the capability claim the reviewed entry projects'
 );
 // No `adapter_digest` on a claim, and none derivable here. Adapter identity is
