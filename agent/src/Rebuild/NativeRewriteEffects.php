@@ -730,12 +730,12 @@ final class NativeRewriteEffects {
             $reachable[$name] = true;
         }
 
+        // Polylang registers the same exact callback for types WordPress does
+        // not dispatch here (3.8.6 includes attachment_rewrite_rules). The
+        // complete roster is still closed and callback-checked above; only its
+        // intersection with WP_Rewrite's actual generation graph is reachable
+        // during this mutation.
         $polylangTypes = $polylang === null ? [] : array_fill_keys($polylang['types'], true);
-        foreach ($polylangTypes as $name => $_present) {
-            if (!isset($reachable[$name])) {
-                throw new \RuntimeException('duo: native rewrite found an unreachable Polylang rewrite type');
-            }
-        }
         foreach (array_keys($reachable) as $name) {
             $expected = isset($polylangTypes[$name])
                 ? [[$polylang['links'], 'rewrite_rules', 10, 1]]

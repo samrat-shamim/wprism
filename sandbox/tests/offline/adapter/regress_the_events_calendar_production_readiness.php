@@ -9546,6 +9546,14 @@ duo_check_same($flushesBeforeTrigger, $GLOBALS['wp_rewrite']->flushCalls, 'trigg
 require_once __DIR__ . '/../../support/tec-woo-option-callbacks.php';
 $wooServices = tec_readiness_install_woo_option_callbacks();
 $GLOBALS['tec_readiness_woo_calls'] = [];
+duo_check(
+    in_array('attachment', $wooServices['polylang_types'], true)
+        && has_filter(
+            'attachment_rewrite_rules',
+            [$wooServices['polylang_links'], 'rewrite_rules']
+        ) === 10,
+    'the exact Polylang roster retains its canonical registered-but-unreachable attachment callback'
+);
 
 $wooCustomizerMaterialization = tec_readiness_materialize_mixed_option(
     $policy,
@@ -10115,6 +10123,39 @@ duo_check_same(
     $flushesBeforeForeignSitemaps,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the substituted Polylang sitemap callback performs no native mutation'
+);
+
+$unreachablePolylangCalls = 0;
+$foreignUnreachablePolylang = static function (array $rules) use (&$unreachablePolylangCalls): array {
+    ++$unreachablePolylangCalls;
+    return $rules;
+};
+add_filter('attachment_rewrite_rules', $foreignUnreachablePolylang, 999, 1);
+$flushesBeforeForeignUnreachablePolylang = $GLOBALS['wp_rewrite']->flushCalls;
+$foreignUnreachablePolylangFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $foreignUnreachablePolylangFailure = $failure;
+}
+remove_filter('attachment_rewrite_rules', $foreignUnreachablePolylang, 999);
+duo_check(
+    $foreignUnreachablePolylangFailure instanceof RuntimeException
+        && str_contains(
+            $foreignUnreachablePolylangFailure->getMessage(),
+            "extended or substituted 'attachment_rewrite_rules'"
+        ),
+    'an extension of Polylang’s registered-but-unreachable callback still refuses before generation'
+);
+duo_check_same(
+    0,
+    $unreachablePolylangCalls,
+    'the refused unreachable Polylang extension never executes'
+);
+duo_check_same(
+    $flushesBeforeForeignUnreachablePolylang,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the unreachable Polylang extension performs no native mutation'
 );
 
 $missingType = $wooServices['polylang_types'][0];

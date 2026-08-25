@@ -83,6 +83,11 @@ grep -Fq 'taxonomies:["category","post_tag","language","term_language","post_tra
 if grep -Fq '"term_translations","nav_menu"' "$TEC"; then
   fail 'co-install fixture reintroduced the term/menu identity contradiction'
 fi
+grep -Fq 'post_types:["post","page","attachment","wp_block","tribe_events","tribe_venue","tribe_organizer"]' "$TEC" \
+  || fail 'co-install fixture no longer keeps core-owned nav_menu_item out of generic post scope'
+if grep -Fq '"wp_block","nav_menu_item"' "$TEC"; then
+  fail 'co-install fixture reintroduced the post/menu-item identity contradiction'
+fi
 grep -Fq 'manifests:["core","polylang"]' "$MS" \
   || fail 'multisite fixture does not use the dedicated Polylang manifest set'
 printf 'PASS: Polylang exact multisite and bounded Polylang+TEC live fixtures are statically guarded\n'

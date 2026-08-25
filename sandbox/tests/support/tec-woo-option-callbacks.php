@@ -185,7 +185,9 @@ namespace {
         add_action('added_option', [$synchronizer, 'process_added_option'], 999, 2);
         add_filter('rewrite_rules_array', 'wc_fix_rewrite_rules', 10, 1);
         $yoast = Yoast_Dynamic_Rewrites::instance();
-        $polylangTypes = ['date', 'root', 'comments', 'search', 'author', 'product', 'product_cat'];
+        $polylangTypes = [
+            'date', 'root', 'comments', 'search', 'author', 'attachment', 'product', 'product_cat',
+        ];
         $polylangLinks = new PLL_Links_Directory($polylangTypes);
         $polylang = new PLL_Admin($polylangLinks);
         $GLOBALS['polylang'] = $polylang;
