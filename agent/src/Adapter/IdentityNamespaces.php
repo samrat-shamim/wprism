@@ -146,6 +146,21 @@ final class IdentityNamespaces {
      * That second answer is the whole reason the grandfather list exists: this
      * function reports SHAPE and shape is not ownership, so every caller below
      * consults the list first.
+     *
+     * ONE HYPHEN DEEP, AND THAT IS THE LIMIT OF WHAT THE BINDING BINDS (G2-FIXES
+     * M3). A sub-vendor delegated `acme-forms-*` may name its adapter
+     * `acme-forms-widget`, whose vendor half is `acme` — so the provider rule
+     * below admits every `acme-<id>` it declares, across the PARENT's whole
+     * space and not merely inside the scope its own certificate was checked
+     * against. The rule therefore binds a provider id to the FIRST SEGMENT of
+     * the declaring adapter's name, which is the top of the namespace its scope
+     * lies within; it does not bind it to the narrowest scope entry that
+     * certified the adapter. Stated here, in § v3.9 and in register row R-27
+     * rather than closed, because closing it means carrying the certificate's
+     * matched scope entry into a loader that runs with no certificate in hand
+     * (`assert_out_of_tree_contract()` judges identity for every out-of-tree
+     * manifest, certified or not) — a plumbing change with its own permanent
+     * wire consequences, which is a decision and not a fix.
      */
     public static function vendor(string $identity): ?string {
         return preg_match('/^([a-z0-9]+)-(.+)$/D', $identity, $m) === 1 ? $m[1] : null;
@@ -176,17 +191,39 @@ final class IdentityNamespaces {
      *
      * Two refusals, in the order a reader meets them:
      *
-     *   1. the NAME. Grandfathered names return first — out of tree that is
-     *      reachable only as a reviewed `{name, source: "site"}` override of a
-     *      shipped adapter (T6 §3.3), which is exactly the case the closed list
-     *      must not break. Everything else must be `<vendor>-<name>`;
+     *   1. the NAME. A grandfathered name is exempt from THIS refusal — out of
+     *      tree that is reachable only as a reviewed `{name, source: "site"}`
+     *      override of a shipped adapter (T6 §3.3), which is exactly the case
+     *      the closed list must not break. Everything else must be
+     *      `<vendor>-<name>`;
      *   2. the PROVIDER IDS, which must sit in the adapter's OWN vendor
      *      namespace. Without that half the binding is decorative: an adapter
      *      certified under an authority scoped `acme-*` could still mint
      *      provider id `zeta-thing` and squat a space no key of its holder's
-     *      covers. Binding provider ids to the declaring adapter's vendor makes
-     *      the whole identity set the adapter contributes transitively bound to
-     *      the one scope its certificate was checked against.
+     *      covers. Binding provider ids to the declaring adapter's vendor binds
+     *      the whole identity set the adapter contributes to the VENDOR half of
+     *      the name its certificate was checked against — one hyphen deep, and
+     *      no deeper; `vendor()` states what that does and does not reach.
+     *
+     * THE GRANDFATHER EXEMPTION IS THE NAME'S ALONE (G2-FIXES M2). Until then
+     * a grandfathered name returned BEFORE the provider loop, so the 10 shipped
+     * names that do have a vendor half — `ninja-forms`, `yoast-duplicate-post`,
+     * `code-snippets` and the rest — could be answered out of tree by a manifest
+     * declaring provider ids in ANY vendor's namespace: the one door left open
+     * in the binding this section exists to make transitive. The exemption now
+     * covers exactly what it was argued for, the name, and the provider loop
+     * runs for every out-of-tree manifest that HAS a vendor half to judge
+     * against.
+     *
+     * A name with NO vendor half skips the loop, and that is a statement of
+     * fact rather than a concession: `core`, `acf`, `woocommerce`, `elementor`,
+     * `polylang` and `yoast` have no `<vendor>-` to bind a provider id to, so
+     * there is no rule to apply — and their shipped provider ids (`core-*`,
+     * `elementor-css-*`, `woocommerce-*`) are prefixed with the adapter NAME,
+     * which this grammar cannot see as a vendor. `regress_identity_namespaces.php`
+     * measures both arms against the shipped library on every run, so a
+     * seventeenth adapter whose providers sit outside its own vendor namespace
+     * is a reviewed edit rather than a discovery.
      *
      * `id_kind` is deliberately absent from both: R-17 rules the RULE out
      * permanently, and this function may not overrule the register.
@@ -206,11 +243,8 @@ final class IdentityNamespaces {
         if (!is_int($spec) || $spec < self::NAMESPACED_SINCE) {
             return;
         }
-        if (self::is_grandfathered_name($name)) {
-            return;
-        }
         $vendor = self::vendor($name);
-        if ($vendor === null) {
+        if ($vendor === null && !self::is_grandfathered_name($name)) {
             throw new \RuntimeException(
                 "duo: $label $shown declares spec_version $spec and the unprefixed name '$name' — at "
                 . 'spec_version ' . self::NAMESPACED_SINCE . ' an out-of-tree adapter name is '
@@ -220,6 +254,13 @@ final class IdentityNamespaces {
                 . "scoped to — an authority whose adapter_names carries '<vendor>-*' certifies every name in "
                 . 'that namespace and no name outside it'
             );
+        }
+        if ($vendor === null) {
+            // A grandfathered name with no vendor half: there is no namespace
+            // to bind provider ids to, so this rule has nothing to say about
+            // them (see the header). Every other name reached here HAS a vendor
+            // half — the refusal above is the only other way out.
+            return;
         }
         foreach ((array) ($manifest['providers'] ?? []) as $i => $declaration) {
             if (!is_array($declaration)) {

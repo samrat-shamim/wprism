@@ -273,5 +273,6 @@ return [
     'Duo\\Uuid' => 'src/Kernel/Uuid.php',
     'Duo\\VersionEvidenceGrammar' => 'src/Policy/VersionEvidenceGrammar.php',
     'Duo\\WidgetTypeResolver' => 'src/Grammar/WidgetTypeResolver.php',
+    'Duo\\WithdrawnAuthoritySiteAdapterCertificate' => 'src/Adapter/AdapterCertification.php',
     'Duo\\WpCliChildProcess' => 'src/Kernel/WpCliChildProcess.php',
 ];

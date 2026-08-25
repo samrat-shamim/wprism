@@ -251,6 +251,13 @@ const REHEARSAL_GAPS = [
         . 'revocation document installed it returns before it can. The refusal, on the frozen path and the live '
         . 'path both, plus the preserved operator-own-key asymmetry it must not have closed, is exercised by '
         . 'sandbox/tests/offline/adapter/regress_revocation_reachability.php.',
+    'agent/src/Adapter/AdapterSources.php::survey' =>
+        'the REPORTING half of the same document (G2-FIXES C2): survey() raises a library-scoped row when an '
+        . 'installed revocation document is inert or unreadable. Unreachable from this estate for the reason '
+        . 'the two entries above give — no manifest library it copies carries one, because the shipped library '
+        . 'does not — and the estate deliberately installs none, since § v3.8\'s gate is that absence. Both rows '
+        . 'and the LIBRARY scope that keeps them from blocking a grammar verdict are exercised by '
+        . 'sandbox/tests/offline/adapter/regress_revocation_reachability.php.',
     'recovery/CheckpointBundle.php::validatePriorVerification' =>
         'reached only through a receipt-authorized recovery provider call (RecoveryExecutor::configuration plus a '
         . 'signed rollback-control request), and manifest_inputs_sha256 is MINTED BY THE PROVIDER rather than '

@@ -1349,7 +1349,39 @@ an agent over a site replaces this file along with the library. The remedy is to
 adopt, or to point `DUO_MANIFESTS_DIR` at a library the adoption tar does not overwrite. It lives there
 regardless, because the manifest directory is the ONLY path frozen verification holds
 (`AdapterSources.php:4192` calls `verifyFrozen()` with `Policy::manifests_dir()` and nothing else), and
-reaching the frozen path is the entire point of the channel.
+reaching the frozen path is the entire point of the channel. **And the erasure is SILENT**, which is the
+half worth naming: absence means "nothing is revoked", so a re-adopt that drops the document leaves a site
+reading exactly like one that never had it — the compromised keys quietly trusted again, with no refusal
+and no row anywhere. Detecting it (recording the installed digest where `duo adopt` does not overwrite,
+and raising a diagnostic row when a previously-present document disappears) is DEFERRED rather than
+designed here: it needs durable agent state outside the manifest library, and where an agent may keep
+memory a re-adopt cannot reach is its own decision with its own blast radius.
+
+*Three states, not two (G2-FIXES C2).* Absence means nothing is revoked. A document signed by a key the
+SHIPPED platform root carries applies. A document whose signer that root does NOT carry is **inert**: its
+entries do not apply, it is reported as a library-scoped row by `AdapterSources::survey()` (so
+`duo adapter doctor` and `wp duo adapter-survey` print the sentence and exit 1), and the site is not
+refused. That third state is what makes the channel installable before enrollment at all — the shipped
+root is `{"keys":{}}` and stays that way through the flag day (§ v3.12), so a hard refusal was the only
+outcome a correctly-signed revocation document could produce, and installing one took the site down
+instead of revoking anything. Tampering is unchanged and still fatal: an unreadable file, a malformed
+envelope or statement, a version this agent does not implement, a revoked signer, and a signature that
+does not verify under a key this root DOES carry all stay hard refusals. Only "this agent holds no key by
+that id" is inert, because that is the one condition under which no verdict about the bytes is available.
+
+*What a revocation takes away is the CLAIM, not the site (G2-FIXES C3).* A revoked authority — and an
+authority outside its own validity window — withdraws the adapters it certified to uncertified support,
+through a typed signal both the live scan and the frozen path catch
+(`WithdrawnAuthoritySiteAdapterCertificate`). Untyped, it was a whole-source refusal: revoking a key to
+protect the fleet bricked every promoted site holding a certificate under it, and a v2 authority record's
+mandatory `not_after` made the same brick DATED. Forgery, tamper and a key that is not installed at all
+stay whole-source refusals.
+
+*What does not reach a frozen snapshot, and it is not the one people expect.* Revoking a DELEGATOR reaches
+every live scan at once, because the delegator is resolved in the shipped root on every resolution — but a
+frozen snapshot holds no repository, so it reads no `adapters/delegations.json` and the delegate's record
+is the one inside the signature. An incident response that must reach PROMOTED sites therefore names the
+DELEGATE's own fingerprint, never only its delegator's.
 
 It also closes the frozen-path gap. `verifyCertificate()`'s site branch
 (`agent/src/Adapter/AdapterCertification.php:1338-1379` — the comment headed "THE ONE ASYMMETRY BETWEEN THE
@@ -1399,8 +1431,36 @@ manifest declaring `spec_version: 3`:
 - a `providers[].id` outside the DECLARING ADAPTER's own vendor namespace, naming the index. Without this
   second half the binding would be decorative: an adapter certified under an authority scoped `acme-*`
   could still mint provider id `zeta-thing` and squat a space no key of its holder's covers. Binding
-  provider ids to the declaring adapter's vendor makes the whole identity set one adapter contributes
-  transitively bound to the one scope its certificate was checked against.
+  provider ids to the declaring adapter's vendor binds the whole identity set one adapter contributes to
+  the VENDOR half of the name its certificate was checked against.
+
+**One hyphen deep, and no deeper (G2-FIXES M3).** `IdentityNamespaces::vendor()` splits on the FIRST
+hyphen, so a sub-vendor delegated `acme-forms-*` may name its adapter `acme-forms-widget` — vendor half
+`acme` — and mint provider ids across the PARENT's whole `acme-` space rather than inside the scope its own
+certificate was checked against. The rule binds a provider id to the first segment of the declaring
+adapter's name, which is the top of the namespace its scope lies within; it does not bind it to the
+narrowest scope entry that certified the adapter. Stated rather than closed: binding to the matched scope
+entry means carrying a certificate into a loader that runs with no certificate in hand
+(`assert_out_of_tree_contract()` judges identity for every out-of-tree manifest, certified or not), which
+is a new permanent decision rather than a correction. Register row R-27 records the same limit.
+
+**The grandfather exemption is the NAME's alone (G2-FIXES M2).** A grandfathered name that HAS a vendor
+half — `ninja-forms`, `yoast-duplicate-post`, `code-snippets`, 10 of the 16 — is still held to the
+provider-id rule; only the name is exempt, because only the name was argued for (the reviewed override).
+A grandfathered name with NO vendor half — `core`, `acf`, `woocommerce`, `elementor`, `polylang`, `yoast` —
+has no `<vendor>-` for a provider id to be bound to, so the rule has nothing to say about its providers.
+Every shipped provider id already satisfies this, measured on every run by
+`regress_identity_namespaces.php` rather than assumed, so the reviewed override of any of the 16 still
+loads at `spec_version: 3`.
+
+**A namespace grant may not reach a reserved name (G2-FIXES M4, register row R-22).** A non-platform
+authority record's `adapter_names` entry may not be a `<vendor>-*` pattern COVERING one of the 16 — refused
+at authority-record validation time, so it fires on the site trust root, on a delegated grant, and on the
+record a certificate embeds. Without it, enrolling a vendor with its own products' namespace handed that
+vendor the SHIPPED adapter of the same name, whose out-of-tree override inherits that adapter's
+interpreter, regenerator and provider declarations. An EXACT reserved name stays legal: that is the
+reviewed override, and refusing it would delete a shipped capability to close a hole the pattern form is
+the whole of.
 
 The rule returns before reading a member on any manifest below `spec_version: 3`, which is every manifest
 that exists while `DUO_SPEC_VERSION` is 2 — the same gate § v3.5's environment narrowing uses, and for the
@@ -1567,6 +1627,18 @@ rehearsal — is **WP-4.12**, and none of it is in force here.
   time, each moving only its own digest and only for the sites that pin it.
 - **The platform trust root stays empty.** `manifests/capabilities/adapter-authorities.json` remains
   `{"keys":{}}` through the flag day (§ v3.7).
+- **But every CERTIFIED SITE ADAPTER withdraws to uncertified at the flip, and `duo adapter certify --pin`
+  re-establishes it.** This is the bump's most fleet-visible effect and it is not digest-neutral for the
+  sites it touches: `spec_version` is inside every signed `statement.platform`, and
+  `assertPlatformBinding()` raises `StalePlatformSiteAdapterCertificate` — *"site adapter '<name>'
+  certification was signed under spec version 2, which is not the spec version 3 this agent publishes"* —
+  the moment the two disagree. Every certificate in the field was signed under 2. On the live scan and
+  inside a frozen snapshot alike the adapter degrades to uncertified support rather than refusing the
+  source (WP-1.1's routing), so nothing bricks: `plan` and `apply` stay available, readiness and host
+  promotion stay blocked for that adapter until it is re-signed against the post-flip boundary. Rolling
+  back restores the claim untouched, because the withdrawal writes nothing. The rehearsal of both paths is
+  `regress_site_adapter_certification.php` case (k); this paragraph is WP-4.12's runbook input, and the
+  runbook's recertify step is that command run per certified site adapter, per site.
 - **The executable lane does not open** (§ v3.11). Only its reservations ride.
 - **No new declarative primitive rides the bump.** Each is a v3-only section that stages through the
   window the bump installs, one at a time — which is also the cheapest available proof that v3 was the

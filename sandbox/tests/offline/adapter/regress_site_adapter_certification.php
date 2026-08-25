@@ -2407,6 +2407,227 @@ PHP
         );
     }
 
+    // ==================================================================
+    // (k) G2-FIXES M6: THE FLIP'S OWN WITHDRAWAL, on both paths.
+    // ==================================================================
+    // `assertPlatformBinding()` compares the SIGNED `spec_version` with the one
+    // this agent publishes and raises StalePlatformSiteAdapterCertificate when
+    // they differ. That is the single most fleet-visible consequence of WP-4.12
+    // — at the flip EVERY certified site adapter in the fleet withdraws to
+    // uncertified at once — and until now its refusal string appeared in no test
+    // and no document, so the flip's runbook had nothing to quote.
+    //
+    // Rehearsed by SIGNING a statement at the other spec version rather than by
+    // moving the agent's own define: `currentPlatform()` refuses a boundary that
+    // disagrees with the loaded agent, so a spec_version disagreement can only
+    // exist between a CERTIFICATE and an agent — which is exactly what the flip
+    // creates. Framed through the engine's own `signatureBytes()` by reflection,
+    // for the reason the delegation suite states about its forger: the producer
+    // is a guard rail (`sign_site()` builds `platform` from the live boundary and
+    // could never assemble this), and the verifier is the boundary being tested.
+    $signatureFramer = new ReflectionMethod(AdapterCertification::class, 'signatureBytes');
+    $flipCertificate = Canon::decode($originalCertificateRaw);
+    $flipCertificate['statement']['platform']['spec_version'] = DUO_SPEC_VERSION + 1;
+    $flipStatementTyped = json_decode(Canon::encode($flipCertificate['statement']), false, 512, JSON_THROW_ON_ERROR);
+    $flipCertificate['signature'] = base64_encode(sodium_crypto_sign_detached(
+        (string) $signatureFramer->invoke(null, $flipStatementTyped),
+        $secret
+    ));
+    $flipRaw = Canon::encode($flipCertificate);
+    cert_write($certPath, $flipRaw);
+    $flipThrown = null;
+    try {
+        AdapterCertification::verifyFile($integrationManifests, $site, 'site-demo', $manifest, $certPath);
+    } catch (Throwable $t) {
+        $flipThrown = $t;
+    }
+    cert_check(
+        $flipThrown instanceof \Duo\StalePlatformSiteAdapterCertificate
+        && str_contains(
+            $flipThrown->getMessage(),
+            "duo: site adapter 'site-demo' certification was signed under spec version "
+            . (DUO_SPEC_VERSION + 1) . ', which is not the spec version ' . DUO_SPEC_VERSION
+            . ' this agent publishes'
+        ),
+        '(k) a spec_version the agent no longer publishes raises the TYPED staleness, and this is the sentence '
+        . 'WP-4.12\'s runbook quotes (' . ($flipThrown === null ? 'no exception' : $flipThrown->getMessage()) . ')'
+    );
+    $flipPolicy = null;
+    try {
+        $flipPolicy = Policy::load($site);
+    } catch (Throwable $e) {
+        cert_check(false, '(k) and the site still LOADS at the flip (' . $e->getMessage() . ')');
+    }
+    if ($flipPolicy instanceof Policy) {
+        $flipReason = (string) ($flipPolicy->adapter_sources()->provenance('site-demo')['reason'] ?? '');
+        cert_check(
+            !$flipPolicy->adapter_sources()->is_certified('site-demo')
+            && str_contains($flipReason, 'agent platform boundary this agent no longer publishes')
+            && (RepositoryCompiler::resolved_adapters($flipPolicy)[0]['digest'] ?? null) === $currentCoreDigest,
+            '(k) and the LIVE path withdraws exactly that adapter to uncertified rather than refusing the source '
+            . '— at the flip every certified site adapter takes this route, one adapter at a time ('
+            . $flipReason . ')'
+        );
+    }
+    $flipEnvelope = $currentEnvelope;
+    $flipEnvelope['certificate_json'] = base64_encode($flipRaw);
+    $flipEnvelope['certificate_sha256'] = hash('sha256', $flipRaw);
+    $flipFrozenThrown = null;
+    try {
+        AdapterCertification::verifyFrozen($integrationManifests, 'site-demo', $manifest, $flipEnvelope);
+    } catch (Throwable $t) {
+        $flipFrozenThrown = $t;
+    }
+    cert_check(
+        $flipFrozenThrown instanceof \Duo\StalePlatformSiteAdapterCertificate,
+        '(k) the FROZEN entry point raises the identical typed signal — a promoted site meets the flip from its '
+        . 'snapshot, and one signal serves both paths ('
+        . ($flipFrozenThrown === null ? 'no exception' : get_class($flipFrozenThrown)) . ')'
+    );
+    $flipSnapshot = $currentSnapshot;
+    $flipSnapshot['adapter_sources']['certificates']['site-demo'] = $flipEnvelope;
+    $flipFrozenPolicy = null;
+    try {
+        $flipFrozenPolicy = Policy::from_snapshot($flipSnapshot);
+    } catch (Throwable $t) {
+        cert_check(false, '(k) and a PROMOTED site still loads its snapshot at the flip (' . $t->getMessage() . ')');
+    }
+    if ($flipFrozenPolicy instanceof Policy) {
+        cert_check(
+            !$flipFrozenPolicy->adapter_sources()->is_certified('site-demo')
+            && str_contains(
+                (string) ($flipFrozenPolicy->adapter_sources()->provenance('site-demo')['reason'] ?? ''),
+                'agent platform boundary this agent no longer publishes'
+            )
+            && (RepositoryCompiler::resolved_adapters($flipFrozenPolicy)[0]['digest'] ?? null) === $currentCoreDigest,
+            '(k) and it withdraws the same one claim inside the frozen snapshot — `duo adapter certify --pin` '
+            . 're-establishes it against the post-flip boundary (§ v3.12)'
+        );
+    }
+    cert_write($certPath, $originalCertificateRaw);
+
+    // ==================================================================
+    // (l) G2-FIXES C3: an authority that may no longer certify WITHDRAWS.
+    // ==================================================================
+    // THE DEFECT. Every refusal WP-4.8/4.9 added to the authority seat threw a
+    // bare \RuntimeException, so `guarded()` re-threw it, `discover()` refused
+    // the whole site source and `Policy::load()` propagated it uncaught — the
+    // third door to WP-1.1's brick, and a DATED one: `not_after` is mandatory at
+    // authority record v2, so every site holding a certificate under a v2 key
+    // lost every command at that key's own expiry, with no operator act in
+    // between. The typed revocation channel reached the same door from the other
+    // side, and it reaches the FROZEN path by design.
+    //
+    // Driven through the typed channel because it needs no v2 key id: the
+    // integration root's own `review-key` signs a document revoking its own key
+    // material, which is the shape an incident actually takes.
+    $reviewPublicRaw = (string) base64_decode((string) $integrationKeys->{'review-key'}['public_key'], true);
+    $revocationsPath = $integrationManifests . '/capabilities/adapter-revocations.json';
+    cert_write($revocationsPath, AdapterCertification::signRevocations(
+        Canon::encode((object) [
+            'format' => AdapterCertification::REVOCATION_FORMAT,
+            'issued_at' => '2020-01-01T00:00:00Z',
+            'revocations' => [[
+                'effective_at' => '2020-01-01T00:00:00Z',
+                'fingerprint' => hash('sha256', $reviewPublicRaw),
+                'key_id' => 'review-key',
+                'reason' => 'reviewer signing key disclosed',
+            ]],
+            'version' => 1,
+        ]),
+        'review-key',
+        base64_encode($secret)
+    ));
+    $revokedThrown = null;
+    try {
+        AdapterCertification::verifyFile($integrationManifests, $site, 'site-demo', $manifest, $certPath);
+    } catch (Throwable $t) {
+        $revokedThrown = $t;
+    }
+    cert_check(
+        $revokedThrown instanceof \Duo\WithdrawnAuthoritySiteAdapterCertificate
+        && $revokedThrown->withdrawal() === AdapterSources::WITHDRAWN_AUTHORITY_REVOKED
+        && str_contains($revokedThrown->getMessage(), 'is revoked by the platform-signed revocation record'),
+        '(l) a typed revocation of the signing key raises the THIRD typed withdrawal, carrying its own tag ('
+        . ($revokedThrown === null ? 'no exception' : get_class($revokedThrown)) . ')'
+    );
+    $revokedPolicy = null;
+    try {
+        $revokedPolicy = Policy::load($site);
+    } catch (Throwable $e) {
+        cert_check(false, '(l) and the site still LOADS with its authority revoked (' . $e->getMessage() . ')');
+    }
+    if ($revokedPolicy instanceof Policy) {
+        $revokedReason = (string) ($revokedPolicy->adapter_sources()->provenance('site-demo')['reason'] ?? '');
+        cert_check(
+            !$revokedPolicy->adapter_sources()->is_certified('site-demo')
+            && str_contains($revokedReason, 'the authority that signed its certification is revoked')
+            && (RepositoryCompiler::resolved_adapters($revokedPolicy)[0]['digest'] ?? null) === $currentCoreDigest,
+            '(l) the LIVE path withdraws exactly that adapter, and its reason NAMES the authority rather than the '
+            . 'boundary or the wire — three withdrawals, three sentences (' . $revokedReason . ')'
+        );
+    }
+    $revokedFrozen = null;
+    try {
+        $revokedFrozen = Policy::from_snapshot($currentSnapshot);
+    } catch (Throwable $t) {
+        cert_check(false, '(l) and a PROMOTED site still loads its snapshot (' . $t->getMessage() . ')');
+    }
+    if ($revokedFrozen instanceof Policy) {
+        cert_check(
+            !$revokedFrozen->adapter_sources()->is_certified('site-demo')
+            && str_contains(
+                (string) ($revokedFrozen->adapter_sources()->provenance('site-demo')['reason'] ?? ''),
+                'the authority that signed its certification is revoked'
+            ),
+            '(l) and the FROZEN path withdraws it too — this channel exists precisely to reach a promoted site, '
+            . 'and reaching it must not mean bricking it'
+        );
+    }
+    // THE LINE, under the identical revoked-authority condition. A companion
+    // that is not provably about THIS adapter never reaches the authority seat
+    // at all: assertAdapterBinding runs first, so it still refuses whole-source.
+    $revokedMisbound = Canon::decode($originalCertificateRaw);
+    $revokedMisbound['statement']['adapter']['path'] = 'adapters/somewhere-else.json';
+    cert_write_canon($certPath, $revokedMisbound);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        'does not bind the exact source/path/canonical manifest/trust tier',
+        '(l) a WRONG-BINDING companion under the same revoked authority still refuses the whole source — the '
+        . 'withdrawal is reached only after the certificate is proved to be about this adapter'
+    );
+    // ACCEPTED AND ASSERTED, not argued away: a forged SIGNATURE under a revoked
+    // authority degrades instead of refusing, because a key that may not certify
+    // is never asked to sign — the authority seat runs ahead of the Ed25519
+    // check. The destination is uncertified support, which the same write access
+    // reaches by deleting the companion, so it buys an attacker nothing; what it
+    // costs is tamper-evidence, and the alternative costs every site the
+    // certificate is not about. The risk note lives at the throw site.
+    $revokedForged = Canon::decode($originalCertificateRaw);
+    $revokedForged['statement']['bundle']['git_revision'] = str_repeat('f', 40);
+    cert_write_canon($certPath, $revokedForged);
+    $forgedUnderRevoked = null;
+    try {
+        $forgedUnderRevoked = Policy::load($site);
+    } catch (Throwable $e) {
+        cert_check(false, '(l) a forged statement under a revoked authority degrades (' . $e->getMessage() . ')');
+    }
+    if ($forgedUnderRevoked instanceof Policy) {
+        cert_check(
+            !$forgedUnderRevoked->adapter_sources()->is_certified('site-demo'),
+            '(l) and a FORGED statement under the same revoked authority reaches uncertified rather than the '
+            . 'signature refusal — the accepted ordering cost, stated here and at the throw site rather than '
+            . 'discovered later'
+        );
+    }
+    unlink($revocationsPath);
+    cert_write($certPath, $originalCertificateRaw);
+    cert_check(
+        Policy::load($site)->adapter_sources()->is_certified('site-demo'),
+        '(l) and removing the revocation restores the certified claim: the withdrawal wrote nothing and revoked '
+        . 'nothing of its own'
+    );
+
     // (j) THE PIN CONCESSION IS ABOUT STATE, NOT SPELLING. A withdrawn adapter
     // is only unbricked if the operator's pin rides the concession, and the
     // source-qualified `{name,source,digest}` form is not the only one an
@@ -3025,11 +3246,16 @@ cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
     'format' => 'duo-adapter-authorities/v1',
     'keys' => $clashKeys,
 ]);
+// The LIVE path names the rule (G2-FIXES m3). It used to answer "does not match
+// the current platform authority record" — true, and about the wrong thing: the
+// operator re-pointed a key id this project reviews, and R-13's sentence is what
+// tells them so. `assertKeyIdNotPlatformOwned()` is now asked on both paths
+// rather than only on the frozen one, from one call site.
 cert_expect_throw(
     static fn() => AdapterCertification::verifyFile($orgAgent, $orgSite, 'acme-catalog', $orgManifest, $orgCertPath),
-    'does not match the current platform authority record',
-    'a site key id the shipped library also declares resolves to the SHIPPED record, and the certificate that '
-    . 'claimed a site root is refused by name rather than silently downgraded'
+    "duo: authority key 'acme-ops' is reviewed and shipped by this agent, so a site trust root cannot claim it",
+    'a site key id the shipped library also declares is refused BY THE SHIPPED-WINS RULE on the live path too, '
+    . 'with the sentence R-13 records rather than a binding mismatch about the wrong root'
 );
 cert_expect_throw(
     static fn() => AdapterCertification::verifyFrozen($orgAgent, 'acme-catalog', $orgManifest, $orgVerified['envelope']),

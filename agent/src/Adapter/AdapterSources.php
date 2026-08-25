@@ -279,6 +279,36 @@ final class AdapterSources {
     public const SCOPE_ADAPTER = 'adapter';
 
     /**
+     * The third word, and it is about the AGENT'S OWN LIBRARY rather than about
+     * any adapter source (G2-FIXES C2).
+     *
+     * A library-scoped row reports a condition of `manifests/` that no adapter
+     * caused and no adapter's grammar verdict depends on — today, exactly one:
+     * an installed typed revocation document whose signer this agent does not
+     * hold, which grants nothing and must not be mistaken for a channel that is
+     * working. blocking_refusals() keeps SCOPE_SOURCE as the only blocking word,
+     * so a library row suppresses no verdict; it still makes `duo adapter
+     * doctor` and `wp duo adapter-survey` exit 1, because "installed and inert"
+     * is precisely the state an operator has to be told about and cannot
+     * discover any other way.
+     */
+    public const SCOPE_LIBRARY = 'library';
+
+    /**
+     * The typed revocation channel, reported rather than obeyed.
+     *
+     * `revocation_channel_inert` is the named non-fatal state C2 introduced: the
+     * document is installed, its signer is not enrolled in the shipped platform
+     * root, and its entries DO NOT apply.
+     * `revocation_channel_unreadable` is the other half of the same honesty —
+     * a document that exists and does NOT verify is a refusal, and reporting it
+     * here is what stops a malformed one from going unseen on a site that
+     * happens to hold no certificate for it to be read against.
+     */
+    public const REFUSAL_REVOCATION_INERT = 'revocation_channel_inert';
+    public const REFUSAL_REVOCATION_UNREADABLE = 'revocation_channel_unreadable';
+
+    /**
      * Why an adapter that is INSTALLED on this machine is nonetheless not
      * loaded. Neither of these is a refusal: the file is well-formed, the
      * engine simply resolved the name to something else (`shadowed`, which
@@ -291,31 +321,35 @@ final class AdapterSources {
 
     /**
      * Why a certified claim was WITHDRAWN, when the reason is a document the
-     * AGENT owns rather than anything about the adapter or its authority.
+     * AGENT owns rather than anything about the adapter's own bytes.
      *
-     * Both name a signal thrown by a typed exception —
+     * Each names a signal thrown by a typed exception —
      * StalePlatformSiteAdapterCertificate when a bound compatibility cell moved
      * (§ v3.6), SupersededWireSiteAdapterCertificate at any of the three
-     * certificate wire-generation tests — and both resolve the adapter to the
-     * same uncertified support a companion-absent site adapter reaches. Both are
-     * caught on the live scan AND on the frozen path since WP-4.7, because a
-     * promoted site meets the generation change from the frozen side. Nothing
-     * here catches
-     * \RuntimeException: an authority anomaly, a wrong binding, a bad signature
-     * and an unparseable statement all stay whole-source refusals.
+     * certificate wire-generation tests, WithdrawnAuthoritySiteAdapterCertificate
+     * when the signing authority is no longer entitled (G2-FIXES C3) — and each
+     * resolves the adapter to the same uncertified support a companion-absent
+     * site adapter reaches. All are caught on the live scan AND on the frozen
+     * path, because a promoted site meets every one of them from the frozen
+     * side. Nothing here catches \RuntimeException: a wrong binding, a bad
+     * signature, a key that is not installed at all and an unparseable
+     * statement all stay whole-source refusals.
      *
-     * The two are NOT equally guarded, and the difference is load-bearing.
+     * They are NOT equally guarded, and the difference is load-bearing.
      * STALE_PLATFORM is raised only after the Ed25519 signature, the authority
      * binding and the adapter binding have all verified, so nothing but a
      * genuine certificate reaches it. SUPERSEDED_WIRE is raised in
      * assertCertificateShape(), ahead of all three, and is UNAUTHENTICATED BY
      * CONSTRUCTION — root `format` is outside the signed bytes, so anyone who
      * can write the companion file can trigger it, including by flipping the
-     * `format` of a valid certificate. That is accepted because its only
-     * destination is uncertified support, which the same write access already
-     * reached by deleting the companion; the full risk note, its damping and
-     * the shape proofs that narrow it are on
-     * SupersededWireSiteAdapterCertificate.
+     * `format` of a valid certificate. The two AUTHORITY tags sit between them:
+     * the authority binding has proved the named key, its fingerprint and its
+     * identity record against the CURRENT root before either can be raised, but
+     * the signature has not been checked yet (it cannot be — an authority that
+     * may not certify is not asked to sign anything). Each is accepted on one
+     * argument: the only destination is uncertified support, which the same
+     * write access already reached by deleting the companion; the full risk
+     * notes are on the exception classes themselves.
      *
      * They exist as tags rather than as sentences at the call site because the
      * sentence lands in provenance_record()'s `reason`, which is
@@ -326,6 +360,20 @@ final class AdapterSources {
      */
     public const WITHDRAWN_STALE_PLATFORM = 'stale_platform_boundary';
     public const WITHDRAWN_SUPERSEDED_WIRE = 'superseded_certificate_wire';
+
+    /**
+     * The third typed withdrawal's two outcomes (G2-FIXES C3), and they are two
+     * tags rather than one because an operator's next act differs: a lapsed
+     * window is repaired by re-signing under a renewed key, a typed revocation
+     * is not repaired at all until a different key certifies the adapter.
+     *
+     * Both reach the same UNCERTIFIED destination the two tags above reach, and
+     * both are raised only after the authority binding proved the certificate
+     * names the current record — see WithdrawnAuthoritySiteAdapterCertificate,
+     * which carries the tag so this sentence is never matched out of a message.
+     */
+    public const WITHDRAWN_AUTHORITY_WINDOW = 'authority_window_lapsed';
+    public const WITHDRAWN_AUTHORITY_REVOKED = 'authority_revoked';
 
     /**
      * A surveyed adapter's grammar verdict (DUO-3339).
@@ -1412,6 +1460,19 @@ final class AdapterSources {
                         // adapter rather than losing the site.
                         $superseded = true;
                         $withdrawn = self::WITHDRAWN_SUPERSEDED_WIRE;
+                    } catch (WithdrawnAuthoritySiteAdapterCertificate $lostAuthority) {
+                        // THE AUTHORITY moved, not the adapter and not the
+                        // agent: its window lapsed, or the typed revocation
+                        // channel names its key material. Untyped, this was the
+                        // third door to WP-1.1's fleet-brick — and a DATED one,
+                        // because `not_after` is mandatory at record v2, so
+                        // every site holding a certificate under a v2 key lost
+                        // every command at that key's own expiry. The tag is
+                        // carried by the exception rather than re-derived from
+                        // its message: the sentence lands in an
+                        // IDENTITY-BEARING `reason` (provenance_record()).
+                        $superseded = true;
+                        $withdrawn = $lostAuthority->withdrawal();
                     }
                 }
             )) {
@@ -2477,6 +2538,51 @@ final class AdapterSources {
             }
         }
 
+        // THE TYPED REVOCATION CHANNEL'S OWN STATE (G2-FIXES C2), asked once
+        // per survey and about the LIBRARY rather than about any adapter. The
+        // shipped answer is silence: no document is installed, so nothing is
+        // added here and no site in the field grows a row.
+        //
+        // Reported at all because the alternative states are both invisible
+        // otherwise. An INERT document (signed by a key this agent does not
+        // hold) grants nothing while an operator believes those keys are burnt;
+        // an UNREADABLE one is a refusal that a site holding no certificate
+        // would never reach, because revocations() is read from the certificate
+        // path alone. Neither blocks a verdict — SCOPE_LIBRARY is not in
+        // blocking_refusals() — and both make this command exit 1.
+        //
+        // Loaded lazily for the reason the scan's own require gives: this file
+        // is on the pure loader path, and AdapterCertification depends on it.
+        require_once __DIR__ . '/AdapterCertification.php';
+        $revocations = rtrim($manifestDir, '/') . '/capabilities/adapter-revocations.json';
+        if (file_exists($revocations) || is_link($revocations)) {
+            try {
+                $inert = AdapterCertification::revocation_channel($manifestDir);
+                if ($inert !== null) {
+                    $refusals[] = [
+                        'code' => self::REFUSAL_REVOCATION_INERT,
+                        'message' => (string) $inert['message'],
+                        'paths' => [$revocations],
+                        'remediation' => 'enroll the signing key in the agent-owned '
+                            . 'capabilities/adapter-authorities.json, or remove the document — until then it is '
+                            . 'installed and revokes nothing',
+                        'scope' => self::SCOPE_LIBRARY,
+                        'source' => self::SHIPPED,
+                    ];
+                }
+            } catch (\Throwable $unreadable) {
+                $refusals[] = [
+                    'code' => self::REFUSAL_REVOCATION_UNREADABLE,
+                    'message' => $unreadable->getMessage(),
+                    'paths' => [$revocations],
+                    'remediation' => 'reinstall the platform-signed revocation document, or remove it — an '
+                        . 'unreadable one is refused rather than read as "nothing is revoked"',
+                    'scope' => self::SCOPE_LIBRARY,
+                    'source' => self::SHIPPED,
+                ];
+            }
+        }
+
         // The reviewed disposition set is a property of the shipped library,
         // and reading it can still refuse: a malformed root or a malformed
         // profile is a defect in the DOCUMENT, about the library rather than
@@ -3508,6 +3614,13 @@ final class AdapterSources {
             self::WITHDRAWN_SUPERSEDED_WIRE =>
                 'its signed certification is written in a certification wire version this agent does not verify, so '
                     . 'the certified claim is withdrawn until the adapter is re-signed on the current wire',
+            self::WITHDRAWN_AUTHORITY_WINDOW =>
+                'the authority that signed its certification is outside its own validity window on this host, so '
+                    . 'the certified claim is withdrawn until the adapter is re-signed under a key that may still '
+                    . 'certify',
+            self::WITHDRAWN_AUTHORITY_REVOKED =>
+                'the authority that signed its certification is revoked, so the certified claim is withdrawn until '
+                    . 'the adapter is re-signed under a key that is not',
         };
     }
 
@@ -4360,6 +4473,16 @@ final class AdapterSources {
                     $withdrawn = self::WITHDRAWN_STALE_PLATFORM;
                 } catch (SupersededWireSiteAdapterCertificate $movedWire) {
                     $withdrawn = self::WITHDRAWN_SUPERSEDED_WIRE;
+                } catch (WithdrawnAuthoritySiteAdapterCertificate $lostAuthority) {
+                    // THE THIRD, and it joins the two above for the identical
+                    // reason (G2-FIXES C3): a promoted site verifies its
+                    // certificates from THIS path, so an authority whose window
+                    // lapsed — or whose key the typed revocation channel burnt,
+                    // the one channel that deliberately DOES reach a frozen
+                    // snapshot — refused the whole policy here. Withdrawing the
+                    // one adapter is what the revocation was for; taking the
+                    // site down with it was not.
+                    $withdrawn = $lostAuthority->withdrawal();
                 }
                 if ($withdrawn !== null) {
                     // The identical withdrawal the live scan performs, on the

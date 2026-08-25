@@ -58,7 +58,9 @@ require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterSources.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterCertification.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterSources;
 use Duo\Canon;
+use Duo\WithdrawnAuthoritySiteAdapterCertificate;
 
 $repo = dirname(__DIR__, 4);
 $root = $repo . '/sandbox/tmp/revocation-reachability-' . getmypid();
@@ -447,14 +449,28 @@ duo_check(
     'revoking the DELEGATOR through the typed channel invalidates its delegates on the live path, without '
     . 'waiting for an agent release to move a status word (' . $delegatorRefusal . ')'
 );
-duo_check(
-    str_contains(
-        (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
-        'is revoked'
-    ) === false,
+// POSITIVE, not "does not say revoked" (G2 review, M5). The negative form
+// passed for any refusal that happened to word itself differently, including a
+// future one that broke this path outright; what the sentence claims is that
+// the snapshot still VERIFIES, so that is what is asserted.
+duo_check_same(
+    'certified',
+    AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'while the FROZEN path is unaffected by the delegator\'s revocation alone: it holds the delegate\'s own '
-    . 'record and no delegation document, so revoking a delegate is what reaches a snapshot — a fact stated '
-    . 'here rather than left to be discovered'
+    . 'record and no delegation document, so the snapshot still verifies — revoking the DELEGATE\'s fingerprint '
+    . 'is what reaches it, and R-26/R-15 and the operator guide say so in as many words'
+);
+// THE CONTRAST, so the boundary is drawn from both sides. A PLATFORM key is
+// resolved through the shipped root, which frozen verification DOES hold — so
+// revoking one reaches a snapshot immediately, exactly where revoking a
+// DELEGATOR does not. Driven through `authority()`, the one selector every
+// consumer reaches, with no repository: that IS the frozen shape.
+$selector = new ReflectionMethod(AdapterCertification::class, 'authority');
+$platformFrozen = (string) $refusal(static fn() => $selector->invoke(null, $library, $platformId, null));
+duo_check(
+    str_contains($platformFrozen, "authority key '$platformId' is revoked by the platform-signed revocation record"),
+    'and a revoked PLATFORM key refuses on that same frozen shape — the shipped root IS readable there, so what '
+    . 'is out of reach is the delegation document and nothing else (' . $platformFrozen . ')'
 );
 $installRevocations([], $platformId, $platformKey['secret']);
 duo_check_same(
@@ -561,15 +577,126 @@ file_put_contents($revocationsPath, AdapterCertification::signRevocations(
     $operatorId,
     base64_encode($operatorKey['secret'])
 ));
-$foreignSigner = (string) $refusal(
+// C2 — A SIGNER THIS ROOT DOES NOT CARRY IS INERT, NOT FATAL (G2 review).
+//
+// This used to be a hard \RuntimeException, and that made the channel
+// unusable rather than strict: the SHIPPED platform root is `{"keys":{}}` and
+// stays that way through the flag day (§ v3.12), so on a stock agent NO key
+// could have signed a revocation — the first correctly-signed document an
+// operator installed took the site down instead of revoking anything. Nobody is
+// enrolled yet, so that was the channel's only outcome.
+//
+// The three properties the fix has to hold together, each asserted below: the
+// entries DO NOT apply (this agent cannot authenticate them, so it must not
+// read them); the document is REPORTED, with the same sentence, so "installed
+// and inert" is never silent; and TAMPERING still hard-refuses, which is what
+// keeps the state named rather than a hole.
+duo_check_same(
+    'certified',
+    AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
+    'a revocation signed by a key the SHIPPED root does not carry is INERT: its entries do not apply, and the '
+    . 'site keeps working — the honest posture for a channel that is empty until enrollment'
+);
+$channel = AdapterCertification::revocation_channel($library);
+duo_check(
+    is_array($channel)
+        && ($channel['signer'] ?? null) === $operatorId
+        && str_contains((string) $channel['message'], "are signed by key '$operatorId', which is not installed in capabilities/adapter-authorities.json")
+        && str_contains((string) $channel['message'], 'a site key cannot make one')
+        && str_contains((string) $channel['message'], 'entries do NOT apply'),
+    'and it is REPORTED by name, with the sentence the hard refusal used to print plus what it now means — the '
+    . 'row `AdapterSources::survey()` raises, so an operator who installed a document that grants nothing is '
+    . 'told so (' . (is_array($channel) ? $channel['message'] : 'no row') . ')'
+);
+// Through the REAL survey, against the scratch library this suite installed the
+// document into: `survey()` resolves its own manifest directory, so the env var
+// is how a test points it at a fixture — the same seam `regress_adapter_certify`
+// uses for the signing verbs.
+putenv('DUO_MANIFESTS_DIR=' . $library);
+$librarySurvey = AdapterSources::survey(null);
+putenv('DUO_MANIFESTS_DIR');
+$inertRows = array_values(array_filter(
+    $librarySurvey['refusals'],
+    static fn(array $row): bool => ($row['code'] ?? '') === AdapterSources::REFUSAL_REVOCATION_INERT
+));
+duo_check(
+    count($inertRows) === 1
+        && ($inertRows[0]['scope'] ?? null) === AdapterSources::SCOPE_LIBRARY
+        && str_contains((string) $inertRows[0]['remediation'], 'enroll the signing key'),
+    'the survey row is LIBRARY-scoped: it is about the agent\'s own manifest directory rather than about any '
+    . 'adapter, so it blocks no grammar verdict and still makes the command exit 1'
+);
+$tamperedInert = Canon::decode((string) file_get_contents($revocationsPath));
+$tamperedInertStatement = (array) $tamperedInert['statement'];
+$tamperedInertStatement['issued_at'] = '2026-05-02T00:00:00Z';
+$tamperedInert['statement'] = (object) $tamperedInertStatement;
+file_put_contents($revocationsPath, Canon::encode($tamperedInert));
+duo_check_same(
+    'certified',
+    AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
+    'editing a document whose signer is not installed changes nothing either: with no key to check it against, '
+    . 'there is no verdict about its bytes to give — which is precisely why inert is the honest answer and not '
+    . 'a weaker one'
+);
+$installRevocations(
+    [$entry($vendorId, $vendorKey['fingerprint'], 'burnt by a key this root DOES carry')],
+    $platformId,
+    $platformKey['secret']
+);
+$enrolledTamper = Canon::decode((string) file_get_contents($revocationsPath));
+$enrolledStatement = (array) $enrolledTamper['statement'];
+$enrolledStatement['issued_at'] = '2026-05-02T00:00:00Z';
+$enrolledTamper['statement'] = (object) $enrolledStatement;
+file_put_contents($revocationsPath, Canon::encode($enrolledTamper));
+duo_check(
+    str_contains(
+        (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
+        "do not verify under key '$platformId'"
+    ),
+    'while the SAME edit under an ENROLLED signer still hard-refuses: tampering and "nobody here can judge these '
+    . 'bytes" are two different answers, and only the second one is non-fatal'
+);
+// THE SIGNER'S OWN STATUS IS ASKED, and it was implemented but unpinned until
+// now (G2 review, m4 — pinned here because C2 rewrote the branch beside it).
+// A platform key that has ITSELF been revoked cannot attest a revocation
+// document: otherwise burning a signing key would leave every statement it ever
+// made in force, and a stolen key's last act could be a document nobody can
+// retract. It is the third answer's boundary from the other side — this root
+// DOES carry the id, so there is a verdict about the bytes and inert is not it.
+//
+// Driven from a v1 root because a v2 registry cannot express the state: its
+// envelope signature is refused for a revoked signer before any record inside
+// it is read (`assertAuthoritiesEnvelope()`, pinned in
+// regress_authority_record_v2.php), which is the same rule one layer up.
+$enrolledRoot = (string) file_get_contents($authoritiesPath);
+$installRevocations(
+    [$entry($vendorId, $vendorKey['fingerprint'], 'burnt, and then the burner was burnt')],
+    $platformId,
+    $platformKey['secret']
+);
+file_put_contents($authoritiesPath, Canon::encode((object) [
+    'format' => AdapterCertification::AUTHORITIES_FORMAT,
+    'keys' => (object) [
+        $platformId => [
+            'adapter_names' => ['acme-shop'],
+            'algorithm' => 'ed25519',
+            'public_key' => $platformKey['encoded'],
+            'scope' => 'site_adapter_certification',
+            'status' => 'revoked',
+            'trust_tiers' => ['declarative_manifest'],
+        ],
+    ],
+]));
+$revokedRevoker = (string) $refusal(
     static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)
 );
 duo_check(
-    str_contains($foreignSigner, "are signed by key '$operatorId', which is not installed in capabilities/adapter-authorities.json")
-        && str_contains($foreignSigner, 'a site key cannot make one'),
-    'a revocation signed by a key the SHIPPED root does not carry refuses by name: revocation is a '
-    . 'platform-rooted statement (' . $foreignSigner . ')'
+    str_contains($revokedRevoker, "were signed by revoked key '$platformId'")
+        && !str_contains($revokedRevoker, 'inert'),
+    'and a document signed by a REVOKED platform key hard-refuses rather than applying OR going inert: the root '
+    . 'carries that id, so a verdict about the bytes is available and the verdict is no (' . $revokedRevoker . ')'
 );
+file_put_contents($authoritiesPath, $enrolledRoot);
 $installRevocations(
     [$entry($vendorId, $operatorKey['fingerprint'], 'names the wrong key material')],
     $platformId,
@@ -613,6 +740,58 @@ duo_check(
     ),
     'and it takes effect AT that instant — the same `>=` comparison and the same no-skew posture as every other '
     . 'time judgement this file makes'
+);
+
+// C1 — THE CHANNEL FAILED OPEN UNDER A BACKWARDS CLOCK (G2 review).
+//
+// The scheduled arm above GRANTS its subject while `now < effective_at`, and
+// `issued_at` was parsed and DISCARDED, so a host reading before the document
+// was even issued found every already-effective revocation "scheduled" and
+// handed the key back. That is the one direction a revocation channel may never
+// fail, and it needed no attacker: a wrong BIOS clock, a VM restored from a
+// snapshot, a container with no RTC.
+//
+// The fix is assertAuthorityWindow()'s own ordering, applied to this seat:
+// implausible clock FIRST, judged against the stated issuance instant, and the
+// refusal names both instants.
+$installRevocations(
+    [$entry($vendorId, $vendorKey['fingerprint'], 'vendor signing key disclosed in incident 2026-05-01')],
+    $platformId,
+    $platformKey['secret'],
+    '2026-05-01T00:00:00Z'
+);
+$setClock('2026-06-01T00:00:00Z');
+duo_check(
+    str_contains(
+        (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
+        'is revoked by the platform-signed revocation record'
+    ),
+    'the control: on an honest clock this revocation is in force'
+);
+$setClock('2020-01-01T00:00:00Z');
+$backwards = (string) $refusal(
+    static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)
+);
+duo_check(
+    str_contains($backwards, "this host's own wall clock reads 2020-01-01T00:00:00Z")
+        && str_contains($backwards, 'before the platform-signed revocation record at capabilities/adapter-revocations.json was issued at 2026-05-01T00:00:00Z')
+        && str_contains($backwards, "resurrecting the revoked key '$vendorId'")
+        && !str_contains($backwards, 'effective'),
+    'A CLOCK BEFORE THE DOCUMENT\'S OWN ISSUANCE REFUSES, naming both instants, and does NOT reach the '
+    . 'scheduled-revocation arm — the channel fails CLOSED (' . $backwards . ')'
+);
+$thrown = null;
+try {
+    AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope);
+} catch (Throwable $e) {
+    $thrown = $e;
+}
+duo_check(
+    $thrown instanceof WithdrawnAuthoritySiteAdapterCertificate
+        && $thrown->withdrawal() === AdapterSources::WITHDRAWN_AUTHORITY_REVOKED,
+    'and it is the TYPED withdrawal (C3), carrying the `' . AdapterSources::WITHDRAWN_AUTHORITY_REVOKED
+    . '` tag: a revoked authority takes that adapter\'s certified grants away, and no longer takes the whole '
+    . 'policy with it (' . ($thrown === null ? 'nothing thrown' : get_class($thrown)) . ')'
 );
 $setClock('2026-06-01T00:00:00Z');
 

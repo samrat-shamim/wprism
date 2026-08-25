@@ -250,6 +250,14 @@
    "note": "projects the certified evidence (platform_sha256 included) into an inventory row and deliberately keeps null and [] apart; compares nothing. The refusal is AdapterCertification::verifyCertificate."
   },
   {
+   "site": "agent/src/Adapter/AdapterSources.php::survey",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "G2-FIXES C2. Asks AdapterCertification::revocation_channel() once per survey and returns a LIBRARY-scoped refusal row for the two states an operator cannot otherwise see: an installed typed revocation document whose signer the shipped root does not carry (revocation_channel_inert — its entries do not apply, so a document an operator believes in grants nothing), and one that exists and does not verify (revocation_channel_unreadable — a refusal a site holding no certificate would never otherwise reach, because revocations() is read from the certificate path alone). A blocker row rather than a thrown refusal: SCOPE_LIBRARY is not in blocking_refusals(), so no adapter's grammar verdict is suppressed, and `duo adapter doctor` / `wp duo adapter-survey` still exit 1. The hard refusals for a tampered document stay AdapterCertification::revocations()."
+  },
+  {
    "site": "agent/src/Apply/ApplyRequestCoordinator.php::plan",
    "axes": [
     "manifest"

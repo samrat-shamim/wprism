@@ -152,6 +152,40 @@ $installPlatformRoot = static function (array $keys, string $signerId, string $s
     );
 };
 
+/**
+ * The same document, signed through the engine's own envelope framer instead of
+ * through `signAuthorities()`.
+ *
+ * Needed for exactly one population: a PLATFORM record holding a `<vendor>-*`
+ * namespace that reaches a shipped adapter name. The producer holds every record
+ * to the site-root rule (it writes bytes without knowing which file they land
+ * in, and the strict answer is the safe one for a guard rail), while the READER
+ * exempts the reviewed root — see `regress_authority_record_v2.php`, which pins
+ * both halves. Framed by reflection rather than re-spelled here, so a suite that
+ * copied the framing would stop testing the framing.
+ */
+$framer = new ReflectionMethod(AdapterCertification::class, 'authoritiesSignatureBytes');
+$installPlatformRootRaw = static function (array $keys, string $signerId, string $signerSecret) use (
+    $library,
+    $framer
+): void {
+    $document = (object) [
+        'format' => AdapterCertification::AUTHORITIES_FORMAT_V2,
+        'keys' => (object) $keys,
+    ];
+    file_put_contents($library . '/capabilities/adapter-authorities.json', Canon::encode((object) [
+        'format' => $document->format,
+        'keys' => $document->keys,
+        'signature' => (object) [
+            'key_id' => $signerId,
+            'value' => base64_encode(sodium_crypto_sign_detached(
+                (string) $framer->invoke(null, $document->format, json_decode(Canon::encode($document->keys))),
+                $signerSecret
+            )),
+        ],
+    ]));
+};
+
 /** One delegation statement, in the exact member order the closed set names. */
 $statement = static fn(
     array $delegate,
@@ -442,6 +476,97 @@ duo_check_same(
     $resolve($vendorId)[0]['adapter_names'],
     'while `acme-*` DOES narrow to `acme-forms-*` — the pattern rule admits a longer prefix and nothing else'
 );
+
+echo "\n== M4: a grant may not sweep up a name the shipped library reserves ==\n";
+
+// THE ESCALATION THE G2 REVIEW FOUND, driven end to end. 10 of the 16
+// grandfathered names sit inside a legal `<vendor>-*` namespace, so enrolling a
+// vendor with its own products' namespace handed it the SHIPPED adapter of the
+// same name — and out of tree that name is the reviewed OVERRIDE, which inherits
+// the shipped adapter's interpreter, regenerator and provider grants
+// (`AdapterSources::assert_out_of_tree_contract()`). The delegated record is
+// synthesized and then put through the shipped record grammar, which is exactly
+// where the rule bites, so no second reading of it exists here either.
+$installPlatformRootRaw(
+    [$platformId => $v2Record($platformKey['encoded'], ['ninja-*'], ['declarative_manifest'])],
+    $platformId,
+    $platformKey['secret']
+);
+$vendorReserved = $sign(
+    $statement($vendorKey, $vendorId, $platformKey, $platformId, ['ninja-*'], ['declarative_manifest']),
+    $platformId,
+    $platformKey['secret']
+);
+$installDelegations([$vendorId => $vendorReserved]);
+$reservedRefusal = (string) $refusal(static fn() => $resolve($vendorId));
+duo_check(
+    str_contains($reservedRefusal, "entry 'ninja-*' covers 'ninja-forms'")
+        && str_contains($reservedRefusal, 'adapter names the shipped library reserves')
+        && str_contains($reservedRefusal, 'inherits that adapter\'s interpreter, regenerator and'),
+    'a delegation granting `ninja-*` is refused because that namespace reaches the shipped `ninja-forms`, and '
+    . 'the refusal names the covered member and the privilege an override of it would inherit ('
+    . $reservedRefusal . ')'
+);
+// The platform root itself carried the same pattern above and loaded: the
+// exemption is the reviewed library's, and it does not travel with the grant.
+$installPlatformRootRaw(
+    [$platformId => $v2Record($platformKey['encoded'], ['ninja-*'], ['declarative_manifest'])],
+    $platformId,
+    $platformKey['secret']
+);
+duo_check_same(
+    null,
+    $refusal(static fn() => (new ReflectionMethod(AdapterCertification::class, 'authorityKeys'))
+        ->invoke(null, $library . '/capabilities/adapter-authorities.json', 'adapter certification authorities', true)),
+    'while the PLATFORM record holding `ninja-*` loads: the exemption belongs to the reviewed root and is not '
+    . 'inherited by what that root delegates — which is the whole point, because the delegate is the party the '
+    . 'grant was never reviewed for'
+);
+$installPlatformRoot(
+    [$platformId => $v2Record($platformKey['encoded'], ['acme-*'], ['declarative_manifest', 'plugin_provider'])],
+    $platformId,
+    $platformKey['secret']
+);
+$installDelegations([$vendorId => $goodDelegation]);
+
+echo "\n== M7: the signature is checked BEFORE the statement is read ==\n";
+
+// THE DEFECT (G2 review, M7). The narrowing checks ran ahead of the signature,
+// so a TAMPERED delegation reported the narrowing rule it happened to break —
+// an attacker-chosen sentence, and one that reads as a policy problem rather
+// than as forgery. The fix moves the signature block ahead of them and moves no
+// refusal byte; this case is discriminating about the order rather than merely
+// about the outcome, on the `:361` model: the widening sentence must be ABSENT.
+$widenedForgery = $forge(
+    $statement($vendorKey, $vendorId, $platformKey, $platformId, ['zeta-forms'], ['declarative_manifest']),
+    $platformId,
+    $otherVendorKey['secret']
+);
+$installDelegations([$vendorId => $widenedForgery]);
+$orderRefusal = (string) $refusal(static fn() => $resolve($vendorId));
+duo_check(
+    str_contains($orderRefusal, "does not verify under delegator '$platformId'")
+        && !str_contains($orderRefusal, "grants 'zeta-forms'"),
+    'a statement that BOTH widens its grant and was signed by the wrong key answers with the SIGNATURE: the '
+    . 'crypto runs first, so nothing an unverified statement claims is reported as a finding about policy ('
+    . $orderRefusal . ')'
+);
+// And the narrowing rules are still the verifier's, not the producer's: the
+// same widening under the RIGHT key still refuses by name, which is what stops
+// this reordering from being a quiet removal.
+$installDelegations([$vendorId => $sign(
+    $statement($vendorKey, $vendorId, $platformKey, $platformId, ['zeta-forms'], ['declarative_manifest']),
+    $platformId,
+    $platformKey['secret']
+)]);
+duo_check(
+    str_contains(
+        (string) $refusal(static fn() => $resolve($vendorId)),
+        "grants 'zeta-forms', which its delegator '$platformId' does not hold"
+    ),
+    'while a correctly-signed widening still refuses by name — the ordering moved, the rules did not'
+);
+$installDelegations([$vendorId => $goodDelegation]);
 
 echo "\n== refusal 3: time is a scope, and it narrows the same way ==\n";
 

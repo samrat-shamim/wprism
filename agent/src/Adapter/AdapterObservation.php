@@ -472,7 +472,17 @@ final class AdapterObservation {
             $refusals[] = [
                 'code' => self::code($row['code'] ?? null),
                 'path_count' => count($row['paths']),
-                'scope' => self::enum($row['scope'] ?? null, [AdapterSources::SCOPE_ADAPTER, AdapterSources::SCOPE_SOURCE]),
+                // Three words since G2-FIXES C2: `library` is a row about the
+                // agent's own manifest directory (an installed-but-inert typed
+                // revocation document), which is neither one adapter nor one
+                // source. Admitted here rather than redacted to `?`, because an
+                // observation that hid the scope would report the row as
+                // unclassifiable and invite a reader to guess.
+                'scope' => self::enum($row['scope'] ?? null, [
+                    AdapterSources::SCOPE_ADAPTER,
+                    AdapterSources::SCOPE_LIBRARY,
+                    AdapterSources::SCOPE_SOURCE,
+                ]),
                 'source' => self::enum($row['source'] ?? null, self::SOURCES),
             ];
         }

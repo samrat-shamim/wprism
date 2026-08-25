@@ -759,6 +759,12 @@
                 "REFUSAL_RESERVED_NAMESPACE": {
                     "value_repr": "reserved_namespace"
                 },
+                "REFUSAL_REVOCATION_INERT": {
+                    "value_repr": "revocation_channel_inert"
+                },
+                "REFUSAL_REVOCATION_UNREADABLE": {
+                    "value_repr": "revocation_channel_unreadable"
+                },
                 "REFUSAL_SHADOWS_SHIPPED": {
                     "value_repr": "shadows_shipped"
                 },
@@ -782,6 +788,9 @@
                 },
                 "SCOPE_ADAPTER": {
                     "value_repr": "adapter"
+                },
+                "SCOPE_LIBRARY": {
+                    "value_repr": "library"
                 },
                 "SCOPE_SOURCE": {
                     "value_repr": "source"
@@ -818,6 +827,12 @@
                 },
                 "TRUST_ROOT_SITE": {
                     "value_repr": "site"
+                },
+                "WITHDRAWN_AUTHORITY_REVOKED": {
+                    "value_repr": "authority_revoked"
+                },
+                "WITHDRAWN_AUTHORITY_WINDOW": {
+                    "value_repr": "authority_window_lapsed"
                 },
                 "WITHDRAWN_STALE_PLATFORM": {
                     "value_repr": "stale_platform_boundary"
