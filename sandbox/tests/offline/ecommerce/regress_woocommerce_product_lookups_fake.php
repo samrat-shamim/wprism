@@ -3075,6 +3075,99 @@ namespace {
     unset($fakeGroupedChildren[$nestedReverseRoot], $fakeGroupedChildren[$nestedReverseInner],
         $fakeGroupedChildren[$nestedReverseParent]);
 
+    // A sealed owner can disappear or change subtype after the final scope
+    // witness but before reverse-edge projection. The provider must consume
+    // that edge once and refuse before invalidating the stale owner, rather
+    // than retrying the same generator row forever or silently skipping it.
+    $staleReverseChild = 71710;
+    $staleReverseParent = 71711;
+    fake_add_visibility_product($staleReverseChild, 'simple');
+    fake_add_visibility_product($staleReverseParent, 'grouped', 0, [$staleReverseChild]);
+    $fakeGroupedChildren[$staleReverseParent] = [$staleReverseChild];
+    $staleReverseReads = 0;
+    $wpdb->childScopeReadHook = static function () use (
+        &$staleReverseReads,
+        &$fakeProducts,
+        &$fakeProductCache,
+        $staleReverseParent
+    ): void {
+        $staleReverseReads++;
+        // Preflight and assertion each read the grouped payload twice. Make
+        // the owner non-grouped after those reads, immediately before the
+        // reverse-edge consumer loads it.
+        if ($staleReverseReads === 4) {
+            $fakeProducts[$staleReverseParent]->set_type('simple');
+            unset($fakeProductCache[$staleReverseParent]);
+        }
+    };
+    $staleReverseCacheStart = count($fakeCacheEvents);
+    $staleReverseFailure = '';
+    try {
+        $adapter->regenerate_batch([$staleReverseChild], []);
+    } catch (\Throwable $failure) {
+        $staleReverseFailure = $failure->getMessage();
+    }
+    $wpdb->childScopeReadHook = null;
+    $staleReverseEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $staleReverseCacheStart),
+        static fn(string $event): bool => $event === 'remove:' . $staleReverseParent
+    ));
+    $check(str_contains($staleReverseFailure, 'is no longer grouped')
+        && $staleReverseEffects === []
+        && $staleReverseReads === 4,
+        'a reverse owner changing subtype refuses once, without invalidating the stale owner');
+    unset($fakeProducts[$staleReverseChild], $fakeMeta[$staleReverseChild],
+        $fakeMetaLookup[$staleReverseChild], $fakeVisibilityRelationships[$staleReverseChild],
+        $fakeProductCache[$staleReverseChild], $fakeProducts[$staleReverseParent],
+        $fakeMeta[$staleReverseParent], $fakeMetaLookup[$staleReverseParent],
+        $fakeVisibilityRelationships[$staleReverseParent], $fakeProductCache[$staleReverseParent],
+        $fakeGroupedChildren[$staleReverseParent]);
+
+    // The owner can retain its grouped subtype while losing the specific
+    // witness edge. Re-read the bounded serialized child payload before any
+    // owner cache invalidation and refuse the exact membership drift.
+    $lostMembershipChild = 71720;
+    $lostMembershipParent = 71721;
+    fake_add_visibility_product($lostMembershipChild, 'simple');
+    fake_add_visibility_product($lostMembershipParent, 'grouped', 0, [$lostMembershipChild]);
+    $fakeGroupedChildren[$lostMembershipParent] = [$lostMembershipChild];
+    $lostMembershipReads = 0;
+    $wpdb->childScopeReadHook = static function () use (
+        &$lostMembershipReads,
+        &$fakeGroupedChildren,
+        $lostMembershipParent
+    ): void {
+        $lostMembershipReads++;
+        // The fifth bounded payload read is the reverse-edge consumer's
+        // fresh owner check: two preflight reads plus two assertion reads
+        // have already established the sealed scope.
+        if ($lostMembershipReads === 5) {
+            $fakeGroupedChildren[$lostMembershipParent] = [];
+        }
+    };
+    $lostMembershipCacheStart = count($fakeCacheEvents);
+    $lostMembershipFailure = '';
+    try {
+        $adapter->regenerate_batch([$lostMembershipChild], []);
+    } catch (\Throwable $failure) {
+        $lostMembershipFailure = $failure->getMessage();
+    }
+    $wpdb->childScopeReadHook = null;
+    $lostMembershipEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $lostMembershipCacheStart),
+        static fn(string $event): bool => $event === 'remove:' . $lostMembershipParent
+    ));
+    $check(str_contains($lostMembershipFailure, 'child membership changed')
+        && $lostMembershipEffects === []
+        && $lostMembershipReads === 6,
+        'a reverse owner losing its sealed child membership refuses before owner invalidation');
+    unset($fakeProducts[$lostMembershipChild], $fakeMeta[$lostMembershipChild],
+        $fakeMetaLookup[$lostMembershipChild], $fakeVisibilityRelationships[$lostMembershipChild],
+        $fakeProductCache[$lostMembershipChild], $fakeProducts[$lostMembershipParent],
+        $fakeMeta[$lostMembershipParent], $fakeMetaLookup[$lostMembershipParent],
+        $fakeVisibilityRelationships[$lostMembershipParent], $fakeProductCache[$lostMembershipParent],
+        $fakeGroupedChildren[$lostMembershipParent]);
+
     // Exercise the same mutable sequence through Woo's variable-product
     // post_parent reader. The all-child witness is fixed at 50,000 ids, then
     // the native membership widens before the assertion read; no later

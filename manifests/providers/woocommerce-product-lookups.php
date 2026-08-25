@@ -2891,15 +2891,10 @@ final class WoocommerceProductLookups {
 
         // Grouped products store their child ids in _children rather than a
         // post_parent relation. The preflight witness already performed the
-        // bounded batched reverse scan; consume its streamed edge bytes here
-        // rather than issuing a second per-id query after effects begin.
-        $groupedCandidateIds = array_values(array_unique(array_merge(
-            $liveIds,
-            array_keys($deletionIds),
-            array_keys($variableRoots),
-            array_keys($deletedParents),
-            array_keys($reparentedParents)
-        )));
+        // bounded batched reverse scan; consume every streamed edge exactly
+        // once here rather than issuing a second per-id query after effects
+        // begin. Every discovered descendant is in this witness, so owners of
+        // nested members are refreshed as well as owners of selected ids.
         $groupedParentCandidates = $preflightScope['grouped_parent_candidates'] ?? null;
         $groupedParentSnapshot = $preflightScope['grouped_parents'] ?? null;
         if (!is_array($groupedParentCandidates) || !is_string($groupedParentSnapshot)) {
@@ -2907,7 +2902,6 @@ final class WoocommerceProductLookups {
                 'duo: WooCommerce product lookup scope is missing its bounded grouped-parent witness'
             );
         }
-        sort($groupedCandidateIds, SORT_NUMERIC);
         $groupedParentEdges = $this->grouped_parent_witness_edges($groupedParentSnapshot);
         $groupedParentEdges->rewind();
         $edge = $groupedParentEdges->valid() ? $groupedParentEdges->current() : null;
@@ -2915,47 +2909,69 @@ final class WoocommerceProductLookups {
             $groupedParentEdges->next();
             $edge = $groupedParentEdges->valid() ? $groupedParentEdges->current() : null;
         };
-        foreach ($groupedCandidateIds as $childId) {
-            $childId = (int) $childId;
-            if ($childId <= 0) {
+        // Roots already collected from the selected batch have had their
+        // caches and native inputs prepared; a reverse edge back to one of
+        // those roots must not duplicate that work.
+        $processedGroupedParents = array_fill_keys(array_map('intval', array_keys($groupedRoots)), true);
+        while ($edge !== null) {
+            $childId = $edge['child_id'];
+            $parentId = $edge['parent_id'];
+            // Advance before every branch, including validation failures. A
+            // malformed/stale owner must fail closed, but it must never leave
+            // a generator edge current and spin forever on retry.
+            $advanceEdge();
+            if (!$this->sorted_id_contains($groupedParentCandidates, $childId)
+                || !$this->sorted_id_contains($groupedParentCandidates, $parentId)) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce grouped-parent witness contains an out-of-scope edge; recovery_required'
+                );
+            }
+            if (isset($processedGroupedParents[$parentId])) {
                 continue;
             }
-            if (!$this->sorted_id_contains($groupedParentCandidates, $childId)) {
+            $this->heartbeat($heartbeat);
+            $parent = $this->load_product($parentId);
+            if (!$parent) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product lookup scope lacks grouped-parent witness for product $childId"
+                    "duo: WooCommerce grouped reverse-owner $parentId disappeared before native projection; recovery_required"
                 );
             }
-            $this->heartbeat($heartbeat);
-            while ($edge !== null && $edge['child_id'] < $childId) {
-                $advanceEdge();
-            }
-            while ($edge !== null && $edge['child_id'] === $childId) {
-                $parentId = $edge['parent_id'];
-                $this->heartbeat($heartbeat);
-                $this->invalidate_product_caches($parentId);
-                $parent = $this->load_product($parentId);
-                if (!$parent || !$this->is_grouped($parent)) {
-                    continue;
-                }
-                $this->bind_product_scope_children($parent, $parentId, $preflightScope);
-                $children = $this->snapshot_children($preflightScope, $parentId);
-                if (!in_array($childId, $children, true)) {
-                    continue;
-                }
-                $this->collect_grouped_root(
-                    $parent,
-                    $groupedRoots,
-                    $variableRoots,
-                    $attributeRoots,
-                    $products,
-                    $priceIds,
-                    $deletionIds,
-                    $preflightScope,
-                    $heartbeat
+            if (!$this->is_grouped($parent)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce grouped reverse-owner $parentId is no longer grouped; recovery_required"
                 );
-                $advanceEdge();
             }
-            $this->heartbeat($heartbeat);
+            $expectedChildren = $preflightScope['children'][$parentId] ?? null;
+            if (!is_array($expectedChildren)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce grouped reverse-owner $parentId lacks its bounded child witness; recovery_required"
+                );
+            }
+            $actualChildren = $this->bounded_product_children(
+                $parent,
+                $parentId,
+                'grouped reverse-owner scope verification'
+            );
+            $expectedChildren = array_values(array_map('intval', $expectedChildren));
+            if ($actualChildren !== $expectedChildren || !in_array($childId, $actualChildren, true)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce grouped reverse-owner $parentId child membership changed before native projection; recovery_required"
+                );
+            }
+            $this->bind_product_scope_children($parent, $parentId, $preflightScope);
+            $this->invalidate_product_caches($parentId);
+            $this->collect_grouped_root(
+                $parent,
+                $groupedRoots,
+                $variableRoots,
+                $attributeRoots,
+                $products,
+                $priceIds,
+                $deletionIds,
+                $preflightScope,
+                $heartbeat
+            );
+            $processedGroupedParents[$parentId] = true;
         }
 
         // A deleted variation, or a variation moved away from an old root,
