@@ -8,6 +8,8 @@ namespace Duo {
         public static int $rollbacks = 0;
 
         public static function start_repeatable_read(string $purpose): void { ++self::$starts; }
+        public static function commit(string $purpose): void {}
+        public static function checkpoint(string $purpose): void {}
         public static function rollback(string $purpose): void {
             ++self::$rollbacks;
             if (isset($GLOBALS['wpdb'])
@@ -47,6 +49,24 @@ namespace TEC\Common\Integrations\Harbor {
 }
 
 namespace {
+    if (!function_exists('untrailingslashit')) {
+        function untrailingslashit(string $value): string { return rtrim($value, '/\\'); }
+    }
+    if (!function_exists('get_option')) {
+        function get_option(string $name): mixed { return $name === 'home' ? 'https://example.test' : false; }
+    }
+    if (!function_exists('wp_upload_dir')) {
+        function wp_upload_dir(?string $time = null, bool $refresh = false): array {
+            return ['baseurl' => 'https://example.test/wp-content/uploads'];
+        }
+    }
+    if (!function_exists('get_taxonomy')) {
+        function get_taxonomy(string $taxonomy): object { return (object) ['hierarchical' => true]; }
+    }
+    if (!function_exists('wp_cache_flush')) {
+        function wp_cache_flush(): true { return true; }
+    }
+
     final class PLL_Sync_Post_Metas {
         public function can_synchronize_metadata(mixed $check, mixed $id, mixed $key): mixed {
             ++$GLOBALS['duo_attachment_adapter_callback_calls'];
@@ -151,7 +171,15 @@ namespace {
     }
     final class AttachmentAuthorityWpdb {
         public string $prefix = 'wp_';
+        public string $posts = 'wp_posts';
         public string $postmeta = 'wp_postmeta';
+        public string $terms = 'wp_terms';
+        public string $term_taxonomy = 'wp_term_taxonomy';
+        public string $term_relationships = 'wp_term_relationships';
+        public string $termmeta = 'wp_termmeta';
+        public string $options = 'wp_options';
+        public string $users = 'wp_users';
+        public string $usermeta = 'wp_usermeta';
         public string $last_error = '';
         public bool $savepointExists = false;
         public bool $failMarkerInventory = false;
@@ -175,6 +203,7 @@ namespace {
         public function get_var(string $sql): mixed {
             $this->queries[] = $sql;
             if (trim($sql) === 'SELECT @@in_transaction') return '1';
+            if (preg_match('/^SELECT 1 FROM `[^`]+` LIMIT 1$/D', trim($sql)) === 1) return '1';
             if (preg_match("/SELECT v FROM wp_duo_kv WHERE k = '((?:''|[^'])*)'/D", $sql, $match) === 1) {
                 $wanted = str_replace("''", "'", $match[1]);
                 foreach ($this->kvRows as $row) {
@@ -225,7 +254,17 @@ namespace {
                     ];
                 }, $rows);
             }
-            if (str_starts_with($sql, 'SHOW INDEX FROM `wp_postmeta`')) {
+            if (str_starts_with($sql, 'SHOW INDEX FROM')) {
+                if (str_contains($sql, '`wp_options`')) {
+                    return [[
+                        'Key_name' => 'option_name',
+                        'Seq_in_index' => '1',
+                        'Column_name' => 'option_name',
+                        'Sub_part' => null,
+                        'Non_unique' => '0',
+                        'Index_type' => 'BTREE',
+                    ]];
+                }
                 return [[
                     'Key_name' => 'meta_key',
                     'Seq_in_index' => '1',
@@ -235,6 +274,15 @@ namespace {
                     'Index_type' => 'BTREE',
                 ]];
             }
+            if (str_contains($sql, 'FROM information_schema.TABLES')) {
+                preg_match_all("/'([^']+)'/", $sql, $matches);
+                return array_map(static fn(string $table): array => [
+                    'TABLE_NAME' => $table,
+                    'ENGINE' => 'InnoDB',
+                ], $matches[1] ?? []);
+            }
+            if (str_contains($sql, 'SELECT option_name')) return [];
+            if (str_contains($sql, 'SELECT k, v FROM wp_duo_kv')) return [];
             if (!str_contains($sql, 'attachment') && !str_contains($sql, 'FROM `wp_postmeta`')) {
                 throw new \RuntimeException("unrecognized attachment authority get_results: $sql");
             }
@@ -301,6 +349,10 @@ namespace {
         return true;
     }
 
+    function add_action(string $hook, callable $callback, int $priority = 10, int $acceptedArgs = 1): bool {
+        return add_filter($hook, $callback, $priority, $acceptedArgs);
+    }
+
     function remove_filter(string $hook, callable $callback, int $priority = 10): bool {
         global $wp_filter;
         $node = $wp_filter[$hook] ?? null;
@@ -327,7 +379,11 @@ namespace {
     }
 
     function wp_upload_dir(mixed $time = null, bool $create = true): array {
-        return ['basedir' => $GLOBALS['duo_attachment_upload_root'], 'error' => false];
+        return [
+            'basedir' => $GLOBALS['duo_attachment_upload_root'],
+            'baseurl' => 'https://example.test/wp-content/uploads',
+            'error' => false,
+        ];
     }
 
     function wp_get_registered_image_subsizes(): array {
@@ -411,15 +467,29 @@ namespace {
     require_once $root . '/agent/src/Apply/AttachmentNativeMetadataGenerator.php';
     require_once $root . '/agent/src/Apply/AttachmentFilesystemTransaction.php';
     require_once $root . '/agent/src/Apply/AttachmentMaterializer.php';
+    require_once $root . '/agent/src/Apply/ApplyServiceCallbacks.php';
+    require_once $root . '/agent/src/Apply/ApplyServices.php';
+    require_once $root . '/agent/src/Rebuild/RebuildRequest.php';
+    require_once $root . '/agent/src/Rebuild/RebuildSelection.php';
+    require_once $root . '/agent/src/Apply/ApplyRebuildCoordinator.php';
+    require_once $root . '/agent/src/Apply/AuthoredTransactionRequest.php';
+    require_once $root . '/agent/src/Delete/DeletionAuthority.php';
+    require_once $root . '/agent/src/Apply/AuthoredTransactionExecutor.php';
 
     use Duo\ApplyFieldMaterializer;
     use Duo\AttachmentFilesystemTransaction;
     use Duo\AttachmentMaterializer;
     use Duo\AttachmentNativeMetadataAuthority;
     use Duo\AttachmentNativeMetadataGenerator;
+    use Duo\ApplyRebuildCoordinator;
+    use Duo\ApplyServiceCallbacks;
+    use Duo\ApplyServices;
+    use Duo\ApplyWorkset;
+    use Duo\AuthoredTransactionRequest;
     use Duo\CompiledRepository;
     use Duo\Db;
     use Duo\DeleteGuardEvaluator;
+    use Duo\DeletionAuthority;
     use Duo\PlainData;
     use Duo\Policy;
     use Duo\Tokens;
@@ -606,6 +676,11 @@ namespace {
         $GLOBALS['duo_attachment_big_guard_seen'] = false;
         $GLOBALS['duo_attachment_generate_calls'] = 0;
         $filesystem->generate_metadata($preflightGenerator);
+        $throws(
+            static fn() => $preflightGenerator->generate(41, $stageOriginal),
+            'was replayed for the same attachment attempt',
+            'a consumed Polylang handoff refuses replay for the same attachment instead of authorizing a second generation'
+        );
         $check(
             Db::$starts === 1
                 && Db::$rollbacks === 1
@@ -1389,6 +1464,77 @@ namespace {
         $check(
             str_contains($nativeRebuildSource, 'finalize_native_metadata($attachmentIds)'),
             'NativeRebuildExecutor remains the sole production consumer of the attachment handoff'
+        );
+
+        $callbacks = new ApplyServiceCallbacks(
+            taxonomyOwnership: static fn(): array => [],
+            renewPromotionLock: static function (string $phase): void {},
+            renewRegenerationLease: static function (): void {},
+            renewProviderLease: static function (): void {},
+            lockDeleteGuards: static function (array $a, array $b, array $c, array $d, array $e): void {},
+            recheckDeleteGuard: static function (array $a, array $b, array $c, bool $d, array $e, array $f, bool $g): void {},
+            selectionDeclaresChannelFor: static fn(string $channel, string $surface): bool => false,
+            selectionDeclaresEntityBatchFor: static fn(string $surface): bool => false,
+            selectionTriggersProviderActionFor: static fn(string $surface): bool => false,
+            pinnedProviderActionOwns: static fn(string $surface): bool => false,
+            upsertMeta: static function (string $table, string $fk, int $id, string $key, ?string $value, ?string $context, string $idCol): void {}
+        );
+        $services = new ApplyServices($policy, $compiled, $callbacks, $repository);
+        $servicesAttachment = new \ReflectionProperty(ApplyServices::class, 'attachmentMaterializer');
+        $servicesAttachment->setValue($services, $attachmentMaterializer);
+        $authoredExecutor = $services->authored_transaction_executor();
+        $warnings = [];
+        $authoredResult = $authoredExecutor->execute(
+            new AuthoredTransactionRequest(
+                workset: new ApplyWorkset(
+                    plan: ['adopt' => [], 'deleted' => []],
+                    tree: [],
+                    work: [],
+                    deleteWork: [],
+                    deleteUuids: [],
+                    guardRepairUuids: [],
+                    compiledDeletions: []
+                ),
+                deletionAuthority: new DeletionAuthority(false, false, false),
+                scoped: false,
+                scopeContract: null,
+                performTransaction: true,
+                defaultAuthor: null,
+                commitScopedAuthoring: null,
+                rollbackScopedAuthoring: null
+            ),
+            $warnings
+        );
+        $check(
+            $authoredResult['attachment_ids'] === [] && $authoredResult['regen_context'] === [],
+            'AuthoredTransactionExecutor reaches the production handoff boundary with an empty attachment workset'
+        );
+        $selection = new \Duo\RebuildSelection($policy);
+        $rebuild = new ApplyRebuildCoordinator($services, $selection);
+        $actionReceipts = [];
+        $rebuild->rebuild(
+            new \Duo\RebuildRequest(
+                attachmentIds: [41],
+                work: [],
+                tree: [],
+                regenerationContext: [],
+                deleteWork: [],
+                withDeletes: false,
+                absentTombstones: [],
+                retryingIncompleteApply: false,
+                scoped: false,
+                skipScopedCore: false,
+                scopedCoreComplete: null,
+                suppressScopedExternalEffects: true,
+                scopedSession: null,
+                scopedObservation: null
+            ),
+            $warnings,
+            $actionReceipts
+        );
+        $check(
+            $proofState->getValue($attachmentMaterializer) === null,
+            'ApplyRebuildCoordinator invokes NativeRebuildExecutor and clears authority at its terminal boundary without a forged handoff'
         );
 
         $priorOwnership = new \ReflectionMethod(AttachmentMaterializer::class, 'prior_native_owned_paths');

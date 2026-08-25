@@ -1491,9 +1491,7 @@ final class ApplyRequestCoordinator {
         // indistinguishable from an applied one once it reaches a provider.
         // Passing rows rather than re-deriving them keeps the selection and the
         // channel from disagreeing (see rebuild()'s own docblock).
-        $rebuildEntered = true;
-        $this->rebuildCoordinator->rebuild(
-            new RebuildRequest(
+        $rebuildRequest = new RebuildRequest(
                 attachmentIds: $attachmentIds,
                 work: $work,
                 tree: $tree,
@@ -1510,7 +1508,10 @@ final class ApplyRequestCoordinator {
                 suppressScopedExternalEffects: $scopedPromotion,
                 scopedSession: $this->scopedWorkflow->session,
                 scopedObservation: $this->scopedWorkflow->observation
-            ),
+        );
+        $rebuildEntered = true;
+        $this->rebuildCoordinator->rebuild(
+            $rebuildRequest,
             $this->warnings,
             $this->actionReceipts
         );

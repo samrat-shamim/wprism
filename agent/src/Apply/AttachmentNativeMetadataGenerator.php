@@ -101,6 +101,9 @@ final class AttachmentNativeMetadataGenerator {
     private bool $markerlessPreflightActive = false;
     private bool $markerlessProofAvailable = false;
     private bool $nativeRebuildHandoffConsumed = false;
+    /** @var array<int,true> */
+    private array $nativeRebuildAuthorizedAttachmentIds = [];
+    private ?int $currentAttachmentId = null;
     private readonly AttachmentNativeMetadataAuthority $authority;
     private \Closure $lockTarget;
     /** @var list<string> */
@@ -415,6 +418,7 @@ final class AttachmentNativeMetadataGenerator {
         if ($attachmentId <= 0) {
             throw new \RuntimeException('duo: native attachment metadata generation requires a positive attachment id');
         }
+        $this->currentAttachmentId = $attachmentId;
         $this->assert_stage_file($stageFile);
 
         $guard = static function (
@@ -867,7 +871,14 @@ final class AttachmentNativeMetadataGenerator {
     }
 
     private function consume_polylang_no_language_handoff(): void {
-        if ($this->nativeRebuildHandoffConsumed) return;
+        if ($this->nativeRebuildHandoffConsumed) {
+            if ($this->currentAttachmentId === null
+                || isset($this->nativeRebuildAuthorizedAttachmentIds[$this->currentAttachmentId])) {
+                throw new \RuntimeException('duo: Polylang no-language handoff was replayed for the same attachment attempt');
+            }
+            $this->nativeRebuildAuthorizedAttachmentIds[$this->currentAttachmentId] = true;
+            return;
+        }
         $context = $this->authority->post_commit_context();
         if (!is_array($context)) {
             throw new \RuntimeException('duo: Polylang no-language handoff is not sealed to a post-commit attachment attempt');
@@ -884,6 +895,9 @@ final class AttachmentNativeMetadataGenerator {
             throw new \RuntimeException('duo: Polylang no-language handoff does not match the compiled manifest identity');
         }
         $this->nativeRebuildHandoffConsumed = true;
+        if ($this->currentAttachmentId !== null) {
+            $this->nativeRebuildAuthorizedAttachmentIds[$this->currentAttachmentId] = true;
+        }
     }
 
     /** @param array<string,mixed> $context */
