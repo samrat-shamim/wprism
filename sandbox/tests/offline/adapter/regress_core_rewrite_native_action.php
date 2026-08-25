@@ -363,6 +363,7 @@ function core_rewrite_refuses(callable $callback, string $needle, string $messag
 
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Policy/Policy.php';
+require_once $root . '/agent/src/Rebuild/RebuildActionNegotiator.php';
 
 putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 $policy = Duo\Policy::load(null, ['core']);
@@ -430,6 +431,34 @@ core_rewrite_refuses(
     'unknown key(s)',
     'a manifest cannot turn the soft flush into a filesystem-writing hard flush'
 );
+
+core_rewrite_reset();
+$foreignPreflightHook = new WP_Hook();
+$foreignPreflightHook->callbacks[10]['foreign'] = [
+    'function' => static fn(array $rules): array => $rules,
+    'accepted_args' => 1,
+];
+$GLOBALS['wp_filter']['rewrite_rules_array'] = $foreignPreflightHook;
+$preflight = new ReflectionMethod(Duo\RebuildActionNegotiator::class, 'preflight_native_actions');
+$preflightRows = $GLOBALS['wpdb']->optionRows;
+core_rewrite_refuses(
+    static fn() => $preflight->invoke(null, [[
+        'kind' => 'native',
+        'action' => 'rewrite.flush',
+        'args' => [],
+    ]]),
+    'apply refused before target mutation',
+    'batch negotiation refuses an open Polylang rewrite callback before an earlier provider can mutate'
+);
+duo_check_same($preflightRows, $GLOBALS['wpdb']->optionRows, 'native batch preflight performs no durable mutation');
+duo_check_same(0, $GLOBALS['core_rewrite_child_launches'], 'native batch preflight launches no rewrite child');
+$negotiatorSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionNegotiator.php');
+duo_check(
+    strpos($negotiatorSource, 'self::preflight_native_actions($selectedActions);')
+        < strpos($negotiatorSource, 'Providers::negotiate_scoped'),
+    'ordinary negotiation invokes native topology preflight before provider negotiation returns mutation authority'
+);
+unset($GLOBALS['wp_filter']['rewrite_rules_array']);
 
 core_rewrite_reset();
 $foreignRewriteHook = new WP_Hook();
