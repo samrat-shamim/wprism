@@ -99,6 +99,13 @@ final class AuthoredTransactionExecutor {
         $scopeContract = $request->scopeContract;
         $performTransaction = $request->performTransaction;
         $defaultAuthor = $request->defaultAuthor;
+        $commitScopedAuthoring = $request->commitScopedAuthoring;
+        $rollbackScopedAuthoring = $request->rollbackScopedAuthoring;
+        $requiresScopedParticipant = $scoped && $performTransaction;
+        if (($commitScopedAuthoring !== null) !== $requiresScopedParticipant
+            || ($rollbackScopedAuthoring !== null) !== $requiresScopedParticipant) {
+            throw new \RuntimeException('duo: authored transaction received an invalid scoped commit participant');
+        }
         $attachmentIds = $this->attachmentMaterializer->pending_attachment_ids();
         $regenContext = [];
         if ($scoped && !$performTransaction) {
@@ -115,12 +122,20 @@ final class AuthoredTransactionExecutor {
         CacheInvalidationTransaction::assert_local_cache('authored apply');
 
         $transactionStarted = false;
+        $scopedCommitParticipantStarted = false;
         Canary::arm();
         try {
             $this->attachmentMaterializer->prepare_filesystem($work, $tree);
             Db::start_repeatable_read('apply transaction start');
             $transactionStarted = true;
             $this->fieldMaterializer->begin_authored_transaction();
+            DeleteGuardEvaluator::assert_innodb_tables(
+                $this->authored_transaction_tables(),
+                'authored transaction storage-engine boundary'
+            );
+            DeleteGuardEvaluator::assert_transaction_isolation(
+                'authored transaction storage-engine boundary'
+            );
             $this->termMaterializer->begin_authored_transaction();
             $this->optionsMaterializer->begin_authored_transaction();
             CacheInvalidationTransaction::begin();
@@ -301,6 +316,14 @@ final class AuthoredTransactionExecutor {
             DeleteGuardEvaluator::assert_transaction_isolation(
                 'authored transaction final commit boundary'
             );
+            if ($commitScopedAuthoring !== null) {
+                // This participant updates the scoped session row through the
+                // same wpdb connection and transaction as authored state. Its
+                // one CAS therefore cannot certify a map generation that the
+                // authored COMMIT later rolls back (DUO-3618).
+                $scopedCommitParticipantStarted = true;
+                $commitScopedAuthoring();
+            }
             Db::commit('apply transaction commit');
             $transactionStarted = false;
             $postCommitFailures = [];
@@ -400,6 +423,19 @@ final class AuthoredTransactionExecutor {
                         $attachmentFailure = $attachmentRollbackFailure;
                     }
                 }
+                $scopedSessionFailure = null;
+                if ($rollbackFailure === null
+                    && $scopedCommitParticipantStarted
+                    && $rollbackScopedAuthoring !== null) {
+                    try {
+                        // The in-memory session adopted the uncommitted CAS.
+                        // Reload only after the database rollback is positively
+                        // confirmed, never through an uncertain outcome.
+                        $rollbackScopedAuthoring();
+                    } catch (\Throwable $scopedRollbackFailure) {
+                        $scopedSessionFailure = $scopedRollbackFailure;
+                    }
+                }
                 try {
                     CacheInvalidationTransaction::finish();
                 } catch (\Throwable $cachePurgeFailure) {
@@ -408,6 +444,7 @@ final class AuthoredTransactionExecutor {
                 if ($participantFailure !== null
                     || $rollbackFailure !== null
                     || $attachmentFailure !== null
+                    || $scopedSessionFailure !== null
                     || $cacheFailure !== null) {
                     Canary::disarm();
                     if ($rollbackFailure instanceof DatabaseMutationException
@@ -420,6 +457,7 @@ final class AuthoredTransactionExecutor {
                         'participant' => $participantFailure,
                         'database-rollback' => $rollbackFailure,
                         'attachment-filesystem' => $attachmentFailure,
+                        'scoped-session' => $scopedSessionFailure,
                         'cache-purge' => $cacheFailure,
                     ] as $label => $recoveryFailure) {
                         if ($recoveryFailure instanceof \Throwable) {
@@ -450,6 +488,52 @@ final class AuthoredTransactionExecutor {
         }
         Canary::disarm();
         return ['attachment_ids' => $attachmentIds, 'regen_context' => $regenContext];
+    }
+
+    /**
+     * Exact table roster the authored transaction can read-lock or mutate.
+     * This intentionally includes users (the owner row for authored usermeta)
+     * and declared invalidation tables: proving only duo_kv/duo_map would let
+     * an ALTER ENGINE race one of the earlier core/plugin mutations while the
+     * later atomic scoped receipt still committed successfully.
+     *
+     * @return list<string>
+     */
+    private function authored_transaction_tables(): array {
+        global $wpdb;
+        $tables = [
+            $wpdb->posts,
+            $wpdb->postmeta,
+            $wpdb->terms,
+            $wpdb->term_taxonomy,
+            $wpdb->term_relationships,
+            $wpdb->termmeta,
+            $wpdb->options,
+            $wpdb->users,
+            $wpdb->usermeta,
+            $wpdb->prefix . 'duo_map',
+            $wpdb->prefix . 'duo_state',
+            $wpdb->prefix . 'duo_kv',
+        ];
+        foreach ($this->snapshotRowTables as $name => $declaration) {
+            $tables[] = $wpdb->prefix . (string) $name;
+            $attachedMeta = $this->policy->attached_meta_table_for_owner((string) $name);
+            if (is_array($attachedMeta)) {
+                $tables[] = $wpdb->prefix . (string) ($attachedMeta['name'] ?? '');
+            }
+            foreach ((array) ($declaration['invalidate'] ?? []) as $invalidation) {
+                if (is_array($invalidation) && isset($invalidation['table'])) {
+                    $tables[] = $wpdb->prefix . (string) $invalidation['table'];
+                }
+            }
+        }
+        DeleteGuardEvaluator::assert_table_identifiers(
+            $tables,
+            'authored transaction storage-engine boundary'
+        );
+        $tables = array_values(array_unique($tables));
+        sort($tables, SORT_STRING);
+        return $tables;
     }
 
     private static function failure_fingerprint(\Throwable $failure): string {

@@ -62,6 +62,8 @@ require_once __DIR__ . '/CacheInvalidationTransaction.php';
 final class OptionsMaterializer {
     private const MAX_OPTION_VALUE_BYTES = 16777216;
     private const MAX_AUTOLOAD_BYTES = 20;
+    private const MAX_NATIVE_OPTION_COMPANIONS = 8;
+    private const MAX_NATIVE_OPTION_TRANSACTION_BYTES = 33554432;
     private bool $authoredTransaction = false;
     /** @var list<\Closure():void> */
     private array $nativeRollbackCallbacks = [];
@@ -94,20 +96,25 @@ final class OptionsMaterializer {
         if (!$this->authoredTransaction) {
             return;
         }
-        $failure = null;
-        foreach (array_reverse($this->nativeRollbackCallbacks) as $restore) {
+        $failures = [];
+        foreach (array_reverse($this->nativeRollbackCallbacks) as $position => $restore) {
             try {
                 $restore();
             } catch (\Throwable $restoreFailure) {
-                $failure ??= $restoreFailure;
+                $failures['participant-' . $position] = $restoreFailure;
             }
         }
         $this->nativeRollbackCallbacks = [];
-        if ($failure !== null) {
+        if ($failures !== []) {
+            $fingerprints = [];
+            foreach ($failures as $label => $failure) {
+                $fingerprints[] = $label . '=' . self::failure_fingerprint($failure);
+            }
             throw new \RuntimeException(
-                'duo: native option transaction rollback could not restore exact storage/runtime state; recovery_required',
+                'duo: native option transaction rollback could not restore exact storage/runtime state; '
+                . implode('; ', $fingerprints) . '; recovery_required',
                 0,
-                $failure
+                reset($failures)
             );
         }
     }
@@ -484,7 +491,17 @@ final class OptionsMaterializer {
             $rule,
             $ruleSource
         );
-        foreach ($companionNames as $targetName) {
+        $runtimeCompanionNames = $this->policy->option_sub_key_materialization_runtime_companions(
+            $name,
+            $rule,
+            $ruleSource
+        );
+        if (count($companionNames) + count($runtimeCompanionNames) > self::MAX_NATIVE_OPTION_COMPANIONS) {
+            throw new \RuntimeException(
+                "duo: native option materializer for '$name' declared too many total companion rows"
+            );
+        }
+        foreach (array_merge($companionNames, $runtimeCompanionNames) as $targetName) {
             if ($targetName === $name
                 || preg_match('/^[A-Za-z0-9_.:-]{1,191}$/D', $targetName) !== 1) {
                 $fingerprint = 'string:' . strlen($targetName) . ':'
@@ -503,14 +520,29 @@ final class OptionsMaterializer {
                 );
             }
         }
-        $lockNames = array_merge([$name], $companionNames);
+        if (array_intersect($companionNames, $runtimeCompanionNames) !== []) {
+            throw new \RuntimeException(
+                "duo: native option materializer for '$name' declared one companion as both observational and writable"
+            );
+        }
+        $lockNames = array_merge([$name], $companionNames, $runtimeCompanionNames);
         sort($lockNames, SORT_STRING);
         $lockedOptionRows = [];
+        $lockedOptionValueBytes = 0;
         foreach ($lockNames as $lockName) {
             $lockedOptionRows[$lockName] = CacheInvalidationTransaction::lock_option_row(
                 $lockName,
                 "native option materializer for '$name' canonical row/gap locking"
             );
+            $lockedRow = $lockedOptionRows[$lockName];
+            if (is_array($lockedRow)) {
+                $lockedOptionValueBytes += strlen($lockedRow['option_value']);
+                if ($lockedOptionValueBytes > self::MAX_NATIVE_OPTION_TRANSACTION_BYTES) {
+                    throw new \RuntimeException(
+                        "duo: native option materializer for '$name' companion transaction exceeds its raw-byte bound"
+                    );
+                }
+            }
         }
         $row = $lockedOptionRows[$name];
         $raw = is_array($row) ? $row['option_value'] : null;
@@ -722,11 +754,21 @@ final class OptionsMaterializer {
             $lockedOptionRows,
             array_fill_keys($companionNames, true)
         );
+        $runtimeCompanionBefore = array_intersect_key(
+            $lockedOptionRows,
+            array_fill_keys($runtimeCompanionNames, true)
+        );
+        $runtimeCompanionWitnesses = $runtimeCompanionBefore;
+        $runtimeCompanionWriteCalls = [];
+        $runtimeCompanionWriteOrder = [];
         $lockTargetOption = function (string $targetName) use (
             $name,
-            &$companionWitnesses
+            &$companionWitnesses,
+            &$runtimeCompanionWitnesses
         ): ?array {
-            if (!array_key_exists($targetName, $companionWitnesses)) {
+            $rostered = array_key_exists($targetName, $companionWitnesses)
+                || array_key_exists($targetName, $runtimeCompanionWitnesses);
+            if (!$rostered) {
                 $fingerprint = 'string:' . strlen($targetName) . ':'
                     . substr(hash('sha256', $targetName), 0, 16);
                 throw new \RuntimeException(
@@ -734,12 +776,193 @@ final class OptionsMaterializer {
                     . "prelocked roster ($fingerprint)"
                 );
             }
-            $targetRow = $companionWitnesses[$targetName];
+            $targetRow = $companionWitnesses[$targetName]
+                ?? $runtimeCompanionWitnesses[$targetName]
+                ?? null;
             if ($targetRow === null) return null;
             return [
                 'option_value' => $targetRow['option_value'],
                 'autoload' => $targetRow['autoload'],
             ];
+        };
+        $writeRuntimeOption = function (string $targetName, string $rawValue, string $runtimeAutoload) use (
+            $name,
+            &$runtimeRestoreRegistrations,
+            &$runtimeCompanionWitnesses,
+            &$runtimeCompanionWriteCalls,
+            &$runtimeCompanionWriteOrder
+        ): array {
+            global $wpdb;
+            if (!$this->authoredTransaction || $runtimeRestoreRegistrations !== 1) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' attempted a runtime-companion write before "
+                    . 'arming runtime rollback'
+                );
+            }
+            if (!array_key_exists($targetName, $runtimeCompanionWitnesses)) {
+                $fingerprint = 'string:' . strlen($targetName) . ':'
+                    . substr(hash('sha256', $targetName), 0, 16);
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' requested a runtime-companion write outside "
+                    . "its canonical prelocked roster ($fingerprint)"
+                );
+            }
+            $runtimeCompanionWriteCalls[$targetName] = ($runtimeCompanionWriteCalls[$targetName] ?? 0) + 1;
+            if ($runtimeCompanionWriteCalls[$targetName] !== 1) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' wrote one runtime companion more than once"
+                );
+            }
+            if (strlen($rawValue) > self::MAX_OPTION_VALUE_BYTES
+                || !in_array($runtimeAutoload, OptionState::AUTOLOAD_VALUES, true)) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' supplied malformed runtime-companion storage"
+                );
+            }
+            CacheInvalidationTransaction::assert_local_option_cache(
+                "native option materializer for '$name' runtime-companion write"
+            );
+            DeleteGuardEvaluator::assert_transaction_isolation(
+                'native mixed-option runtime-companion write'
+            );
+            $expected = $runtimeCompanionWitnesses[$targetName];
+            $current = CacheInvalidationTransaction::lock_option_row(
+                $targetName,
+                "native option materializer for '$name' runtime-companion pre-write verification"
+            );
+            if ($current !== $expected) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' changed a writable companion before its engine write"
+                );
+            }
+            // Arm restoration before the first SQL byte: an injected DB/cache
+            // failure after mutation must still restore this exact row/gap.
+            $runtimeCompanionWriteOrder[] = $targetName;
+            if ($current === null) {
+                Db::insert(
+                    $wpdb->options,
+                    [
+                        'option_name' => $targetName,
+                        'option_value' => $rawValue,
+                        'autoload' => $runtimeAutoload,
+                    ],
+                    null,
+                    'apply insert native runtime-companion option'
+                );
+            } else {
+                Db::update(
+                    $wpdb->options,
+                    ['option_value' => $rawValue, 'autoload' => $runtimeAutoload],
+                    ['option_name' => $targetName],
+                    null,
+                    null,
+                    'apply update native runtime-companion option'
+                );
+            }
+            CacheInvalidationTransaction::queue_option(
+                $targetName,
+                "native option materializer for '$name' runtime-companion write"
+            );
+            $written = CacheInvalidationTransaction::lock_option_row(
+                $targetName,
+                "native option materializer for '$name' runtime-companion raw storage verification"
+            );
+            if ($written === null
+                || !hash_equals($targetName, $written['option_name'])
+                || !hash_equals($rawValue, $written['option_value'])
+                || !hash_equals($runtimeAutoload, $written['autoload'])) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' did not persist exact runtime-companion storage"
+                );
+            }
+            $runtimeCompanionWitnesses[$targetName] = $written;
+            return $written;
+        };
+        $restoreRuntimeCompanions = function () use (
+            $name,
+            &$runtimeCompanionWriteOrder,
+            $runtimeCompanionBefore
+        ): void {
+            global $wpdb;
+            $failures = [];
+            foreach (array_reverse($runtimeCompanionWriteOrder) as $position => $targetName) {
+                $before = $runtimeCompanionBefore[$targetName];
+                try {
+                    DeleteGuardEvaluator::assert_transaction_isolation(
+                        'native mixed-option runtime-companion restoration'
+                    );
+                    $current = CacheInvalidationTransaction::lock_option_row(
+                        $targetName,
+                        "native option materializer for '$name' runtime-companion restoration current-row lock"
+                    );
+                    if ($before === null) {
+                        if ($current !== null) {
+                            Db::delete(
+                                $wpdb->options,
+                                ['option_name' => $targetName],
+                                null,
+                                'restore absent native runtime-companion option after failed apply'
+                            );
+                        }
+                    } elseif ($current === null) {
+                        Db::insert(
+                            $wpdb->options,
+                            [
+                                'option_name' => $targetName,
+                                'option_value' => $before['option_value'],
+                                'autoload' => $before['autoload'],
+                            ],
+                            null,
+                            'restore native runtime-companion option after failed apply'
+                        );
+                    } else {
+                        Db::update(
+                            $wpdb->options,
+                            [
+                                'option_value' => $before['option_value'],
+                                'autoload' => $before['autoload'],
+                            ],
+                            ['option_name' => $targetName],
+                            null,
+                            null,
+                            'restore native runtime-companion option after failed apply'
+                        );
+                    }
+                } catch (\Throwable $storageFailure) {
+                    $failures['storage-' . $position] = $storageFailure;
+                }
+                try {
+                    CacheInvalidationTransaction::queue_option(
+                        $targetName,
+                        "native option materializer for '$name' runtime-companion restoration"
+                    );
+                } catch (\Throwable $cacheFailure) {
+                    $failures['cache-' . $position] = $cacheFailure;
+                }
+                try {
+                    $restored = CacheInvalidationTransaction::lock_option_row(
+                        $targetName,
+                        "native option materializer for '$name' restored runtime-companion verification"
+                    );
+                    if ($restored !== $before) {
+                        throw new \RuntimeException('runtime-companion preimage mismatch');
+                    }
+                } catch (\Throwable $verificationFailure) {
+                    $failures['verification-' . $position] = $verificationFailure;
+                }
+            }
+            if ($failures !== []) {
+                $fingerprints = [];
+                foreach ($failures as $label => $failure) {
+                    $fingerprints[] = $label . '=' . self::failure_fingerprint($failure);
+                }
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' runtime-companion restoration failed; "
+                    . implode('; ', $fingerprints),
+                    0,
+                    reset($failures)
+                );
+            }
         };
         $registerRuntimeRestore = function (\Closure $restore) use (
             $name,
@@ -748,7 +971,8 @@ final class OptionsMaterializer {
             &$rollbackArmed,
             &$rolledBack,
             &$nativeStorageTouched,
-            $restoreStorage
+            $restoreStorage,
+            $restoreRuntimeCompanions
         ): void {
             ++$runtimeRestoreRegistrations;
             if ($runtimeRestoreRegistrations !== 1) {
@@ -767,6 +991,7 @@ final class OptionsMaterializer {
                 &$rolledBack,
                 &$nativeStorageTouched,
                 $restoreStorage,
+                $restoreRuntimeCompanions,
                 &$runtimeRestore,
                 $name
             ): void {
@@ -775,18 +1000,23 @@ final class OptionsMaterializer {
                 }
                 $rolledBack = true;
                 $failures = [];
-                if ($nativeStorageTouched) {
-                    try {
-                        $restoreStorage();
-                    } catch (\Throwable $storageFailure) {
-                        $failures['storage'] = $storageFailure;
-                    }
-                }
                 if ($runtimeRestore instanceof \Closure) {
                     try {
                         $runtimeRestore();
                     } catch (\Throwable $runtimeFailure) {
                         $failures['runtime'] = $runtimeFailure;
+                    }
+                }
+                try {
+                    $restoreRuntimeCompanions();
+                } catch (\Throwable $companionFailure) {
+                    $failures['companions'] = $companionFailure;
+                }
+                if ($nativeStorageTouched) {
+                    try {
+                        $restoreStorage();
+                    } catch (\Throwable $storageFailure) {
+                        $failures['storage'] = $storageFailure;
                     }
                 }
                 try {
@@ -822,8 +1052,21 @@ final class OptionsMaterializer {
             $finalizeStorage,
             $restoreStorage,
             $registerRuntimeRestore,
-            $writeStorage
+            $writeStorage,
+            $writeRuntimeOption
         );
+        if (!$handledNatively
+            && ($finalizeCalls !== 0
+                || $storageWriteCalls !== 0
+                || $runtimeRestoreRegistrations !== 0
+                || $nativeStorageTouched
+                || $rollbackArmed
+                || $runtimeCompanionWriteCalls !== []
+                || $runtimeCompanionWriteOrder !== [])) {
+            throw new \RuntimeException(
+                "duo: native option materializer for '$name' returned unhandled after native side effects"
+            );
+        }
         if ($handledNatively) {
             if (!$this->authoredTransaction || !$rollbackArmed) {
                 throw new \RuntimeException(
@@ -855,6 +1098,18 @@ final class OptionsMaterializer {
                 if ($currentCompanion !== $companionWitness) {
                     throw new \RuntimeException(
                         "duo: native option materializer for '$name' changed a locked companion option"
+                    );
+                }
+            }
+            foreach ($runtimeCompanionWitnesses as $companionName => $companionWitness) {
+                $currentCompanion = CacheInvalidationTransaction::lock_option_row(
+                    (string) $companionName,
+                    "native option materializer for '$name' writable companion post-hook verification"
+                );
+                if ($currentCompanion !== $companionWitness) {
+                    throw new \RuntimeException(
+                        "duo: native option materializer for '$name' changed a writable companion outside "
+                        . 'its engine-owned writer'
                     );
                 }
             }
@@ -917,6 +1172,18 @@ final class OptionsMaterializer {
                 if ($currentCompanion !== $companionWitness) {
                     throw new \RuntimeException(
                         "duo: native option materializer for '$name' changed a locked companion option"
+                    );
+                }
+            }
+            foreach ($runtimeCompanionWitnesses as $companionName => $companionWitness) {
+                $currentCompanion = CacheInvalidationTransaction::lock_option_row(
+                    (string) $companionName,
+                    "native option materializer for '$name' writable companion post-projection verification"
+                );
+                if ($currentCompanion !== $companionWitness) {
+                    throw new \RuntimeException(
+                        "duo: native option materializer for '$name' changed a writable companion outside "
+                        . 'its engine-owned writer'
                     );
                 }
             }

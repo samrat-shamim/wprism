@@ -382,6 +382,20 @@ final class ConvergenceVerifier {
             (array) $verifyingSession->authority()['selection']['ledger_map_identity_hashes'],
             false
         );
+        $authorReceipt = null;
+        foreach ($verifyingSession->receipts() as $receipt) {
+            if ((int) ($receipt['ordinal'] ?? 0) === 1) {
+                $authorReceipt = $receipt;
+                break;
+            }
+        }
+        $authoredLedgerMapHash = ScopedApply::authored_ledger_map_hash($observation);
+        if (!is_array($authorReceipt)
+            || !hash_equals((string) ($authorReceipt['after_hash'] ?? ''), $authoredLedgerMapHash)) {
+            throw new \RuntimeException(
+                'duo: scoped convergence verification found selected identity-map drift after authored commit'
+            );
+        }
         if (!hash_equals($expectedProtectedRoot, (string) $observation['protected_out_of_scope_root'])
             || !hash_equals($expectedProtectedMapRoot, (string) $observation['protected_ledger_map_root'])) {
             throw new \RuntimeException(
@@ -473,6 +487,7 @@ final class ConvergenceVerifier {
             'source_artifact_hash' => $compiled->artifact_hash(),
             'protected_out_of_scope_root' => $expectedProtectedRoot,
             'protected_ledger_map_root' => $expectedProtectedMapRoot,
+            'authored_ledger_map_hash' => $authoredLedgerMapHash,
             'selected_live' => $verifiedLive,
             'selected_deletions' => $verifiedDeleted,
             'skipped_user_meta' => $skippedUserMeta,

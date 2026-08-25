@@ -3,18 +3,29 @@
         "deletion_semantics": {
             "supported": [],
             "unsupported": [
-                "plugin-specific deletes"
+                "post:tribe_events",
+                "post:tribe_organizer",
+                "post:tribe_venue",
+                "term:tribe_events_cat"
             ]
         },
         "entity_sections": [
             "post_types",
-            "tables"
+            "tables",
+            "taxonomies"
         ],
         "field_sections": [
             "options",
-            "post_meta"
+            "post_meta",
+            "term_meta",
+            "block_attrs",
+            "interpreter"
         ],
-        "lifecycle_phases": [],
+        "lifecycle_phases": [
+            "retire",
+            "activate",
+            "verify"
+        ],
         "operations": [
             "capture",
             "compile",
@@ -30,12 +41,11 @@
         "bundle_schema": "duo-subject-certification-bundle/v1",
         "tests": [
             "conformance-the-events-calendar",
-            "exact-artifact-version-matrix",
-            "regress-tec-regen"
+            "exact-artifact-version-matrix"
         ]
     },
-    "reason": "Experimental exact-artifact target round-trip and hard regeneration-dependency recovery proof; dirty-target, deletion, lifecycle, concurrency, and difficult-value matrices remain open.",
-    "status": "experimental",
+    "reason": "Certified for official free The Events Calendar 6.17.2 and 6.17.3 on single-site WordPress: exact clean/dirty canonical round trips; populated 6.17.2-to-6.17.3 upgrade; native event, venue, organizer, category, settings, Customizer, widget, REST, and frontend behavior; divergent huge identities and ordered repeated organizers; Category Colors and Custom Tables V1 regeneration; scoped receipt-loss and selected-map ABA inverse recovery; database, filter, provider, and transaction failure rollback/retry; competing applies; lifecycle recovery; byte-identical recapture; and official 6.17.1 plus synthetic 6.17.4 refusal controls. Pro/add-on/import/credential/runtime surfaces, plugin-specific deletion, out-of-range releases, and multisite remain explicit loud boundaries.",
+    "status": "certified",
     "supported_versions": {
         "plugin": "the-events-calendar/the-events-calendar.php",
         "range": {
@@ -45,14 +55,34 @@
     },
     "unsupported": [
         {
-            "operation": "delete",
-            "reason": "Event/venue/organizer deletion, occurrence cleanup, reverse-reference guards, rollback, and retry are not certified.",
-            "surface": "deletions.*"
+            "operation": "capture,apply",
+            "reason": "The native end-of-day cutoff callback performs unchecked global postmeta rewrites without bounded preimages, UTC/Custom Tables closure, query verification, or cache invalidation. multiDayCutoff therefore remains target-owned; Duo binds the exact native callback identities and replaces the mixed settings row only when strict old/new equality proves the callbacks are no-ops.",
+            "surface": "option:tribe_events_calendar_options.multiDayCutoff"
         },
         {
-            "operation": "promote",
-            "reason": "Dirty-target, lifecycle, concurrency, and difficult-value production-readiness scenarios remain open.",
-            "surface": "production"
+            "operation": "delete",
+            "reason": "TEC events, venues, organizers, and event categories own occurrence, linked-post, relationship, Category Colors, and optional-add-on effects; generic hook-free entity deletion cannot prove that complete semantic boundary, so capture refuses before publishing a tombstone.",
+            "surface": "post:tribe_events|tribe_organizer|tribe_venue|term:tribe_events_cat"
+        },
+        {
+            "operation": "capture",
+            "reason": "Events Calendar Pro recurrence/series, Event Tickets, Event Aggregator remote records, legacy Category Colors plugin residue, and third-party add-on entities are outside the reviewed free-plugin inventory and remain unclassified and loud.",
+            "surface": "optional-and-extension-owned"
+        },
+        {
+            "operation": "apply",
+            "reason": "Credentials, remote-import state, schema/migration markers, telemetry, schedules, calculated date ranges, caches, and undeclared mixed-option siblings remain target-owned and are verified to survive apply.",
+            "surface": "options:tribe_events_calendar_options:target-runtime-and-integrations"
+        },
+        {
+            "operation": "all",
+            "reason": "The Events Calendar releases before 6.17.2 and 6.17.4 or later are outside the source-audited and exact-artifact-tested range; the exclusive minor-patch maximum prevents a future 6.17.4 release from being silently admitted.",
+            "surface": "version:<6.17.2|>=6.17.4"
+        },
+        {
+            "operation": "all",
+            "reason": "Duo v1 refuses multisite; TEC network/global behavior is outside this single-site adapter.",
+            "surface": "multisite"
         }
     ]
 }

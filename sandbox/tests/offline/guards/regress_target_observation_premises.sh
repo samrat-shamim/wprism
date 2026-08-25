@@ -156,6 +156,10 @@ OBSERVATIONS=(
   'tests/certify/certify_version_matrix.sh|require_observed_nonempty "The Events Calendar 6.17.2 target upgrade baseline"'
   'tests/certify/certify_version_matrix.sh|require_duo_answered "The Events Calendar out-of-band 6.17.2 to 6.17.3 upgrade refusal" human'
   'tests/certify/certify_version_matrix.sh|require_duo_answered "The Events Calendar 6.17.2 to 6.17.3 target plan" json'
+  'conformance/checks/the-events-calendar.sh|require_observed_nonempty "$side The Events Calendar native observation"'
+  'conformance/checks/the-events-calendar.sh|require_observed_nonempty "TEC lifecycle physical baseline"'
+  'tests/certify/certify_version_matrix.sh|require_duo_answered "TEC out-of-band 6.17.2 to 6.17.3 upgrade refusal" human'
+  'tests/certify/certify_version_matrix.sh|require_duo_answered "TEC 6.17.2 to 6.17.3 target plan" json'
   'tests/certify/certify_merge.sh|require_duo_answered "B retry apply after capture" json'
   'tests/certify/certify_merge.sh|require_duo_answered "B clean plan after retry" json'
   'tests/certify/certify_ssh_adoption_roundtrip.sh|require_observed_nonempty "target runtime checksum before apply"'
@@ -243,6 +247,7 @@ FIXTURES=(
   'tests/certify/certify_deletion_matrix.sh|require_fixture_ids LEVEL_B PAGE_B'
   'tests/certify/matrix.d/the-events-calendar.sh|require_fixture_values source_ids target_ids'
   'tests/certify/matrix.d/the-events-calendar.sh|require_fixture_ids dirty_id'
+  'tests/certify/certify_version_matrix.sh|require_fixture_values TEC_INSTALLED_2'
 )
 for item in "${FIXTURES[@]}"; do
   guard "${item%%|*}" "${item#*|}"
@@ -269,8 +274,10 @@ grep -Fq 'SELECT uuid FROM wp_duo_map WHERE uuid' tests/certify/certify_adversar
 grep -Fq 'git -C siterepo/certmatrix1 status --porcelain -- state' tests/certify/certify_adversarial_matrix.sh \
   || fail "the adversarial clean-repository observation exemption lost its direct git status evidence"
 version_matrix="tests/certify/certify_version_matrix.sh"
-[ "$(grep -Fc 'require_fixture_values INSTALLED_2' "$version_matrix")" -eq 14 ] \
-  || fail "version-matrix target plugin-version premises must cover all fourteen certified plugin loops"
+[ "$(grep -Fc 'require_fixture_values INSTALLED_2' "$version_matrix")" -eq 13 ] \
+  || fail "version-matrix generic target plugin-version premises must cover all thirteen generic certified plugin loops"
+[ "$(grep -Fc 'require_fixture_values TEC_INSTALLED_2' "$version_matrix")" -eq 1 ] \
+  || fail "the singular TEC exact-artifact loop must retain its target plugin-version premise"
 [ "$(grep -Fc 'require_fixture_values NEGATIVE_INSTALLED' "$version_matrix")" -eq 10 ] \
   || fail "version-matrix negative-control plugin-version premises must cover all ten bounded-version controls"
 pass "expected-empty absence/clean-repository predicates remain explicitly inventoried rather than falsely premise-guarded"

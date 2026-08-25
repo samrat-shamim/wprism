@@ -35,9 +35,10 @@ final class AttributeGrammar {
      * mutually exclusive dispatch branches in Blocks.php, not composable
      * flags: `lint_ok` (declared non-ref, nothing to rewrite),
      * `tokenize: "text"` (the URL-bearing string leaves of an attribute),
-     * `unsupported` (a reviewed blocking boundary), `kind` (a static ref
-     * kind), or `kind_from` (a ref kind dispatched from a sibling attribute's
-     * value). A rule with none of them reaches
+     * `unsupported` (a reviewed blocking boundary), `codec` (one adapter's
+     * manifest-bound whole-block codec), `kind` (a static ref kind), or
+     * `kind_from` (a ref kind dispatched from a sibling attribute's value).
+     * A rule with none of them reaches
      * Blocks::resolve_kind()'s own throw at REWRITE time, mid-capture, on
      * whichever post happened to contain that block first.
      */
@@ -68,6 +69,35 @@ final class AttributeGrammar {
                         . 'the first parsed value and have no defined selector for named attributes'
                     );
                 }
+                $codec = null;
+                $codecPaths = [];
+                foreach ($rules as $i => $candidate) {
+                    if (!is_array($candidate) || !array_key_exists('codec', $candidate)) {
+                        continue;
+                    }
+                    if ($codec === null) {
+                        $codec = $candidate['codec'];
+                    } elseif ($codec !== $candidate['codec']) {
+                        throw new \RuntimeException(
+                            "duo: $where mixes whole-block codecs; one block grammar has exactly one codec owner"
+                        );
+                    }
+                    $path = $candidate['path'] ?? null;
+                    if (is_string($path) && isset($codecPaths[$path])) {
+                        throw new \RuntimeException(
+                            "duo: $where[$i].path duplicates codec-owned attribute '$path' already declared at "
+                            . 'index ' . $codecPaths[$path]
+                        );
+                    }
+                    if (is_string($path)) {
+                        $codecPaths[$path] = $i;
+                    }
+                }
+                if ($codec !== null && count($codecPaths) !== count($rules)) {
+                    throw new \RuntimeException(
+                        "duo: $where cannot mix a whole-block codec with per-attribute dispositions"
+                    );
+                }
                 $seenPositions = [];
                 foreach ($rules as $i => $rule) {
                     if (is_array($rule) && array_key_exists('position', $rule)) {
@@ -82,7 +112,13 @@ final class AttributeGrammar {
                             $seenPositions[$position] = $i;
                         }
                     }
-                    self::validate_attr_rule($rule, $section, $where . "[$i]", $casts);
+                    self::validate_attr_rule(
+                        $rule,
+                        $section,
+                        $where . "[$i]",
+                        $casts,
+                        $manifest['interpreter'] ?? null
+                    );
                 }
             }
         }
@@ -98,7 +134,8 @@ final class AttributeGrammar {
         mixed $rule,
         string $section,
         string $where,
-        array $casts
+        array $casts,
+        mixed $interpreter
     ): void {
         if (!is_array($rule) || (array_is_list($rule) && $rule !== [])) {
             throw new \RuntimeException("duo: $where must be an object");
@@ -273,6 +310,27 @@ final class AttributeGrammar {
         if ($section !== 'block_attrs' && array_key_exists('unsupported', $rule)) {
             throw new \RuntimeException("duo: $where.unsupported is supported only for block_attrs");
         }
+        if (array_key_exists('codec', $rule)) {
+            if ($section !== 'block_attrs') {
+                throw new \RuntimeException("duo: $where.codec is supported only for block_attrs");
+            }
+            $keys = array_keys($rule);
+            sort($keys, SORT_STRING);
+            if ($keys !== ['codec', 'path']) {
+                throw new \RuntimeException(
+                    "duo: $where codec rules have a closed vocabulary: exactly {codec,path}"
+                );
+            }
+            if (!is_string($rule['codec'])
+                || preg_match('/^[a-z0-9_-]+$/D', $rule['codec']) !== 1
+                || !is_string($interpreter)
+                || !hash_equals($interpreter, $rule['codec'])) {
+                throw new \RuntimeException(
+                    "duo: $where.codec must equal the declaring manifest's own non-empty interpreter name; "
+                    . 'whole-block executable authority cannot be borrowed from another adapter'
+                );
+            }
+        }
         if (array_key_exists('kind_from', $rule)) {
             $from = $rule['kind_from'];
             if (!is_array($from) || !is_string($from['attr'] ?? null) || ($from['attr'] ?? '') === ''
@@ -293,12 +351,13 @@ final class AttributeGrammar {
             'lint_ok' => !empty($rule['lint_ok']),
             'tokenize' => array_key_exists('tokenize', $rule),
             'unsupported' => array_key_exists('unsupported', $rule),
+            'codec' => array_key_exists('codec', $rule),
             'kind' => array_key_exists('kind', $rule),
             'kind_from' => array_key_exists('kind_from', $rule),
         ]);
         if ($dispositions === []) {
             throw new \RuntimeException(
-                "duo: $where declares none of kind, kind_from, tokenize, unsupported, or lint_ok — every "
+                "duo: $where declares none of kind, kind_from, tokenize, unsupported, codec, or lint_ok — every "
                 . ($section === 'block_attrs' ? 'block' : 'shortcode') . ' attribute rule must say what the '
                 . 'engine should do with the value it names; a rule with no disposition is refused here rather '
                 . 'than reaching its throw mid-capture, on whichever entity happened to carry it first'
@@ -306,7 +365,8 @@ final class AttributeGrammar {
         }
         if (count($dispositions) !== 1) {
             throw new \RuntimeException(
-                "duo: $where must declare exactly one disposition (kind, kind_from, tokenize, unsupported, or lint_ok)"
+                "duo: $where must declare exactly one disposition "
+                . '(kind, kind_from, tokenize, unsupported, codec, or lint_ok)'
             );
         }
     }

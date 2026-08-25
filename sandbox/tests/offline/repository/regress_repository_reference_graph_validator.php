@@ -10,9 +10,13 @@ namespace Duo {
     final class Policy {
         /** @var array<string,array<string,mixed>> */
         public array $widgets = [];
+        /** @var array<string,list<array<string,mixed>>> */
+        public array $blockAttrs = [];
 
         /** @return array<string,array<string,mixed>> */
         public function widget_types(): array { return $this->widgets; }
+        /** @return array<string,list<array<string,mixed>>> */
+        public function block_attr_rules(): array { return $this->blockAttrs; }
     }
 
     final class Snapshot {
@@ -46,6 +50,7 @@ namespace {
     $root = dirname(__DIR__, 4);
     $validatorPath = "$root/agent/src/Repository/RepositoryReferenceGraphValidator.php";
     $graphPath = "$root/agent/src/Repository/ReferenceGraph.php";
+    require_once "$root/sandbox/tests/support/wp-block-parser-stub.php";
     $failures = [];
     $check = static function (bool $ok, string $message) use (&$failures): void {
         echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -118,6 +123,71 @@ namespace {
     ], []);
     $check($diagnostics === [], 'a manifest-declared table id_kind validates through the shared graph without an engine branch');
 
+    $widgetUuid = $uuid(10);
+    $codecPolicy = new Policy();
+    $codecPolicy->widgets = [
+        'fixture-widget' => ['settings' => []],
+    ];
+    $codecPolicy->blockAttrs = [
+        'fixture/widget' => [
+            ['codec' => 'fixture', 'path' => 'id'],
+        ],
+    ];
+    $codecDiagnostics = [];
+    $codecValidator = new RepositoryReferenceGraphValidator(
+        $codecPolicy,
+        new RepositoryIdentityRegistry([
+            $widgetUuid => ['kind' => 'widget', 'path' => 'sidebars/primary.json#widgets[0]'],
+        ]),
+        static function (string $code, string $path, string $locator, string $message, ?string $relatedPath = null) use (&$codecDiagnostics): void {
+            $codecDiagnostics[] = compact('code', 'path', 'locator', 'message', 'relatedPath');
+        }
+    );
+    $codecBlock = '<!-- wp:fixture/widget '
+        . json_encode(['id' => "{{widget:$widgetUuid}}"], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)
+        . ' /-->';
+    $codecValidator->validate([
+        $post => [
+            'type' => 'post', 'path' => 'posts/page/widget.md', 'body' => $codecBlock,
+            'data' => ['uuid' => $post, 'terms' => []],
+        ],
+    ], []);
+    $check(
+        $codecDiagnostics === [] && !isset(\Duo\ReferenceGraph::kind_types($codecPolicy)['widget']),
+        'a manifest-bound codec may resolve its owned widget token without registering widget as a global token kind'
+    );
+
+    $codecDiagnostics = [];
+    $codecValidator->validate([
+        $post => [
+            'type' => 'post', 'path' => 'posts/page/widget.md',
+            'body' => $codecBlock
+                . "\n<!-- wp:paragraph --><p>{{widget:$widgetUuid}}</p><!-- /wp:paragraph -->",
+            'data' => ['uuid' => $post, 'terms' => []],
+        ],
+    ], []);
+    $check(
+        count($codecDiagnostics) === 1
+            && $codecDiagnostics[0]['code'] === 'invalid_reference_kind'
+            && str_contains($codecDiagnostics[0]['message'], "reference kind 'widget' is not registered"),
+        'the identical widget token in non-codec body content remains a loud unregistered-kind refusal'
+    );
+
+    $codecDiagnostics = [];
+    $codecValidator->validate([
+        $post => [
+            'type' => 'post', 'path' => 'posts/page/widget.md',
+            'body' => '<!-- wp:fixture/widget '
+                . json_encode(['title' => "{{widget:$widgetUuid}}"], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)
+                . ' /-->',
+            'data' => ['uuid' => $post, 'terms' => []],
+        ],
+    ], []);
+    $check(
+        count($codecDiagnostics) === 1 && $codecDiagnostics[0]['code'] === 'invalid_reference_kind',
+        'a codec declaration does not authorize widget tokens in undeclared attributes'
+    );
+
     $validator = new RepositoryReferenceGraphValidator(
         new Policy(),
         new RepositoryIdentityRegistry($rows),
@@ -183,7 +253,7 @@ namespace {
     $check(
         $byCode['invalid_reference_kind'] === [[
             'code' => 'invalid_reference_kind', 'path' => 'menus/main.json', 'locator' => '$.items[0].title',
-            'message' => "reference kind 'made_up' is not registered by core or a pinned table schema", 'relatedPath' => null,
+            'message' => "reference kind 'made_up' is not registered by core, a manifest-bound codec, or a pinned table schema", 'relatedPath' => null,
         ]]
         && $byCode['malformed_reference'] === [
             ['code' => 'malformed_reference', 'path' => 'terms/category/raw-malformed.json', 'locator' => 'parent', 'message' => "reference 'not-a-uuid' is not a valid UUID", 'relatedPath' => null],

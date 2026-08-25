@@ -1,9 +1,9 @@
 {
   "entry": {
     "pin": ["core", "the-events-calendar"],
-    "plugins": [{"slug": "the-events-calendar", "version": "6.17.2"}],
+    "plugins": [{"slug": "the-events-calendar", "version": "6.17.3"}],
     "post_types": ["post", "page", "attachment", "tribe_events", "tribe_venue", "tribe_organizer"],
-    "taxonomies": ["category", "post_tag"]
+    "taxonomies": ["category", "post_tag", "tribe_events_cat"]
   },
   "manifest": "the-events-calendar"
 }

@@ -38,7 +38,9 @@ foreach ([
     'ReferenceGraph', 'CodeCompatibility', 'RepositoryCompiler',
     'ScopeClosure', 'CanonicalSurfaces', 'Deletion', 'SidebarState', 'Snapshot',
     'RepositoryAuthorization', 'Tokens', 'ScopeContract',
-    'ScopedStateOverlay', 'ScopedApplySession', 'CommandRefusal', 'ScopedApply', 'Providers',
+    'ScopedStateOverlay', 'ScopedApplySession', 'CommandRefusal', 'ScopedApply', 'ScopedApplyCoordinator',
+    'ScopedApplyWorkProjector',
+    'Providers', 'ProviderActionBatchBuilder', 'RebuildActionDispatcher',
     'Canary', 'Ledger', 'PromotionLock', 'Apply',
 ] as $file) {
     $duoAgentFile = $duoAgentFiles[$file] ?? null;
@@ -340,6 +342,10 @@ function update_option(string $name, mixed $value, mixed $autoload = null): bool
 function wp_cache_get(string $key, string $group = '', bool $force = false, mixed &$found = null): mixed {
     $found = array_key_exists($key, $GLOBALS['scoped_recovery_cache'][$group] ?? []);
     return $found ? $GLOBALS['scoped_recovery_cache'][$group][$key] : false;
+}
+
+function wp_cache_flush(): bool {
+    return true;
 }
 
 function delete_transient(string $name): bool {
@@ -651,6 +657,40 @@ $authority = ScopedApplySession::make_authority(
 $sessionStore = new ScopedRecoveryMemoryStore();
 $session = ScopedApplySession::begin($sessionStore, $authority);
 $session->transition(ScopedApplySession::PHASE_AUTHORING);
+$recoveryPlanner = new \Duo\ApplyPlanner(
+    $policy,
+    [],
+    static fn(string $uuid, string $kind): ?int => null,
+    static fn(string $uuid, string $kind): ?int => null
+);
+$convergedRecoveryWork = \Duo\ScopedApplyWorkProjector::project(
+    [
+        'create' => [],
+        'adopt' => [],
+        'update' => [],
+        'unchanged' => [[
+            'uuid' => $selectedId,
+            'type' => 'post',
+            'path' => 'posts/page/' . $selectedId . '--selected.md',
+        ]],
+        'drift' => [],
+        'conflict' => [],
+        'delete' => [],
+        'delete_conflict' => [],
+        'deleted' => [],
+    ],
+    $compiled,
+    $session,
+    $contract,
+    $recoveryPlanner
+);
+$check(
+    count($convergedRecoveryWork['work']) === 1
+        && ($convergedRecoveryWork['work'][0]['uuid'] ?? null) === $selectedId
+        && $convergedRecoveryWork['delete_work'] === []
+        && $convergedRecoveryWork['rebuild_delete_work'] === [],
+    'a converged authored row remains frozen recovery work while its selected effect is pending'
+);
 $authorIntent = [
     'ordinal' => 1,
     'authority_hash' => $session->authority_hash_value(),
@@ -678,6 +718,34 @@ $desiredBeforeRows = [[
     'content_hash' => $desiredHash,
     'state' => 'live',
 ]];
+$desiredObservation = [
+    'selected_before_root' => ScopedApply::hash_rows($desiredBeforeRows),
+    'selected_ledger_map_root' => $hash('selected-map-after-authoring'),
+];
+$authoredReadbackHash = \Duo\ScopedApplyCoordinator::authored_ledger_map_hash($desiredObservation);
+$check(
+    $authoredReadbackHash === hash(
+        'sha256',
+        "duo-scoped-authored-map-witness/v1\0" . $desiredObservation['selected_ledger_map_root']
+    ),
+    'author receipt after_hash is the physical selected map generation while its intent binds desired work'
+);
+$changedDesiredObservation = $desiredObservation;
+$changedDesiredObservation['selected_ledger_map_root'] = $hash('selected-map-aba-after-authoring');
+$check(
+    !hash_equals(
+        $authoredReadbackHash,
+        \Duo\ScopedApplyCoordinator::authored_ledger_map_hash($changedDesiredObservation)
+    ),
+    'same desired content with a changed selected identity map changes the author receipt'
+);
+$expectThrow(
+    static fn() => \Duo\ScopedApplyCoordinator::authored_ledger_map_hash([
+        'selected_ledger_map_root' => 'malformed',
+    ]),
+    'malformed selected ledger-map root',
+    'author readback refuses a malformed map root before receipt publication'
+);
 $check(
     ScopedApply::authored_state(
         $actualDesired,
@@ -717,31 +785,293 @@ try {
 }
 $GLOBALS['wpdb']->failResults = false;
 
-// Simulate process/response loss after the DB transaction committed. The
-// durable session is still authoring and has an intent but no receipt; the
-// desired readback upgrades that exact intent without a second write.
+// The authored phase and map receipt are one CAS in the same transaction as
+// authored state. A lost response can reopen only the complete boundary.
+$session->commit_authored_receipt($authorIntent + ['after_hash' => $authoredReadbackHash]);
 $reopenedAfterCommit = ScopedApplySession::open($sessionStore);
-$check($reopenedAfterCommit !== null && $reopenedAfterCommit->phase() === ScopedApplySession::PHASE_AUTHORING,
-    'response loss leaves the durable authored intent at the authoring phase');
-if ($reopenedAfterCommit !== null) {
-    $reopenedState = ScopedApply::authored_state(
-        $actualDesired,
-        $compiled,
-        $policy,
-        $contract,
-        $selectedBeforeRoot
-    );
-    if ($reopenedState === 'desired') {
-        $reopenedAfterCommit->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
-        $reopenedAfterCommit->append_receipt($authorIntent + ['after_hash' => $desiredHash]);
-    }
-}
 $check(
     $authorCommits === 1
         && $reopenedAfterCommit !== null
         && $reopenedAfterCommit->phase() === ScopedApplySession::PHASE_AUTHORED_COMMITTED
         && count($reopenedAfterCommit->receipts()) === 1,
-    'desired readback after a lost response reconciles the same operation without replay'
+    'lost response reopens the atomic authored phase and map receipt without replay'
+);
+
+$makePostAuthorSession = static function () use ($authority, $authorIntent, $authoredReadbackHash): array {
+    $store = new ScopedRecoveryMemoryStore();
+    $session = ScopedApplySession::begin($store, $authority);
+    $session->transition(ScopedApplySession::PHASE_AUTHORING);
+    $session->append_intent($authorIntent);
+    $session->commit_authored_receipt($authorIntent + ['after_hash' => $authoredReadbackHash]);
+    $session->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
+    return [$store, $session];
+};
+
+$ambiguousAuthorStore = new ScopedRecoveryMemoryStore();
+$ambiguousAuthor = ScopedApplySession::begin($ambiguousAuthorStore, $authority);
+$ambiguousAuthor->transition(ScopedApplySession::PHASE_AUTHORING);
+$ambiguousAuthor->append_intent($authorIntent);
+$ambiguousWorkflow = new \Duo\ScopedApplyWorkflow();
+$ambiguousWorkflow->session = $ambiguousAuthor;
+$expectThrow(
+    static fn() => $ambiguousWorkflow->assert_authored_recovery_boundary(
+        'desired',
+        $authorIntent,
+        $desiredObservation,
+        $hash('irrelevant-authoring-plan'),
+        $hash('irrelevant-authoring-guards')
+    ),
+    'without its atomic author receipt',
+    'authoring plus desired state is refused instead of inferring a committed transaction'
+);
+
+$plannedChangedStore = new ScopedRecoveryMemoryStore();
+$plannedChangedSession = ScopedApplySession::begin($plannedChangedStore, $authority);
+$plannedChangedWorkflow = new \Duo\ScopedApplyWorkflow();
+$plannedChangedWorkflow->session = $plannedChangedSession;
+$expectThrow(
+    static fn() => $plannedChangedWorkflow->assert_authored_recovery_boundary(
+        'desired',
+        $authorIntent,
+        $desiredObservation,
+        $hash('preconditions'),
+        $hash('guards')
+    ),
+    'no longer matches its exact pre-author state',
+    'planned desired state that differs from authority before-state refuses instead of becoming a no-op'
+);
+
+$noopAuthorityBase = $authority;
+unset($noopAuthorityBase['authority_hash']);
+$noopAuthorityBase['lease']['session_id'] = 'noop-author-session';
+$noopAuthorityBase['target']['selected_before_hash'] = $desiredObservation['selected_before_root'];
+$noopAuthorityBase['target']['selected_before_ledger_map_hash'] = $desiredObservation['selected_ledger_map_root'];
+$noopAuthority = ScopedApplySession::seal_authority($noopAuthorityBase);
+$noopStore = new ScopedRecoveryMemoryStore();
+$noopSession = ScopedApplySession::begin($noopStore, $noopAuthority);
+$noopWorkflow = new \Duo\ScopedApplyWorkflow();
+$noopWorkflow->session = $noopSession;
+$noopIntent = $noopWorkflow->intent(
+    1,
+    'duo-scoped-authored-transaction/v2',
+    'noop-author-operation',
+    $hash('noop-input'),
+    $hash('noop-effect'),
+    $desiredObservation['selected_before_root']
+);
+$check(
+    $noopWorkflow->assert_authored_recovery_boundary(
+        'desired',
+        $noopIntent,
+        $desiredObservation,
+        $hash('preconditions'),
+        $hash('guards')
+    ) === ScopedApplySession::PHASE_PLANNED,
+    'planned desired no-op requires exact authority state, map, plan, and guards'
+);
+$noopReceipt = $noopWorkflow->receipt($noopIntent, $authoredReadbackHash);
+$noopSession->commit_desired_authoring($noopIntent, $noopReceipt);
+$check(
+    $noopSession->phase() === ScopedApplySession::PHASE_AUTHORED_COMMITTED
+        && Canon::encode((array) $noopWorkflow->receipt_at(1)) === Canon::encode($noopReceipt),
+    'already-desired no-op seals intent, map receipt, and both author phases in one CAS'
+);
+
+$legacyStore = new ScopedRecoveryMemoryStore();
+$legacySession = ScopedApplySession::begin($legacyStore, $authority);
+$legacySession->transition(ScopedApplySession::PHASE_AUTHORING);
+$legacyWorkflow = new \Duo\ScopedApplyWorkflow();
+$legacyWorkflow->session = $legacySession;
+$legacyIntent = $legacyWorkflow->intent(
+    1,
+    'duo-scoped-authored-transaction/v1',
+    'legacy-author-operation',
+    $hash('legacy-input'),
+    $hash('legacy-effect'),
+    $selectedBeforeRoot
+);
+$legacySession->append_intent($legacyIntent);
+$expectThrow(
+    static fn() => $legacyWorkflow->assert_authored_recovery_boundary(
+        'before',
+        $authorIntent,
+        $desiredObservation,
+        $hash('preconditions'),
+        $hash('guards')
+    ),
+    'obsolete v1 author evidence',
+    'retained v1 state-only author evidence refuses with explicit checkpoint remediation'
+);
+
+$commitReceiptCrashStore = new ScopedRecoveryMemoryStore();
+$commitReceiptCrash = ScopedApplySession::begin($commitReceiptCrashStore, $authority);
+$commitReceiptCrash->transition(ScopedApplySession::PHASE_AUTHORING);
+$commitReceiptCrash->append_intent($authorIntent);
+$legacyMissingReceipt = Canon::decode($commitReceiptCrash->canonical());
+$legacyMissingReceipt['phase'] = ScopedApplySession::PHASE_AUTHORED_COMMITTED;
+$legacyMissingReceipt['phase_history'][] = ScopedApplySession::PHASE_AUTHORED_COMMITTED;
+unset($legacyMissingReceipt['session_hash']);
+$legacyMissingReceipt['session_hash'] = ScopedApplySession::hash_value($legacyMissingReceipt);
+$commitReceiptCrashStore->values[ScopedApplySession::STORAGE_KEY] = Canon::encode($legacyMissingReceipt);
+$commitReceiptCrash = ScopedApplySession::open($commitReceiptCrashStore);
+$check($commitReceiptCrash !== null, 'legacy authored_committed fixture remains structurally decodable');
+$commitReceiptCrash ??= ScopedApplySession::begin($commitReceiptCrashStore, $authority);
+$commitReceiptCrash->recover($hash('commit-receipt-crash'));
+$commitReceiptWorkflow = new \Duo\ScopedApplyWorkflow();
+$commitReceiptWorkflow->session = $commitReceiptCrash;
+$expectThrow(
+    static fn() => $commitReceiptWorkflow->assert_authored_recovery_boundary(
+        'desired',
+        $authorIntent,
+        $desiredObservation,
+        $hash('irrelevant-commit-plan'),
+        $hash('irrelevant-commit-guards')
+    ),
+    'author receipt does not match',
+    'legacy authored_committed state without an atomic receipt refuses before effects'
+);
+$effectsBeforeReceipt = 0;
+$check(
+    $effectsBeforeReceipt === 0
+        && $commitReceiptCrash->is_recovery_required()
+        && $commitReceiptWorkflow->receipt_at(1) === null,
+    'missing atomic author receipt remains recovery_required and cannot be reconstructed'
+);
+
+$rollbackStore = new ScopedRecoveryMemoryStore();
+$rollbackSession = ScopedApplySession::begin($rollbackStore, $authority);
+$rollbackSession->transition(ScopedApplySession::PHASE_AUTHORING);
+$rollbackSession->append_intent($authorIntent);
+$rollbackBefore = $rollbackSession->canonical();
+$rollbackSession->commit_authored_receipt($authorIntent + ['after_hash' => $authoredReadbackHash]);
+$rollbackStore->values[ScopedApplySession::STORAGE_KEY] = $rollbackBefore;
+$rollbackSession->reload();
+$check(
+    $rollbackSession->phase() === ScopedApplySession::PHASE_AUTHORING
+        && $rollbackSession->receipts() === []
+        && Canon::encode($rollbackSession->intents()) === Canon::encode([$authorIntent]),
+    'confirmed database rollback reloads the session object to authoring plus intent with no receipt'
+);
+
+// A retained post-author recovery gate is not cleared until the exact desired
+// content+ledger-map receipt is re-proved. The plan/guard values deliberately
+// differ here: those witnesses belonged to the original locked authoring
+// transaction and deletion can legitimately change them after commit.
+[, $retainedPostAuthor] = $makePostAuthorSession();
+$retainedPostAuthor->recover($hash('post-author-recovery'));
+$postAuthorWorkflow = new \Duo\ScopedApplyWorkflow();
+$postAuthorWorkflow->session = $retainedPostAuthor;
+$check(
+    $postAuthorWorkflow->assert_authored_recovery_boundary(
+        'desired',
+        $authorIntent,
+        $desiredObservation,
+        $hash('changed-post-author-plan'),
+        $hash('changed-post-author-guards')
+    ) === ScopedApplySession::PHASE_EFFECTS_PENDING
+        && $retainedPostAuthor->is_recovery_required(),
+    'post-author recovery re-proves its composite receipt without clearing the durable gate or old guards'
+);
+$retainedPostAuthor->resume_recorded_recovery();
+$check(
+    $retainedPostAuthor->phase() === ScopedApplySession::PHASE_EFFECTS_PENDING,
+    'post-author recovery resumes only after its exact receipt recheck'
+);
+
+$observationRegating = new \Duo\ScopedApplyWorkflow();
+$observationRegating->session = $retainedPostAuthor;
+$expectThrow(
+    static fn() => $observationRegating->recheck_target_observation(
+        static fn() => throw new RuntimeException('synthetic selected-map observation refusal')
+    ),
+    'synthetic selected-map observation refusal',
+    'normal post-author observation failure is surfaced without dispatch'
+);
+$check(
+    $retainedPostAuthor->is_recovery_required(),
+    'normal post-author observation failure durably re-gates the exact phase'
+);
+$retainedObservationRecoveryBytes = $retainedPostAuthor->canonical();
+$expectThrow(
+    static fn() => $observationRegating->recheck_target_observation(
+        static fn() => throw new RuntimeException('repeat selected-map observation refusal')
+    ),
+    'repeat selected-map observation refusal',
+    'observation refusal preserves an already-active recovery witness'
+);
+$check(
+    $retainedPostAuthor->canonical() === $retainedObservationRecoveryBytes,
+    'repeated observation refusal leaves retained recovery bytes unchanged'
+);
+$retainedPostAuthor->resume_recorded_recovery();
+
+// Model a crash immediately after the resume CAS: the normal nonterminal
+// phase must repeat the same composite readback check on the next request.
+$normalPostAuthor = new \Duo\ScopedApplyWorkflow();
+$normalPostAuthor->session = $retainedPostAuthor;
+$effectDispatches = 0;
+$expectThrow(
+    static function () use (
+        $normalPostAuthor,
+        $authorIntent,
+        $changedDesiredObservation,
+        $hash,
+        &$effectDispatches
+    ): void {
+        $normalPostAuthor->assert_authored_recovery_boundary(
+            'desired',
+            $authorIntent,
+            $changedDesiredObservation,
+            $hash('irrelevant-post-author-plan'),
+            $hash('irrelevant-post-author-guards')
+        );
+        $effectDispatches++;
+    },
+    'author receipt does not match',
+    'normal effects_pending retry refuses same-content selected-map drift before dispatch'
+);
+$check(
+    $effectDispatches === 0 && $retainedPostAuthor->is_recovery_required(),
+    'crash-after-resume map drift restores recovery_required and leaves effect dispatch untouched'
+);
+
+[, $changedRecoveryMap] = $makePostAuthorSession();
+$changedRecoveryMap->recover($hash('retained-map-drift-cause'));
+$retainedRecoveryBytes = $changedRecoveryMap->canonical();
+$changedRecoveryWorkflow = new \Duo\ScopedApplyWorkflow();
+$changedRecoveryWorkflow->session = $changedRecoveryMap;
+$expectThrow(
+    static fn() => $changedRecoveryWorkflow->assert_authored_recovery_boundary(
+        'desired',
+        $authorIntent,
+        $changedDesiredObservation,
+        $hash('irrelevant-retained-plan'),
+        $hash('irrelevant-retained-guards')
+    ),
+    'author receipt does not match',
+    'retained effects_pending recovery refuses changed selected map before resume'
+);
+$check(
+    $changedRecoveryMap->canonical() === $retainedRecoveryBytes,
+    'failed post-author recheck preserves the already-active recovery witness byte-for-byte'
+);
+
+$preAuthorMenuStore = new ScopedRecoveryMemoryStore();
+$preAuthorMenuSession = ScopedApplySession::begin($preAuthorMenuStore, $authority);
+$preAuthorMenuSession->transition(ScopedApplySession::PHASE_AUTHORING);
+$preAuthorMenuSession->recover($hash('pre-author-menu-recovery'));
+$check(
+    \Duo\ScopedApplyCoordinator::allows_target_old_menu_items(
+        $preAuthorMenuSession,
+        $contract,
+        $actualBefore
+    )
+        && !\Duo\ScopedApplyCoordinator::allows_target_old_menu_items(
+            $preAuthorMenuSession,
+            $contract,
+            $actualDesired
+        ),
+    'planned/authoring recovery uses its recorded phase only for the exact before-menu inventory premise'
 );
 
 // A selected row can be desired while an excluded row changes: protected
@@ -1825,6 +2155,284 @@ $expectThrow(
     'an existing outer receipt is accepted only after a fresh reviewed effect readback still matches it'
 );
 
+// Drive the same recovery through the real product dispatcher. The session
+// resumes only after the selected action/capability evidence is re-proved;
+// the dispatcher then decides from the durable inner operation whether to
+// reconcile, invoke once, or leave an unknowable intent recovery_required.
+$dispatchAction = [
+    'kind' => 'provider',
+    'manifest' => 'scoped-recovery',
+    'index' => 0,
+    'provider' => 'scoped-recovery',
+    'capability' => 'repair',
+    'args' => [],
+    'triggers' => ['option:scoped_recovery'],
+    'effects' => [[
+        'id' => 'scoped-recovery-effect',
+        'kind' => 'external',
+        'mode' => 'irreversible',
+        'selector' => [
+            'scope' => 'external',
+            'type' => 'provider_resource',
+            'value' => 'scoped-recovery:v1',
+        ],
+    ]],
+];
+$dispatchCapabilityDigest = Providers::scoped_capability_digest(
+    'scoped-recovery',
+    'repair',
+    $providerDecl
+);
+$dispatchProvider = new ScopedRecoveryProvider();
+$dispatchNegotiation = [
+    'providers' => ['scoped-recovery' => $dispatchProvider],
+    'capabilities' => ['scoped-recovery' => ['repair' => $providerDecl]],
+    'scoped_capabilities' => ['scoped-recovery' => ['repair' => [
+        'operation_envelope' => Providers::SCOPED_OPERATION_FORMAT,
+        'receipt_format' => Providers::SCOPED_RECEIPT_FORMAT,
+        'capability_digest' => $dispatchCapabilityDigest,
+    ]]],
+];
+$dispatchActionRow = [
+    'manifest' => 'scoped-recovery',
+    'index' => 0,
+    'declaration_hash' => hash('sha256', Canon::encode($dispatchAction)),
+];
+$dispatchSelection = [
+    'work_hash' => ScopedApplySession::hash_value([]),
+    'work_items' => [],
+    'deletions_hash' => ScopedApplySession::hash_value([]),
+    'deletion_items' => [],
+    'action_declarations_hash' => ScopedApplySession::hash_value([$dispatchActionRow]),
+    'action_items' => [$dispatchActionRow],
+    'capabilities_hash' => ScopedApplySession::hash_value($dispatchNegotiation['scoped_capabilities']),
+    'effects_hash' => ScopedApplySession::hash_value([[
+        'action_hash' => hash('sha256', Canon::encode($dispatchActionRow)),
+        'effect_hash' => hash('sha256', Canon::encode($dispatchAction['effects'][0])),
+    ]]),
+    'effect_items' => [[
+        'action_hash' => hash('sha256', Canon::encode($dispatchActionRow)),
+        'effect_hash' => hash('sha256', Canon::encode($dispatchAction['effects'][0])),
+    ]],
+    'ledger_map_identity_hashes' => [],
+    'ledger_map_identity_set_hash' => ScopedApplySession::hash_value([]),
+];
+$makeDispatchRecovery = static function (string $label) use (
+    $contract,
+    $compiled,
+    $dispatchSelection,
+    $hash,
+    $protectedRoot,
+    $selectedBeforeRoot
+): array {
+    $authority = ScopedApplySession::make_authority(
+        $contract['scope_hash'],
+        [
+            'artifact_hash' => $compiled->artifact_hash(),
+            'state_revision_hash' => $compiled->revision_hash(),
+            'manifest_hash' => $compiled->manifest_hash(),
+        ],
+        [
+            'owner' => 'dispatch-recovery-owner',
+            'artifact_hash' => $compiled->artifact_hash(),
+            'session_id' => 'dispatch-recovery-' . $label,
+        ],
+        [
+            'selected_before_hash' => $selectedBeforeRoot,
+            'selected_before_ledger_map_hash' => $hash('dispatch-selected-map-' . $label),
+            'protected_ledger_map_hash' => $hash('dispatch-protected-map-' . $label),
+            'protected_out_of_scope_hash' => $protectedRoot,
+            'ledger_roots_hash' => $hash('dispatch-ledger-roots-' . $label),
+        ],
+        [
+            'precondition_hash' => $hash('dispatch-preconditions-' . $label),
+            'guard_witnesses_hash' => $hash('dispatch-guards-' . $label),
+        ],
+        $dispatchSelection,
+        $hash('dispatch-code-' . $label)
+    );
+    $store = new ScopedRecoveryMemoryStore();
+    $session = ScopedApplySession::begin($store, $authority);
+    $session->transition(ScopedApplySession::PHASE_AUTHORING);
+    $author = \Duo\ScopedApplyCoordinator::intent(
+        $session,
+        1,
+        'dispatch-author',
+        'dispatch-author-operation',
+        $hash('dispatch-author-input-' . $label),
+        $hash('dispatch-author-effect-' . $label),
+        $selectedBeforeRoot
+    );
+    $session->append_intent($author);
+    $session->commit_authored_receipt(\Duo\ScopedApplyCoordinator::receipt(
+        $author,
+        \Duo\ScopedApplyCoordinator::authored_ledger_map_hash([
+            'selected_before_root' => $selectedBeforeRoot,
+            'selected_ledger_map_root' => $hash('dispatch-selected-map-after-' . $label),
+        ])
+    ));
+    $session->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
+    $core = \Duo\ScopedApplyCoordinator::intent(
+        $session,
+        2,
+        'dispatch-core',
+        'dispatch-core-operation',
+        $hash('dispatch-core-input-' . $label),
+        $hash('dispatch-core-effect-' . $label),
+        $selectedBeforeRoot
+    );
+    $session->append_intent($core);
+    $session->append_receipt(\Duo\ScopedApplyCoordinator::receipt(
+        $core,
+        $hash('dispatch-core-after-' . $label)
+    ));
+    $session->recover($hash('dispatch-recovery-cause-' . $label));
+    return [$store, $authority, $session];
+};
+$dispatch = new \Duo\RebuildActionDispatcher(
+    $policy,
+    new \Duo\ProviderActionBatchBuilder($policy, []),
+    static function (): void {}
+);
+$driveScopedDispatch = static function (ScopedApplySession $session) use (
+    $dispatch,
+    $dispatchAction,
+    $dispatchNegotiation,
+    $selectedBeforeRoot
+): array {
+    $warnings = [];
+    $receipts = [];
+    $failure = null;
+    try {
+        $dispatch->dispatch(
+            [$dispatchAction],
+            $dispatchNegotiation,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            true,
+            $session,
+            ['selected_before_root' => $selectedBeforeRoot],
+            $warnings,
+            $receipts
+        );
+    } catch (Throwable $caught) {
+        $failure = $caught;
+    }
+    return ['failure' => $failure, 'warnings' => $warnings, 'receipts' => $receipts];
+};
+
+[$dispatchStore, $dispatchAuthority, $dispatchSession] = $makeDispatchRecovery('verified');
+\Duo\ScopedApplyCoordinator::assert_recovery_selection(
+    $dispatchSession,
+    [$dispatchAction],
+    $dispatchNegotiation
+);
+$dispatchSession->resume_recorded_recovery();
+$firstDispatch = $driveScopedDispatch($dispatchSession);
+$check(
+    $firstDispatch['failure'] === null
+        && $dispatchProvider->invocations === 1
+        && $dispatchProvider->reconciliations === 0
+        && count($dispatchSession->receipts()) === 3,
+    'product dispatcher invokes an absent scoped operation once after phase-exact recovery resume'
+);
+$dispatchSession->recover($hash('dispatch-lost-response'));
+$reopenedDispatch = ScopedApplySession::begin($dispatchStore, $dispatchAuthority);
+\Duo\ScopedApplyCoordinator::assert_recovery_selection(
+    $reopenedDispatch,
+    [$dispatchAction],
+    $dispatchNegotiation
+);
+$reopenedDispatch->resume_recorded_recovery();
+$secondDispatch = $driveScopedDispatch($reopenedDispatch);
+$check(
+    $secondDispatch['failure'] === null
+        && $dispatchProvider->invocations === 1
+        && $dispatchProvider->reconciliations === 1
+        && count($reopenedDispatch->receipts()) === 3,
+    'product dispatcher reconciles a verified retained effect without a second invocation'
+);
+
+[, , $changedSelectionSession] = $makeDispatchRecovery('changed-selection');
+$changedAction = $dispatchAction;
+$changedAction['args'] = ['changed' => true];
+$changedSelectionWorkflow = new \Duo\ScopedApplyWorkflow();
+$changedSelectionWorkflow->session = $changedSelectionSession;
+$retainedSelectionRecovery = $changedSelectionSession->canonical();
+$expectThrow(
+    static fn() => $changedSelectionWorkflow->assert_recovery_selection(
+        [$changedAction],
+        $dispatchNegotiation
+    ),
+    'action/capability evidence changed',
+    'changed selected action evidence refuses before product recovery resume'
+);
+$check(
+    $changedSelectionSession->is_recovery_required()
+        && $changedSelectionSession->canonical() === $retainedSelectionRecovery,
+    'a changed action/capability recheck leaves the retained recovery witness untouched'
+);
+
+[, , $normalSelectionSession] = $makeDispatchRecovery('normal-selection-drift');
+$normalSelectionSession->resume_recorded_recovery();
+$normalSelectionWorkflow = new \Duo\ScopedApplyWorkflow();
+$normalSelectionWorkflow->session = $normalSelectionSession;
+$expectThrow(
+    static fn() => $normalSelectionWorkflow->assert_recovery_selection(
+        [$changedAction],
+        $dispatchNegotiation
+    ),
+    'action/capability evidence changed',
+    'a crash-after-resume normal phase repeats action/capability selection checks'
+);
+$check(
+    $normalSelectionSession->is_recovery_required()
+        && $normalSelectionSession->recorded_recovery_phase() === ScopedApplySession::PHASE_EFFECTS_PENDING,
+    'normal-phase selection mismatch deterministically re-gates the exact active phase'
+);
+
+[$intentStore, $intentAuthority, $intentSession] = $makeDispatchRecovery('intent-only');
+$intentOperation = \Duo\ScopedApplyCoordinator::effect_operation(
+    $intentSession,
+    3,
+    Providers::scoped_input_hash($dispatchAction, $providerDecl),
+    \Duo\ScopedApplyCoordinator::action_effect_hash($dispatchAction)
+);
+Providers::begin_scoped_operation('scoped-recovery', 'repair', $intentOperation);
+\Duo\ScopedApplyCoordinator::assert_recovery_selection(
+    $intentSession,
+    [$dispatchAction],
+    $dispatchNegotiation
+);
+$intentSession->resume_recorded_recovery();
+$intentFirst = $driveScopedDispatch($intentSession);
+$check(
+    $intentFirst['failure'] instanceof RuntimeException
+        && str_contains($intentFirst['failure']->getMessage(), 'durable intent without a verified receipt')
+        && $intentSession->is_recovery_required(),
+    'product dispatcher keeps an intent-only effect recovery_required instead of invoking it'
+);
+$intentRetry = ScopedApplySession::begin($intentStore, $intentAuthority);
+\Duo\ScopedApplyCoordinator::assert_recovery_selection(
+    $intentRetry,
+    [$dispatchAction],
+    $dispatchNegotiation
+);
+$intentRetry->resume_recorded_recovery();
+$intentSecond = $driveScopedDispatch($intentRetry);
+$check(
+    $intentSecond['failure'] instanceof RuntimeException
+        && $intentRetry->is_recovery_required()
+        && $dispatchProvider->invocations === 1
+        && $dispatchProvider->reconciliations === 1,
+    'same-process retry never re-invokes or reconciles an unknowable intent-only effect'
+);
+
 // Native transient delete uses the same operation receipt channel and must
 // not infer execution merely from an absent transient.
 $nativeName = 'scoped_recovery_native';
@@ -2054,6 +2662,29 @@ $check(
     'public full-plan interlock leaves the exact scoped session bytes untouched'
 );
 
+$executorWithoutParticipant = (new ReflectionClass(\Duo\AuthoredTransactionExecutor::class))
+    ->newInstanceWithoutConstructor();
+$executorWarnings = [];
+$expectThrow(
+    static function () use ($executorWithoutParticipant, &$executorWarnings): void {
+        $executorWithoutParticipant->execute(
+            new \Duo\AuthoredTransactionRequest(
+                new \Duo\ApplyWorkset([], [], [], [], [], [], []),
+                new \Duo\DeletionAuthority(false, false, false),
+                true,
+                [],
+                true,
+                null,
+                null,
+                null
+            ),
+            $executorWarnings
+        );
+    },
+    'invalid scoped commit participant',
+    'direct scoped executor refuses a performing request without atomic session participants before target setup'
+);
+
 // The full public Apply path needs WordPress and a promotion lease, so pin the
 // four recovery/isolation threading edges in its bounded run()/rebuild()
 // source. The protocol seams they call are exercised dynamically above.
@@ -2062,9 +2693,13 @@ $preparationSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyP
 $rebuildCoordinatorSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyRebuildCoordinator.php');
 $batchBuilderSource = (string) file_get_contents($root . '/agent/src/Adapter/ProviderActionBatchBuilder.php');
 $scopedCoordinatorSource = (string) file_get_contents($root . '/agent/src/Scope/ScopedApplyCoordinator.php');
+$scopedWorkflowSource = (string) file_get_contents($root . '/agent/src/Scope/ScopedApplyWorkflow.php');
+$authoredExecutorSource = (string) file_get_contents($root . '/agent/src/Apply/AuthoredTransactionExecutor.php');
 $actionDispatcherSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionDispatcher.php');
 $actionNegotiatorSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionNegotiator.php');
 $ledgerFinalizerSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyLedgerFinalizer.php');
+$convergenceVerifierSource = (string) file_get_contents($root . '/agent/src/Review/ConvergenceVerifier.php');
+$repoFormatSource = (string) file_get_contents($root . '/spec/repo-format.md');
 $check(
     str_contains(
         preg_replace('/\s+/', ' ', $ledgerFinalizerSource),
@@ -2188,12 +2823,168 @@ $check(
 );
 $codeWitnessCheckAt = strpos($applySource, "'duo:scoped-code-witness-changed'");
 $sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
+$protectedTargetCheckAt = strpos($applySource, "'duo:scoped-protected-target-drift'");
+$authoredBoundaryCheckAt = strpos($applySource, '->assert_authored_recovery_boundary(');
+$recordedRecoveryResumeAt = strpos($applySource, '->resume_recorded_recovery();');
+$authorReceiptSealAt = strpos($applySource, '$commitScopedAuthoring = static function');
+$authoredExecutorAt = strpos($applySource, '->authored_transaction_executor()->execute(');
+$finalAuthorReadbackAt = strrpos($applySource, 'ScopedApplyCoordinator::authored_ledger_map_hash($afterObservation)');
+$rebuildRenewAt = strpos($applySource, "renew_promotion_lock('apply-rebuild')");
+$selectionRecheckAt = strpos($preparationSource, '->assert_recovery_selection(');
+$freshRebuildAt = strpos($preparationSource, '$freshRebuildWork = $this->services->apply_planner()->rebuild_work(');
+$freshRecoveryProjectionAt = strpos(
+    $preparationSource,
+    '$freshRebuildWork = ScopedApplyWorkProjector::project('
+);
+$freshSelectedActionsAt = strpos($preparationSource, '$freshSelectedActions = $this->policy->actions_for(');
+$attachmentSealAt = strpos($authoredExecutorSource, '->seal_authored_transaction();');
+$canaryCheckAt = strpos($authoredExecutorSource, '$violations = Canary::violations();');
+$isolationCheckAt = strpos($authoredExecutorSource, "'authored transaction final commit boundary'");
+$atomicParticipantAt = strpos($authoredExecutorSource, '$commitScopedAuthoring();');
+$databaseCommitAt = strpos($authoredExecutorSource, "Db::commit('apply transaction commit')");
+$authoredEngineBoundaryAt = strpos(
+    $authoredExecutorSource,
+    "'authored transaction storage-engine boundary'"
+);
+$termParticipantAt = strpos($authoredExecutorSource, '->begin_authored_transaction();', $authoredEngineBoundaryAt + 1);
 $check(
     substr_count($applySource . $scopedCoordinatorSource, 'ScopedApply::code_witness_hash(') === 2
         && $codeWitnessCheckAt !== false
         && $sessionBeginAt !== false
         && $codeWitnessCheckAt < $sessionBeginAt,
     'recovery re-proves the sealed code/lifecycle witness before opening or advancing target mutation state'
+);
+$check(
+    $selectionRecheckAt !== false
+        && substr_count($preparationSource, 'ScopedApplyWorkProjector::project(') === 2
+        && $freshRebuildAt !== false
+        && $freshRecoveryProjectionAt !== false
+        && $freshSelectedActionsAt !== false
+        && $freshRebuildAt < $freshRecoveryProjectionAt
+        && $freshRecoveryProjectionAt < $freshSelectedActionsAt
+        && $codeWitnessCheckAt !== false
+        && $protectedTargetCheckAt !== false
+        && $sessionBeginAt !== false
+        && $authoredBoundaryCheckAt !== false
+        && $recordedRecoveryResumeAt !== false
+        && $authorReceiptSealAt !== false
+        && $authoredExecutorAt !== false
+        && $finalAuthorReadbackAt !== false
+        && $rebuildRenewAt !== false
+        && $preparedAt !== false
+        && $preparedAt < $codeWitnessCheckAt
+        && $codeWitnessCheckAt < $protectedTargetCheckAt
+        && $protectedTargetCheckAt < $sessionBeginAt
+        && $sessionBeginAt < $authoredBoundaryCheckAt
+        && $authoredBoundaryCheckAt < $recordedRecoveryResumeAt
+        && $recordedRecoveryResumeAt < $authorReceiptSealAt
+        && $authorReceiptSealAt < $authoredExecutorAt
+        && $authoredExecutorAt < $finalAuthorReadbackAt
+        && $finalAuthorReadbackAt < $rebuildRenewAt,
+    'product recovery rechecks selected authority and author receipt before resume, executor, or rebuild'
+);
+$check(
+    substr_count($applySource, '->assert_authored_recovery_boundary(') === 1
+        && str_contains($scopedWorkflowSource, '$recordedPhase ?? $this->session->phase()')
+        && str_contains($scopedWorkflowSource, 'ScopedApplySession::PHASE_EFFECTS_PENDING')
+        && str_contains($scopedWorkflowSource, 'ScopedApplySession::PHASE_VERIFYING')
+        && str_contains($scopedWorkflowSource, 'ScopedApplyCoordinator::authored_ledger_map_hash($observation)')
+        && !str_contains(
+            substr(
+                $scopedWorkflowSource,
+                (int) strpos($scopedWorkflowSource, 'if ($authoredState !== \'desired\')'),
+                2400
+            ),
+            'guard_witnesses_hash'
+        ),
+    'normal post-author phases repeat composite receipt checks without reusing pre-author deletion guards'
+);
+$check(
+    $attachmentSealAt !== false
+        && $canaryCheckAt !== false
+        && $isolationCheckAt !== false
+        && $atomicParticipantAt !== false
+        && $databaseCommitAt !== false
+        && $attachmentSealAt < $canaryCheckAt
+        && $canaryCheckAt < $isolationCheckAt
+        && $isolationCheckAt < $atomicParticipantAt
+        && $atomicParticipantAt < $databaseCommitAt
+        && strpos($authoredExecutorSource, 'if (($commitScopedAuthoring !== null) !== $requiresScopedParticipant') !== false
+        && strpos($authoredExecutorSource, '$rollbackScopedAuthoring();') > strpos($authoredExecutorSource, "Db::rollback('apply transaction rollback')"),
+    'atomic scoped map receipt runs after seal/canary/isolation and before commit, with post-rollback reload'
+);
+$convergenceObservationAt = strpos($convergenceVerifierSource, '$observation = ScopedApply::observe_target(');
+$convergenceMapWitnessAt = strpos(
+    $convergenceVerifierSource,
+    'ScopedApply::authored_ledger_map_hash($observation)'
+);
+$convergenceSelectedAt = strpos($convergenceVerifierSource, '$selected = ScopedApply::selected_set(');
+$convergenceReceiptAt = strpos(
+    $convergenceVerifierSource,
+    '\'authored_ledger_map_hash\' => $authoredLedgerMapHash'
+);
+$finalizerMapLockAt = strpos($ledgerFinalizerSource, 'self::locked_map_inventory()');
+$finalizerForgetAt = strpos($ledgerFinalizerSource, 'Ledger::forget($row[\'uuid\']);');
+$finalizerMapReadbackAt = strrpos($ledgerFinalizerSource, 'self::locked_map_inventory()');
+$finalizerCompleteAt = strpos($ledgerFinalizerSource, '$scopedSession->complete(');
+$check(
+    $convergenceObservationAt !== false
+        && $convergenceMapWitnessAt !== false
+        && $convergenceSelectedAt !== false
+        && $convergenceReceiptAt !== false
+        && $convergenceObservationAt < $convergenceMapWitnessAt
+        && $convergenceMapWitnessAt < $convergenceSelectedAt
+        && $convergenceSelectedAt < $convergenceReceiptAt
+        && str_contains(
+            $convergenceVerifierSource,
+            'selected identity-map drift after authored commit'
+        ),
+    'fresh scoped convergence rejects selected-map drift against ordinal one before selected content can pass'
+);
+$check(
+    str_contains($ledgerFinalizerSource, "Db::start_repeatable_read('scoped ledger transaction start')")
+        && str_contains($ledgerFinalizerSource, 'DeleteGuardEvaluator::assert_innodb_tables([')
+        && $finalizerMapLockAt !== false
+        && $finalizerForgetAt !== false
+        && $finalizerMapReadbackAt !== false
+        && $finalizerCompleteAt !== false
+        && $finalizerMapLockAt < $finalizerForgetAt
+        && $finalizerForgetAt < $finalizerMapReadbackAt
+        && $finalizerMapReadbackAt < $finalizerCompleteAt
+        && str_contains($ledgerFinalizerSource, '$authorizedMapDeletes[$uuid] = true;')
+        && str_contains($ledgerFinalizerSource, '$expectedTerminalMap = array_values(array_filter(')
+        && str_contains($ledgerFinalizerSource, 'private const MAX_LOCKED_MAP_ROWS = 100000;')
+        && str_contains($ledgerFinalizerSource, '$limit = self::MAX_LOCKED_MAP_ROWS + 1;')
+        && str_contains($ledgerFinalizerSource, 'count($rows) > self::MAX_LOCKED_MAP_ROWS')
+        && str_contains($ledgerFinalizerSource, 'scoped ledger map inventory exceeds the bounded row frontier')
+        && str_contains($ledgerFinalizerSource, 'FORCE INDEX (PRIMARY) ORDER BY uuid ASC, id_kind ASC LIMIT $limit FOR UPDATE')
+        && substr_count($ledgerFinalizerSource, "assert_transaction_isolation('scoped ledger map inventory") === 2,
+    'terminalization range-locks the complete selected map and permits only explicit tombstone cleanup before sealing roots'
+);
+$check(
+    str_contains($repoFormatSource, 'admits at most 100,000 physical map rows')
+        && str_contains($repoFormatSource, 'requests one proof row beyond the')
+        && str_contains($repoFormatSource, 'refuses before ledger mutation'),
+    'the scoped terminal protocol documents its exact 100k full-map refusal frontier'
+);
+$check(
+    $authoredEngineBoundaryAt !== false
+        && $termParticipantAt !== false
+        && $authoredEngineBoundaryAt < $termParticipantAt
+        && $authoredEngineBoundaryAt < $atomicParticipantAt
+        && str_contains($authoredExecutorSource, '$this->snapshotRowTables as $name => $declaration')
+        && str_contains($authoredExecutorSource, '->attached_meta_table_for_owner((string) $name)')
+        && str_contains($authoredExecutorSource, '$wpdb->prefix . \'duo_map\'')
+        && str_contains($authoredExecutorSource, '$wpdb->prefix . \'duo_state\'')
+        && str_contains($authoredExecutorSource, '$wpdb->prefix . \'duo_kv\'')
+        && str_contains($authoredExecutorSource, '$declaration[\'invalidate\'] ?? []'),
+    'authored apply metadata-locks and proves every effective core/ledger/typed/sidecar/invalidation table before DML or session CAS'
+);
+$check(
+    substr_count($applySource, '->recheck_target_observation(') === 2
+        && substr_count($preparationSource, '->recheck_target_observation(') === 1
+        && str_contains($scopedWorkflowSource, "recover_once('duo:scoped-target-observation-failed')"),
+    'every normal scoped target observation failure re-gates the retained phase before surfacing drift'
 );
 
 if ($failures !== 0) {

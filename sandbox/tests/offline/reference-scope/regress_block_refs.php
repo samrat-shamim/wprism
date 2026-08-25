@@ -217,9 +217,27 @@ const MAPPED_USER_ID = 77;
 const UNMAPPED_ID = 999; // never in $wpdb->identity, never in $wpdb->postsById -> genuinely DANGLING
 const UNSCOPED_ID = 888; // never in $wpdb->identity, but a REAL row of an out-of-scope type -> UNSCOPED
 const UNMINTED_ID = 444; // never in $wpdb->identity, but a REAL row of an IN-scope type -> neither (false-positive guard)
+const TEC_ORGANIZER_ONE_UUID = '01980000-0001-7000-8000-000000000011';
+const TEC_ORGANIZER_TWO_UUID = '01980000-0001-7000-8000-000000000012';
+const TEC_SOURCE_ORGANIZER_ONE_ID = 701;
+const TEC_SOURCE_ORGANIZER_TWO_ID = 703;
+const TEC_TARGET_ORGANIZER_ONE_ID = 7000000001;
+const TEC_TARGET_ORGANIZER_TWO_ID = 8000000003;
 
-$wpdb->identity['post'] = [MAPPED_ID => MAPPED_UUID];
+$wpdb->identity['post'] = [
+    MAPPED_ID => MAPPED_UUID,
+    TEC_SOURCE_ORGANIZER_ONE_ID => TEC_ORGANIZER_ONE_UUID,
+    TEC_SOURCE_ORGANIZER_TWO_ID => TEC_ORGANIZER_TWO_UUID,
+];
 $wpdb->usersById[MAPPED_USER_ID] = 'boundary-author';
+$wpdb->postsById[TEC_SOURCE_ORGANIZER_ONE_ID] = [
+    'post_type' => 'tribe_organizer',
+    'post_title' => 'TEC Organizer One',
+];
+$wpdb->postsById[TEC_SOURCE_ORGANIZER_TWO_ID] = [
+    'post_type' => 'tribe_organizer',
+    'post_title' => 'TEC Organizer Two',
+];
 // A real, resolvable post for the UNREGISTERED-attr regression case (L4) —
 // deliberately DOES resolve, contrasting with UNMAPPED_ID (deliberately
 // does NOT resolve) so both branches of "fires regardless of whether the
@@ -303,6 +321,44 @@ function rrmdir(string $dir): void {
 // PART 1 — Blocks.php: dangling block refs must drop, not keep-as-raw-int
 // ======================================================================
 echo "\n== Blocks.php: dangling ref drop semantics ==\n";
+
+// B0 — parse_blocks() uses null blockName for freeform/whitespace nodes.
+// Keep warnings promoted to exceptions while covering native null nodes plus
+// defensive missing/non-string nodes; dispatch normalization must not mutate
+// any node bytes, including freeform children nested under a group.
+$previousErrorHandler = set_error_handler(
+    static function (int $severity, string $message, string $file, int $line): never {
+        throw new ErrorException($message, 0, $severity, $file, $line);
+    }
+);
+$dispatchProbesClean = true;
+$dispatchProbeError = '';
+try {
+    $walk = new ReflectionMethod(Blocks::class, 'walk');
+    $baseNode = ['attrs' => [], 'innerBlocks' => [], 'innerHTML' => '', 'innerContent' => []];
+    foreach ([
+        $baseNode,
+        ['blockName' => null] + $baseNode,
+        ['blockName' => 17] + $baseNode,
+        ['blockName' => ['not-a-name']] + $baseNode,
+    ] as $node) {
+        $rewritten = $walk->invoke(null, $node, $policy->block_attr_rules(), $tokens, true, $policy, false, '');
+        $dispatchProbesClean = $dispatchProbesClean && $rewritten === $node;
+    }
+    $freeform = "literal freeform\n<!-- wp:group --><div class=\"wp-block-group\">nested text</div><!-- /wp:group -->\n";
+    $dispatchProbesClean = $dispatchProbesClean
+        && Blocks::capture_rewrite($freeform, $policy, $tokens) === serialize_blocks(parse_blocks($freeform));
+} catch (Throwable $e) {
+    $dispatchProbesClean = false;
+    $dispatchProbeError = $e->getMessage();
+} finally {
+    restore_error_handler();
+}
+check(
+    $dispatchProbesClean,
+    'B0: missing/null/non-string and nested freeform block names stay warning-free and byte-identical'
+        . ($dispatchProbeError !== '' ? " (got: $dispatchProbeError)" : '')
+);
 
 // B1 — mapped scalar: id_to_token succeeds, attrs.id becomes the token.
 $b1in = '<!-- wp:image {"id":501,"sizeSlug":"large"} -->' . "\n"
@@ -406,6 +462,69 @@ $b1listZero = parse_blocks(Blocks::capture_rewrite(
 check(
     ($b1listZero[0]['attrs']['ids'] ?? null) === ['{{post:' . MAPPED_UUID . '}}'] && $tokens->warnings === [],
     'B1i: a zero inside a declared reference list drops silently while mapped siblings survive'
+);
+
+// B1j — the shipped TEC manifest's native organizer block uses one scalar
+// reference per block while _EventOrganizerID owns the repeated-row list.
+// Exercise the real structural codec across an empty editor placeholder and
+// two ordered source IDs, then switch the same UUID ledger to divergent
+// greater-than-32-bit target IDs and prove apply + recapture are exact.
+$tecManifest = json_decode(
+    (string) file_get_contents(__DIR__ . '/../../../../manifests/the-events-calendar.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$tecPolicy = new Policy();
+$tecPolicy->manifests = [$tecManifest];
+$tecBody = '<!-- wp:tribe/event-organizer /-->' . "\n"
+    . '<!-- wp:tribe/event-organizer {"organizer":' . TEC_SOURCE_ORGANIZER_ONE_ID . '} /-->' . "\n"
+    . '<!-- wp:tribe/event-organizer {"organizer":' . TEC_SOURCE_ORGANIZER_TWO_ID . '} /-->';
+$tecCaptured = Blocks::capture_rewrite($tecBody, $tecPolicy, $tokens);
+$tecCapturedBlocks = array_values(array_filter(
+    parse_blocks($tecCaptured),
+    static fn(array $block): bool => ($block['blockName'] ?? null) === 'tribe/event-organizer'
+));
+check(
+    array_map(static fn(array $block): mixed => $block['attrs']['organizer'] ?? null, $tecCapturedBlocks) === [
+        null,
+        '{{post:' . TEC_ORGANIZER_ONE_UUID . '}}',
+        '{{post:' . TEC_ORGANIZER_TWO_UUID . '}}',
+    ],
+    'B1j: shipped TEC capture preserves empty/single/multiple organizer blocks and tokenizes populated IDs in order'
+);
+unset(
+    $wpdb->identity['post'][TEC_SOURCE_ORGANIZER_ONE_ID],
+    $wpdb->identity['post'][TEC_SOURCE_ORGANIZER_TWO_ID],
+    $wpdb->postsById[TEC_SOURCE_ORGANIZER_ONE_ID],
+    $wpdb->postsById[TEC_SOURCE_ORGANIZER_TWO_ID]
+);
+$wpdb->identity['post'][TEC_TARGET_ORGANIZER_ONE_ID] = TEC_ORGANIZER_ONE_UUID;
+$wpdb->identity['post'][TEC_TARGET_ORGANIZER_TWO_ID] = TEC_ORGANIZER_TWO_UUID;
+$wpdb->postsById[TEC_TARGET_ORGANIZER_ONE_ID] = [
+    'post_type' => 'tribe_organizer',
+    'post_title' => 'TEC Organizer One',
+];
+$wpdb->postsById[TEC_TARGET_ORGANIZER_TWO_ID] = [
+    'post_type' => 'tribe_organizer',
+    'post_title' => 'TEC Organizer Two',
+];
+$tecApplied = Blocks::apply_rewrite($tecCaptured, $tecPolicy, $tokens);
+$tecAppliedBlocks = array_values(array_filter(
+    parse_blocks($tecApplied),
+    static fn(array $block): bool => ($block['blockName'] ?? null) === 'tribe/event-organizer'
+));
+check(
+    array_map(static fn(array $block): mixed => $block['attrs']['organizer'] ?? null, $tecAppliedBlocks) === [
+        null,
+        TEC_TARGET_ORGANIZER_ONE_ID,
+        TEC_TARGET_ORGANIZER_TWO_ID,
+    ],
+    'B1j: shipped TEC apply restores divergent huge organizer IDs without collapsing block order'
+);
+check(
+    Blocks::capture_rewrite($tecApplied, $tecPolicy, $tokens) === $tecCaptured,
+    'B1j: shipped TEC organizer-block apply recaptures byte-identically against the target ledger'
 );
 
 // B2 — unmapped scalar: must DROP the attribute key entirely (the fix),
@@ -612,7 +731,7 @@ $b10in = '<!-- wp:image {} -->' . "\n"
     . '<!-- /wp:image -->';
 $b10out = Blocks::capture_rewrite($b10in, $policy, $tokens, false, "post 'hello-world'");
 $b10blocks = parse_blocks($b10out);
-check(!str_contains($b10blocks[0]['innerHTML'], (string) UNSCOPED_ID), "B10: wp-image-" . UNSCOPED_ID . " class dropped for the unscoped ref");
+check(!str_contains($b10blocks[0]['innerHTML'], (string) UNSCOPED_ID), 'B10: wp-image-' . UNSCOPED_ID . ' class dropped for the unscoped ref');
 check(count($tokens->unscopedBlockRefs) === 1, 'B10: wp-image-N class ALSO queues an unscoped violation (got: ' . json_encode($tokens->unscopedBlockRefs) . ')');
 $r10 = $tokens->unscopedBlockRefs[0] ?? [];
 check(($r10['attr'] ?? null) === 'wp-image-class', 'B10: violation identifies the wp-image-class mechanism specifically, distinct from attrs.id (got: ' . json_encode($r10) . ')');

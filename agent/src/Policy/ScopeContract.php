@@ -266,14 +266,17 @@ final class ScopeContract {
      * immutable source contract. Version 1 grants no resurrection authority;
      * deleting a selected live identity is accepted only when the consuming
      * transaction supplies its separately proven, execution-local deletion
-     * authority. Exact excluded-byte preservation is a separate overlay
-     * assertion.
+     * authority. One exact inactive-widget pseudo row may instead be omitted
+     * under separately proven deauthorization evidence; this changes source
+     * ownership only and is never a target deletion. Exact excluded-byte
+     * preservation is a separate overlay assertion.
      */
     public static function assert_candidate_bounded(
         array $contract,
         CompiledRepository $candidate,
         Policy $policy,
-        array $authorizedDeletions = []
+        array $authorizedDeletions = [],
+        array $authorizedDeauthorizations = []
     ): void {
         $contract = self::from_array($contract);
         $isAll = ($contract['selectors'] ?? null) === [ScopeClosure::SELECTOR_ALL];
@@ -316,6 +319,79 @@ final class ScopeContract {
                 );
             }
         }
+        if (!array_is_list($authorizedDeauthorizations)) {
+            throw new \RuntimeException('duo: scoped candidate deauthorization evidence is malformed');
+        }
+        $authorizedDeauthorizationSet = [];
+        foreach ($authorizedDeauthorizations as $position => $evidence) {
+            $keys = is_array($evidence) ? array_keys($evidence) : [];
+            $identity = is_array($evidence) && is_string($evidence['entity'] ?? null)
+                ? $evidence['entity']
+                : '';
+            $sourceRow = null;
+            foreach (['roots', 'closure'] as $field) {
+                foreach ((array) ($contract['live'][$field] ?? []) as $row) {
+                    if (($row['entity'] ?? null) === $identity) {
+                        $sourceRow = $row;
+                    }
+                }
+            }
+            $scanned = is_array($evidence) && is_array($evidence['scanned_selected_post_uuids'] ?? null)
+                ? $evidence['scanned_selected_post_uuids']
+                : [];
+            $sortedScanned = $scanned;
+            sort($sortedScanned, SORT_STRING);
+            $causalClosure = $isAll;
+            foreach ((array) ($contract['live']['closure'] ?? []) as $row) {
+                if (($row['entity'] ?? null) === $identity
+                    && ($row['type'] ?? null) === 'sidebar'
+                    && ($row['provenance']['kind'] ?? null) === 'closure'
+                    && ($row['provenance']['reason'] ?? null) === 'reference'
+                    && in_array((string) ($row['provenance']['from'] ?? ''), $scanned, true)) {
+                    $causalClosure = true;
+                }
+            }
+            $hasInbound = false;
+            foreach ((array) ($contract['live']['inbound'] ?? []) as $row) {
+                $hasInbound = $hasInbound || ($row['target'] ?? null) === $identity;
+            }
+            if ($keys !== ['format', 'entity', 'previous_hash', 'source_revision', 'scanned_selected_post_uuids']
+                || ($evidence['format'] ?? null) !== 'duo-inactive-overlay-deauthorization/v1'
+                || $identity !== 'sidebar/wp_inactive_widgets'
+                || !is_string($evidence['previous_hash'] ?? null)
+                || preg_match('/^[a-f0-9]{64}$/D', $evidence['previous_hash']) !== 1
+                || !is_string($evidence['source_revision'] ?? null)
+                || preg_match('/^[a-f0-9]{64}$/D', $evidence['source_revision']) !== 1
+                || !array_is_list($scanned)
+                || $scanned === []
+                || $scanned !== $sortedScanned
+                || array_values(array_unique($evidence['scanned_selected_post_uuids']))
+                    !== $evidence['scanned_selected_post_uuids']
+                || array_filter(
+                    $evidence['scanned_selected_post_uuids'],
+                    static fn($uuid): bool => !is_string($uuid)
+                        || preg_match(self::UUID_RE, $uuid) !== 1
+                ) !== []
+                || !is_array($sourceRow)
+                || !hash_equals((string) ($sourceRow['entity_hash'] ?? ''), $evidence['previous_hash'])
+                || !hash_equals((string) ($contract['source']['state_revision_hash'] ?? ''), $evidence['source_revision'])
+                || !$causalClosure
+                || $hasInbound
+                || isset($authorizedDeauthorizationSet[$identity])
+                || !isset($allowed[$identity])
+                || isset($selectedTombstones[$identity])
+                || ($expectedTypes[$identity] ?? null) !== 'sidebar') {
+                throw new \RuntimeException(
+                    "duo: scoped candidate deauthorization evidence escaped at position $position"
+                );
+            }
+            if (isset($tree[$identity]) || isset($deletions[$identity])) {
+                throw new \RuntimeException(
+                    "duo: scoped candidate deauthorization '$identity' contradicts observed state"
+                );
+            }
+            $authorizedDeauthorizationSet[$identity] = true;
+        }
         foreach (array_keys($allowed) as $identity) {
             if (isset($selectedTombstones[$identity])) {
                 if (!isset($deletions[$identity]) || isset($tree[$identity])) {
@@ -349,6 +425,9 @@ final class ScopeContract {
             if (isset($authorizedDeletionSet[$identity]) && isset($deletions[$identity])) {
                 continue;
             }
+            if (isset($authorizedDeauthorizationSet[$identity])) {
+                continue;
+            }
             if (!isset($tree[$identity]) || isset($deletions[$identity])) {
                 throw new \RuntimeException(
                     "duo: scoped candidate changed selected live identity '$identity' without deletion/resurrection authority"
@@ -361,7 +440,7 @@ final class ScopeContract {
         // dependencies while that still-selected row gains a different edge;
         // walking roots alone would silently stop checking the detached row.
         foreach (array_keys($walk) as $identity) {
-            if (isset($authorizedDeletionSet[$identity])) {
+            if (isset($authorizedDeletionSet[$identity]) || isset($authorizedDeauthorizationSet[$identity])) {
                 continue;
             }
             if (ScopeClosure::is_option_root($identity)) {

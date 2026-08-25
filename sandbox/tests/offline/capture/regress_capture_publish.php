@@ -1147,6 +1147,79 @@ echo "\n== P12: generic intent transition crash recovery ==\n";
 }
 
 // ======================================================================
+// P13 — recovery reads are bounded too: a transient missing intent can be
+// retried, while a receipt plus retained publication artifacts without its
+// authoritative intent is contradictory evidence, never legacy cleanup input.
+// ======================================================================
+echo "\n== P13: recovery intent readback remains fail-closed ==\n";
+{
+    $publishCandidate = static function (string $stateDir): array {
+        write_tree($stateDir, ['revision.txt' => "old\n"]);
+        write_tree(Publish::stage_dir($stateDir), ['revision.txt' => "candidate\n"]);
+        $intent = Publish::begin_intent($stateDir, Publish::stage_dir($stateDir));
+        Publish::swap($stateDir, true);
+        $intent = Publish::mark_swapped($stateDir, $intent);
+        return Publish::mark_commit_ready($stateDir, $intent);
+    };
+
+    // A pre-COMMIT ready intent is recoverable from the prior tree. The
+    // one-shot seam must be consumed before the exact rollback is performed.
+    $root = fresh_root('recover_intent_retry');
+    $stateDir = "$root/state";
+    $intent = $publishCandidate($stateDir);
+    [$notes, $error, $consumed] = [null, null, false];
+    putenv('DUO_TEST_MODE=1');
+    putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE=recover-intent');
+    try {
+        $notes = Publish::recover($stateDir, static fn(array $found): bool => false);
+    } catch (Throwable $t) {
+        $error = $t;
+    }
+    $consumed = getenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE') === false;
+    putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE');
+    putenv('DUO_TEST_MODE');
+    check(
+        $error === null && $consumed && is_array($notes)
+            && str_contains(implode("\n", $notes), 'before COMMIT was attempted')
+            && read_tree($stateDir) === ['revision.txt' => "old\n"]
+            && !is_dir(Publish::backup_dir($stateDir)) && !is_file(Publish::intent_path($stateDir)),
+        'P13a: recover-intent retries one transient missing read and rolls back the exact prior tree'
+            . ($error ? ' (got: ' . $error->getMessage() . ')' : '')
+    );
+
+    // A receipt is audit history, not authority to sweep a retained backup or
+    // staging tree after its matching intent disappeared. Keep both retained
+    // trees deliberately present so the pre-fix legacy/no-intent branch would
+    // visibly delete evidence and fail this regression.
+    $root = fresh_root('recover_receipt_missing_intent');
+    $stateDir = "$root/state";
+    $intent = $publishCandidate($stateDir);
+    $intent = Publish::mark_committing($stateDir, $intent);
+    $receipt = Publish::write_receipt($stateDir, $intent);
+    write_tree(Publish::stage_dir($stateDir), ['revision.txt' => "candidate\n"]);
+    unlink(Publish::intent_path($stateDir));
+    $beforeState = read_tree($stateDir);
+    $beforeBackup = read_tree(Publish::backup_dir($stateDir));
+    $beforeStaging = read_tree(Publish::stage_dir($stateDir));
+    $beforeReceipt = (string) file_get_contents(Publish::receipt_path($stateDir));
+    $error = null;
+    try {
+        Publish::recover($stateDir, static fn(array $found): bool => true);
+    } catch (Throwable $t) {
+        $error = $t;
+    }
+    check(
+        $error instanceof CommandRefusalException
+            && $error->reasonCode === 'capture_recovery_ambiguous'
+            && read_tree($stateDir) === $beforeState
+            && read_tree(Publish::backup_dir($stateDir)) === $beforeBackup
+            && read_tree(Publish::stage_dir($stateDir)) === $beforeStaging
+            && (string) file_get_contents(Publish::receipt_path($stateDir)) === $beforeReceipt,
+        'P13b: receipt plus retained backup/staging without intent refuses and preserves all evidence'
+    );
+}
+
+// ======================================================================
 echo "\n";
 
 // ======================================================================

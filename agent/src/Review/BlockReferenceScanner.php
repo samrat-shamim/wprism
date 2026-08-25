@@ -81,6 +81,15 @@ final class BlockReferenceScanner {
                                 . (string) $rule['unsupported']
                         );
                         continue;
+                    } elseif (array_key_exists('codec', $rule)) {
+                        // A manifest-bound whole-block codec owns the complete
+                        // attribute object, including scalar values that are
+                        // not references. Its adapter repository diagnostic
+                        // validates the canonical shape; treating every
+                        // numeric leaf as a generic ref here would flag
+                        // ordinary bounded settings (for example a list
+                        // widget's item limit) after the codec already proved
+                        // them.
                     } elseif (empty($rule['lint_ok']) && ($rule['tokenize'] ?? null) !== 'text') {
                         // DUO-3212: a registered path is a REF rule by
                         // Blocks::resolve_kind()'s own contract (it throws
@@ -114,7 +123,8 @@ final class BlockReferenceScanner {
                         if ($value === '' || !str_contains($value, $home)) {
                             continue;
                         }
-                        $registered = ($rule['tokenize'] ?? null) === 'text';
+                        $registered = ($rule['tokenize'] ?? null) === 'text'
+                            || array_key_exists('codec', (array) $rule);
                         $findings[] = LintFinding::make(
                             $registered ? 'unrewritten_registered_text' : 'unregistered_block_attr',
                             $rel,
@@ -122,7 +132,7 @@ final class BlockReferenceScanner {
                             self::truncate($value),
                             null,
                             $registered
-                                ? "block '$name' attribute '$attrKey$locSuffix' declares tokenize:text, but the "
+                                ? "block '$name' attribute '$attrKey$locSuffix' declares a text-capable rewrite, but the "
                                     . "captured value still contains this environment's home URL in plain form — "
                                     . 'the declared recursive rewrite did not run and the value will leak this '
                                     . "environment's host into the target."

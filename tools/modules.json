@@ -878,10 +878,11 @@
             ]
           }
         ],
-        "file_count": 9,
+        "file_count": 10,
         "files": [
           "DependencyRegenerator.php",
           "NativeActions.php",
+          "NativeRewriteEffects.php",
           "NativeRebuildExecutor.php",
           "RebuildActionDispatcher.php",
           "RebuildActionNegotiator.php",

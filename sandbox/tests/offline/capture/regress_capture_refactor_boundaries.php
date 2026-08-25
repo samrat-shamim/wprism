@@ -41,6 +41,7 @@ $recovery = $source('CapturePublicationRecovery');
 $initial = $source('InitialCaptureBoundary');
 $scoped = $source('ScopedCaptureProjector');
 $identity = $source('CaptureIdentity');
+$blocks = $source('Blocks');
 $post = $source('PostCapture');
 $term = $source('TermCapture');
 $captureCode = '';
@@ -233,6 +234,42 @@ foreach ([
 $check($order === array_values($order) && $order === array_unique($order)
     && $order === (function (array $positions): array { sort($positions); return $positions; })($order),
     'candidate construction preserves its identity/entity/gate ordering');
+
+$widgetReferenceScan = strpos($candidateBuild, '$this->portableWidgetReferenceScan(');
+$widgetIdentityGuard = strpos($candidateBuild, '$postUuid = $postUuids[$postId] ?? null;');
+$widgetBodyGuard = strpos($candidateBuild, '$this->policy->body_mode((string) $post->post_type) !== \'blocks\'');
+$sidebarCapture = strpos($candidateBuild, 'SidebarState::capture(');
+$postCapture = strpos($candidateBuild, '$this->postCapture->capture(');
+$check(
+    $widgetReferenceScan !== false
+        && $widgetIdentityGuard !== false
+        && $widgetBodyGuard !== false
+        && $sidebarCapture !== false
+        && $postCapture !== false
+        && $widgetReferenceScan < $sidebarCapture
+        && $sidebarCapture < $postCapture
+        && str_contains($candidateBuild, 'Blocks::capture_widget_instance_references('),
+    'whole-block widget references are discovered only from selected mapped block posts before SidebarState identity capture'
+);
+$publication = file_get_contents($root . '/agent/src/Capture/CapturePublicationWorkflow.php');
+$check(
+    is_string($publication)
+        && str_contains($candidateBuild, '($selected !== null && !isset($selected[$postUuid]))')
+        && str_contains($publication, '$scoped ? ScopedStateOverlay::selected_identities($scopeContract) : null'),
+    'scoped widget pre-scan uses the associated contract selected-identity projection rather than all discovered posts'
+);
+$check(
+    !str_contains($candidateBuild, "capture_widget_instance_references('',")
+        && str_contains($candidateBuild, '$referencesByKey = [];')
+        && str_contains($candidateBuild, '$portableWidgetReferences === [] ? null : $portableWidgetReferences'),
+    'candidate construction never primes an empty overlay and passes no SidebarState pseudo-entity authority when selected posts contain no stored-widget references'
+);
+$check(
+    str_contains($blocks, '$details = $policy->block_attr_rule_details(\'core/legacy-widget\');')
+        && str_contains($blocks, '$policy->widget_type_rule_details((string) $type)')
+        && str_contains($blocks, 'stored legacy widget reference belongs to a different manifest owner'),
+    'the pre-SidebarState product path requires effective block and widget grammar declarations to have one manifest owner'
+);
 
 $check(str_contains($identity, 'public function ensurePost(')
     && str_contains($identity, 'public function ensureTerm(')

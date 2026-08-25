@@ -668,6 +668,20 @@ $check(
     ]],
     'sidebar projection: absent unmanaged marker does not invent an identity-history refusal'
 );
+$inactiveSidebarRow = [
+    'uuid' => 'sidebar/wp_inactive_widgets',
+    'type' => 'sidebar',
+    'path' => 'sidebars/wp_inactive_widgets.json',
+];
+$check(
+    $sidebarPlanner->project_sidebar_deletes(
+        $inactiveSidebarRow,
+        ['widgets' => []],
+        $sidebarTarget,
+        'inactive-sidebar-base-hash'
+    ) === $inactiveSidebarRow,
+    'inactive sidebar projection suppresses pseudo-deletes because reference removal de-authorizes rather than deletes parked state'
+);
 
 $optionDeletionRow = ['uuid' => 'options/core', 'type' => 'options', 'path' => 'options/core.json'];
 $optionBeforeDelete = OptionState::present('before-delete', 'yes');

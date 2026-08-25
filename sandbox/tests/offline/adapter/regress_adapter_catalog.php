@@ -395,7 +395,7 @@ check(
 $statuses = array_values(array_unique(array_column($listReport['adapters'] ?? [], 'disposition_status')));
 sort($statuses, SORT_STRING);
 check(
-    $statuses === ['certified', 'excluded', 'experimental'],
+    $statuses === ['certified', 'excluded'],
     "every shipped row carries its REVIEWED disposition status, from the reviewed set's own vocabulary (found: "
     . implode(', ', array_map(fn($s) => var_export($s, true), $statuses)) . ')'
 );

@@ -165,15 +165,20 @@
       }
     },
     "the-events-calendar": {
+      "6.17.1": {
+        "url": "https://downloads.wordpress.org/plugin/the-events-calendar.6.17.1.zip",
+        "sha256": "e990eadc4d944fea23f492e75c4d4df8407c8bfedcf59cd79a070da1819d237a",
+        "role": "refusal-fixture"
+      },
       "6.17.2": {
         "url": "https://downloads.wordpress.org/plugin/the-events-calendar.6.17.2.zip",
         "sha256": "f67f2668fc777505a6e0f2cc8c7c39db869a1b186b2444f9d5e138d32bcaabaa",
-        "role": "exercise-fixture"
+        "role": "certified-boundary"
       },
       "6.17.3": {
         "url": "https://downloads.wordpress.org/plugin/the-events-calendar.6.17.3.zip",
         "sha256": "2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687",
-        "role": "exercise-fixture"
+        "role": "certified-boundary"
       }
     },
     "woocommerce": {

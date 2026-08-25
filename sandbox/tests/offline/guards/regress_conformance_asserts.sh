@@ -18,7 +18,7 @@ FRAGMENT=conformance/asserts.sh
 
 # Every require_* invoked anywhere in the hooks both harnesses source...
 # (require_once is PHP inside the hooks' heredocs, not a bash helper.)
-CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ conformance/checks/ conformance/capture-checks/ | grep -v '^require_once$' | sort -u)
+CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ conformance/postapply/ conformance/checks/ conformance/capture-checks/ | grep -v '^require_once$' | sort -u)
 [ -n "$CALLED" ] || fail "no require_* calls found under conformance/seeds/ + postdeploy/ + checks/ + capture-checks/ — the grep itself regressed"
 
 # ...must be defined in the fragment (definition = `name() {`).
@@ -35,6 +35,18 @@ for harness in conformance/run.sh tests/certify/certify_version_matrix.sh; do
     || fail "$harness does not source the shared fragment — its hooks' premise assertions die at runtime"
 done
 pass "both hook-sourcing harnesses source the fragment"
+
+grep -q 'POSTAPPLY="conformance/postapply/\$MANIFEST.sh"' conformance/run.sh \
+  || fail 'conformance/run.sh does not invoke the convention-named post-apply hook'
+APPLY_LINE=$(grep -n 'pass "apply succeeded, side-effect canary clean"' conformance/run.sh | cut -d: -f1)
+POSTAPPLY_LINE=$(grep -n '^POSTAPPLY="conformance/postapply/\$MANIFEST.sh"' conformance/run.sh | cut -d: -f1)
+RECAPTURE_LINE=$(grep -n '^say "acceptance: canonical(conf2) == canonical(conf1), byte for byte"' conformance/run.sh | cut -d: -f1)
+CHECK_LINE=$(grep -n '^CHECK="conformance/checks/\$MANIFEST.sh"' conformance/run.sh | cut -d: -f1)
+[ "$APPLY_LINE" -lt "$POSTAPPLY_LINE" ] \
+  && [ "$POSTAPPLY_LINE" -lt "$RECAPTURE_LINE" ] \
+  && [ "$RECAPTURE_LINE" -lt "$CHECK_LINE" ] \
+  || fail 'post-apply hooks must run after successful apply and before generic recapture/diff and render checks'
+pass 'post-apply target-local witness hooks have one convention path and an exact pre-recapture execution point'
 
 # And the fragment must not silently grow a second definition home: the
 # helpers may be defined nowhere else.
@@ -126,6 +138,51 @@ expect_answered "PHP's own fatal framing" human 'PHP Fatal error:  Uncaught Runt
 expect_infrastructure 'compose container-creation chatter' human "$COMPOSE_DEATH"
 expect_infrastructure 'an empty capture' human ''
 pass "require_duo_answered accepts every shape a live duo answer takes (json: object OR array; human: wp-cli/duo/PHP framing) and only fires on a capture with no answer in it"
+
+capture_probe() { # <success|refusal|dead>
+  (
+    fail() { printf '%s\n' "$*"; exit 1; }
+    . "$FRAGMENT"
+    fake_duo() {
+      case "$1" in
+        success)
+          printf 'compose prelude\n{"canary":"clean"}\n'
+          ;;
+        refusal)
+          printf '{"format":"duo-command-refusal/v1","ok":false,"command":"apply"}\n'
+          return 7
+          ;;
+        dead)
+          printf '%s\n' "$COMPOSE_DEATH"
+          return 9
+          ;;
+      esac
+    }
+    RESULT=unset
+    capture_duo_json_success RESULT 'unit Duo apply' fake_duo "$1"
+    printf 'RESULT=%s\n' "$RESULT"
+  ) 2>&1
+}
+CAPTURE_SUCCESS=$(capture_probe success)
+[ "$CAPTURE_SUCCESS" = 'RESULT={"canary":"clean"}' ] \
+  || fail "capture_duo_json_success did not return the exact final success envelope: $CAPTURE_SUCCESS"
+CAPTURE_REFUSAL=$(capture_probe refusal) && CAPTURE_REFUSAL_RC=0 || CAPTURE_REFUSAL_RC=$?
+[ "$CAPTURE_REFUSAL_RC" -ne 0 ] \
+  && grep -Fq '"format":"duo-command-refusal/v1"' <<<"$CAPTURE_REFUSAL" \
+  && grep -Fq 'unit Duo apply failed with exit 7' <<<"$CAPTURE_REFUSAL" \
+  || fail "capture_duo_json_success swallowed or misclassified a nonzero Duo envelope: $CAPTURE_REFUSAL"
+CAPTURE_DEAD=$(capture_probe dead) && CAPTURE_DEAD_RC=0 || CAPTURE_DEAD_RC=$?
+[ "$CAPTURE_DEAD_RC" -ne 0 ] \
+  && grep -Fq 'infrastructure failure: unit Duo apply was never answered' <<<"$CAPTURE_DEAD" \
+  && ! grep -Fq 'unit Duo apply failed with exit 9' <<<"$CAPTURE_DEAD" \
+  || fail "capture_duo_json_success accused the engine after a dead transport: $CAPTURE_DEAD"
+grep -q '^capture_duo_json_success ' conformance/run.sh \
+  || fail "conformance apply does not use the refusal-preserving JSON command wrapper"
+grep -Eq 'require_duo_answered capture_duo_json_success require_observed_nonempty' conformance/run.sh \
+  || fail "manifest check subprocesses cannot call the refusal-preserving JSON command wrapper"
+! grep -q 'APPLY_JSON=.*duo apply.*| tail -1' conformance/run.sh \
+  || fail "conformance apply still discards a nonzero refusal through its old tail pipeline"
+pass "conformance apply preserves answered refusal envelopes, separates dead transport, and publishes only successful JSON"
 
 # A mode typo must be a caller bug, never an infrastructure verdict: it may not
 # borrow the prefix operators grep to route a failure away from the engine.

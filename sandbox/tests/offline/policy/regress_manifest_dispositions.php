@@ -151,6 +151,10 @@ check(
     ($data['manifests']['paid-memberships-pro']['status'] ?? null) === 'certified',
     'PMPro is explicitly certified after its isolated readiness closure'
 );
+check(
+    ($data['manifests']['the-events-calendar']['status'] ?? null) === 'certified',
+    'The Events Calendar is explicitly certified after its production-readiness closure'
+);
 $tecManifest = $manifestsByName['the-events-calendar'];
 $tecDisposition = $data['manifests']['the-events-calendar'];
 check(
@@ -170,10 +174,14 @@ check(
     'The Events Calendar disposition repeats the enforceable plugin identity instead of an unbound placeholder'
 );
 check(
-    ($tecDisposition['evidence']['tests'] ?? null) === ['conformance-the-events-calendar', 'exact-artifact-version-matrix', 'regress-tec-regen']
+    ($tecDisposition['evidence']['tests'] ?? null) === [
+        'conformance-the-events-calendar',
+        'exact-artifact-version-matrix',
+    ]
+        && ($tecDisposition['capabilities']['lifecycle_phases'] ?? null) === ['retire', 'activate', 'verify']
         && in_array('deploy', $tecDisposition['capabilities']['operations'] ?? [], true)
         && in_array('render-api', $tecDisposition['capabilities']['operations'] ?? [], true),
-    'The Events Calendar names its exact round-trip, boundary-matrix, and injected regeneration-recovery exercises'
+    'The Events Calendar binds the native round-trip, exact-boundary, upgrade, refusal, and lifecycle suites reviewed for certification'
 );
 $pmproManifest = $manifestsByName['paid-memberships-pro'];
 $pmproDisposition = $data['manifests']['paid-memberships-pro'];
@@ -346,6 +354,41 @@ $pmproPolicy = Policy::load(null, ['paid-memberships-pro']);
 $pmproBlockers = $pmproPolicy->adapter_readiness_blockers();
 check($pmproBlockers === [], 'the certified PMPro pin contributes no readiness blocker');
 check($pmproPolicy->capability_report()['ready'] === true, 'certified PMPro capability output reports ready');
+$tecPolicy = Policy::load(null, ['the-events-calendar']);
+$tecBlockers = $tecPolicy->adapter_readiness_blockers();
+check($tecBlockers === [], 'the certified TEC pin contributes no readiness blocker');
+check($tecPolicy->capability_report()['ready'] === true, 'certified TEC capability output reports ready');
+$experimentalFixture = sys_get_temp_dir() . '/duo_experimental_disposition_' . bin2hex(random_bytes(5));
+mkdir($experimentalFixture, 0777, true);
+mkdir($experimentalFixture . '/capabilities', 0777, true);
+register_shutdown_function(fn() => remove_fixture_tree($experimentalFixture));
+copy($manifestDir . '/core.json', $experimentalFixture . '/core.json');
+copy($manifestDir . '/capabilities/platform.json', $experimentalFixture . '/capabilities/platform.json');
+$experimentalRegistry = $data;
+$experimentalRegistry['manifests'] = ['core' => $data['manifests']['core']];
+$experimentalRegistry['profiles'] = [];
+$experimentalRegistry['manifests']['core']['status'] = 'experimental';
+$experimentalRegistry['manifests']['core']['reason'] = 'Synthetic experimental disposition for fail-closed product-path coverage.';
+Canon::write_file(
+    $experimentalFixture . '/dispositions.json',
+    Canon::encode($experimentalRegistry)
+);
+putenv("DUO_MANIFESTS_DIR=$experimentalFixture");
+$experimentalPolicy = Policy::load(null, ['core']);
+$experimentalBlockers = $experimentalPolicy->adapter_readiness_blockers();
+$experimentalAuthoredBlocker = array_values(array_filter(
+    $experimentalBlockers,
+    fn(array $row): bool => ($row['code'] ?? null) === 'authored_state_not_certified'
+));
+check(
+    ($experimentalAuthoredBlocker[0]['name'] ?? null) === 'core',
+    'a synthetic experimental pin is a structured readiness blocker independent of the shipped adapter roster'
+);
+check(
+    $experimentalPolicy->capability_report()['ready'] === false,
+    'experimental capability output can never report ready'
+);
+putenv("DUO_MANIFESTS_DIR=$manifestDir");
 
 echo "\n== typed table identities, closed keyspaces, and parent-delete limits are explicit ==\n";
 $pmproUnsupported = array_fill_keys(array_column($data['manifests']['paid-memberships-pro']['unsupported'], 'surface'), true);
@@ -877,9 +920,11 @@ check(
     && !str_contains($agentCliSource, 'capability registry blocker'),
     "the agent's plan warning over those same rows names adapter dispositions too, never the deleted capability registry"
 );
+putenv("DUO_MANIFESTS_DIR=$experimentalFixture");
 $hostBlockers = CodeDeploy::dispositionBlockers([
     'resolved_adapters' => RepositoryCompiler::resolved_adapters($experimentalPolicy),
 ]);
+putenv("DUO_MANIFESTS_DIR=$manifestDir");
 check(($hostBlockers[0]['name'] ?? null) === 'core', 'host promotion gate refuses the same synthetic experimental disposition');
 
 // DUO-3372: an uncovered manifest must be a fail-closed BLOCKER, never a
