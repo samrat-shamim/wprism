@@ -11,6 +11,21 @@ require_once __DIR__ . '/ReferencePath.php';
 final class ReferenceRules {
     private const KIND_RE = '/^[a-z][a-z0-9_]{0,15}$/';
 
+    /**
+     * One `json_refs[]` entry's closed key set, hoisted out of
+     * validate_structured()'s own `array_diff_key()` (WP-6.6).
+     *
+     * Hoisted rather than copied: `duo manifest-validate --emit-schema` now
+     * publishes the value grammar of every feature-claimed section, and
+     * `body_refs.<type>.json_refs[]` is this triple exactly — the section hands
+     * its entries straight to value_rule() so that this engine has one JSONPath
+     * dialect rather than a second one that drifts (BodyRefGrammar.php:145-151).
+     * Publishing a hand-typed `{path, kind, cast}` beside this line would be the
+     * second definition that whole design avoids.
+     */
+    public const JSON_REF_REQUIRED = ['kind', 'path'];
+    public const JSON_REF_OPTIONAL = ['cast'];
+
     /** One source of truth for attached EAV key ownership and behavior. */
     public static function attached_meta_key(array $declaration, string $key): array {
         $rules = (array) ($declaration['keys'] ?? []);
@@ -192,7 +207,10 @@ final class ReferenceRules {
         $paths = [];
         foreach ($jsonRefs as $i => $ref) {
             if (!is_array($ref) || array_is_list($ref)
-                || array_diff_key($ref, ['path' => true, 'kind' => true, 'cast' => true])) {
+                || array_diff_key($ref, array_fill_keys(
+                    array_merge(self::JSON_REF_REQUIRED, self::JSON_REF_OPTIONAL),
+                    true
+                ))) {
                 throw new \RuntimeException(
                     "duo: $where.json_refs[$i] must be an object containing only path, kind, and optional cast"
                 );

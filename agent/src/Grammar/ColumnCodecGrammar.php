@@ -98,6 +98,41 @@ final class ColumnCodecGrammar {
     }
 
     /**
+     * The top-level section `typed-column-codecs/v1` claims, and one codec's
+     * closed key set — both hoisted out of literals for WP-6.6, so
+     * `--emit-schema` publishes the shape from the constants the refusals below
+     * are written against rather than from a copy.
+     */
+    public const SECTION = 'column_codecs';
+    public const CODEC_KEYS = ['container', 'leaves'];
+
+    /**
+     * This section's value grammar, published for `duo manifest-validate
+     * --emit-schema` (WP-6.6, spec/repo-format.md § v3.21).
+     *
+     * `refines` carries the half a shape cannot: a codec may address only an
+     * `authored` column of an `authored_snapshot` table, and never the
+     * `slug_column` or an identity component — three refusals whose reasons are
+     * about derivation stability rather than about syntax, and which an author
+     * otherwise meets one round trip at a time.
+     *
+     * @return array<string,mixed>
+     */
+    public static function section_grammar(): array {
+        return [
+            'keyed_by' => 'unprefixed table name, then column name — the table must be one THIS manifest '
+                . 'declares as class=authored_snapshot, and the column one of its declared authored columns{}',
+            'codec' => ['required' => self::CODEC_KEYS, 'optional' => []],
+            'container' => self::CONTAINERS,
+            'leaves' => self::LEAVES,
+            'refines' => 'never the table\'s slug_column and never an identity column (identity.column, '
+                . 'identity.columns[] or a composite_ref tuple): a decoded container has no filename '
+                . 'spelling, and a derived uuid may not depend on this engine\'s serializer',
+            'validated_by' => 'Duo\\ColumnCodecGrammar::validate_column_codecs()',
+        ];
+    }
+
+    /**
      * Loud, load-time guard for one manifest's `column_codecs` section.
      *
      * Every cross-check below names a way the declaration could be accepted and
@@ -118,10 +153,10 @@ final class ColumnCodecGrammar {
      * @param array<string,mixed> $manifest
      */
     public static function validate_column_codecs(array $manifest, string $label): void {
-        if (!array_key_exists('column_codecs', $manifest)) {
+        if (!array_key_exists(self::SECTION, $manifest)) {
             return;
         }
-        $section = $manifest['column_codecs'];
+        $section = $manifest[self::SECTION];
         if (!is_array($section) || array_is_list($section) || $section === []) {
             throw new \RuntimeException(
                 "duo: $label column_codecs must be a non-empty object keyed by unprefixed table name, each value an "
@@ -216,7 +251,7 @@ final class ColumnCodecGrammar {
         }
         $keys = array_keys($codec);
         sort($keys, SORT_STRING);
-        if ($keys !== ['container', 'leaves']) {
+        if ($keys !== self::CODEC_KEYS) {
             throw new \RuntimeException(
                 "duo: $where declares [" . implode(', ', array_map('strval', $keys)) . '] but a column codec is '
                 . 'exactly {container, leaves} — both are required because a codec with an implied container is a '

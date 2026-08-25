@@ -48,6 +48,32 @@
  * BY SECTION. Without those declarations this manifest does not degrade — it
  * does not load — which is what makes the four declared features load-bearing
  * rather than decorative.
+ *
+ * GROUP F IS THE HALF THIS SUITE COULD NOT MEASURE WHEN IT WAS WRITTEN. E4's
+ * two original assertions recorded the exercise's headline find: every
+ * feature-claimed key was in no arm of `AdapterCertification`'s three-arm
+ * partition, `siteSurfaceSections()` refuses what it cannot classify, both
+ * signing profiles call it, and so this adapter loaded on every site and could
+ * not be certified by anybody — which closed deploy and apply behind it. WP-6.6
+ * (spec/repo-format.md § v3.21) moved the arm into each feature's own
+ * `IMPLEMENTED_FEATURES` row, so E4 now asserts the four reviewed arms and group
+ * F drives `duo adapter certify` in a child process through BOTH profiles —
+ * derived and `--ratification-file` — over these exact committed bytes, pinning
+ * the certificate's `surfaces` list whole. The failing-before is not
+ * hypothetical: every invocation in group F exited non-zero on the prior engine,
+ * naming the first key it could not place.
+ *
+ * GROUP G IS THE OTHER DEFERRED HALF, and it is the one an offline suite can
+ * only ever CARRY rather than produce: what the chain did against a real pair.
+ * `sandbox/fixtures/wpforms-lite/wpforms-lite.outcomes.json` is this adapter's
+ * first recorded outcome — 2.0.0.5 green, certify -> capture -> deploy -> apply
+ * -> byte-identical recapture — and it exists at all because § v3.21 unblocked
+ * the step the chain used to stop at. Group G reads it through the shipped
+ * `AdapterBoundary::readOutcomeTable()` and drives the real `duo adapter
+ * boundary` over it, so the record is an input the product consumes rather than
+ * a claim in a commit message. Three of the four recorded releases remain
+ * unprobed and the command still exits `probe-required`; G1 and G4 pin that,
+ * because the honest shape of this evidence is one measured release, not four.
  */
 declare(strict_types=1);
 
@@ -69,8 +95,10 @@ require_once $root . '/sandbox/tests/support/wp-shortcode-stub.php';
 require_once $root . '/agent/src/Grammar/Shortcodes.php';
 require_once $root . '/agent/src/Grammar/Blocks.php';
 require_once $root . '/agent/src/Adapter/AdapterCertification.php';
+require_once $root . '/agent/src/Adapter/AdapterContractGrammar.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterContractGrammar;
 use Duo\Blocks;
 use Duo\BodyRefGrammar;
 use Duo\Canon;
@@ -580,9 +608,15 @@ duo_check(
         . 'N adapters fighting over one namespace'
 );
 
-// E4 — THE PRICE OF THE FEATURE CHANNEL, in the signer's own words. Recorded as
-// an assertion rather than a note because it is the one consequence an operator
-// meets: this adapter loads everywhere and cannot be certified today.
+// E4 — THE PRICE OF THE FEATURE CHANNEL, PAID OFF. This group's two assertions
+// used to measure the wall: "`duo adapter certify` refuses this manifest — every
+// feature-claimed key is in no arm of the signer's top-level partition". That
+// was the headline find of the exercise, and WP-6.6 (spec/repo-format.md
+// § v3.21) closed it by construction — each `IMPLEMENTED_FEATURES` row now
+// classifies every key it claims into a certificate arm, so the partition can
+// never again be incomplete against the shipped grammar for a feature-admitted
+// key. What is asserted here is the ARM each of this adapter's four keys gets;
+// group F drives the real verb end to end.
 $ratify = (new ReflectionClass(AdapterCertification::class))->getMethod('siteRatification');
 $signerVerdict = null;
 try {
@@ -590,21 +624,64 @@ try {
 } catch (\Throwable $e) {
     $signerVerdict = $e->getMessage();
 }
-duo_check(
-    is_string($signerVerdict)
-    && str_contains($signerVerdict, 'which this signer cannot classify as an entity or field surface'),
-    'E4: `duo adapter certify` refuses this manifest — every feature-claimed key is in no arm of the signer\'s '
-        . 'top-level partition, and siteSurfaceSections() is shared by the derived AND the --ratification-file '
-        . 'authored profile, so an author cannot certify such a section by naming it in a file either'
+duo_check_same(
+    null,
+    $signerVerdict,
+    'E4: the signer classifies every key this adapter declares — the four feature-claimed sections included, '
+        . 'through the roster rather than through a partition patch per key'
 );
-duo_check(
-    is_string($signerVerdict)
-    && (str_contains($signerVerdict, "'attr_id_codecs'")
-        || str_contains($signerVerdict, "'body_refs'")
-        || str_contains($signerVerdict, "'declaration_evidence'")
-        || str_contains($signerVerdict, "'engine_features'")),
-    'E4: and the refusal NAMES the offending section, so the trade-off is legible rather than a missing surface'
+duo_check_same(
+    [
+        'attr_id_codecs' => 'field',
+        'body_refs' => 'field',
+        'declaration_evidence' => 'non_surface',
+        'engine_features' => 'non_surface',
+    ],
+    AdapterContractGrammar::admitted_feature_key_arms($adapter),
+    'E4: with the four REVIEWED arms — the two id-bearing sections are surfaces a certificate covers '
+        . '(`attr_id_codecs` refines `block_attrs`, `body_refs` is `block_attrs` one container deeper), and '
+        . 'the claim channel and the evidence records cover no state at all'
 );
+// The refusal did not go away — it went where it belongs. A section this
+// engine reads nothing from may not enter a certificate, so the arm is read
+// from the DECLARING manifest's own features and a key present without them
+// keeps the sentence verbatim. This is the control for the whole mechanism.
+$strippedFeature = $variant(['engine_features' => $withoutFeature('structured-body-refs/v1')]);
+$strippedVerdict = null;
+try {
+    $ratify->invoke(null, 'wpforms-lite', $strippedFeature, 'wpforms-lite fixture');
+} catch (\Throwable $e) {
+    $strippedVerdict = $e->getMessage();
+}
+duo_check(
+    is_string($strippedVerdict)
+    && str_contains($strippedVerdict, "declares 'body_refs'")
+    && str_contains($strippedVerdict, 'which this signer cannot classify as an entity or field surface')
+    && str_contains($strippedVerdict, 'teach the signer this section'),
+    'E4: and `body_refs` WITHOUT its feature declared still refuses with the same sentence — the arm is a '
+        . 'property of the declaration, not of the key\'s spelling'
+);
+// The genuinely unknown key, which is what that sentence is for. Asked of the
+// signer directly because the closed key set (§ v3.3) refuses an invented
+// section one gate EARLIER at spec_version 3, so the product path never lets
+// this manifest reach the signer — F6 measures that gate.
+$invented = $adapter;
+$invented['acme_invented_section'] = ['x' => 1];
+$inventedVerdict = null;
+try {
+    $ratify->invoke(null, 'wpforms-lite', $invented, 'wpforms-lite fixture');
+} catch (\Throwable $e) {
+    $inventedVerdict = $e->getMessage();
+}
+duo_check(
+    is_string($inventedVerdict)
+    && str_contains($inventedVerdict, "declares 'acme_invented_section'")
+    && str_contains($inventedVerdict, 'which this signer cannot classify as an entity or field surface')
+    && str_contains($inventedVerdict, 'teach the signer this section'),
+    'E4: a section NO implemented feature claims meets the unclassifiable verdict verbatim — the roster '
+        . 'classified the four that came through the channel, not everything'
+);
+duo_check_detail('E4 control refusal: ' . (string) $inventedVerdict);
 
 // E5 — the evidence section is not decoration: every record addresses a
 // declaration this manifest still makes. `StructuredEvidence::assert_target()`
@@ -672,6 +749,456 @@ duo_check_same(
     $aboveCeiling,
     'E6: and the CEILING is exclusive of every recorded release, so the window admits exactly the measured '
         . '2.0.0.x series and stops at the next minor rather than at the next major'
+);
+
+// ===========================================================================
+// F. CERTIFICATION — the real verb, both profiles, over the committed bytes
+//
+// THE DEFERRED HALF OF THIS ADAPTER'S PROOF. Groups A-E measure what the engine
+// does with the declarations; this one measures what a CERTIFICATE says about
+// them, through `duo adapter certify` in a child process rather than through
+// `siteRatification()` in this one — because the sentence an operator meets and
+// the plumbing that writes the file are both part of the claim. It exists at all
+// because § v3.21 made it possible: before WP-6.6 every invocation below exited
+// non-zero on the first feature-claimed key.
+// ===========================================================================
+
+/** @param list<string> $args @return array{exit:int,out:string,err:string} */
+$certifyCli = static function (array $args) use ($root): array {
+    $pipes = [];
+    $process = proc_open(
+        array_merge([PHP_BINARY, $root . '/cli/duo', 'adapter'], $args),
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes
+    );
+    if (!is_resource($process)) {
+        return ['exit' => -1, 'out' => '', 'err' => 'cannot start duo'];
+    }
+    fclose($pipes[0]);
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    return ['exit' => proc_close($process), 'out' => $out, 'err' => $err];
+};
+
+$rmtree = static function (string $path) use (&$rmtree): void {
+    if (!is_dir($path) || is_link($path)) {
+        @unlink($path);
+        return;
+    }
+    foreach ((array) scandir($path) as $entry) {
+        if ($entry !== '.' && $entry !== '..') {
+            $rmtree($path . '/' . $entry);
+        }
+    }
+    @rmdir($path);
+};
+$certRoot = sys_get_temp_dir() . '/duo_wpforms_certify_' . bin2hex(random_bytes(6));
+mkdir($certRoot, 0755, true);
+register_shutdown_function(static fn() => $rmtree($certRoot));
+
+/**
+ * A scratch site repository holding ONE adapter, at the derived path.
+ *
+ * @param array<string,mixed> $manifest
+ */
+$certRepo = static function (string $label, array $manifest) use ($certRoot): string {
+    $repo = $certRoot . '/' . $label;
+    mkdir($repo . '/adapters', 0755, true);
+    Canon::write_file($repo . '/adapters/wpforms-lite.json', Canon::encode($manifest));
+    Canon::write_file($repo . '/site.duo.json', Canon::encode([
+        'manifests' => ['core'],
+        // An empty JSON OBJECT: PHP erases {} vs [] on an associative round
+        // trip and the engine refuses the list form.
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]));
+
+    return $repo;
+};
+
+$keypair = sodium_crypto_sign_keypair();
+$publicKey = sodium_crypto_sign_publickey($keypair);
+$keyId = 'site-' . substr(hash('sha256', $publicKey), 0, 12);
+$keyPath = $certRoot . '/site.key';
+file_put_contents($keyPath, base64_encode(sodium_crypto_sign_secretkey($keypair)) . "\n");
+chmod($keyPath, 0600);
+$certReason = 'The exercise site reviewed these exact wpforms-lite adapter bytes against 2.0.0.5.';
+
+// F1 — THE DERIVED PROFILE, end to end.
+$derivedRepo = $certRepo('derived', $adapter);
+$derivedRun = $certifyCli([
+    'certify', $derivedRepo, '--name=wpforms-lite', '--secret-key-file=' . $keyPath,
+    '--key-id=' . $keyId, '--reason=' . $certReason,
+]);
+duo_check_same(
+    0,
+    $derivedRun['exit'],
+    'F1: `duo adapter certify` signs the committed adapter — the verb that exited non-zero on '
+        . '"declares \'attr_id_codecs\', which this signer cannot classify" before § v3.21'
+        . ' (stderr: ' . trim($derivedRun['err']) . ')'
+);
+duo_check(
+    str_contains($derivedRun['out'], 'claim basis: DERIVED'),
+    'F1: through the DERIVED profile, which is the floor an author gets without writing a document'
+);
+$derivedVerified = AdapterCertification::verifyFile(
+    Policy::manifests_dir(),
+    $derivedRepo,
+    'wpforms-lite',
+    $adapter,
+    AdapterCertification::certificatePath($derivedRepo, 'wpforms-lite')
+);
+duo_check_same(
+    'certified',
+    $derivedVerified['claim']['status'] ?? null,
+    'F1: and the LIVE verifier accepts what it just wrote — signature, authority record and platform binding'
+);
+
+// F2 — THE SURFACES LIST, EXACTLY. This is the byte-level consequence of the
+// two `field` arms and the two `non_surface` ones: `claim_from_disposition()`
+// builds `surfaces` from the entity and field lists alone, so `body_refs` and
+// `attr_id_codecs` are covered WITH their declared members, while
+// `engine_features` and `declaration_evidence` appear nowhere. Pinned whole
+// rather than probed for membership, because a certificate that covered one
+// section more or one less would still pass a `str_contains` check.
+$derivedRatification = json_decode(
+    (string) file_get_contents(AdapterCertification::certificatePath($derivedRepo, 'wpforms-lite')),
+    true
+);
+$derivedEntry = $derivedRatification['statement']['ratification']['manifests']['wpforms-lite'] ?? [];
+duo_check_same(
+    ['post_types', 'tables', 'taxonomies'],
+    $derivedEntry['capabilities']['entity_sections'] ?? null,
+    'F2: the certificate\'s entity arm is the three state-bearing sections, unchanged by the feature channel'
+);
+duo_check_same(
+    ['attr_id_codecs', 'block_attrs', 'body_refs', 'options', 'post_meta'],
+    $derivedEntry['capabilities']['field_sections'] ?? null,
+    'F2: and the FIELD arm now carries `attr_id_codecs` and `body_refs` beside `block_attrs` — the whole point '
+        . 'of § v3.21, in the one place it is observable to a certificate holder'
+);
+duo_check_same(
+    [
+        'attr_id_codecs',
+        'attr_id_codecs.wpforms/form-selector',
+        'block_attrs',
+        'block_attrs.wpforms/form-selector',
+        'body_refs',
+        'body_refs.wpforms',
+        'options',
+        'options._wpforms_transient_existing_tables',
+        'options._wpforms_transient_timeout_existing_tables',
+        'options.wpforms_activated',
+        'options.wpforms_constant_contact_version',
+        'options.wpforms_forms_first_created',
+        'options.wpforms_settings',
+        'options.wpforms_version',
+        'options.wpforms_version_lite',
+        'options.wpforms_versions_lite',
+        'post_meta',
+        'post_meta.wpforms_form_locations',
+        'post_types',
+        'post_types.wpforms',
+        'tables',
+        'tables.wpforms_analytics_forms',
+        'tables.wpforms_analytics_snapshots',
+        'tables.wpforms_logs',
+        'tables.wpforms_payment_meta',
+        'tables.wpforms_payments',
+        'tables.wpforms_tasks_meta',
+        'taxonomies',
+        'taxonomies.wpforms_form_tag',
+    ],
+    $derivedVerified['claim']['surfaces'] ?? null,
+    'F2: the projected claim covers exactly these 29 surfaces — the two feature-claimed field sections WITH '
+        . 'their declared members, and neither `engine_features` nor `declaration_evidence` anywhere in it'
+);
+
+// F3 — THE AUTHORED PROFILE (WP-5.3's `--ratification-file`, § v3.17). The same
+// arms, written by a human, judged by the same shipped validator. It is driven
+// here because both profiles call `siteSurfaceSections()` and the ADAPTER
+// agent's find was that BOTH refused: proving one signs proves half.
+$authoredEntry = [
+    'capabilities' => [
+        'deletion_semantics' => [
+            'supported' => ['term:wpforms_form_tag'],
+            'unsupported' => ['post:wpforms'],
+        ],
+        'entity_sections' => ['post_types', 'tables', 'taxonomies'],
+        'field_sections' => ['attr_id_codecs', 'block_attrs', 'body_refs', 'options', 'post_meta'],
+        'lifecycle_phases' => [],
+        'operations' => ['apply', 'capture', 'compile', 'delete', 'deploy', 'plan', 'recapture'],
+    ],
+    'default_authored_keyspaces' => [],
+    'evidence' => ['bundle_schema' => AdapterCertification::BUNDLE_FORMAT, 'tests' => []],
+    'reason' => 'The exercise site reviewed this adapter against WPForms Lite 2.0.0.5 on a live pair: capture, '
+        . 'apply and recapture over four measured form bodies and one embedding page, with the term cascade '
+        . 'and its one reverse-reference guard measured through the deletion-feasibility report.',
+    'status' => 'certified',
+    'supported_versions' => [
+        'plugin' => 'wpforms-lite/wpforms.php',
+        'range' => $adapter['version_range'],
+    ],
+    'unsupported' => [
+        [
+            'operation' => 'delete',
+            'reason' => 'Both reverse-reference guards for a wpforms post measured index:null — postmeta.'
+                . 'meta_value for wpforms_form_locations and posts.post_content for the block embed — so no '
+                . 'guard can ever lock on core\'s schema and a deletion cannot be proven safe.',
+            'surface' => 'post:wpforms',
+        ],
+        [
+            'operation' => 'apply',
+            'reason' => 'wpforms_form_locations is declared derived: the plugin regenerates it from the pages '
+                . 'that embed a form, so the repository carries no page id for it and apply converges it only '
+                . 'as a consequence of the bodies it does converge.',
+            'surface' => 'post_meta.wpforms_form_locations',
+        ],
+    ],
+];
+$authoredPath = $certRoot . '/authored-entry.json';
+file_put_contents($authoredPath, (string) json_encode($authoredEntry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+$authoredRepo = $certRepo('authored', $adapter);
+$authoredRun = $certifyCli([
+    'certify', $authoredRepo, '--name=wpforms-lite', '--secret-key-file=' . $keyPath,
+    '--key-id=' . $keyId, '--reason=' . $certReason, '--ratification-file=' . $authoredPath,
+]);
+duo_check_same(
+    0,
+    $authoredRun['exit'],
+    'F3: `--ratification-file` signs it too — the profile that shares siteSurfaceSections() with the '
+        . 'derivation, so an author could not have named these sections into a certificate before § v3.21'
+        . ' (stderr: ' . trim($authoredRun['err']) . ')'
+);
+duo_check(
+    str_contains($authoredRun['out'], 'claim basis: AUTHORED (--ratification-file)'),
+    'F3: and reports the AUTHORED basis, which `duo adapter recertify` reads to refuse re-deriving over it'
+);
+$authoredVerified = AdapterCertification::verifyFile(
+    Policy::manifests_dir(),
+    $authoredRepo,
+    'wpforms-lite',
+    $adapter,
+    AdapterCertification::certificatePath($authoredRepo, 'wpforms-lite')
+);
+// The SECTION coverage is identical and must be: an author may narrow with an
+// unsupported[] row and its reason, never by leaving a surface out, so
+// assertAuthoredSurfaceCoverage() holds both profiles to the same arms. The one
+// legitimate difference is the reviewed DELETION selector, which is a claim the
+// derivation structurally cannot make (`deletion_semantics.supported: []`,
+// because a validator run reviews no deletion semantics) — so the authored
+// certificate covers exactly one surface more, and that surface is the review.
+duo_check_same(
+    array_values(array_diff(
+        (array) ($authoredVerified['claim']['surfaces'] ?? []),
+        (array) ($derivedVerified['claim']['surfaces'] ?? [])
+    )),
+    ['deletions.term:wpforms_form_tag'],
+    'F3: over the derivation\'s surfaces plus exactly one — the reviewed term cascade, which a grammar verdict '
+        . 'cannot claim. Every SECTION surface is identical, because both profiles read siteSurfaceSections()'
+);
+duo_check_same(
+    [],
+    array_values(array_diff(
+        (array) ($derivedVerified['claim']['surfaces'] ?? []),
+        (array) ($authoredVerified['claim']['surfaces'] ?? [])
+    )),
+    'F3: and the authored claim drops nothing the derivation covered — a certificate naming fewer surfaces '
+        . 'than the adapter declares is the silent narrowing the coverage rule refuses'
+);
+
+// F4 — THE ARM IS HELD AGAINST THE AUTHOR TOO. Naming a feature-claimed section
+// under the wrong arm is the one rule this profile adds, and it now has
+// something to say about a roster-classified key rather than refusing it
+// outright.
+$wrongArm = $authoredEntry;
+$wrongArm['capabilities']['entity_sections'] = ['body_refs', 'post_types', 'tables', 'taxonomies'];
+$wrongArm['capabilities']['field_sections'] = ['attr_id_codecs', 'block_attrs', 'options', 'post_meta'];
+$wrongArmPath = $certRoot . '/wrong-arm.json';
+file_put_contents($wrongArmPath, (string) json_encode($wrongArm, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+$wrongArmRun = $certifyCli([
+    'certify', $certRepo('wrongarm', $adapter), '--name=wpforms-lite', '--secret-key-file=' . $keyPath,
+    '--key-id=' . $keyId, '--reason=' . $certReason, '--ratification-file=' . $wrongArmPath,
+]);
+duo_check_same(2, $wrongArmRun['exit'], 'F4: naming `body_refs` as an ENTITY section refuses');
+duo_check(
+    str_contains($wrongArmRun['err'], "names 'body_refs' as an entity section")
+        && str_contains($wrongArmRun['err'], "this manifest's vocabulary classifies as a field section"),
+    'F4: ...naming the arm the roster gives it, so the author is told which of the two lists it belongs in'
+);
+
+// F5 — THE ENVELOPE, NAMED. Handing `--ratification-file` the
+// `duo-manifest-dispositions/v1` document instead of the bare entry used to
+// meet "has a malformed required field", which is true of the envelope and says
+// nothing about the two documents being confused.
+$envelopePath = $certRoot . '/envelope.json';
+file_put_contents($envelopePath, (string) json_encode([
+    'format' => AdapterCertification::RATIFICATION_FORMAT,
+    'manifests' => ['wpforms-lite' => $authoredEntry],
+    'profiles' => [],
+], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+$envelopeRun = $certifyCli([
+    'certify', $certRepo('envelope', $adapter), '--name=wpforms-lite', '--secret-key-file=' . $keyPath,
+    '--key-id=' . $keyId, '--reason=' . $certReason, '--ratification-file=' . $envelopePath,
+]);
+duo_check_same(2, $envelopeRun['exit'], 'F5: an ENVELOPE-shaped ratification file refuses');
+duo_check(
+    str_contains($envelopeRun['err'], 'ENVELOPE — --ratification-file takes the BARE entry')
+        && str_contains($envelopeRun['err'], 'pass the value at manifests.wpforms-lite from that file instead'),
+    'F5: ...saying which document it wanted and where in this one to find it, instead of reporting a missing '
+        . 'field of a document the author never meant to write'
+);
+
+// F6 — THE CLOSED KEY SET IS STILL THE FIRST GATE. An invented section never
+// reaches the signer at spec_version 3: § v3.3 refuses it at LOAD, one gate
+// earlier, which is why E4's control had to ask the signer directly.
+$inventedRun = $certifyCli([
+    'certify', $certRepo('invented', $invented), '--name=wpforms-lite', '--secret-key-file=' . $keyPath,
+    '--key-id=' . $keyId, '--reason=' . $certReason,
+]);
+duo_check_same(2, $inventedRun['exit'], 'F6: an adapter carrying an invented top-level section is not certified');
+duo_check(
+    str_contains($inventedRun['err'], "the top-level key 'acme_invented_section', which this engine does not recognise"),
+    'F6: ...and the refusal is the closed key set\'s, at LOAD — the roster widened what may be SIGNED, not '
+        . 'what may be declared'
+);
+
+// ===========================================================================
+// G. THE LIVE LEG'S RECORDED OUTCOME — the other deferred half
+//
+// Group F proves the certificate can be SIGNED over these bytes. That is a
+// statement about the engine. This group's subject is the one thing an offline
+// suite cannot produce and must therefore carry as a recorded input: what
+// happened when the whole chain ran against a real WordPress pair.
+//
+// `sandbox/fixtures/wpforms-lite/wpforms-lite.outcomes.json` is that record —
+// WPForms Lite 2.0.0.5 installed from the digest-verified ZIP on both sides,
+// side one seeded through the plugin's own write paths, then certify -> capture
+// -> deploy -> apply -> recapture. It is the FIRST row this adapter has ever
+// had: before § v3.21 the chain stopped at `certify`, so there was no outcome
+// to record and the file did not exist.
+//
+// The point of asserting it here is that a recorded outcome is an INPUT to a
+// shipped reader, not a note in a commit message. It is read below through
+// `AdapterBoundary::readOutcomeTable()` and driven through the real
+// `duo adapter boundary`, so a row that drifted out of the grammar, or out of
+// agreement with the release list beside it, fails this suite rather than
+// failing an operator months later.
+// ===========================================================================
+
+$outcomesPath = $root . '/sandbox/fixtures/wpforms-lite/wpforms-lite.outcomes.json';
+$outcomeTable = \Duo\Orchestrator\AdapterBoundary::readOutcomeTable($outcomesPath, 'wpforms-lite');
+
+// G1 — ONE ROW, AND IT IS THE ANCHOR. The release list records four releases
+// (E6); exactly one of them was actually probed. Asserting the count is not
+// pedantry — an outcomes file that grew rows nobody ran is the precise failure
+// the boundary command's own `evidence_limits` warn about, and the honest state
+// of this evidence is "one release measured, three unprobed".
+duo_check_same(
+    ['2.0.0.5'],
+    array_keys($outcomeTable),
+    'G1: exactly ONE release has a recorded outcome — the anchor. Three of the four releases in the '
+        . 'committed list are unprobed, and silence from them is not evidence for them'
+);
+duo_check_same(
+    \Duo\Orchestrator\AdapterBoundary::OUTCOME_GREEN,
+    $outcomeTable['2.0.0.5']['outcome'],
+    'G1: ...and that outcome is green — the full chain ran, it did not merely fail to refuse'
+);
+duo_check_same(
+    '2.0.0.5',
+    $versions[count($versions) - 1],
+    'G1: the probed release is the NEWEST in the committed release list, so the evidence anchors at the '
+        . 'ceiling of what was recorded rather than somewhere in its interior'
+);
+
+// G2 — THE SIGNATURE IS THE EVIDENCE, AND IT IS QUOTED VERBATIM. Per
+// sandbox/conformance/boundary/README.md § "The second reader", a signature is
+// not prose a reviewer skims: `site.duo.json` may carry these same rows under
+// `adapter_version_evidence` and `LifecyclePlanner::code_mismatch()` quotes the
+// signature into the operator-facing `version_range_graduated` verdict. So it
+// must say what was OBSERVED. These three assertions pin the observations this
+// package specifically unblocked — a signature rewritten into a summary that
+// dropped them would still be well-formed and would still fail here.
+$signature = $outcomeTable['2.0.0.5']['signature'];
+duo_check(
+    str_contains($signature, 'attr_id_codecs')
+        && str_contains($signature, 'body_refs')
+        && str_contains($signature, 'field arm'),
+    'G2: the signature records that the CERTIFICATE carried the two feature-claimed field-arm surfaces — '
+        . 'the § v3.21 roster observed on a live signing, not just in group F\'s child process'
+);
+duo_check(
+    str_contains($signature, 'previous_page') && str_contains($signature, 'STRING'),
+    'G2: ...that the cross-entity confirmation ref rewrote AS A STRING with the `previous_page` sentinel '
+        . 'left alone — the two halves of this adapter\'s `body_refs` claim, measured on a target'
+);
+duo_check(
+    str_contains($signature, 'byte-identical'),
+    'G2: ...and that the recapture matched, which is the only observation that makes the row `green` rather '
+        . 'than "apply exited zero"'
+);
+
+// G3 — NO FILE HERE MAY STATE ITS OWN FRESHNESS. The boundary README's one
+// prohibition: `last_verified`, `stale`, `releases_behind` and `freshness` are
+// DERIVED by `duo adapter proposals` across the whole directory. A recorded
+// input allowed to declare itself current would let the adapter nobody probed
+// claim to be the freshest thing in the tree.
+$outcomesRaw = (array) json_decode((string) file_get_contents($outcomesPath), true);
+$forbidden = array_values(array_intersect(
+    ['last_verified', 'stale', 'releases_behind', 'freshness'],
+    array_keys($outcomesRaw)
+));
+duo_check_same(
+    [],
+    $forbidden,
+    'G3: the recorded outcome states what was observed and nothing about its own freshness — that is '
+        . '`duo adapter proposals`\' to derive across the directory'
+);
+
+// G4 — THE RECORDED ROW MOVES THE REAL SEARCH, through the operator's command
+// rather than through `search()` in this process. This is the whole reason the
+// file is committed instead of being narrated in a commit message: with no
+// outcomes the planner's next move is to probe the ANCHOR; with this row it
+// already knows the anchor is green and moves to the floor arm. Both runs still
+// exit 3 (`probe-required`), which is the honest verdict — one measured release
+// does not certify a four-release window.
+$boundaryArgs = [
+    'boundary',
+    '--releases=' . $root . '/sandbox/fixtures/wpforms-lite/wpforms-lite.releases.json',
+    '--anchor=2.0.0.5',
+    '--format=json',
+];
+$withoutOutcomes = $certifyCli($boundaryArgs);
+$withOutcomes = $certifyCli(array_merge($boundaryArgs, ['--outcomes=' . $outcomesPath]));
+duo_check_same(
+    [3, 3],
+    [$withoutOutcomes['exit'], $withOutcomes['exit']],
+    'G4: both runs exit 3 (probe-required) — recording one green release does not let a four-release '
+        . 'window claim itself complete'
+);
+$before = (array) json_decode($withoutOutcomes['out'], true);
+$after = (array) json_decode($withOutcomes['out'], true);
+duo_check_same(
+    ['arm' => 'anchor', 'version' => '2.0.0.5'],
+    $before['next_probe'] ?? null,
+    'G4: with no outcomes recorded, the planner\'s next move is to probe the anchor — which is exactly '
+        . 'where this adapter stood before the live leg ran'
+);
+duo_check_same(
+    ['arm' => 'floor', 'version' => '2.0.0.3'],
+    $after['next_probe'] ?? null,
+    'G4: ...and with the row recorded it moves ON, to the floor arm — the recorded input is consumed by '
+        . 'the shipped planner, not just stored beside it'
+);
+duo_check_same(
+    [0, 1],
+    [$before['probe_count'] ?? null, $after['probe_count'] ?? null],
+    'G4: the probe count is the number of releases actually run, and it went 0 -> 1 on the strength of '
+        . 'this one committed row'
 );
 
 duo_check_summary('regress_wpforms_lite_adapter');

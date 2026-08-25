@@ -107,6 +107,20 @@ final class BodyRefGrammar {
     public const SECTION = 'body_refs';
 
     /**
+     * One post type's record: `json_refs` mandatory, `sentinels` optional.
+     *
+     * The same shape `StructuredEvidence` keeps for its own record (:120-121),
+     * and hoisted out of validate_one()'s inline `array_diff('json_refs',
+     * 'sentinels')` for WP-6.6's reason: `--emit-schema` publishes this
+     * section's closed key set beside its roster row, and a list typed into the
+     * emitter would be the second spelling that stops agreeing the day
+     * `key_refs` is admitted (which validate_one() refuses BY NAME today, and
+     * says why).
+     */
+    public const RECORD_REQUIRED = ['json_refs'];
+    public const RECORD_OPTIONAL = ['sentinels'];
+
+    /**
      * The `post_types.<type>.body` value this feature admits.
      *
      * A member of a vocabulary that already exists rather than a new top-level
@@ -191,6 +205,41 @@ final class BodyRefGrammar {
     }
 
     /**
+     * This section's value grammar, published for `duo manifest-validate
+     * --emit-schema` (WP-6.6, spec/repo-format.md § v3.21).
+     *
+     * THE GAP THIS CLOSES was measured by walking the authoring path as a
+     * stranger: WP-6.5 taught the document that the feature and its section
+     * EXIST, and an author who read it still had to open three engine files to
+     * learn what may go inside one. `keyed_by`, the record's two members and
+     * the `json_refs[]` triple are the whole of it, and every one is read from
+     * the constant the validator itself refuses against — `RECORD_*` above and
+     * `ReferenceRules::JSON_REF_*`, the dialect this section deliberately does
+     * not own a second copy of (:145-151).
+     *
+     * @return array<string,mixed>
+     */
+    public static function section_grammar(): array {
+        return [
+            'keyed_by' => 'post type — each key must be a `post_types.<type>` THIS manifest declares with body='
+                . self::BODY_MODE . ', and the reverse is enforced too: a json body with no entry here refuses',
+            'record' => [
+                'required' => self::RECORD_REQUIRED,
+                'optional' => self::RECORD_OPTIONAL,
+            ],
+            'json_refs_entry' => [
+                'required' => ReferenceRules::JSON_REF_REQUIRED,
+                'optional' => ReferenceRules::JSON_REF_OPTIONAL,
+            ],
+            'sentinels' => 'a declared json_refs path => a list of literal string values that pass through '
+                . 'capture and apply untouched, because they are in-band markers rather than ids',
+            'validated_by' => 'Duo\\BodyRefGrammar::validate_body_refs(), and each json_refs entry by '
+                . 'Duo\\ReferenceRules::value_rule() — the same JSONPath dialect, keyspace grammar and '
+                . 'overlapping-path refusal `post_meta`/`options` already use',
+        ];
+    }
+
+    /**
      * Whether ONE manifest declared this feature.
      *
      * The single predicate both consumers ask, and the reason it is public: the
@@ -271,7 +320,10 @@ final class BodyRefGrammar {
         if (!is_array($decl) || array_is_list($decl)) {
             throw new \RuntimeException("duo: $where must be an object declaring {json_refs} and optional {sentinels}");
         }
-        $unknown = array_diff(array_map('strval', array_keys($decl)), ['json_refs', 'sentinels']);
+        $unknown = array_diff(
+            array_map('strval', array_keys($decl)),
+            array_merge(self::RECORD_REQUIRED, self::RECORD_OPTIONAL)
+        );
         if ($unknown !== []) {
             sort($unknown, SORT_STRING);
             throw new \RuntimeException(
