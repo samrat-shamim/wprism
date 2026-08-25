@@ -113,6 +113,7 @@ require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterCertification.php'
 require_once __DIR__ . '/manifest_fixtures.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterContractGrammar;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\ManifestDispositions;
@@ -307,11 +308,16 @@ $fixtures = [
 // The on-disk synthetic manifests are the other half of "every synthetic
 // manifest fixture", and they matter more than the constructed ones: an
 // out-of-tree adapter authored against v2 is the population the flag day
-// actually hits, and `sandbox/fixtures/acme-catalog/duo-adapter.json` is the
-// only one in the tree. DISCOVERED, not listed, by the shape that makes a JSON
-// document an adapter manifest — a string `name`, an int `spec_version`, and a
-// `plugin` or `theme` subject — so a fixture added later is measured instead of
-// quietly missed. The two gitignored scratch roots (.gitignore:3-4,
+// actually hits, and `sandbox/fixtures/acme-catalog/duo-adapter.json` was for a
+// long time the only one in the tree. It is no longer alone:
+// `sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json` is the tree's
+// first out-of-tree adapter authored AT `spec_version` 3 and through § v3.2's
+// feature channel, so the two together now straddle the flag day — one from
+// each era, both discovered by the same walk. DISCOVERED, not listed, by the
+// shape that makes a JSON document an adapter manifest — a string `name`, an
+// int `spec_version`, and a `plugin` or `theme` subject — so a fixture added
+// later is measured instead of quietly missed. The two gitignored scratch
+// roots (.gitignore:3-4,
 // `sandbox/siterepo/` and `sandbox/tmp/`) are skipped, and skipping siterepo is
 // not tidiness: a pair run leaves a whole site repository there, adapters
 // included, so a walk that read it would give a different estate on a machine
@@ -347,11 +353,12 @@ ksort($discovered, SORT_STRING);
 duo_check_same(
     [
         'sandbox/fixtures/acme-catalog/duo-adapter.json',
+        'sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json',
         'sandbox/tests/fixtures/duo-sidecar-refs/manifest.json',
         'sandbox/tests/fixtures/duo-taxonomy-keyspace/manifest.json',
     ],
     array_keys($discovered),
-    'the on-disk synthetic manifest estate is three documents; a fourth must be considered by this dry run, not silently added'
+    'the on-disk synthetic manifest estate is four documents; a fifth must be considered by this dry run, not silently added'
 );
 
 $estate = [];
@@ -362,7 +369,14 @@ foreach ($fixtures as $label => $manifest) {
     $estate[$label] = [(string) ($manifest['name'] ?? '?'), $manifest];
 }
 foreach ($discovered as $path => $manifest) {
-    $estate['synthetic:' . basename(dirname($path))] = [(string) $manifest['name'], $manifest];
+    // Labelled by the manifest's DECLARED name and not by its directory. A
+    // site-installed adapter lives at `<repo>/adapters/<name>.json` by
+    // derivation (`AdapterCertification::certificatePath()`'s sibling rule), so
+    // `basename(dirname($path))` labels every one of them `adapters` — one
+    // label for every site adapter the tree ever carries, which would have
+    // collapsed the estate silently rather than refusing. The declared name is
+    // the identity every rule below actually judges.
+    $estate['synthetic:' . (string) $manifest['name']] = [(string) $manifest['name'], $manifest];
 }
 
 // ===========================================================================
@@ -410,9 +424,8 @@ duo_check_same(
 );
 
 // The same measurement over the on-disk synthetic estate, because the flag day
-// hits out-of-tree adapters first and `acme-catalog` is the only one the tree
-// carries. Measured separately: an unknown key here would be a fixture to fix,
-// not a finding against the library.
+// hits out-of-tree adapters first. Measured separately: an unknown key here
+// would be a fixture to fix, not a finding against the library.
 $syntheticUnion = [];
 foreach ($discovered as $path => $manifest) {
     foreach (array_keys($manifest) as $key) {
@@ -427,7 +440,35 @@ $report(sprintf(
     count($syntheticUnion),
     count($syntheticUnknown)
 ));
-duo_check_same([], $syntheticUnknown, 'F1: the on-disk synthetic manifests declare no top-level key the signer partition does not know either');
+// NOT empty any more, and the difference is § v3.3's growth rule rather than a
+// defect. `sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json` declares
+// four keys the signer's three arms do not carry — `engine_features` itself
+// plus the three sections its declared features claim — because every one of
+// them arrived through § v3.2's channel, which admits a top-level key at LOAD
+// without adding it to the partition a SIGNER classifies. The two halves are
+// therefore asserted separately: the exact set, so a fifth key is a reviewed
+// edit here; and, one level stronger, that each member is claimed by a feature
+// the declaring manifest declares and this engine implements — which is what
+// distinguishes "shipped through the channel" from "a section nobody reads".
+duo_check_same(
+    ['attr_id_codecs', 'body_refs', 'declaration_evidence', 'engine_features'],
+    $syntheticUnknown,
+    'F1: the on-disk synthetic keys the signer partition does not know are exactly the four the feature channel admits'
+);
+$unclaimed = [];
+foreach ($syntheticUnknown as $key) {
+    foreach ($syntheticUnion[$key] as $path) {
+        if (!in_array($key, AdapterContractGrammar::admitted_top_level_keys($discovered[$path]), true)) {
+            $unclaimed[] = "$path declares '$key'";
+        }
+    }
+}
+sort($unclaimed, SORT_STRING);
+duo_check_same(
+    [],
+    $unclaimed,
+    'F1: and every one of them is admitted for the manifest that declares it by a feature that manifest declares — the growth rule, not an unread section'
+);
 
 // The flag-day break list for this rule.
 $keysBreakList = [];
@@ -445,7 +486,28 @@ foreach ($keysBreakList as $label => $verdict) {
 $shippedBreaks = array_values(array_filter(array_keys($keysBreakList), static fn(string $l): bool => str_starts_with($l, 'shipped:')));
 duo_check_same([], $shippedBreaks, 'V3-KEYS refuses zero shipped adapters: the closed key set is digest-neutral for the library');
 $syntheticBreaks = array_values(array_filter(array_keys($keysBreakList), static fn(string $l): bool => str_starts_with($l, 'synthetic:')));
-duo_check_same([], $syntheticBreaks, 'V3-KEYS refuses none of the on-disk synthetic manifests either — including acme-catalog, the tree\'s only out-of-tree adapter');
+// EXACTLY ONE, and it is the price of the channel rather than a defect in the
+// fixture. `acme-catalog` — the v2 out-of-tree adapter — still signs, which is
+// the digest-neutrality half. `wpforms-lite` does not, because the signer's
+// partition has no arm for a feature-claimed key and `siteSurfaceSections()`
+// refuses what it cannot classify as an entity or field surface. That refusal
+// is shared by BOTH signing profiles (WP-5.3's `--ratification-file` author
+// profile calls the same method), so an author cannot certify such a section by
+// naming it in a file either. Pinned here, with the verdict's own words, so the
+// day the partition gains an arm for one of these keys is a day this assertion
+// forces someone to say so.
+duo_check_same(
+    ['synthetic:wpforms-lite'],
+    $syntheticBreaks,
+    'V3-KEYS refuses exactly one on-disk synthetic manifest: the spec-3 adapter that uses the feature channel. acme-catalog, the v2 one, still signs'
+);
+duo_check(
+    str_contains(
+        (string) ($keysBreakList['synthetic:wpforms-lite'] ?? ''),
+        'which this signer cannot classify as an entity or field surface'
+    ),
+    'V3-KEYS: and the refusal is the signer\'s unclassifiable-section verdict, not a grammar error — the manifest LOADS, it just cannot be signed'
+);
 duo_check_same(
     [],
     array_values(array_intersect(array_keys($keysBreakList), ['fixture:manifest-a', 'fixture:manifest-b'])),

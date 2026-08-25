@@ -2149,6 +2149,19 @@ regress-attr-id-codec-grammar:
 regress-body-ref-grammar:
 	php sandbox/tests/offline/grammar/regress_body_ref_grammar.php
 
+# The two primitives above, plus the rest of one adapter's declared surfaces, as
+# ONE INSTALLED FILE rather than as a manifest built in PHP:
+# sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json is the tree's first
+# spec_version 3 adapter, authored through the decentralized path a third party
+# takes and loaded here as a SITE adapter — so the out-of-tree contract and the
+# vendor-namespace rule run, which a library-directory fixture skips. Drives
+# capture -> apply -> recapture over the five measured 2.0.0.5 captures, and
+# asserts the honest half too: the open form-locations coordinate, the
+# unadvertised post:wpforms deletion, and the certification the feature channel
+# costs.
+regress-wpforms-lite-adapter:
+	php sandbox/tests/offline/adapter/regress_wpforms_lite_adapter.php
+
 regress-lint-primitives:
 	php sandbox/tests/offline/reference-scope/regress_lint_primitives.php
 

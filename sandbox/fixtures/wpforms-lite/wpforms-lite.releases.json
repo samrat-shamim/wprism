@@ -1,0 +1,32 @@
+{
+  "format": "duo-adapter-release-list/v1",
+  "slug": "wpforms-lite",
+  "source": "api.wordpress.org/plugins/info/1.2 (action=plugin_information, request[slug]=wpforms-lite, request[fields][versions]=1) queried 2026-08-25; stable tag at query time was 2.0.0.5, 197 versions listed. Each ZIP below was fetched once from downloads.wordpress.org by this recon run and digested with `shasum -a 256`; the raw API response is recorded beside this file as api-wporg.wpforms-lite.json. No digest here was copied from a release history this tool read at run time.",
+  "recorded_at": "2026-08-25",
+  "releases": [
+    {
+      "version": "1.9.9.4",
+      "url": "https://downloads.wordpress.org/plugin/wpforms-lite.1.9.9.4.zip",
+      "sha256": "fa4c2149dcfcf90671c7ef20ec49e8054fface034590252f3ebbfaba714019f9",
+      "archive_root": "wpforms-lite"
+    },
+    {
+      "version": "2.0.0.3",
+      "url": "https://downloads.wordpress.org/plugin/wpforms-lite.2.0.0.3.zip",
+      "sha256": "f1262ff490b941e9a117cedc98b01db122affb110534d3adcf56608bd0c5d046",
+      "archive_root": "wpforms-lite"
+    },
+    {
+      "version": "2.0.0.4",
+      "url": "https://downloads.wordpress.org/plugin/wpforms-lite.2.0.0.4.zip",
+      "sha256": "3deaa115c6ed18fe3ef21f327239cf9573f78f97b1f4cc8204abfaf910689608",
+      "archive_root": "wpforms-lite"
+    },
+    {
+      "version": "2.0.0.5",
+      "url": "https://downloads.wordpress.org/plugin/wpforms-lite.2.0.0.5.zip",
+      "sha256": "b7c424a96481a68d43ab03b6dcad2657675e42cddaa31844eb8ddc20ba08733c",
+      "archive_root": "wpforms-lite"
+    }
+  ]
+}
