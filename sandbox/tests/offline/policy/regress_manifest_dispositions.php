@@ -358,37 +358,12 @@ $tecPolicy = Policy::load(null, ['the-events-calendar']);
 $tecBlockers = $tecPolicy->adapter_readiness_blockers();
 check($tecBlockers === [], 'the certified TEC pin contributes no readiness blocker');
 check($tecPolicy->capability_report()['ready'] === true, 'certified TEC capability output reports ready');
-$experimentalFixture = sys_get_temp_dir() . '/duo_experimental_disposition_' . bin2hex(random_bytes(5));
-mkdir($experimentalFixture, 0777, true);
-mkdir($experimentalFixture . '/capabilities', 0777, true);
-register_shutdown_function(fn() => remove_fixture_tree($experimentalFixture));
-copy($manifestDir . '/core.json', $experimentalFixture . '/core.json');
-copy($manifestDir . '/capabilities/platform.json', $experimentalFixture . '/capabilities/platform.json');
-$experimentalRegistry = $data;
-$experimentalRegistry['manifests'] = ['core' => $data['manifests']['core']];
-$experimentalRegistry['profiles'] = [];
-$experimentalRegistry['manifests']['core']['status'] = 'experimental';
-$experimentalRegistry['manifests']['core']['reason'] = 'Synthetic experimental disposition for fail-closed product-path coverage.';
-Canon::write_file(
-    $experimentalFixture . '/dispositions.json',
-    Canon::encode($experimentalRegistry)
-);
-putenv("DUO_MANIFESTS_DIR=$experimentalFixture");
-$experimentalPolicy = Policy::load(null, ['core']);
-$experimentalBlockers = $experimentalPolicy->adapter_readiness_blockers();
-$experimentalAuthoredBlocker = array_values(array_filter(
-    $experimentalBlockers,
-    fn(array $row): bool => ($row['code'] ?? null) === 'authored_state_not_certified'
-));
-check(
-    ($experimentalAuthoredBlocker[0]['name'] ?? null) === 'core',
-    'a synthetic experimental pin is a structured readiness blocker independent of the shipped adapter roster'
-);
-check(
-    $experimentalPolicy->capability_report()['ready'] === false,
-    'experimental capability output can never report ready'
-);
-putenv("DUO_MANIFESTS_DIR=$manifestDir");
+// #561's own synthetic-experimental fixture stood here. It wrote a monolith
+// `dispositions.json`, which ManifestDispositions::load() now refuses outright
+// (ManifestDispositions.php:194), and it asserted exactly what the split-aware
+// fixture below already asserts through write_registry(). One mechanism, not
+// two: its order-independent read of the blocker list was the better half and
+// has been folded into that block.
 
 echo "\n== typed table identities, closed keyspaces, and parent-delete limits are explicit ==\n";
 $pmproUnsupported = array_fill_keys(array_column($data['manifests']['paid-memberships-pro']['unsupported'], 'surface'), true);
@@ -440,10 +415,18 @@ write_registry($fixture, $experimentalRegistry);
 putenv("DUO_MANIFESTS_DIR=$fixture");
 $experimentalPolicy = Policy::load(null, ['core']);
 $experimentalBlockers = $experimentalPolicy->adapter_readiness_blockers();
+// Selected by CODE rather than by position (#561's half of this): the
+// assertion is about which blocker the experimental status raises, and reading
+// [0] would silently start measuring blocker ordering the day a second code
+// joins the list.
+$experimentalAuthoredBlocker = array_values(array_filter(
+    $experimentalBlockers,
+    fn(array $row): bool => ($row['code'] ?? null) === 'authored_state_not_certified'
+));
 check(
-    ($experimentalBlockers[0]['name'] ?? null) === 'core'
-        && ($experimentalBlockers[0]['code'] ?? null) === 'authored_state_not_certified',
-    'a synthetic experimental disposition is a structured readiness blocker'
+    ($experimentalAuthoredBlocker[0]['name'] ?? null) === 'core',
+    'a synthetic experimental disposition is a structured readiness blocker, independent of the shipped '
+        . 'adapter roster and of blocker ordering'
 );
 check(
     $experimentalPolicy->capability_report()['ready'] === false,
@@ -920,11 +903,13 @@ check(
     && !str_contains($agentCliSource, 'capability registry blocker'),
     "the agent's plan warning over those same rows names adapter dispositions too, never the deleted capability registry"
 );
-putenv("DUO_MANIFESTS_DIR=$experimentalFixture");
+// No DUO_MANIFESTS_DIR juggling: the gate is handed the resolved rows of the
+// already-loaded $experimentalPolicy and reads no library of its own. #561
+// wrapped this call in a putenv pair pointing at its own monolith fixture
+// directory, which is gone with that fixture.
 $hostBlockers = CodeDeploy::dispositionBlockers([
     'resolved_adapters' => RepositoryCompiler::resolved_adapters($experimentalPolicy),
 ]);
-putenv("DUO_MANIFESTS_DIR=$manifestDir");
 check(($hostBlockers[0]['name'] ?? null) === 'core', 'host promotion gate refuses the same synthetic experimental disposition');
 
 // DUO-3372: an uncovered manifest must be a fail-closed BLOCKER, never a

@@ -258,7 +258,7 @@ final class Blocks {
         string $postLabel,
         array $idCodecs = []
     ): array {
-        $name = $block['blockName'];
+        $name = $block['blockName'] ?? null;
         // Classic (non-block) content parses as a freeform block whose
         // `blockName` is NULL, and PHP 8.5 deprecates a null array offset —
         // both sides of the #561 merge fixed this independently (WP-6.1 here,
@@ -266,6 +266,11 @@ final class Blocks {
         // itself null so every warning and IMAGE_CLASS_BLOCKS check reads
         // exactly as it did, and normalises only the LOOKUP key: no registry
         // can hold a rule under the empty string.
+        // The `?? null` covers the key being ABSENT rather than null, which is
+        // a distinct shape: `parse_blocks()` always emits the key, but walk()
+        // is reached with hand-built nodes (#561's B0 dispatch probe feeds one
+        // with no `blockName` at all) and a bare read raises "Undefined array
+        // key" there — a warning, which offline_diagnostics_guard.sh rejects.
         $lookup = is_string($name) ? $name : '';
         $blockIdCodecs = $idCodecs[$lookup] ?? [];
         $declaredRules = $rules[$lookup] ?? [];

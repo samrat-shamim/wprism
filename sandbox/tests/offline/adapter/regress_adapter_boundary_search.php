@@ -169,15 +169,19 @@ foreach ((array) $lock['plugins'] as $slug => $block) {
         $exerciseOnly[$slug] = $roles;
     }
 }
+// #561 moved the-events-calendar out of the exercise-only column: its block now
+// carries certified-boundary roles on 6.17.2/6.17.3 and a refusal-fixture on
+// 6.17.1, so it is a bisection RESULT and the loops below reproduce it like any
+// other certified block. wpforms-lite is the last exercise-only block.
 duo_check_same(
-    13,
+    14,
     count($bisectionShaped),
-    '13 of the 15 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
+    '14 of the 15 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
 );
 duo_check_same(
-    ['the-events-calendar', 'wpforms-lite'],
+    ['wpforms-lite'],
     array_keys($exerciseOnly),
-    'the two blocks that are not bisection results are exercise-fixture only, so the search never proposes them'
+    'the one block that is not a bisection result is exercise-fixture only, so the search never proposes it'
 );
 
 // The lock authors its rows oldest-first inside each block, which is the order

@@ -331,14 +331,27 @@ foreach ($report['manifests'] as $row) {
     $statuses[(string) $row['name']] = (string) $row['status'];
 }
 ksort($statuses, SORT_STRING);
+// #561 promoted the-events-calendar experimental -> certified, which was the
+// library's only `experimental` subject. So the census is two words now, not
+// three -- a change in what the shipped library SAYS, never in what the
+// projector can say (ManifestDispositions.php:959 still accepts exactly
+// certified/experimental/excluded, and the next line measures that).
 duo_check_same(
-    ['certified' => 14, 'excluded' => 1, 'experimental' => 1],
+    ['certified' => 15, 'excluded' => 1],
     (static function (array $words): array {
         $counts = array_count_values($words);
         ksort($counts, SORT_STRING);
         return $counts;
     })(array_values($statuses)),
-    'ManifestDispositions::report() still projects exactly the three reviewed words over 16 subjects — the binary read this rider deliberately did NOT change'
+    'ManifestDispositions::report() still projects the reviewed word verbatim over 16 subjects — the binary read this rider deliberately did NOT change'
+);
+duo_check(
+    str_contains(
+        (string) file_get_contents($duoRoot . '/agent/src/Policy/ManifestDispositions.php'),
+        "in_array(\$status, ['certified', 'experimental', 'excluded'], true)"
+    ),
+    '...and `experimental` is still a word the engine accepts, so the census above records that the shipped '
+        . 'library has none left — not that the third status was retired with TEC\'s promotion'
 );
 duo_check_same('certified', $statuses['acf'], '...`certified` still means `certified`');
 

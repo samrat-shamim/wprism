@@ -95,7 +95,8 @@
  *   DELETE FROM t [WHERE <cond>] [LIMIT n]
  *   SHOW TABLES LIKE '<pattern>'      -> the table name, or null
  *   SHOW [FULL] COLUMNS FROM t        -> column rows (see setColumns/setColumnDefinitions)
- *   SHOW INDEX FROM t                 -> configured index rows (see setIndexes)
+ *   SHOW INDEX FROM t                 -> RECORDED index rows (setIndexes); a
+ *                                        table with no fixture declines
  *   SHOW TABLE STATUS LIKE '<name>'   -> configured engine row (see setTableEngine)
  *   START TRANSACTION | BEGIN | COMMIT | ROLLBACK  (single-level, snapshotting)
  *   SET ...                           (accepted no-op)
@@ -2699,7 +2700,21 @@ final class FakeWpdb {
             $table = $this->parseTableRef();
             $this->expectEnd();
             $name = $this->requireTable($table);
-            return ['kind' => 'rows', 'rows' => $this->indexes[$name] ?? []];
+            // A RECORDED index inventory answers; an absent one declines.
+            // Returning [] for a table nobody called setIndexes() on would
+            // report "this table has no indexes" -- a schema fact inferred
+            // from a missing fixture, which is the one thing the contract at
+            // :110-119 forbids ("no schema fact is inferred from stored
+            // rows"). README.md:202-208 states the sanctioned fill: a
+            // duo-adapter-probe/v1 recording off a real server, replayed
+            // through setIndexes(), never this class's own bookkeeping.
+            if (!isset($this->indexes[$name])) {
+                throw $this->unsupported(
+                    "SHOW INDEX FROM `$name` without a recorded index fixture; call setIndexes('$name', ...)"
+                    . ' from a duo-adapter-probe/v1 recording'
+                );
+            }
+            return ['kind' => 'rows', 'rows' => $this->indexes[$name]];
         }
         throw $this->unsupported('SHOW variant');
     }

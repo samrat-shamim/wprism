@@ -183,8 +183,18 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # plugin_supplied_providers under — `providers / actions[].kind=provider`,
 # checked by Providers::negotiate() — because manifest-validate negotiates no
 # provider and invokes none, so neither reach is on any path this command runs.
-wp_allow='TargetProbe.php:probe_target,PlatformCompatibility.php:current_facts,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,NativeActions.php:flush_rewrite_action,NativeActions.php:rewrite_state,NativeActions.php:raw_option_state,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:observe_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers,ProviderSurfaces.php:observe,ProviderSurfaces.php:option_witness,ProviderSdk.php:checked_get_var,ProviderSdk.php:checked_get_col,ProviderSdk.php:checked_get_row,ProviderSdk.php:checked_get_results'
-wp_allow='TargetProbe.php:probe_target,PlatformCompatibility.php:current_facts,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,NativeActions.php:flush_rewrite_action,NativeActions.php:rewrite_evidence,NativeActions.php:rewrite_state,NativeActions.php:raw_option_state,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:observe_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers'
+# #561 added NativeActions::rewrite_evidence() -- 'rewrite.flush''s read-only
+# postcondition read, which calls get_option('rewrite_rules') at :200 behind an
+# early function_exists()/is_object($wp_rewrite) throw rather than a same-line
+# guard, so the scanner sees it unguarded. It sits under the SAME deferred
+# NativeActions::execute() boundary its flush_rewrite_action/rewrite_state
+# neighbours already carry: manifest-validate executes no native action, so the
+# reach is off every path this command runs.
+#
+# ONE assignment, deliberately: the #561 merge left two consecutive `wp_allow=`
+# lines and the second silently won, dropping WP-3.3's four ProviderSdk and two
+# ProviderSurfaces entries and re-failing the scan. This is their union.
+wp_allow='TargetProbe.php:probe_target,PlatformCompatibility.php:current_facts,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,NativeActions.php:flush_rewrite_action,NativeActions.php:rewrite_evidence,NativeActions.php:rewrite_state,NativeActions.php:raw_option_state,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:observe_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers,ProviderSurfaces.php:observe,ProviderSurfaces.php:option_witness,ProviderSdk.php:checked_get_var,ProviderSdk.php:checked_get_col,ProviderSdk.php:checked_get_row,ProviderSdk.php:checked_get_results'
 wp_allow_via='AdapterRegistry::report() PlatformCompatibility::current_facts() Policy::taxonomies() NativeActions::execute() Deploy::code_mismatch() Deploy::code_drift() Providers::negotiate()'
 
 scan_wp() {

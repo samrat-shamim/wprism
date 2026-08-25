@@ -1829,11 +1829,17 @@ $artifacts = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 )['plugins']['the-events-calendar'];
+// The reviewed claim source is one document per subject since WP-4.4
+// (spec/repo-format.md § v3.4); the monolith this suite was authored against
+// is gone, and ManifestDispositions::load() refuses a library that still
+// carries it (ManifestDispositions.php:194). The subject document IS what the
+// monolith held under ['manifests']['the-events-calendar'], so every member
+// read below is unchanged.
 $disposition = json_decode(
-    (string) file_get_contents($root . '/manifests/dispositions.json'),
+    (string) file_get_contents($root . '/manifests/dispositions/the-events-calendar.json'),
     true,
     flags: JSON_THROW_ON_ERROR
-)['manifests']['the-events-calendar'];
+);
 $readiness = json_decode(
     (string) file_get_contents($root . '/sandbox/conformance/production-readiness.json'),
     true,
@@ -8769,9 +8775,21 @@ duo_check_same(
     'the exact widget probe supplies parsed, source, and nullable top-level parent arguments to every normal callback'
 );
 
-$versionMatrix = (string) file_get_contents(
+// The matrix source is TWO files here, not one. This branch extracted every
+// per-plugin content helper into tests/certify/matrix.d/<plugin>.sh, sourced
+// back by certify_version_matrix.sh:146-159; #561 authored the checks below
+// against the monolith, where the helper DEFINITIONS and the case body shared
+// a file. The driver still owns the `if [ "$VMATRIX_MANIFEST" = ... ]` case,
+// TEC's four content helpers live in its own matrix.d document, and the
+// concatenation is the whole matrix source for TEC — so "exactly one
+// unshadowed helper" still means what #561 wrote it to mean.
+$versionMatrixDriver = (string) file_get_contents(
     $root . '/sandbox/tests/certify/certify_version_matrix.sh'
 );
+$tecMatrixHelpers = (string) file_get_contents(
+    $root . '/sandbox/tests/certify/matrix.d/the-events-calendar.sh'
+);
+$versionMatrix = $versionMatrixDriver . $tecMatrixHelpers;
 $tecRegenLive = (string) file_get_contents(
     $root . '/sandbox/tests/live/regress_tec_regen.sh'
 );
@@ -8813,13 +8831,17 @@ duo_check(
         && $tecRegenDropFaultColumn < $tecRegenRetryPlan,
     'the TEC verifier fault restores both manifest and physical schema before exercising recovery authority'
 );
-$tecMatrixWrapperStart = strpos($versionMatrix, 'check_the_events_calendar_boundary_content() {');
-$tecMatrixWrapperEnd = strpos($versionMatrix, 'seed_advanced_editor_tools_content() {', $tecMatrixWrapperStart);
+// In the monolith the TEC boundary wrapper was bounded by the next plugin's
+// helper (`seed_advanced_editor_tools_content`). Under matrix.d/ the TEC file
+// holds only TEC helpers, so the wrapper's end marker is its own next
+// definition — a tighter bound than #561 had, over the same function body.
+$tecMatrixWrapperStart = strpos($tecMatrixHelpers, 'check_the_events_calendar_boundary_content() {');
+$tecMatrixWrapperEnd = strpos($tecMatrixHelpers, 'postapply_the_events_calendar_content() {', (int) $tecMatrixWrapperStart);
 duo_check(
     $tecMatrixWrapperStart !== false && $tecMatrixWrapperEnd !== false,
     'the exact TEC matrix check wrapper has bounded source markers'
 );
-$tecMatrixWrapper = substr($versionMatrix, $tecMatrixWrapperStart, $tecMatrixWrapperEnd - $tecMatrixWrapperStart);
+$tecMatrixWrapper = substr($tecMatrixHelpers, $tecMatrixWrapperStart, $tecMatrixWrapperEnd - $tecMatrixWrapperStart);
 foreach ([
     'wp_env() {' => 'the shared two-side helper',
     'conf1) wp1 "$@" ;;' => 'the author-side mapping',

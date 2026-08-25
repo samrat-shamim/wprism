@@ -354,7 +354,7 @@ php <tmp>/cli/duo census --dir=sandbox/tests/fixtures/census/core-estate --forma
 
 ```
 rebaseline: 3 -> 3 labelled site(s) (same-estate)
-library: 16 -> 16 adapter(s), 16 -> 16 reviewed, coverage oracle unchanged (identical surfaces_sha256)
+library: 16 -> 16 adapter(s), 16 -> 16 reviewed, coverage oracle MOVED
 coverage: 24.5% -> 24.5% (delta +0 ppm / +0.0pp) over 1075 -> 1075 surface(s)
 funnel: no_adapter=1->1(+0) adapter_unreviewed=0->0(+0) adapter_unpinned=2->2(+0) adapter_pinned=2->2(+0)
 attribution: 0 slug row(s) moved, 5 unchanged
@@ -373,11 +373,15 @@ honest number for that work is zero movement in adapter coverage, and asserting
 
 Two facts make the zero trustworthy rather than merely small:
 
-- **The coverage oracle is byte-identical across the whole program.**
-  `library.surfaces_sha256` is the content address of every reviewed claim's
-  derived surface set. Equal on both sides means no adapter's claim derives a
-  different surface than it did before the flag day — including across the
-  disposition split, which is exactly the invariance that change asserted.
+- **The coverage oracle moved exactly once, and not for a reason that adds
+  coverage.** `library.surfaces_sha256` is the content address of every reviewed
+  claim's derived surface set. It was byte-identical across the program itself —
+  including across the disposition split, which is exactly the invariance that
+  change asserted — and then moved with #561, which promoted
+  `the-events-calendar` from `experimental` to `certified` and rewrote its
+  reviewed entry. That is the useful reading of this line: a moved oracle says a
+  claim changed, not that coverage grew. Here it changed and the delta stayed at
+  zero, because TEC's surfaces were already claimed against this estate.
 - **The residual is named, and it did not move either.** The top demand row of
   the core estate is `wp-rocket`, at funnel stage `no_adapter`, with no covering
   adapter before the program and none after it. That is the work this program did

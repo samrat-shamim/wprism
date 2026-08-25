@@ -16,6 +16,15 @@
 # them, so their `file` column below points at the plugin file, not the
 # driver -- a byte-identical, no-logic-change split (the driver's if/elif
 # case bodies, where the remaining premises below still live, did not move).
+#
+# #561 then emptied the TEC half of that split: its four matrix.d helpers
+# became thin wrappers that source conformance/{seeds,postdeploy,checks,
+# postapply}/the-events-calendar.sh, and every TEC premise moved into those
+# hooks under renamed labels ("TEC ..." rather than "The Events Calendar
+# ..."). So TEC owns no matrix.d row here any more; Ninja Forms still does.
+# Rows naming premises that no longer exist would be worse than absent --
+# guard() only fails on a MISSING needle, so a stale row silently stops
+# covering the read it was written for.
 set -euo pipefail
 cd "$(dirname "$0")/../../.." # -> sandbox/
 
@@ -151,11 +160,6 @@ OBSERVATIONS=(
   'tests/certify/certify_version_matrix.sh|require_fixture_values TARGET_OLD_ID'
   'tests/certify/certify_version_matrix.sh|require_fixture_values INSTALLED_2'
   'tests/certify/certify_version_matrix.sh|require_fixture_values NEGATIVE_INSTALLED'
-  'tests/certify/matrix.d/the-events-calendar.sh|require_observed_nonempty "The Events Calendar $label target behavior"'
-  'tests/certify/certify_version_matrix.sh|require_observed_nonempty "The Events Calendar 6.17.2 source upgrade baseline"'
-  'tests/certify/certify_version_matrix.sh|require_observed_nonempty "The Events Calendar 6.17.2 target upgrade baseline"'
-  'tests/certify/certify_version_matrix.sh|require_duo_answered "The Events Calendar out-of-band 6.17.2 to 6.17.3 upgrade refusal" human'
-  'tests/certify/certify_version_matrix.sh|require_duo_answered "The Events Calendar 6.17.2 to 6.17.3 target plan" json'
   'conformance/checks/the-events-calendar.sh|require_observed_nonempty "$side The Events Calendar native observation"'
   'conformance/checks/the-events-calendar.sh|require_observed_nonempty "TEC lifecycle physical baseline"'
   'tests/certify/certify_version_matrix.sh|require_duo_answered "TEC out-of-band 6.17.2 to 6.17.3 upgrade refusal" human'
@@ -245,8 +249,6 @@ FIXTURES=(
   'tests/certify/certify_deletion_matrix.sh|require_fixture_ids ORDER_B'
   'tests/certify/certify_deletion_matrix.sh|require_fixture_ids FORM_B FIELD_B ACTION_B'
   'tests/certify/certify_deletion_matrix.sh|require_fixture_ids LEVEL_B PAGE_B'
-  'tests/certify/matrix.d/the-events-calendar.sh|require_fixture_values source_ids target_ids'
-  'tests/certify/matrix.d/the-events-calendar.sh|require_fixture_ids dirty_id'
   'tests/certify/certify_version_matrix.sh|require_fixture_values TEC_INSTALLED_2'
 )
 for item in "${FIXTURES[@]}"; do

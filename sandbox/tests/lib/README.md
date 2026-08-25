@@ -187,10 +187,12 @@ row" branch the live gate never takes. Seed an empty table with
 do not add a `str_contains()` special case.
 
 Also refused, and worth knowing before you plan a migration: **schema-qualified
-reads** (`information_schema.COLUMNS` / `.STATISTICS`) and `SHOW INDEX`. Those
-facts already live in `setColumns()` / `setUniqueKey()` / `setPrimaryKey()`, so
-a synthetic `information_schema` fed from them would only be asserting this
-harness's own bookkeeping. Concretely it means `Ledger::assert_read_only_schema()`,
+reads** (`information_schema.COLUMNS` / `.STATISTICS`), and `SHOW INDEX` on any
+table with no recorded index fixture. Those facts already live in
+`setColumns()` / `setUniqueKey()` / `setPrimaryKey()`, so a synthetic
+`information_schema` — or a `SHOW INDEX` that answered `[]` because nobody
+called `setIndexes()` — would only be asserting this harness's own
+bookkeeping. Concretely it means `Ledger::assert_read_only_schema()`,
 `Ledger::prune_dead_table_map()` (a multi-table `DELETE`) and
 `Snapshot::assert_all_mapped_rows_managed()` (a `LEFT JOIN`) stay
 live-certification paths and cannot be moved here. `SHOW TABLES LIKE` and

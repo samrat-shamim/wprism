@@ -137,6 +137,29 @@ const SPLIT_FROZEN_MANIFEST_HASH = '937450d86d3ac3e216979c204e3952c543572ce194da
 const SPLIT_FROZEN_REGISTRY_SHA = '8d6c35cfe4c5f21193e83cc4707a11359680df8e95e48e087387fe00ef491744';
 const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e79947b53e927703cf93bbc';
 
+/**
+ * The reviewed change that has moved a shipped identity since that capture:
+ * #561, which rewrote manifests/the-events-calendar.json and promoted its
+ * disposition experimental -> certified, and widened manifests/core.json's
+ * native rewrite action to declare TEC's rewrite-listener effects. Rule 2
+ * makes both fleet-visible BY DESIGN.
+ *
+ * The 14 frozen digests above are NOT regenerated — this is an overlay, and
+ * PART 1 asserts the moved set is exactly these two. That keeps the split's
+ * own invariant ("relocating the reviewed source moved no identity") measured
+ * against numbers captured before the relocation, on every adapter the
+ * reviewed change did not touch. Re-freezing all 16 to absorb 2 would have
+ * retired the evidence for the other 14 to fix a red run.
+ */
+const SPLIT_REVIEWED_MOVED_ADAPTERS = ['core', 'the-events-calendar'];
+const SPLIT_REVIEWED_MOVED_DIGESTS = [
+    'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
+    'the-events-calendar' => '69f6b3e55b01cf92ed25090ef70fc6bed9a58b47ec65e60eb68255000ad4736a',
+];
+const SPLIT_REVIEWED_MANIFEST_HASH = '3f82380949304d08f10c3aaf5887219daae246b4596a70786c7938bf6b0e117d';
+const SPLIT_REVIEWED_REGISTRY_SHA = '1c9feb01227d333c1e0ae2c7a0956d8696b171618b45e0a3cb08eca0449daf26';
+const SPLIT_REVIEWED_SNAPSHOT_SHA = '1487fc39fa0491fe78518f134117715b7e0b41f79cf0dbbf5e0d5694d9811394';
+
 putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
 $shippedRegistry = ManifestDispositions::load($manifestDir);
 duo_check(
@@ -150,27 +173,54 @@ foreach (ArtifactPolicyIdentity::resolved_adapters($shippedPolicy) as $row) {
     $observed[(string) $row['name']] = (string) $row['digest'];
 }
 ksort($observed, SORT_STRING);
+$expectedDigests = $frozenDigests;
+foreach (SPLIT_REVIEWED_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+ksort($expectedDigests, SORT_STRING);
 duo_check_same(
-    $frozenDigests,
+    $expectedDigests,
     $observed,
-    'ALL 16 SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-split tree — the invariant the flag day rests on'
+    '14 OF THE 16 SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-split tree — the invariant the flag day '
+    . 'rests on; the other two carry #561\'s reviewed manifest edits and are re-pinned above'
+);
+$movedNames = [];
+foreach ($observed as $name => $digest) {
+    if (($frozenDigests[$name] ?? '') !== $digest) {
+        $movedNames[] = $name;
+    }
+}
+duo_check_same(
+    SPLIT_REVIEWED_MOVED_ADAPTERS,
+    $movedNames,
+    'and the moved set is EXACTLY the reviewed one — the split relocated the reviewed claim source and moved no '
+    . 'identity, which is still measured here against pre-relocation numbers on every other adapter'
 );
 duo_check_same(
-    SPLIT_FROZEN_MANIFEST_HASH,
+    SPLIT_REVIEWED_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
-    'and manifest_hash over all 16 pins — the number a compiled artifact binds — did not move either'
+    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved only with those two '
+    . 'manifests: a 16-pin site recompiles for #561, not for the split'
+);
+duo_check(
+    SPLIT_REVIEWED_MANIFEST_HASH !== SPLIT_FROZEN_MANIFEST_HASH
+        && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
+        && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA,
+    '...and all three re-pinned numbers really differ from their frozen originals, so the three assertions '
+    . 'around them are re-pins a reviewer must read rather than restatements of the frozen constants'
 );
 duo_check_same(
-    SPLIT_FROZEN_REGISTRY_SHA,
+    SPLIT_REVIEWED_REGISTRY_SHA,
     $shippedRegistry->sha256(),
-    'and registry_sha256, the content address a host contract pins, is the same: data() reassembles the exact '
-    . 'document the monolith held (WP-4.5 is the rider that narrows this to per-subject addressing)'
+    'and registry_sha256, the content address a host contract pins, reassembles from the per-subject documents '
+    . 'to exactly one document — carrying #561\'s TEC promotion and nothing the split itself did (WP-4.5 is the '
+    . 'rider that narrows this to per-subject addressing)'
 );
 duo_check_same(
-    SPLIT_FROZEN_SNAPSHOT_SHA,
+    SPLIT_REVIEWED_SNAPSHOT_SHA,
     hash('sha256', Canon::encode($shippedPolicy->export_snapshot())),
-    'and the frozen policy snapshot — which carries the whole registry as `dispositions` — is unchanged, so an '
-    . 'artifact compiled before the split still validates against a library after it'
+    'and the frozen policy snapshot — which carries the whole registry as `dispositions` — moves with the '
+    . 'reviewed claim it embeds and with nothing else, so the split alone never invalidated a compiled artifact'
 );
 // The relocation must also be invisible in the other direction: bytes frozen
 // before it still reconstruct a policy, through the validator that reads them.

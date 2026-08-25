@@ -1064,8 +1064,9 @@ manifests/dispositions/<name>.json     # one document per adapter, the entry ver
 manifests/dispositions/profiles.json   # the profiles map, keyed independently of the manifest glob
 ```
 
-17 documents, 1,157 lines, 46,604 bytes — the same entries, the same profile, re-indented as 17 roots
-instead of one.
+17 documents, 1,187 lines, 49,294 bytes — the same entries, the same profile, re-indented as 17 roots
+instead of one. (The split itself moved no byte of content; the size has since grown with #561's
+promotion of `the-events-calendar` to `certified`, which rewrote that one subject's reviewed entry.)
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
 is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day
@@ -1570,7 +1571,7 @@ adapter, which is the case the list exists to keep loading.
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
 
-- 16 adapter names, 18 `id_kind`s, 10 provider ids = 44 identities, all of which already pass the one
+- 16 adapter names, 18 `id_kind`s, 11 provider ids = 45 identities, all of which already pass the one
   shared grammar;
 - a bare `<vendor>-<name>` refusal would break **24** of them — the 6 adapter names carrying no hyphen at
   all (`acf`, `core`, `elementor`, `polylang`, `woocommerce`, `yoast`) and all 18 `id_kind`s, every one of
@@ -1578,8 +1579,9 @@ rule V3-NS, against the shipped library):
 - the other 10 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
   vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 16
   names and all 18 `id_kind`s;
-- all 10 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
-  convention is de facto in force.
+- all 11 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
+  convention is de facto in force. (#561 added the eleventh,
+  `the-events-calendar-category-colors`, which the same first-segment convention already covers.)
 
 **`id_kind` prefixing can never become a RULE, and v3 does not make it one.** The irreversibility register
 rules on this at R-17: captured state and `duo_map` rows embed the BARE kind, so a prefix rule introduced
@@ -1698,7 +1700,10 @@ substitutable for another:
    executable repair AFTER the declarative primitives land, and the `compatibility_shim` share of NEWLY
    authored adapters has fallen below a threshold stated in advance of the measurement. The baseline is
    today's, measured over the shipped library: 11 of the 16 adapters name manifest-shipped hook code, and
-   that code is 13 files totalling 5,755 lines under `manifests/{interpreters,providers,regenerators}`.
+   that code is 15 files totalling 12,384 lines under `manifests/{interpreters,providers,regenerators}`.
+   The baseline more than doubled with #561 alone — one adapter reaching production-readiness added a TEC
+   interpreter and a Category Colors provider and rewrote its regenerator — which is the condition
+   arguing against itself, and is recorded here rather than smoothed away.
 2. **Falsifiable effects.** Declared-effect verification is live and REFUSING, with a measured
    false-refusal rate on the shipped 16 below a stated threshold — because the compiled inventory is
    recovery's entire authority, and under-declaring `effects[]` is the cheapest way for an adapter to pass.

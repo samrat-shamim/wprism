@@ -45,8 +45,8 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/FakeWpdb.php",
             "role": "DuoTest\\FakeWpdb — a $wpdb that holds ROWS and interprets SQL against them",
-            "bytes": 98294,
-            "sha256": "ea28146c5b6f99e54ca42ed84b48acb9d6684d84cd8433aa1f834d2e3cb05612"
+            "bytes": 114198,
+            "sha256": "5665486fa8a588a00a7358de4ddc8bf274f1a2dac5bb3477f40ff795d841e164"
         },
         {
             "path": "lib/frozen_policy.php",
@@ -69,16 +69,16 @@
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 31808,
-            "sha256": "bfd6be52a4ba30d7c69398b589283e249cb4ce00f784c7474e4885d29d3682d7"
+            "bytes": 32827,
+            "sha256": "c972dba713dfea4558196934448bc06939585e48f0bb7e37ecb861a5633347f3"
         },
         {
             "path": "conformance/asserts.sh",
             "origin": "copied",
             "source": "sandbox/conformance/asserts.sh",
             "role": "premise assertions every seed/postdeploy hook calls before its engine assertion",
-            "bytes": 8919,
-            "sha256": "651b5eae81ee5a1a39251cff529a1439fda45bc1cc632c87ae40e73c74b3bd73"
+            "bytes": 9742,
+            "sha256": "fdf14fb660fb2394b8b9439e5c54932a7aa51818a9f8e84818de3b7b7a27fcbc"
         },
         {
             "path": "skeleton/example-adapter.php",

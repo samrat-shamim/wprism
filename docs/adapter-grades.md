@@ -29,7 +29,7 @@ An axis with no evidence document for a subject is **silent** and leaves the ari
 | [ninja-forms](#ninja-forms) | certified | complete · 17/17 units · 2 of 3 axes | complete 12/12 | — | complete 5/5 |
 | [paid-memberships-pro](#paid-memberships-pro) | certified | complete · 17/17 units · 2 of 3 axes | complete 12/12 | — | complete 5/5 |
 | [polylang](#polylang) | certified | partial · 10/17 units · 2 of 3 axes | partial 5/12 | — | complete 5/5 |
-| [the-events-calendar](#the-events-calendar) | experimental | partial · 10/17 units · 2 of 3 axes | partial 5/12 | — | complete 5/5 |
+| [the-events-calendar](#the-events-calendar) | certified | complete · 17/17 units · 2 of 3 axes | complete 12/12 | — | complete 5/5 |
 | [woocommerce](#woocommerce) | certified | partial · 10/17 units · 2 of 3 axes | partial 5/12 | — | complete 5/5 |
 | [wps-hide-login](#wps-hide-login) | certified | complete · 15/15 units · 2 of 3 axes | complete 10/10 | — | complete 5/5 |
 | [yoast](#yoast) | certified | complete · 17/17 units · 2 of 3 axes | complete 12/12 | — | complete 5/5 |
@@ -133,12 +133,12 @@ No exercise axis carries evidence for this subject: the readiness ledger reviews
 
 ## the-events-calendar
 
-**Reviewed status: experimental. Grade: partial · 10/17 units · 2 of 3 axes.**
+**Reviewed status: certified. Grade: complete · 17/17 units · 2 of 3 axes.**
 
-- **Coverage breadth:** partial, 5 of 12. Exercised: `clean-target`, `derived-state`, `failure-recovery`, `identity-references`, `native-behavior`. Outstanding: `concurrency-idempotence`, `contract-dependency`, `data-boundary`, `deletion`, `dirty-target`, `lifecycle`, `scope-platform`. Input: sandbox/conformance/production-readiness.json → adapters.the-events-calendar: the reviewed scenario families whose `covered` bucket names at least one evidence file, against the ledger's own taxonomy minus the families reviewed `not_applicable`.
+- **Coverage breadth:** complete, 12 of 12. Exercised: `clean-target`, `concurrency-idempotence`, `contract-dependency`, `data-boundary`, `deletion`, `derived-state`, `dirty-target`, `failure-recovery`, `identity-references`, `lifecycle`, `native-behavior`, `scope-platform`. Input: sandbox/conformance/production-readiness.json → adapters.the-events-calendar: the reviewed scenario families whose `covered` bucket names at least one evidence file, against the ledger's own taxonomy minus the families reviewed `not_applicable`.
 - **Exercise depth:** silent — no evidence document of this kind exists for this subject, so the axis counts nothing rather than counting zero.
 - **Platform reach:** complete, 5 of 5. Exercised: `php:8.3`, `php:8.4`, `wordpress:6.9`, `wordpress:7.0`, `wordpress:7.1`. Not counted: `database`, `filesystem`, `process`. Input: manifests/capabilities/platform.json → compatibility.*.verified: the exercised-series cells this claim states after § v3.5 narrowing (ManifestDispositions::narrowed_environment(), the same projection a certificate binds as its exercised cells under § v3.6); an axis publishing no `verified` series carries no per-cell witness and is excluded rather than counted against the claim.
-- **Reviewed citation:** `conformance-the-events-calendar`, `exact-artifact-version-matrix`, `regress-tec-regen` — named by the disposition, not a per-test verdict record, which is why the depth axis is silent rather than complete.
+- **Reviewed citation:** `conformance-the-events-calendar`, `exact-artifact-version-matrix` — named by the disposition, not a per-test verdict record, which is why the depth axis is silent rather than complete.
 
 ## woocommerce
 

@@ -914,16 +914,25 @@ duo_check_same(
     ((array) ($realComparability['engine'] ?? []))['moved'] ?? null,
     'the two measurements sit on opposite sides of the spec flag day'
 );
-// THE PROGRAM'S OWN RESULT, asserted rather than asserted-away. Both engines
-// hash the same coverage oracle: `FleetCensus::library()`'s
-// `surfaces_sha256` is the content address of every reviewed claim's derived
-// surface set, so equality here is mechanical proof that no adapter's claim
-// moved across the whole program — including across WP-4.4's disposition
-// split, which is exactly the invariance that change asserted.
+// THE PROGRAM'S OWN RESULT, asserted rather than asserted-away.
+// `FleetCensus::library()`'s `surfaces_sha256` is the content address of every
+// reviewed claim's derived surface set. Across the program itself it did not
+// move — including across WP-4.4's disposition split, which is exactly the
+// invariance that change asserted.
+//
+// It moved with #561, and that is RE-MEASURED here rather than loosened, which
+// is the instruction the delta assertion below carries in its own words. #561
+// promoted the-events-calendar experimental -> certified and rewrote its
+// reviewed entry, so that claim derives a different surface set and the oracle
+// is a different number. The interesting part is the next assertion: the
+// oracle moved and the measured coverage delta is still exactly zero, because
+// TEC's surfaces were already claimed against this estate. A moved oracle is
+// therefore not evidence of moved coverage, and this pair is what says so.
 duo_check_same(
-    false,
+    true,
     ((array) ($realComparability['library'] ?? []))['moved'] ?? null,
-    'and the coverage ORACLE is byte-identical across it: not one reviewed claim derives a different surface'
+    'and the coverage ORACLE moved exactly once across it: #561 rewrote the-events-calendar\'s reviewed '
+        . 'claim, so one adapter derives a different surface set'
 );
 duo_check_same(
     0,
@@ -977,15 +986,17 @@ duo_check_same(
     'and it was the top row at the baseline too — the rank did not move either'
 );
 
-// The human view of the real re-baseline names the oracle equality, because
-// that is the sentence a reader needs to trust the zero.
+// The human view of the real re-baseline names the oracle's state, because
+// that is the sentence a reader needs in order to read the zero correctly —
+// and since #561 the honest sentence is that the oracle MOVED while the
+// coverage delta did not.
 $realHuman = cr_run($duo, $repoRoot, [
     'census', '--dir=' . $coreEstate, '--baseline=' . $g0Baseline,
 ]);
 duo_check_same(0, $realHuman['exit'], 'the human core-estate re-baseline exits 0');
 duo_check(
-    str_contains($realHuman['stdout'], 'coverage oracle unchanged (identical surfaces_sha256)'),
-    'and says the coverage oracle did not move, rather than leaving a reader to compare two hashes'
+    str_contains($realHuman['stdout'], 'coverage oracle MOVED'),
+    'and says in words that the coverage oracle moved, rather than leaving a reader to compare two hashes'
 );
 duo_check(
     str_contains($realHuman['stdout'], 'verdict: no_cohort'),

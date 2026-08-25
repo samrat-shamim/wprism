@@ -26,7 +26,7 @@
  *  2. Under-declaration is NAMED, with its table and item, against observed
  *     journal rows.
  *  3. Over-declaration is NAMED as `unexercised` — and `unexercised` is
- *     EXPLICITLY NOT AN ERROR: a journal with nothing in it produces 54
+ *     EXPLICITLY NOT AN ERROR: a journal with nothing in it produces 62
  *     unexercised declarations, zero findings, and a document that returns.
  *  4. A MISSING journal is a TYPED REFUSAL. The failure this closes is a report
  *     that reads an absent table as zero rows and publishes a perfect clean
@@ -41,13 +41,20 @@
  * WHAT THIS SUITE DELIBERATELY DOES NOT PIN
  * -----------------------------------------
  * That the scorer is COMPLETE. The journal sees database writes only, so of the
- * 187 effect rows the shipped library projects, 54 carry a `database_checkpoint`
- * selector and 133 select external hooks, cache namespaces and provider
- * resources that no journal row can confirm or refute. Ten of the sixteen
+ * 243 effect rows the shipped library projects, 62 carry a `database_checkpoint`
+ * selector and 181 select external hooks, cache namespaces and provider
+ * resources that no journal row can confirm or refute. Nine of the sixteen
  * adapters declare no journal-observable effect at all. That is reported as
  * `scorable => false` rather than as a clean score, and asserted below, because
  * the honest answer to "can this become blocking?" has to start from how much
  * of the library it can see.
+ *
+ * #561 moved every number above and made that ratio WORSE, which is why they
+ * are re-pinned here rather than relaxed: the-events-calendar became the
+ * seventh scorable adapter, and its production-ready manifest plus core.json's
+ * widened rewrite action added 56 effect rows of which only 8 are
+ * journal-observable. The clean sheet -- 0 findings -- survived the widening
+ * unchanged, and that, not the totals, is the property this suite asserts.
  */
 declare(strict_types=1);
 
@@ -172,21 +179,21 @@ function edc_adapter(array $report, string $name): array {
 echo "\n== the measured baseline: the 16 shipped adapters over a derived fixture ==\n";
 
 $fixture = edc_derived_fixture($policy);
-duo_check_same(388, count($fixture), 'the derived fixture is every database surface the 16 shipped adapters declare');
+duo_check_same(432, count($fixture), 'the derived fixture is every database surface the 16 shipped adapters declare');
 
 $baseline = EffectDeclarationCoverage::from_facts($policy, ['rows' => $fixture]);
 
 duo_check_same(EffectDeclarationCoverage::FORMAT, $baseline['format'], 'the report names its versioned format');
 duo_check_same(16, $baseline['totals']['adapters'], 'every pinned adapter gets a row, scorable or not');
-duo_check_same(187, $baseline['totals']['declared_effects'], 'the declared side is Policy::effects_inventory() in full');
-duo_check_same(54, $baseline['totals']['observable_effects'], '54 of the 187 declared effects carry a database_checkpoint selector');
-duo_check_same(6, $baseline['totals']['scorable_adapters'], 'only 6 of 16 adapters declare a journal-observable effect at all');
+duo_check_same(243, $baseline['totals']['declared_effects'], 'the declared side is Policy::effects_inventory() in full');
+duo_check_same(62, $baseline['totals']['observable_effects'], '62 of the 243 declared effects carry a database_checkpoint selector');
+duo_check_same(7, $baseline['totals']['scorable_adapters'], 'only 7 of 16 adapters declare a journal-observable effect at all');
 
-// THE NUMBER THE RISK FIELD ASKS TO BE PUBLISHED. 0 findings over 1595 scored
+// THE NUMBER THE RISK FIELD ASKS TO BE PUBLISHED. 0 findings over 1819 scored
 // (adapter, surface) judgements on the shipped library: the noise floor a
 // later argument about making this blocking has to start from.
 duo_check_same(0, $baseline['totals']['outside_declaration'], 'the 16 shipped adapters score clean: no observed write falls outside every declared effect');
-duo_check_same(1595, $baseline['baseline']['scored_surfaces'], 'the published rate is measured over 1595 scored (adapter, surface) judgements');
+duo_check_same(1819, $baseline['baseline']['scored_surfaces'], 'the published rate is measured over 1819 scored (adapter, surface) judgements');
 duo_check_same(0, $baseline['baseline']['outside_declaration_surfaces'], 'no scored judgement produced a finding');
 duo_check_same(0.0, $baseline['baseline']['outside_declaration_rate'], 'the published false-positive baseline over the shipped library is 0.0000');
 duo_check_same([], $baseline['unattributed'], 'every derived surface is claimed by at least one adapter territory');
@@ -207,9 +214,9 @@ foreach ($baseline['adapters'] as $row) {
     }
 }
 duo_check_same(
-    ['core', 'elementor', 'ninja-forms', 'woocommerce', 'yoast', 'yoast-duplicate-post'],
+    ['core', 'elementor', 'ninja-forms', 'the-events-calendar', 'woocommerce', 'yoast', 'yoast-duplicate-post'],
     $scorable,
-    'the six scorable adapters are named, so the ten silent ones cannot be summed as clean'
+    'the seven scorable adapters are named, so the nine silent ones cannot be summed as clean'
 );
 $acf = edc_adapter($baseline, 'acf');
 duo_check_same(false, $acf['scorable'], 'an adapter with no journal-observable effect reports scorable=false');
@@ -264,7 +271,7 @@ echo "\n== an over-declared effect is NAMED as unexercised, and that is not an e
 // unexercised; nothing is a finding. Treating this as a defect would punish
 // exactly the over-declaration this report exists to reward.
 $empty = EffectDeclarationCoverage::from_facts($policy, ['rows' => []]);
-duo_check_same(54, $empty['totals']['unexercised'], 'all 54 journal-observable declarations report unexercised against an empty journal');
+duo_check_same(62, $empty['totals']['unexercised'], 'all 62 journal-observable declarations report unexercised against an empty journal');
 duo_check_same(0, $empty['totals']['outside_declaration'], 'unexercised is NOT an error: an empty journal produces zero findings');
 duo_check_same(false, $empty['blocking'], 'the document still says it blocks nothing');
 duo_check_same(null, $empty['baseline']['outside_declaration_rate'], 'a rate over zero scored surfaces is null, never a fabricated 0');
