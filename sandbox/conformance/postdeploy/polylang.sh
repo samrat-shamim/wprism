@@ -160,7 +160,10 @@ $options['rewrite'] = false;
 $options['taxonomies'] = ['target_runtime_taxonomy'];
 $options['sync'] = ['comment_status'];
 $options['nav_menus'] = [];
-$options['force_lang'] = 0;
+// Keep the stale target inside the portable topology contract; the runtime
+// marker below is deliberately target-owned sentinel data, not the exact
+// 'yes' capability required by force_lang mode 0.
+$options['force_lang'] = 1;
 $options['hide_default'] = 1;
 $options['browser'] = 1;
 $options['duo_target_runtime_neighbor'] = 'target-preserved-東京-🚀';
