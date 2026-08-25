@@ -10015,12 +10015,95 @@ duo_check_same(
 
 $canonicalPolylangSitemaps = $canonicalPolylangRuntime->sitemaps;
 remove_filter('rewrite_rules_array', [$canonicalPolylangSitemaps, 'rewrite_rules'], 10);
+remove_filter('rewrite_rules_array', [$wooServices['polylang_links'], 'rewrite_rules'], 10);
+foreach ($wooServices['polylang_types'] as $polylangType) {
+    remove_filter($polylangType . '_rewrite_rules', [$wooServices['polylang_links'], 'rewrite_rules'], 10);
+}
 unset($canonicalPolylangRuntime->sitemaps);
+$rosterReadsBeforeInert = (int) ($GLOBALS['tec_readiness_polylang_roster_reads'] ?? 0);
+$rewriteCallsBeforeInert = count($GLOBALS['tec_readiness_rewrite_calls']);
 duo_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
-    'a pre-language Polylang runtime admits the exact paired absence of its deferred sitemap service and callback'
+    'a pre-language Polylang runtime admits the exact fully inert deferred rewrite topology'
 );
+duo_check_same(
+    $rosterReadsBeforeInert,
+    (int) ($GLOBALS['tec_readiness_polylang_roster_reads'] ?? 0),
+    'the fully inert Polylang phase executes no filtered dynamic type-roster method'
+);
+duo_check_same(
+    [],
+    array_values(array_filter(
+        array_slice($GLOBALS['tec_readiness_rewrite_calls'], $rewriteCallsBeforeInert),
+        static fn(array $call): bool => is_string($call[0] ?? null)
+            && str_starts_with($call[0], 'PLL_')
+    )),
+    'the fully inert Polylang phase executes no deferred rewrite callback'
+);
+
+$hostileInertRosterCalls = 0;
+$hostileInertRoster = static function (array $types) use (&$hostileInertRosterCalls): array {
+    ++$hostileInertRosterCalls;
+    return $types;
+};
+add_filter('pll_rewrite_rules', $hostileInertRoster, 999, 1);
+$flushesBeforeHostileInertRoster = $GLOBALS['wp_rewrite']->flushCalls;
+$hostileInertRosterFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $hostileInertRosterFailure = $failure;
+}
+remove_filter('pll_rewrite_rules', $hostileInertRoster, 999);
+duo_check(
+    $hostileInertRosterFailure instanceof RuntimeException
+        && str_contains($hostileInertRosterFailure->getMessage(), 'unsupported open Polylang rewrite filter'),
+    'an open Polylang type-roster filter refuses even while the native rewrite phase is otherwise inert'
+);
+duo_check_same(0, $hostileInertRosterCalls, 'the inert-phase open roster filter is detected without execution');
+duo_check_same(
+    $flushesBeforeHostileInertRoster,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the inert-phase open roster refusal performs no native mutation'
+);
+
+add_filter('attachment_rewrite_rules', [$wooServices['polylang_links'], 'rewrite_rules'], 10, 1);
+$flushesBeforeOrphanedDynamicCallback = $GLOBALS['wp_rewrite']->flushCalls;
+$orphanedDynamicCallbackFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $orphanedDynamicCallbackFailure = $failure;
+}
+remove_filter('attachment_rewrite_rules', [$wooServices['polylang_links'], 'rewrite_rules'], 10);
+duo_check(
+    $orphanedDynamicCallbackFailure instanceof RuntimeException
+        && str_contains($orphanedDynamicCallbackFailure->getMessage(), 'incomplete Polylang rewrite runtime'),
+    'one registered-but-unreachable Polylang type callback prevents an inert-runtime classification'
+);
+duo_check_same(
+    $flushesBeforeOrphanedDynamicCallback,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the orphaned Polylang type callback performs no native mutation'
+);
+
+add_filter('rewrite_rules_array', [$wooServices['polylang_links'], 'rewrite_rules'], 10, 1);
+$flushesBeforeLinksOnly = $GLOBALS['wp_rewrite']->flushCalls;
+$linksOnlyFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $linksOnlyFailure = $failure;
+}
+remove_filter('rewrite_rules_array', [$wooServices['polylang_links'], 'rewrite_rules'], 10);
+duo_check(
+    $linksOnlyFailure instanceof RuntimeException
+        && str_contains($linksOnlyFailure->getMessage(), 'incomplete Polylang sitemap runtime'),
+    'a Polylang top-level links callback without the active sitemap graph refuses before rewrite generation'
+);
+duo_check_same($flushesBeforeLinksOnly, $GLOBALS['wp_rewrite']->flushCalls, 'the links-only fragment performs no native mutation');
+
 add_filter('rewrite_rules_array', [$canonicalPolylangSitemaps, 'rewrite_rules'], 10, 1);
 $flushesBeforeOrphanedSitemap = $GLOBALS['wp_rewrite']->flushCalls;
 $orphanedSitemapFailure = null;
@@ -10029,41 +10112,29 @@ try {
 } catch (Throwable $failure) {
     $orphanedSitemapFailure = $failure;
 }
+remove_filter('rewrite_rules_array', [$canonicalPolylangSitemaps, 'rewrite_rules'], 10);
 duo_check(
     $orphanedSitemapFailure instanceof RuntimeException
-        && str_contains($orphanedSitemapFailure->getMessage(), 'incomplete Polylang sitemap runtime'),
-    'a sitemap callback without its exact runtime-owned service refuses before rewrite generation'
+        && str_contains($orphanedSitemapFailure->getMessage(), 'incomplete Polylang rewrite runtime'),
+    'a sitemap callback without its runtime-owned service refuses before rewrite generation'
 );
-duo_check_same(
-    $flushesBeforeOrphanedSitemap,
-    $GLOBALS['wp_rewrite']->flushCalls,
-    'the orphaned Polylang sitemap callback performs no native mutation'
-);
+duo_check_same($flushesBeforeOrphanedSitemap, $GLOBALS['wp_rewrite']->flushCalls, 'the callback-only sitemap fragment performs no native mutation');
+
 $canonicalPolylangRuntime->sitemaps = $canonicalPolylangSitemaps;
-duo_check_same(
-    true,
-    $nativeRewriteChild->invoke(null)['verified'] ?? null,
-    'restoring the exact Polylang sitemap property permits checked retry'
-);
-remove_filter('rewrite_rules_array', [$canonicalPolylangSitemaps, 'rewrite_rules'], 10);
-$flushesBeforeMissingSitemapCallback = $GLOBALS['wp_rewrite']->flushCalls;
-$missingSitemapCallbackFailure = null;
+$flushesBeforeSitemapPropertyOnly = $GLOBALS['wp_rewrite']->flushCalls;
+$sitemapPropertyOnlyFailure = null;
 try {
     $nativeRewriteChild->invoke(null);
 } catch (Throwable $failure) {
-    $missingSitemapCallbackFailure = $failure;
+    $sitemapPropertyOnlyFailure = $failure;
 }
 duo_check(
-    $missingSitemapCallbackFailure instanceof RuntimeException
-        && str_contains($missingSitemapCallbackFailure->getMessage(), 'incomplete Polylang sitemap runtime'),
-    'a runtime-owned sitemap service without its exact callback refuses before rewrite generation'
+    $sitemapPropertyOnlyFailure instanceof RuntimeException
+        && str_contains($sitemapPropertyOnlyFailure->getMessage(), 'incomplete Polylang rewrite runtime'),
+    'a runtime-owned sitemap service without any deferred callbacks refuses before rewrite generation'
 );
-duo_check_same(
-    $flushesBeforeMissingSitemapCallback,
-    $GLOBALS['wp_rewrite']->flushCalls,
-    'the missing Polylang sitemap callback performs no native mutation'
-);
-add_filter('rewrite_rules_array', [$canonicalPolylangSitemaps, 'rewrite_rules'], 10, 1);
+duo_check_same($flushesBeforeSitemapPropertyOnly, $GLOBALS['wp_rewrite']->flushCalls, 'the property-only sitemap fragment performs no native mutation');
+
 $canonicalPolylangRuntime->sitemaps = new stdClass();
 $flushesBeforeSubstitutedSitemap = $GLOBALS['wp_rewrite']->flushCalls;
 $substitutedSitemapFailure = null;
@@ -10083,6 +10154,11 @@ duo_check_same(
     'the substituted Polylang sitemap service performs no native mutation'
 );
 $canonicalPolylangRuntime->sitemaps = $canonicalPolylangSitemaps;
+add_filter('rewrite_rules_array', [$canonicalPolylangSitemaps, 'rewrite_rules'], 10, 1);
+add_filter('rewrite_rules_array', [$wooServices['polylang_links'], 'rewrite_rules'], 10, 1);
+foreach ($wooServices['polylang_types'] as $polylangType) {
+    add_filter($polylangType . '_rewrite_rules', [$wooServices['polylang_links'], 'rewrite_rules'], 10, 1);
+}
 duo_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,

@@ -52,8 +52,8 @@ git -C "$R1" add -A; git -C "$R1" -c user.name=duo-polylang-tec -c user.email=po
 
 say 'exact pre-provider Polylang rewrite phase'
 PRE_PROVIDER=$(wp2 eval '$runtime=PLL();$callbacks=[];foreach(($GLOBALS["wp_filter"]["rewrite_rules_array"]->callbacks??[]) as $priority=>$set){foreach($set as $entry){$f=$entry["function"]??null;if(is_array($f)&&is_object($f[0]??null)){$callbacks[]=get_class($f[0])."::".($f[1]??"");}}}echo wp_json_encode(["runtime"=>get_class($runtime),"links"=>is_object($runtime->links_model??null)?get_class($runtime->links_model):null,"sitemaps_property"=>property_exists($runtime,"sitemaps"),"callbacks"=>$callbacks]);' | tail -1)
-echo "$PRE_PROVIDER" | jq -e '.runtime=="PLL_Admin" and .links=="PLL_Links_Directory" and .sitemaps_property==false and (.callbacks|index("PLL_Links_Directory::rewrite_rules")!=null) and (.callbacks|map(select(startswith("PLL_Sitemaps")))|length)==0' >/dev/null || fail "unexpected pre-provider Polylang topology: $PRE_PROVIDER"
-pass 'clean target has the exact directory-link runtime and paired absence of deferred sitemap state'
+echo "$PRE_PROVIDER" | jq -e '.runtime=="PLL_Admin" and .links=="PLL_Links_Directory" and .sitemaps_property==false and (.callbacks|map(select(startswith("PLL_")))|length)==0' >/dev/null || fail "unexpected pre-provider Polylang topology: $PRE_PROVIDER"
+pass 'clean target has the exact directory-link model and fully inert deferred rewrite topology'
 
 say 'provider projection precedes native fresh-process rewrite action'
 INITIAL=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json | tail -1) || fail 'initial co-install apply failed'

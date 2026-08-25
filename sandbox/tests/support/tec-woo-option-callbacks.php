@@ -95,6 +95,8 @@ namespace {
 
         /** @return list<string> */
         public function get_rewrite_rules_filters(): array {
+            $GLOBALS['tec_readiness_polylang_roster_reads'] =
+                1 + (int) ($GLOBALS['tec_readiness_polylang_roster_reads'] ?? 0);
             return apply_filters('pll_rewrite_rules', $this->types);
         }
 
