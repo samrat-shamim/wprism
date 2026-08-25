@@ -201,7 +201,7 @@ final class SpecMigration {
         $unchanged = 0;
         try {
             foreach ($certificates as $name => $path) {
-                $prior = self::priorStatement((string) $staged['cert:' . $name]);
+                $prior = self::priorStatement((string) $staged['cert:' . $name], (string) $name);
                 if ($prior === null) {
                     $blocked++;
                     $rows[] = [
@@ -225,6 +225,37 @@ final class SpecMigration {
                     ];
                     continue;
                 }
+                // WP-5.3: this verb DERIVES the ratification, so it may only
+                // re-sign a claim that was derived. An authored disposition
+                // (spec/repo-format.md § v3.17) re-derived here would replace
+                // the site's own argument — per-refusal prose and all — with
+                // the canned floor, under the site's own key and with nothing
+                // in the report saying a claim had changed. That is the silent
+                // downgrade this row exists to refuse; the remedy is the verb
+                // that took the file in the first place.
+                $manifest = Canon::decode(Canon::read_file(
+                    $repo . '/' . AdapterSources::SITE_DIR . '/' . $name . '.json'
+                ));
+                if ($prior['disposition'] === null || !AdapterCertification::site_disposition_is_derived(
+                    (string) $name,
+                    is_array($manifest) ? $manifest : [],
+                    $prior['reason'],
+                    $prior['disposition']
+                )) {
+                    $blocked++;
+                    $rows[] = [
+                        'adapter' => $name,
+                        'key_id' => $prior['key_id'],
+                        'outcome' => 'blocked',
+                        'detail' => 'the certificate ratifies a disposition this verb would not derive: either '
+                            . 'the site AUTHORED it (spec/repo-format.md § v3.17) or the adapter\'s own '
+                            . 'declarations have moved since it was signed. Re-signing here would replace that '
+                            . 'claim with the derived floor and report nothing about it — re-sign this one '
+                            . "with `duo adapter certify <site-repo> --name=$name`, adding "
+                            . '`--ratification-file=<the document the site wrote>` if it authored one',
+                    ];
+                    continue;
+                }
                 $certificate = AdapterCertification::sign_site(
                     $manifestDir,
                     $repo,
@@ -243,10 +274,9 @@ final class SpecMigration {
                 // Verify what is on disk through the live verifier before
                 // claiming anything, exactly as `certify` does: a producer that
                 // trusted its own bytes would leave the one certificate nobody
-                // checked in the repository.
-                $manifest = Canon::decode(Canon::read_file(
-                    $repo . '/' . AdapterSources::SITE_DIR . '/' . $name . '.json'
-                ));
+                // checked in the repository. The manifest is the one read above
+                // for the derived-disposition comparison — one read, because two
+                // would be two answers to "what does this adapter declare".
                 $verified = AdapterCertification::verifyFile($manifestDir, $repo, $name, $manifest, $path);
                 $summary = AdapterCertification::certificateSummary($verified);
                 $rows[] = [
@@ -451,9 +481,9 @@ final class SpecMigration {
      * envelope: the envelope's members sit outside every signature, which is
      * the note `SupersededWireSiteAdapterCertificate` already records.
      *
-     * @return null|array{key_id:string,public_key:string,reason:string}
+     * @return null|array{disposition:null|array<string,mixed>,key_id:string,public_key:string,reason:string}
      */
-    private static function priorStatement(string $raw): ?array {
+    private static function priorStatement(string $raw, string $name): ?array {
         try {
             $decoded = Canon::decode($raw);
         } catch (\Throwable) {
@@ -473,7 +503,19 @@ final class SpecMigration {
         if ($public === false) {
             return null;
         }
-        return ['key_id' => $keyId, 'public_key' => $public, 'reason' => $reason];
+        // The ratified disposition itself, because WP-5.3 made the ratification
+        // a CHOICE: `sign_site()` derives one, or signs the entry an author
+        // wrote (spec/repo-format.md § v3.17). Re-signing replays the inputs
+        // this statement carries, and the disposition is now one of them.
+        $ratified = $statement['ratification']['manifests'] ?? null;
+        $disposition = is_array($ratified) ? ($ratified[$name] ?? null) : null;
+
+        return [
+            'disposition' => is_array($disposition) ? $disposition : null,
+            'key_id' => $keyId,
+            'public_key' => $public,
+            'reason' => $reason,
+        ];
     }
 
     /**

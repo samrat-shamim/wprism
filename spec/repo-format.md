@@ -293,7 +293,7 @@ One file per row (the entity-per-file discipline, for the same merge reason as p
 - **Identity** lives in `duo_map` (`id_kind`, `local_id`) — a plugin's table never gets a `_duo_uuid`-style column added (plugins stay unmodified). Three declared modes: `"identity": {"mode": "mapped"}` (default; fresh source rows mint UUIDv7; populated target rows without mappings block, and a source with canonical UUIDs but missing mappings blocks); `"identity": {"mode": "natural_key", "column": "<col>"}` (for a human-chosen unique column: UUIDv5 of `"<table>:<value>"` is deterministic **bootstrap** identity for a never-seen row, while an existing `duo_map` entry is **continuity** identity thereafter); and `"identity": {"mode": "composite_ref", "columns": ["<ref-col-1>", "<ref-col-2>"]}` for a pure join table whose identity is derived from the two referenced entities' UUIDs. Contradictory mappings never rebind implicitly. Composite-ref ledger rows are recoverable bookkeeping because the referenced UUID tuple remains the identity truth. Changing a mapped `natural_key` value is an ordinary update/file rename and retains the UUID already assigned through the ledger; `UUIDv5(current key) != retained UUID` is therefore expected after a rename, and capture/plan report it as an informational note. Duo never forces re-derivation. A fresh environment that independently captures the already-renamed live row without the ledger or repository history derives UUIDv5 from the new key and therefore gets a different UUID; the existing table adopt flows are the reconciliation path for that documented bootstrap/continuity boundary.
 - **Parent-scoped natural keys** (spec v1, DUO-3318): `"identity": {"mode": "natural_key", "columns": ["<col>", ...]}` is the same mode for a key that is unique only *within* a parent row — a slot code unique per room, an option key unique per form. `column` is exactly its one-component case, and for a **scalar** component its derivation string is frozen unchanged (`"<table>:<value>"`) — which is the whole installed base: every UUIDv5 ever minted by a shipped manifest came from a scalar single-column key, and none of them moves. Two or more components derive from `"<table>:<col>=<component>:<col>=<component>"` in **declared order**, so reordering `columns` is an identity change, not a formatting edit. A component that names a declared `refs[]` column contributes the **referenced row's own UUID**, never the local id in the column (the same portability argument `composite_ref` makes: an auto-increment parent id would mint a different UUID per environment for one authored fact); a scalar component contributes its raw value. That ref rule applies to a one-component key too, where it is strictly new behavior rather than a change: no shipped manifest has ever declared a `natural_key` over a ref column, so there is no derivation to keep frozen there and the portable spelling is the only one this engine has ever produced. Unlike `composite_ref`, `pk` stays required — the table keeps its surrogate primary key, `duo_map.local_id` stays that plain scalar, and delete/adopt/`invalidate` are unchanged. Every component must be a declared `refs[]` column or a declared `columns{}` entry, may not be the primary key, and may not repeat; a multi-component key must declare `slug_column` (a tuple has no portable one-line filename spelling). Adoption resolves the tuple against the target — scalars literally, ref components through the ledger, and on a ledger miss through the referenced row's *own* natural key in the same revision — so a pre-existing unmanaged child row is adoptable exactly as a single-column natural key already is, including on a target where the parent row is itself still unmanaged-but-adoptable (a whole plugin hand-provisioned before its first apply). A ref component naming a post/term parent is not resolved that way: slug adoption is the post/term collision path, and identity for a table row never reaches across into it.
 - **Refs are structural at the row level** (an unmapped non-zero row ref throws, the `post_parent` category) but **optional at the sidecar level** (an unmapped meta-value ref drops with a warning, the ordinary dangling-reference category) — the two severities the dangling-reference rule below already implied but never had to distinguish.
-- **`invalidate`** — declarative per-row cache invalidation run with apply, no plugin PHP in the engine: `[{"table": "nf3_upgrades", "column": "id"}, {"option_pattern": "nf_form_{id}"}, {"cache_group": "pmpro_membership_level_meta", "cache_key": "{id}"}]`, where `{id}` substitutes the row's resolved local id (raw deletes fire no hooks, so no canary carve-out). The third verb is the object-cache one (WP-6.2) and is feature-gated: `{id}` may sit in either member, so `{"cache_group": "object_{id}", "cache_key": "lookup_table"}` is the same verb, and the engine proves the drop with a readback rather than trusting the delete's return. It is admitted only for a manifest declaring `invalidate-vocabulary/v1` in `engine_features` (§ v3.13). Blanket (non-row-keyed) caches — where neither member carries `{id}` — are still refused here and use the top-level `actions` channel instead (a closed native action such as `transient.delete`, or a plugin-owned provider capability — see "Structured rebuild actions and providers" under the manifest registry format).
+- **`invalidate`** — declarative per-row cache invalidation run with apply, no plugin PHP in the engine: `[{"table": "nf3_upgrades", "column": "id"}, {"option_pattern": "nf_form_{id}"}, {"cache_group": "pmpro_membership_level_meta", "cache_key": "{id}"}]`, where `{id}` substitutes the row's resolved local id (raw deletes fire no hooks, so no canary carve-out). The third verb is the object-cache one (WP-6.2) and is feature-gated: `{id}` may sit in either member, so `{"cache_group": "object_{id}", "cache_key": "lookup_table"}` is the same verb, and the engine proves the drop with a readback rather than trusting the delete's return. It is admitted only for a manifest declaring `invalidate-vocabulary/v1` in `engine_features` (§ v3.15). Blanket (non-row-keyed) caches — where neither member carries `{id}` — are still refused here and use the top-level `actions` channel instead (a closed native action such as `transient.delete`, or a plugin-owned provider capability — see "Structured rebuild actions and providers" under the manifest registry format).
 - `block_attrs` rules may name a declared table's `id_kind` as their ref kind (`ninja-forms/form`'s `formID` → `{{nf3_form:<uuid>}}`); `wp duo lint` scans `tables/*/*.json` like any other canonical state; `apply --adopt-by-slug=tables` adopts matching pre-existing env rows (one shared `tables` adopt key for all declared tables — a table entity's *type* is the table name).
 
 - **Option-name-embedded refs** (spec v0.12, task #93): a manifest may declare `"option_name_refs": [{"match": "<regex with a required named group 'id'>", "malformed_match"?: "<regex for would-be names with an invalid id>", "id_kind": "<declared table id_kind>", "class": "authored", "json_refs"?: [...], "key_refs"?: {...}}]` for options whose NAME (not value) embeds another declared table's local id (WooCommerce's `woocommerce_<method_id>_<instance_id>_settings`). A sibling of ordinary `option_patterns`, not a variant: namespace-backed `option_patterns` classify/capture the real option name as-is, while `option_name_refs` drive their own discovery because the canonical key must replace the matched local `id` group with a portable token. `match` must admit only canonical positive decimal ids; a would-be namespace that matches `malformed_match` (for example a leading-zero or zero Woo instance id) is refused rather than disappearing because a stricter `match` did not select it. All consumers resolve the complete rule set together: a live/canonical name matching more than one rule, including rules for different id_kinds, is ambiguous and refused; pin/declaration order never selects a winner. The captured canonical KEY splices the resolved ref TOKEN into the exact byte position of the matched `id` group — `woocommerce_flat_rate_{{wc_zone_method:<uuid>}}_settings` — using the existing token grammar unchanged. Apply detects a token-bearing option KEY and detokenizes it BEFORE ordinary option-rule dispatch, unconditionally — this ordering is load-bearing: skipping it silently writes a real `wp_options` row whose NAME contains literal `{{...}}` bytes. The resolved real name is re-matched against the same patterns to recover the rule governing its VALUE, which routes through structural capture/apply unconditionally, so an array-shaped settings blob gets its string leaves URL-tokenized and deep secret-scanned with zero per-plugin special-casing.
@@ -694,7 +694,7 @@ Every closed vocabulary above has exactly one owner and exactly one extension pa
 | `post_types.<t>.fields.<f>` and its `class` | engine (`Policy::DERIVABLE_FIELD_COLUMNS`) | engine change + spec bump, per field, with its own evidence | load-time |
 | `tables.<t>.class` | engine | engine change + spec bump | load-time |
 | `tables.<t>.identity.mode` | engine | engine change + spec bump | load-time |
-| `tables.<t>.invalidate[]` shape | engine | a new verb on TWO OR MORE independent demands, staged through `engine_features` (§ v3.13); otherwise a native action or provider capability | load-time |
+| `tables.<t>.invalidate[]` shape | engine | a new verb on TWO OR MORE independent demands, staged through `engine_features` (§ v3.15); otherwise a native action or provider capability | load-time |
 | ref kinds (`ref`, `refs[].kind`, `json_refs`/`key_refs` `kind`, `block_attrs`/`shortcode_attrs` `kind`) | engine for `post`/`term`/`tt`; `user` additionally for scalar `ref` rules and `block_attrs`; **adapter** for every other value | declare a `tables.<t>` you own and name its `id_kind` | load-time, across all pinned manifests |
 | `block_attrs`/`shortcode_attrs` rule shape, `type`, `cast`, `tokenize`, `unsupported` | engine | engine change + spec bump | load-time |
 
@@ -817,6 +817,7 @@ evidence before this line changes.
 | v3.10 | reserved-but-refusing slots | WP-4.11 | YES — four slots refuse by name; the graduated verdict shipped as a word (WP-2.8) |
 | v3.11 | the executable lane's evidence contract (gate G5) | WP-7.1 (shut) | n/a — the lane is shut and the reservations refuse |
 | v3.13 | the `invalidate[]` vocabulary and its two-demand admission rule | WP-6.2 | YES — three verbs; the third gated on `invalidate-vocabulary/v1`, the first section shipped POST-v3 with no bump |
+| v3.17 | a signing profile that accepts an author-written disposition | WP-5.3 | YES — `certify --ratification-file`, judged by the shipped disposition validator; the derivation stays the floor |
 
 The flip itself — the two defines, the migration verbs, the cohorted rollout and the rollback rehearsal —
 is WP-4.12, is DONE, and § v3.12 is the record of what it deliberately left alone. The runbook that
@@ -2113,6 +2114,70 @@ seven-member proof a reviewer-less bundle still produces.
 still the empty v1 registry, and gate G4's condition 7 — a third party ACTUALLY producing an exercised
 bundle — is a fact about the world that no fixture can supply (docs/guides/trust-enrollment.md). This
 rider makes the tier expressible and verifiable; it does not make it populated.
+
+### v3.17 A signing profile that accepts an author-written disposition
+
+**Rider: WP-5.3. Enforced today: yes — `duo adapter certify --ratification-file`, judged by the shipped
+disposition validator and by nothing else.**
+The site profile could sign only a claim the engine wrote. `siteRatification()` derives every field from
+the manifest and stamps `deletion_semantics.supported: []`, `lifecycle_phases: []` and one canned sentence
+on each refusal, so `--reason` was the operator's ONLY input — one string, for a document whose every
+`unsupported[]` row and every `default_authored_keyspaces[]` row the shipped validator requires a separate
+non-empty prose reason on (`ManifestDispositions::validate_entry()`). A site organization that
+had actually reviewed its adapter's deletion semantics had no way to say so, and a site organization that
+had reviewed nothing signed the same sentences — which is the shape of a claim nobody can weigh.
+
+**The entry is the author's; the envelope is the signer's.** `--ratification-file` takes ONE disposition
+entry — the exact document shape `manifests/dispositions/<name>.json` carries since § v3.4, not a new
+dialect — and `sign_site()` wraps it in the `duo-manifest-dispositions/v1` envelope it already owns.
+`format`, `profiles: []` and the single `manifests.<name>` key are never authored, so an authored document
+cannot ratify a second adapter, smuggle a profile, or name a subject other than the one being signed. That
+is the same posture as the certificate PATH being derived rather than declared.
+
+**What validates it is the shipped validator, and this is the whole property.** The authored entry goes
+through the identical chain the derived one goes through — `verifyRatification()` →
+`validateDisposition()` → `ManifestDispositions::validate_external_entry()` — with the same
+`$evidenceSchema` and the same `$requireExerciseTests` the bundle's own `exercised` flag decides. The
+docblock on that seam already named this purpose: it exists so an entry living outside the shipped
+registry "keeps section, version, capability, and evidence grammar identical instead of growing a second
+long-lived validator beside it". Nothing on the path has any notion of who wrote the bytes, which is what
+makes the property federated rather than delegated. So a blank refusal reason, a section the manifest does
+not declare, an intent-only table the entry does not mark unsupported, a version range the manifest does
+not carry, a cited test the bundle does not hold, and a boilerplate entry that refuses nothing
+(`unsupported: []`, "a malformed required field") are all refused by code that shipped before this rider.
+
+**One rule the profile adds, and why it is not a second grammar.** An authored entry must name every
+surface the manifest declares, in the arm this engine's own vocabulary gives it. `validate_entry()`
+refuses a section the manifest does not declare and has nothing to say about one it OMITS — while
+`claim_from_disposition()` builds the claim's `surfaces` list from exactly those two lists, so an omitted
+section is a surface that is simply blocked later with nothing saying why. It is the signer's own existing
+sentence pointed at the authored profile: **narrow a claim with an `unsupported[]` row and its reason,
+which a reader can weigh, never by leaving a surface out, which no reader can see.** Strength is the
+author's to argue; scope is not.
+
+**Nothing about the wire moves.** The ratification document's format, the six-member statement, the
+signature domain and every verifier are untouched: an authored certificate and a derived one are the same
+bytes with different content, and a deployed verifier cannot tell which profile signed — because there is
+nothing there for it to tell. The honesty is carried where it already was: the bundle still records
+`exercised: false`, `evidence.tests` is still empty by construction, and the claim still reads
+`Site-certified`. What changed is that the sentences inside it can now be the site's own.
+
+**`recertify` will not re-derive over an authored claim.** The flag-day verb replays the inputs a
+certificate carries and derives the ratification, which was total before this rider and is a choice after
+it. Re-deriving over an authored entry would replace a site's own argument with the canned floor, under
+the site's own key, with nothing in the report saying a claim had changed. So it compares the ratified
+disposition against the one it WOULD derive (`AdapterCertification::site_disposition_is_derived()`) and
+reports a mismatch as a `blocked` row naming the remedy verb — the same loud-and-scoped posture as its
+existing blocked row for a certificate under another key.
+
+**What this does not fix, stated so it is not mistaken for coverage.** An author can still write
+self-serving prose; no code answers that, and pretending otherwise would be the false assurance this
+document exists to refuse. What is enforced is the SHAPE of the argument — per-refusal reasons, complete
+scope, a claim checked against the manifest in five directions — by shipped code. WP-5.2's reviewer tier
+records someone other than the author having read it, and WP-5.4's graded axis is where a claim the prose
+cannot support goes, so the pressure to relax this requirement has somewhere else to land.
+`sandbox/tests/offline/adapter/regress_authored_ratification.php` drives all of it, including the derived
+floor still standing for an author who writes no file.
 
 ## Ledger tables (per environment, never in the repo)
 

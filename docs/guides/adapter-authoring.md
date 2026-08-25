@@ -1233,7 +1233,7 @@ own key:
 
 ```sh
 duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
-duo adapter certify <site-repo> --name=<n> --secret-key-file=<f> [--key-id=<id>] [--reason=<text>] [--pin [--adopt-scope]]
+duo adapter certify <site-repo> --name=<n> --secret-key-file=<f> [--key-id=<id>] [--reason=<text>] [--ratification-file=<f>] [--pin [--adopt-scope]]
 duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
 duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
 ```
@@ -1611,6 +1611,56 @@ no `delete` operation, no lifecycle phases, every intent-only table marked
 unsupported, and every open-ended `default_class: authored` keyspace recorded
 `unsupported` rather than justified. The full wire contract is
 [docs/adapter-walk-bundle.md](../adapter-walk-bundle.md).
+
+**If you reviewed more than that, say so in your own words:
+`--ratification-file`.** The derivation is a floor, not a ceiling. It writes one
+canned sentence on every refusal and leaves `--reason` as your only input, so a
+site that genuinely reviewed its adapter's deletion semantics signed the same
+document as one that reviewed nothing. Pass `--ratification-file=<file>` and
+`certify` signs the disposition **you** wrote — one entry, in the exact shape
+`manifests/dispositions/<name>.json` carries:
+
+```json
+{
+  "capabilities": {
+    "deletion_semantics": {"supported": ["post_types.acme_entry"], "unsupported": ["tables.acme_ledger_index"]},
+    "entity_sections": ["post_types", "tables"],
+    "field_sections": ["option_namespaces", "options", "post_meta"],
+    "lifecycle_phases": ["activate", "retire"],
+    "operations": ["apply", "capture", "compile", "delete", "deploy", "plan", "recapture"]
+  },
+  "default_authored_keyspaces": [
+    {"table": "acme_ledger_index", "status": "justified", "reason": "<what your review checked, and against which versions>"}
+  ],
+  "evidence": {"bundle_schema": "duo-site-adapter-certification-bundle/v1", "tests": []},
+  "reason": "<what this organization reviewed, and how>",
+  "status": "certified",
+  "supported_versions": {"plugin": "acme-ledger/acme-ledger.php", "range": {"max": "3.0.0", "min": "1.0.0"}},
+  "unsupported": [
+    {"surface": "tables.acme_ledger_intent", "operation": "apply", "reason": "<why this one is not covered>"}
+  ]
+}
+```
+
+The engine judges it with the **same validator it applies to its own reviewed
+library** — nothing on that path knows or asks who wrote the bytes. So it wants
+a separate non-empty reason on every `unsupported[]` row and every
+`default_authored_keyspaces[]` row; it refuses a section your manifest does not
+declare, an intent-only table you did not mark unsupported, a version range your
+manifest does not carry, a cited test the bundle does not hold, and an entry
+that refuses nothing at all. One further rule belongs to this profile: name
+**every** surface your manifest declares, under the arm the engine classifies it
+in. Narrow a claim with an `unsupported[]` row and its reason, which a reader can
+weigh — never by leaving a surface out, which no reader can see.
+
+What does not change: the bundle still records `exercised: false`, `tests` is
+still empty, and the claim still reads `Site-certified`. An authored entry is a
+stronger *argument*, never evidence of a run. And because `duo adapter recertify`
+DERIVES, it reports an authored certificate as a `blocked` row rather than
+replacing your claim with the floor — re-sign that one with
+`duo adapter certify … --ratification-file=<your file>`, so keep the file beside
+the repository. The rider is
+[spec/repo-format.md § v3.17](../../spec/repo-format.md).
 
 Every catalog and diagnostic row carries `trust_root` (`platform` for a shipped
 row, `site` or `platform` for a signed out-of-tree one, `null` when nothing

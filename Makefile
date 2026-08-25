@@ -510,6 +510,21 @@ regress-certificate-axis-binding:
 regress-v3-reservations:
 	php sandbox/tests/offline/adapter/regress_v3_reservations.php
 
+# WP-5.3 / spec/repo-format.md § v3.17: the signing profile that accepts a
+# disposition the AUTHOR wrote. `duo adapter certify --ratification-file`
+# replaces sign_site()'s derivation and NOTHING else -- every semantic rule is
+# still ManifestDispositions::validate_external_entry(), reached through the
+# same chain the derived floor goes through, so the refusal matrix here is
+# asserted on the sentences the SHIPPED validator already raised for a reviewed
+# registry row (blank refusal prose, absent section, an unmarked intent-only
+# table, a widened version range, a cited test the bundle does not hold, an
+# entry that refuses nothing). The two refusals the profile adds are about
+# SCOPE only. The floor still signs with no file supplied, and `adapter
+# recertify` -- which derives -- reports an authored certificate as blocked
+# rather than replacing the site's own argument with the canned one.
+regress-authored-ratification:
+	php sandbox/tests/offline/adapter/regress_authored_ratification.php
+
 # WP-4.8 / spec/repo-format.md § v3.7: the authority record v2 grammar --
 # fingerprint-derived key ids, the mandatory validity window and its named
 # clock, the <vendor>-* namespace, and the self-signed envelope. Gated on the
