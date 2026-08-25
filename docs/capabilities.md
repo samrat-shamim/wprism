@@ -49,7 +49,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [paid-memberships-pro](#paid-memberships-pro) | certified | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.2 <3.8.4 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.8 <3.8.8 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [the-events-calendar](#the-events-calendar) | certified | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.4 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
-| [woocommerce](#woocommerce) | experimental | `woocommerce/woocommerce.php` | >=11.0.0 <11.0.2 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <11.0.2 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [wps-hide-login](#wps-hide-login) | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [yoast](#yoast) | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [yoast-duplicate-post](#yoast-duplicate-post) | certified | `duplicate-post/duplicate-post.php` | >=4.7 <4.8 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -324,7 +324,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## woocommerce
 
-**Status: experimental.** Production-readiness expansion is in progress for exact WooCommerce 11.0.0 and 11.0.1. Existing evidence covers the product/catalog, typed tables, product lookup, fail-closed deletion, fresh-process category/brand hierarchy, COGS, mixed product/POS visibility, read-only fulfillment prerequisites, crash-safe analytics/stock-retention scheduling, portable closed-subkey gateway/email settings, the machine-classified visible and whole-core operational settings source unions, and optional-core populated-state boundaries offline. Certification is withheld until the merchant permalink/native-rewrite setting is closed, lifecycle/residue/reinstall evidence is rerun on final bytes, the twelve-family readiness ledger is closed, and the final-SHA exact live matrix is complete.
+**Status: certified.** Certified for official WooCommerce 11.0.0 and 11.0.1 on single-site WordPress with HPOS: digest-bound clean and hostile target round trips; populated 11.0.0-to-11.0.1 upgrade; native simple, variable, grouped, external, coupon, review-order, download, attribute, category, brand, shipping, tax, and operational-settings behavior; exact product lookup, hierarchy, cache, fulfillment, scheduler, COGS, visibility/POS, thumbnail, and permalink/rewrite projections; bounded malformed/unknown/secret-shaped refusal and redaction; injected failure rollback and retry; competing applies and zero-change idempotence; deactivate/uninstall/reinstall residue recovery; byte-identical recapture; and real 10.9.4 plus synthetic 11.0.2 refusal controls. Product, variation, global-attribute, shipping/tax deletion, integration credentials, block-email, orders, customers, sessions, reservations, Action Scheduler, optional extensions, and multisite remain explicit loud boundaries rather than inferred authority.
 
 - **Plugin:** `woocommerce/woocommerce.php`
 - **Version range:** >=11.0.0 <11.0.2
