@@ -147,6 +147,8 @@ echo wp_json_encode([
         'media_support' => is_array($option) ? ($option['media_support'] ?? null) : null,
         'nav_menus' => is_array($option) ? ($option['nav_menus'] ?? null) : null,
         'post_types' => is_array($option) ? ($option['post_types'] ?? null) : null,
+        'redirect_lang' => is_array($option) ? ($option['redirect_lang'] ?? null) : null,
+        'rewrite' => is_array($option) ? ($option['rewrite'] ?? null) : null,
         'sync' => is_array($option) ? ($option['sync'] ?? null) : null,
         'taxonomies' => is_array($option) ? ($option['taxonomies'] ?? null) : null,
     ],

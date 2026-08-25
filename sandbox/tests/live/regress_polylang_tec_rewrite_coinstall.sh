@@ -64,10 +64,19 @@ say 'failure-before-effect and retry on a hostile Polylang dynamic callback'
 witness() { wp2 eval 'global $wpdb; $n=["rewrite_rules","default_category","tribe_last_generate_rewrite_rules","tribe_last_updated_option","tribe_last_save_post"]; $o=[]; foreach($n as $x){$o[$x]=$wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name=%s LIMIT 1",$x));} echo hash("sha256",serialize($o));' | tail -1; }
 BEFORE=$(witness)
 wp1 eval '$o=get_option("polylang"); $o["default_lang"]="fr"; update_option("polylang",$o);' >/dev/null; wp1 duo capture --repo=/siterepo >/dev/null; git -C "$R1" add -A; git -C "$R1" -c user.name=duo-polylang-tec -c user.email=polylang-tec@example.test commit -qm 'capture: Polylang projection retry'; git -C "$R1" push -qu origin main; git -C "$R2" pull -q origin main; REVISION=$(git -C "$R2" rev-parse HEAD)
-wp2 eval '$path=WPMU_PLUGIN_DIR."/duo-polylang-tec-hostile.php"; $bytes="<?php add_filter(\"pll_modify_rewrite_rule\", static fn(bool $modify, array $rule, string $type, string|false $archive): bool => $modify, 10, 4);"; if(file_put_contents($path,$bytes)!==strlen($bytes)) throw new RuntimeException("could not install hostile Polylang callback");' >/dev/null
+HOSTILE_MU=/var/www/html/wp-content/mu-plugins/duo-polylang-tec-hostile.php
+"${PAIR_COMPOSE[@]}" exec -T --user root wp2 sh -c 'umask 022; target=$1; tmp="${target}.tmp"; cat > "$tmp"; chmod 0644 "$tmp"; mv "$tmp" "$target"' sh "$HOSTILE_MU" <<'PHPEOF'
+<?php
+add_filter(
+    'pll_modify_rewrite_rule',
+    static fn(bool $modify, array $rule, string $type, string|false $archive): bool => $modify,
+    10,
+    4
+);
+PHPEOF
 set +e; FAILED=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" 2>&1); RC=$?; set -e
 [ "$RC" -ne 0 ] || fail "hostile Polylang callback unexpectedly allowed apply: $FAILED"; grep -Fq recovery_required <<<"$FAILED" || fail "hostile refusal was not recovery_required: $FAILED"; [ "$(witness)" = "$BEFORE" ] || fail 'hostile refusal changed rewrite/TEC witnesses'
-wp2 eval '$path=WPMU_PLUGIN_DIR."/duo-polylang-tec-hostile.php"; if(!is_file($path)||!unlink($path)) throw new RuntimeException("could not remove hostile callback");' >/dev/null
+"${PAIR_COMPOSE[@]}" exec -T --user root wp2 sh -c 'test -f "$1" && rm "$1"' sh "$HOSTILE_MU"
 RETRY=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json | tail -1) || fail 'Polylang+TEC retry failed'
 echo "$RETRY" | jq -e '.canary=="clean" and any(.actions[];.source=="provider:polylang-nav-menus/synchronize_runtime" and .verified==true) and any(.actions[];.source=="native:rewrite.flush" and .verified==true)' >/dev/null || fail "retry receipt missing separate actions: $RETRY"
 pass 'hostile callback refused before effect; removal permitted a bounded provider-then-native retry'

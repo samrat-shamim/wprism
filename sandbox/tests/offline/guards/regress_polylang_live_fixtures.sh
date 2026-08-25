@@ -71,11 +71,16 @@ for needle in \
   'provider:polylang-nav-menus/synchronize_runtime' \
   'native:rewrite.flush' \
   'pll_modify_rewrite_rule' \
+  'exec -T --user root wp2' \
+  "<<'PHPEOF'" \
   'recovery_required' \
   'clean no-op recapture' \
   '(.actions|length)==0'; do
   grep -Fq "$needle" "$TEC" || fail "co-install fixture lost required guard: $needle"
 done
+if grep -Fq 'file_put_contents($path,$bytes)' "$TEC"; then
+  fail 'co-install fixture reintroduced unprivileged/interpolated hostile callback installation'
+fi
 grep -Fq 'manifests:["core","polylang","the-events-calendar"]' "$TEC" \
   || fail 'co-install fixture widened or dropped its manifest set'
 grep -Fq 'taxonomies:["category","post_tag","language","term_language","post_translations","term_translations","tribe_events_cat"]' "$TEC" \
