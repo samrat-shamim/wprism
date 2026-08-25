@@ -8242,6 +8242,16 @@ $deletionSeed = (string) file_get_contents($root . '/sandbox/conformance/seeds/t
 $deletionPostdeploy = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/the-events-calendar.sh');
 $sentinelPostapply = (string) file_get_contents($root . '/sandbox/conformance/postapply/the-events-calendar.sh');
 $deletionCheck = (string) file_get_contents($root . '/sandbox/conformance/checks/the-events-calendar.sh');
+$schemaProbeAt = strpos($deletionCheck, 'SCHEMA_BACKUP=');
+duo_check(
+    $schemaProbeAt !== false
+        && !str_contains(substr($deletionCheck, $schemaProbeAt), 'wp_update_post(')
+        && str_contains(
+            substr($deletionCheck, $schemaProbeAt),
+            '$wpdb->update($wpdb->posts,["post_content"=>"AKIAABCDEFGHIJKLMNOP"]'
+        ),
+    'TEC malformed-content probes bypass native save hooks and mutate only their exact physical preimages'
+);
 foreach ([$deletionSeed, $deletionPostdeploy, $deletionCheck] as $widgetFixtureSource) {
     duo_check(
         str_contains($widgetFixtureSource, 'wp_inactive_widgets')

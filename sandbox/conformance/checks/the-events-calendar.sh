@@ -2522,8 +2522,12 @@ FAKE_SECRET='AKIAABCDEFGHIJKLMNOP'
 BODY_WARNING_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-body-warning"
 rm -rf "$BODY_WARNING_DIR"
 wp_conf1 eval '
+  global $wpdb;
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
-  wp_update_post(["ID"=>$p->ID,"post_content"=>"AKIAABCDEFGHIJKLMNOP"]);
+  if($wpdb->update($wpdb->posts,["post_content"=>"AKIAABCDEFGHIJKLMNOP"],["ID"=>$p->ID],["%s"],["%d"])!==1){
+    throw new RuntimeException("TEC credential body probe could not persist its exact physical mutation");
+  }
+  clean_post_cache($p->ID);
 ' >/dev/null
 BEFORE_STATUS=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 SECRET_RC=0
@@ -2538,9 +2542,13 @@ SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-body
   || fail "TEC body-warning probe changed the committed repository"
 rm -rf "$BODY_WARNING_DIR"
 wp_conf1 eval '
+  global $wpdb;
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
-  wp_update_post(["ID"=>$p->ID,"post_content"=>$b["content"]]);
+  if($wpdb->update($wpdb->posts,["post_content"=>$b["content"]],["ID"=>$p->ID],["%s"],["%d"])!==1){
+    throw new RuntimeException("TEC credential body probe could not restore its exact physical preimage");
+  }
+  clean_post_cache($p->ID);
 ' >/dev/null
 
 META_SECRET_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-meta-secret"
