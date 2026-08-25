@@ -646,6 +646,52 @@ duo_check_throws(
     'a guard field outside the manifest grammar is refused: it could decide which column locks',
     'it would answer for the wrong column'
 );
+// …and the refusal NAMES it. The author who hits this is annotating a guard
+// by hand, and `wp help duo adapter-deletion-feasibility` documents
+// `--proposal` only as "`<selector>: {"guards": [...]}` — minus `cascades`",
+// listing none of the 13 keys in GUARD_KEYS. Measured on a live WPForms Lite
+// pair: the field that hit it was `note`, and neither the key nor the legal
+// set reached the terminal.
+$unmodelled = null;
+try {
+    DeletionFeasibility::report(['table:nf3_forms' => ['guards' => [
+        ['table' => 'nf3_actions', 'column' => 'parent_id', 'id_kind' => 'nf3_form', 'note' => 'the payments twin'],
+    ]]]);
+} catch (Throwable $e) {
+    $unmodelled = $e;
+}
+duo_check(
+    $unmodelled instanceof \Duo\CommandRefusalException
+        && str_contains($unmodelled->publicMessage, '`note`')
+        && str_contains($unmodelled->publicMessage, "position 0 of 'table:nf3_forms'"),
+    'the refusal names the offending guard field and where it sits, not merely that one exists'
+);
+duo_check(
+    $unmodelled instanceof \Duo\CommandRefusalException
+        && str_contains($unmodelled->remediation, 'cast, column, exclude_where, id_kind, identity_column, meta_key')
+        && str_contains($unmodelled->remediation, 'source_id_kind, source_pk, table, where'),
+    'and its remediation lists the whole closed guard grammar, which is the fact `wp help` never gives'
+);
+duo_check(
+    !str_contains(
+        (string) $unmodelled?->getMessage(),
+        'the payments twin'
+    ),
+    'the offending VALUE is never echoed: only the key the grammar closed against is named'
+);
+$hostileKey = null;
+try {
+    DeletionFeasibility::report(['table:nf3_forms' => ['guards' => [
+        ['table' => 'nf3_actions', 'column' => 'parent_id', 'id_kind' => 'nf3_form', "no'te; DROP TABLE x" => 1],
+    ]]]);
+} catch (Throwable $e) {
+    $hostileKey = $e->getMessage();
+}
+duo_check(
+    is_string($hostileKey) && !str_contains($hostileKey, 'DROP TABLE')
+        && str_contains($hostileKey, 'outside the portable identifier grammar'),
+    'a key nothing has vetted is described rather than echoed, exactly as an unsafe selector is'
+);
 duo_check_throws(
     static fn() => DeletionFeasibility::report(['table:nf3_forms' => ['guards' => [
         ['table' => 'nf3_actions; DROP TABLE x', 'column' => 'parent_id', 'id_kind' => 'nf3_form'],
@@ -828,6 +874,85 @@ duo_check_same(
     true,
     $journalSuspended->getValue(),
     'the journal is suspended before the refusal: asking whether a guard could lock never becomes a Duo INSERT'
+);
+
+// A PROPOSAL refusal reaches the operator as itself, not as a redaction.
+// Measured on a live WPForms Lite pair: a guard carrying `note` came back as
+// `adapter_deletion_feasibility_failed` / "adapter-deletion-feasibility
+// refused at an unclassified safety gate" / `details_redacted: true`, with
+// remediation "inspect the proposed deletion selectors and their guards" —
+// while the sentence that names the real problem was thrown in
+// DeletionFeasibility and dropped by Cli::halt_json_failure()'s catch-all,
+// which publishes a message only from a TYPED refusal (`Cli.php:88-104`).
+// The classification was right; the source was untyped. This drives the whole
+// path — file on disk, real handler, real envelope — because that is where
+// the sentence was being lost.
+$notePath = $scratch . '/note-proposal.json';
+file_put_contents($notePath, Canon::encode(['table:nf3_forms' => ['guards' => [
+    ['table' => 'nf3_actions', 'column' => 'parent_id', 'id_kind' => 'nf3_form', 'note' => 'the actions twin'],
+]]]));
+WP_CLI::reset();
+$noteEnvelope = null;
+try {
+    $verb->adapter_deletion_feasibility([], ['proposal' => $notePath, 'format' => 'json']);
+} catch (Throwable $halted) {
+    $noteEnvelope = json_decode(implode("\n", WP_CLI::$lines), true);
+}
+duo_check_same(
+    ['invalid_arguments', 'invalid_arguments', null],
+    [
+        $noteEnvelope['error'] ?? null,
+        $noteEnvelope['reason_code'] ?? null,
+        $noteEnvelope['details_redacted'] ?? null,
+    ],
+    'a guard field the report does not model is a named argument refusal, never the redacted unclassified gate'
+);
+duo_check(
+    is_string($noteEnvelope['message'] ?? null)
+        && str_contains($noteEnvelope['message'], '`note`')
+        && str_contains($noteEnvelope['message'], 'it would answer for the wrong column'),
+    'the emitter\'s own sentence — the offending key and why it matters — reaches the JSON envelope'
+);
+duo_check(
+    is_string($noteEnvelope['remediation'] ?? null)
+        && str_contains($noteEnvelope['remediation'], 'option_name_ref, reason, ref'),
+    'and the remediation hands the author the closed guard grammar instead of "inspect the proposed guards"'
+);
+duo_check(
+    !str_contains((string) json_encode($noteEnvelope), 'unclassified safety gate')
+        && !str_contains((string) json_encode($noteEnvelope), 'adapter_deletion_feasibility_failed')
+        && !str_contains((string) json_encode($noteEnvelope), 'the actions twin'),
+    'the prior redacted envelope is gone and the annotated VALUE still never leaves the target'
+);
+// The human path was answering with the catch-all sentence too.
+WP_CLI::reset();
+$noteHuman = null;
+try {
+    $verb->adapter_deletion_feasibility([], ['proposal' => $notePath]);
+} catch (Throwable $halted) {
+    $noteHuman = $halted->getMessage();
+}
+duo_check(
+    is_string($noteHuman) && str_contains($noteHuman, '`note`')
+        && !str_contains($noteHuman, 'deletion feasibility refused; inspect the proposed selectors'),
+    'the terminal gets the same named sentence, not the generic "inspect the proposed selectors" fallback'
+);
+// Everything the catch-all is FOR keeps taking it: a failed schema read can
+// carry a server identifier, so it stays operator-private and redacted.
+$target(['wp_nf3_actions'], [
+    'SHOW INDEX FROM `wp_nf3_actions`' => ['error' => 'simulated index introspection failure'],
+]);
+WP_CLI::reset();
+$readEnvelope = null;
+try {
+    $verb->adapter_deletion_feasibility([], ['proposal' => $proposalPath, 'format' => 'json']);
+} catch (Throwable $halted) {
+    $readEnvelope = json_decode(implode("\n", WP_CLI::$lines), true);
+}
+duo_check_same(
+    ['adapter_deletion_feasibility_failed', true],
+    [$readEnvelope['error'] ?? null, $readEnvelope['details_redacted'] ?? null],
+    'a failed schema read still redacts through the unclassified gate: typing the PROPOSAL refusals moved nothing else'
 );
 
 duo_check_summary(

@@ -4,6 +4,12 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
+// The engine's OWN wire-version window (`agent/src/Kernel/SpecVersionWindow.php:47`),
+// required here for the same reason Canon is: the host judges a document the
+// agent wrote, so it has to judge it by the agent's rule rather than a second
+// copy of it. WP-4.12's flip proved the copy is the defect — see
+// acceptedSpecVersions() below.
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/SpecVersionWindow.php';
 
 /**
  * An init phase the target answered with the common v1 refusal envelope.
@@ -354,99 +360,201 @@ final class Init {
 
     /** @param array<string,mixed> $proposal */
     private static function assertProposal(EnvironmentDriver $transport, array $proposal): void {
+        $field = self::proposalFailure($transport, $proposal);
+        if ($field !== null) {
+            // The refusal NAMES the offender. It used to be one ~45-clause
+            // boolean that said only that something in the contract was wrong,
+            // so the operator's only route to the answer was diffing the
+            // agent's JSON against this predicate by hand — which is literally
+            // what the WPForms recon author had to do to find
+            // `state.config.spec_version` below. Every other refusal in this
+            // tree names its blocker; this one now does too.
+            throw new \RuntimeException(
+                "duo init proposal returned an incompatible or incomplete contract for '{$transport->name()}': "
+                    . $field
+            );
+        }
+    }
+
+    /**
+     * The proposal contract as ORDERED, NAMED field checks; the first field
+     * that fails, or null when the whole contract holds.
+     *
+     * The clauses and their order are the boolean chain this replaced. Each
+     * one is a closure so the chain still short-circuits: a later
+     * `$database['access']` read is reached only when its own `is_array()`
+     * answered true, exactly as `&&` guaranteed before.
+     *
+     * @param array<string,mixed> $proposal
+     */
+    private static function proposalFailure(EnvironmentDriver $transport, array $proposal): ?string {
         $environment = $proposal['environment'] ?? null;
         $code = $proposal['code'] ?? null;
         $state = $proposal['state'] ?? null;
         $unsupported = $proposal['unsupported'] ?? null;
         $ready = $proposal['ready'] ?? null;
         $expectedRepo = self::expectedRepository($transport);
-        $valid = ($proposal['format'] ?? null) === 'duo-init-plan/v1'
-            && is_bool($ready)
-            && is_string($proposal['digest'] ?? null)
-            && preg_match('/^[a-f0-9]{64}$/', (string) $proposal['digest']) === 1
-            && is_array($environment)
-            && is_array($code)
-            && is_array($state)
-            && ($state['repository'] ?? null) === $expectedRepo
-            && is_array($unsupported)
-            && array_is_list($unsupported)
-            && is_array($proposal['advisories'] ?? null)
-            && array_is_list($proposal['advisories']);
-        if ($valid) {
-            $valid = $ready === ($unsupported === []);
+        $field = self::firstFailure([
+            'format' => static fn(): bool => ($proposal['format'] ?? null) === 'duo-init-plan/v1',
+            'ready' => static fn(): bool => is_bool($ready),
+            'digest' => static fn(): bool => is_string($proposal['digest'] ?? null)
+                && preg_match('/^[a-f0-9]{64}$/', (string) $proposal['digest']) === 1,
+            'environment' => static fn(): bool => is_array($environment),
+            'code' => static fn(): bool => is_array($code),
+            'state' => static fn(): bool => is_array($state),
+            'state.repository' => static fn(): bool => ($state['repository'] ?? null) === $expectedRepo,
+            'unsupported' => static fn(): bool => is_array($unsupported) && array_is_list($unsupported),
+            'advisories' => static fn(): bool => is_array($proposal['advisories'] ?? null)
+                && array_is_list($proposal['advisories']),
+            'ready/unsupported' => static fn(): bool => $ready === ($unsupported === []),
+        ]);
+        if ($field !== null || $ready !== true) {
+            return $field;
         }
-        if ($valid && $ready === true) {
-            $database = $environment['database'] ?? null;
-            $media = $state['media'] ?? null;
-            $git = $state['git'] ?? null;
-            $ledger = $state['ledger'] ?? null;
-            $config = $state['config'] ?? null;
-            $components = $code['components'] ?? null;
-            $declaration = $code['declaration'] ?? null;
-            $valid = is_string($environment['wordpress'] ?? null)
-                && trim((string) $environment['wordpress']) !== ''
-                && is_string($environment['php'] ?? null)
-                && trim((string) $environment['php']) !== ''
-                && is_string($environment['home'] ?? null)
-                && is_array($database)
-                && ($database['access'] ?? null) === 'verified-read'
-                && is_string($database['server'] ?? null)
-                && trim((string) $database['server']) !== ''
-                && ($code['management'] ?? null) === 'managed-baseline-proposed'
-                && is_int($code['files'] ?? null) && $code['files'] >= 0
-                && is_int($code['bytes'] ?? null) && $code['bytes'] >= 0
-                && is_string($code['source_revision'] ?? null)
-                && preg_match('/^[a-f0-9]{64}$/', (string) $code['source_revision']) === 1
-                && self::validCodeRoots($code['roots'] ?? null)
-                && self::validComponents($components)
-                && is_array($declaration)
-                // Exactly one of the two legal declarations, and it follows
-                // from the classification: format 2 (the lock, even with zero
-                // locked components, because its first_party list is what
-                // the compile gate reads) whenever the host classified
-                // anything; format 1 only for a site with no lockable
-                // component, where there is nothing to declare.
-                && in_array($declaration, [self::DECLARATION_FULL, self::DECLARATION_SPLIT], true)
-                && self::validSplit($code['split'] ?? null, $declaration === self::DECLARATION_SPLIT)
-                && self::validComponentInventory($code['component_inventory'] ?? null)
-                && self::listOfArrays($code['active_plugins'] ?? null)
-                && is_array($code['active_theme'] ?? null)
-                && is_string($code['active_theme']['stylesheet'] ?? null)
-                && is_string($code['active_theme']['template'] ?? null)
-                && ($state['baseline'] ?? null) === 'capture-consistent-snapshot'
-                && in_array($state['existing_config'] ?? null, ['absent', 'adoption-seed'], true)
-                && is_string($state['config_identity'] ?? null)
-                && (($state['existing_config'] === 'absent' && $state['config_identity'] === 'absent')
-                    || ($state['existing_config'] === 'adoption-seed'
-                        && preg_match('/^sha256:[a-f0-9]{64}$/', $state['config_identity']) === 1))
-                && is_string($state['repository_identity'] ?? null)
-                && preg_match('/^sha256:[a-f0-9]{64}$/', (string) $state['repository_identity']) === 1
-                && is_array($config)
-                && ($config['code'] ?? null) === $declaration
-                && self::listOfArrays($config['manifests'] ?? null)
-                && is_array($config['policy'] ?? null)
-                && ($config['spec_version'] ?? null) === 2
-                && self::listOfArrays($state['adapters'] ?? null)
-                && is_array($media)
-                && is_string($media['strategy'] ?? null)
-                && is_int($media['attachments'] ?? null) && $media['attachments'] >= 0
-                && is_int($media['unavailable'] ?? null) && $media['unavailable'] >= 0
-                && is_array($git)
-                && in_array($git['mode'] ?? null, ['initialize-on-confirm', 'existing-worktree'], true)
-                && is_string($git['version'] ?? null) && trim((string) $git['version']) !== ''
-                && is_string($state['gitignore_identity'] ?? null)
+
+        $database = $environment['database'] ?? null;
+        $media = $state['media'] ?? null;
+        $git = $state['git'] ?? null;
+        $ledger = $state['ledger'] ?? null;
+        $config = $state['config'] ?? null;
+        $components = $code['components'] ?? null;
+        $declaration = $code['declaration'] ?? null;
+        $accepted = self::acceptedSpecVersions();
+
+        return self::firstFailure([
+            'environment.wordpress' => static fn(): bool => is_string($environment['wordpress'] ?? null)
+                && trim((string) $environment['wordpress']) !== '',
+            'environment.php' => static fn(): bool => is_string($environment['php'] ?? null)
+                && trim((string) $environment['php']) !== '',
+            'environment.home' => static fn(): bool => is_string($environment['home'] ?? null),
+            'environment.database' => static fn(): bool => is_array($database),
+            'environment.database.access' => static fn(): bool => ($database['access'] ?? null) === 'verified-read',
+            'environment.database.server' => static fn(): bool => is_string($database['server'] ?? null)
+                && trim((string) $database['server']) !== '',
+            'code.management' => static fn(): bool => ($code['management'] ?? null) === 'managed-baseline-proposed',
+            'code.files' => static fn(): bool => is_int($code['files'] ?? null) && $code['files'] >= 0,
+            'code.bytes' => static fn(): bool => is_int($code['bytes'] ?? null) && $code['bytes'] >= 0,
+            'code.source_revision' => static fn(): bool => is_string($code['source_revision'] ?? null)
+                && preg_match('/^[a-f0-9]{64}$/', (string) $code['source_revision']) === 1,
+            'code.roots' => static fn(): bool => self::validCodeRoots($code['roots'] ?? null),
+            'code.components' => static fn(): bool => self::validComponents($components),
+            // Exactly one of the two legal declarations, and it follows
+            // from the classification: format 2 (the lock, even with zero
+            // locked components, because its first_party list is what
+            // the compile gate reads) whenever the host classified
+            // anything; format 1 only for a site with no lockable
+            // component, where there is nothing to declare.
+            'code.declaration' => static fn(): bool => is_array($declaration)
+                && in_array($declaration, [self::DECLARATION_FULL, self::DECLARATION_SPLIT], true),
+            'code.split' => static fn(): bool => self::validSplit(
+                $code['split'] ?? null,
+                $declaration === self::DECLARATION_SPLIT
+            ),
+            'code.component_inventory' => static fn(): bool => self::validComponentInventory(
+                $code['component_inventory'] ?? null
+            ),
+            'code.active_plugins' => static fn(): bool => self::listOfArrays($code['active_plugins'] ?? null),
+            'code.active_theme' => static fn(): bool => is_array($code['active_theme'] ?? null),
+            'code.active_theme.stylesheet' => static fn(): bool => is_string($code['active_theme']['stylesheet'] ?? null),
+            'code.active_theme.template' => static fn(): bool => is_string($code['active_theme']['template'] ?? null),
+            'state.baseline' => static fn(): bool => ($state['baseline'] ?? null) === 'capture-consistent-snapshot',
+            'state.existing_config' => static fn(): bool => in_array(
+                $state['existing_config'] ?? null,
+                ['absent', 'adoption-seed'],
+                true
+            ),
+            'state.config_identity' => static fn(): bool => is_string($state['config_identity'] ?? null)
+                && ((($state['existing_config'] ?? null) === 'absent' && $state['config_identity'] === 'absent')
+                    || (($state['existing_config'] ?? null) === 'adoption-seed'
+                        && preg_match('/^sha256:[a-f0-9]{64}$/', $state['config_identity']) === 1)),
+            'state.repository_identity' => static fn(): bool => is_string($state['repository_identity'] ?? null)
+                && preg_match('/^sha256:[a-f0-9]{64}$/', (string) $state['repository_identity']) === 1,
+            'state.config' => static fn(): bool => is_array($config),
+            'state.config.code' => static fn(): bool => ($config['code'] ?? null) === $declaration,
+            'state.config.manifests' => static fn(): bool => self::listOfArrays($config['manifests'] ?? null),
+            'state.config.policy' => static fn(): bool => is_array($config['policy'] ?? null),
+            'state.config.spec_version' => static fn(): bool => in_array(
+                $config['spec_version'] ?? null,
+                $accepted,
+                true
+            ),
+            'state.adapters' => static fn(): bool => self::listOfArrays($state['adapters'] ?? null),
+            'state.media' => static fn(): bool => is_array($media),
+            'state.media.strategy' => static fn(): bool => is_string($media['strategy'] ?? null),
+            'state.media.attachments' => static fn(): bool => is_int($media['attachments'] ?? null)
+                && $media['attachments'] >= 0,
+            'state.media.unavailable' => static fn(): bool => is_int($media['unavailable'] ?? null)
+                && $media['unavailable'] >= 0,
+            'state.git' => static fn(): bool => is_array($git),
+            'state.git.mode' => static fn(): bool => in_array(
+                $git['mode'] ?? null,
+                ['initialize-on-confirm', 'existing-worktree'],
+                true
+            ),
+            'state.git.version' => static fn(): bool => is_string($git['version'] ?? null)
+                && trim((string) $git['version']) !== '',
+            'state.gitignore_identity' => static fn(): bool => is_string($state['gitignore_identity'] ?? null)
                 && (($state['gitignore_identity'] ?? null) === 'absent'
-                    || preg_match('/^sha256:[a-f0-9]{64}$/', (string) $state['gitignore_identity']) === 1)
-                && is_array($ledger)
-                && ($ledger['rows'] ?? null) === 0
-                && is_int($ledger['tables'] ?? null) && $ledger['tables'] >= 0
-                && self::validRiskEnvelope($state['risk_surfaces'] ?? null);
+                    || preg_match('/^sha256:[a-f0-9]{64}$/', (string) $state['gitignore_identity']) === 1),
+            'state.ledger' => static fn(): bool => is_array($ledger),
+            'state.ledger.rows' => static fn(): bool => ($ledger['rows'] ?? null) === 0,
+            'state.ledger.tables' => static fn(): bool => is_int($ledger['tables'] ?? null) && $ledger['tables'] >= 0,
+            'state.risk_surfaces' => static fn(): bool => self::validRiskEnvelope($state['risk_surfaces'] ?? null),
+        ]);
+    }
+
+    /**
+     * @param array<string,callable():bool> $checks
+     * @return ?string the first field whose check answered false
+     */
+    private static function firstFailure(array $checks): ?string {
+        foreach ($checks as $field => $check) {
+            if (!$check()) {
+                return (string) $field;
+            }
         }
-        if (!$valid) {
-            throw new \RuntimeException(
-                "duo init proposal returned an incompatible or incomplete contract for '{$transport->name()}'"
-            );
+        return null;
+    }
+
+    /**
+     * The `spec_version` integers to accept in a proposal — the AGENT's own
+     * acceptance window, computed by the agent's own definition of it.
+     *
+     * This clause used to be the literal `=== 2`, written when
+     * `DUO_SPEC_VERSION` had never moved. WP-4.12 moved it to 3 and stamped
+     * the new value into `InitPlanner::plan()`'s proposed config
+     * (`agent/src/Init/InitPlanner.php:357`) and into `Adopt::SEED`
+     * (`cli/src/Onboarding/Adopt.php:35`) — but not here, so from that commit
+     * every `duo init <env>` that reached a READY proposal died on this line
+     * (measured against the shipped engine on a live pair, three ways: bare,
+     * `--offline` and `--first-party=`). A BLOCKED proposal never reaches it,
+     * which is why the corpus stayed green: `duo init` appeared to work right
+     * up to the moment it would have done something.
+     *
+     * The remedy is not a literal `3`. A host talks to whatever agent the
+     * target has installed, and the engine itself judges a repository's
+     * `spec_version` against the {N-1, N} window rather than by equality
+     * (`SpecVersionWindow`, and `RepositoryCompiler` through it) — so the host
+     * accepts exactly what the agent would, computed from the agent's own
+     * source, and the next flag day has nothing to remember here.
+     *
+     * @return list<int>
+     */
+    private static function acceptedSpecVersions(): array {
+        if (!defined('DUO_SPEC_VERSION')) {
+            // The same resolution `AdapterDraft::boot()` (`:482-487`) and
+            // `AdapterCatalog` already do: the host has the agent tree it
+            // adopts from, and its defines are the engine's own statement of
+            // the version. Parsed rather than required, because `agent/duo.php`
+            // is a WordPress drop-in that bootstraps 99 files on load.
+            $agent = dirname(__DIR__, 3) . '/agent/duo.php';
+            $source = is_file($agent) ? (string) file_get_contents($agent) : '';
+            if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('duo init could not resolve DUO_SPEC_VERSION from the agent source');
+            }
+            define('DUO_SPEC_VERSION', (int) $m[1]);
         }
+        return \Duo\SpecVersionWindow::accepted(DUO_SPEC_VERSION);
     }
 
     /** @param array<string,mixed> $result */

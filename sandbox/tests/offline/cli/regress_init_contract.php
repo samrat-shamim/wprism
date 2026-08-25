@@ -46,6 +46,21 @@ function response(array $body): array {
     return ['exit' => 0, 'stdout' => json_encode($body, JSON_UNESCAPED_SLASHES) . "\n", 'stderr' => ''];
 }
 
+// The engine's wire version, PARSED from the drop-in rather than written here.
+// This suite used to spell it `2` in the ready-proposal fixture below while
+// using DUO_SPEC_VERSION for the adoption-seed fixtures further down — it
+// disagreed with itself, so the corpus stayed green through WP-4.12's 2 -> 3
+// flip while `duo init` could not initialize a single real site (the host pin
+// at cli/src/Onboarding/Init.php refused every READY proposal the agent
+// emitted). One derived value, used everywhere, would have failed on the day
+// the define moved, which is the whole point of deriving it.
+$dropIn = (string) file_get_contents(__DIR__ . '/../../../../agent/duo.php');
+check(
+    preg_match("/define\('DUO_SPEC_VERSION',\s*(\d+)\)/", $dropIn, $specMatch) === 1,
+    'agent/duo.php declares DUO_SPEC_VERSION, the one source this suite spells the wire version from'
+);
+define('DUO_SPEC_VERSION', (int) $specMatch[1]);
+
 $digest = str_repeat('a', 64);
 $stateRevision = str_repeat('b', 64);
 $codeRevision = str_repeat('c', 64);
@@ -102,7 +117,8 @@ $proposal = [
             'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'],
             'manifests' => [['digest' => str_repeat('d', 64), 'name' => 'core']],
             'policy' => ['post_types' => ['post'], 'taxonomies' => ['category']],
-            'spec_version' => 2,
+            // What InitPlanner::plan() really stamps (`agent/src/Init/InitPlanner.php:357`).
+            'spec_version' => DUO_SPEC_VERSION,
         ],
         'git' => ['mode' => 'initialize-on-confirm', 'version' => 'git version 2.51.0'],
         'gitignore_identity' => 'absent',
@@ -368,27 +384,102 @@ check(
     'init keeps a thin cli facade while every refusal phase uses the shared host renderer'
 );
 
+// Each row also pins the FIELD the refusal names. The predicate behind it is
+// ~45 clauses over a nested document, and until now it answered every one of
+// them with the same sentence and no offender — so the only way to learn which
+// clause refused was to diff the agent's JSON against the host source by hand
+// (that is exactly how the spec_version pin below was found, on a live pair).
 foreach ([
-    'empty proposal' => [],
-    'wrong proposal format' => array_replace($proposal, ['format' => 'duo-init-plan/v0']),
-    'malformed proposal digest' => array_replace($proposal, ['digest' => 'abc']),
-    'non-boolean proposal readiness' => array_replace($proposal, ['ready' => 1]),
-    'sparse ready proposal' => [
+    'empty proposal' => [[], 'format'],
+    'wrong proposal format' => [array_replace($proposal, ['format' => 'duo-init-plan/v0']), 'format'],
+    'malformed proposal digest' => [array_replace($proposal, ['digest' => 'abc']), 'digest'],
+    'non-boolean proposal readiness' => [array_replace($proposal, ['ready' => 1]), 'ready'],
+    'sparse ready proposal' => [[
         'format' => 'duo-init-plan/v1', 'digest' => $digest, 'ready' => true,
         'environment' => [], 'code' => [],
         'state' => ['repository' => '/srv/shop-state', 'repository_identity' => 'sha256:' . str_repeat('d', 64)],
         'unsupported' => [], 'advisories' => [],
+    ], 'environment.wordpress'],
+    'blocked proposal without blockers' => [array_replace($proposal, ['ready' => false]), 'ready/unsupported'],
+    'proposal for another repository' => [
+        array_replace_recursive($proposal, ['state' => ['repository' => '/srv/other']]),
+        'state.repository',
     ],
-    'blocked proposal without blockers' => array_replace($proposal, ['ready' => false]),
-    'proposal for another repository' => array_replace_recursive($proposal, ['state' => ['repository' => '/srv/other']]),
-] as $label => $invalidProposal) {
+    'ready proposal with an unreadable database' => [
+        array_replace_recursive($proposal, ['environment' => ['database' => ['access' => 'guessed']]]),
+        'environment.database.access',
+    ],
+    'ready proposal with a non-pristine ledger' => [
+        array_replace_recursive($proposal, ['state' => ['ledger' => ['rows' => 3]]]),
+        'state.ledger.rows',
+    ],
+] as $label => [$invalidProposal, $expectedField]) {
     try {
         Init::proposal(new InitTransport([response($invalidProposal)]));
         fail("$label was accepted");
     } catch (RuntimeException $expected) {
         check(str_contains($expected->getMessage(), 'incompatible or incomplete contract'), "$label fails closed");
+        check(
+            str_ends_with($expected->getMessage(), ": $expectedField"),
+            "$label names $expectedField as the first failing field"
+        );
     }
 }
+
+// ==========================================================================
+// The host's spec-version window (the WPForms recon's blocking defect).
+// ==========================================================================
+// `cli/src/Onboarding/Init.php` pinned `($config['spec_version'] ?? null) === 2`
+// while `InitPlanner::plan()` stamps DUO_SPEC_VERSION into the proposed config
+// (`agent/src/Init/InitPlanner.php:357`). WP-4.12 moved that define 2 -> 3 and
+// moved Adopt::SEED with it, but not the host pin — so from that commit every
+// `duo init <env>` that reached a READY proposal died with "incompatible or
+// incomplete contract", unconditionally, on every site. It was invisible
+// offline because this suite's ready fixture spelled `2` by hand.
+//
+// The pin is now the AGENT's own acceptance window, from the agent's own
+// definition of it: {N-1, N} via Duo\SpecVersionWindow, the same rule
+// RepositoryCompiler judges a repository by. The floor arm matters as much as
+// the current arm — a host talks to whatever agent the target has installed,
+// and the engine accepts one version back.
+$initSource = (string) file_get_contents(__DIR__ . '/../../../../cli/src/Onboarding/Init.php');
+$specProposal = static function (mixed $version) use ($proposal): array {
+    return array_replace_recursive($proposal, ['state' => ['config' => ['spec_version' => $version]]]);
+};
+Init::proposal(new InitTransport([response($specProposal(DUO_SPEC_VERSION))]));
+check(true, 'a READY proposal carrying the engine\'s own DUO_SPEC_VERSION (' . DUO_SPEC_VERSION . ') is accepted');
+Init::proposal(new InitTransport([response($specProposal(DUO_SPEC_VERSION - 1))]));
+check(true, 'and so is one at the window floor N-1 — the host accepts what the agent accepts, not one exact value');
+foreach ([
+    'above the window' => DUO_SPEC_VERSION + 1,
+    'two versions behind' => DUO_SPEC_VERSION - 2,
+    'a numeric string, not an integer' => (string) DUO_SPEC_VERSION,
+    'absent' => null,
+] as $label => $version) {
+    try {
+        Init::proposal(new InitTransport([response($specProposal($version))]));
+        fail("a spec_version $label was accepted");
+    } catch (RuntimeException $expected) {
+        check(
+            str_ends_with($expected->getMessage(), ': state.config.spec_version'),
+            "a spec_version $label refuses, naming state.config.spec_version"
+        );
+    }
+}
+check(
+    str_contains($initSource, "require_once dirname(__DIR__, 3) . '/agent/src/Kernel/SpecVersionWindow.php';")
+        && str_contains($initSource, '\Duo\SpecVersionWindow::accepted(DUO_SPEC_VERSION)'),
+    'the host reads the window from the engine\'s own SpecVersionWindow, not from a second copy of the rule'
+);
+check(
+    preg_match('/spec_version.{0,40}===\s*\d/s', $initSource) !== 1
+        && !str_contains($initSource, 'DUO_SPEC_VERSION - 1'),
+    'no literal spec version and no second [N-1, N] arithmetic survives in the host: the window has one definition'
+);
+check(
+    \Duo\SpecVersionWindow::accepted(DUO_SPEC_VERSION) === [DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION],
+    'and that definition is the kernel\'s {N-1, N}, loaded into this process by Init.php itself'
+);
 
 foreach ([
     'empty result' => [],
@@ -1481,7 +1572,7 @@ $liveInitConfig = [
         'taxonomies' => ['category', 'post_tag'],
         'term_meta' => new stdClass(),
     ],
-    'spec_version' => 2,
+    'spec_version' => DUO_SPEC_VERSION,
 ];
 $committedBytes = \Duo\Canon::encode($liveInitConfig);
 $journaledConfig = \Duo\Canon::decode(
@@ -1983,7 +2074,9 @@ check(
 );
 $initHostSource = (string) file_get_contents(__DIR__ . '/../../../../cli/src/Onboarding/Init.php');
 check(
-    str_contains($initHostSource, "&& (\$ledger['rows'] ?? null) === 0"),
+    // The clause kept its exact predicate when the chain became one named
+    // check per field; only the sentence the refusal prints changed.
+    str_contains($initHostSource, "'state.ledger.rows' => static fn(): bool => (\$ledger['rows'] ?? null) === 0,"),
     'the host readiness contract still requires a zero ledger row count, unchanged'
 );
 // The advisory that replaces the misdirecting refusal. It carries no
@@ -2187,12 +2280,9 @@ check(
 // they do not make the repository init-owned; a hand-added name-only pin or
 // any policy edit still does. (grind_adapter_walk.sh S2 found `certify --pin`
 // then `init` refusing existing_configuration.)
-if (!defined('DUO_SPEC_VERSION')) {
-    // existing_config() spells the seed with the engine's spec version; this
-    // suite runs InitPlanner without duo.php, so the constant is the engine's
-    // current value here (agent/duo.php defines it as 2).
-    define('DUO_SPEC_VERSION', 2);
-}
+// existing_config() spells the seed with the engine's spec version; this suite
+// runs InitPlanner without duo.php, so DUO_SPEC_VERSION is defined at the top
+// of this file from agent/duo.php's own define.
 $seedRoot = sys_get_temp_dir() . '/duo_init_seed_' . bin2hex(random_bytes(4));
 mkdir($seedRoot, 0777, true);
 $existingConfig = new \ReflectionMethod(\Duo\InitPlanner::class, 'existing_config');
