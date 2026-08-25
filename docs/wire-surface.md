@@ -177,7 +177,7 @@ and its cost are written down.
 
 ### R-18 — The `spec_version` acceptance window is exactly {N-1, N}
 
-**Shipped now.** Measured by handing candidate integers to the shipped `AdapterContractGrammar::validate_adapter_contract()`: this engine accepts `2`, `3` and refuses every other integer wholesale, naming the window. An absent or non-integer `spec_version` keeps the older refusal, because it is not a version and so is not outside anything. A manifest inside the window that declares a section this engine implements only at a HIGHER version refuses naming the section (`engine_features` today).
+**Shipped now.** Measured by handing candidate integers to the shipped `AdapterContractGrammar::validate_adapter_contract()`: this engine accepts `2`, `3` and refuses every other integer wholesale, naming the window. An absent or non-integer `spec_version` keeps the older refusal, because it is not a version and so is not outside anything. A manifest inside the window that declares a section this engine implements only at a HIGHER version refuses naming the section (`declaration_evidence`, `engine_features` today).
 
 **Why it cannot change.** The floor is DUO_SPEC_VERSION - 1 and never deeper, checked at generation time. Narrowing the window later refuses every adapter in the field that took it at its word, which is a flag day of exactly the kind the window exists to end; widening it to N-2 costs nothing on the day it is done and converts a staging channel with an expiry into permanent tolerance that no refusal, document or suite would report. So the equality is the gate, not the intention.
 
@@ -185,7 +185,7 @@ and its cost are written down.
 
 ### R-19 — Engine feature names are engine-owned, and permanent once declared
 
-**Shipped now.** This engine implements `spec-window/v1`. A manifest declares names through the top-level `engine_features` list; an engine lacking a listed name refuses THAT ADAPTER, naming the feature. An adapter declares a name and never mints one: a name nothing implements is refused as unimplemented rather than admitted as forward-looking.
+**Shipped now.** This engine implements `spec-window/v1`, `structured-evidence/v1`. A manifest declares names through the top-level `engine_features` list; an engine lacking a listed name refuses THAT ADAPTER, naming the feature. An adapter declares a name and never mints one: a name nothing implements is refused as unimplemented rather than admitted as forward-looking.
 
 **Why it cannot change.** A declared feature name is inside the manifest bytes `ArtifactPolicyIdentity::manifest_rows()` folds into that adapter's `digest`, which every `site.duo.json` content pin and every certificate's `adapter.canonical_sha256` binds. Renaming or re-spelling a feature therefore moves the digest of every manifest that declares it and invalidates their pins and certificates at once — the same irreversibility R-17 records for `id_kind`, reached through a different door.
 
@@ -201,7 +201,7 @@ and its cost are written down.
 
 ### R-21 — The top-level manifest key set is closed at `spec_version: 3`, from one definition
 
-**Shipped now.** A `spec_version: 3` manifest may declare 33 top-level keys — the signer's three-arm partition, 5 entity + 14 field + 14 non-surface — plus whatever keys its own declared, IMPLEMENTED `engine_features` values claim (`engine_features` itself, via `spec-window/v1`). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar `duo adapter-draft` writes — refuses with its own remedy, to strip it. v2 manifests keep the open behaviour byte for byte, so none of the shipped library changes. Measured here by asking the shipped validator and the shipped signer for their sets and comparing them in both directions.
+**Shipped now.** A `spec_version: 3` manifest may declare 33 top-level keys — the signer's three-arm partition, 5 entity + 14 field + 14 non-surface — plus whatever keys its own declared, IMPLEMENTED `engine_features` values claim (`engine_features` itself, via `spec-window/v1`, `structured-evidence/v1`). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar `duo adapter-draft` writes — refuses with its own remedy, to strip it. v2 manifests keep the open behaviour byte for byte, so none of the shipped library changes. Measured here by asking the shipped validator and the shipped signer for their sets and comparing them in both directions.
 
 **Why it cannot change.** A key REMOVED from the set later refuses every manifest in the field that declared it, and takes its adapter digest with it: the key is inside the manifest bytes `ArtifactPolicyIdentity::manifest_rows()` folds, so the remedy is an edit that moves every `site.duo.json` content pin and invalidates every certificate over that adapter (R-19 records the same irreversibility for a feature name). Closing the set is therefore a one-way door: it can be opened wider through the growth rule and can never be narrowed. The one definition is load-bearing for the same reason — two lists that agree today diverge silently, and the symptom is an adapter that loads everywhere and cannot be certified.
 
@@ -262,6 +262,14 @@ and its cost are written down.
 **Why it cannot change.** A reservation on a SIGNED surface can only be a refusal, and that is a property of signatures rather than a style choice: the statement member set is closed in both directions AND is the generation discriminator a verifier reads before it has a domain to check a signature with (R-06, R-24), and the evidence object sits inside the bundle digest the statement binds. Admitting either member "for later" would therefore change the bytes every holder recomputes on the day it was admitted, for a capability that does not exist yet — the flag day this program exists to avoid, paid early and for nothing. What cannot be undone is the OPPOSITE direction: once one of these words is minted by a shipped engine, every deployed verifier that refuses it is refusing a live document, so the refusal has to exist in the field BEFORE the policy that mints it — which is why these ride v3 rather than the change that opens them.
 
 **Reserved.** What is deliberately NOT reserved: any SCHEMA for what eventually rides on these points. A reservation that guessed the shape would have to be right about a design nobody has reviewed; § v3.2's `engine_features` channel carries the detail later, so a slot need only be right about WHERE an extension attaches. Also not reserved, and recorded so it is not re-taken: the graduated `outside_version_range` verdict, which is a SHIPPED word (`version_range_graduated`, WP-2.8) and not a slot at all. Opening any of the four is a policy flip proven by `sandbox/tests/offline/adapter/regress_v3_reservations.php`, which pins each sentence and the statement's exact canonical bytes and signature — gate G5's condition 7 (spec/repo-format.md § v3.11).
+
+### R-29 — Structured declaration evidence: closed rows, and a target that must address a declaration
+
+**Shipped now.** A manifest declaring the engine feature `structured-evidence/v1` may carry the top-level `declaration_evidence` section: an object keyed by TARGET, each record `{evidence}` or `{evidence, answered}`, each evidence row exactly `{locator, observation, source}` and each answered row exactly `{answer, question}`, every member a non-empty string (spec/repo-format.md § v3.13). A target's HEAD must be a top-level key the same manifest declares, which is the whole difference between this and a note that mentions a section: a record for a deleted section refuses at load. No shipped manifest declares it — adopting it in the 16 would move all 16 adapter digests for a documentation change (AGENTS.md rule 2) — so `notes` keeps everything it carries and this is a sibling, never a migration.
+
+**Why it cannot change.** The section name and every row member are inside the manifest bytes `ArtifactPolicyIdentity::manifest_rows()` folds into the adapter `digest`, reached through the same door R-19 records for the feature name that admits them: renaming a member moves the digest of every manifest carrying one and invalidates their pins and certificates at once. The rows are closed in BOTH directions for the reason R-21 gives one level up — a member no checker reads is indistinguishable from a deliberate one, and a section whose whole purpose is machine-checkable rationale cannot admit one.
+
+**Reserved.** An ARM in `AdapterCertification::topLevelKeyPartition()` is deliberately NOT taken. Without one the signer refuses this section by name — an adapter that adopts it loads everywhere and is not certifiable, which is § v3.3's stated posture for a feature-claimed key rather than an oversight. Taking the arm would also admit the key with NO feature declared, deleting the no-bump demonstration the section exists to be; it is a separate reviewed decision, for whoever needs a certificate to cover this surface. Also reserved: resolving a target's TAIL against the addressed section's own sub-grammar — fourteen field sections have fourteen of those, and a resolver here would be a second, drifting copy of all of them.
 
 ## 3. The grammars, as the shipped validators answer them
 
@@ -394,7 +402,7 @@ printing a register it cannot stand behind:
    them into every adapter digest — and their membership equals the shipped library exactly: 16 adapter
    names and 18 `id_kind`s, in both directions, so a seventeenth unprefixed name is a reviewed
    edit rather than a file appearing in a directory (R-27).
-10. **The register has no gaps and no duplicates.** Row ids run R-01 … R-28 with every integer
+10. **The register has no gaps and no duplicates.** Row ids run R-01 … R-29 with every integer
     present exactly once. Ids are ordinal bookkeeping — nothing on disk or in a certificate
     embeds one — but an id nobody can account for reads as a row somebody deleted, and this
     document is the only place a deleted decision would be missed.

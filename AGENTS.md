@@ -11,11 +11,11 @@ about CI belongs in a PR, an issue, or this file.
 
 | path | what it is | ships? |
 | --- | --- | --- |
-| `agent/` | the WordPress drop-in. `duo.php` `require_once`s 99 files at load; `agent/src` is 244 `namespace Duo;` files across 17 directories, each requiring its own dependencies. The only autoload is the generated additive fallback `agent/duo-classmap.php` (rule 1). | yes |
+| `agent/` | the WordPress drop-in. `duo.php` `require_once`s 99 files at load; `agent/src` is 247 `namespace Duo;` files across 17 directories, each requiring its own dependencies. The only autoload is the generated additive fallback `agent/duo-classmap.php` (rule 1). | yes |
 | `cli/` | the `duo` orchestrator (`cli/duo` is an extensionless `#!/usr/bin/env php` executable) over 99 `cli/src` files | yes |
 | `recovery/` | the recovery runtime (canonical JSON, atomic store, Ed25519 rollback control) | yes |
 | `manifests/` | core + 14 plugin manifests + `duo-agency-cpt` (the one `excluded` regression fixture, no product claim) — 16 adapters in all; `providers/`, `interpreters/`, `regenerators/` hook code; `dispositions/<name>.json` + `dispositions/profiles.json`, the hand-authored reviewed claim source (one document per subject since WP-4.4; a leftover `dispositions.json` refuses at load); `capabilities/platform.json` (the platform boundary certificates sign against) and `capabilities/adapter-authorities.json` | yes |
-| `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (270 `regress_*.php` + 104 `regress_*.sh`, counted recursively — every suite is under one of the five execution-class directories `offline/<domain>/`, `live/`, `grind/`, `certify/`, `spike/`, and the corpus root holds only `fixtures/`, `lib/`, `support/` and `offline_diagnostics_guard.sh`), `conformance/`, `siterepo/`, `tmp/` (gitignored scratch) | no |
+| `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (285 `regress_*.php` + 104 `regress_*.sh`, counted recursively — every suite is under one of the five execution-class directories `offline/<domain>/`, `live/`, `grind/`, `certify/`, `spike/`, and the corpus root holds only `fixtures/`, `lib/`, `support/` and `offline_diagnostics_guard.sh`), `conformance/`, `siterepo/`, `tmp/` (gitignored scratch) | no |
 | `tools/` | dev entry points: `doctor.sh`, `offline.php`, `affected.php`, `capability-doc.php`, `classmap-generate.php`, `offline-corpus.php`, `api-surface.php`, `adapter-kit.php` (assembles the distributable adapter test kit out of the live `sandbox/tests/lib/` + `sandbox/conformance/` files, and pins them in the generated `adapter-kit.json`; never in Adopt's tar); data: `modules.json`, the single per-path `{module, layer}` source for `agent/src` and `cli/src` (+ `layers-exceptions.json`, the upward-reference ratchet against it — `tools/layers.json`'s old duplicate file-level `path => layer` map was retired in DUO-3493), and `offline-corpus.mk`, the generated corpus include the `Makefile` includes (rule 4) | no |
 | `tests/` | PHPUnit 11 self-tests for `tools/` (`Duo\Tests\…`, PSR-4) | no |
 | `scripts/` | `adapter-certification.php` (reviewer-facing adapter certificate sign/verify), `agent-bootstrap.sh`, `close-gate-check.sh` | mixed |
@@ -27,7 +27,7 @@ list of what reaches a managed site.
 
 1. **The drop-in is dependency-free.** No composer, no vendored packages,
    nothing fetched at runtime inside `agent/`, `cli/`, `recovery/`. A new file
-   in `agent/src` requires its own dependencies, exactly like its 244 siblings.
+   in `agent/src` requires its own dependencies, exactly like its 246 siblings.
    `agent/duo-classmap.php` does not change that contract: it is a *generated
    additive fallback* that only ever fires for a class still undeclared at the
    moment it is referenced, so it resolves nothing on the production path and

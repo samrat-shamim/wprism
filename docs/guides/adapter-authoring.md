@@ -748,6 +748,19 @@ version refuses by SECTION NAME, which is how a format change stages one adapter
 at a time instead of arriving as a flag day; the top-level `engine_features`
 list (§ v3.2) is the first such section, and a name in it that no engine
 implements is refused as unimplemented rather than admitted as forward-looking.
+Two features exist today. `spec-window/v1` claims `engine_features` itself, so
+declaring it is what lets you declare the list at all. `structured-evidence/v1`
+claims `declaration_evidence` (`spec/repo-format.md` § v3.14) — an object keyed
+by TARGET, each record `{"evidence": [{source, locator, observation}, …]}` and
+optionally `{"answered": [{question, answer}, …]}`, with every member a
+non-empty string and every target's HEAD a top-level key the same manifest
+declares. It is where a ratified `duo adapter-draft` proposal's evidence goes
+instead of being deleted with the `_draft` sidecar; `notes` is unaffected and
+keeps whatever it already carries. Two things to know before adopting it: an
+adapter that declares any engine feature is not certifiable today (§ v3.3 — a
+feature-claimed key has no arm in the signer's partition, so `duo adapter
+certify` refuses it by name), and a record whose addressed declaration is later
+deleted refuses at load, which is the point.
 `top_level_keys` is the signer's own closed partition of
 manifest top-level keys — the set that decides whether an adapter can be
 certified at all — published with the one fact an author most needs about it:

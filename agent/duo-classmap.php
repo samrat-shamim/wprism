@@ -244,6 +244,7 @@ return [
     'Duo\\StateTransitionJournal' => 'src/Promotion/StateTransitionJournal.php',
     'Duo\\StateTransitionRecord' => 'src/Promotion/StateTransitionJournal.php',
     'Duo\\StateTreeWalker' => 'src/Repository/StateTreeWalker.php',
+    'Duo\\StructuredEvidence' => 'src/Adapter/StructuredEvidence.php',
     'Duo\\StructuredReferenceCodec' => 'src/Kernel/StructuredReferenceCodec.php',
     'Duo\\StructuredReferenceScanner' => 'src/Review/StructuredReferenceScanner.php',
     'Duo\\StructuredValue' => 'src/Kernel/StructuredValue.php',

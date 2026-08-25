@@ -395,6 +395,46 @@ if (!function_exists('duo_check_closure')) {
     }
 }
 
+if (!function_exists('duo_code_without_comments')) {
+    /**
+     * One PHP file's source with every comment and docblock removed.
+     *
+     * For the suites that measure a READER SET by grepping the three shipped
+     * trees for a token — "does anything besides the owner name this
+     * constant / this accessor / this manifest key". That measurement is
+     * deliberately crude and it has one false positive: AGENTS.md rule 10
+     * makes this tree full of rationale-dense prose that names exactly those
+     * tokens, so a file that merely EXPLAINS why it is not a reader reads as
+     * one. WP-6.4 hit it — `agent/src/Adapter/StructuredEvidence.php` states
+     * in its docblock that it holds no copy of the feature vocabulary and no
+     * arm of the signer's partition, and both reader-set assertions counted it
+     * for saying so.
+     *
+     * The technique is not new here and neither is the argument:
+     * `regress_platform_move_gates.php:33-35` strips comments before its own
+     * identity predicate, because "documentation is not a gate, and counting
+     * it is exactly the noise the register must not become". The alternative —
+     * widening each expected set to name the explaining file — would make the
+     * assertion weaker for the case it exists to catch, which is a SECOND
+     * consumer that could disagree with the one definition.
+     */
+    function duo_code_without_comments(string $source): string {
+        $out = '';
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                    continue;
+                }
+                $out .= $token[1];
+                continue;
+            }
+            $out .= $token;
+        }
+
+        return $out;
+    }
+}
+
 if (!function_exists('duo_check_summary')) {
     /**
      * Terminate the suite with the conventional summary and exit status.

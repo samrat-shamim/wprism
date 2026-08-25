@@ -5,6 +5,12 @@ require_once __DIR__ . '/AdapterSources.php';
 // WP-4.12: the {N-1, N} window itself, shared with RepositoryCompiler, which
 // judges site.duo.json's own spec_version and cannot reference this layer.
 require_once __DIR__ . '/../Kernel/SpecVersionWindow.php';
+// WP-6.4: the value grammar for the `declaration_evidence` section. Eager, not
+// lazy like AdapterCertification below — that one is deferred because it is one
+// of the four names agent/duo.php's bootstrap deliberately does not declare
+// (agent/duo.php:124-128); this one is an ordinary sibling with no dependencies
+// of its own, and validate_adapter_contract() names it unconditionally.
+require_once __DIR__ . '/StructuredEvidence.php';
 // Circular with Policy.php's require_once of this file: safe because
 // require_once records the currently included path before the nested require
 // is reached, while these methods only resolve Policy at call time.
@@ -61,6 +67,15 @@ final class AdapterContractGrammar {
      * post_v1` demonstrates, which is declared by nothing across all 16 shipped
      * manifests.
      *
+     * `structured-evidence/v1` is the second, and it is the proof the first was
+     * not self-referential (WP-6.4, spec/repo-format.md § v3.14). It claims
+     * `declaration_evidence`, a genuinely NEW top-level grammar section that
+     * did not exist when v3 was cut — and adding it moved neither define in
+     * `agent/duo.php`, so the whole cost of a new top-level section was ONE row in
+     * this constant and one file that validates its values. That is the entire claim
+     * § v3.12 makes when it says the window may one day close: the replacement
+     * for a flag day has been walked before the flag day is retired.
+     *
      * Feature names are ENGINE-OWNED: an adapter declares one, never mints one
      * (spec/repo-format.md § v3.2). A name is also permanent, which is why
      * docs/wire-surface.md carries it as row R-19: a declared name lives inside
@@ -74,6 +89,21 @@ final class AdapterContractGrammar {
         'spec-window/v1' => [
             'since' => 3,
             'keys' => ['engine_features'],
+        ],
+        // WP-6.4, and the reason this constant is worth having: the FIRST
+        // grammar section to ship after v3, added here and nowhere else, with
+        // `DUO_SPEC_VERSION` left at 3. `since` is 3 rather than 4 for the
+        // same reason it is 3 for the row above and NOT the version at which
+        // the section was written: `since` is the first version whose grammar
+        // HAS the section, and this engine's does. A 4 here would refuse the
+        // section at every version this engine accepts (assert_section_
+        // versions()) and made the next bump a precondition for using it —
+        // which is how a channel meant to AVOID a flag day quietly schedules
+        // one. `regress_structured_evidence.php` asserts this 3 against the
+        // define, so the two cannot drift apart unnoticed.
+        'structured-evidence/v1' => [
+            'since' => 3,
+            'keys' => [StructuredEvidence::SECTION],
         ],
     ];
 
@@ -312,6 +342,15 @@ final class AdapterContractGrammar {
         if ($spec >= self::CLOSED_KEY_SET_SINCE) {
             self::assert_top_level_keys($name, $spec, $manifest);
         }
+        // WP-6.4, and FIRST among the value checks because it is the one that
+        // can only be reached by walking the whole channel: the section exists
+        // for this engine (assert_section_versions()), the feature that claims
+        // it was declared and is implemented (assert_engine_features()), and
+        // the closed key set admitted the key on that basis
+        // (assert_top_level_keys()). Anything wrong before this line is a
+        // question about whether the section EXISTS; from here on it is a
+        // question about what is inside it, and those are not the same refusal.
+        StructuredEvidence::assert_section($name, $manifest);
         // Validate the interpreter name at load rather than waiting for the
         // lazy interpreters() lookup to hand a non-string to preg_match().
         if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null) {

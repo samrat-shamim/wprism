@@ -144,6 +144,7 @@ use Duo\Orchestrator\ContractAttestation;
 use Duo\Recovery\CanonicalJson;
 use Duo\Recovery\RollbackControl;
 use Duo\ReferenceKindGrammar;
+use Duo\StructuredEvidence;
 
 /** The three files that own an Ed25519 signature, relative to the repo root. */
 const WS_SIGNING_FILES = [
@@ -1727,6 +1728,42 @@ function ws_rows(): array {
             . '`sandbox/tests/offline/adapter/regress_v3_reservations.php`, which pins each sentence and '
             . 'the statement\'s exact canonical bytes and signature — gate G5\'s condition 7 '
             . '(spec/repo-format.md § v3.11).',
+    ];
+
+    // WP-6.4's row. It exists because this section is the first wire surface
+    // the register acquired WITHOUT a version bump, and a register that only
+    // grew on flag days would have been a register of flag days.
+    $evidenceRow = (array) ws_const(StructuredEvidence::class, 'EVIDENCE_KEYS');
+    $answeredRow = (array) ws_const(StructuredEvidence::class, 'ANSWERED_KEYS');
+    $rows[] = [
+        'id' => 'R-29',
+        'title' => 'Structured declaration evidence: closed rows, and a target that must address a declaration',
+        'now' => 'A manifest declaring the engine feature `structured-evidence/v1` may carry the top-level '
+            . '`' . StructuredEvidence::SECTION . '` section: an object keyed by TARGET, each record '
+            . '`{evidence}` or `{evidence, answered}`, each evidence row exactly `{'
+            . implode(', ', $evidenceRow) . '}` and each answered row exactly `{'
+            . implode(', ', $answeredRow) . '}`, every member a non-empty string '
+            . '(spec/repo-format.md § v3.13). A target\'s HEAD must be a top-level key the same manifest '
+            . 'declares, which is the whole difference between this and a note that mentions a section: a '
+            . 'record for a deleted section refuses at load. No shipped manifest declares it — adopting it '
+            . 'in the 16 would move all 16 adapter digests for a documentation change (AGENTS.md rule 2) — '
+            . 'so `notes` keeps everything it carries and this is a sibling, never a migration.',
+        'permanent' => 'The section name and every row member are inside the manifest bytes '
+            . '`ArtifactPolicyIdentity::manifest_rows()` folds into the adapter `digest`, reached through '
+            . 'the same door R-19 records for the feature name that admits them: renaming a member moves '
+            . 'the digest of every manifest carrying one and invalidates their pins and certificates at '
+            . 'once. The rows are closed in BOTH directions for the reason R-21 gives one level up — a '
+            . 'member no checker reads is indistinguishable from a deliberate one, and a section whose '
+            . 'whole purpose is machine-checkable rationale cannot admit one.',
+        'reserved' => 'An ARM in `AdapterCertification::topLevelKeyPartition()` is deliberately NOT taken. '
+            . 'Without one the signer refuses this section by name — an adapter that adopts it loads '
+            . 'everywhere and is not certifiable, which is § v3.3\'s stated posture for a feature-claimed '
+            . 'key rather than an oversight. Taking the arm would also admit the key with NO feature '
+            . 'declared, deleting the no-bump demonstration the section exists to be; it is a separate '
+            . 'reviewed decision, for whoever needs a certificate to cover this surface. Also reserved: '
+            . 'resolving a target\'s TAIL against the addressed section\'s own sub-grammar — fourteen '
+            . 'field sections have fourteen of those, and a resolver here would be a second, drifting '
+            . 'copy of all of them.',
     ];
 
     return $rows;

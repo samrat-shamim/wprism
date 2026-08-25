@@ -29,8 +29,8 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/check.php",
             "role": "duo_check*() assertions, the summary line and the suite exit code",
-            "bytes": 18254,
-            "sha256": "2302d708dac91683ef8d7c863425d4bae76bb2862c22d1df48d1db6a117118d2"
+            "bytes": 20086,
+            "sha256": "640c6dbfc2527bd12290a1e1e58be54bbd971dcecf7ccc9e73382a6168f535c0"
         },
         {
             "path": "lib/wp_stubs.php",

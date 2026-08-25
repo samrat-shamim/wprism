@@ -182,7 +182,12 @@ foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
         if (!$file->isFile() || $file->getExtension() !== 'php') {
             continue;
         }
-        if (str_contains((string) file_get_contents($file->getPathname()), 'engine_features')) {
+        // Comments stripped first (WP-6.4): a file whose DOCBLOCK explains that
+        // it is not a reader is not a reader, and rule 10 guarantees this tree
+        // has such files. Same carve-out, same reason, as
+        // `regress_platform_move_gates.php:33-35`.
+        $body = duo_code_without_comments((string) file_get_contents($file->getPathname()));
+        if (str_contains($body, 'engine_features')) {
             $featureReaders[] = substr($file->getPathname(), strlen($repo) + 1);
         }
     }
@@ -193,10 +198,17 @@ duo_check_same(
     $featureReaders,
     'v3.2 ENFORCED: the channel has exactly one shipped reader — the grammar that owns the feature vocabulary'
 );
+// WP-6.4 moved this from one name to two, and the second is the assertion
+// worth having: `spec-window/v1` claims only the channel's own key, so with it
+// alone "declared and implemented admits the claimed key" is an argument about
+// admissibility. `structured-evidence/v1` claims `declaration_evidence`, a
+// section that did not exist when v3 was cut and that shipped with
+// DUO_SPEC_VERSION unmoved (§ v3.14) — so the channel is a walked path.
 duo_check_same(
-    ['spec-window/v1'],
+    ['spec-window/v1', 'structured-evidence/v1'],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: and the vocabulary carries one IMPLEMENTED feature, so "declared and implemented admits" is a path something walks'
+    'v3.2: the vocabulary carries two IMPLEMENTED features, and the second claims a section v3 did not have — '
+        . '"declared and implemented admits" is now a path something walks, not an admissibility argument'
 );
 // WP-4.12: the channel OPENED. At DUO_SPEC_VERSION 2 this probe refused by
 // SECTION NAME, because the section's own version (3) sat outside the window;
@@ -292,6 +304,13 @@ duo_check(
 // through that same accessor. Two facts, measured separately: the three private
 // constants must stay in ONE file (the definition), while the accessor is what
 // every other file reads.
+//
+// Comments stripped first (WP-6.4), for the reason the identical carve-out in
+// `regress_platform_move_gates.php:33-35` gives: a reader is a file whose CODE
+// names the token, and rule 10 makes this tree full of files whose docblocks
+// name it to explain why they are NOT one — `StructuredEvidence.php` says in
+// prose that it deliberately takes no arm in this partition, and was counted
+// here for saying so.
 $namingFiles = static function (array $tokens) use ($repo): array {
     $hits = [];
     foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
@@ -304,7 +323,7 @@ $namingFiles = static function (array $tokens) use ($repo): array {
             if (!$file->isFile() || $file->getExtension() !== 'php') {
                 continue;
             }
-            $body = (string) file_get_contents($file->getPathname());
+            $body = duo_code_without_comments((string) file_get_contents($file->getPathname()));
             foreach ($tokens as $token) {
                 if (str_contains($body, $token)) {
                     $hits[] = substr($file->getPathname(), strlen($repo) + 1);

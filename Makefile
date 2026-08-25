@@ -8,7 +8,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-offline-all regress-offline-corpus regress-offline-diagnostics
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform regress-core-scope-database
-.PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window regress-closed-top-level-keys
+.PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window regress-closed-top-level-keys regress-structured-evidence
 .PHONY: regress-spec-v3-digest-neutrality regress-spec-migration-verbs
 
 .PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window regress-disposition-split
@@ -460,6 +460,17 @@ regress-spec-window:
 # same-set check against a mutated copy, so the gate is proven to bite.
 regress-closed-top-level-keys:
 	php sandbox/tests/offline/policy/regress_closed_top_level_keys.php
+
+# WP-6.4: `declaration_evidence` (spec/repo-format.md § v3.13), the FIRST
+# grammar section shipped after v3 -- through the engine_features channel, with
+# DUO_SPEC_VERSION left at 3 and asserted in the same run. Walks the three
+# verdicts on a section v3 did not have (admitted / refused by FEATURE name /
+# refused as a typo), the section's own closed grammar, and both halves of the
+# deferral: the shipped library cannot adopt it without moving 16 digests, so
+# the prose grep in regress_shipped_option_declarations.php stays and the schema
+# check covers fixtures and out-of-tree adapters.
+regress-structured-evidence:
+	php sandbox/tests/offline/policy/regress_structured_evidence.php
 
 regress-adapter-sources:
 	bash sandbox/tests/offline/adapter/regress_adapter_sources.sh
