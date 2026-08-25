@@ -10,6 +10,8 @@ require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Code/Code.php';
 require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
 
+use Duo\CaptureSafetyGates;
+use Duo\CommandRefusalException;
 use Duo\Policy;
 
 $GLOBALS['wooContractBlogId'] = 1;
@@ -35,6 +37,7 @@ function woo_ok(bool $condition, string $message): void {
 }
 
 $root = dirname(__DIR__, 4);
+require_once $root . '/agent/src/Capture/CaptureSafetyGates.php';
 $manifest = json_decode((string) file_get_contents($root . '/manifests/woocommerce.json'), true, flags: JSON_THROW_ON_ERROR);
 // One document per subject since WP-4.4 (spec/repo-format.md § v3.4): this
 // suite reads woocommerce's reviewed entry, not the whole library.
@@ -838,6 +841,11 @@ $wooEntry = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
+$wooConformanceManifest = json_decode(
+    (string) file_get_contents($root . '/sandbox/conformance/manifests.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
 $wooSeedHarness = (string) file_get_contents($root . '/sandbox/conformance/seeds/woocommerce.sh');
 $wooPostdeployHarness = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/woocommerce.sh');
 $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
@@ -847,8 +855,51 @@ $wooRewriteCoInstallHarness = (string) file_get_contents(
 woo_ok(($wooEntry['manifest'] ?? null) === 'woocommerce'
     && ($wooEntry['entry']['pin'] ?? null) === ['core', 'woocommerce']
     && ($wooEntry['entry']['plugins'] ?? null) === [['slug' => 'woocommerce', 'version' => '11.0.1']]
-    && ($wooEntry['entry']['setup'] ?? null) === 'hpos',
+    && ($wooEntry['entry']['setup'] ?? null) === 'hpos'
+    && ($wooEntry['entry']['taxonomies'] ?? null) === ($wooConformanceManifest['woocommerce']['taxonomies'] ?? null),
     'the ordinary WooCommerce conformance entry binds the exact shipped artifact and HPOS target premise');
+woo_ok(
+    ($wooConformanceManifest['woocommerce']['taxonomies'] ?? null) === [
+        'category',
+        'post_tag',
+        'product_brand',
+        'product_cat',
+        'product_shipping_class',
+        'product_tag',
+        'product_type',
+        'product_visibility',
+    ],
+    'the capture policy explicitly scopes both merchant-authored brand terms and the nine-term visibility inventory'
+);
+woo_ok(
+    ($manifest['taxonomies']['product_brand']['class'] ?? null) === 'authored'
+        && ($manifest['taxonomies']['product_visibility']['class'] ?? null) === 'authored',
+    'the shipped Woo manifest keeps brand and mixed authored/derived visibility taxonomies authored rather than excluding them'
+);
+
+// This is the exact deterministic pending/capture refusal observed by the
+// candidate-bound conformance run: if either entry disappears from the site
+// policy, the capture safety boundary must expose the real entity count and
+// refuse before publication. Keeping both cases here prevents a future scope
+// edit from turning either taxonomy into an unreviewed silent omission.
+$wooScopeFailure = null;
+try {
+    (new CaptureSafetyGates('/siterepo'))->assertScopeGaps([
+        'taxonomy:product_brand' => ['entities' => 3],
+        'taxonomy:product_visibility' => ['entities' => 9],
+    ]);
+} catch (CommandRefusalException $failure) {
+    $wooScopeFailure = $failure;
+}
+woo_ok(
+    $wooScopeFailure instanceof CommandRefusalException
+        && $wooScopeFailure->reasonCode === 'incomplete_policy_scope'
+        && ($wooScopeFailure->diagnostics ?? [])[0]['surface'] === 'scope:taxonomy:product_brand'
+        && ($wooScopeFailure->diagnostics ?? [])[0]['entity_count'] === 3
+        && ($wooScopeFailure->diagnostics ?? [])[1]['surface'] === 'scope:taxonomy:product_visibility'
+        && ($wooScopeFailure->diagnostics ?? [])[1]['entity_count'] === 9,
+    'capture/pending scope evidence refuses the exact brand and nine-term visibility gaps with non-empty counts'
+);
 
 // The live conformance script is the candidate proof, but this offline pin
 // holds its twelve reviewed families to one source/target/check topology.
