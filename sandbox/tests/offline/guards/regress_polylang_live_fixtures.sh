@@ -100,6 +100,11 @@ for needle in \
   'wp_get_nav_menu_object("Polylang Principal Français")' \
   'Polylang French projection source graph is incoherent' \
   'injected Polylang native-catalog verification child failure' \
+  'duo identity-export --repo=/siterepo --out=/siterepo/.tmp-polylang-remove-all-identity.json' \
+  'widget identity history is missing' \
+  'identity sidecar witness mismatch' \
+  'db export /siterepo/.tmp-polylang-remove-all.sql --add-drop-table' \
+  'db import /siterepo/.tmp-polylang-remove-all.sql' \
   'RETRY_RC=0' \
   'Polylang provider retry after exact repair failed'; do
   grep -Fq "$needle" "$CONF" || fail "Polylang provider-retry fixture lost coherent source or surfaced failure guard: $needle"

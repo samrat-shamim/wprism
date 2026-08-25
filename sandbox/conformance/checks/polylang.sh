@@ -725,6 +725,15 @@ RESIDUE_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$RESIDUE_PLAN" >/dev/null \
   || fail "Polylang retained-data reinstall was not idempotent: $RESIDUE_PLAN"
 
+REMOVE_ALL_DB="$CONF_REPO2/.tmp-polylang-remove-all.sql"
+REMOVE_ALL_IDENTITY="$CONF_REPO2/.tmp-polylang-remove-all-identity.json"
+wp_conf2 duo identity-export --repo=/siterepo --out=/siterepo/.tmp-polylang-remove-all-identity.json >/dev/null
+jq -e '.format == "duo-identity-ledger/v1" and any(.maps[]?; .id_kind == "widget_polylang")' \
+  "$REMOVE_ALL_IDENTITY" >/dev/null \
+  || fail 'Polylang destructive-uninstall recovery sidecar omitted the owned widget identity'
+wp_conf2 db export /siterepo/.tmp-polylang-remove-all.sql --add-drop-table >/dev/null
+[ -s "$REMOVE_ALL_DB" ] || fail 'Polylang destructive-uninstall recovery database backup is empty'
+
 REMOVE_ALL_HOOK="$CONF_REPO2/.tmp-polylang-remove-all.php"
 cat > "$REMOVE_ALL_HOOK" <<'PHPEOF'
 <?php
@@ -757,6 +766,24 @@ wp_conf2 plugin install "$POLYLANG_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get polylang --field=version)" = 3.8.6 ] || fail 'Polylang complete-uninstall reinstall reported wrong version'
 REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered 'Polylang deploy after complete uninstall and exact reinstall' json "$REINSTALL_DEPLOY"
+LOST_PLAN_RC=0
+LOST_PLAN=$(wp_conf2 duo plan --repo=/siterepo 2>&1) || LOST_PLAN_RC=$?
+[ "$LOST_PLAN_RC" -ne 0 ] && grep -q 'widget identity history is missing' <<<"$LOST_PLAN" \
+  || fail "Polylang destructive uninstall did not refuse lost widget history exactly: $LOST_PLAN"
+STALE_IDENTITY_RC=0
+STALE_IDENTITY=$(wp_conf2 duo identity-import --repo=/siterepo --in=/siterepo/.tmp-polylang-remove-all-identity.json 2>&1) \
+  || STALE_IDENTITY_RC=$?
+[ "$STALE_IDENTITY_RC" -ne 0 ] && grep -q 'identity sidecar witness mismatch' <<<"$STALE_IDENTITY" \
+  || fail "Polylang destructive uninstall accepted an identity sidecar whose data witness was gone: $STALE_IDENTITY"
+wp_conf2 db import /siterepo/.tmp-polylang-remove-all.sql >/dev/null
+wp_conf2 plugin is-active polylang >/dev/null \
+  || fail 'Polylang database recovery did not restore the exact active-plugin preimage'
+RESTORED_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'Polylang plan after destructive-uninstall database recovery' json "$RESTORED_PLAN"
+jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' \
+  <<<"$RESTORED_PLAN" >/dev/null \
+  || fail "Polylang destructive-uninstall database recovery did not restore the exact base: $RESTORED_PLAN"
+rm -f "$REMOVE_ALL_DB" "$REMOVE_ALL_IDENTITY"
 SOURCE_MEDIA_EN=$(jq -r '.attachments.en' <<<"$SOURCE_IDS")
 SOURCE_MEDIA_FR=$(jq -r '.attachments.fr' <<<"$SOURCE_IDS")
 SOURCE_MEDIA_AR=$(jq -r '.attachments.ar' <<<"$SOURCE_IDS")
@@ -793,9 +820,9 @@ wp_conf1 eval '
 commit_polylang_source 'conformance: Polylang complete-uninstall recovery intent'
 REINSTALL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered 'Polylang complete-uninstall recovery plan' json "$REINSTALL_PLAN"
-jq -e '(.drift | length) == 0 and (.conflict | length) >= 8' <<<"$REINSTALL_PLAN" >/dev/null \
+jq -e '(.drift | length) == 0 and (.conflict | length) == 0 and (.update | length) >= 8' <<<"$REINSTALL_PLAN" >/dev/null \
   || fail "Polylang destructive lifecycle did not surface explicit recovery work: $REINSTALL_PLAN"
-REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --adopt-by-slug=terms,posts --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered 'Polylang exact reinstall recovery apply' json "$REINSTALL_APPLY"
 jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' <<<"$REINSTALL_APPLY" >/dev/null \
   || fail "Polylang exact reinstall did not recover canonical state: $REINSTALL_APPLY"
@@ -825,6 +852,6 @@ wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-final >/dev/
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-polylang-final" \
   || fail 'Polylang final recovered state was not byte-identical'
 rm -rf "$CONF_REPO2/.tmp-polylang-final"
-pass 'deactivate/reactivate, default uninstall residue, absent-code refusal, complete uninstall, exact reinstall and final native recovery are clean'
+pass 'deactivate/reactivate, default uninstall residue, absent-code refusal, complete-uninstall refusal, database restore and final native recovery are clean'
 
 echo 'polylang conformance checks passed'
