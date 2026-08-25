@@ -104,7 +104,15 @@ final class ManifestValidate {
      *     refused unless the site resolves the name with an explicit
      *     `policy.options` override (CrossManifestGuards::validate_no_
      *     conflicting_option_rules()), which this command cannot see without
-     *     a site repo.
+     *     a site repo;
+     *   - two manifests claiming the same plugin or theme with different
+     *     ranges are refused unless the site resolves the claim with an
+     *     explicit `policy.adapter_claims` row naming which is in force
+     *     (AdapterContractGrammar::validate_no_conflicting_adapter_claims(),
+     *     WP-5.5, spec/repo-format.md § v3.13) — the third guard whose verdict
+     *     is a function of the site half, added here in the change that made
+     *     it one, because a list that lagged the engine would send an author
+     *     to add an override they already have.
      *
      * Matched, never rewritten: the engine's message is the author's actual
      * coordinate and this command has no business editing it. The annotation is
@@ -117,6 +125,7 @@ final class ManifestValidate {
     private const SITE_SENSITIVE_REFUSALS = [
         'kind vocabulary is closed',
         'declare contradictory rules for options.',
+        'conflicting ownership with no v2 composition rule',
     ];
 
     /** Verbatim annotation for a refusal that a real site policy may resolve. */

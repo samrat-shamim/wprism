@@ -644,28 +644,36 @@ the code, then re-run without the flag from a directory you trust.
 
 ### `--site`, and why leaving it off can refuse a valid manifest
 
-Two of the guards above are not functions of the manifests alone. They read the
-SITE half of policy as input:
+Three of the guards above are not functions of the manifests alone. They read
+the SITE half of policy as input:
 
 - a table declared in `site.duo.json`'s `policy.tables` extends the legal
   ref/token/ledger **kind vocabulary** exactly as a manifest-declared one does,
   so `"ref": "my_site_thing"` is legal on that site and nowhere else;
 - a `policy.options.<name>` rule is the ratified **resolution** when two
   manifests declare one option name differently — the guard skips a name the
-  site has already decided.
+  site has already decided;
+- a `policy.adapter_claims` row is the operator's **resolution** when two
+  pinned manifests claim the same `plugin` (or the same `theme`) with different
+  ranges (spec/repo-format.md § v3.13). It names which claim is IN FORCE; the
+  displaced claimant's manifest still loads with every other declaration it
+  makes intact, and `duo plan` warns which claim was displaced on every run.
+  Without such a row the collision still refuses, exactly as it always did —
+  the resolution is opt-in, and it resolves the claim it names and nothing
+  else.
 
-Run without `--site`, this command loads with no site policy at all, so either
-guard can refuse a manifest its real site accepts — and the second one's
+Run without `--site`, this command loads with no site policy at all, so any of
+the three can refuse a manifest its real site accepts — and the option one's
 remediation ("add an explicit `site.duo.json` policy.options override") is
 advice to add something you may already have. Point `--site` at your duo site
-repo (the directory holding `site.duo.json`) and both guards get their real
-input:
+repo (the directory holding `site.duo.json`) and all three guards get their
+real input:
 
 ```sh
 duo manifest-validate manifests/ --site=/path/to/site-repo
 ```
 
-Without it, a refusal from either guard is **annotated**, never rewritten — the
+Without it, a refusal from any of the three is **annotated**, never rewritten — the
 engine's message is printed exactly as it stands, followed by a note saying the
 refusal may be resolvable by a `site.duo.json` this run was not given. The
 missing site half is also a permanent entry in the deferred list below, so it is

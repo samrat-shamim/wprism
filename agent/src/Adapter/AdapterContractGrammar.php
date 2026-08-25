@@ -9,6 +9,11 @@ require_once __DIR__ . '/../Kernel/SpecVersionWindow.php';
 // require_once records the currently included path before the nested require
 // is reached, while these methods only resolve Policy at call time.
 require_once __DIR__ . '/../Policy/Policy.php';
+// WP-5.5: the claim arms and the operator's resolution of a collision between
+// two of them. A downward reference (policy is below adapter on the ladder in
+// tools/modules.json), so the grammar reads the site-policy section rather
+// than the site-policy section reaching up into the grammar.
+require_once __DIR__ . '/../Policy/AdapterClaimResolutions.php';
 
 /**
  * Pure adapter compatibility contract grammar.
@@ -589,10 +594,33 @@ final class AdapterContractGrammar {
      * the same plugin or theme with different compatibility ranges. Identical
      * ranges remain redundant but deterministic and are intentionally allowed.
      *
+     * WP-5.5 adds the one way out, and it is the operator's rather than an
+     * adapter's: `site.duo.json` `policy.adapter_claims` names WHICH claimant
+     * is in force for that plugin or theme (spec/repo-format.md § v3.13), and
+     * a collision so resolved is not ambiguous any more — pin order decides
+     * nothing, a written decision does. The displaced claimant is reported by
+     * `Policy::displaced_adapter_claims()`, never hidden, and its manifest
+     * stays pinned and loaded: this resolves a CLAIM, it does not unload an
+     * adapter or merge two claims into one.
+     *
+     * Everything about the unresolved case is unchanged, deliberately and
+     * byte for byte: `$resolutions` empty is every repository that existed
+     * before this section, and the message below is the one they have always
+     * received. That is what makes the resolution an opt-in operator decision
+     * instead of a relaxation — an undeclared conflict still refuses.
+     *
+     * The refusal text keeps its "conflicting ownership with no v2 composition
+     * rule" sentence rather than advertising the new section, because it is
+     * still true and still the right advice: composition does not exist, at v2
+     * or at v3. The resolution is not composition and does not become the
+     * first remedy an operator reaches for — pinning one, or narrowing a range
+     * to a disjoint window, remains a better answer whenever it is available.
+     *
      * @param list<array<string,mixed>> $manifests
+     * @param array<string,array<string,array{in_force:string,note:?string}>> $resolutions AdapterClaimResolutions::declared()
      */
-    public static function validate_no_conflicting_adapter_claims(array $manifests): void {
-        foreach ([['plugin', 'version_range'], ['theme', 'theme_version_range']] as [$idKey, $rangeKey]) {
+    public static function validate_no_conflicting_adapter_claims(array $manifests, array $resolutions): void {
+        foreach (AdapterClaimResolutions::CLAIM_ARMS as $idKey => $rangeKey) {
             $seen = [];
             foreach ($manifests as $m) {
                 $id = $m[$idKey] ?? null;
@@ -603,7 +631,9 @@ final class AdapterContractGrammar {
                 $name = (string) ($m['name'] ?? '?');
                 if (isset($seen[$id])) {
                     $prev = $seen[$id];
-                    if ($prev['range'] != $range) {
+                    if ($prev['range'] != $range
+                        && !AdapterClaimResolutions::resolves($resolutions, $idKey, $id)
+                    ) {
                         throw new \RuntimeException(
                             "duo: manifests '{$prev['name']}' and '$name' both declare $idKey '$id' with "
                             . "different $rangeKey values (" . json_encode($prev['range']) . ' vs '

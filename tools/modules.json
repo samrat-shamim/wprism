@@ -253,8 +253,9 @@
             ]
           }
         ],
-        "file_count": 21,
+        "file_count": 22,
         "files": [
+          "AdapterClaimResolutions.php",
           "ArtifactPolicyIdentity.php",
           "CodeConfigGrammar.php",
           "CrossManifestGuards.php",

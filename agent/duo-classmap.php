@@ -12,6 +12,7 @@ declare(strict_types=1);
 return [
     'Duo\\ActionProviderGrammar' => 'src/Adapter/ActionProviderGrammar.php',
     'Duo\\AdapterCertification' => 'src/Adapter/AdapterCertification.php',
+    'Duo\\AdapterClaimResolutions' => 'src/Policy/AdapterClaimResolutions.php',
     'Duo\\AdapterContractGrammar' => 'src/Adapter/AdapterContractGrammar.php',
     'Duo\\AdapterObservation' => 'src/Adapter/AdapterObservation.php',
     'Duo\\AdapterProbe' => 'src/Adapter/AdapterProbe.php',

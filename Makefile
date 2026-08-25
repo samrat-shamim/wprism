@@ -2700,6 +2700,19 @@ regress-platform-move-gates:
 regress-identity-namespaces:
 	php sandbox/tests/offline/guards/regress_identity_namespaces.php
 
+# WP-5.5: two pinned manifests claiming one plugin (or one theme) stop refusing
+# when site.duo.json's `policy.adapter_claims` says which claim is in force,
+# and the displaced claimant is REPORTED as `displaced_by_resolution` instead
+# of vanishing. Measures the far larger unchanged half at the same time: the
+# unresolved refusal asserted against a LITERAL sentence in both arms, the
+# redundant identical-range pair still tolerated, the displaced manifest still
+# pinned and still loaded with every other declaration intact, one range in
+# force and nothing merged, an unrelated cross-manifest conflict in the same
+# set still refusing, and a resolution that decides nothing -- the drift case,
+# after one of its manifests is unpinned -- refusing by name.
+regress-plugin-claim-resolution:
+	php sandbox/tests/offline/guards/regress_plugin_claim_resolution.php
+
 # WP-2.6: the adapter test kit. Adopt.php:147-150 tars exactly
 # `agent manifests recovery`, so sandbox/ -- where the entire ability to PROVE
 # an adapter lives -- reaches nobody, and a third party reinvents the harness.
