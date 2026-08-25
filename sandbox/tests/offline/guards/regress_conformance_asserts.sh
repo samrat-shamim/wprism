@@ -178,6 +178,8 @@ CAPTURE_DEAD=$(capture_probe dead) && CAPTURE_DEAD_RC=0 || CAPTURE_DEAD_RC=$?
   || fail "capture_duo_json_success accused the engine after a dead transport: $CAPTURE_DEAD"
 grep -q '^capture_duo_json_success ' conformance/run.sh \
   || fail "conformance apply does not use the refusal-preserving JSON command wrapper"
+grep -Eq 'require_duo_answered capture_duo_json_success require_observed_nonempty' conformance/run.sh \
+  || fail "manifest check subprocesses cannot call the refusal-preserving JSON command wrapper"
 ! grep -q 'APPLY_JSON=.*duo apply.*| tail -1' conformance/run.sh \
   || fail "conformance apply still discards a nonzero refusal through its old tail pipeline"
 pass "conformance apply preserves answered refusal envelopes, separates dead transport, and publishes only successful JSON"
