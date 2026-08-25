@@ -220,6 +220,31 @@ const REHEARSAL_GAPS = [
         'the v2 registry PRODUCER, and this estate mints no registry: it copies the shipped root and edits it. '
         . 'Exercised by sandbox/tests/offline/adapter/regress_authority_record_v2.php, which signs through it '
         . 'and then reads every document back through the shipped reader.',
+    // WP-4.9's three § v3.8 gates. Every one of them is gated on a document
+    // this estate does not build and must not: `adapters/delegations.json` and
+    // `capabilities/adapter-revocations.json` are both ABSENT everywhere in the
+    // field, which is the property that makes the flag day move no byte — so an
+    // estate that installed one would stop being a rehearsal of the transition
+    // and start being a rehearsal of a feature nobody has enabled.
+    'agent/src/Adapter/AdapterCertification.php::verifyDelegation' =>
+        'the depth-1 delegation verifier, reachable only from an installed adapters/delegations.json. This '
+        . 'estate builds none, deliberately: § v3.8\'s gate is the absence of that document, and the estate\'s '
+        . 'job is to prove the bump is digest-neutral for the sites that exist. The whole refusal matrix — '
+        . 'chain depth, narrow-only namespace/tier/window, site-key delegator, revoked delegator, id '
+        . 'collisions — is exercised by sandbox/tests/offline/adapter/regress_authority_delegation.php.',
+    'agent/src/Adapter/AdapterCertification.php::revocations' =>
+        'the reader for capabilities/adapter-revocations.json, which is absent from every manifest library this '
+        . 'estate copies (it is absent from the shipped one, asserted on every run by '
+        . 'regress_revocation_reachability.php). An absent document returns [] before any refusal is reachable. '
+        . 'Its refusals — unsupported root, unimplemented version, foreign or revoked signer, bad signature, '
+        . 'unreadable bytes — are exercised by '
+        . 'sandbox/tests/offline/adapter/regress_revocation_reachability.php.',
+    'agent/src/Adapter/AdapterCertification.php::assertNotRevoked' =>
+        'the seat that consults that document. This estate DRIVES it on every certificate resolution — '
+        . 'authority() and the frozen site branch both call it — but never REFUSES through it, because with no '
+        . 'revocation document installed it returns before it can. The refusal, on the frozen path and the live '
+        . 'path both, plus the preserved operator-own-key asymmetry it must not have closed, is exercised by '
+        . 'sandbox/tests/offline/adapter/regress_revocation_reachability.php.',
     'recovery/CheckpointBundle.php::validatePriorVerification' =>
         'reached only through a receipt-authorized recovery provider call (RecoveryExecutor::configuration plus a '
         . 'signed rollback-control request), and manifest_inputs_sha256 is MINTED BY THE PROVIDER rather than '

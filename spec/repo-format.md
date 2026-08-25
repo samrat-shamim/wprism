@@ -1189,33 +1189,116 @@ never after. This change is possible only because the platform root has never si
 
 ### v3.8 Depth-1 delegated authorities, and typed revocation
 
-**Rider: WP-4.9. Enforced today: no.** There is no chain, no cross-signing and no path validation, by
-deliberate design.
+**Rider: WP-4.9. Enforced today: YES — gated on TWO DOCUMENTS THAT DO NOT EXIST, never on `spec_version`.**
+An agent that meets neither behaves exactly as it does today: `adapters/delegations.json` is absent from
+every repository in the field and `capabilities/adapter-revocations.json` is absent from the shipped
+manifest library and stays absent. There is still no chain beyond one level, no cross-signing and no path
+validation, and that remains deliberate design rather than an unfinished edge.
 
-A v3 **delegation document** is a new domain-separated signed statement type in which a platform key
+A **delegation document** is a new domain-separated signed statement type in which a platform key
 delegates a namespace pattern, a tier set and a validity window to a vendor key, installable site-side. It
-gets its own signature domain constant, never a new arm inside the certification verifier — the same
-reason `SIGNATURE_DOMAIN` exists at all: a statement of one kind must not be able to verify as a statement
-of another (R-01, R-04). `ContractAttestation` is the proof this pattern replicates: a second
-operator-provisioned Ed25519 root with its own format, scope and domain.
+gets its own signature domain constant —
+`AdapterCertification::SIGNATURE_DOMAIN_DELEGATION`, `duo-adapter-authority-delegation-signature/v1\0` —
+never a new arm inside the certification verifier, for the same reason `SIGNATURE_DOMAIN` exists at all: a
+statement of one kind must not be able to verify as a statement of another (R-01, R-04).
+`ContractAttestation` is the proof this pattern replicates: a second operator-provisioned Ed25519 root
+with its own format, scope and domain.
+
+*Resolved here, because the spec text named a document without naming where it lives:* the delegation
+document is a flat `adapters/delegations.json` beside the site trust root, holding a MAP of delegate key
+id to a `{signature, statement}` object, and it is a RESERVED NAME in `adapters/` exactly as
+`authorities.json` is — without that it would be globbed as a site adapter called `delegations` and
+refused for declaring no name. A flat file rather than a `delegations/` directory because
+`AdapterSources::assert_flat_json_source()` refuses a nested `.json` under `adapters/` by name and admits
+exactly one directory, `certifications/`; admitting a second is a site-source grammar change and belongs
+to § v3.9. Like the site trust root beside it, the document is validated WHOLE the moment it exists —
+inert authority bytes an operator believes in are the failure mode this source refuses everywhere else.
+
+*Resolved here, and it is the decision with the largest blast radius:* a delegated key resolves under
+trust root **`site`**, not a third word. R-13 reserves a third `trust_root` VALUE for a genuinely new
+custody model, and spending it here would make every deployed verifier refuse these certificates by name
+for no gain — a delegated key lives in one site repository and certifies that repository's adapters, which
+is what `site` already means inside the signed statement. What the delegation adds is not a new root but a
+documented provenance for a key inside the existing one. That is also exactly why the revocation half
+below is not optional: putting a vendor key into the site root is what breaks the frozen path's old
+premise.
 
 The rules are refusals, and the refusal matrix is the acceptance criterion:
 
-- verification chains **exactly one level**. A two-level chain refuses BY NAME rather than merely failing;
-- a delegation may only NARROW its delegator's namespace and tier set;
-- an expired delegation refuses; a delegation signed under a site key rather than a platform key refuses;
-- a revoked delegator invalidates its delegates.
+- verification chains **exactly one level**. A two-level chain refuses BY NAME
+  (`… is delegated by '<id>', which is itself a delegate — verification chains exactly 1 level and a
+  delegate may not delegate`) rather than merely failing. *Resolved here:* the depth test runs BEFORE the
+  delegator is looked up in the platform root, because resolving first would report the honest but useless
+  "that key is not installed" and hide the chain. The bound lives in the verifier as
+  `DELEGATION_DEPTH`, not in a policy anyone can raise;
+- a delegation may only NARROW its delegator's namespace, tier set **and window**. *Resolved here:* time
+  is a scope like any other, so the grant must lie inside the delegator's window when the delegator has
+  one, judged at read time with no clock involved. Namespace narrowing reuses § v3.7's `<vendor>-*`
+  grammar rather than inventing a second reading of it, and an EXACT delegator grant covers no pattern at
+  all — `acme-forms` cannot delegate `acme-forms-*`, because a pattern reaches names that do not exist yet
+  and an exact name never does;
+- an expired delegation refuses; a delegation signed under a site key rather than a platform key refuses.
+  *Resolved here:* the site-key rule is enforced twice and the order is deliberate — the `trust_root` word
+  inside the signature is checked first so the refusal names the CLAIM, and the delegator is then resolved
+  only in the shipped, reviewed root so the refusal names the MISS. Expiry is judged where every window in
+  the engine is judged, `assertAuthorityScope()`, and not at document-read time: a record whose window has
+  closed must still parse, still report, and still be distinguishable from a malformed one (§ v3.7);
+- a revoked delegator invalidates its delegates, on both revocation channels, read LIVE against the
+  current shipped root on every resolution rather than copied into the grant at signing time. *Resolved
+  here:* the delegator's WINDOW is deliberately NOT applied at read time — § v3.7 already refused to apply
+  the authorities envelope signer's window for the blast-radius reason, and a document a whole site source
+  is judged against has more of that radius, not less. Nothing is lost by the omission, because the
+  containment rule above forces every grant inside its delegator's window;
+- and two collision rules the matrix needs to be complete: a delegation may not claim a key id the shipped
+  root reviews, nor one the site trust root already carries. One identity has one record, never a written
+  one and a granted one that could disagree.
 
 **Revocation becomes typed and reachable.** Today it is one `status` word per key in a file that ships
 inside the agent archive — `Adopt.php:149` tars exactly `agent manifests recovery` — so revocation
 latency is agent-release latency, which is the wrong cadence for the one direction that matters under
 compromise. v3 adds a typed revocation record carrying its own timestamp and reason, and a distribution
-channel that is NOT the agent release. It also closes the frozen-path gap: `verifyFrozen()` (`:337`)
-re-binds a site-rooted certificate to the authority record the SIGNATURE covers, because the frozen path
-reopens no mutable file — reasoned as correct while that root is the operator's own, a premise that fails
-the moment federation-by-copy puts a VENDOR key in a site root. A revoked vendor key held in a site root
-stops verifying on the frozen path; the operator-own-key asymmetry is preserved, with its reason text
-stating the distinction.
+channel that is NOT the agent release.
+
+*Resolved here, because "not the agent release" has to mean something checkable:* the document is
+`capabilities/adapter-revocations.json` in the agent's MANIFEST LIBRARY, envelope
+`{format, signature, statement}`, statement `{format, issued_at, revocations, version}`, each entry
+`{effective_at, fingerprint, key_id, reason}`, signed under its own domain
+`duo-adapter-authority-revocation-signature/v1\0` by a key the SHIPPED platform root carries. Three
+properties are what distinguish it from the `status` word, and each one is asserted rather than argued:
+it ships ABSENT and its absence means "nothing is revoked"; it is not byte-compared by `make release-gate`
+the way the trust root beside it is (R-08's gate 6), so updating it moves no gated byte; and it is
+SELF-AUTHENTICATING, so the identical bytes produce the identical verdict from any path a courier put them
+on — an operator's cron over plain HTTP, a configuration run, an incident responder's paste. The trust
+comes from the signature and not from the channel. An entry binds `fingerprint` = `sha256(public_key)` and
+never the key id, because an id can be re-minted over new key material and material cannot be re-minted
+under an old id. The signer's own window is deliberately NOT applied: letting a lapsed window silently
+un-revoke a key would make expiry a way to RESURRECT the exact identities the document exists to burn.
+
+*Residual, stated rather than softened:* the manifest library is inside the adoption tar, so re-adopting
+an agent over a site replaces this file along with the library. The remedy is to re-install it after an
+adopt, or to point `DUO_MANIFESTS_DIR` at a library the adoption tar does not overwrite. It lives there
+regardless, because the manifest directory is the ONLY path frozen verification holds
+(`AdapterSources.php:4192` calls `verifyFrozen()` with `Policy::manifests_dir()` and nothing else), and
+reaching the frozen path is the entire point of the channel.
+
+It also closes the frozen-path gap. `verifyCertificate()`'s site branch
+(`agent/src/Adapter/AdapterCertification.php:1338-1379` — the comment headed "THE ONE ASYMMETRY BETWEEN THE
+TWO ROOTS", whose line numbers this rider re-verified against the merged WP-4.8 tree) re-binds a
+site-rooted certificate to the authority record the SIGNATURE covers, because the frozen path reopens no
+mutable file — reasoned as correct while that root is the operator's own, a premise that fails the moment
+federation-by-copy puts a VENDOR key in a site root. A revoked vendor key held in a site root now stops
+verifying on the frozen path, because the revocation document is agent-owned and therefore readable
+exactly where the site's own document is not.
+
+The operator-own-key asymmetry is preserved, and preserving it is a decision rather than a leftover:
+flipping `status` in the operator's own `adapters/authorities.json` still stops every live scan and still
+does not reach an already-frozen snapshot, because closing that too would claim a custody property this
+profile explicitly defers (T6 §2). Every refusal the new channel raises states the distinction in its own
+sentence — "*This channel reaches the frozen path, which a status flip in the operator's own
+adapters/authorities.json deliberately does not*" — so an operator looking at a refused snapshot can tell
+which of the two mechanisms answered without reading the source.
+
+Register rows R-25 and R-26 record what these two statement kinds make permanent.
 
 ### v3.9 The namespace grammar, and the closed grandfather list
 

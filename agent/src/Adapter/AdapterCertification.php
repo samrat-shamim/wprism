@@ -154,7 +154,101 @@ final class AdapterCertification {
      */
     public const SIGNATURE_DOMAIN_AUTHORITIES = "duo-adapter-authorities-signature/v1\0";
 
+    /**
+     * THE DELEGATION STATEMENT DOMAIN (spec/repo-format.md § v3.8, WP-4.9).
+     *
+     * Its own domain for the reason SIGNATURE_DOMAIN_AUTHORITIES states one
+     * constant above and register rows R-01/R-04 record: a statement of one
+     * kind must not be able to verify as a statement of another, and the
+     * trailing NUL is what stops one domain being a prefix of a longer one.
+     * The concrete replay this closes: a delegation's signed statement and a
+     * certificate's both carry an `adapter_names`-shaped grant under a
+     * platform key, so under one domain a delegation could be presented as the
+     * authority half of a certificate for an adapter nobody certified.
+     *
+     * `ContractAttestation` (`cli/src/Contract/ContractAttestation.php:105`) is
+     * the proof this pattern replicates rather than a new idea: a second
+     * Ed25519 root with its own format, scope and domain, verified beside the
+     * certification one and never inside it.
+     */
+    public const SIGNATURE_DOMAIN_DELEGATION = "duo-adapter-authority-delegation-signature/v1\0";
+
+    /**
+     * THE REVOCATION STATEMENT DOMAIN (§ v3.8).
+     *
+     * A THIRD domain rather than an arm inside the delegation verifier, and the
+     * reason is a subject-set argument rather than a stylistic one: a
+     * revocation must be able to name key material that holds NO delegation —
+     * a platform key, or a vendor key an operator copied into a site root by
+     * hand — so its subject set is strictly larger than the delegation
+     * statement's. Under one domain a delegation statement whose members
+     * happened to overlap could be replayed as a revocation of its own
+     * delegator, which is the one direction that must never be forgeable.
+     */
+    public const SIGNATURE_DOMAIN_REVOCATION = "duo-adapter-authority-revocation-signature/v1\0";
+
+    /**
+     * The delegation wire, plural on the document and singular on the statement.
+     *
+     * Two format strings rather than one because they name two different
+     * things: the installed FILE holds a map of delegations, while the signed
+     * STATEMENT is one delegation and carries its own format inside the
+     * signature. The statement's copy is the one that matters — the envelope's
+     * `format` is outside every signature, exactly as
+     * `SupersededWireSiteAdapterCertificate`'s note records for the
+     * certification envelope, so a reader that trusted only the envelope's word
+     * would be trusting an unauthenticated byte.
+     */
+    public const DELEGATIONS_FORMAT = 'duo-adapter-authority-delegations/v1';
+    public const DELEGATION_FORMAT = 'duo-adapter-authority-delegation/v1';
+    /** The revocation wire, plural/singular for the identical reason. */
+    public const REVOCATIONS_FORMAT = 'duo-adapter-authority-revocations/v1';
+    public const REVOCATION_FORMAT = 'duo-adapter-authority-revocation/v1';
+
+    /**
+     * Verification chains EXACTLY one level, and the constant exists so the
+     * number is quoted rather than implied.
+     *
+     * A delegate may not delegate: `delegatedKeys()` refuses a delegation whose
+     * delegator is itself a delegate BY NAME, before it tries and fails to
+     * resolve that delegator in the platform root — a chain must read as a
+     * chain, not as a missing key. There is no depth-2 mode to enable; this is
+     * a bound on the verifier, not a configurable maximum.
+     */
+    private const DELEGATION_DEPTH = 1;
+
     private const AUTHORITIES_RELATIVE = 'capabilities/adapter-authorities.json';
+    /**
+     * THE OUT-OF-BAND REVOCATION CHANNEL (§ v3.8).
+     *
+     * Beside the shipped trust root in the agent's manifest library, and NOT
+     * inside it, because the two have opposite cadences. A `status: revoked`
+     * word in `capabilities/adapter-authorities.json` is a byte of a file
+     * `make release-gate` byte-compares against exactly two legal states
+     * (`tools/wire-surface.php` gate 6), so moving it is an agent release —
+     * which is the wrong latency for the one direction that matters under
+     * compromise.
+     *
+     * This document is a different thing in three checkable ways: it is absent
+     * from the shipped tree and stays absent, its absence is a legitimate
+     * answer meaning "nothing is revoked", and it is SELF-AUTHENTICATING — a
+     * platform-key signature over its own statement — so it needs no integrity
+     * from whatever carried it. An operator's cron may fetch it over plain
+     * HTTP, a configuration run may drop it, an incident responder may paste
+     * it; the agent's verdict is identical, because the trust comes from the
+     * signature and not from the channel.
+     *
+     * It lives under the MANIFEST DIRECTORY rather than in the site repository
+     * because that is the only path the frozen verifier holds
+     * (`AdapterSources.php:4156` calls verifyFrozen() with
+     * `Policy::manifests_dir()` and nothing else), and reaching the frozen path
+     * is the entire point of the channel. RESIDUAL, stated rather than
+     * softened: `Adopt.php:149` tars `agent manifests recovery`, so re-adopting
+     * an agent over a site replaces this file along with the library. The
+     * remedy is to re-install it after an adopt, or to point
+     * `DUO_MANIFESTS_DIR` at a library the adoption tar does not overwrite.
+     */
+    private const REVOCATIONS_RELATIVE = 'capabilities/adapter-revocations.json';
     /**
      * The SITE trust root (round-3 T6 §3.1): the operator's own authority
      * file, in the operator's own repository, travelling with it.
@@ -170,6 +264,20 @@ final class AdapterCertification {
      * reach a shipped manifest or another repository's adapter.
      */
     private const SITE_AUTHORITIES_RELATIVE = AdapterSources::SITE_DIR . '/' . AdapterSources::SITE_AUTHORITIES_FILE;
+    /**
+     * Where a site installs the delegations it was handed (§ v3.8).
+     *
+     * Beside the site trust root, in the repository, travelling with it — the
+     * same custody argument SITE_AUTHORITIES_RELATIVE makes, for the same
+     * reason: a delegation grants a VENDOR key standing inside THIS repository
+     * and nowhere else. It is a flat file rather than a directory because
+     * `AdapterSources::assert_flat_json_source()` refuses a nested `.json`
+     * under `adapters/` by name (REFUSAL_NESTED_JSON), and the one directory
+     * that source admits is `certifications/`; a second admitted directory
+     * would be a change to the site-source grammar, which is § v3.9's subject
+     * and not this rider's.
+     */
+    private const SITE_DELEGATIONS_RELATIVE = AdapterSources::SITE_DIR . '/' . AdapterSources::SITE_DELEGATIONS_FILE;
     private const PLATFORM_RELATIVE = 'capabilities/platform.json';
     private const CERTIFICATE_DIR = 'adapters/certifications';
 
@@ -211,6 +319,48 @@ final class AdapterCertification {
     private const AUTHORITIES_ENVELOPE_KEYS = ['format', 'keys'];
     private const AUTHORITIES_ENVELOPE_V2_KEYS = ['format', 'keys', 'signature'];
     private const AUTHORITIES_SIGNATURE_KEYS = ['key_id', 'value'];
+
+    /**
+     * The delegation grammar's five closed key sets (§ v3.8).
+     *
+     * Closed in both directions like every other set in this file, and the
+     * consequence is the one R-05 records: no member can ever be added for
+     * anyone holding today's agent, so growth is a new `format` value verified
+     * beside this one. `version` inside the statement is what makes that
+     * growth refuse BY VERSION rather than read as corruption — the identical
+     * member `record_version` is at v2 and § v3.6 adds to the certification
+     * statement, for the identical reason.
+     *
+     * `delegate` carries the key MATERIAL and `delegator` carries only an
+     * identity (`key_id` + `fingerprint`), and that asymmetry is deliberate:
+     * the delegate's public key must be inside the signature or the grant would
+     * name a key the delegator never saw, while the delegator's key is read
+     * from the shipped platform root at verify time so that revoking it there
+     * revokes every delegation it made.
+     */
+    private const DELEGATIONS_ENVELOPE_KEYS = ['delegations', 'format'];
+    private const DELEGATION_KEYS = ['signature', 'statement'];
+    private const DELEGATION_SIGNATURE_KEYS = ['key_id', 'value'];
+    private const DELEGATION_STATEMENT_KEYS = [
+        'adapter_names', 'delegate', 'delegator', 'format', 'not_after', 'not_before', 'trust_tiers', 'version',
+    ];
+    private const DELEGATION_DELEGATE_KEYS = ['algorithm', 'key_id', 'public_key'];
+    private const DELEGATION_DELEGATOR_KEYS = ['fingerprint', 'key_id', 'trust_root'];
+
+    /**
+     * The typed revocation grammar's three closed key sets (§ v3.8).
+     *
+     * An entry binds `fingerprint` — `sha256(public_key)` — and not the key id,
+     * because an id can be re-minted over new material and material cannot be
+     * re-minted under an old id. `key_id` rides along so the refusal can NAME
+     * the key an operator knows, and `reason` because a revocation an operator
+     * cannot explain is one nobody will act on; both are inside the signature.
+     * `effective_at` is per ENTRY rather than per document so one signed
+     * statement can carry an incident's several keys with their own instants.
+     */
+    private const REVOCATIONS_ENVELOPE_KEYS = ['format', 'signature', 'statement'];
+    private const REVOCATION_STATEMENT_KEYS = ['format', 'issued_at', 'revocations', 'version'];
+    private const REVOCATION_ENTRY_KEYS = ['effective_at', 'fingerprint', 'key_id', 'reason'];
 
     /**
      * One timestamp grammar, checked at both ends, and it is deliberately the
@@ -1227,12 +1377,26 @@ final class AdapterCertification {
             //
             // What is NOT relaxed: the shipped library still wins the key-id
             // namespace, and that check needs no repository at all.
+            //
+            // WP-4.9 CLOSED THE OTHER HALF OF THIS GAP without moving the
+            // asymmetry above one inch. The paragraph's premise — "that is the
+            // operator's own root, revoked by the operator" — fails the moment
+            // federation-by-copy puts a delegated VENDOR key in a site root, and
+            // that population is exactly what the typed revocation document
+            // reaches: it is agent-owned (`capabilities/adapter-revocations.json`,
+            // beside the shipped trust root this branch already reads through
+            // assertKeyIdNotPlatformOwned()), platform-signed, and therefore
+            // readable here where no mutable SITE file is. So a revoked vendor
+            // key stops verifying frozen, a `status` flip in the operator's own
+            // document still does not, and assertNotRevoked()'s sentence names
+            // the distinction so an operator can tell which one answered.
             self::validateAuthorityRecord(
                 $embeddedRecord,
                 "site adapter certification key '$selectedAuthority'",
                 $selectedAuthority
             );
             self::assertKeyIdNotPlatformOwned($manifestDir, self::keyId($selectedAuthority));
+            self::assertNotRevoked($manifestDir, self::keyId($selectedAuthority), $embeddedRecord);
             $authority = $embeddedRecord;
             $keyId = self::keyId($selectedAuthority);
             $trustRoot = self::TRUST_ROOT_SITE;
@@ -1573,28 +1737,731 @@ final class AdapterCertification {
             rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE,
             'adapter certification authorities'
         );
-        if (isset($platform[$id])) {
-            return [$platform[$id], $id, self::canonicalHash($platform[$id]), self::TRUST_ROOT_PLATFORM];
-        }
         $site = $repoRoot === null
             ? []
             : self::authorityKeys(
                 rtrim($repoRoot, '/') . '/' . self::SITE_AUTHORITIES_RELATIVE,
                 'site adapter certification authorities'
             );
-        if (isset($site[$id])) {
-            return [$site[$id], $id, self::canonicalHash($site[$id]), self::TRUST_ROOT_SITE];
+        // THE THIRD SOURCE, and it is read LAST on purpose (§ v3.8, WP-4.9).
+        //
+        // An installed key outranks a delegated one, in both roots, because a
+        // record an operator or a reviewer wrote down is a decision and a
+        // delegation is a grant someone else made: letting a delegation shadow
+        // an id already carried by either root would let a vendor answer for an
+        // identity its holder had already scoped. delegatedKeys() refuses that
+        // collision by name as well, so the ordering is belt and braces rather
+        // than the only line holding it.
+        //
+        // Read lazily — only when neither root answered — so a repository that
+        // installs no delegation pays nothing, and a platform-rooted
+        // certificate is never refused by a delegation file it has no business
+        // reading.
+        $delegated = [];
+        $selected = null;
+        if (isset($platform[$id])) {
+            $selected = [$platform[$id], $id, self::canonicalHash($platform[$id]), self::TRUST_ROOT_PLATFORM];
+        } elseif (isset($site[$id])) {
+            $selected = [$site[$id], $id, self::canonicalHash($site[$id]), self::TRUST_ROOT_SITE];
+        } else {
+            $delegated = self::delegatedKeys($manifestDir, $repoRoot, $platform, $site);
+            if (isset($delegated[$id])) {
+                // TRUST ROOT `site`, not a third word. A delegated key lives in
+                // the site repository and certifies that repository's adapters,
+                // which is exactly what `site` means in the signed statement
+                // (R-13); minting a third value would spend the one extension
+                // channel R-13 reserves for a genuinely new custody model, and
+                // would make every deployed verifier refuse these certificates
+                // by name. What the delegation adds is not a new root but a
+                // documented provenance for a key inside the existing one —
+                // and that is precisely the population the typed revocation
+                // channel below exists to reach on the frozen path.
+                $selected = [$delegated[$id], $id, self::canonicalHash($delegated[$id]), self::TRUST_ROOT_SITE];
+            }
         }
-        if ($platform === [] && $site === []) {
+        if ($selected === null) {
+            $sources = self::AUTHORITIES_RELATIVE
+                . ($repoRoot === null
+                    ? ''
+                    : ' or ' . self::SITE_AUTHORITIES_RELATIVE . ' or ' . self::SITE_DELEGATIONS_RELATIVE);
+            if ($platform === [] && $site === [] && $delegated === []) {
+                throw new \RuntimeException(
+                    'duo: no adapter certification authorities are installed at ' . $sources
+                );
+            }
             throw new \RuntimeException(
-                'duo: no adapter certification authorities are installed at ' . self::AUTHORITIES_RELATIVE
-                . ($repoRoot === null ? '' : ' or ' . self::SITE_AUTHORITIES_RELATIVE)
+                "duo: authority key '$id' is not installed in " . $sources
             );
         }
+        self::assertNotRevoked($manifestDir, $selected[1], $selected[0]);
+
+        return $selected;
+    }
+
+    /**
+     * The delegated authority records a site repository installs, verified.
+     *
+     * WHAT A DELEGATION IS. A PLATFORM key's signed grant of a namespace
+     * pattern, a tier set and a validity window to a VENDOR key, installed
+     * site-side. It is the answer to the question the shipped trust root cannot
+     * answer at scale: `manifests/capabilities/adapter-authorities.json` is
+     * reviewed by this project and moves on an agent release, so enrolling every
+     * vendor there makes review the bottleneck for the whole ecosystem. A
+     * delegation moves that decision to a key the project already reviewed,
+     * once, and bounds what that key can hand on.
+     *
+     * WHAT IT IS NOT, and the refusals are the specification:
+     *
+     *   1. It is not a CHAIN. Verification chains exactly DELEGATION_DEPTH
+     *      levels and refuses a delegate that delegates BY NAME, before it tries
+     *      to resolve that delegator in the platform root — because "your
+     *      delegator is not a platform key" and "delegates may not delegate" are
+     *      different findings and an operator must be told which one happened.
+     *   2. It is not a WIDENING. Every name and tier in the grant must be
+     *      covered by the delegator's own, judged by the same
+     *      `<vendor>-*` grammar § v3.7 gave `adapter_names`, and the window must
+     *      lie inside the delegator's when the delegator has one.
+     *   3. It is not a SITE power. A delegation signed under a site key refuses:
+     *      the delegator is resolved in the shipped platform root and nowhere
+     *      else, so an operator cannot bootstrap standing they were never given.
+     *   4. It is not INDEPENDENT of its delegator. The delegator's status,
+     *      window and typed revocation are all judged at verify time against the
+     *      CURRENT shipped root, so revoking the delegator invalidates every
+     *      delegate it made, at once and without touching a site.
+     *
+     * The record this returns is a synthesized `record_version: 2` authority
+     * record put through validateAuthorityRecord() before it is handed back, so
+     * a delegation can never produce a record the installed grammar would have
+     * refused — reuse rather than a second grammar for the same object.
+     *
+     * @param array<string,array<string,mixed>> $platform the shipped root, already read
+     * @param array<string,array<string,mixed>> $site the site root, already read
+     * @return array<string,array<string,mixed>>
+     */
+    private static function delegatedKeys(
+        string $manifestDir,
+        ?string $repoRoot,
+        array $platform,
+        array $site
+    ): array {
+        if ($repoRoot === null) {
+            // The frozen path holds no repository, so it reaches no delegation
+            // document — the same absence verifyCertificate() states for the
+            // site trust root. That is exactly why a delegated key's revocation
+            // travels through the agent-owned channel below instead.
+            return [];
+        }
+        $file = rtrim($repoRoot, '/') . '/' . self::SITE_DELEGATIONS_RELATIVE;
+        $label = 'site adapter certification delegations';
+        if (!file_exists($file) && !is_link($file)) {
+            return [];
+        }
+        if (!is_file($file) || is_link($file)) {
+            throw new \RuntimeException("duo: $label must be an ordinary regular file: $file");
+        }
+        self::assertSodium();
+        [, $typed, $data] = self::readCanonicalObjectFile($file, $label);
+        self::assertExactKeys($data, self::DELEGATIONS_ENVELOPE_KEYS, $label);
+        if (($data['format'] ?? null) !== self::DELEGATIONS_FORMAT
+            || !is_array($data['delegations'] ?? null)
+            || !isset($typed->delegations) || !is_object($typed->delegations)) {
+            throw new \RuntimeException("duo: $label have an unsupported or malformed root");
+        }
+        if ($data['delegations'] === []) {
+            // Inert authority bytes an operator believes in are the failure mode
+            // this whole source refuses: a file that grants nothing reads as a
+            // vendor who has been enrolled and has not.
+            throw new \RuntimeException(
+                "duo: $label carry no delegations — remove the file rather than installing one that grants nothing"
+            );
+        }
+        // The chain refusal needs the whole delegate set before any single
+        // delegation is judged, so it is collected first: otherwise a two-level
+        // chain would be refused as "delegator not installed" or accepted
+        // depending on nothing but map order.
+        $delegateIds = [];
+        foreach ($data['delegations'] as $mapKey => $ignored) {
+            if (is_string($mapKey)) {
+                $delegateIds[$mapKey] = true;
+            }
+        }
+        $out = [];
+        foreach ($data['delegations'] as $mapKey => $delegation) {
+            if (!is_string($mapKey)) {
+                throw new \RuntimeException(
+                    "duo: $label contain non-string delegate key " . var_export($mapKey, true)
+                    . ' — numeric-only identities are forbidden because PHP coerces JSON object-map keys to integers'
+                );
+            }
+            $delegateId = self::keyId($mapKey);
+            if (!is_array($delegation) || array_is_list($delegation)
+                || !isset($typed->delegations->{$mapKey}) || !is_object($typed->delegations->{$mapKey})) {
+                throw new \RuntimeException("duo: $label delegation '$delegateId' must be a JSON object");
+            }
+            $out[$delegateId] = self::verifyDelegation(
+                $manifestDir,
+                $delegateId,
+                $delegation,
+                $typed->delegations->{$mapKey},
+                $delegateIds,
+                $platform,
+                $site
+            );
+        }
+        ksort($out, SORT_STRING);
+
+        return $out;
+    }
+
+    /**
+     * One delegation, verified into the authority record it grants.
+     *
+     * @param array<string,bool> $delegateIds every id this document delegates
+     * @param array<string,array<string,mixed>> $platform
+     * @param array<string,array<string,mixed>> $site
+     * @return array<string,mixed>
+     */
+    private static function verifyDelegation(
+        string $manifestDir,
+        string $delegateId,
+        array $delegation,
+        object $typed,
+        array $delegateIds,
+        array $platform,
+        array $site
+    ): array {
+        $label = "site adapter certification delegation '$delegateId'";
+        self::assertExactKeys($delegation, self::DELEGATION_KEYS, $label);
+        $statement = $delegation['statement'] ?? null;
+        if (!is_array($statement) || array_is_list($statement)
+            || !isset($typed->statement) || !is_object($typed->statement)) {
+            throw new \RuntimeException("duo: $label statement must be a JSON object");
+        }
+        self::assertExactKeys($statement, self::DELEGATION_STATEMENT_KEYS, "$label statement");
+        // BY VERSION, never as corruption — the property `record_version` gives
+        // an authority record and § v3.6 gives the certification statement.
+        // Tested before the format word so a v2 statement carrying a v1 format
+        // is still answered with the version it declares.
+        if (($statement['version'] ?? null) !== 1) {
+            throw new \RuntimeException(
+                "duo: $label declares delegation version " . var_export($statement['version'] ?? null, true)
+                . ', which this agent does not implement — a delegation version is refused by version, never'
+                . ' read as a v1 delegation with unexpected members'
+            );
+        }
+        if (($statement['format'] ?? null) !== self::DELEGATION_FORMAT) {
+            throw new \RuntimeException(
+                "duo: $label statement must declare format " . self::DELEGATION_FORMAT
+                . ' inside its own signature; the envelope\'s format is outside every signature and proves nothing'
+            );
+        }
+
+        $delegate = $statement['delegate'] ?? null;
+        if (!is_array($delegate) || array_is_list($delegate)) {
+            throw new \RuntimeException("duo: $label statement delegate must be a JSON object");
+        }
+        self::assertExactKeys($delegate, self::DELEGATION_DELEGATE_KEYS, "$label delegate");
+        if (($delegate['algorithm'] ?? null) !== 'ed25519') {
+            throw new \RuntimeException("duo: $label delegate must declare algorithm ed25519");
+        }
+        if (($delegate['key_id'] ?? null) !== $delegateId) {
+            throw new \RuntimeException(
+                "duo: $label is installed under key id '$delegateId' but its SIGNED statement names "
+                . var_export($delegate['key_id'] ?? null, true)
+                . ' — the map key and the delegated identity are one value, not two'
+            );
+        }
+        $delegatePublic = self::publicKey($delegate);
+        // The v2 fingerprint rule, reused rather than restated: a delegated id
+        // is a v2 identity and must derive from its own key material, so a
+        // vendor cannot be handed a grant under a name nobody holding that key
+        // could honestly claim.
+        self::assertKeyIdBindsKeyMaterial($delegateId, $delegatePublic, "$label delegate");
+        if (isset($platform[$delegateId])) {
+            throw new \RuntimeException(
+                "duo: authority key '$delegateId' is reviewed and shipped by this agent, so a delegation cannot"
+                . ' claim it'
+            );
+        }
+        if (isset($site[$delegateId])) {
+            throw new \RuntimeException(
+                "duo: $label delegates an id the site trust root already carries at "
+                . self::SITE_AUTHORITIES_RELATIVE . ' — one identity has one record, never a written one and a'
+                . ' granted one that could disagree'
+            );
+        }
+
+        $delegator = $statement['delegator'] ?? null;
+        if (!is_array($delegator) || array_is_list($delegator)) {
+            throw new \RuntimeException("duo: $label statement delegator must be a JSON object");
+        }
+        self::assertExactKeys($delegator, self::DELEGATION_DELEGATOR_KEYS, "$label delegator");
+        $delegatorId = is_string($delegator['key_id'] ?? null) ? self::keyId($delegator['key_id']) : '';
+        if ($delegatorId === '') {
+            throw new \RuntimeException("duo: $label delegator key_id must be a canonical string selector");
+        }
+        // (1) DEPTH. Refused here, before the platform lookup below, so a chain
+        // reads as a chain: resolving first would report the honest but useless
+        // "not installed in capabilities/adapter-authorities.json".
+        if (isset($delegateIds[$delegatorId])) {
+            throw new \RuntimeException(
+                "duo: $label is delegated by '$delegatorId', which is itself a delegate — verification chains"
+                . ' exactly ' . self::DELEGATION_DEPTH . ' level and a delegate may not delegate'
+            );
+        }
+        // (3) A SITE KEY CANNOT DELEGATE, said twice: once by the word inside
+        // the signature and once by where the key is looked up. The word is
+        // checked first so the refusal names the claim rather than the miss.
+        if (($delegator['trust_root'] ?? null) !== self::TRUST_ROOT_PLATFORM) {
+            throw new \RuntimeException(
+                "duo: $label names trust root " . var_export($delegator['trust_root'] ?? null, true)
+                . ' — a delegation is made by a ' . self::TRUST_ROOT_PLATFORM . ' key; a '
+                . self::TRUST_ROOT_SITE . ' key certifies its own repository and delegates nothing'
+            );
+        }
+        if (!isset($platform[$delegatorId])) {
+            throw new \RuntimeException(
+                "duo: $label is delegated by '$delegatorId', which is not installed in "
+                . self::AUTHORITIES_RELATIVE . ' — a delegation is rooted in the shipped, reviewed trust root and'
+                . ' never in the site\'s own'
+            );
+        }
+        $delegatorRecord = $platform[$delegatorId];
+        $delegatorPublic = self::publicKey($delegatorRecord);
+        if (($delegator['fingerprint'] ?? null) !== hash('sha256', $delegatorPublic)) {
+            throw new \RuntimeException(
+                "duo: $label binds a delegator fingerprint that is not the current "
+                . self::AUTHORITIES_RELATIVE . " record's for '$delegatorId' — the key under that id moved"
+            );
+        }
+        // (4) THE DELEGATOR IS JUDGED LIVE, against the CURRENT shipped root, so
+        // a revoked delegator invalidates every delegate it made at once and
+        // without touching a site. Both revocation mechanisms are asked: the
+        // `status` word in the shipped file, and the typed out-of-band record
+        // that does not wait for an agent release.
+        //
+        // ITS WINDOW IS DELIBERATELY NOT ASKED HERE, and the omission is load
+        // bearing rather than an oversight. § v3.7 already refused to apply the
+        // authorities envelope signer's window for the blast-radius reason —
+        // bricking every other vendor's key because one signer's window lapsed
+        // — and the same reasoning applies with more force to a document a whole
+        // site source is judged against. Nothing is lost by it: the containment
+        // rule below forces every grant inside its delegator's window, so a
+        // closed delegator window means every delegate's own window has closed
+        // too, and each one is then refused where every window in this file is
+        // refused — assertAuthorityScope(), naming the delegate's own instant.
+        if (($delegatorRecord['status'] ?? null) !== 'trusted') {
+            throw new \RuntimeException(
+                "duo: authority key '$delegatorId' is revoked and cannot certify adapters, so the delegation it"
+                . " made to '$delegateId' grants nothing"
+            );
+        }
+        self::assertNotRevoked($manifestDir, $delegatorId, $delegatorRecord);
+
+        // (2) NARROWING, on all three axes. The grant is checked against the
+        // delegator's CURRENT record rather than against anything inside the
+        // signature, so narrowing the delegator later narrows its delegates too.
+        $names = self::stringList($statement['adapter_names'] ?? null, "$label.adapter_names", false);
+        foreach ($names as $entry) {
+            self::assertScopeEntry($entry, "$label.adapter_names");
+            if (!self::scopeEntryCovered((array) ($delegatorRecord['adapter_names'] ?? []), $entry)) {
+                throw new \RuntimeException(
+                    "duo: $label grants '$entry', which its delegator '$delegatorId' does not hold — a"
+                    . ' delegation may only narrow the namespace it was given, never widen it'
+                );
+            }
+        }
+        $tiers = self::stringList($statement['trust_tiers'] ?? null, "$label.trust_tiers", false);
+        foreach ($tiers as $tier) {
+            if (!in_array($tier, (array) ($delegatorRecord['trust_tiers'] ?? []), true)) {
+                throw new \RuntimeException(
+                    "duo: $label grants trust tier '$tier', which its delegator '$delegatorId' does not hold — a"
+                    . ' delegation may only narrow the tier set it was given, never widen it'
+                );
+            }
+        }
+        self::assertWindowShape($statement, $label);
+        $grantBefore = self::instant($statement['not_before'], "$label.not_before");
+        $grantAfter = self::instant($statement['not_after'], "$label.not_after");
+        if (($delegatorRecord['record_version'] ?? null) !== null) {
+            $rootBefore = self::instant($delegatorRecord['not_before'] ?? null, "authority key '$delegatorId'.not_before");
+            $rootAfter = self::instant($delegatorRecord['not_after'] ?? null, "authority key '$delegatorId'.not_after");
+            if ($grantBefore < $rootBefore || $grantAfter > $rootAfter) {
+                throw new \RuntimeException(
+                    "duo: $label is valid " . self::stamp($grantBefore) . '/' . self::stamp($grantAfter)
+                    . ", outside its delegator '$delegatorId' window " . self::stamp($rootBefore) . '/'
+                    . self::stamp($rootAfter) . ' — time is a scope like any other and narrows the same way'
+                );
+            }
+        }
+
+        $signature = $delegation['signature'] ?? null;
+        if (!is_array($signature) || array_is_list($signature)
+            || !isset($typed->signature) || !is_object($typed->signature)) {
+            throw new \RuntimeException("duo: $label signature must be a JSON object");
+        }
+        self::assertExactKeys($signature, self::DELEGATION_SIGNATURE_KEYS, "$label signature");
+        if (($signature['key_id'] ?? null) !== $delegatorId) {
+            throw new \RuntimeException(
+                "duo: $label is signed by " . var_export($signature['key_id'] ?? null, true)
+                . " but its statement names delegator '$delegatorId' — the signer and the delegator are one key"
+            );
+        }
+        $encoded = $signature['value'] ?? null;
+        $bytes = is_string($encoded) ? base64_decode($encoded, true) : false;
+        if ($bytes === false || !is_string($encoded) || !self::isCanonicalBase64($encoded, $bytes)
+            || strlen($bytes) !== SODIUM_CRYPTO_SIGN_BYTES
+            || !sodium_crypto_sign_verify_detached(
+                $bytes,
+                self::delegationSignatureBytes($typed->statement),
+                $delegatorPublic
+            )) {
+            throw new \RuntimeException(
+                "duo: $label does not verify under delegator '$delegatorId'; an unsigned or tampered delegation is"
+                . ' refused, never read as an absent grant'
+            );
+        }
+
+        $record = [
+            'adapter_names' => $names,
+            'algorithm' => 'ed25519',
+            'not_after' => (string) $statement['not_after'],
+            'not_before' => (string) $statement['not_before'],
+            'public_key' => (string) $delegate['public_key'],
+            'record_version' => 2,
+            'scope' => 'site_adapter_certification',
+            'status' => 'trusted',
+            'trust_tiers' => $tiers,
+        ];
+        // The synthesized record goes through the SHIPPED record grammar before
+        // anyone uses it: a delegation must not be able to produce an authority
+        // record that an installed one could not have been.
+        self::validateAuthorityRecord($record, "delegated adapter certification key '$delegateId'", $delegateId);
+        // The delegate's own typed revocation, judged beside its delegator's.
+        // Both, because the two are independent facts: an incident may burn one
+        // vendor key without touching the platform key that enrolled it.
+        self::assertNotRevoked($manifestDir, $delegateId, $record);
+
+        return $record;
+    }
+
+    /** The exact bytes one delegation statement's signature covers. */
+    private static function delegationSignatureBytes($statement): string {
+        return self::SIGNATURE_DOMAIN_DELEGATION . Canon::encode($statement);
+    }
+
+    /**
+     * Does the delegator's scope list COVER this delegated entry?
+     *
+     * Two rules, and the second is the one that stops a laundered widening. An
+     * EXACT entry is covered when the delegator's list covers that exact name,
+     * which is `scopeCoversName()` — the same function the live scope check
+     * uses, so a delegation can never be judged by a second reading of the
+     * `<vendor>-*` grammar. A PATTERN entry is covered only by a pattern whose
+     * own prefix is a prefix of it: `acme-*` narrows to `acme-forms-*`, and an
+     * exact grant of `acme-forms` covers no pattern at all, because a pattern
+     * reaches names that do not exist yet and an exact name never does.
+     *
+     * @param list<mixed>|array<mixed> $delegatorNames
+     */
+    private static function scopeEntryCovered(array $delegatorNames, string $entry): bool {
+        if (!str_ends_with($entry, '-*')) {
+            return self::scopeCoversName($delegatorNames, $entry);
+        }
+        $prefix = substr($entry, 0, -1);
+        foreach ($delegatorNames as $granted) {
+            if (!is_string($granted) || !str_ends_with($granted, '-*')) {
+                continue;
+            }
+            if (str_starts_with($prefix, substr($granted, 0, -1))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * THE OUT-OF-BAND REVOCATION CHANNEL, read (§ v3.8, WP-4.9).
+     *
+     * WHAT THIS CLOSES. Before it, revocation was one `status` word per key in
+     * a file that ships inside the agent archive, so revocation latency was
+     * agent-release latency — and on the FROZEN path it was worse than that:
+     * verifyCertificate() re-binds a site-rooted certificate to the authority
+     * record its own SIGNATURE covers, because frozen verification reopens no
+     * mutable site file, so nothing an operator could write to
+     * `adapters/authorities.json` ever reached an already-frozen snapshot. That
+     * was reasoned as correct while a site root held only the operator's OWN
+     * key, revoked by the operator, in a document the same operator produced —
+     * a premise federation-by-copy falsifies the moment a delegated VENDOR key
+     * sits in that root.
+     *
+     * WHAT IS PRESERVED, deliberately and asserted: the operator-own-key
+     * asymmetry itself. Flipping `status` in `adapters/authorities.json` still
+     * stops every LIVE scan and still does not reach a frozen snapshot. This
+     * channel does not change that rule; it adds a second, platform-signed one
+     * that does reach it, and every refusal it raises SAYS SO — an operator who
+     * sees one must be able to tell which of the two mechanisms answered.
+     *
+     * @param array<string,mixed> $record the authority record being judged
+     */
+    private static function assertNotRevoked(string $manifestDir, string $keyId, array $record): void {
+        $entry = self::revocations($manifestDir)[hash('sha256', self::publicKey($record))] ?? null;
+        if ($entry === null) {
+            return;
+        }
+        $effective = self::instant($entry['effective_at'], "authority revocation '{$entry['key_id']}'.effective_at");
+        if (self::now() < $effective) {
+            // A revocation with a future instant is a SCHEDULED one and grants
+            // nothing until it arrives — judged through now(), the one named
+            // clock every window in this file reads, so there is no second time
+            // source to disagree with. Deliberately NOT restating that
+            // function's expression here: `tools/wire-surface.php` gate 3 greps
+            // the raw file for it, so a second literal copy in a comment would
+            // silently satisfy the gate a mutation is supposed to break
+            // (`tests/Tooling/WireSurfaceTest.php:213-225` is the mutation).
+            return;
+        }
         throw new \RuntimeException(
-            "duo: authority key '$id' is not installed in " . self::AUTHORITIES_RELATIVE
-            . ($repoRoot === null ? '' : ' or ' . self::SITE_AUTHORITIES_RELATIVE)
+            "duo: authority key '$keyId' is revoked by the platform-signed revocation record at "
+            . self::REVOCATIONS_RELATIVE . ' — effective ' . self::stamp($effective) . ', reason: '
+            . (string) $entry['reason']
+            . '. This channel reaches the frozen path, which a status flip in the operator\'s own '
+            . self::SITE_AUTHORITIES_RELATIVE . ' deliberately does not'
         );
+    }
+
+    /**
+     * The installed revocation document's entries, indexed by key fingerprint.
+     *
+     * ABSENCE IS AN ANSWER and means exactly "nothing is revoked" — the shipped
+     * state of every site, and the reason the flag day moves no byte. A file
+     * that EXISTS and is not a readable, signed, well-formed document is a
+     * REFUSAL, never an absence: laundering unreadable revocation bytes into
+     * "no revocations" would make deleting a signature the cheapest way to
+     * un-revoke a compromised key, which is the one failure this channel exists
+     * to prevent. Same sentence authorityKeys() already states about the trust
+     * root it sits beside.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    private static function revocations(string $manifestDir): array {
+        $file = rtrim($manifestDir, '/') . '/' . self::REVOCATIONS_RELATIVE;
+        $label = 'adapter certification authority revocations';
+        if (!file_exists($file) && !is_link($file)) {
+            return [];
+        }
+        if (!is_file($file) || is_link($file)) {
+            throw new \RuntimeException("duo: $label must be an ordinary regular file: $file");
+        }
+        self::assertSodium();
+        [, $typed, $data] = self::readCanonicalObjectFile($file, $label);
+        self::assertExactKeys($data, self::REVOCATIONS_ENVELOPE_KEYS, $label);
+        if (($data['format'] ?? null) !== self::REVOCATIONS_FORMAT) {
+            throw new \RuntimeException("duo: $label have an unsupported or malformed root");
+        }
+        $statement = $data['statement'] ?? null;
+        if (!is_array($statement) || array_is_list($statement)
+            || !isset($typed->statement) || !is_object($typed->statement)) {
+            throw new \RuntimeException("duo: $label statement must be a JSON object");
+        }
+        self::assertExactKeys($statement, self::REVOCATION_STATEMENT_KEYS, "$label statement");
+        if (($statement['version'] ?? null) !== 1) {
+            throw new \RuntimeException(
+                "duo: $label declare revocation version " . var_export($statement['version'] ?? null, true)
+                . ', which this agent does not implement — a revocation version is refused by version, never'
+                . ' read as a v1 revocation with unexpected members'
+            );
+        }
+        if (($statement['format'] ?? null) !== self::REVOCATION_FORMAT) {
+            throw new \RuntimeException(
+                "duo: $label statement must declare format " . self::REVOCATION_FORMAT
+                . ' inside its own signature; the envelope\'s format is outside every signature and proves nothing'
+            );
+        }
+        self::instant($statement['issued_at'] ?? null, "$label.issued_at");
+
+        // THE SIGNER IS A PLATFORM KEY, AND ITS WINDOW IS NOT APPLIED. The
+        // status check is here for the same reason assertAuthoritiesEnvelope()
+        // makes it — a revoked key attests nothing — but expiry is deliberately
+        // not, and the argument is stronger here than there: letting a signer's
+        // lapsed window silently un-revoke a compromised key would make expiry a
+        // way to RESURRECT the exact identities this document exists to burn.
+        $platform = self::authorityKeys(
+            rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE,
+            'adapter certification authorities'
+        );
+        $signature = $data['signature'] ?? null;
+        if (!is_array($signature) || array_is_list($signature)
+            || !isset($typed->signature) || !is_object($typed->signature)) {
+            throw new \RuntimeException("duo: $label signature must be a JSON object");
+        }
+        self::assertExactKeys($signature, self::AUTHORITIES_SIGNATURE_KEYS, "$label signature");
+        $signer = $signature['key_id'] ?? null;
+        if (!is_string($signer) || !isset($platform[$signer])) {
+            throw new \RuntimeException(
+                "duo: $label are signed by key " . var_export($signer, true) . ', which is not installed in '
+                . self::AUTHORITIES_RELATIVE
+                . ' — revocation is a platform-rooted statement and a site key cannot make one'
+            );
+        }
+        if (($platform[$signer]['status'] ?? null) !== 'trusted') {
+            throw new \RuntimeException("duo: $label were signed by revoked key '$signer'");
+        }
+        $encoded = $signature['value'] ?? null;
+        $bytes = is_string($encoded) ? base64_decode($encoded, true) : false;
+        if ($bytes === false || !is_string($encoded) || !self::isCanonicalBase64($encoded, $bytes)
+            || strlen($bytes) !== SODIUM_CRYPTO_SIGN_BYTES
+            || !sodium_crypto_sign_verify_detached(
+                $bytes,
+                self::revocationSignatureBytes($typed->statement),
+                self::publicKey($platform[$signer])
+            )) {
+            throw new \RuntimeException(
+                "duo: $label do not verify under key '$signer'; an unsigned or tampered revocation document is"
+                . ' refused, never read as an absent one'
+            );
+        }
+
+        $rows = $statement['revocations'] ?? null;
+        if (!is_array($rows) || !array_is_list($rows) || $rows === []) {
+            throw new \RuntimeException("duo: $label statement must carry a non-empty revocations list");
+        }
+        $out = [];
+        foreach ($rows as $index => $row) {
+            if (!is_array($row) || array_is_list($row)) {
+                throw new \RuntimeException("duo: $label entry $index must be a JSON object");
+            }
+            self::assertExactKeys($row, self::REVOCATION_ENTRY_KEYS, "$label entry $index");
+            self::keyId(is_string($row['key_id'] ?? null) ? $row['key_id'] : '');
+            if (!self::sha($row['fingerprint'] ?? null)) {
+                throw new \RuntimeException(
+                    "duo: $label entry $index must bind a sha256 key fingerprint — an id can be re-minted over"
+                    . ' new key material and material cannot be re-minted under an old id'
+                );
+            }
+            if (!is_string($row['reason'] ?? null) || trim((string) $row['reason']) === '') {
+                throw new \RuntimeException(
+                    "duo: $label entry $index must state a non-empty reason; a revocation nobody can explain is"
+                    . ' one nobody will act on'
+                );
+            }
+            self::instant($row['effective_at'] ?? null, "$label entry $index.effective_at");
+            if (isset($out[$row['fingerprint']])) {
+                throw new \RuntimeException(
+                    "duo: $label revoke the same key fingerprint twice — two instants for one identity is a"
+                    . ' disagreement, not a list'
+                );
+            }
+            $out[(string) $row['fingerprint']] = $row;
+        }
+
+        return $out;
+    }
+
+    /** The exact bytes one revocation statement's signature covers. */
+    private static function revocationSignatureBytes($statement): string {
+        return self::SIGNATURE_DOMAIN_REVOCATION . Canon::encode($statement);
+    }
+
+    /**
+     * Sign a delegation statement into an installable delegation object.
+     *
+     * The producer lives beside the grammar for the reason signAuthorities()
+     * states: a signer in the host would be a second copy of these rules in a
+     * different language of the same repository, drifting silently on the side
+     * where nothing re-verifies. It signs the statement it is HANDED rather than
+     * assembling one, because every member of that statement is checked by
+     * verifyDelegation() against the live platform root anyway — a producer that
+     * pre-approved its own input would be the check that looks like a check.
+     *
+     * @param string $statementRaw canonical delegation-statement bytes
+     * @return string canonical `{signature, statement}` delegation object bytes
+     */
+    public static function signDelegation(string $statementRaw, string $keyId, string $secretKey): string {
+        self::assertSodium();
+        [, $typed, $statement] = self::parseCanonicalObject($statementRaw, 'adapter certification delegation statement');
+        self::assertExactKeys($statement, self::DELEGATION_STATEMENT_KEYS, 'adapter certification delegation statement');
+        if (($statement['format'] ?? null) !== self::DELEGATION_FORMAT || ($statement['version'] ?? null) !== 1) {
+            throw new \RuntimeException(
+                'duo: a delegation statement must declare format ' . self::DELEGATION_FORMAT . ' and version 1'
+            );
+        }
+        $id = self::keyId($keyId);
+        $delegator = $statement['delegator'] ?? null;
+        if (!is_array($delegator) || ($delegator['key_id'] ?? null) !== $id) {
+            throw new \RuntimeException(
+                "duo: authority key '$id' is not the delegator the statement names"
+            );
+        }
+        $secret = self::secretKey($secretKey);
+        $public = sodium_crypto_sign_publickey_from_secretkey($secret);
+        if (($delegator['fingerprint'] ?? null) !== hash('sha256', $public)) {
+            throw new \RuntimeException("duo: private key does not match the delegator fingerprint for '$id'");
+        }
+
+        return Canon::encode((object) [
+            'signature' => (object) [
+                'key_id' => $id,
+                'value' => base64_encode(sodium_crypto_sign_detached(self::delegationSignatureBytes($typed), $secret)),
+            ],
+            'statement' => $typed,
+        ]);
+    }
+
+    /**
+     * Sign a revocation statement into the installable out-of-band document.
+     *
+     * Same producer posture as signDelegation()/signAuthorities(). The signer's
+     * own record is NOT read here — this producer holds no manifest directory
+     * by design, so a revocation can be minted on an air-gapped machine that
+     * has the key and none of the fleet's files, which is the custody a
+     * compromise response actually has.
+     *
+     * @param string $statementRaw canonical revocation-statement bytes
+     * @return string canonical duo-adapter-authority-revocations/v1 bytes
+     */
+    public static function signRevocations(string $statementRaw, string $keyId, string $secretKey): string {
+        self::assertSodium();
+        [, $typed, $statement] = self::parseCanonicalObject($statementRaw, 'adapter certification revocation statement');
+        self::assertExactKeys($statement, self::REVOCATION_STATEMENT_KEYS, 'adapter certification revocation statement');
+        if (($statement['format'] ?? null) !== self::REVOCATION_FORMAT || ($statement['version'] ?? null) !== 1) {
+            throw new \RuntimeException(
+                'duo: a revocation statement must declare format ' . self::REVOCATION_FORMAT . ' and version 1'
+            );
+        }
+        $id = self::keyId($keyId);
+        $secret = self::secretKey($secretKey);
+
+        return Canon::encode((object) [
+            'format' => self::REVOCATIONS_FORMAT,
+            'signature' => (object) [
+                'key_id' => $id,
+                'value' => base64_encode(sodium_crypto_sign_detached(self::revocationSignatureBytes($typed), $secret)),
+            ],
+            'statement' => $typed,
+        ]);
+    }
+
+    /**
+     * Validate the site's delegation document whole, selecting no key.
+     *
+     * The adapter scan calls this the moment the file EXISTS, for the reason
+     * assert_site_authorities() states about the trust root beside it: a broken
+     * delegation document is not one adapter's problem, and an operator who
+     * installed one believes a vendor's adapters are certifiable here.
+     */
+    public static function assert_site_delegations(string $manifestDir, string $repo): void {
+        $root = self::repoRoot($repo, 'site repository');
+        $platform = self::authorityKeys(
+            rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE,
+            'adapter certification authorities'
+        );
+        $site = self::authorityKeys(
+            $root . '/' . self::SITE_AUTHORITIES_RELATIVE,
+            'site adapter certification authorities'
+        );
+        self::delegatedKeys($manifestDir, $root, $platform, $site);
     }
 
     /**

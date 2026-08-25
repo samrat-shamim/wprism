@@ -62,8 +62,9 @@ declare(strict_types=1);
  *      projected domain constants;
  *   3. `AdapterCertification` still has no expiry vocabulary at all (row
  *      R-14 says so, and says what it would cost to add);
- *   4. no revocation-list vocabulary exists anywhere in the signing files
- *      (row R-15);
+ *   4. the typed revocation vocabulary is exactly `{effective_at, fingerprint,
+ *      key_id, reason}`, lives in exactly one signing file, and `revoked_at`
+ *      appears nowhere (rows R-15 and R-26);
  *   5. the shipped `spec_version` acceptance window is exactly {N-1, N} — the
  *      floor is `DUO_SPEC_VERSION - 1` and never deeper (row R-18), measured
  *      by probing the shipped validator rather than by reading its condition.
@@ -434,14 +435,38 @@ function ws_assert_reserved_absences(string $repo): void {
             . 'expression as the one clock BOTH expiry-bearing roots read'
         );
     }
+    // R-15's absence became a BOUNDED PRESENCE with WP-4.9, the same ratchet
+    // change WP-4.8 made to R-14's half above. Revocation is no longer only a
+    // `status` word: § v3.8 adds a typed, platform-signed revocation document,
+    // and R-26 records exactly what it may say. So the grep is now "the typed
+    // vocabulary appears in exactly one file, and is exactly these members" —
+    // a fifth member, or the same vocabulary appearing in a second signing
+    // file, fails the gate rather than quietly making R-15/R-26's sentences
+    // wrong. `revoked_at` stays forbidden everywhere: the entry member is
+    // `effective_at`, and two spellings of one instant is the drift this file
+    // exists to refuse.
     foreach (WS_SIGNING_FILES as $relative) {
         $source = (string) file_get_contents($repo . '/' . $relative);
         if (preg_match('/revocation_list|revoked_at|\bcrl\b/i', $source) === 1) {
             ws_fail(
-                "$relative now carries revocation-list vocabulary; row R-15 records that revocation is a "
-                . 'per-key status word and nothing else'
+                "$relative now carries revocation-list vocabulary; rows R-15/R-26 record the typed revocation "
+                . 'entry as exactly {effective_at, fingerprint, key_id, reason} and nothing else'
             );
         }
+        $typed = preg_match('/REVOCATION_ENTRY_KEYS|SIGNATURE_DOMAIN_REVOCATION/', $source) === 1;
+        if ($typed && $relative !== 'agent/src/Adapter/AdapterCertification.php') {
+            ws_fail(
+                "$relative now carries typed-revocation vocabulary; row R-26 records it as living in exactly "
+                . 'one signing file, so a second copy of the grammar is refused before it can drift'
+            );
+        }
+    }
+    $entryKeys = ws_const(AdapterCertification::class, 'REVOCATION_ENTRY_KEYS');
+    if ($entryKeys !== ['effective_at', 'fingerprint', 'key_id', 'reason']) {
+        ws_fail(
+            'the typed revocation entry is now {' . implode(', ', (array) $entryKeys) . '}; row R-26 records it '
+            . 'as exactly {effective_at, fingerprint, key_id, reason} and must be rewritten before that ships'
+        );
     }
     $attestation = (string) file_get_contents($repo . '/cli/src/Contract/ContractAttestation.php');
     if (!str_contains($attestation, '($now ?? time())')) {
@@ -708,6 +733,29 @@ function ws_signature_inputs(): array {
         'input' => 'domain &#124;&#124; `Canon::encode({format, keys})` — the document minus its own signature',
         'source' => '`AdapterCertification::SIGNATURE_DOMAIN_AUTHORITIES`',
     ];
+
+    // WP-4.9's two statement kinds, proved the same way as the three above: the
+    // shipped framer is called and its domain is stripped, so the table cannot
+    // describe framing the engine does not perform.
+    foreach ([
+        ['SIGNATURE_DOMAIN_DELEGATION', 'delegationSignatureBytes', AdapterCertification::DELEGATIONS_FORMAT,
+            'one delegation statement — the grant, both key identities and the window'],
+        ['SIGNATURE_DOMAIN_REVOCATION', 'revocationSignatureBytes', AdapterCertification::REVOCATIONS_FORMAT,
+            'the whole revocation statement — every entry at once, so no row can be dropped'],
+    ] as [$constant, $framer, $format, $what]) {
+        $domain = (string) ws_const(AdapterCertification::class, $constant);
+        $probe = (object) ['probe' => 'wire-surface'];
+        $input = (string) ws_probe_value(AdapterCertification::class, $framer, [$probe]);
+        if (!str_starts_with($input, $domain) || substr($input, strlen($domain)) !== Canon::encode($probe)) {
+            ws_fail("the $format signature input is no longer domain . Canon::encode(statement)");
+        }
+        $rows[] = [
+            'surface' => '`' . $format . '`',
+            'domain' => '`' . ws_bytes($domain) . '`',
+            'input' => 'domain &#124;&#124; `Canon::encode(statement)` — ' . $what,
+            'source' => '`AdapterCertification::' . $constant . '`',
+        ];
+    }
 
     $rows[] = [
         'surface' => 'contract attestation (`' . ApplicationContract::ATTESTATION_FORMAT . '`)',
@@ -1065,21 +1113,26 @@ function ws_rows(): array {
     ];
     $rows[] = [
         'id' => 'R-15',
-        'title' => 'Revocation is one status word per key, and nothing else',
-        'now' => 'Both roots: `status` is `trusted` or `revoked`, per KEY, in the authority file. There '
-            . 'is no per-certificate revocation, no serial number, no revocation list, no timestamp — '
-            . 'checked by grep across all three signing files. A revoked site key still verifies inside '
-            . 'an already-frozen snapshot, because frozen verification reopens no mutable site file '
-            . '(AdapterCertification.php:976-999); a revoked platform key stops verifying frozen '
-            . 'snapshots immediately.',
+        'title' => 'Revocation is per KEY, never per certificate, on both of its two channels',
+        'now' => 'Channel 1, in the authority file: `status` is `trusted` or `revoked`, per key, in a '
+            . 'document that ships inside the agent archive. Channel 2, added by WP-4.9 and detailed in '
+            . 'R-26: a platform-signed `' . AdapterCertification::REVOCATIONS_FORMAT . '` document '
+            . 'installed out of band. Neither has a serial number and neither can revoke ONE certificate '
+            . '— every entry names key material. A revoked site key still verifies inside an '
+            . 'already-frozen snapshot through channel 1, because frozen verification reopens no mutable '
+            . 'site file (`verifyCertificate()`\'s site branch, AdapterCertification.php:1338-1379); '
+            . 'channel 2 and a revoked platform key both DO reach a frozen snapshot.',
         'permanent' => 'Revoking a key revokes EVERY artifact it ever signed, retroactively and all at '
-            . 'once — there is no way to revoke one certificate, and holders have no channel to learn '
-            . 'that a key moved except by re-reading the root. Operators sign under per-adapter keys or '
-            . 'accept that blast radius; that trade is fixed the moment a second adapter is signed under '
-            . 'one key.',
-        'reserved' => 'A revocation list needs a new authorities `format` (R-10). Per-certificate '
-            . 'revocation needs an identifier the statement does not carry (R-06), so it is a v3 '
-            . 'statement type, not an addition.',
+            . 'once — there is no way to revoke one certificate, on either channel. Operators sign under '
+            . 'per-adapter keys or accept that blast radius; that trade is fixed the moment a second '
+            . 'adapter is signed under one key. What WP-4.9 changed is REACHABILITY, not granularity: '
+            . 'holders now have a channel that does not wait for an agent release and that a frozen '
+            . 'snapshot can read. Going back — removing channel 2 — would silently restore the frozen-path '
+            . 'gap for every vendor key already federated by copy.',
+        'reserved' => 'Per-certificate revocation still needs an identifier the statement does not carry '
+            . '(R-06), so it remains a v3 statement type rather than an addition. A third channel is not '
+            . 'reserved: two are already the maximum an operator can reason about, and R-26 states which '
+            . 'one answers where.',
     ];
     $rows[] = [
         'id' => 'R-16',
@@ -1218,6 +1271,70 @@ function ws_rows(): array {
             . 'carries `{since, keys}` and no arm, and an arm is what decides whether a certificate covers '
             . 'the key as a surface.',
     ];
+    // WP-4.9's two rows. Ids R-25/R-26 rather than R-21: the tranche-1
+    // integrator's note on R-20 above records that two riders both minted R-18
+    // in parallel worktrees, so this program now assigns each rider a DISJOINT
+    // id range up front. Register ids are ordinal bookkeeping — nothing on disk
+    // or in a certificate embeds one — so a gap between R-20 and R-25 costs
+    // nothing and a collision would cost a renumber at merge.
+    $rows[] = [
+        'id' => 'R-25',
+        'title' => 'Delegation is depth-1, and the bound is in the verifier rather than in a policy',
+        'now' => 'A `' . AdapterCertification::DELEGATIONS_FORMAT . '` document at `adapters/'
+            . AdapterSources::SITE_DELEGATIONS_FILE . '` holds a map of '
+            . ws_set($sets, 'DELEGATION_KEYS') . ' objects. The signed statement is '
+            . ws_set($sets, 'DELEGATION_STATEMENT_KEYS') . ', with `delegate` '
+            . ws_set($sets, 'DELEGATION_DELEGATE_KEYS') . ' and `delegator` '
+            . ws_set($sets, 'DELEGATION_DELEGATOR_KEYS') . ', under domain `'
+            . ws_bytes((string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_DELEGATION'))
+            . '`. Verification chains exactly '
+            . (string) ws_const(AdapterCertification::class, 'DELEGATION_DEPTH')
+            . ' level: a delegator that is itself a delegate is refused BY NAME before it is looked up. A '
+            . 'delegator is resolved ONLY in `' . AdapterCertification::AUTHORITIES_FORMAT
+            . '`\'s shipped file, so a site key cannot delegate; the grant may only narrow the '
+            . 'delegator\'s `adapter_names`, `trust_tiers` and window; and a delegated key resolves under '
+            . 'trust root `' . AdapterCertification::TRUST_ROOT_SITE . '`, not a third word.',
+        'permanent' => 'The depth bound is inside the VERIFIER, not a configurable maximum, and that is '
+            . 'what makes it a property rather than a setting: every holder of this agent enforces it '
+            . 'identically and no document can ask for more. Raising it later would admit paths that were '
+            . 'unrepresentable when the trust decision was made — a delegate that could not delegate '
+            . 'yesterday could hand on a grant tomorrow, retroactively, with nothing in the field '
+            . 're-reviewed. Lowering it to zero orphans every delegation already issued. The '
+            . 'narrow-only rule is the same shape: it is a grammar restriction, so a widening grant is '
+            . 'unrepresentable rather than merely refused by review, and relaxing it would silently widen '
+            . 'every grant in the field at the next verification.',
+        'reserved' => 'Nothing about depth. A vendor that must hand on authority enrolls its sub-vendor '
+            . 'with the platform root directly, which is one review rather than an unbounded path. The '
+            . 'extension channel for the statement itself is `version`, inside the signature: a grammar '
+            . 'this engine does not implement is refused BY VERSION rather than read as corruption.',
+    ];
+    $rows[] = [
+        'id' => 'R-26',
+        'title' => 'Typed revocation, and the one channel that reaches a frozen snapshot',
+        'now' => 'A `' . AdapterCertification::REVOCATIONS_FORMAT . '` document, envelope '
+            . ws_set($sets, 'REVOCATIONS_ENVELOPE_KEYS') . ', statement '
+            . ws_set($sets, 'REVOCATION_STATEMENT_KEYS') . ', each entry '
+            . ws_set($sets, 'REVOCATION_ENTRY_KEYS') . ', under domain `'
+            . ws_bytes((string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_REVOCATION'))
+            . '`. It is installed at `capabilities/adapter-revocations.json` in the agent\'s MANIFEST '
+            . 'LIBRARY — the only path frozen verification holds — is signed by a key the shipped '
+            . 'platform root carries, and ships ABSENT. An entry binds `fingerprint` = '
+            . '`sha256(public_key)`, never the key id. The signer\'s own window is deliberately not '
+            . 'applied.',
+        'permanent' => 'The FINGERPRINT binding cannot be exchanged for an id binding afterwards: an id '
+            . 'can be re-minted over new key material, so an id-bound revocation would be escapable by '
+            . 'rotating a name. Absence meaning "nothing is revoked" is equally fixed — every deployed '
+            . 'agent already reads it that way, so a future "absent means refuse" would brick every site '
+            . 'that never installed one. And the reachability itself is one-way: this is the only channel '
+            . 'that reaches an already-frozen snapshot for a site-rooted key, so removing it restores a '
+            . 'gap for every vendor key already federated by copy, silently.',
+        'reserved' => 'The signer\'s window is unapplied ON PURPOSE and that is not an oversight to fix '
+            . 'later: applying it would let a lapsed window RESURRECT the exact identities this document '
+            . 'exists to burn. A future per-certificate revocation still needs R-06\'s missing '
+            . 'identifier. What this document deliberately does NOT do is revoke the operator\'s own '
+            . 'self-minted site key through a channel the operator does not control — that asymmetry is '
+            . 'preserved, and every refusal it raises says so in its own sentence.',
+    ];
 
     return $rows;
 }
@@ -1311,6 +1428,14 @@ function ws_build(string $repo): string {
     $domains = [
         (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN'),
         (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_AUTHORITIES'),
+        // WP-4.9's two statement kinds (spec § v3.8). Registered here rather
+        // than anywhere else because gate 2 below refuses the whole run over an
+        // unregistered `duo-…-signature/vN` literal in the shipped trees — which
+        // is exactly how a new permanent decision is stopped from shipping
+        // quietly, and is why these two lines are part of the rider that
+        // introduced them rather than a follow-up.
+        (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_DELEGATION'),
+        (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_REVOCATION'),
         (string) ws_const(ContractAttestation::class, 'SIGNATURE_DOMAIN'),
     ];
     foreach ($domains as $domain) {
@@ -1410,8 +1535,9 @@ function ws_build(string $repo): string {
     $out .= "3. **No unregistered domain exists.** Every `duo-…-signature/vN` literal in those trees is\n";
     $out .= "   one of the domains in §1, and none is a prefix of another.\n";
     $out .= "4. **The bounded vocabularies are still bounded.** `AdapterCertification`'s expiry\n";
-    $out .= "   vocabulary is exactly `not_after`/`not_before` judged against `\$now ?? time()`, and no\n";
-    $out .= "   signing file carries revocation-list vocabulary (R-14, R-15).\n";
+    $out .= "   vocabulary is exactly `not_after`/`not_before` judged against `\$now ?? time()`; the typed\n";
+    $out .= "   revocation entry is exactly `{effective_at, fingerprint, key_id, reason}` and lives in\n";
+    $out .= "   exactly one signing file; `revoked_at` and CRL vocabulary appear in none (R-14, R-15, R-26).\n";
     $out .= "5. **The rollback signature really is domain-free.** A signature is minted and verified\n";
     $out .= "   against the unprefixed canonical payload at generation time (R-03).\n";
     $out .= "6. **The spec-version window has not accumulated.** The shipped validator is probed over\n";

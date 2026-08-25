@@ -782,6 +782,9 @@
                 "SITE_AUTHORITIES_FILE": {
                     "value_repr": "authorities.json"
                 },
+                "SITE_DELEGATIONS_FILE": {
+                    "value_repr": "delegations.json"
+                },
                 "SITE_DIR": {
                     "value_repr": "adapters"
                 },

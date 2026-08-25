@@ -450,6 +450,22 @@ regress-site-adapter-certification:
 regress-authority-record-v2:
 	php sandbox/tests/offline/adapter/regress_authority_record_v2.php
 
+# WP-4.9 / spec/repo-format.md § v3.8: depth-1 delegated authorities. The
+# refusal matrix IS the acceptance criterion -- a two-level chain refused BY
+# NAME, a grant that widens its delegator's namespace/tier/window, a delegation
+# claiming or rooted in a site key, and a revoked delegator invalidating its
+# delegates. Every case is driven through authority(), the one selector every
+# consumer reaches.
+regress-authority-delegation:
+	php sandbox/tests/offline/adapter/regress_authority_delegation.php
+
+# WP-4.9 / § v3.8: the typed revocation record and its out-of-band channel.
+# Closes the frozen-path gap -- a revoked VENDOR key held in a site root stops
+# verifying frozen -- while asserting the operator-own-key asymmetry is
+# unchanged and that the refusal text states the distinction between the two.
+regress-revocation-reachability:
+	php sandbox/tests/offline/adapter/regress_revocation_reachability.php
+
 # Product release gate: every generated artifact must still agree with the
 # source it was generated from -- the public capability prose with the
 # manifest dispositions it describes, the published branch-environment

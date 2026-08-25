@@ -347,8 +347,12 @@ final class ManifestValidate {
             // scan(), which reserves the name); without this a `manifest-
             // validate adapters --site=<repo>` run after ANY certification
             // reported `[error] authorities … not found` (grind_adoption A8).
+            // adapters/delegations.json joins the same exclusion for the same
+            // reason (§ v3.8, WP-4.9): it is a signed grant document the real
+            // loader reserves by name, never a manifest to validate or pin.
             if ($base === 'dispositions'
-                || basename($file) === AdapterSources::SITE_AUTHORITIES_FILE) {
+                || basename($file) === AdapterSources::SITE_AUTHORITIES_FILE
+                || basename($file) === AdapterSources::SITE_DELEGATIONS_FILE) {
                 continue;
             }
             $available[$base] = $file;

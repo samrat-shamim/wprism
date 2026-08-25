@@ -357,6 +357,20 @@ final class AdapterSources {
      */
     public const SITE_AUTHORITIES_FILE = 'authorities.json';
 
+    /**
+     * The delegations a site was handed, and therefore a second RESERVED name
+     * inside `adapters/` (spec/repo-format.md § v3.8, WP-4.9).
+     *
+     * Reserved for the identical reason SITE_AUTHORITIES_FILE is: without this
+     * the file would be globbed as a site adapter called `delegations` and
+     * refused for declaring no name, which describes neither the file nor its
+     * problem. A flat file rather than a `delegations/` directory because
+     * assert_flat_json_source() refuses a nested `.json` under `adapters/` by
+     * name and admits exactly one directory, `certifications/`; admitting a
+     * second is a site-source grammar change and belongs to § v3.9, not here.
+     */
+    public const SITE_DELEGATIONS_FILE = 'delegations.json';
+
     public const GRAMMAR_OK = 'ok';
     public const GRAMMAR_ERROR = 'error';
     public const GRAMMAR_BLOCKED = 'blocked_by_source_refusal';
@@ -950,6 +964,16 @@ final class AdapterSources {
             $siteFiles,
             static fn(string $file): bool => basename($file) !== self::SITE_AUTHORITIES_FILE
         ));
+        // The delegation document is not an adapter either, and it is filtered
+        // and then VALIDATED for exactly the reason the trust root above is:
+        // inert authority bytes an operator believes in are the failure mode
+        // this source refuses everywhere else. A broken delegation document is
+        // a whole-source refusal because every certificate under a delegated key
+        // in this repository is judged against it (§ v3.8, WP-4.9).
+        $siteFiles = array_values(array_filter(
+            $siteFiles,
+            static fn(string $file): bool => basename($file) !== self::SITE_DELEGATIONS_FILE
+        ));
         if (is_file($siteDir . '/' . self::SITE_AUTHORITIES_FILE)) {
             require_once __DIR__ . '/AdapterCertification.php';
             self::guarded(
@@ -960,6 +984,18 @@ final class AdapterSources {
                 [self::SITE_DIR . '/' . self::SITE_AUTHORITIES_FILE],
                 'repair the site trust root, or remove it and keep these adapters as uncertified support',
                 static fn() => AdapterCertification::assert_site_authorities($repo)
+            );
+        }
+        if (is_file($siteDir . '/' . self::SITE_DELEGATIONS_FILE)) {
+            require_once __DIR__ . '/AdapterCertification.php';
+            self::guarded(
+                $collect,
+                $refusals,
+                self::SITE,
+                self::REFUSAL_CERTIFICATION_SOURCE,
+                [self::SITE_DIR . '/' . self::SITE_DELEGATIONS_FILE],
+                'repair the delegation document, or remove it and keep these adapters as uncertified support',
+                static fn() => AdapterCertification::assert_site_delegations($manifestDir, $repo)
             );
         }
         sort($siteFiles, SORT_STRING);
