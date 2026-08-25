@@ -2138,6 +2138,17 @@ regress-column-codec-grammar:
 regress-attr-id-codec-grammar:
 	php sandbox/tests/offline/grammar/regress_attr_id_codec_grammar.php
 
+# WP-6.5's primitive, and the third to ship through the same channel: the `json`
+# post-type body mode plus the `body_refs` reference paths inside it. Its
+# sufficiency proof is the SAME previously-rejected candidate as
+# regress-attr-id-codec-grammar, one coordinate over — WPForms Lite's JSON
+# post_content — driven on four post_content values captured from a live
+# 2.0.0.5 pair through the plugin's own write paths, so the optional,
+# type-variant `$.id` and the `previous_page` sentinel are measured rather than
+# imagined.
+regress-body-ref-grammar:
+	php sandbox/tests/offline/grammar/regress_body_ref_grammar.php
+
 regress-lint-primitives:
 	php sandbox/tests/offline/reference-scope/regress_lint_primitives.php
 

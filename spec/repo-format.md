@@ -2318,6 +2318,98 @@ the one command whose entire job is to refuse unevidenced bytes, which is why `f
 its own network half in the harness rather than in shipped code. Adding an HTTPS transport is a separate
 reviewed decision with its own evidence, not a fill-in.
 
+### v3.20 `body_refs` and the `json` body mode — a reference path inside a post body
+
+**Rider: WP-6.5. Enforced today: yes, for a manifest that declares `structured-body-refs/v1`.**
+`DUO_SPEC_VERSION` did not move to admit it and is still `3`, asserted in the same run as the section's
+own verdicts by `sandbox/tests/offline/grammar/regress_body_ref_grammar.php`. It is the THIRD grammar
+change to ride § v3.2's channel after § v3.14 and § v3.15, and the first to ride it in both directions at
+once: it claims a top-level key AND widens a value vocabulary inside a section that already exists.
+
+**What was missing.** `post_types.<type>.body` was closed at `{blocks, verbatim, serialized}`, and
+`tools/engine-gaps.json` carried `structured_post_body_reference_paths` as its highest-demand open
+primitive: a `wpforms` post's `post_content` is a JSON document that carries a reference to another
+entity inside it, and none of the three modes addresses that. `blocks` runs a block parser over a
+document with no blocks; `serialized` decodes PHP serialization that is not there; `verbatim` preserves
+the bytes, which means preserving a SOURCE-LOCAL id. Omitting `body` is not a fourth option — it defaults
+to `blocks` — so a JSON body was mis-read rather than left alone.
+
+**The declaration.** One post type in `json` mode, and the paths inside it:
+
+```json
+"post_types": {"wpforms": {"class": "authored", "body": "json"}},
+"body_refs": {
+  "wpforms": {
+    "json_refs": [
+      {"path": "$.settings.confirmations.*.page", "kind": "post", "cast": "string"}
+    ],
+    "sentinels": {"$.settings.confirmations.*.page": ["previous_page"]}
+  }
+}
+```
+
+`json_refs` is the SHIPPED dialect, not a new one: the same minimal JSONPath (`$`, `.`, `..`, `.*`), the
+same `kind` keyspace names, the same `cast: "string"`, and the same overlapping-path refusal, because
+`BodyRefGrammar::validate_one()` hands the list to `ReferenceRules::value_rule()` rather than
+re-implementing any of it. `key_refs` is refused BY NAME: an id-keyed map inside a post body has no
+measured demand, and this engine does not claim a shape it has never seen.
+
+**What is genuinely new is `sentinels`, and it is the measurement that forced it.** On a live WPForms
+Lite 2.0.0.5 pair, `settings.confirmations.<n>.page` holds a PAGE post id as the JSON string `"4"`, and
+the SAME key legitimately holds the literal `previous_page` — `includes/class-process.php:1553-1562`
+branches on exactly that before `get_permalink((int) $confirmation['page'])`. A rule that coerced the
+slot would silently repoint a confirmation at post 0. So a declared path may carry a declared set of
+non-reference literals, and a value that is neither a positive id nor a declared sentinel REFUSES: "the
+adapter forgot a sentinel" and "this path is not a reference after all" have opposite remedies, and only
+the author can tell them apart. A NUMERIC sentinel is refused in turn — it would be indistinguishable
+from the id the path resolves.
+
+**The identity round-trip precondition, which is the mode's whole safety.** Before any substitution the
+document is decoded and re-encoded with `wp_json_encode()`'s default flags and compared to the input BYTE
+FOR BYTE; a mismatch refuses, naming the document. A post body is not a meta row — it is folded into
+`Canon::post_hash_basis()` and it is what an operator reads in a diff — so a mode that could not reproduce
+an untouched body would show every adopted form as changed forever. Two hazards make this a real check:
+a JSON object whose keys are `"0","1","2"…` decodes to a PHP list and re-encodes as a JSON ARRAY, and an
+empty object `{}` re-encodes as `[]`. Both are refusals, not accommodations. The same discipline decides
+the per-path TYPE in both directions: apply writes the DECLARED type, so a source whose stored type
+disagrees with the declaration refuses at capture — `AttrIdCodecGrammar::assert_source_type()`'s rule
+(§ v3.2's WP-6.1 pair) reached through a different door.
+
+**Optionality and type variance are answered by PRESERVATION, not by a rule.** The measured `$.id` on the
+same plugin is ABSENT on the template create path, an INT on the `['builder' => false]` path and a STRING
+on the real builder save, because the builder posts a flat jQuery input list and every leaf that reaches
+`update()` is a string. This mode rewrites DECLARED PATHS ONLY and reproduces everything else from the
+decode, so an adapter that does not declare `$.id` keeps all three shapes as it found them, with no rule
+written for any of them. An adapter that DOES declare it must declare one type, and the capture refusal
+then names the write path it has not accounted for — which makes the variance visible instead of
+silently mis-typing two paths out of three.
+
+**What the mode does NOT claim, stated so it cannot be inferred.** It rewrites declared reference paths
+and nothing else. The same measured bodies bake the source site's absolute home URL into
+`settings.confirmations.<n>.redirect` and `get_bloginfo('name')` into
+`notifications.<n>.sender_name`; neither is a reference path and neither is rebound. Capture WARNS when
+the body carries this environment's home URL — checking the JSON-ESCAPED form as well as the plain one,
+because `wp_json_encode()` escapes every `/` and a plain scan would never match. It is also not block
+attributes: `attr_id_codecs` is a separate declaration over a separate parser, and nothing here reaches
+`serialize_block_attributes()`'s escaping or `wp_update_post()`'s `wp_unslash()`.
+
+**Why the mode's gate is asked LATE while the key's is asked by § v3.3.** The section is admitted by the
+closed key set the moment the feature is declared, which gives the three distinct verdicts § v3.2
+requires. The MODE cannot be staged that way — a value inside a closed vocabulary has no key to refuse by
+— so `PostTypeGrammar` recognises `json` and defers, and `BodyRefGrammar::assert_body_mode_gate()` refuses
+it by feature name after `validate_adapter_contract()` has run. Refusing earlier would pre-empt all three
+verdicts with a fourth sentence about a body mode, telling a `spec_version: 2` author about an engine
+feature when what is wrong is the version their whole document declares. The one case left for the late
+gate is the one no key can express: the mode declared with no `body_refs` section at all.
+
+**No shipped manifest declares it, so no adapter digest moves** (AGENTS.md rule 2). The sufficiency proof
+is the previously-rejected candidate authored end to end as a FIXTURE adapter, driven through the real
+`PostCapture` seam over four `post_content` values captured from a live pair through the plugin's own
+write paths — `sandbox/tests/fixtures/wpforms-body/`. That provenance is the point: a hand-written
+fixture body has no confirmations, no page reference and no sentinel, which is why the ledger's own
+one-sentence description of this coordinate was measurably wrong until the entities were authored through
+the plugin instead of through `wp post create --post_content=…`.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |

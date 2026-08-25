@@ -4,8 +4,12 @@
   "primitives": {
     "structured_post_body_reference_paths": {
       "title": "structured post-body reference paths",
-      "status": "open",
-      "definition": "Addressing a reference inside a post BODY by a declared path, so a source-local id embedded in structured post_content is rebound rather than carried over verbatim."
+      "status": "shipped",
+      "definition": "Addressing a reference inside a post BODY by a declared path, so a source-local id embedded in structured post_content is rebound rather than carried over verbatim. Shipped as the `json` post-type body mode plus the top-level `body_refs` section, both gated on the engine feature `structured-body-refs/v1` (spec/repo-format.md § v3.20). The path dialect is the shipped `json_refs` one, unchanged; what the primitive adds beside it is the identity round-trip precondition over the whole document, the per-path declared JSON type, and the declared `sentinels` literal set that keeps a non-reference value at a reference path a refusal rather than a guess.",
+      "evidence": [
+        "agent/src/Grammar/BodyRefGrammar.php",
+        "sandbox/tests/offline/grammar/regress_body_ref_grammar.php"
+      ]
     },
     "type_preserving_string_id_attr_codec": {
       "title": "a type-preserving string-id attribute codec",
@@ -117,9 +121,20 @@
       "coordinates": [
         {
           "coordinate": "post_types.wpforms.body",
-          "cannot_represent": "`wpforms` post content is JSON and includes the form's source-local numeric `id`. `body: \"verbatim\"` preserves the wrong id on a target whose post id differs; it does not provide fidelity.",
+          "cannot_represent": "`wpforms` post content is a JSON document carrying cross-entity references inside it, and none of the three body modes addressed a declared path inside one — `blocks` runs a block parser over a document with no blocks, `serialized` decodes PHP serialization that is not there, `verbatim` preserves the source-local id, and omitting `body` defaults to `blocks`. THIS ROW'S EARLIER SENTENCE — \"includes the form's source-local numeric `id`\" — was measured WRONG on a live 2.0.0.5 pair on 2026-08-25: the top-level `id` is ABSENT on the template create path, an INT on the `['builder' => false]` path (includes/class-form.php:611-639), and a STRING on the real builder save, because includes/admin/ajax-actions.php:36-52 rebuilds the posted form from a flat jQuery input list so every leaf reaching update() is a string. The unambiguously cross-entity reference is `settings.confirmations.<n>.page`: a PAGE post id stored as a JSON STRING, on a key that also legitimately holds the literal `previous_page` (includes/class-process.php:1553-1562 branches on exactly that before `get_permalink((int) …)`).",
           "primitive_required": "structured_post_body_reference_paths",
-          "remedy_phrase": "structured post-body reference paths"
+          "remedy_phrase": "structured post-body reference paths",
+          "closed_by": [
+            "agent/src/Grammar/BodyRefGrammar.php",
+            "sandbox/tests/offline/grammar/regress_body_ref_grammar.php",
+            "sandbox/tests/fixtures/wpforms-body/form-b.post_content.raw.json"
+          ]
+        },
+        {
+          "coordinate": "post_meta.wpforms_form_locations",
+          "cannot_represent": "Every `wpforms` post carries a `wpforms_form_locations` postmeta row: a PHP-serialized list of the posts that EMBED the form, each entry holding the embedding post's id, permalink path, and denormalized copies of its title and status. Read at the source it is unambiguously DERIVED rather than authored — `WPForms\\Forms\\Locator::hooks()` maintains it on `save_post`, `post_updated`, `wp_trash_post`, `untrash_post`, `delete_post`, `permalink_structure_changed` and three widget-option writes (src/Forms/Locator.php:203-216), and `FormsLocatorScanTask` rebuilds it in FULL from a REGEXP over `post_content` on a recurring `DAY_IN_SECONDS` schedule (src/Tasks/Actions/FormsLocatorScanTask.php:153, :184-186, :387). So `class: \"derived\"` represents it and it needs no new declarative primitive to capture. What is not representable is the apply-side postcondition: Duo writes `wp_posts` with a direct `Db::update()` (agent/src/Apply/PostMaterializer.php:229), so none of those eight hooks fires and a target's locations meta stays stale until the plugin's own scheduled scan next runs. A derivation that is scheduled rather than synchronous is exactly the bounded postcondition this primitive is about, and an exit code from a rebuild command would not prove it either. The 2026-08-22 pass could not have seen this coordinate: the row only exists once a form is actually embedded in a page and the locator scan has run, which a hand-written fixture never triggers.",
+          "primitive_required": "verified_provider_postcondition",
+          "remedy_phrase": "a bounded postcondition over the plugin's scheduled form-locations derivation"
         },
         {
           "coordinate": "block_attrs.wpforms/form-selector",
@@ -138,7 +153,7 @@
           "remedy_phrase": "a complete taxonomy/delete-scope exercise"
         }
       ],
-      "closing": "The block-selector coordinate closed in WP-6.1 and its `attr_id_codecs` declaration is exercised end to end by `sandbox/tests/offline/grammar/regress_attr_id_codec_grammar.php`; the two above remain. The WPForms site adapter in `docs/grind/adapter-walk.md` remains an authoring and trust-flow fixture only; it is not a platform support claim."
+      "closing": "The block-selector coordinate closed in WP-6.1 (`attr_id_codecs`) and the JSON body coordinate closed in WP-6.5 (`body_refs` plus the `json` body mode), each exercised end to end by its own suite; the two above remain. WP-6.5 also corrected this row: the body coordinate's original one-sentence claim about a \"source-local numeric `id`\" was true for one of the plugin's three write paths and not for the common one, and the `wpforms_form_locations` coordinate was missing entirely because a hand-written fixture never produces it. Both were found by authoring the entities through WPForms' own APIs on a live pair rather than with `wp post create --post_content=…`, which is the discipline `docs/guides/adapter-authoring.md` § 1 already states and `sandbox/tests/grind/grind_adapter_walk.sh:582-586` does not follow. The WPForms site adapter in `docs/grind/adapter-walk.md` remains an authoring and trust-flow fixture only; it is not a platform support claim."
     },
     {
       "id": "redirection",

@@ -27,7 +27,11 @@ require $root . '/agent/src/Kernel/Uuid.php';
 require $root . '/agent/src/Repository/Ledger.php';
 require $root . '/agent/src/Policy/Policy.php';
 require $root . '/agent/src/Delete/Deletion.php';
-require $root . '/agent/src/Kernel/JsonRefs.php';
+// require_once, not require: WP-6.5 gave Policy.php a transitive path to this
+// file (Policy -> BodyRefGrammar -> JsonRefs), so the bare require above it now
+// meets a class that is already declared. Every file under agent/src uses
+// require_once for exactly this reason.
+require_once $root . '/agent/src/Kernel/JsonRefs.php';
 require $root . '/agent/src/Grammar/Tokens.php';
 require $root . '/agent/src/Grammar/Blocks.php';
 require $root . '/agent/src/Repository/SidebarState.php';
