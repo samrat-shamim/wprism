@@ -65,6 +65,7 @@ $GLOBALS['duo_scoped_effect_cache'] = ['transient' => []];
 $GLOBALS['duo_scoped_effect_deletes'] = 0;
 $GLOBALS['duo_scoped_effect_filters'] = [];
 $GLOBALS['duo_scoped_rewrite_child_flushes'] = 0;
+$GLOBALS['duo_scoped_rewrite_cache_deletes'] = [];
 
 function add_option(string $name, mixed $value, mixed $deprecated = '', mixed $autoload = 'yes'): bool {
     global $wpdb;
@@ -126,6 +127,13 @@ function remove_filter(string $hook, callable $callback, int $priority = 10): bo
 function wp_cache_get(string $key, string $group = '', bool $force = false, mixed &$found = null): mixed {
     $found = array_key_exists($key, $GLOBALS['duo_scoped_effect_cache'][$group] ?? []);
     return $found ? $GLOBALS['duo_scoped_effect_cache'][$group][$key] : false;
+}
+
+function wp_cache_delete(int|string $key, string $group = ''): bool {
+    $GLOBALS['duo_scoped_rewrite_cache_deletes'][] = [(string) $key, $group];
+    $present = array_key_exists((string) $key, $GLOBALS['duo_scoped_effect_cache'][$group] ?? []);
+    unset($GLOBALS['duo_scoped_effect_cache'][$group][(string) $key]);
+    return $present;
 }
 
 function delete_transient(string $name): bool {
@@ -448,7 +456,15 @@ $check(
         && $rewriteRecovered['status'] === 'verified'
         && $rewriteRecovered['after_hash'] === $rewriteReceipt['after_hash']
         && $rewriteReceipt['capability_digest'] === NativeActions::scoped_action_digest('rewrite.flush')
-        && $GLOBALS['duo_scoped_rewrite_child_flushes'] === 1,
+        && $GLOBALS['duo_scoped_rewrite_child_flushes'] === 1
+        && $GLOBALS['duo_scoped_rewrite_cache_deletes'] === [
+            ['rewrite_rules', 'options'],
+            ['tribe_last_generate_rewrite_rules', 'options'],
+            ['tribe_last_updated_option', 'options'],
+            ['tribe_last_save_post', 'options'],
+            ['alloptions', 'options'],
+            ['notoptions', 'options'],
+        ],
     'scoped rewrite recovery checks the persisted/runtime grammar against hash-only evidence without a second flush'
 );
 $GLOBALS['wpdb']->optionRows['rewrite_rules'] = serialize([
