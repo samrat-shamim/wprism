@@ -67,6 +67,11 @@ require __DIR__ . '/src/Adapter/AdapterCatalog.php';
 require __DIR__ . '/src/Adapter/MigrationPreflight.php';
 require __DIR__ . '/src/Adapter/AdapterObservation.php';
 require __DIR__ . '/src/Adapter/AdapterCertify.php';
+// WP-4.12's two flag-day migration verbs. After AdapterCertify, whose
+// bootstrap, secret-key reader and certificate writer they reuse rather than
+// re-implement, and after MigrationPreflight, whose enumeration
+// `release --spec-v3` calls.
+require __DIR__ . '/src/Adapter/SpecMigration.php';
 require __DIR__ . '/src/Adapter/AdapterBoundary.php';
 require __DIR__ . '/src/Adapter/AdapterProposals.php';
 // RefreshPlan lands as a separately-reviewable semantic layer. Keep this
@@ -245,6 +250,7 @@ use Duo\Orchestrator\AdapterDraft;
 use Duo\Orchestrator\AdapterCatalog;
 use Duo\Orchestrator\AdapterObservation;
 use Duo\Orchestrator\AdapterCertify;
+use Duo\Orchestrator\SpecMigration;
 use Duo\Orchestrator\AdapterBoundary;
 use Duo\Orchestrator\AdapterProposals;
 use Duo\Orchestrator\CommandOutput;
@@ -295,6 +301,7 @@ Usage:
   duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
   duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
                       [--key-id=<id>] [--reason=<text>] [--pin [--adopt-scope]]
+  duo adapter recertify <site-repo> --secret-key-file=<f> [--format=json]
   duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
   duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
   duo adapter boundary --releases=<release-list.json> --anchor=<version>
@@ -318,6 +325,9 @@ Usage:
   duo release <env> [--from=<ref>] [--plan-only] [--profile=<p>]
                     [--accept-weaker-recovery] [--with-deletes] [--yes]
                     [--limit=<1..200>] [--format=json]
+  duo release --spec-v3 <site-repo> [--artifact=<artifact.json>]
+                    [--scope-contract=<scope-contract.json>]
+                    [--snapshot=<snapshot.json>] [--format=json]
   duo verify  <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
   duo recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded]
                     [--operator-directed] [--limit=<1..200>] [--format=json]
@@ -591,6 +601,28 @@ Verbs:
                           `exercised: false` and the stated reason, and
                           deletion semantics are declared unsupported because
                           a validator run cannot review them.
+  adapter recertify       Re-sign EVERY certified site adapter in one repo,
+    <site-repo>           under the key each certificate already names, in one
+    --secret-key-file=<f> idempotent invocation. The flag day's remedy: a
+    [--format=json]       certificate binds `spec_version` inside its signed
+                          statement, so every certificate minted before the v3
+                          bump withdraws to `uncertified` (a named degradation
+                          — the adapter keeps loading, plan and apply stay
+                          available, readiness and host promotion do not).
+                          Idempotent by REUSE, not by a flag: an unchanged
+                          input re-signs byte-identically and keeps its
+                          original created_at, so a second run reports
+                          `unchanged` and writes nothing. ALL-OR-NOTHING: the
+                          trust root and every certificate file are staged
+                          before the first signature and restored on any
+                          failure, because a half-recertified repository is the
+                          worst available outcome. One key per invocation — a
+                          certificate under another key is a blocked row naming
+                          that key, never a silent skip.
+                          A re-signed certificate cannot be verified by the
+                          previous agent, so running this closes the rollback
+                          window for the site (gate G3 —
+                          docs/guides/flag-day.md).
   adapter pin             Write or replace one exact {name,source,digest} pin
     <site-repo>           in site.duo.json, offline. The digest comes from the
     --name=<n>            engine's own resolution, so it is the number the
@@ -1004,6 +1036,36 @@ Verbs:
     [--format=json]       destroy a created environment or detach an attached
                           one, only through its explicit provider capability.
                           Repeated reap is idempotent; stale identity refuses.
+  release --spec-v3       The v3 flag day, for ONE site repository. No <env>,
+    <site-repo>           no transport, no target contact: it reads files on
+    [--artifact=<f>]      this machine. Three steps, in this order.
+    [--scope-contract=<f>]  1. Enumerate what the bump reaches on THIS site by
+    [--snapshot=<f>]           calling `adapter doctor --migration`'s own
+    [--format=json]            preflight — never a second answer to the same
+                               question. The optional --artifact /
+                               --scope-contract / --snapshot are the documents
+                               a deployed site holds and git does not; each one
+                               omitted becomes a `deferred` row naming the flag
+                               that answers it, never silence.
+                            2. Journal the site's PRIOR pin objects under
+                               .duo/migrations/, content-addressed, BEFORE any
+                               new object is emitted. A site that re-pins and
+                               then rolls back otherwise has that provenance
+                               only in a shell scrollback.
+                            3. Emit the pin objects the post-flip library
+                               resolves. Under digest neutrality these EQUAL
+                               the prior ones for every shipped adapter; a
+                               certified site adapter is where they differ,
+                               because the certificate withdrawal moves its row.
+                          It writes nothing to site.duo.json — updating a pin
+                          stays an explicit review act (`duo adapter pin`) —
+                          and it deliberately does NOT re-stamp the repository's
+                          own spec_version: the acceptance window {N-1, N}
+                          accepts it unchanged, and re-stamping would strand a
+                          rollback (gate G3 — docs/guides/flag-day.md).
+                          Exit follows the PREFLIGHT's verdict: one
+                          unclassified gate makes the run non-green even though
+                          the journal was written.
   release <env>           The composed release. Fixed order, and it COMPOSES
     [--from=<ref>]        promote rather than forking it: deploy-before-apply,
     [--plan-only]         the lease, the fence, the checkpoint and the
@@ -1338,6 +1400,19 @@ function main(array $argv): int {
         return ManifestValidate::run($rest);
     }
 
+    // WP-4.12: `duo release --spec-v3 <site-repo>` is the flag-day migration
+    // act for ONE REPOSITORY, and it is intercepted here — before the
+    // environment, transport and driver-capability machinery `release` itself
+    // needs — because it takes a site repo rather than an <env> and touches no
+    // target at all. Same shape and same reason as `manifest-validate` and
+    // `merge-check` above: the operator most likely to run it is mid-migration,
+    // which is exactly when an environment-bound verb is least reachable. The
+    // interception is on the FLAG, so `duo release <env>` keeps every byte of
+    // its own parsing, refusals and output.
+    if ($verb === 'release' && in_array(SpecMigration::RELEASE_FLAG, $rest, true)) {
+        return SpecMigration::runRelease($rest);
+    }
+
     // Same shape, same reason (WP-2.4): the suspicious-reference linter over a
     // captured tree on THIS machine. It runs the engine's real
     // Lint::scan_tree() — the same static method `wp duo lint` calls — over a
@@ -1391,6 +1466,17 @@ function main(array $argv): int {
         }
         if (in_array($rest[0] ?? '', AdapterCertify::VERBS, true)) {
             return AdapterCertify::run($rest);
+        }
+        // WP-4.12: `recertify` is a fifth owner rather than a fifth
+        // AdapterCertify verb, and the split is the same one that put
+        // `boundary` and `proposals` in their own classes. It mutates the same
+        // two files `certify` does and reuses that class's bootstrap, key
+        // reader and certificate writer — but it is a FLEET verb: it acts on
+        // every certificate a repository holds, all-or-nothing, and reports a
+        // per-adapter row matrix that `certify`'s single-subject output has no
+        // room for.
+        if (in_array($rest[0] ?? '', SpecMigration::VERBS, true)) {
+            return SpecMigration::run($rest);
         }
         return AdapterCatalog::run($rest);
     }

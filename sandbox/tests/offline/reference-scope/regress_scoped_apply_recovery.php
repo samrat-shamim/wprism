@@ -14,9 +14,10 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__, 4);
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
+// WP-4.12: derived from agent/duo.php — this suite reaches the shipped
+// platform.json, which restates both defines.
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }

@@ -1110,7 +1110,7 @@ final class RefreshPlan {
     private static function loadCompiler(): void {
         if (class_exists(\Duo\RepositoryCompiler::class, false)
             && class_exists(\Duo\CodeStateContract::class, false)) return;
-        if (!defined('DUO_SPEC_VERSION')) define('DUO_SPEC_VERSION', 2);
+        if (!defined('DUO_SPEC_VERSION')) define('DUO_SPEC_VERSION', 3);
         $root = dirname(__DIR__, 3);
         $duoAgentClassmap = require $root . '/agent/duo-classmap.php';
         if (!is_array($duoAgentClassmap)) {

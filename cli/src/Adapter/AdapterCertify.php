@@ -1435,6 +1435,22 @@ final class AdapterCertify {
     }
 
     /**
+     * The same bootstrap, for the sibling that shares this file's write
+     * discipline.
+     *
+     * WP-4.12's `duo adapter recertify` re-signs through
+     * `AdapterCertification::sign_site()` and writes through
+     * `self::writeCertificate()` — the same producer and the same file this
+     * class already owns — so it must load the same engine surface, from the
+     * same classmap, in the same order. A second bootstrap in
+     * `SpecMigration` would be a second answer to "which agent is this", which
+     * is exactly the question a flag-day verb must not have two of.
+     */
+    public static function bootPublic(): void {
+        self::boot();
+    }
+
+    /**
      * Load the engine's pure surface into this WordPress-free process.
      *
      * The same shape as `ManifestValidate::boot()` and `AdapterDraft::boot()`

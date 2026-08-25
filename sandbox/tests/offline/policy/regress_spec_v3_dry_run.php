@@ -97,12 +97,8 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_AGENT_VERSION')) {
-    define('DUO_AGENT_VERSION', '0.5.0');
-}
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 
 require_once __DIR__ . '/../../lib/check.php';
 
@@ -503,15 +499,26 @@ duo_check_same(
     $partitionReaders,
     'THE FLIP: the accessor has a SECOND enforcing reader — the contract grammar, which refuses an unrecognised key at spec_version 3 — beside the class that owns it and the emitter that publishes it'
 );
-// The fixture is unchanged and so is its verdict AT THIS ENGINE: the rule is
-// gated at spec_version 3, and manifest_a() declares DUO_SPEC_VERSION, so the
-// open v2 era is exactly what it was. That is the flag-day invariant, not a gap
-// — `regress_closed_top_level_keys.php` drives the same shape at a synthetic
-// N+1 engine, where it refuses by name.
+// THE FLIP (WP-4.12) LANDED ON THIS FIXTURE, and both halves are worth
+// keeping. `manifest_a()` stamps DUO_SPEC_VERSION, which is now 3 — the gate
+// itself — so the rule this suite dry-ran is LIVE against it. The era the
+// shipped library still sits in is N-1, and that is where the open behaviour
+// went: the same bytes, one version down, still admitted. Two verdicts on one
+// fixture is the whole no-restamp argument in two assertions.
+$typoAtEngine = $validatorVerdict($fixtures['fixture:typo-and-invented-section']);
+duo_check(
+    is_string($typoAtEngine) && str_contains($typoAtEngine, "'optoins'")
+        && str_contains($typoAtEngine, "'totally_made_up_section'"),
+    "WP-4.3's named case is now REFUSED at this engine's own version: the flip put DUO_SPEC_VERSION on the "
+        . 'closed-key-set gate, so the rule this suite dry-ran is live and names both keys'
+);
+$typoAtLibraryEra = $fixtures['fixture:typo-and-invented-section'];
+$typoAtLibraryEra['spec_version'] = DUO_SPEC_VERSION - 1;
 duo_check_same(
     null,
-    $validatorVerdict($fixtures['fixture:typo-and-invented-section']),
-    "WP-4.3's named case at v2: `totally_made_up_section` and a typo'd `optoins` are STILL admitted by the validator pipeline, because the rule is gated at spec_version 3"
+    $validatorVerdict($typoAtLibraryEra),
+    '...while the IDENTICAL bytes at spec_version ' . (DUO_SPEC_VERSION - 1) . ' are still admitted — the era '
+        . 'every shipped manifest declares, which is why the flip moved no manifest byte and no digest'
 );
 $typoV3 = $fixtures['fixture:typo-and-invented-section'];
 $typoV3['spec_version'] = DUO_SPEC_VERSION + 1;
@@ -562,12 +569,28 @@ duo_check_same(
     \Duo\AdapterContractGrammar::implemented_features(),
     'V3-FEAT: and the vocabulary is non-empty, so an engine that lacks a declared name has something to compare against'
 );
-$featureFixtureVerdict = $validatorVerdict($fixtures['fixture:engine-features']);
+// THE FLIP (WP-4.12), the other direction. `engine_features` is implemented
+// since spec_version 3, and DUO_SPEC_VERSION is now 3 — so the fixture that
+// was refused by SECTION NAME at every accepted version is now ADMITTED at the
+// engine's own. That is § v3.2's promise arriving: the declaration channel
+// opens with the bump, and every later primitive rides it instead of the next
+// one. The refusing half did not disappear; it moved to N-1, which is exactly
+// where the shipped library and every out-of-tree adapter authored before the
+// flip sit.
+duo_check_same(
+    null,
+    $validatorVerdict($fixtures['fixture:engine-features']),
+    'V3-FEAT: the fixture that refused BY SECTION NAME at every version this engine used to accept is ADMITTED '
+        . 'at spec_version ' . DUO_SPEC_VERSION . ' — the channel opened with the flip and needs no second bump'
+);
+$featureAtLibraryEra = $fixtures['fixture:engine-features'];
+$featureAtLibraryEra['spec_version'] = DUO_SPEC_VERSION - 1;
+$featureFixtureVerdict = $validatorVerdict($featureAtLibraryEra);
 duo_check(
     is_string($featureFixtureVerdict) && str_contains($featureFixtureVerdict, "the section 'engine_features'")
-        && str_contains($featureFixtureVerdict, 'implements only at spec_version 3'),
-    'V3-FEAT: the same fixture that was INERT under the pre-window grammar now refuses BY SECTION NAME at spec_version '
-        . DUO_SPEC_VERSION . ' — the silence WP-4.2 replaced'
+        && str_contains($featureFixtureVerdict, 'implements only at spec_version ' . DUO_SPEC_VERSION),
+    '...and the same declaration at spec_version ' . (DUO_SPEC_VERSION - 1) . ' still refuses BY SECTION NAME — '
+        . 'the silence WP-4.2 replaced, now aimed at the population that has not migrated'
 );
 duo_check_detail('V3-FEAT section refusal: ' . (string) $featureFixtureVerdict);
 

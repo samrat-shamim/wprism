@@ -93,12 +93,8 @@ require __DIR__ . '/../../../../agent/src/Command/Cli.php';
 
 // The real shipped registry binds these exact platform values; the harness
 // must present the same agent it claims to be or every claim reads as stale.
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
-if (!defined('DUO_AGENT_VERSION')) {
-    define('DUO_AGENT_VERSION', '0.5.0');
-}
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -1115,8 +1111,16 @@ expect_throw(
         ['acme-widget' => site_adapter('acme-widget', [
             'plugin' => 'acme/acme.php',
             'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
+            // WP-4.12: `acme-cache`, not `woocommerce-cache`. The id now sits
+            // INSIDE this adapter's own vendor namespace on purpose — at
+            // spec_version 3 the namespace rule (§ v3.9) refuses a foreign
+            // provider id first, and this case is not about that rule. Naming
+            // the provider legally is what makes the refusal below provably
+            // about `source: "manifest"`: the adapter asks for code that would
+            // resolve inside the agent, and is refused for that and nothing
+            // else.
             'providers' => [[
-                'id' => 'woocommerce-cache',
+                'id' => 'acme-cache',
                 'version' => '1.0.0',
                 'source' => 'manifest',
                 'plugin' => 'acme/acme.php',

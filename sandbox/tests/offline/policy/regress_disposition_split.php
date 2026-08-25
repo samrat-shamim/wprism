@@ -49,12 +49,14 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
-if (!defined('DUO_AGENT_VERSION')) {
-    define('DUO_AGENT_VERSION', '0.5.0');
-}
+// WP-4.12: derived from agent/duo.php, not retyped. This suite reads the
+// SHIPPED platform.json (through Policy::load -> AdapterRegistry), and that
+// document restates both defines — so a literal here disagrees with the tree
+// the moment the defines move and the suite dies on "platform version
+// disagrees with the loaded agent" instead of reporting anything about
+// dispositions. See sandbox/tests/lib/agent_version.php.
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 if (!function_exists('is_multisite')) {
     function is_multisite(): bool {
         return false;

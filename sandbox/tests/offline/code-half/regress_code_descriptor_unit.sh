@@ -7,7 +7,10 @@ ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 DUO_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
 <?php
 $root = getenv('DUO_ROOT');
-define('DUO_SPEC_VERSION', 2);
+// WP-4.12: from agent/duo.php, never retyped — this heredoc reaches the
+// shipped platform.json, which restates the defines.
+require_once $root . '/sandbox/tests/lib/agent_version.php';
+duo_test_define_agent_versions();
 $duoAgentClassmap = require $root . '/agent/duo-classmap.php';
 if (!is_array($duoAgentClassmap)) {
     throw new \RuntimeException('regress_code_descriptor_unit: agent/duo-classmap.php did not return a map');

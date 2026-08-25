@@ -641,6 +641,15 @@
    "note": "the frozen half: Policy::from_snapshot() re-derives a promoted site's certificates against the boundary now installed, so resolved_adapters()/is_certified() on the rehydrated policy report a claim the bump withdraws while the frozen record still says certified. That difference becomes a frozen_certificate_withdrawn invalidation row; a snapshot the target cannot rehydrate at all becomes an `unclassified` row rather than a clean one."
   },
   {
+   "site": "cli/src/Adapter/SpecMigration.php::recertify",
+   "axes": [
+    "platform",
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "WP-4.12's remedy verb, and the only write the flag day asks an operator to perform. It re-signs every certified site adapter against the boundary NOW installed, under the key each certificate already names, and verifies each result through the live verifier before claiming it -- a producer that trusted its own bytes would leave the one certificate nobody checked in the repository. Two gate properties, both measured by regress_spec_migration_verbs.php: it is idempotent by REUSE rather than by a flag (sign_site() returns the existing bytes with their original created_at when a deterministic re-sign is byte-identical, AdapterCertification.php:1096-1126), and it is ALL-OR-NOTHING -- adapters/authorities.json and every certificate file are staged before the first signature and restored on any failure, because a partial re-signing leaves some adapters bound to the new boundary and some to the old with no single command that reports which. A certificate under a different key is a blocked row naming that key id, never a silent skip."
+  },
+  {
    "site": "cli/src/Assess/AssessReport.php::proposalSeed",
    "axes": [
     "manifest"

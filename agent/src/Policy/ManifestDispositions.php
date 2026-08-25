@@ -507,8 +507,8 @@ final class ManifestDispositions {
             throw new \RuntimeException("duo: $label has an unsupported or malformed root");
         }
         $platform = $data['platform'];
-        if (($platform['agent_version'] ?? null) !== (defined('DUO_AGENT_VERSION') ? DUO_AGENT_VERSION : '0.5.0')
-            || ($platform['spec_version'] ?? null) !== (defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 2)) {
+        if (($platform['agent_version'] ?? null) !== (defined('DUO_AGENT_VERSION') ? DUO_AGENT_VERSION : '0.6.0')
+            || ($platform['spec_version'] ?? null) !== (defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 3)) {
             throw new \RuntimeException("duo: $label platform version disagrees with the loaded agent");
         }
         return $platform;

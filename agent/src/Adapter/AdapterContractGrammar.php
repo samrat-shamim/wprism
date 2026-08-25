@@ -2,6 +2,9 @@
 namespace Duo;
 
 require_once __DIR__ . '/AdapterSources.php';
+// WP-4.12: the {N-1, N} window itself, shared with RepositoryCompiler, which
+// judges site.duo.json's own spec_version and cannot reference this layer.
+require_once __DIR__ . '/../Kernel/SpecVersionWindow.php';
 // Circular with Policy.php's require_once of this file: safe because
 // require_once records the currently included path before the nested require
 // is reached, while these methods only resolve Policy at call time.
@@ -74,15 +77,21 @@ final class AdapterContractGrammar {
      * (spec/repo-format.md § v3.3, WP-4.3).
      *
      * 3 and not 2, and that is the whole flag-day safety of this rule: a v2
-     * manifest keeps today's open behaviour byte for byte, so none of the 16
+     * manifest keeps the open behaviour byte for byte, so none of the 16
      * shipped manifests changes behaviour, no manifest byte moves and no
-     * adapter digest moves (AGENTS.md rule 2). At this engine's
-     * `DUO_SPEC_VERSION` 2 the branch below is unreachable through the product
-     * path — `validate_adapter_contract()` refuses `spec_version` 3 wholesale
-     * one step earlier, since 3 is outside the window {1, 2} — which is why
-     * the rule's behaviour is measured against a synthetic N+1 engine in
-     * `sandbox/tests/offline/policy/regress_closed_top_level_keys.php`, the
-     * same two-era technique § v3.2's channel needed.
+     * adapter digest moves (AGENTS.md rule 2). That is still true after
+     * WP-4.12's flip, and it is the no-restamp rule (§ v3.12) that keeps it
+     * true: the whole library still declares 2, which is BELOW this gate even
+     * though `DUO_SPEC_VERSION` is now 3.
+     *
+     * What the flip changed is reachability. At DUO_SPEC_VERSION 2 the branch
+     * below could not be reached through the product path at all — the window
+     * {1, 2} refused a v3 manifest wholesale one step earlier — so the rule was
+     * measured against a synthetic N+1 engine. It is now live for any manifest
+     * that declares 3, and `regress_closed_top_level_keys.php` reads both arms
+     * in one run of the real `duo manifest-validate`. Its N+1 tree is kept for
+     * the one thing the shipped engine still cannot show: at N = 4 the window's
+     * floor is this gate, so the open era stops existing.
      */
     private const CLOSED_KEY_SET_SINCE = 3;
 
@@ -113,19 +122,47 @@ final class AdapterContractGrammar {
      * under `make release-gate` by probing this validator rather than by
      * reading this line (spec/repo-format.md § v3.1).
      *
+     * DELEGATED SINCE WP-4.12. `site.duo.json` carries the same wire version
+     * integer and `RepositoryCompiler::compile()` now judges it against the
+     * same window, but `Repository` is layer 3 and this file is layer 5, so
+     * the compiler cannot reference it. The definition moved down to
+     * `SpecVersionWindow` (kernel), which both readers already depend on;
+     * this method stays because every refusal in this file is written against
+     * it and because the release gate probes THIS validator for the floor.
+     *
      * @return list<int>
      */
     private static function accepted_window(int $supported): array {
-        return [$supported - 1, $supported];
+        return SpecVersionWindow::accepted($supported);
     }
 
     /**
-     * The window as it is printed in a refusal: `{1, 2}`.
+     * The window as it is printed in a refusal: `{2, 3}`.
      *
      * @param list<int> $accepted
      */
     private static function window_text(array $accepted): string {
-        return '{' . implode(', ', $accepted) . '}';
+        return SpecVersionWindow::text($accepted);
+    }
+
+    /**
+     * The first `spec_version` at which the top-level key set is CLOSED.
+     *
+     * Public since WP-4.12, for one caller and one reason. `duo adapter-draft`
+     * emits a manifest that CARRIES `_draft`, and this rule refuses that key at
+     * or above this version by design (§ v3.3: an authoring artifact must not
+     * enter the identity row a certificate covers). Before the flip the two
+     * could not collide — the engine's window topped out one below this gate,
+     * so every draft it emitted was admissible. After the flip they collide by
+     * default, and the generator has to choose its stamp from the rule rather
+     * than from a literal that would rot the next time either moves.
+     *
+     * Exposing the number is not exposing a decision: nothing may relax the
+     * gate, and `AdapterDraft` uses it only to pick the highest ACCEPTED
+     * version that still admits its sidecar, refusing loudly when none does.
+     */
+    public static function closed_key_set_since(): int {
+        return self::CLOSED_KEY_SET_SINCE;
     }
 
     /**
@@ -359,9 +396,16 @@ final class AdapterContractGrammar {
             }
             // Two eras, two honest remedies. While the section's version is
             // itself inside the window an author can simply declare it; while
-            // it is not (this engine at DUO_SPEC_VERSION 2 and the section at
-            // 3), saying "declare spec_version 3" would send them to a manifest
-            // this same validator refuses wholesale one line above.
+            // it is not, saying "declare spec_version $since" would send them
+            // to a manifest this same validator refuses wholesale one line
+            // above. WP-4.12 moved this engine from the second era into the
+            // first: at DUO_SPEC_VERSION 2 the only implemented section
+            // (`engine_features`, since 3) sat one past the ceiling and BOTH
+            // in-window versions refused it; the flip put 3 inside the window,
+            // so a v2 manifest now gets the actionable remedy and a v3 one is
+            // simply admitted. Both arms stay, because the next section
+            // declared at a version this engine does not reach re-enters the
+            // second era on the day it is added.
             $remedy = in_array($since, $accepted, true)
                 ? "declare spec_version $since to use it, or remove the section"
                 : "this engine's window does not reach spec_version $since, so remove the section or run an "

@@ -14,6 +14,7 @@ them — a duplicated flag table is a flag table that goes stale in silence.
 | [daily-workflow.md](daily-workflow.md) | Duo is installed and your team needs a day-to-day loop. |
 | [release.md](release.md) | You are shipping a change: rehearse, read the authorization plan, release, verify. |
 | [recovery.md](recovery.md) | A release failed, or you want to know exactly what a rollback would and would not give back. |
+| [flag-day.md](flag-day.md) | You are moving a fleet across an agent/spec bump, or deciding whether you can still roll one back. |
 | [code-updates.md](code-updates.md) | You are updating plugin/theme code, or a code refusal is blocking you. |
 | [adapter-authoring.md](adapter-authoring.md) | A plugin your site depends on has no manifest, or an existing one is short. |
 | [capabilities-and-limits.md](capabilities-and-limits.md) | You need to know what Duo will and will not manage, and why a plan is red. |

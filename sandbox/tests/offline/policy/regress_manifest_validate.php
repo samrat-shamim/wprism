@@ -1471,10 +1471,16 @@ check(emit_from($mutantRoot) === $baseline, 'restoring the constant restores the
 // widen); now that the window is the shipped behaviour, the case a restated
 // `[DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION]` in the emitter could never pass is
 // the narrowing. Same claim, exercised from the side the engine is now on.
-$grammarFile = $mutantRoot . '/agent/src/Adapter/AdapterContractGrammar.php';
+// WP-4.12 moved the window's one definition from AdapterContractGrammar down
+// to the kernel: `site.duo.json` carries the same wire integer and
+// RepositoryCompiler (layer 3) cannot reference the grammar (layer 5), so
+// SpecVersionWindow owns it and the grammar delegates. The mutation follows
+// the definition — the point of mutating rather than reading is that there is
+// exactly ONE file whose corruption the emitter must notice.
+$grammarFile = $mutantRoot . '/agent/src/Kernel/SpecVersionWindow.php';
 $grammarSource = (string) file_get_contents($grammarFile);
 $windowAnchor = 'return [$supported - 1, $supported];';
-check(str_contains($grammarSource, $windowAnchor), 'the accepted-window return is present in the copied engine');
+check(str_contains($grammarSource, $windowAnchor), 'the accepted-window return is present in the copied engine\'s kernel');
 file_put_contents($grammarFile, str_replace($windowAnchor, 'return [$supported];', $grammarSource));
 $narrowed = emit_from($mutantRoot);
 check(

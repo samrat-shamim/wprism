@@ -1556,8 +1556,19 @@ function ws_rows(): array {
             . '` an out-of-tree adapter name is `<vendor>-<name>` and every `providers[].id` it declares '
             . 'sits in that same vendor namespace (`IdentityNamespaces::assert_out_of_tree_identity()`, '
             . 'reached from `AdapterSources::assert_out_of_tree_contract()`, the one boundary all four '
-            . 'out-of-tree entry points share). Below that version the rule returns before reading a member, '
-            . 'so at `DUO_SPEC_VERSION ' . (string) DUO_SPEC_VERSION . '` it refuses nothing. The unprefixed '
+            // WP-4.12: this clause used to read "so at DUO_SPEC_VERSION 2 it
+            // refuses nothing", which was a statement about the engine that
+            // happened to be true while the engine sat below NAMESPACED_SINCE.
+            // The flip made it false, and a generated row that restates a
+            // stale premise is worse than one that computes it — so the
+            // sentence is now the COMPARISON, and it stays true through any
+            // later bump without another edit here.
+            . 'out-of-tree entry points share). The rule returns before reading a member below that '
+            . 'version, so this engine, at `DUO_SPEC_VERSION ' . (string) DUO_SPEC_VERSION . '`, '
+            . (DUO_SPEC_VERSION >= (int) ws_const(IdentityNamespaces::class, 'NAMESPACED_SINCE')
+                ? 'enforces it on every out-of-tree adapter'
+                : 'refuses nothing under it')
+            . '. The unprefixed '
             . 'space is reserved to the shipped library as a CLOSED ENUMERATION of '
             . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . ' adapter names (`'
             . implode('`, `', IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . '`) and '
@@ -1671,7 +1682,13 @@ function ws_rows(): array {
             . (string) ws_const(AdapterContractGrammar::class, 'RESERVED_PACKAGE_KEY')
             . '` inside the closed key set (§ v3.3, so at `spec_version '
             . (string) ws_const(AdapterContractGrammar::class, 'CLOSED_KEY_SET_SINCE')
-            . '` and inert at `DUO_SPEC_VERSION ' . (string) DUO_SPEC_VERSION . '`); the statement '
+            // WP-4.12, for the reason recorded on R-27 above: "inert at
+            // DUO_SPEC_VERSION N" was true only while N sat below
+            // CLOSED_KEY_SET_SINCE, and the flip crossed it.
+            . '` and therefore '
+            . (DUO_SPEC_VERSION >= (int) ws_const(AdapterContractGrammar::class, 'CLOSED_KEY_SET_SINCE')
+                ? 'live at' : 'inert at')
+            . ' `DUO_SPEC_VERSION ' . (string) DUO_SPEC_VERSION . '`); the statement '
             . 'members `' . implode('`, `', array_keys($reservedStatement)) . '`; the bundle evidence '
             . 'member `' . (string) ws_const(AdapterCertification::class, 'RESERVED_EVIDENCE_REVIEWER')
             . '`; and the certification word `' . $reservedWord . '`. None of them is in any closed set: '

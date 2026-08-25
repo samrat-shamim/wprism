@@ -114,6 +114,7 @@ return [
     'Duo\\Orchestrator\\RollbackAuthority' => 'src/Recovery/RollbackAuthority.php',
     'Duo\\Orchestrator\\ScopeCommand' => 'src/Command/ScopeCommand.php',
     'Duo\\Orchestrator\\ScopedRollbackProfile' => 'src/Recovery/ScopedRollbackProfile.php',
+    'Duo\\Orchestrator\\SpecMigration' => 'src/Adapter/SpecMigration.php',
     'Duo\\Orchestrator\\SshTransport' => 'src/Transport/SshTransport.php',
     'Duo\\Orchestrator\\StackInventory' => 'src/Assess/StackInventory.php',
     'Duo\\Orchestrator\\StatusCommand' => 'src/Command/StatusCommand.php',

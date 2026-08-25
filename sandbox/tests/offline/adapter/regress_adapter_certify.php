@@ -239,6 +239,24 @@ duo_check(
     'and says why — every certificate that key signed would be orphaned'
 );
 
+/**
+ * WP-4.12: the version this suite's UNPREFIXED site adapter (`keeper`)
+ * declares, and why it is N-1 rather than N.
+ *
+ * At `spec_version` N the namespace grammar (§ v3.9) refuses an out-of-tree
+ * name that is not `<vendor>-<name>`, so a `keeper` stamped at N would refuse
+ * before certify reached a single one of this suite's subjects. N-1 is not a
+ * dodge: it is the exact population the flag-day runbook's recertify step
+ * exists for — a site adapter authored under the previous spec, still inside
+ * the acceptance window, whose certificate the bump withdrew and which an
+ * operator now re-signs. Certifying it has to keep working, and that is what
+ * these cases measure.
+ *
+ * The suite's vendor-prefixed fixtures (`acme-catalog`, `acme-cases`) stay at
+ * N, so both authoring eras are covered rather than one replaced by the other.
+ */
+$preFlipSpec = DUO_SPEC_VERSION - 1;
+
 // T6 §3.1: "Private keys never live in the repository." `duo init`'s own next
 // steps tell the operator to `git add .`, so a key anywhere under a site repo
 // is a key they are about to publish.
@@ -246,7 +264,7 @@ $keyRepo = cert_site($root, 'keyrepo', [
     'name' => 'keeper',
     'option_autoload' => 'preserve',
     'options' => ['keeper_layout' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => $preFlipSpec,
 ]);
 mkdir($keyRepo . '/secrets/deep', 0755, true);
 foreach (['org.key', 'secrets/deep/org.key'] as $inside) {
@@ -530,7 +548,7 @@ $authRepo = cert_site($root, 'authsite', [
     'name' => 'keeper',
     'option_autoload' => 'preserve',
     'options' => ['keeper_layout' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => $preFlipSpec,
 ]);
 $public = sodium_crypto_sign_publickey_from_secretkey($signSecret);
 $wrote = cert_private('registerAuthority', [
@@ -660,7 +678,7 @@ $pinRepo = cert_site($root, 'pinsite', [
     'name' => 'keeper',
     'option_autoload' => 'preserve',
     'options' => ['keeper_layout' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => $preFlipSpec,
 ]);
 $before = (string) file_get_contents($pinRepo . '/site.duo.json');
 
@@ -697,7 +715,7 @@ $dupRepo = cert_site($root, 'dupsite', [
     'name' => 'keeper',
     'option_autoload' => 'preserve',
     'options' => ['keeper_layout' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => $preFlipSpec,
 ], ['core', 'keeper', ['name' => 'keeper', 'source' => 'site', 'digest' => str_repeat('c', 64)]]);
 duo_check_throws(
     static fn() => cert_private('writePin', [$dupRepo, $pin]),
@@ -880,7 +898,7 @@ Canon::write_file($overRepo . '/adapters/keeper.json', Canon::encode([
     'name' => 'keeper',
     'option_autoload' => 'preserve',
     'options' => ['keeper_layout' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => $preFlipSpec,
 ]));
 duo_check_same(0, cert_run(['pin', $overRepo, '--name=keeper', '--source=site'])['exit'], 'a second site adapter pins');
 $keeperCert = cert_run(['certify', $overRepo, '--name=keeper', '--secret-key-file=' . $secretPath,

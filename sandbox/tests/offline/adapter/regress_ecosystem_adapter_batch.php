@@ -29,9 +29,8 @@ use Duo\Canon;
 use Duo\Policy;
 use Duo\ShortcodeReferenceScanner;
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 
 $names = [
     'advanced-editor-tools',

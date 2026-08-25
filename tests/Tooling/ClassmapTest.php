@@ -348,9 +348,22 @@ PHP;
         $result = self::invoke(['-r', $probe, $repo]);
         self::assertSame(0, $result['status'], $result['stderr']);
         self::assertSame('', $result['stderr']);
+        // The VERSION line proves `duo.php` EXECUTED rather than merely parsed
+        // — the constants only exist at runtime — so what it must compare
+        // against is the source of record, not a literal. WP-4.12 measured the
+        // cost of the literal: this assertion failed on the flip with
+        // `VERSION=0.6.0/3`, and a test that goes red on a correct bump for a
+        // reason unrelated to its own subject (one extra autoloader, no
+        // eagerly-undeclared class) trains a reader to retype the number rather
+        // than read the failure. Same regex and same reason as
+        // `AdapterCertify::boot()` (:1463-1481), `tools/wire-surface.php`
+        // (:128-136) and `sandbox/tests/lib/agent_version.php`.
+        $source = (string) file_get_contents($repo . '/agent/duo.php');
+        self::assertSame(1, preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $source, $agent));
+        self::assertSame(1, preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $spec));
         self::assertSame(
             "AUTOLOADERS=1/1\n"
-            . "VERSION=0.5.0/2\n"
+            . "VERSION={$agent[1]}/{$spec[1]}\n"
             . 'UNDECLARED=Duo\\AdapterCertification,Duo\\StalePlatformSiteAdapterCertificate,'
             . 'Duo\\SupersededSiteAdapterCertificate,Duo\\SupersededWireSiteAdapterCertificate,'
             . "Duo\\WithdrawnAuthoritySiteAdapterCertificate\n",

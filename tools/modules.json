@@ -113,7 +113,7 @@
             ]
           }
         ],
-        "file_count": 32,
+        "file_count": 33,
         "files": [
           "Canon.php",
           "CommandRefusal.php",
@@ -137,6 +137,7 @@
           "ReferenceShapeGrammar.php",
           "Secrets.php",
           "SiteTopology.php",
+          "SpecVersionWindow.php",
           "StructuredReferenceCodec.php",
           "StructuredValue.php",
           "TableGraph.php",
@@ -1444,7 +1445,7 @@
           "agent:Review"
         ],
         "exceptions": [],
-        "file_count": 9,
+        "file_count": 10,
         "files": [
           "AdapterBoundary.php",
           "AdapterCatalog.php",
@@ -1454,7 +1455,8 @@
           "AdapterProposals.php",
           "LintTree.php",
           "ManifestValidate.php",
-          "MigrationPreflight.php"
+          "MigrationPreflight.php",
+          "SpecMigration.php"
         ]
       },
       "Code": {

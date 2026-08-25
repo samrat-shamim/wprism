@@ -44,12 +44,8 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_AGENT_VERSION')) {
-    define('DUO_AGENT_VERSION', '0.5.0');
-}
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';

@@ -237,6 +237,7 @@ return [
     'Duo\\Snapshot' => 'src/Repository/Snapshot.php',
     'Duo\\SnapshotIdentity' => 'src/Repository/SnapshotIdentity.php',
     'Duo\\SnapshotPruner' => 'src/Repository/SnapshotPruner.php',
+    'Duo\\SpecVersionWindow' => 'src/Kernel/SpecVersionWindow.php',
     'Duo\\StalePlatformSiteAdapterCertificate' => 'src/Adapter/AdapterCertification.php',
     'Duo\\StateHandoffVerifier' => 'src/Promotion/StateHandoffVerifier.php',
     'Duo\\StateTransitionJournal' => 'src/Promotion/StateTransitionJournal.php',

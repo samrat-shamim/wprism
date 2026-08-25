@@ -26,7 +26,13 @@ final class Adopt {
             'post_types' => ['post', 'page', 'attachment'],
             'taxonomies' => ['category', 'post_tag'],
         ],
-        'spec_version' => 2,
+        // WP-4.12: the seed declares the version this agent publishes. A
+        // literal here is the same restatement AGENTS.md rule 8 governs for
+        // platform.json — it moved 2 -> 3 with the two defines, in the same
+        // commit, because a seed one version behind would hand every newly
+        // adopted site a repository the adopting agent's own compiler then
+        // judges against the window instead of matching exactly.
+        'spec_version' => 3,
     ];
 
     /**

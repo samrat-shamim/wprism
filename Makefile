@@ -9,6 +9,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform regress-core-scope-database
 .PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window regress-closed-top-level-keys
+.PHONY: regress-spec-v3-digest-neutrality regress-spec-migration-verbs
 
 .PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window regress-disposition-split
 .PHONY: regress-cli-json-refusals regress-fleet-census regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-migration-preflight regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
@@ -61,7 +62,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-env-provider-conformance-live \
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-suite-wiring regress-platform-move-gates \
-	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification regress-certificate-axis-binding \
+	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification regress-certificate-axis-binding regress-cross-root-replay \
 	regress-post-field-classification regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
 	regress-lint-host-verb regress-lint-type-exemptions \
@@ -423,6 +424,23 @@ regress-spec-v3-dry-run:
 regress-spec-v3-document:
 	php sandbox/tests/offline/policy/regress_spec_v3_document.php
 
+# WP-4.12 -- THE FLIP's central invariant: DUO_SPEC_VERSION 2 -> 3 moved
+# nothing a deployed site holds. All 16 adapter digests and manifest_hash for
+# seven representative pin sets are compared against FROZEN pre-flag fixtures
+# captured before the defines moved (never regenerated since; the fixture's own
+# sha256 is a literal in the suite). Plus what the flip DID move -- the platform
+# inside every capability claim -- and the hand-mixed bundle (v3 agent, v2
+# platform.json) refusing at the shipped platform_boundary sentence.
+regress-spec-v3-digest-neutrality:
+	php sandbox/tests/offline/policy/regress_spec_v3_digest_neutrality.php
+
+# WP-4.12: the two flag-day migration verbs, end to end against real
+# certificates minted by a child process at the PRIOR spec era -- recertify's
+# idempotence and all-or-nothing restore, and release --spec-v3's prior-pin
+# journaling and its journal-before-emit ordering contract.
+regress-spec-migration-verbs:
+	php sandbox/tests/offline/cli/regress_spec_migration_verbs.php
+
 # WP-4.2: the spec_version acceptance window (§ v3.1) and the engine_features
 # channel (§ v3.2). Probes ONE set of manifests against two engines -- this
 # process at the shipped DUO_SPEC_VERSION, and a child process that defines N+1
@@ -504,6 +522,22 @@ regress-authority-delegation:
 # unchanged and that the refusal text states the distinction between the two.
 regress-revocation-reachability:
 	php sandbox/tests/offline/adapter/regress_revocation_reachability.php
+
+# WP-4.12 / spec/repo-format.md § v3.8: the four adapter-side signature domains
+# and the cross-ROOT clause, measured through the VERIFIERS. The corpus already
+# asserted the four domain strings are distinct, NUL-terminated and pairwise
+# prefix-free (regress_spec_v3_document.php:517-536, tools/wire-surface.php:
+# 1869-1894) -- a sound argument that replay is impossible, and not a test of
+# any verifier: a prefix-free set of strings nobody prepends separates nothing.
+# So all 16 placements of 4 domains into 4 slots are driven here with ONE key,
+# forged through the SHIPPED private framers by reflection: 12 refuse, the 4
+# diagonals accept, and the 3 cells authoritiesSignatureBytes()'s (format, keys)
+# signature cannot express are NAMED GAPS printed on every run and ratcheted
+# both ways. Plus the two trust_root refusals nothing reached before --
+# AdapterCertification.php:3480 via `trust_root` itself, and :1587-1593's
+# vocabulary sentence, which occurred in no test anywhere.
+regress-cross-root-replay:
+	php sandbox/tests/offline/adapter/regress_cross_root_replay.php
 
 # Product release gate: every generated artifact must still agree with the
 # source it was generated from -- the public capability prose with the

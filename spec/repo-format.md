@@ -1,6 +1,6 @@
 # Duo Site-Repo Format
 
-*Status: **normative** — the authoritative contract for site repositories; where narrative documents (README, DESIGN.md) and this spec disagree, this spec wins. The wire-format grammar version is the `spec_version` integer in `site.duo.json` — currently `2` — which must equal the engine's own `DUO_SPEC_VERSION` exactly (see "Adapter compatibility contract" below). The "spec v1"/"spec v0.x" markers throughout are this document's own draft-history labels — they record when a rule was introduced and are NOT the wire version. The "Spec v3" section near the end is the one part of this document that is **specified and only partly enforced**: it states the next wire version's rules, each carrying the work package that implements it and an `Enforced today:` line that is the authority on whether the engine keeps it. Four of those rules are in force now, deliberately ahead of the version bump — the manifest acceptance window and the `engine_features` channel (§ v3.1, § v3.2), environment narrowing (§ v3.5), and authority record v2 (§ v3.7, gated on that document's own format rather than the wire version); the rest are not, and `DUO_SPEC_VERSION` stays `2` until § v3.12's flip.*
+*Status: **normative** — the authoritative contract for site repositories; where narrative documents (README, DESIGN.md) and this spec disagree, this spec wins. The wire-format grammar version is the engine's `DUO_SPEC_VERSION`, **currently `3`** (`agent/duo.php:13`, restated in `manifests/capabilities/platform.json`). Both documents that carry that integer — a manifest's `spec_version` and `site.duo.json`'s own — are judged against the **acceptance window {N-1, N}**, not against exact equality (§ v3.1). So a repository or manifest declaring `2` loads unchanged on this engine, which is the whole reason the v3 flip moved no adapter digest and required no action from a deployed site. The "spec v1"/"spec v0.x" markers throughout are this document's own draft-history labels — they record when a rule was introduced and are NOT the wire version. The "Spec v3" section near the end states this wire version's rules, each carrying the work package that implemented it and an `Enforced today:` line that is the authority on what the engine actually keeps; § v3.12 records what the flip deliberately did NOT change, and it is the section to read before assuming v3 means anything was re-stamped.*
 
 A **site repo** is a git repository holding the branchable partition of one WordPress site: code, canonical state, media, and policy. Environments (any WP install with the Duo agent) materialize it; their runtime data never enters it.
 
@@ -344,7 +344,11 @@ Import verifies the artifact integrity hash, repository and manifest association
 }
 ```
 
-The `spec_version` field is the **wire-format grammar version**: an integer a repository declares that must equal the running engine's own `DUO_SPEC_VERSION` *exactly* (currently `2` — see "Adapter compatibility contract" below and the field table). It is deliberately NOT this document's own draft-history label — the "spec v1"/"spec v0.x" markers used throughout, and in this file's title, only record *when* a rule was introduced. An author copying this example must copy the integer the running engine requires, not the number in this document's title; an absent or mismatched value is the same failure and is refused at load, before any target contact.
+The `spec_version` field is the **wire-format grammar version**: an integer a repository declares that must lie inside the running engine's **acceptance window {N-1, N}**, where N is its `DUO_SPEC_VERSION` (currently `3`, so the window is `{2, 3}` — see § v3.1 and "Adapter compatibility contract" below). It is deliberately NOT this document's own draft-history label — the "spec v1"/"spec v0.x" markers used throughout, and in this file's title, only record *when* a rule was introduced.
+
+This was exact equality until the v3 flip, and the change is the repository half of § v3.1's rule rather than a relaxation of it. Exact equality is invisible while the engine version never moves and becomes a fleet-wide event the moment it does: every repository in the field declares the version of the agent that adopted it, so a bump would refuse compilation on every deployed site at once, on this one field, with no remedy but a hand edit per repository. The window makes the flip survivable in the same way it makes a manifest's version survivable, and `RepositoryCompiler::compile()` reads it from the one definition the manifest grammar uses (`SpecVersionWindow`), so the floor is the same floor `make release-gate` holds to exactly N-1.
+
+An absent or non-integer value keeps its own older refusal — it is not a version, so there is no window for it to be outside of — and a value outside the window is refused at load, before any target contact, naming the window. Re-stamping a repository UP to N is a one-way act: the N-1 agent's window is {N-2, N-1}, so a repository at N no longer compiles on the engine a rollback would restore. `docs/guides/flag-day.md` files that with the acts gate G3 forbids.
 
 `policy` holds site-local classification overrides (same shape as manifest rules); it wins over manifests. `manifests` pins which registry manifests apply (agent looks them up across its three installed adapter sources: its own manifest dir, this repository's `adapters/` source, and one `duo-adapter.json` at the root of each ACTIVE plugin that bundles one). The two sources the operator authors — shipped and site — still refuse outright if both could answer one name, so there is no precedence order to learn between them. A PLUGIN-bundled name that a shipped or site definition already answers to is a different case and is resolved rather than refused: sources rank `shipped > site > plugin`, the reviewed definition wins, and the bundled one is reported on every run as an installed-but-not-loaded row naming its winner. See "Out-of-tree adapter sources" and "Plugin-bundled adapters" below. A pin may remain the historical name string or use `{"name":"…","digest":"<sha256>","source":"shipped"|"site"|"plugin"}`. The object form is optional and content-addressed: load computes the same per-manifest digest recorded in compiled artifacts' `resolved_adapters` (including a declared interpreter's name and bytes) and refuses a mismatch before any policy consumer or target contact, naming the manifest plus expected and actual digests. `source` is likewise optional and likewise a refusal rather than a preference: a pin that names which adapter source must answer it refuses when a different source does, so removing a site-installed adapter can never silently hand its name to a later shipped one. An unknown pin key is refused outright rather than ignored. `{"name":"core"}` without `digest` or `source` is also equivalent to the legacy string form; adding these mechanisms does not force existing repositories to migrate.
 
@@ -755,25 +759,39 @@ Three precedence families exist, and they are not interchangeable. A new vocabul
 
 Adapter-owned extension may never grant one adapter authority over another's state. The rule for the four bulk **named-declaration** surfaces — `post_types.<t>`, `tables.<t>`, `taxonomies.<t>`, `widgets.<t>` — is **one owner per name**: two pinned manifests (including `core`) declaring the same name refuse at load unless their declarations are byte-identical, since a redundant restatement has no winner to pick. There is no composition grammar for these surfaces in v1 (`taxonomies.<t>`'s description_refs/object_type/class lookups are all first-pin-wins with no precedence layer, so it carries the identical hazard); reclassifying an individual FIELD of another adapter's surface is what the family-1 precedence layers exist for, never a whole-declaration takeover. The post-type surface additionally keeps a per-KEY contradiction guard, which fires first because it can name the exact contradicting key (`post_types.<t>.body` and so on) instead of only the name. `site.duo.json`'s own `policy.tables` is exempt from the rule, because it is the site's own last-word authority over its own state rather than a second adapter reaching into the first. The other load-time guards in the same family: one owner per option namespace, per plugin/theme version claim, per provider id, and per table `id_kind`; a provider-kind action may only name a provider its OWN manifest declares; an adapter widens the ref-kind vocabulary only by declaring a table it owns; and the two surfaces that name a `duo_map` keyspace directly (`deletions[].guards[].id_kind`/`source_id_kind`, `option_name_refs[].id_kind`) are closed against the ledger's own long spellings plus the declared table kinds.
 
-## Spec v3 — the windowed format (SPECIFIED HERE; THE WINDOW IS IN FORCE, THE REST IS NOT)
+## Spec v3 — the windowed format (IN FORCE)
 
-*Status of this whole section: **normative text, with four rules now in force and each subsection's own
-`Enforced today:` line the authority on its rule***. `DUO_SPEC_VERSION` is `2` (`agent/duo.php:13`),
-`manifests/capabilities/platform.json` restates that `2`, and neither moves until § v3.12's flip. What
-§ v3.1, § v3.2, § v3.5 and § v3.7 changed is what this engine ACCEPTS — the window, the declaration
-channel, the narrowing channel and the authority-document grammar ride ahead of the version bump,
-deliberately, since an engine that installs the window only on the day it needs it has already had the
-flag day. Nothing in this section moves one byte of any shipped manifest or one adapter digest. Each
-remaining rule stays here so that the engine change which turns it on is a review against written text
-rather than a design decision taken inside a diff.
+*Status of this whole section: **normative, and each subsection's own `Enforced today:` line is the
+authority on its rule***. `DUO_SPEC_VERSION` is `3` (`agent/duo.php:13`) and
+`manifests/capabilities/platform.json` restates that `3`. The flip is WP-4.12 and § v3.12 records exactly
+what it did and did not move.
+
+**What "v3 is in force" means, stated precisely, because it is easy to over-read.** It means the WIRE
+VERSION IS 3 and the acceptance window is therefore `{2, 3}`. It does NOT mean anything was re-stamped:
+every one of the 16 shipped manifests still declares `spec_version: 2`, every deployed repository still
+declares whatever its adopting agent wrote, and both keep loading — which is precisely why not one
+adapter digest, `manifest_hash`, content pin or compiled artifact moved on the flag day. A rule in this
+section gated at `spec_version: 3` is now REACHABLE through the product path, and it reaches exactly the
+documents that declare 3: today that is none of the shipped library and no repository that has not been
+deliberately migrated.
+
+Four rules were already in force before the bump — the acceptance window and the `engine_features`
+channel (§ v3.1, § v3.2), environment narrowing (§ v3.5) and authority record v2 (§ v3.7) — and that was
+the point: an engine that installs the window only on the day it needs it has already had the flag day.
+What the bump changed for the rest is reachability, not text.
 
 **Why a v3 at all, and why it is meant to be the last one.** The wire version WAS checked by exact
 equality — `if (!is_int($spec) || $spec !== $supported)` — so an absent declaration and a declaration one
 version behind produced the identical refusal, and every format change was therefore a flag day for every
-adapter anyone had authored. v3's first rule (§ v3.1) installs an acceptance window
-(`agent/src/Adapter/AdapterContractGrammar.php`, `accepted_window()` and `validate_adapter_contract()`);
+adapter anyone had authored. v3's first rule (§ v3.1) installs an acceptance window (defined once in
+`agent/src/Kernel/SpecVersionWindow.php` and read by both `AdapterContractGrammar::
+validate_adapter_contract()` for a manifest and `RepositoryCompiler::compile()` for `site.duo.json`);
 every later format change stages through that window or through the per-adapter feature channel (§ v3.2),
-one adapter at a time, and needs no further bump. The measured cost of getting this wrong is in
+one adapter at a time, and needs no further bump. The flip itself is the first evidence for that claim:
+`engine_features` was implemented since `spec_version: 3` and could not be declared by any manifest the
+v2 engine accepted; the bump brought it inside the window with no further change, which is what "the next
+primitive rides the channel instead of a bump" looks like in practice. The measured cost of getting this
+wrong is in
 `sandbox/tests/offline/policy/regress_spec_v3_dry_run.php`, which evaluates each candidate rule against the
 whole shipped library before it is enabled, and the window's own behaviour is pinned at both spec eras in
 `sandbox/tests/offline/policy/regress_spec_window.php`.
@@ -787,33 +805,47 @@ evidence before this line changes.
 
 | § | rule | rider | enforced today |
 |---|---|---|---|
-| v3.1 | N/N-1 acceptance window, per-section refusal by name | WP-4.2 | yes — {N-1, N}, floor gated at release |
-| v3.2 | `engine_features` declaration channel | WP-4.2 | yes — one implemented feature, no shipped declarer |
-| v3.3 | closed top-level key set and its growth rule | WP-4.3 | yes at `spec_version: 3`; open at v2; one set, gated at release |
-| v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | no — one monolith, one whole-document hash |
-| v3.5 | per-adapter environment narrowing | WP-4.6 | yes at `spec_version: 3`; inert at v2 |
+| v3.1 | N/N-1 acceptance window, per-section refusal by name | WP-4.2 / WP-4.12 | YES — {2, 3}, for a manifest AND for `site.duo.json`; floor gated at release |
+| v3.2 | `engine_features` declaration channel | WP-4.2 | YES and now DECLARABLE — one implemented feature, since `spec_version: 3`; no shipped declarer |
+| v3.3 | closed top-level key set and its growth rule | WP-4.3 | YES at `spec_version: 3`, live through the product path since the flip; open at v2; one set, gated at release |
+| v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | LAYOUT yes — one document per subject; ADDRESSING no — still one whole-document hash |
+| v3.5 | per-adapter environment narrowing | WP-4.6 | YES at `spec_version: 3`; inert at v2 |
 | v3.6 | certificates bind exercised axes; in-statement version; domain `/v2` | WP-4.7 | YES — v2 statements bind exercised cells; v1 generation withdraws per adapter |
 | v3.7 | authority record v2, and the platform root's identity-only binding | WP-4.8 | YES — v2 records enforce; v1 unchanged; both roots bind identity |
 | v3.8 | depth-1 delegation and typed revocation | WP-4.9 | no — no chain, one `status` word per key |
-| v3.9 | namespace grammar and the closed grandfather list | WP-4.10 | names and provider ids: yes at `spec_version: 3`, inert at v2; `id_kind`: convention only (R-17) |
+| v3.9 | namespace grammar and the closed grandfather list | WP-4.10 | names and provider ids: YES at `spec_version: 3`, live since the flip, inert at v2; `id_kind`: convention only (R-17) |
 | v3.10 | reserved-but-refusing slots | WP-4.11 | YES — four slots refuse by name; the graduated verdict shipped as a word (WP-2.8) |
 | v3.11 | the executable lane's evidence contract (gate G5) | WP-7.1 (shut) | n/a — the lane is shut and the reservations refuse |
 
 The flip itself — the two defines, the migration verbs, the cohorted rollout and the rollback rehearsal —
-is WP-4.12 and is described in § v3.12.
+is WP-4.12, is DONE, and § v3.12 is the record of what it deliberately left alone. The runbook that
+executes it against a fleet is [docs/guides/flag-day.md](../docs/guides/flag-day.md).
 
 ### v3.1 The acceptance window: N and N-1
 
-**Rider: WP-4.2. Enforced today: yes.** `validate_adapter_contract()` accepts `spec_version` ∈ {N-1, N},
-and `php tools/wire-surface.php --check` — a `make release-gate` step — refuses the release unless the
-measured floor is exactly `DUO_SPEC_VERSION - 1` (register row R-18).
+**Riders: WP-4.2 (manifests), WP-4.12 (`site.duo.json`). Enforced today: yes, for both.**
+`validate_adapter_contract()` accepts a manifest's `spec_version` ∈ {N-1, N} and
+`RepositoryCompiler::compile()` accepts a repository's own on the same terms, both from the single
+definition in `agent/src/Kernel/SpecVersionWindow.php`. `php tools/wire-surface.php --check` — a
+`make release-gate` step — refuses the release unless the measured floor is exactly
+`DUO_SPEC_VERSION - 1` (register row R-18).
 
-An engine accepts a manifest declaring `spec_version` ∈ {N, N-1}, where N is the engine's own
+An engine accepts a document declaring `spec_version` ∈ {N, N-1}, where N is the engine's own
 `DUO_SPEC_VERSION`. The floor is exactly N-1 and never deeper: the release gate asserts the equality, so
 N-2 can never accumulate by inattention, and closing the window is its own dated decision (§ v3.12), not
-a side effect of the next release. At `DUO_SPEC_VERSION` 2 the window is therefore {1, 2}, and it becomes
-{2, 3} on the flip — which is the whole point: no manifest is re-stamped, because the engine that arrives
-already accepts the version every manifest already declares.
+a side effect of the next release. At `DUO_SPEC_VERSION` 3 the window is {2, 3}, and that is what made
+the flip a non-event for the field: no manifest and no repository was re-stamped, because the engine that
+arrived already accepts the version each of them already declares.
+
+**Both carriers, one window, and why the repository half is not an afterthought.** The manifest half was
+the visible one — a format change is felt first by adapter authors — but the repository's own
+`spec_version` is the same integer with a larger blast radius, because every site has one and no site
+author chose it: `duo adopt` wrote whatever the adopting agent's define said. Under exact equality the
+first bump refuses `RepositoryCompiler::compile()` on the entire fleet simultaneously, on
+`site.duo.json:spec_version`, with a remedy that must be applied per repository by hand. The window makes
+that a non-event on exactly the same terms it does for a manifest, and sharing one definition is what
+keeps the two from drifting: a second `[$n - 1, $n]` written out in the compiler would be a floor the
+release gate does not probe.
 
 Three refusals, and the difference between them is the whole point of the window:
 
@@ -1613,10 +1645,18 @@ relaxed gate.
 
 ### v3.12 What v3 does NOT change
 
-The bump is engineered to move no adapter digest, and the exclusions are the reason that is achievable.
-The flip itself — `DUO_SPEC_VERSION` 2 → 3 and `DUO_AGENT_VERSION` in lockstep with
-`manifests/capabilities/platform.json`, the migration verbs, the cohorted rollout and the rollback
-rehearsal — is **WP-4.12**, and none of it is in force here.
+**Rider: WP-4.12. Enforced today: THE FLIP IS DONE.** `DUO_SPEC_VERSION` is `3` and `DUO_AGENT_VERSION`
+is `0.6.0` (`agent/duo.php:12-13`), `manifests/capabilities/platform.json` restates both in the same
+commit (AGENTS.md rule 8), and the acceptance window is `{2, 3}`. The migration verbs are
+`duo adapter recertify <repo>` and `duo release --spec-v3 <repo>`; the runbook is
+[docs/guides/flag-day.md](../docs/guides/flag-day.md).
+
+The bump was engineered to move no adapter digest, and the exclusions below are the reason that was
+achievable. The invariant is not argued, it is computed:
+`sandbox/tests/offline/policy/regress_spec_v3_digest_neutrality.php` recomputes all 16 adapter digests
+and `manifest_hash` for seven representative pin sets and compares them against
+`sandbox/tests/fixtures/spec-v3/pre-flag-identity.json` — a document captured from the tree BEFORE the
+defines moved, in the same change, and never regenerated since.
 
 - **No shipped manifest is re-stamped to `spec_version: 3`.** This is the central exclusion and the reason
   the bump is survivable and reversible. Stamping moves every manifest's bytes, therefore every adapter
@@ -1625,20 +1665,45 @@ rehearsal — is **WP-4.12**, and none of it is in force here.
   `site.duo.json` content pin — simultaneously, for zero capability gained on the day it is paid. The
   shipped library stays at `spec_version: 2` inside the window (§ v3.1) and migrates one adapter at a
   time, each moving only its own digest and only for the sites that pin it.
+- **No DEPLOYED REPOSITORY is re-stamped either, and it does not need to be.** `site.duo.json`'s own
+  `spec_version` is the same wire integer with a larger population — every site has one, and no site
+  author chose it. It is judged against the window (§ v3.1), so a repository declaring `2` compiles
+  unchanged on this engine: THIS door moves no `site_hash`, no `state_site_hash` and therefore no
+  `revision_hash`, and costs no compiled artifact its verification. (The certificate door below is a
+  different one and does move `revision_hash`, for the sites it touches. Neither claim covers the other,
+  and conflating them is the one misreading of this section that would surprise an operator mid-rollout.)
+  `duo release --spec-v3 <repo>` reports the surfaces a site must
+  re-project and journals its PRIOR pin objects; it deliberately does NOT re-stamp the repository,
+  because a repository at 3 no longer compiles on the N-1 agent a rollback restores.
 - **The platform trust root stays empty.** `manifests/capabilities/adapter-authorities.json` remains
   `{"keys":{}}` through the flag day (§ v3.7).
-- **But every CERTIFIED SITE ADAPTER withdraws to uncertified at the flip, and `duo adapter certify --pin`
-  re-establishes it.** This is the bump's most fleet-visible effect and it is not digest-neutral for the
-  sites it touches: `spec_version` is inside every signed `statement.platform`, and
+- **But every CERTIFIED SITE ADAPTER withdraws to uncertified at the flip, and `duo adapter recertify`
+  re-establishes it.** This is the bump's most fleet-visible effect and it is NOT digest-neutral for the
+  sites it touches — the one place the neutrality claim above stops. The withdrawal moves the
+  certificate-derived row `ArtifactPolicyIdentity::manifest_rows()` folds, so such a site moves its own
+  `manifest_hash` AND `revision_hash`, and its held compiled artifact refuses with
+  `compiled_artifact_manifest_mismatch` until it is recompiled and re-pinned. Its `site_hash` and every
+  SHIPPED digest it pins still hold — the no-restamp rule covers it exactly as it covers any other site.
+  `sandbox/tests/offline/guards/regress_spec_migration_rehearsal.php` measures the split per site across
+  a nine-site estate, and `duo adapter doctor --migration` predicts it per site before the bump.
+  Mechanically: `spec_version` is inside every signed `statement.platform`, and
   `assertPlatformBinding()` raises `StalePlatformSiteAdapterCertificate` — *"site adapter '<name>'
   certification was signed under spec version 2, which is not the spec version 3 this agent publishes"* —
-  the moment the two disagree. Every certificate in the field was signed under 2. On the live scan and
+  the moment the two disagree. Every certificate in the field was signed under 2. **§ v3.6's axis binding
+  does not spare this, deliberately:** a certificate binds the exercised compatibility CELLS, which is why
+  an ordinary `agent_version` release withdraws nothing, but `assertPlatformBinding()` compares the
+  in-statement `spec_version` BEFORE any cell, so the spec half PRE-EMPTS the cell half. That ordering is
+  R7's whole reason for putting a version inside the signed statement — a wire change must read as a named
+  refusal rather than as corruption — and both branches are measured on one fixture by the rehearsal's
+  state-A and state-B passes. On the live scan and
   inside a frozen snapshot alike the adapter degrades to uncertified support rather than refusing the
   source (WP-1.1's routing), so nothing bricks: `plan` and `apply` stay available, readiness and host
   promotion stay blocked for that adapter until it is re-signed against the post-flip boundary. Rolling
   back restores the claim untouched, because the withdrawal writes nothing. The rehearsal of both paths is
-  `regress_site_adapter_certification.php` case (k); this paragraph is WP-4.12's runbook input, and the
-  runbook's recertify step is that command run per certified site adapter, per site.
+  `regress_site_adapter_certification.php` case (k), and the migration verb is `duo adapter recertify
+  <repo>`: it re-signs every certified site adapter in one idempotent invocation under the key each
+  certificate already names, reusing `created_at` when a re-sign is byte-identical so an unchanged input
+  mints nothing, and restoring `adapters/authorities.json` to its prior bytes if any signature fails.
 - **The executable lane does not open** (§ v3.11). Only its reservations ride.
 - **No new declarative primitive rides the bump.** Each is a v3-only section that stages through the
   window the bump installs, one at a time — which is also the cheapest available proof that v3 was the
@@ -1652,14 +1717,46 @@ rehearsal — is **WP-4.12**, and none of it is in force here.
   thing it replaces is retired.
 
 Rollback, until that dated decision, is the shipped atomic bundle swap run backwards: redeploying the
-prior `agent manifests recovery` archive restores the v2 agent AND the v2 monolithic dispositions
-together. It is clean only because the flag day is digest-neutral — no adapter declares v3 and no digest
-moved, so every pin matches, every compiled artifact verifies, and `platform.json` reverts to the bytes
-every pre-flag certificate signed over. Exactly two acts make it lossy: the first shipped manifest stamped
-`spec_version: 3`, and the first certificate re-signed under § v3.6's wire. A mixed state is already
-unreachable through the supported path — `ManifestDispositions::platform_boundary()` throws "platform
-version disagrees with the loaded agent" the moment the defines and `platform.json` disagree
-(`agent/src/Policy/ManifestDispositions.php:240`), which is the same equality `make release-gate` checks.
+prior `agent manifests recovery` archive restores the v2 agent AND the manifest library it shipped with,
+as one archive through the four atomic journal surfaces (`Adopt.php:322-350`), so there is no partial
+state to be in. It is clean because no manifest and no repository declares 3 and no SHIPPED digest moved,
+so every shipped pin matches and `platform.json` reverts to the bytes every pre-flag certificate signed
+over — those certificates verify again, and `regress_spec_migration_rehearsal.php` proves the round trip
+by driving an estate A→B→A and asserting the second state-A observation is byte-identical to the first.
+
+The one thing an operator must redo in each direction is certificates, and the two things that follow
+them: `duo adapter recertify` signs against whatever boundary is installed, so it is bidirectional by
+construction, and a certificate-holding site's `manifest_hash` returns home with the re-mint — which means
+an artifact recompiled AFTER the flip refuses until it is recompiled again. That is the cost of having
+crossed, not a defect in the rollback; an operator who declines the backward re-mint lands on
+`uncertified`, which is honest and non-blocking.
+
+**Exactly three acts make it lossy, and each is one-way for its own reason.** They are named here and
+forbidden by gate G3 in the runbook until a dated decision opens them:
+
+1. **The first shipped manifest stamped `spec_version: 3`.** The N-1 agent's window is {1, 2}, so it
+   refuses that manifest wholesale and any site pinning it cannot load until the pin is removed.
+2. **The first REPOSITORY re-stamped to `spec_version: 3`.** Same window, other carrier: the restored
+   agent refuses to compile that repository at all. This act is the one a routine "tidy the version
+   field" commit could perform by accident, which is why no verb performs it.
+3. **The first certificate RE-SIGNED after the bump** — that is, running `duo adapter recertify` (or
+   `duo adapter certify`) on a site whose certificate was minted before it. Note what this act is NOT:
+   the `/v2` statement wire is already shipped and already in the field (§ v3.6, WP-4.7), so the wire
+   generation is not what strands anything. What strands the rollback is the PLATFORM BINDING — a
+   re-signed certificate binds `spec_version: 3`, and the restored N-1 agent raises
+   `StalePlatformSiteAdapterCertificate` against it exactly as the v3 agent did against the old one.
+   The re-sign also OVERWRITES `adapters/certifications/<name>.json`, so the certificate the rollback
+   target could have verified is gone. The remedy is symmetric rather than absent: run `recertify` again
+   after the rollback and the claim is re-established against the restored boundary — `recertify` signs
+   against whatever boundary is installed, in either direction. An operator who declines lands on
+   `uncertified`, which is honest and non-blocking (`plan` and `apply` stay available; readiness and host
+   promotion do not).
+
+A mixed state is already unreachable through the supported path — `ManifestDispositions::
+platform_boundary()` throws "platform version disagrees with the loaded agent" the moment the defines and
+`platform.json` disagree, which is the same equality `make release-gate` checks. WP-4.12 proves that
+refusal fires for a HAND-MIXED bundle (a v3 agent over a copied v2 `platform.json`) rather than adding a
+mechanism to survive one; the case is in `regress_spec_v3_digest_neutrality.php`.
 
 ## Ledger tables (per environment, never in the repo)
 

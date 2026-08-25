@@ -29,6 +29,18 @@ if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", (string) file_get_con
     exit(1);
 }
 define('SPEC', (int) $m[1]);
+/**
+ * WP-4.12: the version a document CARRYING `_draft` may declare.
+ *
+ * § v3.3 closes the top-level key set at spec_version 3 and refuses `_draft`
+ * there by name, so after the flip a draft stamped at SPEC is a document the
+ * engine's own validator rejects — which is exactly what `duo adapter-draft`
+ * started doing on the bumped tree until `AdapterDraft::draft_spec_version()`
+ * began choosing the stamp from the rule. The hand-built fixtures below carry
+ * the sidecar without going through that method, so they follow the same rule
+ * here; anything that does NOT carry `_draft` stays at SPEC.
+ */
+define('DRAFT_SPEC', SPEC - 1);
 
 // The engine, in-process, for the ONE structural check that is a direct call
 // rather than a subprocess: AdapterSources::assert_out_of_tree_contract() is the
@@ -206,7 +218,7 @@ echo "\n== 2. INERTNESS (load-bearing): undeclared id_kind under _draft stays ok
     ];
     $draft = [
         'name' => 'inert-draft',
-        'spec_version' => SPEC,
+        'spec_version' => DRAFT_SPEC,
         'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [], 'user_meta' => (object) [],
         '_draft' => [
             'format' => 'duo-adapter-draft/v1',
@@ -542,7 +554,7 @@ echo "\n== 6d. prior manifest intent and graduated facts survive a policy export
     ]);
     $prior = [
         'name' => 'intent-draft',
-        'spec_version' => SPEC,
+        'spec_version' => DRAFT_SPEC,
         'options' => [
             'equal_option' => ['class' => 'authored', 'autoload' => 'preserve'],
             'changed_option' => ['class' => 'runtime'],

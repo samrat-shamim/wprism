@@ -18,13 +18,23 @@
  *
  * WHY IT PROBES TWO ENGINES, AND TWO TREES
  * ----------------------------------------
- * `DUO_SPEC_VERSION` is 2 and stays 2 — the flip is WP-4.12's alone — and the
- * rule is gated at `spec_version: 3`, so on the shipped engine it is unreachable
- * through the product path by construction: § v3.1 refuses a `spec_version` 3
- * manifest wholesale one step before the key check. That is the correct shipped
- * state and PART 1 asserts it. The rule's own behaviour therefore has to be read
- * at a v3 engine, and this file builds one two ways, each answering a question
- * the other cannot:
+ * WP-4.12 changed the answer to this heading and it is worth reading in full,
+ * because the suite's shape is a consequence of it. While `DUO_SPEC_VERSION`
+ * was 2 the rule — gated at `spec_version: 3` — was unreachable on the shipped
+ * engine by construction: § v3.1 refused a v3 manifest wholesale one step
+ * before the key check, so the rule's behaviour could only be read at a
+ * synthetic engine. THE FLIP MOVED THE ENGINE ONTO THE GATE. The rule is now
+ * live through the product path, PART 3 measures it in one run of the real
+ * `duo manifest-validate`, and what needs the window to stay reachable is the
+ * OPEN era: `$open` is `CLOSED_KEY_SET_SINCE - 1`, the version the whole
+ * shipped library still declares and the reason not one digest moved.
+ *
+ * That symmetry expires. At N = 4 the window's floor is 3, which is the gate,
+ * so nothing inside the window is below it and the open era stops existing.
+ * PART 3's mutant tree measures exactly that, and it is why the mutant tree is
+ * kept rather than retired now that the shipped engine can see the rule.
+ *
+ * Two engines and two trees, each answering what the other cannot:
  *
  *   - a CHILD PROCESS of this file that defines `DUO_SPEC_VERSION` as N+1 before
  *     loading the same shipped grammar (PART 2). A spec version is a `define()`
@@ -34,16 +44,16 @@
  *   - a COPY of the shipped trees whose two `define()` lines and
  *     `platform.json` restatement are moved together, AGENTS.md rule 8's atomic
  *     pair, driven by the real `duo manifest-validate` (PART 3). Slower, so it
- *     runs the one case that has to be seen end to end: the empirical baseline
- *     of this rider, `[ok]` at v2 and `[error]` at v3 on the SAME fixture bytes.
+ *     runs the one case that cannot be seen on the shipped engine at all: what
+ *     the NEXT bump does to the open era.
  *
  * WHAT THE PARTS PROVE
  * --------------------
  *   PART 1 — the shipped engine. Every one of the 16 shipped manifests still
- *   loads, and a v2 manifest declaring `totally_made_up_section` and `optoins`
- *   still loads: the open v2 era is unchanged, which is what makes this rider
- *   digest-neutral. The partition and the validator's admitted set are the same
- *   set, both directions.
+ *   loads, and a `$open` manifest declaring `totally_made_up_section` and
+ *   `optoins` still loads: the open era is unchanged across the flip, which is
+ *   what makes this rider digest-neutral. The partition and the validator's
+ *   admitted set are the same set, both directions.
  *
  *   PART 2 — a synthetic N+1 engine, verdict by verdict. Every one of the 33
  *   partition keys is admitted individually; an unclaimed unknown key refuses
@@ -274,13 +284,35 @@ $removeTree = static function (string $dir) use (&$removeTree): void {
 };
 
 $N = DUO_SPEC_VERSION;
+// WP-4.12 — THE FLIP separated two numbers this suite used to treat as one.
+// `$N` is the version the ENGINE runs at; `$open` is the last version at which
+// the top-level key set is OPEN, which is a property of the rule
+// (`CLOSED_KEY_SET_SINCE`) and not of the engine. Before the flip they were
+// $N and $N, because the gate sat one above the engine. Now the engine IS the
+// gate, so every "the open era is open" measurement below stamps `$open` — the
+// version the whole shipped library still declares, reachable on this engine
+// only because § v3.1's window accepts N-1.
+//
+// Worth stating because it expires: at N = 4 the window's floor is 3, which is
+// the gate, so no version inside the window is below it. THIS RELEASE IS THE
+// LAST ONE AT WHICH THE OPEN ERA IS REACHABLE THROUGH THE PRODUCT PATH AT ALL,
+// and PART 3 measures that on a real v(N+1) tree rather than asserting it.
+// Read by reflection rather than retyped as 2, for the reason
+// `tools/wire-surface.php:173` gives for `ws_const()`: the constant is the
+// rule's own definition, and a literal here would be a second one that could
+// silently disagree with it. It is `private const` because nothing in the
+// product reads it from outside; a suite that measures the rule is not the
+// product.
+$closedSince = (int) (new ReflectionClass(AdapterContractGrammar::class))->getConstant('CLOSED_KEY_SET_SINCE');
+$open = $closedSince - 1;
 
 // ===========================================================================
-echo "\nPART 1 — the SHIPPED engine: v2 is open, and stays open byte for byte\n";
+echo "\nPART 1 — the SHIPPED engine: v$open is open, and stays open byte for byte\n";
 // ===========================================================================
 
-$shipped = closed_keys_report($N);
-$report('engine DUO_SPEC_VERSION: ' . $N . '; partition: ' . count($shipped['partition']) . ' keys');
+$shipped = closed_keys_report($open);
+$report('engine DUO_SPEC_VERSION: ' . $N . '; probes stamped v' . $open
+    . '; partition: ' . count($shipped['partition']) . ' keys');
 $report('implemented engine features: ' . implode(', ', AdapterContractGrammar::implemented_features()));
 
 // THE EMPIRICAL BASELINE THIS RIDER TURNS ON. A v2 manifest declaring an
@@ -290,13 +322,14 @@ $report('implemented engine features: ' . implode(', ', AdapterContractGrammar::
 duo_check_same(
     null,
     $shipped['verdicts']['typo_and_invented'],
-    'v2 IS OPEN: a spec_version ' . $N . ' manifest declaring `totally_made_up_section` and a transposed '
-        . '`optoins` still loads — the behaviour WP-4.3 leaves untouched, which is what makes it digest-neutral'
+    'v' . $open . ' IS OPEN: a spec_version ' . $open . ' manifest declaring `totally_made_up_section` and a '
+        . 'transposed `optoins` still loads — the behaviour WP-4.3 leaves untouched, which is what makes it '
+        . 'digest-neutral, and which the flip preserved by NOT re-stamping the library'
 );
 duo_check_same(
     null,
     $shipped['verdicts']['draft_sidecar'],
-    '...and so does `duo adapter-draft` output carrying `_draft`, at v2'
+    '...and so does `duo adapter-draft` output carrying `_draft`, at v' . $open
 );
 
 // Digest neutrality, measured over the library rather than argued.
@@ -326,9 +359,10 @@ duo_check_same(
         . 'key set refuses none of the library'
 );
 duo_check_same(
-    [$N => true],
+    [$open => true],
     $declaredVersions,
-    'and every one still declares spec_version ' . $N . ', so the rule is gated OUT of the whole shipped library'
+    'and every one still declares spec_version ' . $open . ' — BELOW the gate, so the rule reaches none of the '
+        . 'shipped library even though the engine has crossed (§ v3.12: no shipped manifest is re-stamped)'
 );
 
 // The union in use against the partition, in both directions. The measurement
@@ -434,7 +468,7 @@ duo_check(
     str_contains($invented, "'optoins'") && str_contains($invented, "'totally_made_up_section'")
         && str_contains($invented, 'does not recognise')
         && str_contains($invented, 'spec/repo-format.md § v3.3'),
-    'VERDICT 1 (unclaimed unknown key): the SAME manifest that loads at v' . $N . ' refuses at v' . ($N + 1)
+    'VERDICT 1 (unclaimed unknown key): the SAME manifest that loads at v' . $open . ' refuses at v' . ($N + 1)
         . ', naming BOTH offending keys and the rule'
 );
 duo_check(
@@ -552,21 +586,34 @@ $fixtureBody = static fn(string $name, int $spec): array => [
     'totally_made_up_section' => ['acme_thing' => ['class' => 'authored']],
     'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
 ];
-Canon::write_file($scratch . '/acme-at-v2.json', Canon::encode($fixtureBody('acme-at-v2', $N)));
-Canon::write_file($scratch . '/acme-at-v3.json', Canon::encode($fixtureBody('acme-at-v3', $N + 1)));
+// WP-4.12 renamed what these two fixtures ARE. They used to be "the engine's
+// own version" and "one past it", because the gate sat above the engine. They
+// are now "the last open version" and "the gate", and the flip is what made
+// BOTH reachable in a single run of the shipped `duo manifest-validate` — the
+// end-to-end measurement this suite previously had to build a mutant tree for.
+Canon::write_file($scratch . '/acme-at-open.json', Canon::encode($fixtureBody('acme-at-open', $open)));
+Canon::write_file($scratch . '/acme-at-closed.json', Canon::encode($fixtureBody('acme-at-closed', $N)));
+Canon::write_file($scratch . '/acme-above.json', Canon::encode($fixtureBody('acme-above', $N + 1)));
 
 $shippedRun = $run([PHP_BINARY, $repo . '/cli/duo', 'manifest-validate', $scratch]);
 duo_check(
-    str_contains($shippedRun['stdout'], '[ok] acme-at-v2'),
-    'THE BASELINE, THROUGH THE PRODUCT PATH: on the shipped engine `duo manifest-validate` still reports [ok] '
-        . 'for a v' . $N . ' manifest carrying `totally_made_up_section`'
+    str_contains($shippedRun['stdout'], '[ok] acme-at-open'),
+    'THE BASELINE, THROUGH THE PRODUCT PATH: on the shipped engine `duo manifest-validate` reports [ok] for a '
+        . 'v' . $open . ' manifest carrying `totally_made_up_section` — the open era, still inside the window'
 );
 duo_check(
-    str_contains($shippedRun['stdout'], '[error] acme-at-v3')
-        && str_contains($shippedRun['stdout'], 'accepts spec_version {' . ($N - 1) . ', ' . $N . '}'),
-    '...and the v' . ($N + 1) . ' sibling refuses on the WINDOW (§ v3.1), never on the key set — which is why '
-        . 'the rule is unreachable on the shipped engine'
+    str_contains($shippedRun['stdout'], '[error] acme-at-closed')
+        && str_contains($shippedRun['stdout'], "'totally_made_up_section'"),
+    'AND THE RULE IS NOW LIVE ON THE SHIPPED ENGINE: the identical declaration at spec_version ' . $N
+        . ' is [error], naming the key — before the flip this needed a mutant tree to observe at all'
 );
+duo_check(
+    str_contains($shippedRun['stdout'], '[error] acme-above')
+        && str_contains($shippedRun['stdout'], 'accepts spec_version {' . ($N - 1) . ', ' . $N . '}'),
+    '...and the v' . ($N + 1) . ' sibling refuses on the WINDOW (§ v3.1), never on the key set — the window '
+        . 'answers before the key set, at every era'
+);
+duo_check($shippedRun['exit'] !== 0, '...and the run fails, because a pin set holding an unloadable adapter is not a passing check');
 
 // The same fixture bytes at a v3 engine. Both defines move together with
 // platform.json's restatement, AGENTS.md rule 8's atomic pair, because
@@ -591,15 +638,24 @@ duo_check(
     str_contains($v3Run['stdout'], 'spec_version:  ' . ($N + 1)),
     'the copied tree really is a v' . ($N + 1) . ' engine (both defines moved with platform.json)'
 );
+// WHAT THE MUTANT TREE MEASURES NOW, AND WHY IT IS WORTH KEEPING. Before the
+// flip it was the only way to see the rule fire at all. After the flip it
+// answers a different and more useful question: what the NEXT bump would do to
+// the open era. At N+1 the window's floor is N, which is the gate — so no
+// version inside the window is below it, and the open era stops existing. That
+// is the honest cost of the acceptance window's floor being exactly N-1, and
+// it is measured here rather than left for a future reader to discover.
 duo_check(
-    str_contains($v3Run['stdout'], '[ok] acme-at-v2'),
-    'AND THE INVARIANT HOLDS ACROSS THE FLIP: the v' . $N . ' manifest is STILL [ok] on the v' . ($N + 1)
-        . ' engine — the window accepts it and the closed set is gated out of it'
+    str_contains($v3Run['stdout'], '[error] acme-at-open')
+        && str_contains($v3Run['stdout'], 'accepts spec_version {' . $N . ', ' . ($N + 1) . '}'),
+    'ONE MORE BUMP CLOSES THE OPEN ERA: on a v' . ($N + 1) . ' engine the v' . $open . ' manifest refuses on '
+        . 'the WINDOW — the floor moved past the gate, so no accepted version is below it any more'
 );
 duo_check(
-    str_contains($v3Run['stdout'], '[error] acme-at-v3')
+    str_contains($v3Run['stdout'], '[error] acme-at-closed')
         && str_contains($v3Run['stdout'], "'totally_made_up_section'"),
-    'THE FLIP ITSELF: the identical declaration at spec_version ' . ($N + 1) . ' is [error], naming the key'
+    '...while the v' . $N . ' manifest refuses on the KEY SET on that engine too — the rule does not move with '
+        . 'the engine version, only the window does'
 );
 duo_check($v3Run['exit'] !== 0, '...and the run fails, because a pin set holding an unloadable adapter is not a passing check');
 duo_check_detail('v' . ($N + 1) . ' manifest-validate exit ' . $v3Run['exit']);

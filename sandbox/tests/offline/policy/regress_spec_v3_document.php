@@ -90,7 +90,14 @@ $specVersion = (int) ($m[1] ?? 0);
 preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $duoSource, $m);
 $agentVersion = (string) ($m[1] ?? '');
 
-duo_check_same(2, $specVersion, 'DUO_SPEC_VERSION is still 2 — the window and the channel ride ahead of the bump, and the flip is WP-4.12 alone');
+// WP-4.12 — THE FLIP. This assertion was `duo_check_same(2, ...)` and it was
+// the pin that kept every rider honest: a rider that moved the define would
+// have failed here, by name. Its job is done and the pin now points the other
+// way — the flip landed, so this suite asserts the NEW number with the same
+// force, and the invariant that used to be "nothing moved the define" is now
+// "the define moved and the library did not" (asserted below, over all 16).
+duo_check_same(3, $specVersion, 'DUO_SPEC_VERSION is 3 — WP-4.12 flipped it, and this is the one package authorized to');
+duo_check_same('0.6.0', $agentVersion, 'and DUO_AGENT_VERSION moved with it, in the same commit (AGENTS.md rule 8)');
 
 $platform = json_decode((string) file_get_contents($manifestDir . '/capabilities/platform.json'), true);
 $platform = is_array($platform['platform'] ?? null) ? $platform['platform'] : [];
@@ -191,14 +198,32 @@ duo_check_same(
     AdapterContractGrammar::implemented_features(),
     'v3.2: and the vocabulary carries one IMPLEMENTED feature, so "declared and implemented admits" is a path something walks'
 );
+// WP-4.12: the channel OPENED. At DUO_SPEC_VERSION 2 this probe refused by
+// SECTION NAME, because the section's own version (3) sat outside the window;
+// at 3 it is inside, so a declaration at the engine's version now reaches the
+// vocabulary and refuses by FEATURE name instead. Both refusals are the
+// channel working — the difference is which question the engine got far enough
+// to ask, and that difference IS the flip.
 $unimplemented = $contractVerdict([
     'name' => 'v3-feature-probe',
     'spec_version' => $specVersion,
     'engine_features' => ['acme-thing/v1'],
 ]);
 duo_check(
-    is_string($unimplemented) && str_contains($unimplemented, "the section 'engine_features'"),
-    'v3.2 x v3.1: at DUO_SPEC_VERSION ' . $specVersion . ' the key is a v3-only SECTION, so declaring it refuses by section name — the channel opens with the flip'
+    is_string($unimplemented) && str_contains($unimplemented, "engine feature 'acme-thing/v1'")
+        && str_contains($unimplemented, 'does not implement it'),
+    'v3.2 DECLARABLE: at DUO_SPEC_VERSION ' . $specVersion . ' the section is inside the window, so an '
+        . 'unimplemented NAME refuses by feature — the channel opened with the flip and needs no second bump'
+);
+$sectionStaged = $contractVerdict([
+    'name' => 'v3-feature-probe',
+    'spec_version' => $specVersion - 1,
+    'engine_features' => ['acme-thing/v1'],
+]);
+duo_check(
+    is_string($sectionStaged) && str_contains($sectionStaged, "the section 'engine_features'"),
+    '...while at ' . ($specVersion - 1) . ' — the version every shipped manifest declares — it still refuses '
+        . 'by SECTION name, which is why the flip changed no shipped behaviour'
 );
 
 // v3.3 — ENFORCED (WP-4.3), and the two halves that make it flag-day-safe. The
@@ -206,9 +231,14 @@ duo_check(
 // spec_version 3, so a v2 manifest declaring an invented section still loads,
 // which is what keeps all 16 shipped manifests and every adapter digest still.
 $vocabulary = (array) (new ReflectionMethod(Policy::class, 'manifest_validator_vocabulary'))->invoke(null);
+// WP-4.12: stamped at N-1, the version the whole shipped library declares.
+// The rule is gated at spec_version 3 and the engine now IS 3, so the "still
+// admits" measurement has to be taken where the library actually sits — that
+// is the claim it supports (no shipped manifest changed behaviour by a byte),
+// and at the engine's own version the same bytes are correctly refused.
 $invented = [
     'name' => 'v3-keys-probe',
-    'spec_version' => $specVersion,
+    'spec_version' => $specVersion - 1,
     'options' => ['acme_probe_option' => ['class' => 'authored', 'autoload' => 'yes']],
     'totally_made_up_section' => ['acme_thing' => ['class' => 'authored']],
 ];
@@ -223,18 +253,20 @@ $manifestVerdict = static function (array $manifest) use ($vocabulary): ?string 
 duo_check_same(
     null,
     $manifestVerdict($invented),
-    'v3.3 INERT at v2: the manifest validator still admits a top-level section in no arm of the partition, so no shipped manifest changed behaviour by a byte'
+    'v3.3 INERT at v' . ($specVersion - 1) . ': the manifest validator still admits a top-level section in no arm of the partition, so no shipped manifest changed behaviour by a byte'
 );
-// The v3 half cannot be walked in this process — § v3.1 refuses spec_version 3
-// wholesale at DUO_SPEC_VERSION 2, one step before the key rule — so what is
-// asserted here is that the refusal is the WINDOW's and that the rule exists,
-// with its own two-era suite named. regress_closed_top_level_keys.php drives
-// the N+1 engine.
+// WP-4.12: the v3 half IS walkable in this process now. Before the flip the
+// window refused a spec_version 3 manifest one step before the key rule, so
+// this suite could only assert that the refusal was the WINDOW's; the rule
+// itself needed the synthetic N+1 engine in regress_closed_top_level_keys.php.
+// The engine is now AT the gate, so the same bytes one version up refuse on the
+// KEY, by name, through the shipped validator.
 $inventedV3 = $invented;
-$inventedV3['spec_version'] = $specVersion + 1;
+$inventedV3['spec_version'] = $specVersion;
 duo_check(
-    str_contains((string) $manifestVerdict($inventedV3), 'accepts spec_version'),
-    'v3.3 x v3.1: at DUO_SPEC_VERSION ' . $specVersion . ' the rule is unreachable through the product path — the window refuses a spec_version ' . ($specVersion + 1) . ' manifest first'
+    str_contains((string) $manifestVerdict($inventedV3), "'totally_made_up_section'"),
+    'v3.3 LIVE at v' . $specVersion . ': the identical bytes one version up refuse on the KEY SET, naming the '
+        . 'key — the flip made the rule reachable through the product path, and nothing else about it moved'
 );
 duo_check(
     str_contains(
@@ -358,12 +390,16 @@ duo_check(
     Canon::encode($narrowingEnvironment($v3Narrowing)) !== $wholeBoundaryBytes,
     'v3.5 ENFORCED: a spec_version 3 manifest declaring `environment` narrows its own claim (WP-4.6)'
 );
+// WP-4.12: N-1, not "this engine's own spec version". Those were the same
+// number before the flip; the engine now sits AT the narrowing gate, so the
+// inert arm has to be read where the shipped library sits — which is the
+// population the claim is about.
 $v2Narrowing = $v3Narrowing;
-$v2Narrowing['spec_version'] = $specVersion;
+$v2Narrowing['spec_version'] = $specVersion - 1;
 duo_check_same(
     $wholeBoundaryBytes,
     Canon::encode($narrowingEnvironment($v2Narrowing)),
-    'v3.5 INERT at v2: the same declaration under this engine\'s own spec version projects the whole boundary, byte for byte'
+    'v3.5 INERT at v' . ($specVersion - 1) . ': the same declaration at the version every shipped manifest declares projects the whole boundary, byte for byte'
 );
 duo_check(
     in_array('environment', AdapterCertification::topLevelKeyPartition()['non_surface_keys'], true),
@@ -539,10 +575,18 @@ foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
     $declaredVersions[$name] = $decoded['spec_version'] ?? null;
 }
 ksort($declaredVersions, SORT_STRING);
+// WP-4.12 — THE INVARIANT THE WHOLE FLAG DAY RESTS ON, and the one assertion
+// in this suite whose meaning got STRONGER when the define moved. Before the
+// flip "all 16 declare $specVersion" was nearly tautological: the library and
+// the engine were the same number, so nothing had to hold it. Now the engine
+// is 3 and the library is 2, and the gap is the no-restamp rule (§ v3.12):
+// stamping any one of these would move its digest, its `manifest_hash` and
+// every content pin naming it, fleet-wide.
 duo_check_same(
-    [$specVersion],
+    [$specVersion - 1],
     array_values(array_unique(array_values($declaredVersions))),
-    'no shipped manifest is stamped to v3: all ' . count($declaredVersions) . ' declare spec_version ' . $specVersion
+    'NO SHIPPED MANIFEST IS STAMPED TO v' . $specVersion . ': all ' . count($declaredVersions)
+        . ' still declare spec_version ' . ($specVersion - 1) . ', one below the engine and inside the window'
 );
 
 echo "\nPART 2 — THE DOCUMENT: every measurable claim re-measured from the tree\n";
@@ -551,8 +595,9 @@ echo "\nPART 2 — THE DOCUMENT: every measurable claim re-measured from the tre
 // Structure: the section, its subsections, and the rider each one names.
 // ---------------------------------------------------------------------------
 duo_check(
-    str_contains($spec, '## Spec v3 — the windowed format (SPECIFIED HERE; THE WINDOW IS IN FORCE, THE REST IS NOT)'),
-    'the spec carries the v3 section, and its heading states the status in the heading itself'
+    str_contains($spec, '## Spec v3 — the windowed format (IN FORCE)'),
+    'the spec carries the v3 section, and its heading states the status in the heading itself — WP-4.12 '
+        . 'ended the "NOT YET IN FORCE" era where it was accurate to'
 );
 
 $subsections = ['v3.1', 'v3.2', 'v3.3', 'v3.4', 'v3.5', 'v3.6', 'v3.7', 'v3.8', 'v3.9', 'v3.10', 'v3.11', 'v3.12'];
@@ -820,11 +865,17 @@ $nsFixture = static fn(string $name, ?int $spec, array $extra = []): array => $e
     'name' => $name,
     'spec_version' => $spec,
 ], static fn($v): bool => $v !== null);
+// WP-4.12: the probe pair is now (N-1, N) rather than (N, 3), because the flip
+// put the engine ON the gate. Both halves still exist and both still matter —
+// the inert half is where every shipped manifest and every pre-flip
+// out-of-tree adapter sits, which is what "the rule moved no shipped byte"
+// means now that the engine has crossed.
 duo_check(
-    $nsVerdict($nsFixture('cache', $specVersion), 'cache') === null
-        && is_string($nsVerdict($nsFixture('cache', 3), 'cache')),
+    $nsVerdict($nsFixture('cache', $specVersion - 1), 'cache') === null
+        && is_string($nsVerdict($nsFixture('cache', $specVersion), 'cache')),
     'and the engine agrees on both halves of that line: an unprefixed out-of-tree name is inert at '
-    . "spec_version $specVersion and refuses at 3, so this rule rode ahead of the flip without moving it"
+    . 'spec_version ' . ($specVersion - 1) . ' and refuses at ' . $specVersion . ', so the rule reaches only '
+    . 'documents that declare the new version — of which the shipped library has none'
 );
 duo_check(
     $nsVerdict($nsFixture('acme-cache', 3, [

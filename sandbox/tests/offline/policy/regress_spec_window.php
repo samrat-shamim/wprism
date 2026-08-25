@@ -19,17 +19,25 @@
  *
  * WHY IT PROBES TWO ENGINES
  * -------------------------
- * `DUO_SPEC_VERSION` is `2` and stays `2` here — the flip is WP-4.12's alone
- * (§ v3.12) — so the shipped engine's window is {1, 2} and its one v3-only
- * section, `engine_features`, is NOT declarable by any manifest it accepts.
- * That is the correct shipped state and it is asserted below; it also means
- * the channel's admitting half cannot be exercised in this process at all. So
- * PART 2 re-runs the identical probe set in a CHILD process that defines
- * `DUO_SPEC_VERSION` as N+1 before loading the same shipped file — a spec
- * version is a `define()` and a PHP process holds one of those, the same
- * reason `sandbox/tests/offline/guards/spec_migration_estate.php` drives its
- * estate through child processes. The child is this file, in `--probe` mode,
- * so the two eras are measured by ONE probe set and cannot drift apart.
+ * WP-4.12's flip changed which era the shipped engine is IN, and this header
+ * is the record of it. While `DUO_SPEC_VERSION` was `2` the window was {1, 2}
+ * and the one implemented section, `engine_features` (since 3), was NOT
+ * declarable by any manifest the engine accepted — the channel's admitting
+ * half could not be exercised in this process at all. The flip moved the
+ * ceiling onto the section's own version, so the admitting half is now a live
+ * product path here and the shipped library, still at N-1, is exactly the
+ * population the refusing half is for.
+ *
+ * THREE ENGINES, ONE PROBE SET. The child processes are this file in
+ * `--probe` mode — a spec version is a `define()` and a PHP process holds one
+ * of those, the same reason `spec_migration_estate.php` drives its estate
+ * through child processes — so no era can drift from another:
+ *
+ *   N   this process, the shipped engine;
+ *   N+1 what the next bump would do (PART 2);
+ *   N-1 the ROLLBACK engine, which is where the "the window does not reach
+ *       that version" remedy went when the flip retired it here, and which is
+ *       what a v2 agent tells an operator about a v3-stamped manifest.
  *
  * WHAT THE PARTS PROVE
  * --------------------
@@ -38,16 +46,18 @@
  *   refusals are byte-identical to the strings recorded here from before the
  *   window shipped. Every one of the shipped manifests still loads, which is
  *   the digest-neutrality half — no manifest byte moves, so no adapter digest
- *   moves. `engine_features` refuses by SECTION NAME, because 3 is outside
- *   this engine's window.
+ *   moves — the library declares N-1, and that is the no-restamp rule
+ *   (§ v3.12) measured rather than argued. `engine_features` is ADMITTED at
+ *   the ceiling and refuses by SECTION NAME at the floor, with the actionable
+ *   remedy the window now makes true.
  *
- *   PART 2 — a synthetic N+1 engine. `engine_features` becomes declarable, and
- *   the channel answers three ways: a declared feature this engine IMPLEMENTS
- *   admits the adapter and admits the key that feature claims; a declared name
- *   nothing implements refuses THAT ADAPTER naming the feature; a malformed
- *   list refuses on shape before any vocabulary lookup. This is the one place
- *   the "declaration + implementation admits" path can be walked before the
- *   flip, which is why § v3.2 names this file.
+ *   PART 2 — a synthetic N+1 engine, and the N-1 rollback engine. The channel
+ *   answers three ways: a declared feature this engine IMPLEMENTS admits the
+ *   adapter and admits the key that feature claims; a declared name nothing
+ *   implements refuses THAT ADAPTER naming the feature; a malformed list
+ *   refuses on shape before any vocabulary lookup. The N-1 probe carries the
+ *   other remedy arm and the one-way fact G3 turns on: an N-1 engine accepts
+ *   {N-2, N-1}, so a manifest re-stamped to N is outside its window entirely.
  *
  *   PART 3 — the surfaces that publish the window. `duo manifest-validate`
  *   loads each manifest on its own, so a pin set holding one offending adapter
@@ -257,31 +267,43 @@ foreach (['below_floor' => $N - 2, 'above_ceiling' => $N + 1] as $label => $cand
 }
 duo_check_detail('out-of-window refusal: ' . (string) $shipped['verdicts']['above_ceiling']);
 
-// The per-section refusal. At N = DUO_SPEC_VERSION the one v3-only section is
-// `engine_features`, whose first version is outside this engine's window — so
-// BOTH in-window versions refuse it, and the remedy has to say so rather than
-// send an author to a `spec_version` this same validator refuses one line up.
+// THE PER-SECTION REFUSAL, AND WHAT WP-4.12 DID TO IT. Before the flip the one
+// implemented section, `engine_features`, sat at spec_version 3 — one PAST this
+// engine's ceiling — so both in-window versions refused it and the remedy had
+// to say "this engine's window does not reach 3", because sending an author to
+// declare 3 would have sent them to a manifest the same validator refused
+// wholesale one line up. The flip moved the ceiling onto the section's own
+// version. Both halves of the channel are now reachable in this process, which
+// is § v3.2's whole point arriving: the declaration channel opens with the
+// bump and needs no second one.
 $sectionSince = $shipped['section_min_spec']['engine_features'] ?? null;
 duo_check_same(
-    $N + 1,
+    $N,
     $sectionSince,
-    '`engine_features` is a v3-only section: the engine implements it at spec_version ' . ($N + 1) . ', one past the ceiling'
+    '`engine_features` is implemented at spec_version ' . $N . ', which IS this engine\'s ceiling — the flip '
+        . '(WP-4.12) brought the channel inside the window'
 );
-foreach (['floor_with_section' => $N - 1, 'ceiling_with_section' => $N] as $label => $declared) {
-    $refusal = (string) $shipped['verdicts'][$label];
-    duo_check(
-        str_contains($refusal, "manifest 'sectionful' declares spec_version $declared")
-            && str_contains($refusal, "the section 'engine_features'")
-            && str_contains($refusal, 'implements only at spec_version ' . $sectionSince)
-            && str_contains($refusal, 'may not declare a section from a HIGHER version'),
-        "a spec_version $declared manifest declaring `engine_features` refuses BY SECTION NAME and by adapter name ($label)"
-    );
-    duo_check(
-        str_contains($refusal, "this engine's window does not reach spec_version " . $sectionSince),
-        '...and its remedy is the honest one for this engine: the window does not reach that version at all'
-    );
-}
-duo_check_detail('per-section refusal: ' . (string) $shipped['verdicts']['ceiling_with_section']);
+$floorRefusal = (string) $shipped['verdicts']['floor_with_section'];
+duo_check(
+    str_contains($floorRefusal, "manifest 'sectionful' declares spec_version " . ($N - 1))
+        && str_contains($floorRefusal, "the section 'engine_features'")
+        && str_contains($floorRefusal, 'implements only at spec_version ' . $sectionSince)
+        && str_contains($floorRefusal, 'may not declare a section from a HIGHER version'),
+    'a spec_version ' . ($N - 1) . ' manifest declaring `engine_features` still refuses BY SECTION NAME and by '
+        . 'adapter name — the N-1 arm of the window is exactly where the shipped library sits'
+);
+duo_check(
+    str_contains($floorRefusal, 'declare spec_version ' . $sectionSince . ' to use it, or remove the section'),
+    '...and its remedy is now the ACTIONABLE one, because the window reaches that version: the same code path '
+        . 'that used to say "this engine\'s window does not reach it" reads the window rather than assuming an era'
+);
+duo_check_same(
+    null,
+    $shipped['verdicts']['ceiling_with_section'],
+    'while a spec_version ' . $N . ' manifest declaring it is ADMITTED on the shipped engine — the channel is a '
+        . 'live product path here, not a synthetic-engine measurement'
+);
+duo_check_detail('per-section refusal at the floor: ' . $floorRefusal);
 
 // DIGEST NEUTRALITY. The rider's standing precondition: no shipped manifest
 // byte moves, so no adapter digest moves. Re-measured from the library rather
@@ -308,7 +330,16 @@ foreach ($library as $name => $manifest) {
 $report('shipped library: ' . count($library) . ' manifests, declared spec_versions {'
     . implode(', ', array_map('strval', array_keys($declaredVersions))) . '}');
 duo_check_same([], $refused, 'every one of the ' . count($library) . ' shipped manifests still passes the contract grammar — the window refuses none of the library');
-duo_check_same([$N => true], $declaredVersions, 'and every one still declares spec_version ' . $N . ': no manifest was re-stamped, so no adapter digest moved');
+// WP-4.12: the library sits at N-1, not at N. That is the whole no-restamp
+// rule (§ v3.12) expressed as a measurement — the flip moved the ENGINE and
+// left every manifest byte alone, which is why not one adapter digest moved
+// and why the window had to exist before the bump rather than with it.
+duo_check_same(
+    [($N - 1) => true],
+    $declaredVersions,
+    'and every one still declares spec_version ' . ($N - 1) . ' — the flip moved the engine to ' . $N
+        . ' and re-stamped nothing, so no manifest byte and no adapter digest moved'
+);
 $declarers = array_keys(array_filter($library, static fn(array $m): bool => array_key_exists('engine_features', $m)));
 duo_check_same([], $declarers, 'no shipped manifest declares `engine_features` — the channel ships with a live implementation and no declarer, which is § v3.12\'s no-restamp rule and not an empty channel');
 
@@ -350,13 +381,20 @@ duo_check_same(
     $future['admitted_for_unknown_feature'],
     '...while a feature the engine does not implement admits nothing — it never reaches the key question, because the contract grammar refused first'
 );
-// The SAME declaration, refused by section name on the shipped engine and
-// admitted here. One mechanism read at two engine versions, which is what the
+// The SAME declaration, refused by section name on one engine and admitted on
+// the other. One mechanism read at two engine versions, which is what the
 // two-era probe set exists to show.
+//
+// WP-4.12 moved WHICH probe carries it. Both engines now admit
+// `ceiling_with_section`, because the flip put the section's own version
+// inside the shipped window — so the cross-era pair is the FLOOR probe: the
+// shipped engine's floor is spec_version N-1, below the section, and the N+1
+// engine's floor is N, which is the section's version exactly.
 duo_check(
-    is_string($shipped['verdicts']['ceiling_with_section'])
-        && $future['verdicts']['ceiling_with_section'] === null,
-    'the declaration the shipped engine refuses by section name is the one this engine admits — the section rule and the feature rule are one mechanism read at two versions'
+    is_string($shipped['verdicts']['floor_with_section'])
+        && $future['verdicts']['floor_with_section'] === null,
+    'the floor declaration the shipped engine refuses by section name is the one the N+1 engine admits — the '
+        . 'section rule and the feature rule are one mechanism read at two versions'
 );
 
 $unimplemented = (string) $future['verdicts']['since_unimplemented'];
@@ -376,20 +414,47 @@ duo_check(
     'a list mixing an implemented and an unimplemented name refuses on the unimplemented one — one bad name is enough'
 );
 
-// A v2-era manifest meeting the engine that DOES implement the section is the
-// remedy branch the shipped engine cannot reach, so it is measured here.
 duo_check_same(
     null,
     $future['verdicts']['ceiling'],
     'on the N+1 engine a spec_version ' . ($N + 1) . ' manifest loads'
 );
-$staged = (string) $future['verdicts']['floor_with_section'];
-duo_check(
-    str_contains($staged, "declares spec_version $N and the section 'engine_features'")
-        && str_contains($staged, 'declare spec_version ' . ($N + 1) . ' to use it, or remove the section'),
-    'and a spec_version ' . $N . ' manifest declaring the section gets the OTHER remedy — declare the version, because now the window reaches it'
+duo_check_same(
+    null,
+    $future['verdicts']['floor_with_section'],
+    '...and its FLOOR — spec_version ' . $N . ', the section\'s own version — admits the section outright, which '
+        . 'is the same admitting verdict the shipped engine now gives at its ceiling'
 );
-duo_check_detail('staged-section remedy: ' . $staged);
+
+// THE OTHER REMEDY ARM, AND WHERE IT LIVES AFTER THE FLIP. `assert_section_
+// versions()` has two remedies: "declare spec_version <since>" when the window
+// reaches that version, and "this engine's window does not reach it" when it
+// does not. The flip moved the shipped engine from the second arm into the
+// first (PART 1 measures that), so the second arm is now only reachable BELOW
+// this engine — which is exactly the rollback target. Probing N-1 is therefore
+// not a synthetic curiosity: it is what a v2 agent tells an operator about a
+// v3-declaring manifest, and it is the reason § v3.12 files the first
+// v3-stamped manifest with the acts G3 forbids.
+$priorChild = $run([PHP_BINARY, __FILE__, '--probe', (string) ($N - 1)]);
+duo_check_same(0, $priorChild['exit'], 'the ROLLBACK-engine probe (N-1) exits 0 (stderr: ' . trim($priorChild['stderr']) . ')');
+$prior = json_decode($priorChild['stdout'], true);
+duo_check(is_array($prior), 'and prints one decodable report');
+$prior = is_array($prior) ? $prior : ['verdicts' => [], 'accepted' => []];
+$report('rollback engine DUO_SPEC_VERSION: ' . ($N - 1) . '; accepted: {' . implode(', ', (array) $prior['accepted']) . '}');
+duo_check_same(
+    [$N - 2, $N - 1],
+    (array) $prior['accepted'],
+    'the N-1 engine accepts {' . ($N - 2) . ', ' . ($N - 1) . '} — so a manifest re-stamped to ' . $N
+        . ' is outside its window entirely, which is the one-way half of the flag day'
+);
+$unreached = (string) $prior['verdicts']['floor_with_section'];
+duo_check(
+    str_contains($unreached, "declares spec_version " . ($N - 2) . " and the section 'engine_features'")
+        && str_contains($unreached, "this engine's window does not reach spec_version " . $sectionSince),
+    'and it gives the OTHER remedy — the window does not reach the section at all — which is the arm the flip '
+        . 'retired on the shipped engine and did not delete'
+);
+duo_check_detail('rollback-engine remedy: ' . $unreached);
 
 foreach ([
     'since_empty' => 'an empty list',
@@ -429,11 +494,15 @@ Canon::write_file($scratch . '/acme-clean.json', Canon::encode([
     'options' => ['acme_clean_setting' => ['class' => 'authored', 'autoload' => 'yes']],
     'spec_version' => $N,
 ]));
+// Stamped at N-1, not N: after the flip a v-N manifest declaring the section is
+// ADMITTED (PART 1), so the offending neighbour has to be the one that is still
+// refused — a manifest sitting where the whole shipped library sits, reaching
+// for a section its own declared version does not have.
 Canon::write_file($scratch . '/acme-staged.json', Canon::encode([
     'engine_features' => [$shipped['implemented_features'][0]],
     'name' => 'acme-staged',
     'options' => ['acme_staged_setting' => ['class' => 'authored', 'autoload' => 'yes']],
-    'spec_version' => $N,
+    'spec_version' => $N - 1,
 ]));
 $validated = $run([PHP_BINARY, $repo . '/cli/duo', 'manifest-validate', $scratch]);
 duo_check(
@@ -534,10 +603,18 @@ foreach (glob($repo . '/manifests/*.json') ?: [] as $shippedManifest) {
 $baseline = $run([PHP_BINARY, $mutantRoot . '/tools/wire-surface.php', '--check', '--root=' . $mutantRoot]);
 duo_check_same(0, $baseline['exit'], 'the untouched copy passes the same check, so any refusal below is the mutation and nothing else');
 
-$grammarFile = $mutantRoot . '/agent/src/Adapter/AdapterContractGrammar.php';
+// WP-4.12 moved the window's one definition down a layer. It used to live in
+// AdapterContractGrammar; `site.duo.json` carries the same integer and
+// `RepositoryCompiler` (layer 3) cannot reference the grammar (layer 5), so
+// the definition is now `SpecVersionWindow` in the kernel and the grammar
+// delegates to it. The mutation therefore has to hit the kernel file — and
+// that is the point of mutating rather than reading: one definition means one
+// file to corrupt, and the gate has to notice from the far side of the
+// delegation.
+$grammarFile = $mutantRoot . '/agent/src/Kernel/SpecVersionWindow.php';
 $grammarSource = (string) file_get_contents($grammarFile);
 $anchor = 'return [$supported - 1, $supported];';
-duo_check(str_contains($grammarSource, $anchor), 'the window\'s own return is present in the copied engine');
+duo_check(str_contains($grammarSource, $anchor), 'the window\'s one definition is present in the copied engine\'s kernel');
 file_put_contents($grammarFile, str_replace($anchor, 'return [$supported - 2, $supported - 1, $supported];', $grammarSource));
 $widened = $run([PHP_BINARY, $mutantRoot . '/tools/wire-surface.php', '--check', '--root=' . $mutantRoot]);
 duo_check(

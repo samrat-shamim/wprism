@@ -8,12 +8,8 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_AGENT_VERSION')) {
-    define('DUO_AGENT_VERSION', '0.5.0');
-}
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
@@ -1041,7 +1037,14 @@ echo "\n== plugin-owned provider identity boundary ==\n";
 $providerManifest = $manifest;
 $providerManifest['providers'] = [[
     'capabilities' => ['refresh'],
-    'id' => 'fixture-refresh',
+    // WP-4.12: `site-refresh`, inside this adapter's own `site-` namespace.
+    // At spec_version 3 the namespace grammar (§ v3.9) binds every
+    // `providers[].id` to the declaring adapter's vendor half, so the previous
+    // `fixture-refresh` refused there first and this case stopped being about
+    // its own subject — the plugin BASENAME check two lines down. Naming the
+    // provider legally is what makes the refusal below provably about the
+    // traversing `plugin` value and nothing else.
+    'id' => 'site-refresh',
     'plugin' => 'fixture-provider/fixture-provider.php',
     'source' => 'plugin',
     'version' => '1.0.0',
@@ -1796,8 +1799,12 @@ try {
         <<<'PHP'
 <?php
 declare(strict_types=1);
-define('DUO_SPEC_VERSION', 2);
-define('DUO_AGENT_VERSION', '0.5.0');
+// WP-4.12: the child must present the SAME agent the parent does — it reads a
+// real platform.json copy, and AdapterCertification refuses the moment the
+// document and the loaded agent disagree ("agent capability platform boundary
+// disagrees with the loaded agent"). Derived, never retyped.
+require __ENGINE_ROOT__ . '/sandbox/tests/lib/agent_version.php';
+duo_test_define_agent_versions();
 define('ABSPATH', __ABSPATH__);
 define('WP_PLUGIN_DIR', __WP_PLUGIN_DIR__);
 function is_multisite(): bool { return false; }

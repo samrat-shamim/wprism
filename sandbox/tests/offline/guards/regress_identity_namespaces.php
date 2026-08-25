@@ -240,7 +240,12 @@ duo_check_same(
 
 echo "\n== 3. the rule is INERT below spec_version 3 — the flag-day invariant ==\n";
 
-foreach ([null, 1, DUO_SPEC_VERSION] as $spec) {
+// WP-4.12: the third probe used to be DUO_SPEC_VERSION, which read as "the
+// version this engine runs at" and happened to be below the gate. The flip
+// crossed the gate and turned that probe into a v3 declaration the rule
+// correctly refuses — so the loop now says what section 3 is actually about:
+// every version BELOW the gate, expressed from the gate itself.
+foreach ([null, 1, IdentityNamespaces::NAMESPACED_SINCE - 1] as $spec) {
     $label = $spec === null ? 'no spec_version' : "spec_version $spec";
     duo_check_same(
         null,
@@ -256,11 +261,30 @@ foreach ([null, 1, DUO_SPEC_VERSION] as $spec) {
         "and a provider id outside the adapter's namespace with $label takes none either"
     );
 }
+// WP-4.12 flipped this. WP-4.10's assertion was "DUO_SPEC_VERSION is still 2,
+// so every manifest that exists is below the gate" — true then, and the reason
+// the rider moved no shipped byte. After the flip the engine is AT the gate,
+// and what carries that same guarantee forward is the OTHER half of the
+// no-restamp rule: the gate only reads a manifest's OWN declared version, and
+// no shipped manifest declares 3. So the same zero bytes moved, for a reason
+// that is now checkable against the library instead of against the engine.
 duo_check_same(
-    2,
+    IdentityNamespaces::NAMESPACED_SINCE,
     DUO_SPEC_VERSION,
-    'DUO_SPEC_VERSION is still 2, so every manifest that exists is below the gate and this rider moved no '
-    . 'shipped byte (the flip is WP-4.12)'
+    'DUO_SPEC_VERSION is 3 — the engine now sits AT the namespace gate (the flip, WP-4.12)'
+);
+$stampedAtGate = [];
+foreach (glob(dirname(__DIR__, 4) . '/manifests/*.json') ?: [] as $shipped) {
+    $declared = json_decode((string) file_get_contents($shipped), true);
+    if (is_array($declared) && ($declared['spec_version'] ?? null) >= IdentityNamespaces::NAMESPACED_SINCE) {
+        $stampedAtGate[] = basename($shipped, '.json');
+    }
+}
+duo_check_same(
+    [],
+    $stampedAtGate,
+    'and no SHIPPED manifest declares a version at or above it, so the rule still reaches zero shipped bytes — '
+    . 'the no-restamp rule (§ v3.12) is what keeps that true now that the engine has crossed'
 );
 
 echo "\n== 4. at spec_version 3 the reserved form is a RULE ==\n";
