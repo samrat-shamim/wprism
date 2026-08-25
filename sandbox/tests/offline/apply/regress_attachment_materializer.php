@@ -6,10 +6,63 @@ namespace Duo {
     final class Db {
         public static int $starts = 0;
         public static int $rollbacks = 0;
+        public static int $nextMetaId = 11;
 
         public static function start_repeatable_read(string $purpose): void { ++self::$starts; }
         public static function commit(string $purpose): void {}
         public static function checkpoint(string $purpose): void {}
+        public static function transaction_active(string $purpose): bool { return true; }
+        public static function insert(string $table, array $data, mixed $format = null, ?string $purpose = null): int {
+            global $wpdb;
+            if ($table === 'wp_postmeta' && is_object($wpdb) && property_exists($wpdb, 'rows')) {
+                $data['meta_id'] = (string) self::$nextMetaId++;
+                $wpdb->rows[] = [
+                    'meta_id' => $data['meta_id'],
+                    'post_id' => (string) ($data['post_id'] ?? 0),
+                    'meta_key' => (string) ($data['meta_key'] ?? ''),
+                    'meta_value' => $data['meta_value'] ?? null,
+                ];
+            }
+            return 1;
+        }
+        public static function update(string $table, array $data, array $where, mixed $format = null, mixed $whereFormat = null, ?string $purpose = null): int {
+            global $wpdb;
+            if ($table === 'wp_postmeta' && is_object($wpdb) && property_exists($wpdb, 'rows')) {
+                foreach ($wpdb->rows as &$row) {
+                    if ((string) ($row['meta_id'] ?? '') === (string) ($where['meta_id'] ?? '')) {
+                        $row['meta_value'] = $data['meta_value'] ?? $row['meta_value'];
+                    }
+                }
+                unset($row);
+            }
+            return 1;
+        }
+        public static function delete(string $table, array $where, mixed $whereFormat = null, ?string $purpose = null): int { return 1; }
+        public static function insert_id(string $purpose): int { return 41; }
+        public static function query(string $sql, string $purpose): int {
+            global $wpdb;
+            if (preg_match("/INSERT INTO wp_duo_kv \(k, v\) VALUES \('((?:''|[^'])*)', '((?:''|[^'])*)'\)/", $sql, $match) === 1) {
+                $key = str_replace("''", "'", $match[1]);
+                $value = str_replace("''", "'", $match[2]);
+                foreach ($wpdb->kvRows as &$row) {
+                    if ($row['k'] === $key) {
+                        $row['v'] = $value;
+                        unset($row);
+                        return 1;
+                    }
+                }
+                unset($row);
+                $wpdb->kvRows[] = ['k' => $key, 'v' => $value];
+            }
+            if (preg_match("/DELETE FROM wp_duo_kv WHERE k = '((?:''|[^'])*)'/", $sql, $deleteMatch) === 1) {
+                $key = str_replace("''", "'", $deleteMatch[1]);
+                $wpdb->kvRows = array_values(array_filter(
+                    $wpdb->kvRows,
+                    static fn(array $row): bool => $row['k'] !== $key
+                ));
+            }
+            return 1;
+        }
         public static function rollback(string $purpose): void {
             ++self::$rollbacks;
             if (isset($GLOBALS['wpdb'])
@@ -65,6 +118,15 @@ namespace {
     }
     if (!function_exists('wp_cache_flush')) {
         function wp_cache_flush(): true { return true; }
+    }
+    if (!function_exists('wp_cache_delete')) {
+        function wp_cache_delete(mixed $key, string $group = ''): bool { return true; }
+    }
+    if (!function_exists('wp_cache_get')) {
+        function wp_cache_get(mixed $key, string $group = '', bool $force = false, mixed &$found = null): mixed {
+            $found = false;
+            return false;
+        }
     }
 
     final class PLL_Sync_Post_Metas {
@@ -204,6 +266,12 @@ namespace {
             $this->queries[] = $sql;
             if (trim($sql) === 'SELECT @@in_transaction') return '1';
             if (preg_match('/^SELECT 1 FROM `[^`]+` LIMIT 1$/D', trim($sql)) === 1) return '1';
+            if (preg_match("/^SELECT local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'$/D", trim($sql), $match) === 1) {
+                foreach ($this->kvRows as $row) {
+                    if ($row['k'] === 'ledger:' . $match[2] . ':' . $match[1]) return $row['v'];
+                }
+                return null;
+            }
             if (preg_match("/SELECT v FROM wp_duo_kv WHERE k = '((?:''|[^'])*)'/D", $sql, $match) === 1) {
                 $wanted = str_replace("''", "'", $match[1]);
                 foreach ($this->kvRows as $row) {
@@ -265,14 +333,44 @@ namespace {
                         'Index_type' => 'BTREE',
                     ]];
                 }
-                return [[
-                    'Key_name' => 'meta_key',
-                    'Seq_in_index' => '1',
-                    'Column_name' => 'meta_key',
-                    'Sub_part' => '191',
-                    'Non_unique' => '1',
-                    'Index_type' => 'BTREE',
-                ]];
+                if (str_contains($sql, '`wp_posts`')) {
+                    return [[
+                        'Key_name' => 'PRIMARY',
+                        'Seq_in_index' => '1',
+                        'Column_name' => 'ID',
+                        'Sub_part' => null,
+                        'Non_unique' => '0',
+                        'Index_type' => 'BTREE',
+                    ]];
+                }
+                if (str_contains($sql, '`wp_duo_map`')) {
+                    return [[
+                        'Key_name' => 'PRIMARY',
+                        'Seq_in_index' => '1',
+                        'Column_name' => 'uuid',
+                        'Sub_part' => null,
+                        'Non_unique' => '0',
+                        'Index_type' => 'BTREE',
+                    ]];
+                }
+                return [
+                    [
+                        'Key_name' => 'meta_key',
+                        'Seq_in_index' => '1',
+                        'Column_name' => 'meta_key',
+                        'Sub_part' => '191',
+                        'Non_unique' => '1',
+                        'Index_type' => 'BTREE',
+                    ],
+                    [
+                        'Key_name' => 'post_id',
+                        'Seq_in_index' => '1',
+                        'Column_name' => 'post_id',
+                        'Sub_part' => null,
+                        'Non_unique' => '1',
+                        'Index_type' => 'BTREE',
+                    ],
+                ];
             }
             if (str_contains($sql, 'FROM information_schema.TABLES')) {
                 preg_match_all("/'([^']+)'/", $sql, $matches);
@@ -283,6 +381,74 @@ namespace {
             }
             if (str_contains($sql, 'SELECT option_name')) return [];
             if (str_contains($sql, 'SELECT k, v FROM wp_duo_kv')) return [];
+            if (str_contains($sql, 'OCTET_LENGTH(meta_key)')) {
+                preg_match('/`post_id` = ([0-9]+)/', $sql, $ownerMatch);
+                $owner = (int) ($ownerMatch[1] ?? 0);
+                $rows = array_values(array_map(
+                    static fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key_bytes' => (string) strlen($row['meta_key']),
+                        'meta_value_bytes' => $row['meta_value'] === null ? null : (string) strlen($row['meta_value']),
+                    ],
+                    array_filter($this->rows, static fn(array $row): bool => (int) $row['post_id'] === $owner)
+                ));
+                return $rows;
+            }
+            if (str_contains($sql, 'SHA2(meta_key, 256)')) {
+                preg_match('/`post_id` = ([0-9]+)/', $sql, $ownerMatch);
+                $owner = (int) ($ownerMatch[1] ?? 0);
+                return array_values(array_map(
+                    static fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key_sha256' => hash('sha256', $row['meta_key']),
+                        'meta_value_sha256' => $row['meta_value'] === null ? null : hash('sha256', $row['meta_value']),
+                    ],
+                    array_filter($this->rows, static fn(array $row): bool => (int) $row['post_id'] === $owner)
+                ));
+            }
+            if (str_contains($sql, 'AS meta_id, meta_key, meta_value')) {
+                preg_match('/`post_id` = ([0-9]+)/', $sql, $ownerMatch);
+                $owner = (int) ($ownerMatch[1] ?? 0);
+                return array_values(array_map(
+                    static fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key' => $row['meta_key'],
+                        'meta_value' => $row['meta_value'],
+                    ],
+                    array_filter($this->rows, static fn(array $row): bool => (int) $row['post_id'] === $owner)
+                ));
+            }
+            if (str_contains($sql, 'SELECT ID, post_type, post_mime_type FROM wp_posts')) {
+                return [[
+                    'ID' => '41',
+                    'post_type' => 'attachment',
+                    'post_mime_type' => 'image/png',
+                ]];
+            }
+            if (str_contains($sql, 'SELECT uuid, entity_type, id_kind, local_id FROM `wp_duo_map`')) {
+                preg_match("/WHERE uuid = '([^']+)'/", $sql, $uuidMatch);
+                return [[
+                    'uuid' => $uuidMatch[1] ?? '01a0341e-2067-7fe3-9402-530b5a0f6b34',
+                    'entity_type' => 'post',
+                    'id_kind' => 'post',
+                    'local_id' => '41',
+                ]];
+            }
+            if (str_contains($sql, 'AS meta_id, meta_key')) {
+                preg_match('/`post_id` = ([0-9]+)/', $sql, $ownerMatch);
+                $owner = (int) ($ownerMatch[1] ?? 0);
+                preg_match("/meta_key = '((?:''|[^'])*)'/", $sql, $keyMatch);
+                $wantedKey = isset($keyMatch[1]) ? str_replace("''", "'", $keyMatch[1]) : null;
+                return array_values(array_map(
+                    static fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key' => $row['meta_key'],
+                    ],
+                    array_filter($this->rows, static fn(array $row): bool =>
+                        (int) $row['post_id'] === $owner
+                        && ($wantedKey === null || $row['meta_key'] === $wantedKey))
+                ));
+            }
             if (!str_contains($sql, 'attachment') && !str_contains($sql, 'FROM `wp_postmeta`')) {
                 throw new \RuntimeException("unrecognized attachment authority get_results: $sql");
             }
@@ -472,9 +638,6 @@ namespace {
     require_once $root . '/agent/src/Rebuild/RebuildRequest.php';
     require_once $root . '/agent/src/Rebuild/RebuildSelection.php';
     require_once $root . '/agent/src/Apply/ApplyRebuildCoordinator.php';
-    require_once $root . '/agent/src/Apply/AuthoredTransactionRequest.php';
-    require_once $root . '/agent/src/Delete/DeletionAuthority.php';
-    require_once $root . '/agent/src/Apply/AuthoredTransactionExecutor.php';
 
     use Duo\ApplyFieldMaterializer;
     use Duo\AttachmentFilesystemTransaction;
@@ -484,12 +647,9 @@ namespace {
     use Duo\ApplyRebuildCoordinator;
     use Duo\ApplyServiceCallbacks;
     use Duo\ApplyServices;
-    use Duo\ApplyWorkset;
-    use Duo\AuthoredTransactionRequest;
     use Duo\CompiledRepository;
     use Duo\Db;
     use Duo\DeleteGuardEvaluator;
-    use Duo\DeletionAuthority;
     use Duo\PlainData;
     use Duo\Policy;
     use Duo\Tokens;
@@ -566,13 +726,24 @@ namespace {
         $blob = hash('sha256', $png) . '.png';
         $front = [
             'alt' => 'portable alt',
+            'author' => null,
+            'comment_status' => 'open',
+            'date' => '2026-08-25 00:00:00',
+            'date_gmt' => '2026-08-25 00:00:00',
+            'excerpt' => '',
             'file' => '2026/08/photo.png',
             'media' => $blob,
             'mime' => 'image/png',
+            'modified' => '2026-08-25 00:00:00',
+            'modified_gmt' => '2026-08-25 00:00:00',
+            'ping_status' => 'closed',
+            'slug' => 'photo',
+            'status' => 'publish',
+            'title' => 'Photo',
             'type' => 'attachment',
             'uuid' => $uuid,
         ];
-        $tree = [$uuid => ['data' => $front, 'type' => 'post']];
+        $tree = [$uuid => ['body' => '', 'data' => $front, 'type' => 'post']];
         $compiled = CompiledRepository::create([
             'media' => [$blob => ['base64' => base64_encode($png), 'sha256' => hash('sha256', $png)]],
             'tree' => $tree,
@@ -1414,58 +1585,6 @@ namespace {
         $policy = (new \ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
         $tokens = (new \ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
         $fieldMaterializer = new ApplyFieldMaterializer($policy, $tokens);
-        $attachmentMaterializer = new AttachmentMaterializer($policy, $fieldMaterializer, $compiled, $repository);
-        $check($attachmentMaterializer instanceof AttachmentMaterializer, 'AttachmentMaterializer composes the durable boundary with an explicit private repository root');
-        $constructor = (new \ReflectionClass(AttachmentMaterializer::class))->getConstructor();
-        $check(
-            array_map(static fn(\ReflectionParameter $parameter): string => $parameter->getName(), $constructor->getParameters())
-                === ['policy', 'fieldMaterializer', 'compiled', 'repositoryRoot'],
-            'constructor authority binds frozen adapter policy, field materializer, immutable artifact and private repository root'
-        );
-        $proofState = new \ReflectionProperty(AttachmentMaterializer::class, 'polylangNativeGenerator');
-        $proofState->setValue($attachmentMaterializer, $preflightGenerator);
-        $attachmentMaterializer->end_authored_transaction();
-        $check(
-            $proofState->getValue($attachmentMaterializer) === null,
-            'terminal authored-transaction end consumes any retained Polylang handoff authority'
-        );
-        $proofState->setValue($attachmentMaterializer, $preflightGenerator);
-        $attachmentMaterializer->rollback_authored_transaction();
-        $check(
-            $proofState->getValue($attachmentMaterializer) === null,
-            'rollback failure or retry preparation cannot retain a prior Polylang handoff authority'
-        );
-        $proofState->setValue($attachmentMaterializer, $preflightGenerator);
-        $attachmentMaterializer->discard_native_rebuild_authority();
-        $check(
-            $proofState->getValue($attachmentMaterializer) === null,
-            'a request-boundary failure before rebuild entry discards the retained Polylang handoff authority'
-        );
-        $authoredExecutorSource = (string) file_get_contents($root . '/agent/src/Apply/AuthoredTransactionExecutor.php');
-        $rebuildCoordinatorSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyRebuildCoordinator.php');
-        $requestCoordinatorSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyRequestCoordinator.php');
-        $nativeRebuildSource = (string) file_get_contents($root . '/agent/src/Rebuild/NativeRebuildExecutor.php');
-        $check(
-            str_contains(preg_replace('/\s+/', ' ', $authoredExecutorSource),
-                'end_authored_transaction($retainNativeRebuildAuthority)'),
-            'AuthoredTransactionExecutor explicitly transfers the live handoff only after committed post-commit participants'
-        );
-        $check(
-            str_contains($rebuildCoordinatorSource, 'finally {')
-                && str_contains($rebuildCoordinatorSource, 'discard_native_rebuild_authority'),
-            'ApplyRebuildCoordinator clears an unconsumed handoff on every native-rebuild failure or skip path'
-        );
-        $check(
-            str_contains($requestCoordinatorSource, '$rebuildEntered = false')
-                && str_contains($requestCoordinatorSource, 'if (!$rebuildEntered)')
-                && str_contains($requestCoordinatorSource, 'discard_native_rebuild_authority'),
-            'ApplyRequestCoordinator clears a retained handoff when scoped readback, lease renewal, or rebuild-request setup fails before coordinator entry'
-        );
-        $check(
-            str_contains($nativeRebuildSource, 'finalize_native_metadata($attachmentIds)'),
-            'NativeRebuildExecutor remains the sole production consumer of the attachment handoff'
-        );
-
         $callbacks = new ApplyServiceCallbacks(
             taxonomyOwnership: static fn(): array => [],
             renewPromotionLock: static function (string $phase): void {},
@@ -1480,38 +1599,61 @@ namespace {
             upsertMeta: static function (string $table, string $fk, int $id, string $key, ?string $value, ?string $context, string $idCol): void {}
         );
         $services = new ApplyServices($policy, $compiled, $callbacks, $repository);
-        $servicesAttachment = new \ReflectionProperty(ApplyServices::class, 'attachmentMaterializer');
-        $servicesAttachment->setValue($services, $attachmentMaterializer);
-        $authoredExecutor = $services->authored_transaction_executor();
+        $attachmentMaterializer = $services->attachment_materializer();
+        $check($attachmentMaterializer instanceof AttachmentMaterializer, 'ApplyServices constructs the production AttachmentMaterializer with its private repository root');
         $warnings = [];
-        $authoredResult = $authoredExecutor->execute(
-            new AuthoredTransactionRequest(
-                workset: new ApplyWorkset(
-                    plan: ['adopt' => [], 'deleted' => []],
-                    tree: [],
-                    work: [],
-                    deleteWork: [],
-                    deleteUuids: [],
-                    guardRepairUuids: [],
-                    compiledDeletions: []
-                ),
-                deletionAuthority: new DeletionAuthority(false, false, false),
-                scoped: false,
-                scopeContract: null,
-                performTransaction: true,
-                defaultAuthor: null,
-                commitScopedAuthoring: null,
-                rollbackScopedAuthoring: null
-            ),
-            $warnings
-        );
+        $GLOBALS['wpdb']->rows[] = [
+            'meta_id' => '10',
+            'post_id' => '41',
+            'meta_key' => '_wp_attached_file',
+            'meta_value' => '2026/08/photo.png',
+        ];
+        $GLOBALS['wpdb']->rows[] = [
+            'meta_id' => '11',
+            'post_id' => '41',
+            'meta_key' => '_duo_uuid',
+            'meta_value' => $uuid,
+        ];
+        \Duo\Db::$nextMetaId = 12;
+        @unlink($uploads . '/2026/08/photo-300x300.png');
+        $attachmentMaterializer->prepare_filesystem($work, $tree);
+        $services->field_materializer()->begin_authored_transaction();
+        DeleteGuardEvaluator::begin_authored_transaction();
+        \Duo\CacheInvalidationTransaction::begin();
+        $attachmentMaterializer->place_attachment(41, $front);
+        $attachmentMaterializer->seal_authored_transaction();
+        $attachmentMaterializer->commit_authored_transaction();
+        $attachmentMaterializer->end_authored_transaction(true);
+        \Duo\CacheInvalidationTransaction::finish();
+        \Duo\CacheInvalidationTransaction::end();
         $check(
-            $authoredResult['attachment_ids'] === [] && $authoredResult['regen_context'] === [],
-            'AuthoredTransactionExecutor reaches the production handoff boundary with an empty attachment workset'
+            is_file($original) && file_get_contents($original) === $png,
+            'the public AttachmentMaterializer entry performs markerless preflight and authored publication for non-empty work'
         );
         $selection = new \Duo\RebuildSelection($policy);
         $rebuild = new ApplyRebuildCoordinator($services, $selection);
         $actionReceipts = [];
+        $throws(
+            static fn() => new \Duo\RebuildRequest(
+                attachmentIds: 'injected pre-rebuild construction failure',
+                work: [],
+                tree: [],
+                regenerationContext: [],
+                deleteWork: [],
+                withDeletes: false,
+                absentTombstones: [],
+                retryingIncompleteApply: false,
+                scoped: false,
+                skipScopedCore: false,
+                scopedCoreComplete: null,
+                suppressScopedExternalEffects: true,
+                scopedSession: null,
+                scopedObservation: null
+            ),
+            'must be of type array',
+            'an injected pre-rebuild request-construction failure is surfaced before coordinator entry'
+        );
+        $attachmentMaterializer->discard_native_rebuild_authority();
         $rebuild->rebuild(
             new \Duo\RebuildRequest(
                 attachmentIds: [41],
@@ -1533,8 +1675,8 @@ namespace {
             $actionReceipts
         );
         $check(
-            $proofState->getValue($attachmentMaterializer) === null,
-            'ApplyRebuildCoordinator invokes NativeRebuildExecutor and clears authority at its terminal boundary without a forged handoff'
+            !is_file($repository . '/.duo/attachment-filesystem/current/journal.json'),
+            'retry after the injected pre-rebuild failure enters NativeRebuildExecutor and consumes the discarded handoff'
         );
 
         $priorOwnership = new \ReflectionMethod(AttachmentMaterializer::class, 'prior_native_owned_paths');
