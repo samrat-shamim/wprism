@@ -136,11 +136,15 @@ $manifest = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
-$dispositions = json_decode(
-    (string) file_get_contents($root . '/manifests/dispositions.json'),
-    true,
-    flags: JSON_THROW_ON_ERROR
-);
+$dispositions = [
+    'manifests' => [
+        'woocommerce' => json_decode(
+            (string) file_get_contents($root . '/manifests/dispositions/woocommerce.json'),
+            true,
+            flags: JSON_THROW_ON_ERROR
+        ),
+    ],
+];
 $inventory = json_decode(
     (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-optional.json'),
     true,

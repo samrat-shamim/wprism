@@ -154,15 +154,16 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * reviewed changes did not touch. Re-freezing all 16 to absorb 3 would have
  * retired the evidence for the other 13 to fix a red run.
  */
-const SPLIT_REVIEWED_MOVED_ADAPTERS = ['core', 'polylang', 'the-events-calendar'];
+const SPLIT_REVIEWED_MOVED_ADAPTERS = ['core', 'polylang', 'the-events-calendar', 'woocommerce'];
 const SPLIT_REVIEWED_MOVED_DIGESTS = [
     'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
     'polylang' => '99d82ecc6402fda3a8d651d56ca07ae4a73836947ed5f2ecca11c0df4472e9a4',
     'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
+    'woocommerce' => 'd19f7b341e0025f65b8778a552b9ab3871c7982cf0ef2882b251abd402e50fa4',
 ];
-const SPLIT_REVIEWED_MANIFEST_HASH = 'b6cbc30ddc3c5ecf089ed0836294fb82a5b6f8f9017980c54610bd0e3c815bed';
-const SPLIT_REVIEWED_REGISTRY_SHA = 'f98de94d550375201697cd2e8c507f7b2f0941b9e92dab4bc85d77635ec10746';
-const SPLIT_REVIEWED_SNAPSHOT_SHA = '53dba29b5cb504c098146c98b757de93fb19c1afecd6c480efe814f7d8b3b005';
+const SPLIT_REVIEWED_MANIFEST_HASH = 'b45e073add9794b13156653fb80cb50a1f2c5dfe8b596bb90c40777938c08ec3';
+const SPLIT_REVIEWED_REGISTRY_SHA = '2727d0e115a5776f956d5895b69fc131ff9904bca074c82ca5193f4f33225aa1';
+const SPLIT_REVIEWED_SNAPSHOT_SHA = 'aeb81992ddd16d423de8a541112204c907d7c4ecfff2be768fd1d1a4858bec40';
 
 putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
 $shippedRegistry = ManifestDispositions::load($manifestDir);
@@ -183,15 +184,15 @@ foreach (SPLIT_REVIEWED_MOVED_DIGESTS as $movedName => $movedDigest) {
 }
 ksort($expectedDigests, SORT_STRING);
 duo_check_same(
-    3,
+    4,
     count(SPLIT_REVIEWED_MOVED_ADAPTERS),
-    'the reviewed overlay names exactly three post-split adapters; a fourth identity move is a new reviewed re-pin, never a fixture refresh'
+    'the reviewed overlay names exactly four post-split adapters; a fifth identity move is a new reviewed re-pin, never a fixture refresh'
 );
 duo_check_same(
     $expectedDigests,
     $observed,
-    '13 OF THE 16 SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-split tree — the invariant the flag day '
-    . 'rests on; the other three carry the reviewed #561/Polylang edits and are re-pinned above'
+    '12 OF THE 16 SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-split tree — the invariant the flag day '
+    . 'rests on; the other four carry the reviewed #561/Polylang/WooCommerce edits and are re-pinned above'
 );
 $movedNames = [];
 foreach ($observed as $name => $digest) {

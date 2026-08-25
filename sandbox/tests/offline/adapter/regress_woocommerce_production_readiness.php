@@ -4,7 +4,7 @@ declare(strict_types=1);
 /** Exact WooCommerce 11.0.0/11.0.1 product-attribute repository boundary. */
 
 if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+    define('DUO_SPEC_VERSION', 3);
 }
 
 require_once __DIR__ . '/../../lib/check.php';

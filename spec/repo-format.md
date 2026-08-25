@@ -1064,7 +1064,7 @@ manifests/dispositions/<name>.json     # one document per adapter, the entry ver
 manifests/dispositions/profiles.json   # the profiles map, keyed independently of the manifest glob
 ```
 
-17 documents, 1,193 lines, 50,117 bytes — the same entries, the same profile, re-indented as 17 roots
+17 documents, 1,203 lines, 51,671 bytes — the same entries, the same profile, re-indented as 17 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified` and Polylang's reviewed production-readiness port,
 which rewrote those subjects' reviewed entries, and the later reviewed empty-catalog lifecycle correction
@@ -1573,7 +1573,7 @@ adapter, which is the case the list exists to keep loading.
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
 
-- 16 adapter names, 18 `id_kind`s, 11 provider ids = 45 identities, all of which already pass the one
+- 16 adapter names, 18 `id_kind`s, 14 provider ids = 48 identities, all of which already pass the one
   shared grammar;
 - a bare `<vendor>-<name>` refusal would break **24** of them — the 6 adapter names carrying no hyphen at
   all (`acf`, `core`, `elementor`, `polylang`, `woocommerce`, `yoast`) and all 18 `id_kind`s, every one of
@@ -1702,7 +1702,7 @@ substitutable for another:
    executable repair AFTER the declarative primitives land, and the `compatibility_shim` share of NEWLY
    authored adapters has fallen below a threshold stated in advance of the measurement. The baseline is
    today's, measured over the shipped library: 11 of the 16 adapters name manifest-shipped hook code, and
-   that code is 16 files totalling 14,222 lines under `manifests/{interpreters,providers,regenerators}`.
+   that code is 20 files totalling 26,488 lines under `manifests/{interpreters,providers,regenerators}`.
    The baseline more than doubled with #561 alone — one adapter reaching production-readiness added a TEC
    interpreter and a Category Colors provider and rewrote its regenerator. Polylang then added the sixteenth
    hook file and 1,828 lines through its reviewed production-readiness port — which is the condition arguing

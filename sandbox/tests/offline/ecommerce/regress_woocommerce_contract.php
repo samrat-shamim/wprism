@@ -854,6 +854,7 @@ woo_ok(!in_array('derived.wc_product_attributes_lookup', array_column(
     'surface'
 ), true), 'attribute lookup repair is no longer mislabeled as an unsupported apply surface');
 $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/certify_version_matrix.sh');
+$woocommerceMatrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/matrix.d/woocommerce.sh');
 $wooEntry = json_decode(
     (string) file_get_contents($root . '/sandbox/conformance/entries/woocommerce.json'),
     true,
@@ -1306,7 +1307,7 @@ foreach ([
     'check_woocommerce_content',
     '.tmp-woo-lifecycle-final',
 ] as $lifecycleWitness) {
-    woo_ok(str_contains($matrixHarness, $lifecycleWitness),
+    woo_ok(str_contains($woocommerceMatrixHarness, $lifecycleWitness),
         "exact WooCommerce lifecycle matrix pins $lifecycleWitness");
 }
 woo_ok(substr_count($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"') === 1
@@ -1323,7 +1324,7 @@ foreach ([
     'refs/remotes/origin/main',
     'deletion retry did not settle after intent removal',
 ] as $deletionWitness) {
-    woo_ok(str_contains($matrixHarness, $deletionWitness),
+    woo_ok(str_contains($woocommerceMatrixHarness, $deletionWitness),
         "exact WooCommerce product-deletion matrix pins $deletionWitness");
 }
 woo_ok(str_contains($matrixHarness, 'WooCommerce version-matrix evidence requires DUO_EXPECTED_SOURCE_SHA')

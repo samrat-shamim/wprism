@@ -334,7 +334,7 @@ namespace {
     $wpdb->resetLog();
     duo_check_same([], $policy->actions_for([]), 'source-off selects no fulfillment prerequisite action');
     duo_check_same(
-        ['problems' => [], 'providers' => [], 'capabilities' => []],
+        ['problems' => [], 'providers' => [], 'capabilities' => [], 'surface_observation' => []],
         Providers::negotiate($policy, $policy->actions_for([])),
         'source-off/target-off is a clean no-provider negotiation'
     );

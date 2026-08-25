@@ -147,7 +147,7 @@ const PRE_FLAG_FIXTURE_SHA256 = '05fcb8368979c6e270ecc71cb651680be317a6921d432d6
  * `duo-agency-cpt-only` is deliberately absent — it is the untouched control.
  */
 const REVIEWED_MOVES = [
-    'adapters' => ['core', 'polylang', 'the-events-calendar'],
+    'adapters' => ['core', 'polylang', 'the-events-calendar', 'woocommerce'],
     'adapter_digests' => [
         // manifests/core.json: the native rewrite action's declared effect set
         // widened to cover TEC's rewrite-listener option writes and the
@@ -162,23 +162,25 @@ const REVIEWED_MOVES = [
         // .json promoted experimental -> certified. Both halves are inside the
         // digest row, so one number carries both.
         'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
+        'woocommerce' => 'd19f7b341e0025f65b8778a552b9ab3871c7982cf0ef2882b251abd402e50fa4',
     ],
     'manifest_bytes_sha256' => [
         'core' => 'a2f673cd4107e7b32cc6cfff6e84e7f6aca68b789234cbc8c686458fee4de5b3',
         'polylang' => 'db7130aecf89217cdca8f6591f4481391f61ae84632478f89191bdda74b488d3',
         'the-events-calendar' => '0c72e83a62ba5d461d975fd5380f49eab139d5413edaade07f7f47e396d80729',
+        'woocommerce' => '0d2e7fc210a3da2d8df74d192f5e03b0d44720660b8aa7302647ab6d83ff6271',
     ],
     'pin_sets' => [
-        'all-16' => 'b6cbc30ddc3c5ecf089ed0836294fb82a5b6f8f9017980c54610bd0e3c815bed',
+        'all-16' => 'b45e073add9794b13156653fb80cb50a1f2c5dfe8b596bb90c40777938c08ec3',
         'core+elementor+yoast+contact-form-7' => '52200323db9516a2eb7b5738540534aa58e9115c04fb3ddf0b182ea4089d27f9',
         'core+paid-memberships-pro+code-snippets' => '9d89e59d838e145cbd64c6b172ad5634886bdae6ea027eb8f41e57bcd1b048dc',
         'core+polylang+the-events-calendar' => '1d26c4687a24e143c8a24045ba85b370bd6d3aad11b16898b4f13966ba76e6e6',
-        'core+woocommerce+acf' => '247e7b9f084d050259130eee1d7bbb42aa1732dc9cd410df165a8c36a51f22b3',
+        'core+woocommerce+acf' => '54b7d42a6f2e422d61f0e39378973b24f8f0dfeb94879c6b23686a82d5010f97',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC
     // and certifying Polylang move the whole-registry address every host pins.
-    'registry_sha256' => 'f98de94d550375201697cd2e8c507f7b2f0941b9e92dab4bc85d77635ec10746',
+    'registry_sha256' => '2727d0e115a5776f956d5895b69fc131ff9904bca074c82ca5193f4f33225aa1',
 ];
 
 duo_check(is_file($fixturePath), 'the frozen pre-flag identity fixture is in the tree');

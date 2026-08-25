@@ -97,6 +97,10 @@ woocommerce_boundary_storage_hash() {
 check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   local version="$1" artifact="$2" expected_sha before_native reactivated_native
   local before_uninstall absent_after_uninstall missing_before missing_after missing_rc missing_out lifecycle_diff
+  # Both official boundary artifacts carry byte-identical uninstall.php bytes
+  # (sha256 e06e0c2086f695d39f5d9edead87cd4faeb0ea45184d77e7d8fe5588abfde48e):
+  # native runtime hooks are cleared unconditionally, while catalog/options/
+  # tables are removed only when the operator sets WC_REMOVE_ALL_DATA=true.
   expected_sha=$(jq -r --arg version "$version" '.plugins.woocommerce[$version].sha256' conformance/artifacts.lock.json)
   [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || fail "WooCommerce $version lifecycle artifact has no exact lock digest"
   [ "$(wp2 eval "echo hash_file('sha256','$artifact');")" = "$expected_sha" ] || fail "WooCommerce $version lifecycle artifact digest moved before reinstall proof"

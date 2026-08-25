@@ -762,7 +762,7 @@ $readOnlyManifest['actions'][0]['effects'] = [];
 $reset();
 $readOnlyPolicy = $policyFor($readOnlyManifest);
 $notSelected = \Duo\Providers::negotiate($readOnlyPolicy, $readOnlyPolicy->actions_for([]));
-$check($notSelected === ['problems' => [], 'providers' => [], 'capabilities' => []],
+$check($notSelected === ['problems' => [], 'providers' => [], 'capabilities' => [], 'surface_observation' => []],
     'an unselected explicit read-only action loads and negotiates no provider');
 $writeMismatch = \Duo\Providers::negotiate(
     $readOnlyPolicy,
