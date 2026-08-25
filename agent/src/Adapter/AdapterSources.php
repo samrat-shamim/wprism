@@ -366,6 +366,48 @@ final class AdapterSources {
     public const CERTIFICATION_SITE_SIGNED = 'site_signed';
 
     /**
+     * The RESERVED certification word: the reviewer tier (spec/repo-format.md
+     * § v3.10, WP-4.11; gate G4, flipped by WP-5.2).
+     *
+     * NO ENGINE MINTS IT. The two derivations that answer this question —
+     * `site_certification()` (:2743) and `certification_word()` (:3990) — both
+     * end in the same ternary over `trust_root()`, so `site_signed` and
+     * `third_party_signed` are the only two words a verified certificate can
+     * reach. The reservation exists anyway, and BEFORE the tier does, for the
+     * reason the closed vocabularies state about themselves: a projection
+     * refuses a WHOLE document on a word it does not know
+     * (`AdapterObservation::CERTIFICATIONS`), so a host at this version reading
+     * a target that has already flipped would refuse the observation on
+     * `invalid enum` — a corruption verdict for a version skew. Naming the word
+     * here turns that into a fact the operator can act on. The verdict does not
+     * move: the document is refused either way.
+     */
+    public const CERTIFICATION_RESERVED_REVIEWER = 'reviewer_signed';
+
+    /**
+     * The pinned refusal for a reserved certification word, or null when the
+     * word is not reserved.
+     *
+     * ONE definition of the sentence, because the vocabulary has more than one
+     * reader and a second copy of a refusal is the copy that rots. The host
+     * side restates the WORD (cli/src/Adapter/AdapterObservation.php) for the
+     * reason that file already restates the whole vocabulary — it validates an
+     * untrusted target document and must not depend on target-derived code
+     * being loaded — and the suite asserts the two spellings are one string.
+     */
+    public static function reserved_certification_refusal(string $word): ?string {
+        if ($word !== self::CERTIFICATION_RESERVED_REVIEWER) {
+            return null;
+        }
+
+        // The pinned phrase is written CONTIGUOUSLY, never split across a
+        // concatenation, so `grep` and the document suite find the spec's own
+        // sentence in the shipped bytes.
+        return "duo: certification '" . self::CERTIFICATION_RESERVED_REVIEWER
+            . "' is reserved — the reviewer tier opens at gate G4 with an 'evidence.reviewer' bundle, and no engine mints it today";
+    }
+
+    /**
      * A SHIPPED adapter deliberately displaced by an explicit site override
      * pin (T6 §3.3). Not a refusal and not `uncertified`: the shipped manifest
      * is exactly as reviewed as it always was, the repository simply pinned

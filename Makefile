@@ -466,6 +466,21 @@ regress-site-adapter-certification:
 regress-certificate-axis-binding:
 	php sandbox/tests/offline/adapter/regress_certificate_axis_binding.php
 
+# WP-4.11 / spec/repo-format.md § v3.10: the reserved-but-refusing slots. Four
+# attachment points -- a manifest `package` key, two certification statement
+# members, a certification word and an evidence member -- each refusing with
+# the sentence the spec publishes, read out of spec/repo-format.md rather than
+# restated. It measures the three claims the reservation rests on: no verdict
+# moves (same exception class, same consequence, as the ordinary refusal it
+# replaces), the six-member statement's canonical bytes, preimage and Ed25519
+# signature are fixed vectors so no certificate in the field moves, and opening
+# the lane later is a POLICY flip -- which is register row R-28 and gate G5's
+# condition 7 (spec/repo-format.md § v3.11). The manifest slot is driven in a
+# CHILD process at DUO_SPEC_VERSION N+1: the closed key set is gated at
+# spec_version 3 and a spec version is a define().
+regress-v3-reservations:
+	php sandbox/tests/offline/adapter/regress_v3_reservations.php
+
 # WP-4.8 / spec/repo-format.md § v3.7: the authority record v2 grammar --
 # fingerprint-derived key ids, the mandatory validity window and its named
 # clock, the <vendor>-* namespace, and the self-signed envelope. Gated on the

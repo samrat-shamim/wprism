@@ -171,7 +171,11 @@
         },
         "Duo\\AdapterContractGrammar": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "RESERVED_PACKAGE_KEY": {
+                    "value_repr": "package"
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
@@ -676,6 +680,9 @@
             "constants": {
                 "CERTIFICATION_DIR": {
                     "value_repr": "certifications"
+                },
+                "CERTIFICATION_RESERVED_REVIEWER": {
+                    "value_repr": "reviewer_signed"
                 },
                 "CERTIFICATION_SHADOWED_BY_SITE": {
                     "value_repr": "shadowed_by_site"
@@ -1303,6 +1310,23 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "reserved_certification_refusal": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "word",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
                     "static": true,
                     "visibility": "public"
                 },

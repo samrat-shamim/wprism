@@ -445,8 +445,9 @@ duo_check_same(
         ['code_digest', 'delegated_authority'],
         (array) $cert->getConstant('STATEMENT_KEYS')
     )),
-    'v3.10 still NOT enforced on the statement: WP-4.7 moved the statement wire — the one change that could have '
-    . 'reserved a member there — and took neither slot, so both now wait on a further generation'
+    'v3.10 ENFORCED WITHOUT MOVING THE WIRE (WP-4.11): the two reserved statement members are refusals that '
+    . 'NAME the member and its gate, never admitted keys — so STATEMENT_KEYS is still the six R-06 closes, '
+    . 'every statement already signed keeps its exact canonical bytes, and no certificate in the field moves'
 );
 $authorities = json_decode((string) file_get_contents($manifestDir . '/capabilities/adapter-authorities.json'), true);
 duo_check_same(
@@ -854,9 +855,14 @@ duo_check(
 );
 
 // ---------------------------------------------------------------------------
-// v3.10 — the reserved slots. Each refusal text is pinned HERE and must not
-// yet exist as shipped code: a reservation that quietly became behaviour would
-// mean WP-4.11 landed inside a spec-only work package.
+// v3.10 — the reserved slots, now SHIPPED as refusals (WP-4.11). Each pinned
+// text is asserted in both directions: the spec states it, and the shipped
+// trees contain it. The direction flipped with the rider — WP-4.1 wrote the
+// texts down and this suite proved they were NOT yet behaviour; WP-4.11 shipped
+// them and the same list now proves they ARE. A text present in one place and
+// absent from the other is the drift this pair exists to catch, and the exact
+// refusals are driven end to end in
+// sandbox/tests/offline/adapter/regress_v3_reservations.php.
 // ---------------------------------------------------------------------------
 $reservationBody = $section('v3.10');
 $reserved = [
@@ -867,7 +873,7 @@ $reserved = [
     'the reviewer evidence member is reserved' => 'G4',
 ];
 $reservationGaps = [];
-$leakedIntoCode = [];
+$missingFromCode = [];
 $shippedSource = '';
 foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
     $walk = new RecursiveIteratorIterator(
@@ -885,16 +891,52 @@ foreach ($reserved as $text => $gate) {
     if (!str_contains($reservationBody, $text)) {
         $reservationGaps[] = $text;
     }
-    if (str_contains($shippedSource, $text)) {
-        $leakedIntoCode[] = $text;
+    if (!str_contains($shippedSource, $text)) {
+        $missingFromCode[] = $text;
     }
 }
 duo_check_same([], $reservationGaps, 'v3.10 pins all five reserved refusal texts, each naming the gate that would open it');
-duo_check_same([], $leakedIntoCode, 'and none of them is shipped code yet — WP-4.11 implements them, WP-4.1 only writes them down');
+duo_check_same(
+    [],
+    $missingFromCode,
+    'and every one of them is SHIPPED refusal text now (WP-4.11) — a pinned message the spec states and the '
+    . 'engine cannot produce would be a reservation an author is told about and the engine never keeps'
+);
+duo_check(
+    str_contains($reservationBody, 'Enforced today: YES'),
+    'and § v3.10 says so in its own Enforced-today line: a rider that shipped the reservations without moving '
+    . 'this line would have landed silently, which is exactly what PART 1 exists to prevent'
+);
+// THE FLAG-DAY INVARIANT, re-measured on the one surface this rider touched
+// that a stranger already holds bytes of. Reserving a statement member as a
+// REFUSAL rather than as an admitted key is what keeps it true: the closed set
+// is the same six, so `Canon::encode(statement)` — the exact preimage every
+// deployed verifier recomputes — is unchanged for every certificate in the
+// field. regress_v3_reservations.php pins the bytes and the signature.
+duo_check_same(
+    ['adapter', 'authority', 'bundle', 'platform', 'ratification', 'version'],
+    (array) $cert->getConstant('STATEMENT_KEYS'),
+    'v3.10 costs the wire NOTHING: the signed statement is the same six members it was before the rider'
+);
 duo_check(
     str_contains($reservationBody, 'version_range_graduated')
         && str_contains($shippedSource, 'version_range_graduated'),
     'v3.10 records the graduated verdict as ALREADY DELIVERED (WP-2.8) rather than reserving it again, and the shipped word backs that up'
+);
+// The plan WP-4.11 rode listed five reservations; WP-2.8 had already shipped
+// the fifth. The subsection resolves that by pointing at the shipped word, and
+// the count in its own Enforced-today line has to agree with the four slots the
+// table lists — a section that said "five" while shipping four would be the
+// same silent drift the line above exists to catch.
+duo_check(
+    str_contains($reservationBody, 'all four slots refuse')
+        && str_contains($reservationBody, 'reserved four slots and not five'),
+    'and it states the resulting count in both places: four reserved slots, the fifth delivered as a word'
+);
+duo_check(
+    str_contains($register, '### R-28 — The reserved slots are REFUSALS, never admitted members'),
+    'R-28 is the register row that records the decision, so a reservation on a signed surface is reviewable '
+    . 'beside the other irreversible ones rather than only in a subsection nobody diffs'
 );
 
 // ---------------------------------------------------------------------------

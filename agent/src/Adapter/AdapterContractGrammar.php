@@ -87,6 +87,25 @@ final class AdapterContractGrammar {
     private const CLOSED_KEY_SET_SINCE = 3;
 
     /**
+     * The RESERVED top-level key: the executable adapter lane's attachment
+     * point (spec/repo-format.md § v3.10, WP-4.11).
+     *
+     * Reserved means REFUSED BY NAME, never admitted-and-ignored. `package` is
+     * in no arm of `AdapterCertification::topLevelKeyPartition()` and no
+     * implemented `engine_features` value claims it, so a `spec_version: 3`
+     * manifest declaring it is refused by `assert_top_level_keys()` either way
+     * — with or without this constant. What the reservation buys is WHICH
+     * refusal: "this engine does not recognise 'package', correct the spelling"
+     * is false and sends the author to invent a feature name they may not mint
+     * (§ v3.2), while the message below names the gate that decides. Nothing
+     * about the verdict moves, which is the property WP-7.1's later opening
+     * rests on: the lane opens as a policy flip proven by
+     * `sandbox/tests/offline/adapter/regress_v3_reservations.php`, never as a
+     * format break (§ v3.11 condition 7).
+     */
+    public const RESERVED_PACKAGE_KEY = 'package';
+
+    /**
      * The `spec_version` integers this engine accepts: exactly N and N-1.
      *
      * The floor is N-1 and never deeper, so an N-2 manifest can never
@@ -486,6 +505,26 @@ final class AdapterContractGrammar {
                 . 'identity row every certificate covers (spec/repo-format.md § v3.3). Remedy: strip the `_draft` '
                 . 'key before install — `duo manifest-validate` reports the sidecar\'s facts, proposals and '
                 . 'unsupported counts on every run, so nothing in it is lost by removing it'
+            );
+        }
+
+        // The exec lane's reserved slot (§ v3.10, WP-4.11), placed AFTER
+        // `_draft` for the reason that case gives — a draft sidecar is a fact
+        // about the whole document and has to be stripped before anything else
+        // in it is worth reading — and BEFORE the general refusal because the
+        // general refusal would be a lie: `package` is not a misspelling and
+        // there is no `engine_features` value an author may declare to admit
+        // it. The gate, not the spelling, is what decides, and the message says
+        // so. The verdict is unchanged in both directions: refused before this
+        // rider, refused after it, same exception, same load failure.
+        if (in_array(self::RESERVED_PACKAGE_KEY, $unknown, true)) {
+            throw new \RuntimeException(
+                // The pinned phrase is written CONTIGUOUSLY, never split across
+                // a concatenation, so `grep` and the document suite find the
+                // spec's own sentence in the shipped bytes.
+                "duo: manifest '$name' declares '" . self::RESERVED_PACKAGE_KEY
+                . "' — the executable adapter lane is reserved and shut."
+                . ' It opens only at gate G5 (spec/repo-format.md § v3.11), never by declaring the key'
             );
         }
 
