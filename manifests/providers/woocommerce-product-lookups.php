@@ -52,6 +52,9 @@ final class WoocommerceProductLookups {
     private const MAX_VISIBILITY_PRODUCTS = 50000;
     private const MAX_ATTRIBUTE_LOOKUP_ROWS = 200000;
     private const MAX_GROUPED_PARENTS = 50000;
+    private const MAX_GROUPED_REVERSE_CANDIDATES_PER_QUERY = 32;
+    private const MAX_GROUPED_REVERSE_RESULT_ROWS = 50000;
+    private const MAX_GROUPED_REVERSE_CLOSURE_PASSES = 16;
     private const MAX_GROUPED_CHILD_BYTES = 4194304;
     private const MAX_LOOKUP_SCALAR_BYTES = 1024;
     private const MAX_LOOKUP_ROW_BYTES = 16384;
@@ -2887,10 +2890,9 @@ final class WoocommerceProductLookups {
         }
 
         // Grouped products store their child ids in _children rather than a
-        // post_parent relation.  There is no reverse public Woo index, so use
-        // a targeted meta-key query for each changed/deleted id and validate
-        // candidates through the public grouped product object.  This is
-        // bounded by the batch, never a catalog-wide WC_Product query.
+        // post_parent relation. The preflight witness already performed the
+        // bounded batched reverse scan; consume its streamed edge bytes here
+        // rather than issuing a second per-id query after effects begin.
         $groupedCandidateIds = array_values(array_unique(array_merge(
             $liveIds,
             array_keys($deletionIds),
@@ -2898,13 +2900,37 @@ final class WoocommerceProductLookups {
             array_keys($deletedParents),
             array_keys($reparentedParents)
         )));
+        $groupedParentCandidates = $preflightScope['grouped_parent_candidates'] ?? null;
+        $groupedParentSnapshot = $preflightScope['grouped_parents'] ?? null;
+        if (!is_array($groupedParentCandidates) || !is_string($groupedParentSnapshot)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product lookup scope is missing its bounded grouped-parent witness'
+            );
+        }
+        sort($groupedCandidateIds, SORT_NUMERIC);
+        $groupedParentEdges = $this->grouped_parent_witness_edges($groupedParentSnapshot);
+        $groupedParentEdges->rewind();
+        $edge = $groupedParentEdges->valid() ? $groupedParentEdges->current() : null;
+        $advanceEdge = static function () use (&$groupedParentEdges, &$edge): void {
+            $groupedParentEdges->next();
+            $edge = $groupedParentEdges->valid() ? $groupedParentEdges->current() : null;
+        };
         foreach ($groupedCandidateIds as $childId) {
             $childId = (int) $childId;
             if ($childId <= 0) {
                 continue;
             }
+            if (!$this->sorted_id_contains($groupedParentCandidates, $childId)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product lookup scope lacks grouped-parent witness for product $childId"
+                );
+            }
             $this->heartbeat($heartbeat);
-            foreach ($this->find_grouped_parent_ids($childId) as $parentId) {
+            while ($edge !== null && $edge['child_id'] < $childId) {
+                $advanceEdge();
+            }
+            while ($edge !== null && $edge['child_id'] === $childId) {
+                $parentId = $edge['parent_id'];
                 $this->heartbeat($heartbeat);
                 $this->invalidate_product_caches($parentId);
                 $parent = $this->load_product($parentId);
@@ -2927,6 +2953,7 @@ final class WoocommerceProductLookups {
                     $preflightScope,
                     $heartbeat
                 );
+                $advanceEdge();
             }
             $this->heartbeat($heartbeat);
         }
@@ -3712,6 +3739,157 @@ final class WoocommerceProductLookups {
         return is_callable([$product, 'is_type']) && $product->is_type('grouped');
     }
 
+    /** @param list<int|string> $ids */
+    private function sorted_id_contains(array $ids, int $needle): bool {
+        $low = 0;
+        $high = count($ids) - 1;
+        while ($low <= $high) {
+            $middle = $low + intdiv($high - $low, 2);
+            $value = (int) $ids[$middle];
+            if ($value === $needle) {
+                return true;
+            }
+            if ($value < $needle) {
+                $low = $middle + 1;
+            } else {
+                $high = $middle - 1;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Read grouped reverse ownership for a bounded candidate set in finite
+     * SQL batches. One query per child would turn the admitted 50,000-product
+     * graph into a reverse-query storm; one unbounded LIKE query would instead
+     * permit an arbitrary result transfer. Each branch is a candidate-scoped
+     * serialized-id predicate, each batch has a 32-candidate cap, and the
+     * aggregate post/child result cap refuses before a caller can continue
+     * with incomplete ownership evidence.
+     *
+     * @param array<int,int|string> $candidateIds
+     * @return string canonical child:parent; edge sequence, sorted by child then parent
+     */
+    private function find_grouped_parent_witness(array $candidateIds): string {
+        global $wpdb;
+        // All callers pass the private scope's already-deduplicated sorted
+        // list. Retain that list by reference-count sharing; rebuilding an
+        // associative set here would duplicate 50,000 IDs at the boundary.
+        $ids = $candidateIds;
+        $previousCandidate = 0;
+        foreach ($ids as $candidateId) {
+            if (!is_int($candidateId) && !is_string($candidateId)) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce grouped parent witness contains a malformed candidate'
+                );
+            }
+            $candidateId = (int) $candidateId;
+            if ($candidateId <= $previousCandidate) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce grouped parent witness contains an unsorted candidate set'
+                );
+            }
+            $previousCandidate = $candidateId;
+        }
+        // Keep the complete owner witness as one canonical edge string. A
+        // PHP map with one entry per child is itself a materialization spike
+        // when all 50,000 admitted children have one grouped owner.
+        $witness = '';
+        $lastEdge = null;
+        $resultRows = 0;
+
+        $candidateCount = count($ids);
+        for ($offset = 0; $offset < $candidateCount; $offset += self::MAX_GROUPED_REVERSE_CANDIDATES_PER_QUERY) {
+            $chunk = array_slice($ids, $offset, self::MAX_GROUPED_REVERSE_CANDIDATES_PER_QUERY);
+            $remaining = self::MAX_GROUPED_REVERSE_RESULT_ROWS - $resultRows;
+            if ($remaining < 1) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce grouped reverse ownership exceeds its bounded result scope'
+                );
+            }
+            $limit = $remaining + 1;
+            $branches = [];
+            foreach ($chunk as $childId) {
+                $integerNeedle = '%i:' . $childId . ';%';
+                $stringNeedle = '%s:' . strlen((string) $childId) . ':"' . $childId . '";%';
+                $branches[] = $wpdb->prepare(
+                    "(SELECT DISTINCT pm.post_id, %d AS child_id
+                     FROM {$wpdb->postmeta} pm
+                     INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+                     WHERE pm.meta_key = '_children'
+                       AND p.post_type = 'product'
+                       AND (pm.meta_value LIKE %s OR pm.meta_value LIKE %s)
+                     LIMIT {$limit})",
+                    $childId,
+                    $integerNeedle,
+                    $stringNeedle
+                );
+            }
+            $rows = \Duo\ProviderSdk::checked_get_results(
+                implode(' UNION ALL ', $branches)
+                . " ORDER BY child_id ASC, post_id ASC LIMIT {$limit}",
+                'grouped parent witness'
+            );
+            if (count($rows) > $remaining) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce grouped reverse ownership exceeds its bounded result scope'
+                );
+            }
+            $resultRows += count($rows);
+            foreach ($rows as $row) {
+                $parentId = $this->strict_positive_db_uint(
+                    $row['post_id'] ?? null,
+                    'grouped parent witness ID'
+                );
+                $childId = $this->strict_positive_db_uint(
+                    $row['child_id'] ?? null,
+                    'grouped parent witness child ID'
+                );
+                if (!$this->sorted_id_contains($ids, $childId)) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce grouped parent witness returned an out-of-scope child'
+                    );
+                }
+                $edge = $childId . ':' . $parentId . ';';
+                if ($edge === $lastEdge) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce grouped parent witness returned a duplicate owner'
+                    );
+                }
+                $witness .= $edge;
+                $lastEdge = $edge;
+            }
+        }
+        return $witness;
+    }
+
+    /**
+     * @return \Generator<int,array{child_id:int,parent_id:int},void,void>
+     */
+    private function grouped_parent_witness_edges(string $witness): \Generator {
+        $offset = 0;
+        $length = strlen($witness);
+        while ($offset < $length) {
+            $end = strpos($witness, ';', $offset);
+            if ($end === false) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce grouped parent witness has malformed edge bytes'
+                );
+            }
+            $edge = substr($witness, $offset, $end - $offset);
+            if (preg_match('/^([1-9][0-9]*):([1-9][0-9]*)$/D', $edge, $parts) !== 1) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce grouped parent witness has malformed edge identity'
+                );
+            }
+            yield [
+                'child_id' => $this->strict_positive_db_uint($parts[1], 'grouped witness child ID'),
+                'parent_id' => $this->strict_positive_db_uint($parts[2], 'grouped witness parent ID'),
+            ];
+            $offset = $end + 1;
+        }
+    }
+
     /**
      * Find grouped roots that reference one changed/deleted child.  Grouped
      * membership is serialized in _children, so this deliberately uses a
@@ -4287,7 +4465,7 @@ final class WoocommerceProductLookups {
      *
      * @param list<int> $liveIds
      * @param array<int,array> $deletionContext
-     * @return array{ids:array<int,true>,children:array<int,list<int>>,visible_children:array<int,list<int>>,grouped_parents:array<int,list<int>>}
+     * @return array{ids:array<int,true>,children:array<int,list<int>>,visible_children:array<int,list<int>>,grouped_parent_candidates:list<int>,grouped_parents:string}
      */
     private function preflight_product_scope(
         array $liveIds,
@@ -4339,6 +4517,10 @@ final class WoocommerceProductLookups {
             foreach ($contextIds as $id) {
                 if ($id > 0) {
                     $excluded[$id] = true;
+                    // Deleted child ids still need grouped reverse ownership
+                    // proof: their live owner must be refreshed even though
+                    // the tombstone itself is excluded from hydration.
+                    $reverseCandidates[$id] = $id;
                 }
             }
             $contextId = (int) ($context['id'] ?? 0);
@@ -4384,15 +4566,22 @@ final class WoocommerceProductLookups {
         // path's targeted reverse lookup for selected/tombstone/root ids
         // before any cache invalidation, then walk each discovered root's
         // complete nested child graph through public WC objects.
-        foreach (array_values($reverseCandidates) as $candidateId) {
+        ksort($reverseCandidates, SORT_NUMERIC);
+        $initialGroupedParents = $this->find_grouped_parent_witness(
+            array_values($reverseCandidates)
+        );
+        foreach ($this->grouped_parent_witness_edges($initialGroupedParents) as $edge) {
             $this->heartbeat($heartbeat);
-            foreach ($this->find_grouped_parent_ids((int) $candidateId) as $parentId) {
-                $enqueue($parentId, true);
-            }
+            $reverseCandidates[$edge['parent_id']] = $edge['parent_id'];
+            $enqueue($edge['parent_id'], true);
         }
 
         $queueIndex = 0;
-        while ($queueIndex < count($queue)) {
+        $groupedParents = '';
+        $closurePass = 0;
+        do {
+            $closureChanged = false;
+            while ($queueIndex < count($queue)) {
             $id = (int) $queue[$queueIndex++];
             $this->heartbeat($heartbeat);
             $product = $this->load_product($id);
@@ -4405,18 +4594,6 @@ final class WoocommerceProductLookups {
                 );
             }
             $type = (string) $product->get_type();
-            // A variable product can itself be a grouped child. Discover
-            // that reverse edge while walking the graph, not only from the
-            // originally selected ids; otherwise a selected variation can
-            // miss its grouped grandparent and leave that root outside the
-            // single bounded witness. Restrict the extra reverse probes to
-            // composite rows: probing every variation/simple descendant
-            // would turn a bounded grouped list into a reverse-query storm.
-            if ($this->is_variable($product) || $this->is_grouped($product)) {
-                foreach ($this->find_grouped_parent_ids($id) as $parentId) {
-                    $enqueue($parentId, true);
-                }
-            }
             if ($type === 'variation') {
                 if (!is_callable([$product, 'get_parent_id'])) {
                     throw new \RuntimeException(
@@ -4461,30 +4638,39 @@ final class WoocommerceProductLookups {
                     $enqueue($childId, true);
                 }
             }
-        }
-
-        // A grouped _children reverse edge is not represented by
-        // post_parent. Re-read the exact bounded candidate set once after
-        // graph closure so the preflight receipt carries both directions of
-        // the composite graph. The post-preflight assertion below repeats
-        // these same bounded probes; a newly inserted grouped owner therefore
-        // refuses before cache invalidation instead of being discovered after
-        // effects begin and silently skipped as an unsnapshotted root.
-        foreach (array_keys($reverseCandidates) as $candidateId) {
-            $candidateId = (int) $candidateId;
-            if ($candidateId > 0) {
-                $groupedParents[$candidateId] = $this->find_grouped_parent_ids($candidateId);
             }
-        }
+
+            // A grouped _children reverse edge is not represented by
+            // post_parent. Re-read the exact bounded candidate set after each
+            // graph pass so an existing owner of a newly discovered nested
+            // child joins the same preflight closure. The pass cap keeps a
+            // hostile cyclic owner graph finite and fail-closed.
+            $closurePass++;
+            ksort($reverseCandidates, SORT_NUMERIC);
+            $groupedParentCandidates = array_keys($reverseCandidates);
+            $groupedParents = $this->find_grouped_parent_witness($groupedParentCandidates);
+            foreach ($this->grouped_parent_witness_edges($groupedParents) as $edge) {
+                if (!isset($reverseCandidates[$edge['parent_id']])) {
+                    $reverseCandidates[$edge['parent_id']] = $edge['parent_id'];
+                    $enqueue($edge['parent_id'], true);
+                    $closureChanged = true;
+                }
+            }
+            if ($closureChanged && $closurePass >= self::MAX_GROUPED_REVERSE_CLOSURE_PASSES) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce grouped reverse ownership exceeds its bounded closure depth'
+                );
+            }
+        } while ($closureChanged);
 
         ksort($scope, SORT_NUMERIC);
         ksort($children, SORT_NUMERIC);
         ksort($visibleChildren, SORT_NUMERIC);
-        ksort($groupedParents, SORT_NUMERIC);
         return [
             'ids' => $scope,
             'children' => $children,
             'visible_children' => $visibleChildren,
+            'grouped_parent_candidates' => $groupedParentCandidates,
             'grouped_parents' => $groupedParents,
         ];
     }
@@ -4495,7 +4681,7 @@ final class WoocommerceProductLookups {
      * invalidation: a child list that widens after preflight must refuse with
      * no derived effect, not be discovered by a later verification pass.
      *
-     * @param array{ids:array<int,true>,children:array<int,list<int>>,visible_children:array<int,list<int>>,grouped_parents:array<int,list<int>>} $snapshot
+     * @param array{ids:array<int,true>,children:array<int,list<int>>,visible_children:array<int,list<int>>,grouped_parent_candidates:list<int>,grouped_parents:string} $snapshot
      */
     private function assert_product_scope_snapshot(
         array $snapshot,
@@ -4504,27 +4690,30 @@ final class WoocommerceProductLookups {
         $ids = $snapshot['ids'] ?? null;
         $children = $snapshot['children'] ?? null;
         $visibleChildren = $snapshot['visible_children'] ?? null;
+        $groupedParentCandidates = $snapshot['grouped_parent_candidates'] ?? null;
         $groupedParents = $snapshot['grouped_parents'] ?? null;
         if (!is_array($ids) || !is_array($children) || !is_array($visibleChildren)
-            || !is_array($groupedParents)) {
+            || !is_array($groupedParentCandidates) || !is_string($groupedParents)) {
             throw new \RuntimeException(
                 'duo: WooCommerce product lookup scope snapshot is missing its bounded child witness'
             );
         }
-        foreach ($groupedParents as $candidateId => $expected) {
+        $previousCandidate = 0;
+        foreach ($groupedParentCandidates as $candidateId) {
             $candidateId = (int) $candidateId;
-            if ($candidateId <= 0 || !is_array($expected)) {
+            if ($candidateId <= $previousCandidate) {
                 throw new \RuntimeException(
                     'duo: WooCommerce product lookup scope snapshot contains malformed grouped-parent state'
                 );
             }
-            $this->heartbeat($heartbeat);
-            $actual = $this->find_grouped_parent_ids($candidateId);
-            if ($actual !== array_values(array_map('intval', $expected))) {
-                throw new \RuntimeException(
-                    'duo: WooCommerce grouped-parent scope changed before native projection; recovery_required'
-                );
-            }
+            $previousCandidate = $candidateId;
+        }
+        $actualGroupedParents = $this->find_grouped_parent_witness($groupedParentCandidates);
+        $this->heartbeat($heartbeat);
+        if ($actualGroupedParents !== $groupedParents) {
+            throw new \RuntimeException(
+                'duo: WooCommerce grouped-parent scope changed before native projection; recovery_required'
+            );
         }
         $sets = [array_keys($ids)];
         foreach ($children as $id => $expected) {

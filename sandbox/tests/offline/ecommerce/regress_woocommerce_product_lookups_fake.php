@@ -496,9 +496,6 @@ namespace {
             if (!str_contains($query, "meta_key = '_children'")) {
                 return [];
             }
-            if (is_callable($this->groupedParentReadHook)) {
-                ($this->groupedParentReadHook)();
-            }
             if (is_array($this->groupedParentOverride)) {
                 $rows = $this->groupedParentOverride;
                 if (preg_match('/LIMIT ([0-9]+)$/', trim($query), $limit)) {
@@ -533,10 +530,45 @@ namespace {
             global $fakeAttrLookup, $fakeMeta, $fakeMetaLookup, $fakeDownloadMetaRows, $fakeCogsMetaRows,
                 $fakeProducts, $fakePostTypeOverrides, $fakeVisibilityRelationships, $fakeVisibilityTerms,
                 $fakeVisibilityQueries, $fakeVisibilityChildFlood, $fakeGroupedChildren;
-            $fakeVisibilityQueries[] = $query;
+            if (!str_contains($query, 'SELECT DISTINCT pm.post_id')) {
+                $fakeVisibilityQueries[] = $query;
+            }
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
                 return [];
+            }
+            if (str_contains($query, 'SELECT DISTINCT pm.post_id')
+                && str_contains($query, 'AS child_id')) {
+                if (is_callable($this->groupedParentReadHook)) {
+                    ($this->groupedParentReadHook)();
+                }
+                preg_match_all('/(\d+) AS child_id/', $query, $matches);
+                $candidateIds = array_values(array_unique(array_map('intval', $matches[1] ?? [])));
+                $candidateSet = array_fill_keys($candidateIds, true);
+                $seenEdges = [];
+                $rows = [];
+                foreach (($fakeGroupedChildren ?? []) as $parentId => $children) {
+                    foreach ((array) $children as $childValue) {
+                        $childId = (int) $childValue;
+                        $edgeKey = (int) $parentId . ':' . $childId;
+                        if (isset($candidateSet[$childId]) && !isset($seenEdges[$edgeKey])) {
+                            $seenEdges[$edgeKey] = true;
+                            $rows[] = [
+                                'post_id' => (string) (int) $parentId,
+                                'child_id' => (string) $childId,
+                            ];
+                        }
+                    }
+                }
+                usort($rows, static fn(array $left, array $right): int => [
+                    (int) $left['child_id'], (int) $left['post_id'],
+                ] <=> [
+                    (int) $right['child_id'], (int) $right['post_id'],
+                ]);
+                if (preg_match('/LIMIT (\d+)$/', trim($query), $limit)) {
+                    $rows = array_slice($rows, 0, (int) $limit[1]);
+                }
+                return $rows;
             }
             if (preg_match(
                 "/SELECT meta_id, LENGTH\\(meta_value\\) AS value_bytes FROM wp_postmeta\\s+WHERE post_id = (\\d+) AND meta_key = '_children'.*?LIMIT 2/s",
@@ -1647,7 +1679,13 @@ namespace {
             return $fakeProductCache[$id];
         }
         if (!isset($fakeProducts[$id])) {
-            $fakeCacheEvents[] = "read:$id:missing";
+            // High-cardinality bound fixtures intentionally enumerate 50,000
+            // absent descendants; retaining one diagnostic string per miss
+            // would make the fake's log, rather than the provider witness,
+            // exceed the 128 MiB test budget.
+            if ($id < 70000 || $id > 122000) {
+                $fakeCacheEvents[] = "read:$id:missing";
+            }
             return false;
         }
         $fakeCacheEvents[] = "read:$id:fresh";
@@ -2830,6 +2868,10 @@ namespace {
     $boundaryRoot = 71000;
     $boundaryChildren = range($boundaryRoot + 1, $boundaryRoot + 49999);
     fake_add_visibility_product($boundaryRoot, 'grouped', 0, $boundaryChildren);
+    $boundaryReverseBatches = 0;
+    $wpdb->groupedParentReadHook = static function () use (&$boundaryReverseBatches): void {
+        $boundaryReverseBatches++;
+    };
     $wpdb->failReadContaining = 'SELECT ID, post_parent, post_type';
     $boundaryCacheStart = count($fakeCacheEvents);
     $boundaryFailure = '';
@@ -2839,13 +2881,48 @@ namespace {
         $boundaryFailure = $failure->getMessage();
     }
     $wpdb->failReadContaining = null;
+    $wpdb->groupedParentReadHook = null;
     $boundaryCacheEvents = array_slice($fakeCacheEvents, $boundaryCacheStart);
     $check(str_contains($boundaryFailure, 'checked read failed')
         && !str_contains($boundaryFailure, 'aggregate product count')
         && !in_array('remove:' . $boundaryRoot, $boundaryCacheEvents, true),
         'a 50,000-id aggregate is accepted at the boundary before the first cache mutation');
+    $check($boundaryReverseBatches === 3127,
+        'the 50,000-id reverse witness uses one initial plus two 1,563-batch bounded scans, never one query per child');
     unset($fakeProducts[$boundaryRoot], $fakeMeta[$boundaryRoot], $fakeMetaLookup[$boundaryRoot],
         $fakeVisibilityRelationships[$boundaryRoot], $fakeProductCache[$boundaryRoot]);
+    unset($boundaryChildren);
+
+    // The reverse-owner result itself is bounded independently of the
+    // product graph. More than MAX_GROUPED_REVERSE_RESULT_ROWS owners for
+    // one child must refuse during preflight rather than truncate the witness.
+    $reverseOverflowChild = 71900;
+    $reverseOverflowParents = range(71901, 121901);
+    foreach ($reverseOverflowParents as $parentId) {
+        $fakeGroupedChildren[$parentId] = [$reverseOverflowChild];
+    }
+    fake_add_visibility_product($reverseOverflowChild, 'simple');
+    $reverseOverflowCacheStart = count($fakeCacheEvents);
+    $reverseOverflowFailure = '';
+    try {
+        $adapter->regenerate_batch([$reverseOverflowChild], []);
+    } catch (\Throwable $failure) {
+        $reverseOverflowFailure = $failure->getMessage();
+    }
+    $reverseOverflowEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $reverseOverflowCacheStart),
+        static fn(string $event): bool => str_starts_with($event, 'remove:')
+    ));
+    $check(str_contains($reverseOverflowFailure, 'grouped reverse ownership exceeds its bounded result scope')
+        && $reverseOverflowEffects === [],
+        'more than 50,000 grouped owners refuses as an explicit bounded reverse-witness overflow');
+    foreach ($reverseOverflowParents as $parentId) {
+        unset($fakeGroupedChildren[$parentId]);
+    }
+    unset($reverseOverflowParents);
+    unset($fakeProducts[$reverseOverflowChild], $fakeMeta[$reverseOverflowChild],
+        $fakeMetaLookup[$reverseOverflowChild], $fakeVisibilityRelationships[$reverseOverflowChild],
+        $fakeProductCache[$reverseOverflowChild]);
 
     // A bounded preflight is only useful if its witness is checked again
     // before the first effect. Widen the same 50,000-id grouped root between
@@ -2900,6 +2977,7 @@ namespace {
     unset($fakeProducts[$groupedRaceRoot], $fakeMeta[$groupedRaceRoot], $fakeMetaLookup[$groupedRaceRoot],
         $fakeVisibilityRelationships[$groupedRaceRoot], $fakeProductCache[$groupedRaceRoot],
         $fakeGroupedChildren[$groupedRaceRoot]);
+    unset($groupedRaceChildren, $groupedRaceWidened);
 
     // Reverse grouped ownership is a separate bounded witness from a root's
     // own _children payload. Insert a new grouped owner for an already
@@ -2966,11 +3044,10 @@ namespace {
         $nestedReverseParent
     ): void {
         $nestedReverseReads++;
-        // Preflight reads: selected root, each grouped root, then every
-        // discovered child witness. Assertion repeats those three witnesses
-        // in the same sorted order; mutate immediately before the nested
-        // simple child query returns.
-        if ($nestedReverseReads === 9) {
+        // One bounded batch reads the selected root, one reads the complete
+        // discovered-child witness, and one revalidates that same batch;
+        // mutate immediately before the nested-child assertion returns.
+        if ($nestedReverseReads === 3) {
             fake_add_visibility_product($nestedReverseParent, 'grouped', 0, [$nestedReverseChild]);
             $fakeGroupedChildren[$nestedReverseParent] = [$nestedReverseChild];
         }
@@ -2989,7 +3066,7 @@ namespace {
     ));
     $check(str_contains($nestedReverseFailure, 'grouped-parent scope changed')
         && $nestedReverseEffects === []
-        && $nestedReverseReads === 9,
+        && $nestedReverseReads === 3,
         'a grouped parent inserted for a nested ordinary child refuses before root discovery or derived effects');
     foreach ([$nestedReverseRoot, $nestedReverseInner, $nestedReverseChild, $nestedReverseParent] as $id) {
         unset($fakeProducts[$id], $fakeMeta[$id], $fakeMetaLookup[$id],
@@ -3049,6 +3126,7 @@ namespace {
         'a variable child list widening from 50,000 to 50,001 after preflight refuses before every derived effect');
     unset($fakeProducts[$variableRaceRoot], $fakeMeta[$variableRaceRoot], $fakeMetaLookup[$variableRaceRoot],
         $fakeVisibilityRelationships[$variableRaceRoot], $fakeProductCache[$variableRaceRoot]);
+    unset($variableRaceChildren, $variableRaceWidened);
 
     // MAX+1 must fail before visibility/cache work and must not partially
     // mutate the root lookup witness.
