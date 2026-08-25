@@ -3168,6 +3168,101 @@ namespace {
         $fakeVisibilityRelationships[$lostMembershipParent], $fakeProductCache[$lostMembershipParent],
         $fakeGroupedChildren[$lostMembershipParent]);
 
+    // A reverse owner can disappear after the final bounded child read. The
+    // sealed SQL edge must not be treated as permission to invalidate a post
+    // that no longer has a public Woo product object.
+    $disappearedOwnerChild = 71730;
+    $disappearedOwnerParent = 71731;
+    fake_add_visibility_product($disappearedOwnerChild, 'simple');
+    fake_add_visibility_product($disappearedOwnerParent, 'grouped', 0, [$disappearedOwnerChild]);
+    $fakeGroupedChildren[$disappearedOwnerParent] = [$disappearedOwnerChild];
+    $disappearedOwnerReads = 0;
+    $wpdb->childScopeReadHook = static function () use (
+        &$disappearedOwnerReads,
+        &$fakeProducts,
+        &$fakeProductCache,
+        &$fakeGroupedChildren,
+        $disappearedOwnerParent
+    ): void {
+        $disappearedOwnerReads++;
+        if ($disappearedOwnerReads === 4) {
+            unset($fakeProducts[$disappearedOwnerParent], $fakeProductCache[$disappearedOwnerParent]);
+            // Keep the fixture's SQL witness row so the production edge
+            // consumer, rather than preflight, handles the stale owner.
+            $fakeGroupedChildren[$disappearedOwnerParent] = [71730];
+        }
+    };
+    $disappearedOwnerCacheStart = count($fakeCacheEvents);
+    $disappearedOwnerFailure = '';
+    try {
+        $adapter->regenerate_batch([$disappearedOwnerChild], []);
+    } catch (\Throwable $failure) {
+        $disappearedOwnerFailure = $failure->getMessage();
+    }
+    $wpdb->childScopeReadHook = null;
+    $disappearedOwnerEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $disappearedOwnerCacheStart),
+        static fn(string $event): bool => $event === 'remove:' . $disappearedOwnerParent
+    ));
+    $check(str_contains($disappearedOwnerFailure, 'disappeared before native projection')
+        && $disappearedOwnerEffects === []
+        && $disappearedOwnerReads === 4,
+        'a reverse owner disappearing after preflight refuses before stale-owner invalidation');
+    unset($fakeProducts[$disappearedOwnerChild], $fakeMeta[$disappearedOwnerChild],
+        $fakeMetaLookup[$disappearedOwnerChild], $fakeVisibilityRelationships[$disappearedOwnerChild],
+        $fakeProductCache[$disappearedOwnerChild], $fakeProducts[$disappearedOwnerParent],
+        $fakeMeta[$disappearedOwnerParent], $fakeMetaLookup[$disappearedOwnerParent],
+        $fakeVisibilityRelationships[$disappearedOwnerParent], $fakeProductCache[$disappearedOwnerParent],
+        $fakeGroupedChildren[$disappearedOwnerParent]);
+
+    // If an owner was absent while preflight walked the reverse edge, its
+    // returned scope has no child witness. Restoring the owner before the
+    // projection edge is consumed must still refuse rather than treating the
+    // missing snapshot entry as an empty child list.
+    $missingWitnessChild = 71740;
+    $missingWitnessParent = 71741;
+    fake_add_visibility_product($missingWitnessChild, 'simple');
+    fake_add_visibility_product($missingWitnessParent, 'grouped', 0, [$missingWitnessChild]);
+    $fakeGroupedChildren[$missingWitnessParent] = [$missingWitnessChild];
+    $missingWitnessProduct = $fakeProducts[$missingWitnessParent];
+    $missingWitnessReads = 0;
+    $wpdb->groupedParentReadHook = static function () use (
+        &$missingWitnessReads,
+        &$fakeProducts,
+        &$fakeProductCache,
+        $missingWitnessParent,
+        $missingWitnessProduct
+    ): void {
+        $missingWitnessReads++;
+        if ($missingWitnessReads === 1) {
+            unset($fakeProducts[$missingWitnessParent], $fakeProductCache[$missingWitnessParent]);
+        } elseif ($missingWitnessReads === 2) {
+            $fakeProducts[$missingWitnessParent] = $missingWitnessProduct;
+        }
+    };
+    $missingWitnessCacheStart = count($fakeCacheEvents);
+    $missingWitnessFailure = '';
+    try {
+        $adapter->regenerate_batch([$missingWitnessChild], []);
+    } catch (\Throwable $failure) {
+        $missingWitnessFailure = $failure->getMessage();
+    }
+    $wpdb->groupedParentReadHook = null;
+    $missingWitnessEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $missingWitnessCacheStart),
+        static fn(string $event): bool => $event === 'remove:' . $missingWitnessParent
+    ));
+    $check(str_contains($missingWitnessFailure, 'lacks its bounded child witness')
+        && $missingWitnessEffects === []
+        && $missingWitnessReads === 3,
+        'a restored reverse owner without a sealed child witness refuses before owner invalidation');
+    unset($fakeProducts[$missingWitnessChild], $fakeMeta[$missingWitnessChild],
+        $fakeMetaLookup[$missingWitnessChild], $fakeVisibilityRelationships[$missingWitnessChild],
+        $fakeProductCache[$missingWitnessChild], $fakeProducts[$missingWitnessParent],
+        $fakeMeta[$missingWitnessParent], $fakeMetaLookup[$missingWitnessParent],
+        $fakeVisibilityRelationships[$missingWitnessParent], $fakeProductCache[$missingWitnessParent],
+        $fakeGroupedChildren[$missingWitnessParent]);
+
     // Exercise the same mutable sequence through Woo's variable-product
     // post_parent reader. The all-child witness is fixed at 50,000 ids, then
     // the native membership widens before the assertion read; no later
