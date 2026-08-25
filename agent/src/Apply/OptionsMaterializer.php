@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';

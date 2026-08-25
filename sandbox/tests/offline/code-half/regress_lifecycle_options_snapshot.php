@@ -1278,6 +1278,18 @@ $nativeInterpreter = new class ($nativeState) {
             }
             $rawAuthored['portable'] = $ordered;
         }
+        if ($this->state->projection_mode === 'ordered-list-change'
+            && is_array($rawAuthored['portable'] ?? null)
+            && array_is_list($rawAuthored['portable'])) {
+            $rawAuthored['portable'] = array_reverse($rawAuthored['portable']);
+        }
+        if ($this->state->projection_mode === 'scalar-type-change') {
+            $rawAuthored['portable'] = ['value' => $rawAuthored['portable'] ?? null];
+        }
+        if ($this->state->projection_mode === 'ref-token-substitution'
+            && is_array($rawAuthored['portable'] ?? null)) {
+            $rawAuthored['portable']['term'] = '{{term:01a0389c-dad9-7d5e-a594-1261dde21a64}}';
+        }
         if ($this->state->projection_mode === 'drop-desired') {
             unset($rawAuthored['portable']);
             return $rawAuthored;
@@ -1913,6 +1925,55 @@ $check(
     ],
     'native projection accepts associative authored object-key reordering while preserving list/scalar strictness'
 );
+$wpdb->optionRows = $projectionMismatchBefore;
+
+foreach ([
+    'ordered-list-change' => [
+        'portable' => ['en', 'fr', 'ar'],
+    ],
+    'scalar-type-change' => [
+        'portable' => 'desired',
+    ],
+    'ref-token-substitution' => [
+        'portable' => ['term' => 5100001],
+    ],
+] as $projectionShape => $desiredShape) {
+    $wpdb->optionRows = [
+        'native_blob' => [
+            'option_value' => serialize($desiredShape + ['runtime' => 'keep']),
+            'autoload' => 'yes',
+        ],
+        'pll_language_from_content_available' => [
+            'option_value' => 'yes',
+            'autoload' => 'no',
+        ],
+    ];
+    $nativeState->projection_mode = $projectionShape;
+    try {
+        $invokeNative('yes', $desiredShape);
+        $shapeRefused = false;
+    } catch (Throwable $failure) {
+        $shapeRefused = str_contains($failure->getMessage(), 'did not persist the exact authored group');
+    }
+    $nativeState->projection_mode = 'identity';
+    $afterShape = $wpdb->optionRows;
+    ksort($afterShape, SORT_STRING);
+    $beforeShape = [
+        'native_blob' => [
+            'option_value' => serialize($desiredShape + ['runtime' => 'keep']),
+            'autoload' => 'yes',
+        ],
+        'pll_language_from_content_available' => [
+            'option_value' => 'yes',
+            'autoload' => 'no',
+        ],
+    ];
+    ksort($beforeShape, SORT_STRING);
+    $check(
+        $shapeRefused && $afterShape === $beforeShape,
+        "native post-projection proof refuses $projectionShape without changing storage"
+    );
+}
 $wpdb->optionRows = $projectionMismatchBefore;
 
 $nativeState->mutate_target_sibling = true;
