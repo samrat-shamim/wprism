@@ -46,7 +46,7 @@ final class Pending {
      *     entities?: int, post_types?: string[],
      *     journal?: array{n:int, surfaces: array<string,int>, caps: array<string,int>, proposal: ?string}
      *   },
-     *   ref_hint?: array{kind:string, id:int, title:string, post_type:string},
+     *   ref_hint?: array{kind:string, id:int, title:string, post_type:string, at:string},
      *   secret?: string
      * }>
      */
@@ -286,7 +286,10 @@ final class Pending {
 
         $value = self::current_value($section, $key, $observationReadCheckpoint);
         if ($value !== null) {
-            $hint = self::ref_hint($value, $observationReadCheckpoint);
+            // The KEY is evidence, not decoration: it is what separates a
+            // page id from an action-scheduler watermark that happens to be
+            // the same small integer. See ref_hint().
+            $hint = self::ref_hint($key, $value, $observationReadCheckpoint);
             if ($hint !== null) {
                 $item['ref_hint'] = $hint;
             }
@@ -305,39 +308,272 @@ final class Pending {
     // --------------------------------------------------------------- ref linter (finding #9)
 
     /**
-     * Finding #9's linter: if the current value looks like a post/term id —
-     * or a list of them, array or CSV — check whether it actually resolves
-     * to an existing post or term. First id (in value order) that resolves
-     * wins; a given id is checked against posts before terms. This is a
-     * hint for `classify` time, not proof the key IS a ref: small ids can
-     * coincide with unrelated numbers.
+     * Key tokens that say "this slot holds another entity's id".
      *
-     * DUO-3508: a whole value of exactly 0/1 is a boolean flag, and gets no
-     * hint at all. This is not the "small ids coincide" caveat being applied
-     * twice — it is a value shape that can never be a reference, on a site
-     * where the answer is always the same wrong one: `blog_public`,
-     * `fresh_site` and `wc_installing` all store '1', and post #1 is
-     * WordPress's own "Hello world!" seed row, so every such row was
-     * decorated with a confident `-> post #1 'Hello world!'`.
-     * numeric_candidates() is deliberately NOT where this test goes: it is
-     * shared with Lint::scan_tree() at eight call sites (Lint.php:197, 235,
-     * 316, 445, 575, 613, 665, 713), where a bare 1 sitting inside a larger
-     * structure is a genuine candidate.
+     * This vocabulary is the whole difference between evidence and
+     * coincidence. A bare small integer resolves against a fresh WordPress
+     * install no matter what it means, so the id ALONE is never a reason to
+     * emit a hint — the NAME holding it has to claim a reference too. The
+     * list is deliberately short and deliberately covers WordPress's own
+     * reference-bearing options, which are the recall this rule must not
+     * cost: `page_on_front` and `page_for_posts` (`page`), `sticky_posts`
+     * (`posts`), `wp_page_for_privacy_policy` (`page`), `default_category`
+     * and `default_link_category` (`category`), plus the `*_id` / `*_ids`
+     * convention every plugin follows.
+     *
+     * Matched per TOKEN, never as a substring: `wpforms` must not match
+     * `forms`, or the plugin's every bookkeeping row would look like a
+     * reference again. camelCase splits too, so a JSON `formId` reads as
+     * `form` + `id`.
      */
-    private static function ref_hint($value, ?callable $observationReadCheckpoint = null): ?array {
-        if ($value === 1 || $value === '1' || $value === 0 || $value === '0') {
+    private const REF_KEY_TOKENS = [
+        'id', 'ids', 'page', 'pages', 'post', 'posts', 'parent', 'parents',
+        'term', 'terms', 'category', 'categories', 'tag', 'tags',
+        'attachment', 'attachments', 'thumbnail', 'thumbnails', 'media',
+        'menu', 'menus', 'form', 'forms',
+    ];
+
+    /**
+     * Key tokens that say "this slot holds a version", which is a number
+     * about code and never about an entity.
+     *
+     * Measured: `wpforms_constant_contact_version = '3'` was hinted
+     * `post:3 "Privacy Policy"` on the recon site — a provider schema
+     * version pointed at a page. This veto runs BEFORE the token test above
+     * so a slot named both ways (a hypothetical `form_version`) still reads
+     * as the version it is.
+     */
+    private const VERSION_KEY_TOKENS = ['version', 'versions'];
+
+    /**
+     * A value at or above this is a unix timestamp, not an entity id.
+     *
+     * 1e9 is 2001-09-09; WordPress auto-increment ids reach nothing close on
+     * any real site, and a site that genuinely holds a billion posts has a
+     * larger problem than a review-queue hint. Measured case:
+     * `wpforms_forms_first_created = '1787672947'` sits under a key whose
+     * `forms` token passes REF_KEY_TOKENS, so the key test alone would let an
+     * epoch through to resolve_id() and depend on luck for the right answer.
+     */
+    private const TIMESTAMP_FLOOR = 1000000000;
+
+    /** Structure walk bounds: a review queue must not turn one pathological
+     *  option value into an unbounded descent or an unbounded number of
+     *  resolve_id() SELECTs. Both are generous next to anything measured (the
+     *  deepest real case, `wpforms_form_locations`, is two levels and two
+     *  candidates) and both are the reason this walk can be recursive at all. */
+    private const STRUCTURE_MAX_DEPTH = 6;
+    private const STRUCTURE_MAX_CANDIDATES = 32;
+
+    /**
+     * Finding #9's linter: if the value holds something that looks like a
+     * post/term id, check whether it actually resolves to one. First
+     * candidate (in value order) that resolves wins; a given id is checked
+     * against posts before terms. This is a hint for `classify` time, not
+     * proof the key IS a ref — never a classification.
+     *
+     * WHAT THE RECON MEASURED. On a WPForms Lite 2.0.0.5 site holding four
+     * genuine cross-entity references, `duo pending` emitted three hints and
+     * all three were wrong:
+     *   - `wpforms_settings` (a serialized array) -> post:1 "Hello world!"
+     *   - `wpforms_constant_contact_version` = '3' -> post:3 "Privacy Policy"
+     *   - `action_scheduler_hybrid_store_demarkation` = '4' -> post:4 "Recon
+     *     Thank You"
+     * and found none of the four real ones. The DUO-3508 guard below only
+     * suppressed a value that was WHOLLY 0 or 1, so `wpforms_settings`'s
+     * first extractable id — the `"1"` of `s:13:"modern-markup";s:1:"1"` —
+     * walked straight past it into exactly the row DUO-3508 exists to stop.
+     *
+     * FOUR RULES, each one a measured class. A candidate is offered only when
+     * a key CLAIMS a reference (REF_KEY_TOKENS — the pending key itself for a
+     * scalar, the member key for anything inside a structure), and never when
+     * the key names a version (VERSION_KEY_TOKENS), the value is an epoch
+     * (TIMESTAMP_FLOOR), or the value is 0/1. That last one is DUO-3508's
+     * rule applied at every depth instead of only to a whole value: a `1`
+     * inside a serialized settings array is the same boolean it would be on
+     * its own, and post #1 is still WordPress's own seed row.
+     *
+     * numeric_candidates() is deliberately untouched and no longer the
+     * extractor here: it is shared with Lint::scan_tree() at eight call sites
+     * (Lint.php:197, 235, 316, 445, 575, 613, 665, 713), where a bare 1
+     * sitting inside a larger structure IS a genuine candidate and where the
+     * key vocabulary above has no meaning.
+     *
+     * WHAT THIS STILL CANNOT SEE, stated because the alternative is implying
+     * otherwise: pending's surfaces are options, post/term/user meta and the
+     * gate walk's own findings. It never reads a post BODY, so three of the
+     * recon's four real references — `settings.confirmations.<n>.page` inside
+     * a wpforms post's `post_content`, and two `wpforms/form-selector`
+     * `formId` block attributes — are out of reach here by surface, not by
+     * heuristic. `wp duo lint` is the body scanner, and it found both block
+     * attrs. The fourth, `wpforms_form_locations` postmeta, is a structure
+     * this walk now reaches.
+     */
+    private static function ref_hint(string $key, $value, ?callable $observationReadCheckpoint = null): ?array {
+        if (self::has_key_token($key, self::VERSION_KEY_TOKENS)) {
             return null;
         }
-        foreach (self::numeric_candidates($value) as [$id, ]) {
-            if ($id <= 0) {
-                continue;
-            }
+        $candidates = [];
+        self::collect_ref_candidates($value, '', self::ref_claim($key), 0, $candidates);
+        foreach ($candidates as [$id, $locator]) {
             $hit = self::resolve_id($id, $observationReadCheckpoint);
             if ($hit !== null) {
+                // `at` is the hint explaining itself: '' means the key's own
+                // value, anything else is the exact member inside it that
+                // matched, so an operator reading `at [0].id` can go look at
+                // that member rather than trusting the arrow.
+                $hit['at'] = $locator;
                 return $hit;
             }
         }
         return null;
+    }
+
+    /**
+     * Walk a value for id candidates whose key claims a reference, appending
+     * `[id, locator]` pairs in value order.
+     *
+     * `$refKey` is the nearest key that claimed a reference, carried DOWN
+     * through integer-keyed levels only: a list under `page_ids` is a list of
+     * page ids, but a named child key replaces its parent's claim outright
+     * (`['page' => ['title' => '4']]` offers nothing — `title` is not a
+     * reference slot, whatever its parent was called). A null $refKey means
+     * nothing here claims a reference, so no scalar under it is a candidate.
+     *
+     * JSON strings are decoded and walked like arrays. That is the second
+     * half of the recon's finding: a value's structure is invisible to a
+     * shallow extractor whether the encoding is PHP-serialized (already
+     * decoded by current_value()) or JSON (`wpforms_versions_lite` is a JSON
+     * map on the measured site), and refusing to look inside either is how a
+     * real reference like `wpforms_form_locations`'s `id => 5` — the id of
+     * the PAGE embedding the form — went unseen while a boolean two levels
+     * down got hinted.
+     *
+     * @param list<array{0:int,1:string}> $out
+     */
+    private static function collect_ref_candidates(
+        $value,
+        string $path,
+        ?string $refKey,
+        int $depth,
+        array &$out
+    ): void {
+        if (count($out) >= self::STRUCTURE_MAX_CANDIDATES || $depth > self::STRUCTURE_MAX_DEPTH) {
+            return;
+        }
+        if (is_array($value)) {
+            foreach ($value as $memberKey => $memberValue) {
+                if (count($out) >= self::STRUCTURE_MAX_CANDIDATES) {
+                    return;
+                }
+                $childPath = is_int($memberKey)
+                    ? $path . '[' . $memberKey . ']'
+                    : $path . '.' . $memberKey;
+                // An int key is a list position and carries the parent's
+                // claim; a string key IS the claim, and replaces it.
+                $childRefKey = is_int($memberKey) ? $refKey : self::ref_claim((string) $memberKey);
+                self::collect_ref_candidates($memberValue, $childPath, $childRefKey, $depth + 1, $out);
+            }
+            return;
+        }
+        if (is_string($value)) {
+            $decoded = self::decode_json_structure($value);
+            if ($decoded !== null) {
+                self::collect_ref_candidates($decoded, $path, $refKey, $depth + 1, $out);
+                return;
+            }
+            // A CSV list of ids under a reference-claiming key, exactly the
+            // shape numeric_candidates() has always recognised; the locator
+            // spelling matches its `[csv:$i]` so the two read the same.
+            if ($refKey !== null && preg_match('/^\d+(,\d+)+$/', trim($value)) === 1) {
+                foreach (explode(',', trim($value)) as $i => $segment) {
+                    self::offer_candidate($segment, $path . '[csv:' . $i . ']', $out);
+                }
+                return;
+            }
+        }
+        if ($refKey !== null && (is_int($value) || is_string($value))) {
+            self::offer_candidate($value, $path, $out);
+        }
+    }
+
+    /**
+     * Apply the two VALUE vetoes and record the candidate.
+     *
+     * Both vetoes live here rather than in the walk so every path — bare
+     * scalar, list element, CSV segment, structure member — is filtered by
+     * the same code; a veto that held on one shape and not another is exactly
+     * the drift DUO-3508's whole-value-only test turned out to be.
+     *
+     * @param list<array{0:int,1:string}> $out
+     */
+    private static function offer_candidate($value, string $locator, array &$out): void {
+        if (!is_int($value) && !(is_string($value) && $value !== '' && is_numeric($value) && !str_contains($value, '.'))) {
+            return;
+        }
+        $id = (int) $value;
+        if ($id <= 0 || $id === 1) {
+            // DUO-3508 at every depth: 0 and 1 are flags. 0 is also not a
+            // positive id, so the two reasons coincide there.
+            return;
+        }
+        if ($id >= self::TIMESTAMP_FLOOR) {
+            return;
+        }
+        $out[] = [$id, $locator];
+    }
+
+    /**
+     * A JSON object/array this string encodes, or null if it is not one.
+     *
+     * Guarded on the first non-space byte before json_decode() is called at
+     * all: every option value in a review queue is an untrusted string, most
+     * of them are not JSON, and `json_decode` on a bare numeric string
+     * succeeds and would turn `'42'` into a "structure". Only `{`/`[` open a
+     * structure, and only an array result is one.
+     */
+    private static function decode_json_structure(string $raw): ?array {
+        $trimmed = ltrim($raw);
+        if ($trimmed === '' || ($trimmed[0] !== '{' && $trimmed[0] !== '[')) {
+            return null;
+        }
+        $decoded = json_decode($trimmed, true, self::STRUCTURE_MAX_DEPTH + 2);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * The reference $key claims, or null when it claims none.
+     *
+     * One place, so the pending key and every member key inside its value are
+     * judged by identical rules — the version veto first (a slot named for a
+     * version holds a version, whatever else its name says), then the
+     * reference vocabulary.
+     */
+    private static function ref_claim(string $key): ?string {
+        if (self::has_key_token($key, self::VERSION_KEY_TOKENS)) {
+            return null;
+        }
+        return self::has_key_token($key, self::REF_KEY_TOKENS) ? $key : null;
+    }
+
+    /**
+     * Whether $key carries one of $tokens as a whole token.
+     *
+     * Splits on non-alphanumerics AND on camelCase boundaries, so
+     * `wpforms_form_locations`, `_thumbnail_id` and a JSON `formId` all
+     * tokenize the way a reader would read them, while `wpforms` stays one
+     * token and never matches `forms`.
+     *
+     * @param list<string> $tokens
+     */
+    private static function has_key_token(string $key, array $tokens): bool {
+        $spaced = preg_replace('/([a-z0-9])([A-Z])/', '$1_$2', $key) ?? $key;
+        foreach (preg_split('/[^a-zA-Z0-9]+/', strtolower($spaced)) ?: [] as $token) {
+            if ($token !== '' && in_array($token, $tokens, true)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

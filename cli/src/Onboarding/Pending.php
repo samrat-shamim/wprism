@@ -17,7 +17,9 @@ require_once dirname(__DIR__) . '/Plan/HumanViewLimit.php';
  *               journal?: {n: int, surfaces: array<string,int>,
  *                          caps: array<string,int>, proposal: ?string}},
  *    ref_hint?: {kind: 'post'|'term', id: int, title: string,
- *                post_type: string},  // taxonomy name when kind is 'term'
+ *                post_type: string,   // taxonomy name when kind is 'term'
+ *                at: string},         // locator inside the value, '' when
+ *                                     // the id IS the whole value
  *    secret?: string}  // "hard:<label>" or "suspicious"
  * `surfaces`/`caps` are {name => count} maps, not lists -- the compact
  * evidence string below names surfaces only (via array_keys()), matching
@@ -140,6 +142,15 @@ final class Pending {
         $postType = self::str($rh['post_type'] ?? null, '');
         if ($postType !== '' && $postType !== $kind) {
             $s .= " ($postType)";
+        }
+        // Where inside the value the id was found, when it was not the whole
+        // value: `-> post #5 'Recon Contact Page' (page) at [0].id`. The
+        // agent renders the same suffix (agent/src/Command/Cli.php's pending
+        // table), because a hint an operator cannot go check is a
+        // classification wearing a hint's clothes.
+        $at = self::str($rh['at'] ?? null, '');
+        if ($at !== '') {
+            $s .= " at $at";
         }
         return $s;
     }

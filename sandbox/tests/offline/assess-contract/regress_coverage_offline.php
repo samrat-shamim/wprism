@@ -201,8 +201,8 @@ $undeclared = $report['tables']['undeclared'];
 check(count($undeclared) === 1, 'one published undeclared row — got ' . count($undeclared));
 $rowKeys = array_keys($undeclared[0]);
 sort($rowKeys, SORT_STRING);
-check($rowKeys === ['logical_name', 'probable_owner', 'row_count', 'table'],
-    'a published undeclared-table row carries exactly table, logical_name, row_count, probable_owner — got '
+check($rowKeys === ['logical_name', 'probable_owner', 'registered', 'row_count', 'table'],
+    'a published undeclared-table row carries exactly table, logical_name, row_count, probable_owner, registered — got '
     . implode(',', $rowKeys));
 check(($undeclared[0]['logical_name'] ?? null) === 'acme_catalog_index',
     'logical_name is the UNPREFIXED name `duo assess` builds `table:<name>` from — got '
@@ -212,6 +212,112 @@ check(($undeclared[0]['table'] ?? null) === 'wp_acme_catalog_index',
 check((int) ($undeclared[0]['row_count'] ?? -1) === 2, 'row_count is the real COUNT(*)');
 check(($undeclared[0]['probable_owner'] ?? null) === 'acme-catalog',
     'attribution still resolves the owning active plugin slug');
+check(($undeclared[0]['registered'] ?? null) === false,
+    'a plugin table that never touched $wpdb->tables is not `registered` — it was always visible');
+check(($report['tables']['registered_total'] ?? null) === 0,
+    'no plugin registered a table on this fixture, so registered_total is 0 — got '
+    . var_export($report['tables']['registered_total'] ?? null, true));
+check(($report['tables']['core_source'] ?? null) === 'wpdb_class_declaration',
+    'the core/registered split was made from $wpdb\'s own class declaration — got '
+    . var_export($report['tables']['core_source'] ?? null, true));
+check(($report['tables']['core_total'] ?? null) === 3,
+    'core_total counts only the core tables actually live here (options, comments, commentmeta) — got '
+    . var_export($report['tables']['core_total'] ?? null, true));
+
+// ======================================================================
+// A PLUGIN-REGISTERED TABLE IS A COVERAGE SUBJECT, NOT A CORE TABLE.
+//
+// Measured on a WPForms Lite 2.0.0.5 site (recon, 2026-08-25):
+// `$wpdb->tables('all', true)` returned SIXTEEN names and four of them were
+// `wp_actionscheduler_*`. `duo coverage` read `live=26 core=16 declared=2
+// undeclared=6` — the six wpforms_* tables, and not one of the four Action
+// Scheduler tables the site actually writes rows to
+// (wp_actionscheduler_actions held `action_scheduler/migration_hook`).
+//
+// The mechanism is one line of the bundled library:
+// `$wpdb->tables[] = $table` in ActionScheduler_Abstract_Schema::
+// register_tables() (vendor/woocommerce/action-scheduler/classes/abstracts/
+// ActionScheduler_Abstract_Schema.php:54). $wpdb->tables is a public instance
+// property, tables('all') composes from it (class-wpdb.php:1122-1130), and
+// the previous engine treated the whole composition as "what WordPress
+// considers core" (Coverage.php's comment at the old :269-273). So every
+// Action-Scheduler-bundling plugin — WPForms Lite, WooCommerce, WP Mail SMTP
+// — hid four tables from coverage, from `duo assess`'s `table:` surfaces, and
+// from `duo adapter-draft --seed`'s proposals.
+//
+// Reproduced below with the four measured names, registered the way the
+// library registers them. Against the prior engine every assertion in this
+// block fails: undeclared_total reads 1 instead of 5, the actionscheduler
+// rows are absent, and core_total reads 7 instead of 3.
+// ======================================================================
+echo "\n== a table a plugin appended to \$wpdb->tables is not core ==\n";
+
+$asTables = [
+    'actionscheduler_actions',
+    'actionscheduler_claims',
+    'actionscheduler_groups',
+    'actionscheduler_logs',
+];
+foreach ($asTables as $asTable) {
+    // Exactly ActionScheduler_Abstract_Schema::register_tables():54's first
+    // statement. Its second (`$wpdb->$table = $name`, the `$wpdb->
+    // actionscheduler_actions` convenience property) is deliberately not
+    // replayed: Coverage never reads it, and a dynamic property on a class
+    // without #[AllowDynamicProperties] is a PHP 8.2+ deprecation — a warning
+    // in a suite that has to stay clean to be green. The APPEND is the whole
+    // mechanism; the class DECLARATION stays untouched, which is the
+    // asymmetry declared_core_tables() reads.
+    $wpdb->tables[] = $asTable;
+}
+// One row in `actions`, as the measured site had; the other three empty, as
+// _claims (0) and the rest measured. Row counts are asserted so the fix is
+// proved to run the same COUNT(*) path every other undeclared table takes.
+$wpdb->seedTable('wp_actionscheduler_actions', [['action_id' => 1, 'hook' => 'action_scheduler/migration_hook']]);
+$wpdb->seedTable('wp_actionscheduler_claims', []);
+$wpdb->seedTable('wp_actionscheduler_groups', []);
+$wpdb->seedTable('wp_actionscheduler_logs', []);
+
+// Without this the block would prove nothing: the whole defect starts with
+// tables() reporting a plugin's table indistinguishably from `posts`.
+$liveTableNames = array_keys($wpdb->tables('all', true));
+check(in_array('actionscheduler_actions', $liveTableNames, true)
+    && in_array('posts', $liveTableNames, true),
+    '$wpdb->tables(\'all\', true) now lists the registered name beside WordPress\'s own — got '
+    . implode(',', $liveTableNames));
+
+$registeredReport = Duo\Coverage::report($coverageScratch . '/repo');
+$rt = $registeredReport['tables'];
+check(($rt['registered_total'] ?? null) === 4,
+    'the four registered tables are counted as registered, not core — got '
+    . var_export($rt['registered_total'] ?? null, true));
+check(($rt['core_total'] ?? null) === 3,
+    'core_total is unmoved by the registration: it still counts only WordPress\'s own declared tables — got '
+    . var_export($rt['core_total'] ?? null, true));
+check(($rt['undeclared_total'] ?? null) === 5,
+    'all four registered tables joined acme_catalog_index as undeclared coverage subjects — got '
+    . var_export($rt['undeclared_total'] ?? null, true));
+$byTable = [];
+foreach ($rt['undeclared'] as $row) {
+    $byTable[$row['table']] = $row;
+}
+foreach ($asTables as $asTable) {
+    check(isset($byTable['wp_' . $asTable]),
+        "wp_$asTable reaches the undeclared listing (it was silently core before)");
+    check(($byTable['wp_' . $asTable]['logical_name'] ?? null) === $asTable,
+        "wp_$asTable publishes the logical_name `duo assess` mints `table:$asTable` from");
+    check(($byTable['wp_' . $asTable]['registered'] ?? null) === true,
+        "wp_$asTable is marked `registered`, naming why it used to read as core");
+}
+check((int) ($byTable['wp_actionscheduler_actions']['row_count'] ?? -1) === 1,
+    'the registered table\'s real COUNT(*) is reported, like any other undeclared table');
+// array_key_exists, not ??: the honest answer here IS null, and `?? 'x'`
+// cannot tell "attributed to nobody" from "the key was dropped".
+check(array_key_exists('probable_owner', $byTable['wp_actionscheduler_actions'])
+    && $byTable['wp_actionscheduler_actions']['probable_owner'] === null,
+    'attribution stays honest: no active slug is `actionscheduler`, so the bundled library\'s table attributes to nobody — got '
+    . var_export($byTable['wp_actionscheduler_actions']['probable_owner'] ?? '(absent)', true));
+check(($byTable['wp_acme_catalog_index']['registered'] ?? null) === false,
+    'the ordinary plugin table is still not `registered` — the flag separates the two discovery paths');
 
 // ======================================================================
 // options_report() visibility, through the PUBLIC product path.

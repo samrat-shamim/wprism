@@ -201,6 +201,57 @@ final class FakeWpdb {
     public string $usermeta = 'wp_usermeta';
     public string $links = 'wp_links';
 
+    /**
+     * wpdb's own three table lists, at wpdb's own declared DEFAULTS
+     * (class-wpdb.php:291-341, read from WP 7.0.3 and 7.1 sources). They are
+     * PUBLIC and MUTABLE here because they are public and mutable there, and
+     * that is the whole mechanism a fake with a hardcoded tables() could not
+     * model: `ActionScheduler_Abstract_Schema::register_tables()` does
+     * `$wpdb->tables[] = $table` (classes/abstracts/ActionScheduler_Abstract_Schema.php:54),
+     * so every plugin bundling Action Scheduler appends four names to the
+     * per-site list at runtime and tables('all') reports them exactly as it
+     * reports `posts`. A suite reproduces that with one array push.
+     *
+     * The defaults are declared in ARRAY LITERALS, not computed in the
+     * constructor, because Coverage::declared_core_tables() reads them back
+     * through ReflectionClass::getDefaultProperties() — a fake that assigned
+     * them at construction time would hand that reader an empty set and
+     * exercise the degraded `core_source` path instead of the real one.
+     *
+     * @var list<string>
+     */
+    public array $tables = [
+        'posts',
+        'comments',
+        'links',
+        'options',
+        'postmeta',
+        'terms',
+        'term_taxonomy',
+        'term_relationships',
+        'termmeta',
+        'commentmeta',
+    ];
+    /** @var list<string> */
+    public array $global_tables = ['users', 'usermeta'];
+    /** @var list<string> */
+    public array $ms_global_tables = [
+        'blogs',
+        'blogmeta',
+        'signups',
+        'site',
+        'sitemeta',
+        'registration_log',
+    ];
+    /**
+     * Stands in for the `is_multisite()` branch inside wpdb::tables(), rather
+     * than reaching for a global stub from a method that models one class:
+     * core folds ms_global_tables into 'all' and 'global' only on multisite
+     * (class-wpdb.php:1125-1136). Single-site by default, as every suite that
+     * has ever called tables() here assumed.
+     */
+    public bool $multisite = false;
+
     /** @var array<string,list<array<string,mixed>>> full table name => rows */
     private array $store = [];
     /** @var array<string,string> full table name => primary key column */
@@ -683,16 +734,40 @@ final class FakeWpdb {
     }
 
     /**
-     * Real wpdb returns the core table names for the current blog. Only the
-     * tables this fake models are listed; the engine uses it to enumerate
-     * "tables WordPress itself owns".
+     * `logical name => prefixed name` for the requested scope, composed the
+     * way wpdb::tables() composes it (class-wpdb.php:1122-1177): from the
+     * INSTANCE properties above, so a table a plugin registered at runtime
+     * appears here indistinguishably from `posts` — which is precisely the
+     * observation Coverage::tables_report() has to see through. Reading the
+     * lists instead of a private const is what makes that reproducible; the
+     * default single-site 'all' result is byte-identical to the twelve names
+     * the hardcoded version returned, modulo order (global tables first, as
+     * core emits them).
+     *
+     * ms_global tables join only under multisite, matching core's own
+     * `is_multisite()` branch; this fake is single-site unless a suite says
+     * otherwise via $multisite.
      *
      * @return array<string,string>
      */
     public function tables(string $scope = 'all', bool $prefix = true, int $blog_id = 0): array {
+        $names = match ($scope) {
+            'all' => $this->multisite
+                ? array_merge($this->global_tables, $this->tables, $this->ms_global_tables)
+                : array_merge($this->global_tables, $this->tables),
+            'blog' => $this->tables,
+            'global' => $this->multisite
+                ? array_merge($this->global_tables, $this->ms_global_tables)
+                : $this->global_tables,
+            'ms_global' => $this->ms_global_tables,
+            default => [],
+        };
+        $globals = array_merge($this->global_tables, $this->ms_global_tables);
         $out = [];
-        foreach (array_keys(self::CORE_TABLES) as $name) {
-            $out[$name] = $prefix ? $this->prefix . $name : $name;
+        foreach ($names as $name) {
+            $name = (string) $name;
+            $tablePrefix = in_array($name, $globals, true) ? $this->base_prefix : $this->prefix;
+            $out[$name] = $prefix ? $tablePrefix . $name : $name;
         }
         return $out;
     }

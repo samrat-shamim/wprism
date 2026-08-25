@@ -2405,6 +2405,14 @@ final class Cli {
             if (isset($it['ref_hint'])) {
                 $h = $it['ref_hint'];
                 $hint = "{$h['kind']}:{$h['id']} \"{$h['title']}\" ({$h['post_type']})";
+                // The locator, when the id came from INSIDE the value rather
+                // than being the whole of it — an operator can only judge
+                // `at [0].id` by looking at that member, and a hint that hides
+                // where it looked is asking to be trusted instead of checked
+                // (Pending::ref_hint()).
+                if (($h['at'] ?? '') !== '') {
+                    $hint .= " at {$h['at']}";
+                }
             }
             WP_CLI::line(sprintf(
                 '%-10s %-32s proposal=%-9s %-50s %-45s %s',
@@ -2478,10 +2486,27 @@ final class Cli {
         $t = $report['tables'];
         WP_CLI::line('');
         WP_CLI::line('TABLES');
+        // `registered` sits beside `core` because it is the only thing that
+        // explains a smaller `core` than the same site reported before:
+        // Coverage::declared_core_tables() moved the tables a plugin appended
+        // to $wpdb->tables out of core and into `undeclared`. Printed
+        // unconditionally, including as 0 -- a column that appears only when
+        // non-zero is a column nothing can parse.
         WP_CLI::line(sprintf(
-            '  live=%d  core=%d  declared=%d  undeclared=%d',
-            $t['live_total'], $t['core_total'], $t['declared_total'], $t['undeclared_total']
+            '  live=%d  core=%d  registered=%d  declared=%d  undeclared=%d',
+            $t['live_total'], $t['core_total'], $t['registered_total'],
+            $t['declared_total'], $t['undeclared_total']
         ));
+        if (($t['core_source'] ?? '') === 'wpdb_instance') {
+            // Named, never silent (Coverage.php's declared_core_tables()):
+            // this target's $wpdb declares no table lists to read, so the
+            // core/registered split could not be made and `core` is the
+            // instance list, plugin-registered tables included.
+            WP_CLI::warning(
+                'this target\'s $wpdb publishes no declared core table list, so core= is its runtime list and '
+                . 'any plugin-registered table is counted in it rather than reported as an undeclared subject'
+            );
+        }
         if ($t['undeclared']) {
             $undeclared = $t['undeclared'];
             $large = count($undeclared) > Coverage::LARGE_LISTING_THRESHOLD;
