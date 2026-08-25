@@ -839,6 +839,66 @@ check(
     'scoped last-reference deauthorization removes only canonical ownership and emits no physical deletion'
 );
 
+$allInactiveContract = ScopeContract::resolve($inactiveSource, $policy, ['all']);
+$allSelectedBlockPosts = [];
+foreach ($inactiveSource->tree() as $identity => $row) {
+    if (($row['type'] ?? null) === 'post'
+        && $policy->body_mode((string) ($row['data']['type'] ?? '')) === 'blocks') {
+        $allSelectedBlockPosts[] = (string) $identity;
+    }
+}
+sort($allSelectedBlockPosts, SORT_STRING);
+$allInactiveDeletionRows = [];
+foreach ($inactiveSource->deletions() as $identity => $row) {
+    $allInactiveDeletionRows[] = [
+        'uuid' => (string) $identity,
+        'type' => 'deletion',
+        'path' => (string) $row['path'],
+        'content' => (string) $row['content'],
+    ];
+}
+$allInactiveEvidence = ScopedStateOverlay::selected_deauthorizations(
+    $inactiveSource,
+    $allInactiveContract,
+    $inactiveObservedRows,
+    $allInactiveDeletionRows,
+    $policy,
+    ['selected_post_uuids' => $allSelectedBlockPosts, 'reference_count' => 0]
+);
+ScopeContract::assert_candidate_bounded(
+    $allInactiveContract,
+    $inactiveObserved,
+    $policy,
+    [],
+    $allInactiveEvidence
+);
+$allInactiveOverlay = ScopedStateOverlay::project_capture_associated(
+    $inactiveSource,
+    $allInactiveContract,
+    $inactiveObservedRows,
+    $allInactiveDeletionRows,
+    $allInactiveEvidence,
+    $policy
+);
+check(
+    !in_array($inactiveIdentity, array_column($allInactiveOverlay['entities'], 'uuid'), true)
+        && !in_array($inactiveIdentity, array_column($allInactiveOverlay['deletions'], 'uuid'), true),
+    'all scope deauthorizes the final inactive-widget carrier without publishing an empty row or tombstone'
+);
+$tamperedInactiveEvidence = $allInactiveEvidence;
+$tamperedInactiveEvidence[0]['previous_hash'] = str_repeat('f', 64);
+expect_throw(
+    static fn() => ScopeContract::assert_candidate_bounded(
+        $allInactiveContract,
+        $inactiveObserved,
+        $policy,
+        [],
+        $tamperedInactiveEvidence
+    ),
+    'deauthorization evidence escaped',
+    'tampered capture-local inactive deauthorization evidence cannot authorize omission'
+);
+
 $directInactiveContract = ScopeContract::resolve($inactiveSource, $policy, ['sidebar:wp_inactive_widgets']);
 expect_throw(
     static fn() => ScopedStateOverlay::selected_deauthorizations(

@@ -3,6 +3,8 @@ namespace Duo;
 
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
+require_once __DIR__ . '/../Repository/SidebarState.php';
+require_once __DIR__ . '/../Repository/ReferenceGraph.php';
 
 /**
  * Contract-bound state projection shared by scoped capture and refresh.

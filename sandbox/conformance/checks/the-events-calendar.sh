@@ -1587,6 +1587,209 @@ if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]; then
   return 0 2>/dev/null || exit 0
 fi
 
+# The inactive widget carrier is selected only by stored-id legacy blocks.
+# Exercise real scoped publication against a disposable clone so dropping
+# those references cannot sweep target-local assignments, options, or maps.
+# This is after TEC_BOUNDARY_ONLY: standalone covers 6.17.3 and the full
+# matrix leg covers 6.17.2.
+TEC_WIDGET_SCOPE_BASE="${CONF_REPO1:-siterepo/conf1}"
+TEC_WIDGET_SCOPE_HOST="$TEC_WIDGET_SCOPE_BASE/.tmp-tec-widget-scoped-capture"
+TEC_WIDGET_SCOPE_REPO='/siterepo/.tmp-tec-widget-scoped-capture'
+TEC_WIDGET_SCOPE_MUTATED=0
+TEC_WIDGET_PAGE_ID=$(jq -er '.widget_page' <<<"$SOURCE_IDS")
+[[ "$TEC_WIDGET_PAGE_ID" =~ ^[1-9][0-9]*$ ]] \
+  || fail "TEC scoped inactive-widget fixture has a malformed page id"
+TEC_WIDGET_PAGE_UUID=$(awk '
+  NR == 1 && $0 == "---" { front = 1; next }
+  front && $0 == "---" { exit }
+  front { print }
+' "$TEC_SOURCE_WIDGET_STATE" | jq -er '.uuid')
+[[ "$TEC_WIDGET_PAGE_UUID" =~ ^[a-f0-9-]{36}$ ]] \
+  || fail "TEC scoped inactive-widget fixture has a malformed page UUID"
+
+tec_widget_scope_physical_hash() {
+  wp_conf1 eval "\$id=$TEC_WIDGET_PAGE_ID;"'
+    global $wpdb;
+    $wpdb->last_error = "";
+    $rows = [
+      "post" => $wpdb->get_results($wpdb->prepare(
+        "SELECT * FROM {$wpdb->posts} WHERE ID=%d ORDER BY ID", $id
+      ), ARRAY_A),
+      "postmeta" => $wpdb->get_results($wpdb->prepare(
+        "SELECT * FROM {$wpdb->postmeta} WHERE post_id=%d ORDER BY meta_id", $id
+      ), ARRAY_A),
+      "options" => $wpdb->get_results(
+        "SELECT option_id,option_name,option_value,autoload FROM {$wpdb->options} " .
+        "WHERE option_name IN (\"sidebars_widgets\",\"widget_tribe-widget-events-list\",\"widget_tribe-widget-events-qr-code\") " .
+        "ORDER BY option_name,option_id",
+        ARRAY_A
+      ),
+      "map" => $wpdb->get_results(
+        "SELECT uuid,entity_type,id_kind,local_id FROM {$wpdb->prefix}duo_map " .
+        "ORDER BY uuid,entity_type,id_kind,local_id",
+        ARRAY_A
+      ),
+    ];
+    if ($wpdb->last_error !== "" || count($rows["post"]) !== 1 || count($rows["options"]) !== 3) {
+      throw new RuntimeException("TEC scoped inactive-widget physical witness failed");
+    }
+    echo hash("sha256", serialize($rows));
+  ' | tr -d '[:space:]'
+}
+
+tec_widget_scope_repo_hash() {
+  local repo=$1
+  (
+    cd "$repo"
+    find state media -type f -print | LC_ALL=C sort | while IFS= read -r file; do
+      printf '%s  %s\n' "$(shasum -a 256 "$file" | awk '{print $1}')" "$file"
+    done | shasum -a 256 | awk '{print $1}'
+  )
+}
+
+cleanup_tec_widget_scope() {
+  local remove_repo=1
+  if [ "$TEC_WIDGET_SCOPE_MUTATED" -eq 1 ] && [ -f "$TEC_WIDGET_SCOPE_HOST/.original-post-content" ]; then
+    if wp_conf1 eval "\$id=$TEC_WIDGET_PAGE_ID;"'
+      global $wpdb;
+      $content = file_get_contents("/siterepo/.tmp-tec-widget-scoped-capture/.original-post-content");
+      if (!is_string($content)
+          || $wpdb->update($wpdb->posts, ["post_content" => $content], ["ID" => $id], ["%s"], ["%d"]) !== 1) {
+        throw new RuntimeException("TEC scoped inactive-widget cleanup could not restore exact post content");
+      }
+      clean_post_cache($id);
+    ' >/dev/null 2>&1; then
+      TEC_WIDGET_SCOPE_MUTATED=0
+    else
+      remove_repo=0
+      printf 'TEC scoped inactive-widget cleanup retained its exact backup at %s\n' \
+        "$TEC_WIDGET_SCOPE_HOST" >&2
+    fi
+  fi
+  [ "$remove_repo" -ne 1 ] || rm -rf -- "$TEC_WIDGET_SCOPE_HOST"
+}
+trap cleanup_tec_widget_scope EXIT
+rm -rf -- "$TEC_WIDGET_SCOPE_HOST"
+git clone -q --no-hardlinks "$TEC_WIDGET_SCOPE_BASE" "$TEC_WIDGET_SCOPE_HOST"
+
+TEC_WIDGET_SCOPE_ONE="$TEC_WIDGET_SCOPE_HOST/.first.scope.json"
+wp_conf1 duo scope \
+  --repo="$TEC_WIDGET_SCOPE_REPO" \
+  --roots="post:$TEC_WIDGET_PAGE_UUID" \
+  --contract --format=json >"$TEC_WIDGET_SCOPE_ONE"
+jq -e --arg uuid "$TEC_WIDGET_PAGE_UUID" '
+  .format == "duo-scope-contract/v1" and
+  .selectors == ["post:" + $uuid] and
+  any(.live.closure[]; .entity == "sidebar/wp_inactive_widgets")
+' "$TEC_WIDGET_SCOPE_ONE" >/dev/null \
+  || fail "TEC scoped inactive-widget contract lacks its exact outbound carrier closure"
+
+TEC_WIDGET_PHYSICAL_ORIGINAL=$(tec_widget_scope_physical_hash)
+require_observed_nonempty "TEC scoped inactive-widget original physical witness" "$TEC_WIDGET_PHYSICAL_ORIGINAL"
+wp_conf1 eval "\$id=$TEC_WIDGET_PAGE_ID;"'
+  global $wpdb;
+  $post = get_post($id);
+  if (!$post instanceof WP_Post) {
+    throw new RuntimeException("TEC scoped inactive-widget page disappeared");
+  }
+  $backup = "/siterepo/.tmp-tec-widget-scoped-capture/.original-post-content";
+  if (file_put_contents($backup, $post->post_content) !== strlen($post->post_content)) {
+    throw new RuntimeException("TEC scoped inactive-widget backup failed");
+  }
+  $kept = [];
+  $stored = 0;
+  $embedded = 0;
+  foreach (parse_blocks($post->post_content) as $block) {
+    if (($block["blockName"] ?? null) === "core/legacy-widget"
+        && is_array($block["attrs"] ?? null)
+        && isset($block["attrs"]["id"])) {
+      $stored++;
+      continue;
+    }
+    if (($block["blockName"] ?? null) === "core/legacy-widget"
+        && is_array($block["attrs"]["instance"] ?? null)) {
+      $embedded++;
+    }
+    $kept[] = $block;
+  }
+  if ($stored !== 2 || $embedded !== 2) {
+    throw new RuntimeException("TEC scoped inactive-widget mutation did not find the exact block forms");
+  }
+  $content = serialize_blocks($kept);
+  if ($content === $post->post_content
+      || $wpdb->update($wpdb->posts, ["post_content" => $content], ["ID" => $id], ["%s"], ["%d"]) !== 1) {
+    throw new RuntimeException("TEC scoped inactive-widget mutation did not persist");
+  }
+  clean_post_cache($id);
+' >/dev/null
+TEC_WIDGET_SCOPE_MUTATED=1
+TEC_WIDGET_PHYSICAL_MUTATED=$(tec_widget_scope_physical_hash)
+require_observed_nonempty "TEC scoped inactive-widget mutated physical witness" "$TEC_WIDGET_PHYSICAL_MUTATED"
+[ "$TEC_WIDGET_PHYSICAL_MUTATED" != "$TEC_WIDGET_PHYSICAL_ORIGINAL" ] \
+  || fail "TEC scoped inactive-widget mutation did not change its exact post witness"
+
+TEC_WIDGET_CAPTURE_ONE=$(wp_conf1 duo capture \
+  --repo="$TEC_WIDGET_SCOPE_REPO" \
+  --scope-contract="$TEC_WIDGET_SCOPE_REPO/.first.scope.json" \
+  --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "TEC scoped inactive-widget first capture" json "$TEC_WIDGET_CAPTURE_ONE"
+printf '%s\n' "$TEC_WIDGET_CAPTURE_ONE" | jq -e --arg hash "$(jq -r '.scope_hash' "$TEC_WIDGET_SCOPE_ONE")" '
+  .scope.scope_hash == $hash and .counts.deletion == 0
+' >/dev/null || fail "TEC scoped inactive-widget capture returned malformed scope/deletion evidence"
+[ ! -e "$TEC_WIDGET_SCOPE_HOST/state/sidebars/wp_inactive_widgets.json" ] \
+  || fail "TEC scoped inactive-widget capture published an empty/shared pseudo row"
+if grep -RFq 'duo-inactive-overlay-deauthorization/v1' "$TEC_WIDGET_SCOPE_HOST/state" 2>/dev/null; then
+  fail "TEC scoped inactive-widget capture published its capture-local receipt"
+fi
+if grep -RFq 'sidebar/wp_inactive_widgets' "$TEC_WIDGET_SCOPE_HOST/state/deletions" 2>/dev/null; then
+  fail "TEC scoped inactive-widget capture published a pseudo-row tombstone"
+fi
+[ "$(tec_widget_scope_physical_hash)" = "$TEC_WIDGET_PHYSICAL_MUTATED" ] \
+  || fail "TEC scoped inactive-widget capture mutated post/options/sidebar/map target bytes"
+
+TEC_WIDGET_REPO_FIRST=$(tec_widget_scope_repo_hash "$TEC_WIDGET_SCOPE_HOST")
+TEC_WIDGET_SCOPE_TWO="$TEC_WIDGET_SCOPE_HOST/.second.scope.json"
+wp_conf1 duo scope \
+  --repo="$TEC_WIDGET_SCOPE_REPO" \
+  --roots="post:$TEC_WIDGET_PAGE_UUID" \
+  --contract --format=json >"$TEC_WIDGET_SCOPE_TWO"
+jq -e '
+  .format == "duo-scope-contract/v1" and
+  ([.live.roots[], .live.closure[]] | any(.entity == "sidebar/wp_inactive_widgets") | not)
+' "$TEC_WIDGET_SCOPE_TWO" >/dev/null \
+  || fail "TEC scoped inactive-widget second contract retained deauthorized pseudo ownership"
+TEC_WIDGET_CAPTURE_TWO=$(wp_conf1 duo capture \
+  --repo="$TEC_WIDGET_SCOPE_REPO" \
+  --scope-contract="$TEC_WIDGET_SCOPE_REPO/.second.scope.json" \
+  --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "TEC scoped inactive-widget fixed-point capture" json "$TEC_WIDGET_CAPTURE_TWO"
+printf '%s\n' "$TEC_WIDGET_CAPTURE_TWO" | jq -e --arg hash "$(jq -r '.scope_hash' "$TEC_WIDGET_SCOPE_TWO")" '
+  .scope.scope_hash == $hash and .counts.deletion == 0
+' >/dev/null || fail "TEC scoped inactive-widget retry returned malformed scope/deletion evidence"
+[ "$(tec_widget_scope_repo_hash "$TEC_WIDGET_SCOPE_HOST")" = "$TEC_WIDGET_REPO_FIRST" ] \
+  || fail "TEC scoped inactive-widget second capture was not a canonical fixed point"
+[ "$(tec_widget_scope_physical_hash)" = "$TEC_WIDGET_PHYSICAL_MUTATED" ] \
+  || fail "TEC scoped inactive-widget retry changed target assignment/option/map bytes"
+if grep -RFq 'duo-inactive-overlay-deauthorization/v1' "$TEC_WIDGET_SCOPE_HOST/state" 2>/dev/null; then
+  fail "TEC scoped inactive-widget retry published its capture-local receipt"
+fi
+
+wp_conf1 eval "\$id=$TEC_WIDGET_PAGE_ID;"'
+  global $wpdb;
+  $content = file_get_contents("/siterepo/.tmp-tec-widget-scoped-capture/.original-post-content");
+  if (!is_string($content)
+      || $wpdb->update($wpdb->posts, ["post_content" => $content], ["ID" => $id], ["%s"], ["%d"]) !== 1) {
+    throw new RuntimeException("TEC scoped inactive-widget restore did not persist exact bytes");
+  }
+  clean_post_cache($id);
+' >/dev/null
+TEC_WIDGET_SCOPE_MUTATED=0
+[ "$(tec_widget_scope_physical_hash)" = "$TEC_WIDGET_PHYSICAL_ORIGINAL" ] \
+  || fail "TEC scoped inactive-widget cleanup did not restore exact target bytes"
+rm -rf -- "$TEC_WIDGET_SCOPE_HOST"
+trap - EXIT
+pass "real scoped capture deauthorizes only stored inactive ownership, preserves target bytes, and reaches a receipt-free fixed point"
+
 # Category metadata commits before required actions (the same recovery boundary
 # core rewrite, Elementor, and Yoast conformance exercise). Drive that boundary
 # through a real term-scoped authority so ordinal-one's transaction-atomic map

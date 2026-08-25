@@ -8410,6 +8410,54 @@ duo_check(
         < strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]'),
     'both exact TEC boundary artifacts execute Category Colors equal-priority/cache/pagination evidence'
 );
+$tecBoundaryReturnAt = strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]');
+$widgetScopedCaptureAt = strpos($deletionCheck, 'TEC_WIDGET_SCOPE_HOST=');
+$categoryScopedCaptureAt = strpos($deletionCheck, 'tec_category_uuid()');
+duo_check(
+    $tecBoundaryReturnAt !== false
+        && $tecBoundaryReturnAt < $widgetScopedCaptureAt
+        && $widgetScopedCaptureAt < $categoryScopedCaptureAt,
+    'full 6.17.2/6.17.3 legs execute scoped inactive-widget publication after the boundary-only return'
+);
+foreach ([
+    'git clone -q --no-hardlinks "$TEC_WIDGET_SCOPE_BASE" "$TEC_WIDGET_SCOPE_HOST"',
+    '--roots="post:$TEC_WIDGET_PAGE_UUID"',
+    'any(.live.closure[]; .entity == "sidebar/wp_inactive_widgets")',
+    '$stored !== 2 || $embedded !== 2',
+    '--scope-contract="$TEC_WIDGET_SCOPE_REPO/.first.scope.json"',
+    '.scope.scope_hash == $hash and .counts.deletion == 0',
+    '[ ! -e "$TEC_WIDGET_SCOPE_HOST/state/sidebars/wp_inactive_widgets.json" ]',
+    'duo-inactive-overlay-deauthorization/v1',
+    'sidebar/wp_inactive_widgets',
+    'TEC_WIDGET_PHYSICAL_MUTATED',
+    '--scope-contract="$TEC_WIDGET_SCOPE_REPO/.second.scope.json"',
+    'TEC_WIDGET_REPO_FIRST',
+    'trap cleanup_tec_widget_scope EXIT',
+    'trap - EXIT',
+] as $widgetScopedCaptureEvidence) {
+    duo_check(
+        str_contains($deletionCheck, $widgetScopedCaptureEvidence),
+        "the exact live workflow binds scoped inactive-widget evidence $widgetScopedCaptureEvidence"
+    );
+}
+$widgetCleanupTrapAt = strpos($deletionCheck, 'trap cleanup_tec_widget_scope EXIT');
+$widgetMutationAt = strpos($deletionCheck, 'TEC_WIDGET_SCOPE_MUTATED=1');
+$widgetFirstCaptureAt = strpos($deletionCheck, 'TEC_WIDGET_CAPTURE_ONE=$(wp_conf1 duo capture');
+$widgetSecondCaptureAt = strpos($deletionCheck, 'TEC_WIDGET_CAPTURE_TWO=$(wp_conf1 duo capture');
+$widgetRestoreAt = strrpos(
+    substr($deletionCheck, 0, (int) $categoryScopedCaptureAt),
+    'TEC_WIDGET_SCOPE_MUTATED=0'
+);
+$widgetCleanupDisarmAt = strpos($deletionCheck, 'trap - EXIT', (int) $widgetSecondCaptureAt);
+duo_check(
+    $widgetCleanupTrapAt !== false
+        && $widgetCleanupTrapAt < $widgetMutationAt
+        && $widgetMutationAt < $widgetFirstCaptureAt
+        && $widgetFirstCaptureAt < $widgetSecondCaptureAt
+        && $widgetSecondCaptureAt < $widgetRestoreAt
+        && $widgetRestoreAt < $widgetCleanupDisarmAt,
+    'scoped inactive-widget cleanup arms before mutation and restores exact target bytes after fixed-point capture'
+);
 duo_check_same(
     2,
     substr_count($deletionCheck, 'require $argv[1];'),
