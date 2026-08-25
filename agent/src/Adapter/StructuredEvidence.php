@@ -121,6 +121,38 @@ final class StructuredEvidence {
     private const RECORD_OPTIONAL = ['answered'];
 
     /**
+     * This section's value grammar, published for `duo manifest-validate
+     * --emit-schema` (WP-6.6, spec/repo-format.md § v3.21).
+     *
+     * The three key sets are the private constants above, published rather than
+     * restated — R-29 records every row member as permanent inside the adapter
+     * digest, so a second spelling of them in the emitter would be a second
+     * spelling of a frozen wire. `target` is stated in prose because the rule
+     * that matters about it is not a key set at all: a target's HEAD must be a
+     * top-level key this manifest still declares, which is the whole difference
+     * between this section and a note that mentions one (:158-176).
+     *
+     * @return array<string,mixed>
+     */
+    public static function section_grammar(): array {
+        return [
+            'keyed_by' => 'the declaration each record is evidence FOR — a target whose head is a top-level key '
+                . 'THIS manifest declares (`options.wpforms_settings`, `tables.acme_thing.pk`), never this '
+                . 'section itself',
+            'record' => [
+                'required' => self::RECORD_REQUIRED,
+                'optional' => self::RECORD_OPTIONAL,
+            ],
+            'evidence_row' => self::EVIDENCE_KEYS,
+            'answered_row' => self::ANSWERED_KEYS,
+            'rows' => 'each list is non-empty, each row carries exactly its key set, and every value is a '
+                . 'non-empty string — an empty evidence[] asserts a declaration is founded and then declines '
+                . 'to say on what',
+            'validated_by' => 'Duo\\StructuredEvidence::assert_section()',
+        ];
+    }
+
+    /**
      * Validate the section, or refuse naming the exact path that is wrong.
      *
      * Reached only for a manifest whose grammar already admitted the key, so

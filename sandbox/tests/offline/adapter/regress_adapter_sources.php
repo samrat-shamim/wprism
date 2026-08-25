@@ -478,6 +478,28 @@ check(
     && trim((string) $siteBlocker['remediation']) !== '',
     'source, trust tier, and remediation ride on the readiness blocker row itself, not only on the full report'
 );
+// WP-6.6: the remediation's WORDS, not merely its presence. It used to promise
+// "plan and apply remain available", and the wpforms exercise measured that
+// false end to end: `duo init` requires `code.management: managed-baseline`
+// (cli/src/Onboarding/Init.php:580-590), so every repository it creates pins a
+// compiled code revision, `LifecyclePlanner::code_revision_mismatch()` raises
+// `code_revision_stale` on any environment that has not deployed, and
+// `ApplyPreparationCoordinator::enforce_code_mismatch_gate()` refuses it as
+// non-forceable — a deploy the same blocker is withholding. An operator who
+// believed the old sentence spent an afternoon disproving it, which is the one
+// thing an uncertified row exists to save them.
+$uncertifiedRemediation = (string) ($siteBlocker['remediation'] ?? '');
+check(
+    str_contains($uncertifiedRemediation, '`duo plan` remains available')
+    && !str_contains($uncertifiedRemediation, 'plan and apply remain available'),
+    'the uncertified remediation promises PLAN, and no longer promises apply beside it'
+);
+check(
+    str_contains($uncertifiedRemediation, 'every repository `duo init` created')
+    && str_contains($uncertifiedRemediation, 'refuses code_revision_stale until `duo deploy <env>` has run')
+    && str_contains($uncertifiedRemediation, 'non-forceable'),
+    'and it names WHY apply is blocked with them — the pinned code revision, the exact refusal, and that no flag overrides it'
+);
 check(
     array_filter($blockers, fn(array $r) => $r['name'] === 'core') === [],
     'the shipped adapter contributes no blocker — one uncertified site adapter does not make the certified set unready'

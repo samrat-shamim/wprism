@@ -1,0 +1,13 @@
+{
+    "format": "duo-adapter-boundary-outcomes/v1",
+    "slug": "wpforms-lite",
+    "recorded_at": "2026-08-26",
+    "source": "CERTIFY-CHANNEL live leg on sandbox pair 'wpfcert' (WordPress 7.1, PHP 8.3, MariaDB), source SHA 8fda5ad7 on branch wpforms-exercise. The ONE recorded outcome is the anchor, and it is a measurement rather than a belief: WPForms Lite 2.0.0.5 was installed from the digest-verified ZIP on BOTH sides (sha256 b7c424a96481a68d43ab03b6dcad2657675e42cddaa31844eb8ddc20ba08733c, re-verified inside each container), side one was seeded entirely through the plugin's own write paths, and the committed adapter was driven certify -> capture -> deploy -> apply -> recapture end to end. No other release was probed on this run, so no other release has a row here — the bisection reports `probe_required` for the rest, which is the honest state of the evidence.",
+    "outcomes": [
+        {
+            "version": "2.0.0.5",
+            "outcome": "green",
+            "signature": "certify green (derived profile, site trust root site-wpfcert; surfaces carry attr_id_codecs and body_refs in the field arm); capture 9 posts / 3 terms; host deploy code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize on code revision 68a5e9ccc8a3685a6095b92ed0351c8b8f8289ac92257262fe267657780c7265; apply 14 entities, canary clean, adapter_dispositions 0; the confirmation page ref rewrote 4 -> \"26\" as a STRING with the previous_page sentinel untouched, both block formIds rewrote 6/8 -> \"27\"/\"29\", and recapture on the target was byte-identical to the source's committed state tree."
+        }
+    ]
+}

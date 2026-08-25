@@ -1385,8 +1385,15 @@ Plugin-owned providers remain valid because their executable identity is the
 installed, active, version-bounded plugin and the ordinary provider
 negotiation/receipt contract—not the site manifest.
 
-Without a certificate, the adapter is usable for plan/apply but is visibly
-`uncertified`; readiness and host promotion remain blocked.
+Without a certificate the adapter loads, captures and plans, and is visibly
+`uncertified`; readiness and host promotion remain blocked. **Apply is blocked
+with them on any repository `duo init` created**, and that is worth reading
+twice because the uncertified row's remediation used to say otherwise: `duo
+init` writes a managed-baseline code revision into the compiled artifact, so
+`wp duo apply` on a target refuses `code_revision_stale` until `duo deploy
+<env>` has run — and `duo deploy` is host promotion, which the same
+`uncertified` state blocks. So an uncertified adapter is a **capture-and-plan**
+adapter, not a deployable one.
 
 There are two ways to certify one, and which you want depends on **whose
 approval the certificate represents**.
@@ -1739,7 +1746,17 @@ canned sentence on every refusal and leaves `--reason` as your only input, so a
 site that genuinely reviewed its adapter's deletion semantics signed the same
 document as one that reviewed nothing. Pass `--ratification-file=<file>` and
 `certify` signs the disposition **you** wrote — one entry, in the exact shape
-`manifests/dispositions/<name>.json` carries:
+`manifests/dispositions/<name>.json` carries.
+
+> **The file is the BARE entry, not the `duo-manifest-dispositions/v1`
+> envelope.** Write the object below at the file's top level — no `format`, no
+> `manifests`, no `profiles`. Those three are the signer's: it owns them so that
+> an authored document cannot ratify a second adapter or smuggle a profile
+> ([§ v3.17](../../spec/repo-format.md)), which is the same posture as the
+> certificate's path being derived rather than declared. Hand it an envelope and
+> `certify` says so by name and tells you to pass the value at
+> `manifests.<name>` instead. `manifests/dispositions/<name>.json` is itself a
+> bare entry, so a shipped disposition is a copyable starting point as-is.
 
 ```json
 {
@@ -1883,9 +1900,10 @@ that name, which fails with the refusal's own message.
 **A bundled adapter cannot be certified in place**, and no field or companion
 file changes that: certification hashes `adapters/<name>.json` and binds
 `source: "site"` and that exact path inside the signed statement. So a bundled
-adapter is `uncertified` by construction — plan and apply available, readiness
-and host promotion blocked, identical to an unsigned site adapter. To certify
-one, promote it:
+adapter is `uncertified` by construction — capture and plan available,
+readiness and host promotion blocked (and apply with them, for the reason the
+certification section above gives), identical to an unsigned site adapter. To
+certify one, promote it:
 
 1. Install the same adapter as a repository package at `adapters/<name>.json`.
 2. Obtain a signed `adapters/certifications/<name>.json` (the section above).

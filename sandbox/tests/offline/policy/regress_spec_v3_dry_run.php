@@ -94,6 +94,20 @@
  * teaching the signer a key changes what a certificate covers; § v3.3 is where
  * both were reviewed and WP-4.3 is the rider that implemented the reviewed
  * answers.
+ *
+ * F1's OTHER HALF, CLOSED BY WP-6.6 (§ v3.21). The SHIPPED library was always
+ * clean for this rule; the on-disk synthetic estate was not, and the reason was
+ * F2's shape repeating rather than a fixture defect. A key admitted by § v3.2's
+ * channel is admitted at LOAD and classified by nothing, so the tree's first
+ * spec-3 adapter — four feature-claimed keys — loaded on every site and was
+ * refused by BOTH signing profiles. § v3.21 moved the arm into the feature's own
+ * roster row, so the classification is now part of shipping a feature rather
+ * than a patch remembered afterwards, and the V3-KEYS break list below is empty
+ * in both populations. The assertions that measured the wall are the ones that
+ * moved; the estate is untouched, which is this suite's whole discipline. What
+ * did NOT move: a key no implemented feature claims still meets the signer's
+ * unclassifiable-section refusal verbatim, asserted beside the empty break list
+ * with a control manifest.
  */
 declare(strict_types=1);
 
@@ -455,6 +469,31 @@ duo_check_same(
     $syntheticUnknown,
     'F1: the on-disk synthetic keys the signer partition does not know are exactly the four the feature channel admits'
 );
+// DERIVED, NOT PINNED (WP-6.6). Every one of those four is in the roster and
+// carries an arm, so "the partition does not know it" now means "another
+// definition does" rather than "nobody does". Reading the arm out of
+// `feature_key_arms()` rather than listing it here is the same discipline the
+// partition itself gets above: this suite's rule inputs have exactly one
+// definition, and a copy would pass on the day it was typed.
+$rosterArms = AdapterContractGrammar::feature_key_arms();
+duo_check_same(
+    [],
+    array_values(array_diff($syntheticUnknown, array_keys($rosterArms))),
+    'F1 RESOLVED by § v3.21: every key the partition does not know is classified by the roster instead, so '
+        . '"unknown to the signer" no longer means "unsignable"'
+);
+duo_check_same(
+    [],
+    array_values(array_intersect(array_keys($rosterArms), $closedSet)),
+    'F1: and the two definitions are DISJOINT — a roster row may not name a key the partition already carries, '
+        . 'which is the second-spelling failure the whole lift exists to prevent'
+);
+duo_check_same(
+    [],
+    array_values(array_diff(array_unique(array_values($rosterArms)), AdapterCertification::certificateArms())),
+    'F1: every arm the roster names is one of the signer\'s three, so a typo in a roster row refuses at the '
+        . 'roster rather than reporting an author\'s manifest for the engine\'s mistake'
+);
 $unclaimed = [];
 foreach ($syntheticUnknown as $key) {
     foreach ($syntheticUnion[$key] as $path) {
@@ -486,28 +525,38 @@ foreach ($keysBreakList as $label => $verdict) {
 $shippedBreaks = array_values(array_filter(array_keys($keysBreakList), static fn(string $l): bool => str_starts_with($l, 'shipped:')));
 duo_check_same([], $shippedBreaks, 'V3-KEYS refuses zero shipped adapters: the closed key set is digest-neutral for the library');
 $syntheticBreaks = array_values(array_filter(array_keys($keysBreakList), static fn(string $l): bool => str_starts_with($l, 'synthetic:')));
-// EXACTLY ONE, and it is the price of the channel rather than a defect in the
-// fixture. `acme-catalog` — the v2 out-of-tree adapter — still signs, which is
-// the digest-neutrality half. `wpforms-lite` does not, because the signer's
-// partition has no arm for a feature-claimed key and `siteSurfaceSections()`
-// refuses what it cannot classify as an entity or field surface. That refusal
-// is shared by BOTH signing profiles (WP-5.3's `--ratification-file` author
-// profile calls the same method), so an author cannot certify such a section by
-// naming it in a file either. Pinned here, with the verdict's own words, so the
-// day the partition gains an arm for one of these keys is a day this assertion
-// forces someone to say so.
+// ZERO, AND THAT IS THE CHANGE WP-6.6 LANDED. This assertion used to read
+// `['synthetic:wpforms-lite']` and carried its own sentence about the price of
+// the channel: the signer's partition had no arm for a feature-claimed key, so
+// the tree's first spec-3 adapter loaded everywhere and could not be signed by
+// either profile. § v3.21 moved the arm into the feature's own roster row, so
+// the break list is empty in both populations — the digest-neutrality half AND
+// the certifiability half. This is the suite doing its job: a rider that lands
+// a rule moves the assertion that measured its absence, and not the estate.
 duo_check_same(
-    ['synthetic:wpforms-lite'],
+    [],
     $syntheticBreaks,
-    'V3-KEYS refuses exactly one on-disk synthetic manifest: the spec-3 adapter that uses the feature channel. acme-catalog, the v2 one, still signs'
+    'V3-KEYS refuses ZERO on-disk synthetic manifests: § v3.21 gave every feature-claimed key an arm, so the '
+        . 'tree\'s first spec-3 adapter is signable and acme-catalog, the v2 one, still signs'
 );
+// The refusal did not go away; it went where it belongs. A control manifest
+// declaring a section NO implemented feature claims still meets the signer's own
+// unclassifiable-section sentence, word for word, which is what keeps "teach the
+// signer this section" true for a genuine misspelling.
+$controlAdapter = $discovered[array_key_first(array_filter(
+    $discovered,
+    static fn(array $m): bool => (string) ($m['name'] ?? '') === 'wpforms-lite'
+))];
+$controlAdapter['acme_invented_section'] = ['x' => 1];
+$controlVerdict = (string) $signerVerdict('wpforms-lite', $controlAdapter);
 duo_check(
-    str_contains(
-        (string) ($keysBreakList['synthetic:wpforms-lite'] ?? ''),
-        'which this signer cannot classify as an entity or field surface'
-    ),
-    'V3-KEYS: and the refusal is the signer\'s unclassifiable-section verdict, not a grammar error — the manifest LOADS, it just cannot be signed'
+    str_contains($controlVerdict, "declares 'acme_invented_section'")
+        && str_contains($controlVerdict, 'which this signer cannot classify as an entity or field surface')
+        && str_contains($controlVerdict, 'teach the signer this section'),
+    'V3-KEYS: and a key NO implemented feature claims still meets the unclassifiable-section verdict verbatim — '
+        . 'the roster classified the four that arrived through the channel, not everything'
 );
+duo_check_detail('V3-KEYS control refusal: ' . $controlVerdict);
 duo_check_same(
     [],
     array_values(array_intersect(array_keys($keysBreakList), ['fixture:manifest-a', 'fixture:manifest-b'])),
@@ -731,12 +780,104 @@ duo_check_detail('V3-FEAT section refusal: ' . (string) $featureFixtureVerdict);
 // The coupling WP-4.2 and WP-4.3 must land together or not at all: the channel
 // is a new top-level key, and the closed key set does not know it.
 duo_check(!in_array('engine_features', $closedSet, true), 'V3-FEAT x V3-KEYS: `engine_features` is in no arm of the partition');
+// RESOLVED by § v3.21, and the resolution is not "add it to the partition". A
+// partition arm would admit the key with no feature declared, deleting the
+// staging property the channel exists for; the arm rides in `spec-window/v1`'s
+// own roster row instead, and it is `non_surface` because the claim channel
+// covers no state — the standing `spec_version` already has.
 $featureVerdict = $signerVerdict('featureful', $fixtures['fixture:engine-features']);
-duo_check(
-    is_string($featureVerdict) && str_contains($featureVerdict, "declares 'engine_features'"),
-    'V3-FEAT x V3-KEYS: so any adapter using the channel is unsignable unless WP-4.3 teaches the signer the key in the SAME change'
+duo_check_same(
+    null,
+    $featureVerdict,
+    'V3-FEAT x V3-KEYS: an adapter using the channel is SIGNABLE — WP-4.3 shipped without teaching the signer '
+        . 'this key and WP-6.6 closed the gap for every feature-claimed key at once, not one at a time'
 );
-duo_check_detail('V3-FEAT refusal: ' . (string) $featureVerdict);
+duo_check_same(
+    'non_surface',
+    AdapterContractGrammar::feature_key_arms()['engine_features'] ?? null,
+    'V3-FEAT x V3-KEYS: and the arm is `non_surface`, so declaring the channel adds nothing to the signed '
+        . 'claim\'s `surfaces` list — a certificate says the same thing it would have said without it'
+);
+
+// ---------------------------------------------------------------------------
+// RULE V3-ARM — the roster's rows, pinned; and its own self-check, driven
+// (WP-6.6, § v3.21, register row R-31)
+// ---------------------------------------------------------------------------
+
+echo "\nRULE V3-ARM: every feature-claimed key carries a reviewed certificate arm\n";
+
+// The ROWS, pinned whole. Every one of these five is a permanent decision the
+// register records (R-31): the arm reaches `claim_from_disposition()`, which
+// builds the `surfaces` list inside a signed statement, so moving a key between
+// arms invalidates every certificate already issued over an adapter declaring
+// it. A sixth row, or a moved arm, is a reviewed edit here.
+duo_check_same(
+    [
+        'attr_id_codecs' => 'field',
+        'body_refs' => 'field',
+        'column_codecs' => 'field',
+        'declaration_evidence' => 'non_surface',
+        'engine_features' => 'non_surface',
+    ],
+    AdapterContractGrammar::feature_key_arms(),
+    'V3-ARM: the roster classifies five keys — the three typed refinements over an already-declared surface '
+        . 'as `field`, and the claim channel and its evidence records, which cover no state, as `non_surface`'
+);
+$report('feature-claimed key arms: ' . json_encode(AdapterContractGrammar::feature_key_arms(), JSON_UNESCAPED_SLASHES));
+
+// THE SELF-CHECK, DRIVEN. A gate that never bites is theatre, and this one
+// cannot be reached from any manifest — a bad arm is an ENGINE typo, so the
+// only way to measure the refusal is to hand the private assertion a value the
+// shipped constant does not contain. Both directions of § v3.21's property (b)
+// and (c) are exercised: an arm outside the vocabulary, and a key the signer's
+// own partition already carries.
+$assertArm = new ReflectionMethod(AdapterContractGrammar::class, 'assert_arm');
+$armVerdict = static function (string $key, mixed $arm) use ($assertArm): ?string {
+    try {
+        $assertArm->invoke(null, 'acme-feature/v1', $key, $arm);
+        return null;
+    } catch (\Throwable $e) {
+        return $e->getMessage();
+    }
+};
+$badArm = (string) $armVerdict('acme_section', 'surface');
+duo_check(
+    str_contains($badArm, "engine feature 'acme-feature/v1' classifies its top-level key 'acme_section'")
+        && str_contains($badArm, "not one of the signer's certificate arms (entity, field, non_surface)"),
+    'V3-ARM: an arm outside the vocabulary refuses AT THE ROSTER, naming the feature and the key — not at the '
+        . 'author\'s manifest, which would report a stranger\'s document for this engine\'s typo'
+);
+$collidingArm = (string) $armVerdict('options', 'field');
+duo_check(
+    str_contains($collidingArm, "classifies 'options', which the signer's own three-arm partition already carries"),
+    'V3-ARM: and a roster row naming a key the partition already carries refuses too — that is two spellings '
+        . 'of one arm, which is the exact failure the WP-5.3 lift and this rider both exist to prevent'
+);
+duo_check_same(
+    null,
+    $armVerdict('acme_section', 'field'),
+    'V3-ARM: while a key the partition does not carry, under a vocabulary arm, is accepted — so the two '
+        . 'refusals above are the rule and not a blanket'
+);
+duo_check_detail('V3-ARM bad-arm refusal: ' . $badArm);
+duo_check_detail('V3-ARM collision refusal: ' . $collidingArm);
+
+// The published half. `--emit-schema` is where an author reads the arm, and
+// `feature_section_grammars()` refuses a claimed key it cannot describe, so the
+// document cannot go quiet about a section authors are expected to write.
+$publishedSections = [];
+foreach (AdapterContractGrammar::implemented_feature_rows() as $feature => $row) {
+    foreach ($row['sections'] as $key => $section) {
+        $publishedSections[(string) $key] = $section['arm'];
+    }
+}
+ksort($publishedSections, SORT_STRING);
+duo_check_same(
+    AdapterContractGrammar::feature_key_arms(),
+    $publishedSections,
+    'V3-ARM: and `implemented_feature_rows()` publishes the same arm beside each claimed key, so the document '
+        . '`duo manifest-validate --emit-schema` emits is the roster rather than a second reading of it'
+);
 
 // ===========================================================================
 // RULE V3-DISP — per-adapter disposition documents (R4 / WP-4.4)

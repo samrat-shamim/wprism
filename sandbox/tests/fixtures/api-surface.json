@@ -377,6 +377,23 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "admitted_feature_key_arms": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "admitted_feature_keys": {
                     "abstract": false,
                     "final": false,
@@ -416,6 +433,22 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "feature_key_arms": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "feature_section_grammars": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },
@@ -5522,7 +5555,16 @@
         },
         "Duo\\AttrIdCodecGrammar": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "CODEC_KEYS": {
+                    "value_repr": [
+                        "id_type"
+                    ]
+                },
+                "SECTION": {
+                    "value_repr": "attr_id_codecs"
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
@@ -5622,6 +5664,14 @@
                             "variadic": false
                         }
                     ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "section_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
                     "return_type": "array",
                     "static": true,
                     "visibility": "public"
@@ -6222,6 +6272,16 @@
                 "FEATURE": {
                     "value_repr": "structured-body-refs/v1"
                 },
+                "RECORD_OPTIONAL": {
+                    "value_repr": [
+                        "sentinels"
+                    ]
+                },
+                "RECORD_REQUIRED": {
+                    "value_repr": [
+                        "json_refs"
+                    ]
+                },
                 "SECTION": {
                     "value_repr": "body_refs"
                 }
@@ -6425,6 +6485,14 @@
                             "variadic": false
                         }
                     ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "section_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
                     "return_type": "array",
                     "static": true,
                     "visibility": "public"
@@ -11724,7 +11792,17 @@
         },
         "Duo\\ColumnCodecGrammar": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "CODEC_KEYS": {
+                    "value_repr": [
+                        "container",
+                        "leaves"
+                    ]
+                },
+                "SECTION": {
+                    "value_repr": "column_codecs"
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
@@ -11848,6 +11926,14 @@
                             "variadic": false
                         }
                     ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "section_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
                     "return_type": "array",
                     "static": true,
                     "visibility": "public"
@@ -50967,7 +51053,19 @@
         },
         "Duo\\ReferenceRules": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "JSON_REF_OPTIONAL": {
+                    "value_repr": [
+                        "cast"
+                    ]
+                },
+                "JSON_REF_REQUIRED": {
+                    "value_repr": [
+                        "kind",
+                        "path"
+                    ]
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
@@ -60155,6 +60253,14 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "section_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }

@@ -626,11 +626,16 @@ Verbs:
                           deletion semantics are declared unsupported because
                           a validator run cannot review them.
                           --ratification-file signs the disposition YOU wrote
-                          instead of the derived one: the same document shape
-                          manifests/dispositions/<name>.json carries, judged by
-                          the engine's own disposition validator, which wants a
-                          separate non-empty reason on every unsupported[] row
-                          and every default-authored keyspace. Without it the
+                          instead of the derived one: the BARE entry
+                          manifests/dispositions/<name>.json carries at its top
+                          level — {capabilities, default_authored_keyspaces,
+                          evidence, reason, status, supported_versions,
+                          unsupported}, never the duo-manifest-dispositions/v1
+                          envelope, whose format/manifests/profiles the signer
+                          owns. It is judged by the engine's own disposition
+                          validator, which wants a separate non-empty reason on
+                          every unsupported[] row and every default-authored
+                          keyspace. Without it the
                           derivation stands — the honest floor, not a lesser
                           certificate. `adapter recertify` re-derives, so it
                           reports an authored claim as blocked rather than
@@ -641,8 +646,12 @@ Verbs:
     [--format=json]       certificate binds `spec_version` inside its signed
                           statement, so every certificate minted before the v3
                           bump withdraws to `uncertified` (a named degradation
-                          — the adapter keeps loading, plan and apply stay
-                          available, readiness and host promotion do not).
+                          — the adapter keeps loading, capture and plan stay
+                          available; readiness and host promotion do not, and
+                          apply goes with them on any repository `duo init`
+                          created, whose pinned code revision makes apply
+                          refuse code_revision_stale until a deploy that
+                          promotion is blocking).
                           Idempotent by REUSE, not by a flag: an unchanged
                           input re-signs byte-identically and keeps its
                           original created_at, so a second run reports

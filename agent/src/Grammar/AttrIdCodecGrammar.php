@@ -49,6 +49,27 @@ namespace Duo;
  */
 final class AttrIdCodecGrammar {
     /**
+     * The top-level section `attr-id-codecs/v1` claims.
+     *
+     * Named here for the reason `BodyRefGrammar::SECTION` gives for its own:
+     * `AdapterContractGrammar`'s roster, this validator and the published
+     * `--emit-schema` grammar all have to be talking about the same string, and
+     * three literals agree until one of them moves. The refusal MESSAGES below
+     * keep their literal spelling deliberately — they are pinned prose an
+     * author reads, not a lookup.
+     */
+    public const SECTION = 'attr_id_codecs';
+
+    /**
+     * One codec's closed key set: exactly `{id_type}`, both directions.
+     *
+     * Hoisted out of validate_one()'s `$keys !== ['id_type']` for WP-6.6, so
+     * `--emit-schema` publishes the shape from the constant the refusal is
+     * written against rather than from a copy.
+     */
+    public const CODEC_KEYS = ['id_type'];
+
+    /**
      * The closed `id_type` vocabulary: the JSON type a resolved id is written
      * back as.
      *
@@ -63,6 +84,31 @@ final class AttrIdCodecGrammar {
     /** @return list<string> Policy::closed_vocabularies()'s read of ID_TYPES. */
     public static function idTypes(): array {
         return self::ID_TYPES;
+    }
+
+    /**
+     * This section's value grammar, published for `duo manifest-validate
+     * --emit-schema` (WP-6.6, spec/repo-format.md § v3.21).
+     *
+     * Two nested key levels and one closed vocabulary is the whole shape, and
+     * all three are read from the constants the refusals above are written
+     * against. `refines` is stated because it is the half a shape alone cannot
+     * carry: a codec addresses a `block_attrs` rule that must already exist,
+     * already resolve an id, and already be scalar — three refusals an author
+     * meets in that order (validate_one()).
+     *
+     * @return array<string,mixed>
+     */
+    public static function section_grammar(): array {
+        return [
+            'keyed_by' => 'block name, then attribute path — both must be a `block_attrs` rule THIS manifest '
+                . 'declares, because a codec refines a declared rule and never introduces one',
+            'codec' => ['required' => self::CODEC_KEYS, 'optional' => []],
+            'id_type' => self::ID_TYPES,
+            'refines' => 'only a scalar entity-ref rule: a rule carrying tokenize, unsupported, lint_ok or '
+                . 'type="int[]" resolves no single id, and a codec over it is refused by name',
+            'validated_by' => 'Duo\\AttrIdCodecGrammar::validate_attr_id_codecs()',
+        ];
     }
 
     /**
@@ -86,10 +132,10 @@ final class AttrIdCodecGrammar {
      * @param array<string,mixed> $manifest
      */
     public static function validate_attr_id_codecs(array $manifest, string $label): void {
-        if (!array_key_exists('attr_id_codecs', $manifest)) {
+        if (!array_key_exists(self::SECTION, $manifest)) {
             return;
         }
-        $section = $manifest['attr_id_codecs'];
+        $section = $manifest[self::SECTION];
         if (!is_array($section) || array_is_list($section) || $section === []) {
             throw new \RuntimeException(
                 "duo: $label attr_id_codecs must be a non-empty object keyed by block name, each value an object "
@@ -164,7 +210,7 @@ final class AttrIdCodecGrammar {
         }
         $keys = array_keys($codec);
         sort($keys, SORT_STRING);
-        if ($keys !== ['id_type']) {
+        if ($keys !== self::CODEC_KEYS) {
             throw new \RuntimeException(
                 "duo: $where declares [" . implode(', ', array_map('strval', $keys))
                 . '] but an id codec is exactly {id_type}'
