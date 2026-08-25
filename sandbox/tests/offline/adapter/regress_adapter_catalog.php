@@ -372,8 +372,14 @@ check(
 );
 check(
     is_array($woo) && ($woo['executable_surfaces']['manifest_providers'] ?? [])
-        === ['woocommerce-cache', 'woocommerce-product-lookups'],
-    'and both of its manifest-shipped providers are listed as executable code — including the lookup repair '
+        === [
+            'woocommerce-cache',
+            'woocommerce-hierarchy-lookups',
+            'woocommerce-fulfillment-prerequisites',
+            'woocommerce-scheduler-settings',
+            'woocommerce-product-lookups',
+        ],
+    'all five of its manifest-shipped providers are listed as executable code — including the lookup repair '
     . 'DUO-3342 moved out of the regenerator channel, which the row below confirms is no longer a regenerator'
 );
 check(
@@ -397,7 +403,7 @@ check(
 $statuses = array_values(array_unique(array_column($listReport['adapters'] ?? [], 'disposition_status')));
 sort($statuses, SORT_STRING);
 check(
-    $statuses === ['certified', 'excluded'],
+    $statuses === ['certified', 'excluded', 'experimental'],
     "every shipped row carries its REVIEWED disposition status, from the reviewed set's own vocabulary (found: "
     . implode(', ', array_map(fn($s) => var_export($s, true), $statuses)) . ')'
 );
@@ -456,7 +462,7 @@ check(
 );
 check(
     is_array($adapter) && is_array($adapter['claim'] ?? null)
-    && ($adapter['claim']['status'] ?? null) === 'certified',
+    && ($adapter['claim']['status'] ?? null) === 'experimental',
     'MERGED FROM dispositions.json: the capability claim the reviewed entry projects'
 );
 // No `adapter_digest` on a claim, and none derivable here. Adapter identity is

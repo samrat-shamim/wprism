@@ -1034,7 +1034,7 @@ foreach ([
     '"pll_rewrite_rules","pll_modify_rewrite_rule"',
     '([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0',
     'def static_rewrite_hook:',
-    '(.source_files|length==17)',
+    '(.source_files|length==27)',
     'CALLBACK_IDENTITIES=$(wp2 eval',
     'native rewrite callback identity differs from source services',
     '$GLOBALS["wc_container"]',

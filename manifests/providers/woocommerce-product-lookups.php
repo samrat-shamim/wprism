@@ -4287,7 +4287,7 @@ final class WoocommerceProductLookups {
      *
      * @param list<int> $liveIds
      * @param array<int,array> $deletionContext
-     * @return array{ids:array<int,true>,children:array<int,list<int>>,visible_children:array<int,list<int>>}
+     * @return array{ids:array<int,true>,children:array<int,list<int>>,visible_children:array<int,list<int>>,grouped_parents:array<int,list<int>>}
      */
     private function preflight_product_scope(
         array $liveIds,
@@ -4297,6 +4297,7 @@ final class WoocommerceProductLookups {
         $scope = [];
         $children = [];
         $visibleChildren = [];
+        $groupedParents = [];
         $queue = [];
         $queued = [];
         $excluded = [];
@@ -4452,13 +4453,29 @@ final class WoocommerceProductLookups {
             }
         }
 
+        // A grouped _children reverse edge is not represented by
+        // post_parent. Re-read the exact bounded candidate set once after
+        // graph closure so the preflight receipt carries both directions of
+        // the composite graph. The post-preflight assertion below repeats
+        // these same bounded probes; a newly inserted grouped owner therefore
+        // refuses before cache invalidation instead of being discovered after
+        // effects begin and silently skipped as an unsnapshotted root.
+        foreach (array_keys($reverseCandidates) as $candidateId) {
+            $candidateId = (int) $candidateId;
+            if ($candidateId > 0) {
+                $groupedParents[$candidateId] = $this->find_grouped_parent_ids($candidateId);
+            }
+        }
+
         ksort($scope, SORT_NUMERIC);
         ksort($children, SORT_NUMERIC);
         ksort($visibleChildren, SORT_NUMERIC);
+        ksort($groupedParents, SORT_NUMERIC);
         return [
             'ids' => $scope,
             'children' => $children,
             'visible_children' => $visibleChildren,
+            'grouped_parents' => $groupedParents,
         ];
     }
 
@@ -4468,7 +4485,7 @@ final class WoocommerceProductLookups {
      * invalidation: a child list that widens after preflight must refuse with
      * no derived effect, not be discovered by a later verification pass.
      *
-     * @param array{ids:array<int,true>,children:array<int,list<int>>,visible_children:array<int,list<int>>} $snapshot
+     * @param array{ids:array<int,true>,children:array<int,list<int>>,visible_children:array<int,list<int>>,grouped_parents:array<int,list<int>>} $snapshot
      */
     private function assert_product_scope_snapshot(
         array $snapshot,
@@ -4477,10 +4494,27 @@ final class WoocommerceProductLookups {
         $ids = $snapshot['ids'] ?? null;
         $children = $snapshot['children'] ?? null;
         $visibleChildren = $snapshot['visible_children'] ?? null;
-        if (!is_array($ids) || !is_array($children) || !is_array($visibleChildren)) {
+        $groupedParents = $snapshot['grouped_parents'] ?? null;
+        if (!is_array($ids) || !is_array($children) || !is_array($visibleChildren)
+            || !is_array($groupedParents)) {
             throw new \RuntimeException(
                 'duo: WooCommerce product lookup scope snapshot is missing its bounded child witness'
             );
+        }
+        foreach ($groupedParents as $candidateId => $expected) {
+            $candidateId = (int) $candidateId;
+            if ($candidateId <= 0 || !is_array($expected)) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product lookup scope snapshot contains malformed grouped-parent state'
+                );
+            }
+            $this->heartbeat($heartbeat);
+            $actual = $this->find_grouped_parent_ids($candidateId);
+            if ($actual !== array_values(array_map('intval', $expected))) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce grouped-parent scope changed before native projection; recovery_required'
+                );
+            }
         }
         $sets = [array_keys($ids)];
         foreach ($children as $id => $expected) {

@@ -348,6 +348,8 @@ namespace {
         public ?array $groupedParentOverride = null;
         /** @var callable|null invoked at each bounded child inventory read */
         public mixed $childScopeReadHook = null;
+        /** @var callable|null invoked at each bounded grouped reverse-owner read */
+        public mixed $groupedParentReadHook = null;
         public mixed $afterDownloadWitness = null;
         public ?string $downloadMetaKeyOverride = null;
         public ?array $lookupSchemaRowsOverride = null;
@@ -493,6 +495,9 @@ namespace {
             }
             if (!str_contains($query, "meta_key = '_children'")) {
                 return [];
+            }
+            if (is_callable($this->groupedParentReadHook)) {
+                ($this->groupedParentReadHook)();
             }
             if (is_array($this->groupedParentOverride)) {
                 $rows = $this->groupedParentOverride;
@@ -2895,6 +2900,49 @@ namespace {
     unset($fakeProducts[$groupedRaceRoot], $fakeMeta[$groupedRaceRoot], $fakeMetaLookup[$groupedRaceRoot],
         $fakeVisibilityRelationships[$groupedRaceRoot], $fakeProductCache[$groupedRaceRoot],
         $fakeGroupedChildren[$groupedRaceRoot]);
+
+    // Reverse grouped ownership is a separate bounded witness from a root's
+    // own _children payload. Insert a new grouped owner for an already
+    // selected simple child during the post-preflight reverse probe; the
+    // provider must refuse before it can discover, invalidate, or sync that
+    // newly authorized root.
+    $reverseRaceChild = 71700;
+    $reverseRaceParent = 71701;
+    fake_add_visibility_product($reverseRaceChild, 'simple');
+    $reverseParentReads = 0;
+    $wpdb->groupedParentReadHook = static function () use (
+        &$reverseParentReads,
+        &$fakeGroupedChildren,
+        $reverseRaceChild,
+        $reverseRaceParent
+    ): void {
+        $reverseParentReads++;
+        if ($reverseParentReads === 3) {
+            fake_add_visibility_product($reverseRaceParent, 'grouped', 0, [$reverseRaceChild]);
+            $fakeGroupedChildren[$reverseRaceParent] = [$reverseRaceChild];
+        }
+    };
+    $reverseRaceCacheStart = count($fakeCacheEvents);
+    $reverseRaceFailure = '';
+    try {
+        $adapter->regenerate_batch([$reverseRaceChild], []);
+    } catch (\Throwable $failure) {
+        $reverseRaceFailure = $failure->getMessage();
+    }
+    $wpdb->groupedParentReadHook = null;
+    $reverseRaceEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $reverseRaceCacheStart),
+        static fn(string $event): bool => str_starts_with($event, 'remove:')
+    ));
+    $check(str_contains($reverseRaceFailure, 'grouped-parent scope changed')
+        && $reverseRaceEffects === []
+        && $reverseParentReads === 3,
+        'a grouped parent inserted after reverse preflight refuses before root discovery or derived effects');
+    unset($fakeProducts[$reverseRaceChild], $fakeMeta[$reverseRaceChild], $fakeMetaLookup[$reverseRaceChild],
+        $fakeVisibilityRelationships[$reverseRaceChild], $fakeProductCache[$reverseRaceChild],
+        $fakeProducts[$reverseRaceParent], $fakeMeta[$reverseRaceParent], $fakeMetaLookup[$reverseRaceParent],
+        $fakeVisibilityRelationships[$reverseRaceParent], $fakeProductCache[$reverseRaceParent],
+        $fakeGroupedChildren[$reverseRaceParent]);
 
     // Exercise the same mutable sequence through Woo's variable-product
     // post_parent reader. The all-child witness is fixed at 50,000 ids, then

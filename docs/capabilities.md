@@ -49,7 +49,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [paid-memberships-pro](#paid-memberships-pro) | certified | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.2 <3.8.4 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.8 <3.8.8 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [the-events-calendar](#the-events-calendar) | certified | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.4 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
-| [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [woocommerce](#woocommerce) | experimental | `woocommerce/woocommerce.php` | >=11.0.0 <11.0.2 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [wps-hide-login](#wps-hide-login) | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [yoast](#yoast) | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [yoast-duplicate-post](#yoast-duplicate-post) | certified | `duplicate-post/duplicate-post.php` | >=4.7 <4.8 | apply, capture, compile, deploy, plan, promote, recapture, render-api |

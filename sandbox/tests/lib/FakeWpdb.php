@@ -1833,59 +1833,62 @@ final class FakeWpdb {
         }
         $this->currentSql = $trimmed;
         if (preg_match('/^(.*)\s+FOR\s+UPDATE$/isD', $trimmed, $locking) === 1) {
-            if ($this->transactionSnapshot === null) {
-                throw $this->unsupported('SELECT FOR UPDATE outside a transaction');
-            }
             if (preg_match('/\bFROM\s+`?([A-Za-z0-9_]{1,64})`?/is', $trimmed, $tableMatch) !== 1) {
                 throw $this->unsupported('SELECT FOR UPDATE without an exact table');
             }
             $table = $this->tableName($tableMatch[1]);
-            $schemaKey = $table . "\0schema";
-            if (isset($this->rowLocks[$schemaKey]) && $this->rowLocks[$schemaKey] !== $this->connectionId) {
-                throw new \RuntimeException('FakeWpdb: simulated InnoDB metadata lock wait timeout');
-            }
-            $this->rowLocks[$schemaKey] = $this->connectionId;
-            if (preg_match(
-                "/\\bFROM\\s+`?([A-Za-z0-9_]{1,64})`?.*\\boption_name\\s*=\\s*"
-                . "(?:BINARY\\s+)?'((?:[^'\\\\]|\\\\.)*)'/is",
-                $trimmed,
-                $target
-            ) === 1) {
-                $optionName = stripslashes($target[2]);
-                $key = $this->tableName($target[1]) . "\0option_name\0" . $optionName;
-                if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
-                    throw new \RuntimeException('FakeWpdb: simulated InnoDB row lock wait timeout');
+            if ($this->transactionSnapshot !== null) {
+                $schemaKey = $table . "\0schema";
+                if (isset($this->rowLocks[$schemaKey]) && $this->rowLocks[$schemaKey] !== $this->connectionId) {
+                    throw new \RuntimeException('FakeWpdb: simulated InnoDB metadata lock wait timeout');
                 }
-                $this->rowLocks[$key] = $this->connectionId;
-            } elseif (str_ends_with($table, 'actionscheduler_groups')
-                && preg_match("/\\bWHERE\\s+slug\\s*=\\s*'((?:[^'\\\\]|\\\\.)*)'/is", $trimmed, $group) === 1) {
-                $key = $table . "\0slug\0" . stripslashes($group[1]);
-                if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
-                    throw new \RuntimeException('FakeWpdb: simulated InnoDB group-range lock wait timeout');
+                $this->rowLocks[$schemaKey] = $this->connectionId;
+                if (preg_match(
+                    "/\\bFROM\\s+`?([A-Za-z0-9_]{1,64})`?.*\\boption_name\\s*=\\s*"
+                    . "(?:BINARY\\s+)?'((?:[^'\\\\]|\\\\.)*)'/is",
+                    $trimmed,
+                    $target
+                ) === 1) {
+                    $optionName = stripslashes($target[2]);
+                    $key = $this->tableName($target[1]) . "\0option_name\0" . $optionName;
+                    if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                        throw new \RuntimeException('FakeWpdb: simulated InnoDB row lock wait timeout');
+                    }
+                    $this->rowLocks[$key] = $this->connectionId;
+                } elseif (str_ends_with($table, 'actionscheduler_groups')
+                    && preg_match("/\\bWHERE\\s+slug\\s*=\\s*'((?:[^'\\\\]|\\\\.)*)'/is", $trimmed, $group) === 1) {
+                    $key = $table . "\0slug\0" . stripslashes($group[1]);
+                    if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                        throw new \RuntimeException('FakeWpdb: simulated InnoDB group-range lock wait timeout');
+                    }
+                    $this->rowLocks[$key] = $this->connectionId;
+                } elseif (str_ends_with($table, 'duo_map')) {
+                    // Apply finalization takes one bounded inventory lock over
+                    // the complete engine-owned map; its exact table and
+                    // PRIMARY order are the lock target, without a WHERE key.
+                } elseif (preg_match(
+                    "/\\bWHERE\\s+hook\\s*=\\s*'([^']+)'\\s+AND\\s+status\\s*=\\s*'([^']+)'/is",
+                    $trimmed,
+                    $range
+                ) === 1) {
+                    $key = $table . "\0hook-status\0" . stripslashes($range[1]) . "\0" . stripslashes($range[2]);
+                    if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                        throw new \RuntimeException('FakeWpdb: simulated InnoDB range lock wait timeout');
+                    }
+                    $this->rowLocks[$key] = $this->connectionId;
+                } elseif (str_ends_with($table, 'actionscheduler_logs')
+                    && preg_match('/\bWHERE\s+action_id\s*=\s*([0-9]+)\b/is', $trimmed, $owner) === 1) {
+                    $key = $table . "\0action_id\0" . $owner[1];
+                    if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                        throw new \RuntimeException('FakeWpdb: simulated InnoDB owner-range lock wait timeout');
+                    }
+                    $this->rowLocks[$key] = $this->connectionId;
+                } elseif (preg_match(
+                    '/\bWHERE\b[^;]*\b`?(?:ID|option_id|meta_id|event_id|occurrence_id|post_id|action_id|claim_id|group_id|log_id)`?\s*=\s*[0-9]+\b/is',
+                    $trimmed
+                ) !== 1) {
+                    throw $this->unsupported('unregistered SELECT FOR UPDATE lock target');
                 }
-                $this->rowLocks[$key] = $this->connectionId;
-            } elseif (preg_match(
-                "/\\bWHERE\\s+hook\\s*=\\s*'([^']+)'\\s+AND\\s+status\\s*=\\s*'([^']+)'/is",
-                $trimmed,
-                $range
-            ) === 1) {
-                $key = $table . "\0hook-status\0" . stripslashes($range[1]) . "\0" . stripslashes($range[2]);
-                if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
-                    throw new \RuntimeException('FakeWpdb: simulated InnoDB range lock wait timeout');
-                }
-                $this->rowLocks[$key] = $this->connectionId;
-            } elseif (str_ends_with($table, 'actionscheduler_logs')
-                && preg_match('/\bWHERE\s+action_id\s*=\s*([0-9]+)\b/is', $trimmed, $owner) === 1) {
-                $key = $table . "\0action_id\0" . $owner[1];
-                if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
-                    throw new \RuntimeException('FakeWpdb: simulated InnoDB owner-range lock wait timeout');
-                }
-                $this->rowLocks[$key] = $this->connectionId;
-            } elseif (preg_match(
-                '/\bWHERE\s+`?([A-Za-z0-9_]{1,64})`?\s*=\s*0\b/is',
-                $trimmed
-            ) !== 1) {
-                throw $this->unsupported('unregistered SELECT FOR UPDATE lock target');
             }
             $trimmed = rtrim($locking[1]);
             $trimmed = preg_replace(
@@ -3440,7 +3443,8 @@ final class FakeWpdb {
             $table = $this->parseTableRef();
             $this->expectEnd();
             $name = $this->requireTable($table);
-            if ($full && isset($this->columnDefinitions[$name])) {
+            if ($full && isset($this->columnDefinitions[$name])
+                && array_is_list($this->columnDefinitions[$name])) {
                 return ['kind' => 'rows', 'rows' => $this->columnDefinitions[$name]];
             }
             $types = $this->columnTypes[$name] ?? [];
