@@ -15,6 +15,68 @@ if (!class_exists(DeleteGuardEvaluator::class, false)) {
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 
 /**
+ * Materializer-owned native metadata authority. The compiled artifact and
+ * durable filesystem transaction stay behind this capability; callers cannot
+ * replace them with hashes or a synthetic attempt reader.
+ */
+final class AttachmentNativeMetadataAuthority {
+    private function __construct(
+        private readonly ?CompiledRepository $compiled,
+        private readonly ?AttachmentFilesystemTransaction $filesystem,
+        private readonly array $adapterManifests,
+        private readonly \Closure $lockTarget
+    ) {}
+
+    public static function from_materializer(
+        AttachmentMaterializer $owner,
+        object $secret,
+        CompiledRepository $compiled,
+        AttachmentFilesystemTransaction $filesystem,
+        array $adapterManifests,
+        \Closure $lockTarget
+    ): self {
+        $owner->assert_native_authority_secret($secret);
+        return new self($compiled, $filesystem, $adapterManifests, $lockTarget);
+    }
+
+    /** @return list<string> */
+    public function adapter_manifests(): array {
+        return $this->adapterManifests;
+    }
+
+    public function lock_target(): \Closure {
+        return $this->lockTarget;
+    }
+
+    public function compiled_artifact_hash(): ?string {
+        return $this->compiled?->artifact_hash();
+    }
+
+    public function compiled_manifest_hash(): ?string {
+        return $this->compiled?->manifest_hash();
+    }
+
+    /** @return ?array{intent_id:string,artifact_hash:string,roster_hash:string,manifest_hash:string} */
+    public function post_commit_context(): ?array {
+        if ($this->compiled === null || $this->filesystem === null || !in_array($this->filesystem->phase(), [
+            'originals_published', 'generating_metadata', 'metadata_generated',
+            'publishing_derivatives', 'derivatives_published', 'metadata_committing',
+            'metadata_committed', 'removing_stale', 'complete',
+        ], true)) {
+            return null;
+        }
+        $attempt = $this->filesystem->attempt_identity();
+        if ($attempt === null) return null;
+        return [
+            'intent_id' => $attempt['intent_id'],
+            'artifact_hash' => $attempt['artifact_hash'],
+            'roster_hash' => $attempt['roster_hash'],
+            'manifest_hash' => $this->compiled->manifest_hash(),
+        ];
+    }
+}
+
+/**
  * Runs WordPress's attachment metadata generator against an isolated file.
  *
  * Core 6.9.2/7.0.3/7.1 saves partial image metadata after every generated
@@ -39,9 +101,10 @@ final class AttachmentNativeMetadataGenerator {
     private bool $markerlessPreflightActive = false;
     private bool $markerlessProofAvailable = false;
     private bool $nativeRebuildHandoffConsumed = false;
-    /** @var ?\Closure():?array<string,mixed> */
-    private readonly ?\Closure $nativeRebuildContextReader;
+    private readonly AttachmentNativeMetadataAuthority $authority;
     private \Closure $lockTarget;
+    /** @var list<string> */
+    private array $adapterManifests;
 
     /** Hooks reached by the audited Core raster path and the explicitly refused sibling media paths. */
     private const CLOSED_FILTERS = [
@@ -208,26 +271,16 @@ final class AttachmentNativeMetadataGenerator {
         // it generically while this registry binds every stable TEC callback.
     ];
 
-    /**
-     * @param \Closure(int):string $lockTarget returns the exact raw MIME type under row/meta locks
-     * @param list<string> $adapterManifests manifest names from the frozen Policy version-range projection
-     * @param ?\Closure():?array<string,mixed> $nativeRebuildContextReader materializer-owned post-commit attempt authority
-     */
-    public function __construct(
-        \Closure $lockTarget,
-        private readonly array $adapterManifests = [],
-        private readonly ?string $compiledArtifactIdentity = null,
-        private readonly ?string $compiledManifestIdentity = null,
-        ?\Closure $nativeRebuildContextReader = null
-    ) {
-        $this->lockTarget = $lockTarget;
-        $this->nativeRebuildContextReader = $nativeRebuildContextReader;
-        if (!array_is_list($adapterManifests)
-            || count($adapterManifests) > 32
-            || count(array_unique($adapterManifests, SORT_STRING)) !== count($adapterManifests)) {
+    private function __construct(AttachmentNativeMetadataAuthority $authority) {
+        $this->authority = $authority;
+        $this->lockTarget = $authority->lock_target();
+        $this->adapterManifests = $authority->adapter_manifests();
+        if (!array_is_list($this->adapterManifests)
+            || count($this->adapterManifests) > 32
+            || count(array_unique($this->adapterManifests, SORT_STRING)) !== count($this->adapterManifests)) {
             throw new \RuntimeException('duo: native attachment metadata adapter authority is malformed');
         }
-        foreach ($adapterManifests as $manifest) {
+        foreach ($this->adapterManifests as $manifest) {
             if (!is_string($manifest)
                 || $manifest === ''
                 || strlen($manifest) > 191
@@ -235,15 +288,14 @@ final class AttachmentNativeMetadataGenerator {
                 throw new \RuntimeException('duo: native attachment metadata adapter authority is malformed');
             }
         }
-        if (in_array('polylang', $adapterManifests, true)
-            && ($compiledArtifactIdentity === null || $compiledManifestIdentity === null)) {
+        if (in_array('polylang', $this->adapterManifests, true)
+            && ($authority->compiled_artifact_hash() === null || $authority->compiled_manifest_hash() === null)) {
             throw new \RuntimeException('duo: Polylang attachment metadata authority lacks its compiled artifact identity');
         }
-        foreach (['artifact' => $compiledArtifactIdentity, 'manifest' => $compiledManifestIdentity] as $label => $identity) {
-            if ($identity !== null && preg_match('/^[0-9a-f]{64}$/D', $identity) !== 1) {
-                throw new \RuntimeException("duo: native attachment metadata $label identity is malformed");
-            }
-        }
+    }
+
+    public static function from_authority(AttachmentNativeMetadataAuthority $authority): self {
+        return new self($authority);
     }
 
     public function has_polylang_no_language_handoff(): bool {
@@ -816,20 +868,19 @@ final class AttachmentNativeMetadataGenerator {
 
     private function consume_polylang_no_language_handoff(): void {
         if ($this->nativeRebuildHandoffConsumed) return;
-        if ($this->nativeRebuildContextReader === null) {
-            throw new \RuntimeException('duo: Polylang no-language handoff lacks a materializer-owned attachment attempt authority');
-        }
-        $context = ($this->nativeRebuildContextReader)();
+        $context = $this->authority->post_commit_context();
         if (!is_array($context)) {
             throw new \RuntimeException('duo: Polylang no-language handoff is not sealed to a post-commit attachment attempt');
         }
         self::assert_attempt_context($context);
-        if ($this->compiledArtifactIdentity !== null
-            && !hash_equals($this->compiledArtifactIdentity, $context['artifact_hash'])) {
+        $compiledArtifactHash = $this->authority->compiled_artifact_hash();
+        if ($compiledArtifactHash !== null
+            && !hash_equals($compiledArtifactHash, $context['artifact_hash'])) {
             throw new \RuntimeException('duo: Polylang no-language handoff does not match the compiled artifact identity');
         }
-        if ($this->compiledManifestIdentity !== null
-            && !hash_equals($this->compiledManifestIdentity, $context['manifest_hash'])) {
+        $compiledManifestHash = $this->authority->compiled_manifest_hash();
+        if ($compiledManifestHash !== null
+            && !hash_equals($compiledManifestHash, $context['manifest_hash'])) {
             throw new \RuntimeException('duo: Polylang no-language handoff does not match the compiled manifest identity');
         }
         $this->nativeRebuildHandoffConsumed = true;

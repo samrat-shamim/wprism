@@ -34,6 +34,7 @@ return [
     'Duo\\AtomicTreePublisher' => 'src/Publication/AtomicTreePublisher.php',
     'Duo\\AttachmentFilesystemTransaction' => 'src/Apply/AttachmentFilesystemTransaction.php',
     'Duo\\AttachmentMaterializer' => 'src/Apply/AttachmentMaterializer.php',
+    'Duo\\AttachmentNativeMetadataAuthority' => 'src/Apply/AttachmentNativeMetadataGenerator.php',
     'Duo\\AttachmentNativeMetadataGenerator' => 'src/Apply/AttachmentNativeMetadataGenerator.php',
     'Duo\\AttributeGrammar' => 'src/Grammar/AttributeGrammar.php',
     'Duo\\AuthoredTransactionExecutor' => 'src/Apply/AuthoredTransactionExecutor.php',

@@ -1,5 +1,5 @@
 {
-    "class_count": 370,
+    "class_count": 371,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -4757,6 +4757,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "assert_native_authority_secret": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "secret",
+                            "type": "object",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "commit_authored_transaction": {
                     "abstract": false,
                     "final": false,
@@ -4919,6 +4936,115 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\AttachmentNativeMetadataAuthority": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "adapter_manifests": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "compiled_artifact_hash": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "compiled_manifest_hash": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "from_materializer": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "owner",
+                            "type": "Duo\\AttachmentMaterializer",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "secret",
+                            "type": "object",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "compiled",
+                            "type": "Duo\\CompiledRepository",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "filesystem",
+                            "type": "Duo\\AttachmentFilesystemTransaction",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "adapterManifests",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "lockTarget",
+                            "type": "Closure",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\AttachmentNativeMetadataAuthority",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "lock_target": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "Closure",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "post_commit_context": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\AttachmentNativeMetadataGenerator": {
             "abstract": false,
             "constants": [],
@@ -4931,55 +5057,6 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "void",
-                    "static": false,
-                    "visibility": "public"
-                },
-                "__construct": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "lockTarget",
-                            "type": "Closure",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": [],
-                            "has_default": true,
-                            "name": "adapterManifests",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": true,
-                            "name": "compiledArtifactIdentity",
-                            "type": "?string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": true,
-                            "name": "compiledManifestIdentity",
-                            "type": "?string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": true,
-                            "name": "nativeRebuildContextReader",
-                            "type": "?Closure",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": null,
                     "static": false,
                     "visibility": "public"
                 },
@@ -5006,6 +5083,23 @@
                     ],
                     "return_type": "void",
                     "static": false,
+                    "visibility": "public"
+                },
+                "from_authority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authority",
+                            "type": "Duo\\AttachmentNativeMetadataAuthority",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\AttachmentNativeMetadataGenerator",
+                    "static": true,
                     "visibility": "public"
                 },
                 "generate": {

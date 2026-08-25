@@ -74,6 +74,7 @@ final class AttachmentMaterializer {
     private const ATTACHED_FILE_LOCK_CHUNK = 512;
     private const MAX_UPLOAD_PATH_BYTES = 1024;
     private readonly AttachmentFilesystemTransaction $filesystem;
+    private readonly object $nativeAuthoritySecret;
     private ?string $attachedFileLockIndex = null;
 
     public function __construct(
@@ -83,6 +84,14 @@ final class AttachmentMaterializer {
         string $repositoryRoot
     ) {
         $this->filesystem = new AttachmentFilesystemTransaction($compiled, $repositoryRoot);
+        $this->nativeAuthoritySecret = new \stdClass();
+    }
+
+    /** @internal consumed only by AttachmentNativeMetadataAuthority::from_materializer(). */
+    public function assert_native_authority_secret(object $secret): void {
+        if ($secret !== $this->nativeAuthoritySecret) {
+            throw new \RuntimeException('duo: native attachment metadata authority secret does not belong to this materializer');
+        }
     }
 
     /** Recover a committed upload publication before target capture. */
@@ -218,12 +227,15 @@ final class AttachmentMaterializer {
         // The witness belongs to this one markerless-to-post-commit transition;
         // a retry must re-prove the target before accepting an absent callback pair.
         $this->polylangNativeGenerator = null;
-        $generator = new AttachmentNativeMetadataGenerator(
-            fn(int $id): string => $this->assert_locked_pending_binding($id),
-            $this->attachment_adapter_manifests(),
-            $this->compiled->artifact_hash(),
-            $this->compiled->manifest_hash(),
-            fn(): ?array => $this->polylang_proof_context()
+        $generator = AttachmentNativeMetadataGenerator::from_authority(
+            AttachmentNativeMetadataAuthority::from_materializer(
+                $this,
+                $this->nativeAuthoritySecret,
+                $this->compiled,
+                $this->filesystem,
+                $this->attachment_adapter_manifests(),
+                fn(int $id): string => $this->assert_locked_pending_binding($id)
+            )
         );
         $this->filesystem->prepare(
             $work,
@@ -318,12 +330,15 @@ final class AttachmentMaterializer {
         try {
             $generator = $this->polylangNativeGenerator;
             if ($generator === null) {
-                $generator = new AttachmentNativeMetadataGenerator(
-                    fn(int $id): string => $this->assert_locked_pending_binding($id),
-                    $this->attachment_adapter_manifests(),
-                    $this->compiled->artifact_hash(),
-                    $this->compiled->manifest_hash(),
-                    fn(): ?array => $this->polylang_proof_context()
+                $generator = AttachmentNativeMetadataGenerator::from_authority(
+                    AttachmentNativeMetadataAuthority::from_materializer(
+                        $this,
+                        $this->nativeAuthoritySecret,
+                        $this->compiled,
+                        $this->filesystem,
+                        $this->attachment_adapter_manifests(),
+                        fn(int $id): string => $this->assert_locked_pending_binding($id)
+                    )
                 );
             }
             $this->filesystem->generate_metadata($generator);
@@ -915,27 +930,6 @@ final class AttachmentMaterializer {
         $out = array_keys($manifests);
         sort($out, SORT_STRING);
         return $out;
-    }
-
-    /** @return array{intent_id:string,artifact_hash:string,roster_hash:string,manifest_hash:string} */
-    private function polylang_proof_context(): array {
-        if (!in_array($this->filesystem->phase(), [
-            'originals_published', 'generating_metadata', 'metadata_generated',
-            'publishing_derivatives', 'derivatives_published', 'metadata_committing',
-            'metadata_committed', 'removing_stale', 'complete',
-        ], true)) {
-            throw new \RuntimeException('duo: Polylang no-language proof is not sealed to a post-commit attachment attempt');
-        }
-        $attempt = $this->filesystem->attempt_identity();
-        if ($attempt === null) {
-            throw new \RuntimeException('duo: Polylang no-language proof lacks its durable attachment attempt');
-        }
-        return [
-            'intent_id' => $attempt['intent_id'],
-            'artifact_hash' => $attempt['artifact_hash'],
-            'roster_hash' => $attempt['roster_hash'],
-            'manifest_hash' => $this->compiled->manifest_hash(),
-        ];
     }
 
     /**
