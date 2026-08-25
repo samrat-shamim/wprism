@@ -875,6 +875,14 @@ namespace {
         !in_array('option:polylang_wpml_strings', $manifest['actions'][0]['triggers'] ?? [], true),
         'unobserved WPML registry cannot trigger a provider-side native read or effect'
     );
+    duo_check_same(
+        ['class' => 'runtime'],
+        $interpreter->option_rule(
+            'polylang_wpml_strings',
+            ['polylang_wpml_strings' => serialize([])]
+        ),
+        'Polylang 3.8.x empty WPML registry row is target-local runtime state, not an authored claim'
+    );
     duo_check_throws(
         static fn(): ?array => $interpreter->option_rule(
             'polylang_wpml_strings',

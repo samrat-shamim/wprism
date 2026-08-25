@@ -164,6 +164,12 @@ final class Polylang {
         ], true)) {
             return ['class' => 'runtime'];
         }
+        if ($name === 'polylang_wpml_strings') {
+            $value = PlainData::decode($allOptions[$name] ?? '', 'Polylang WPML string registry');
+            if ($value === []) {
+                return ['class' => 'runtime'];
+            }
+        }
         if (preg_match('/^(?:polylang(?:_|$)|pll_)/D', $name) === 1) {
             throw new \RuntimeException(
                 'duo: Polylang option namespace contains an unreviewed row '
