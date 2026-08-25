@@ -2454,7 +2454,7 @@ COLOR_ABA_OUT=$(wp_conf2 duo apply --repo=/siterepo \
   --default-author=admin 2>&1) || COLOR_ABA_RC=$?
 require_duo_answered "TEC selected-map ABA retry refusal" human "$COLOR_ABA_OUT"
 [ "$COLOR_ABA_RC" -ne 0 ] \
-  && grep -Fq 'scoped apply recovery author receipt does not match selected state and identity map' <<<"$COLOR_ABA_OUT" \
+  && grep -Fq 'scoped action selection changed after planning; no target mutation attempted' <<<"$COLOR_ABA_OUT" \
   || fail "TEC selected-map ABA did not refuse before Category Colors effect replay: $COLOR_ABA_OUT"
 [ "$(tec_scoped_session_evidence | jq -Sc .)" = "$(printf '%s\n' "$COLOR_ABA_SESSION_DRIFT" | jq -Sc .)" ] \
   || fail "TEC selected-map ABA refusal changed its already-active recovery session"
