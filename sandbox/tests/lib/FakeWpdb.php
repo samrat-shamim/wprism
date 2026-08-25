@@ -72,7 +72,8 @@
  *
  * SUPPORTED SQL GRAMMAR (everything else throws \LogicException):
  *
- *   SELECT [DISTINCT] <items> [FROM <table> [[AS] alias]]
+ *   SELECT [DISTINCT] <items> [FROM <table> [[AS] alias]
+ *            [LEFT [OUTER] JOIN <table> [[AS] alias] ON <a>.<col> = <b>.<col>]]
  *          [WHERE <cond>] [GROUP BY <cols>] [ORDER BY <cols> [ASC|DESC]]
  *          [LIMIT n [OFFSET m] | LIMIT m, n]
  *     items: * | alias.* | COUNT(*) | <literal> | [alias.]col | LENGTH(col)
@@ -102,19 +103,35 @@
  *   SET ...                           (accepted no-op)
  *   CREATE / ALTER / DROP / TRUNCATE  (recorded in ddlLog; DROP/TRUNCATE clear rows)
  *
- * JOINs, subqueries, UNION, HAVING and aggregate functions other than
- * COUNT(*) are deliberately NOT supported: a suite that needs one is
- * characterizing a query whose behaviour belongs in the live certification,
- * not in an in-memory reimplementation of MySQL.
+ * Subqueries, UNION, HAVING and aggregate functions other than COUNT(*) are
+ * deliberately NOT supported, and so is every join form except ONE: a suite
+ * that needs a real join is characterizing a query whose behaviour belongs in
+ * the live certification, not in an in-memory reimplementation of MySQL.
+ * INNER/RIGHT/CROSS, a comma join, a second JOIN, a multi-condition or
+ * non-equality ON, `*` over a join, and COUNT(*)/GROUP BY over a join all
+ * still refuse by name.
+ *
+ * The exception is a SINGLE LEFT JOIN whose ON is exactly one equality
+ * between one qualified column on each side (parseLeftEquiJoin(), and
+ * applyLeftEquiJoin() for the ON-then-WHERE evaluation order). That form is a
+ * per-row lookup with no optimizer choice to model, and it is on the engine's
+ * own deletion path: RelationshipMaterializer::lock_owner_relationships()
+ * (agent/src/Apply/RelationshipMaterializer.php:287-295) is the only reader,
+ * DeleteExecutor's term branch calls it three times, and its LEFT is product
+ * semantics -- a term_relationships row whose term_taxonomy row is gone comes
+ * back with taxonomy NULL and is refused (:310-318) rather than silently
+ * dropped the way an INNER JOIN would drop it.
  *
  * Schema-qualified reads (information_schema.COLUMNS / .STATISTICS) remain
  * unsupported -- parseTableRef() refuses the `db.table` form outright. SHOW
  * schema probes are supported only from explicit setColumnDefinitions(),
  * setIndexes(), and setTableEngine() fixtures; no schema fact is inferred from
- * stored rows. Concretely it means
- * Ledger::assert_read_only_schema(), Ledger::prune_dead_table_map() (a
- * multi-table DELETE) and Snapshot::assert_all_mapped_rows_managed() (a LEFT
- * JOIN) cannot be migrated to this fake; they stay live-certification paths.
+ * stored rows. Concretely it means Ledger::assert_read_only_schema(),
+ * Ledger::prune_dead_table_map() (a multi-table DELETE) and
+ * Snapshot::assert_all_mapped_rows_managed() (Snapshot.php:532-533 -- a LEFT
+ * JOIN whose ON is `m.id_kind = %s AND m.local_id = src.pk`, two conditions,
+ * one of them against a literal) cannot be migrated to this fake; they stay
+ * live-certification paths.
  * SHOW TABLES LIKE / SHOW COLUMNS FROM are supported and are the intended way
  * to probe existence and column shape offline.
  *
@@ -1695,10 +1712,14 @@ final class FakeWpdb {
 
         $table = null;
         $alias = null;
+        $join = null;
         if ($this->acceptKeyword('FROM')) {
             $table = $this->parseTableRef();
             $alias = $this->parseAliasOpt();
             $this->skipIndexHint();
+            if ($this->keyword() === 'LEFT') {
+                $join = $this->parseLeftEquiJoin($table, $alias);
+            }
             if (in_array($this->keyword(), ['JOIN', 'INNER', 'LEFT', 'RIGHT', 'CROSS', 'STRAIGHT_JOIN', 'UNION'], true)
                 || ($this->peek()['t'] === 'op' && $this->peek()['v'] === ',')) {
                 throw $this->unsupported('multi-table SELECT (JOIN/UNION)');
@@ -1736,8 +1757,12 @@ final class FakeWpdb {
 
         $name = $this->requireTable($table);
         $ctx = ['table' => $name, 'alias' => $alias, 'columns' => $this->knownColumns($name)];
+        $left = $this->store[$name];
+        if ($join !== null) {
+            [$left, $ctx] = $this->applyLeftEquiJoin($left, $ctx, $join);
+        }
         $matched = [];
-        foreach ($this->store[$name] as $row) {
+        foreach ($left as $row) {
             if ($where === null || $this->evalCondition($where, $row, $ctx)) {
                 $matched[] = $row;
             }
@@ -1746,6 +1771,18 @@ final class FakeWpdb {
         $aggregate = $group !== [];
         foreach ($items as $item) {
             $aggregate = $aggregate || $item['type'] === 'count';
+        }
+        if ($join !== null && $aggregate) {
+            throw $this->unsupported('COUNT(*)/GROUP BY over a LEFT JOIN');
+        }
+        foreach ($join !== null ? $items : [] as $item) {
+            if ($item['type'] === 'star') {
+                // `*` over a join would have to invent a column ORDER across
+                // two tables, and project() (:2595-2611) resolves names in one
+                // namespace. Naming the columns costs the caller nothing --
+                // the one product query that reaches here already does.
+                throw $this->unsupported('`*` over a LEFT JOIN; name the columns');
+            }
         }
 
         if ($aggregate) {
@@ -1862,6 +1899,126 @@ final class FakeWpdb {
             throw $this->unsupported('schema-qualified table names (e.g. information_schema)');
         }
         return $this->tableName((string) $token['v']);
+    }
+
+    /**
+     * The ONE join shape this interpreter accepts: a single LEFT JOIN whose ON
+     * is exactly one equality between one qualified column on each side.
+     *
+     * The general refusal above it stands (:1723-1727 still rejects INNER,
+     * RIGHT, CROSS, a comma join, UNION and a second JOIN) for the reason the
+     * header states: a suite that needs a real join is characterizing a query
+     * whose behaviour belongs in live certification. A single-condition LEFT
+     * equi-join is not that. It is a per-row LOOKUP -- "carry this column
+     * across, or NULL" -- with no optimizer choice to model and one arithmetic
+     * outcome, so interpreting it invents no MySQL behaviour.
+     *
+     * It is here because it is on the engine's own term-deletion path and
+     * nowhere else: RelationshipMaterializer::lock_owner_relationships()
+     * (agent/src/Apply/RelationshipMaterializer.php:287-295) reads
+     * `term_relationships tr LEFT JOIN term_taxonomy tt ON tt.term_taxonomy_id
+     * = tr.term_taxonomy_id`, and DeleteExecutor's term branch calls it three
+     * times (DeleteExecutor.php:170, RelationshipMaterializer.php:229 and
+     * :247), so a term deletion cannot run offline at all without it. That
+     * LEFT is load-bearing product semantics, not incidental SQL: a
+     * term_relationships row whose term_taxonomy row is gone comes back with
+     * taxonomy NULL, which the reader at :310-318 turns into a refusal instead
+     * of silently dropping the row an INNER JOIN would have hidden.
+     *
+     * Parse only: the joined table's column set is not known until
+     * applyLeftEquiJoin() resolves it, which is also where the unseeded-table
+     * refusal fires.
+     *
+     * @return array{table:string,alias:?string,short:string,left:string,right:string}
+     */
+    private function parseLeftEquiJoin(string $baseTable, ?string $baseAlias): array {
+        $this->expectKeyword('LEFT');
+        $this->acceptKeyword('OUTER');
+        $this->expectKeyword('JOIN');
+        $table = $this->parseTableRef();
+        $alias = $this->parseAliasOpt();
+        // MySQL itself rejects a duplicate name ("Not unique table/alias"), and
+        // so must this: evalColumn() resolves a qualifier by name, so two sides
+        // answering to one name would silently send every qualified reference
+        // to whichever side the resolver happens to test first.
+        if ($alias !== null ? $alias === $baseAlias : ($table === $baseTable && $baseAlias === null)) {
+            throw $this->unsupported('a LEFT JOIN whose table/alias name is not unique');
+        }
+        $this->skipIndexHint();
+        $this->expectKeyword('ON');
+        $first = $this->parseColumnRef();
+        $token = $this->peek();
+        if ($token['t'] !== 'op' || $token['v'] !== '=') {
+            throw $this->unsupported('a LEFT JOIN ... ON that is not a single equality');
+        }
+        $this->tp++;
+        $second = $this->parseColumnRef();
+        if (in_array($this->keyword(), ['AND', 'OR'], true)) {
+            throw $this->unsupported('a multi-condition LEFT JOIN ... ON');
+        }
+        if ($first['q'] === null || $second['q'] === null) {
+            throw $this->unsupported('a LEFT JOIN ... ON whose columns are not both table-qualified');
+        }
+        $short = str_starts_with($table, $this->prefix) ? substr($table, strlen($this->prefix)) : $table;
+        $names = array_filter([$alias, $table, $short], static fn(?string $n): bool => $n !== null);
+        $firstIsRight = in_array($first['q'], $names, true);
+        $secondIsRight = in_array($second['q'], $names, true);
+        if ($firstIsRight === $secondIsRight) {
+            throw $this->unsupported('a LEFT JOIN ... ON that does not name one column from each side');
+        }
+        return [
+            'table' => $table,
+            'alias' => $alias,
+            'short' => (string) $short,
+            'right' => $firstIsRight ? $first['name'] : $second['name'],
+            'left' => $firstIsRight ? $second['name'] : $first['name'],
+        ];
+    }
+
+    /**
+     * Expand the base rows into joined rows, MySQL's order: ON first, WHERE
+     * after. A left row with no match keeps one output row carrying NULLs; a
+     * left row with several matches produces one output row per match, because
+     * that is what the server does when the joined key is not unique.
+     *
+     * Right-hand values live under `<alias>.<column>` keys so the existing
+     * unqualified column paths (WHERE, ORDER BY, projection) keep resolving
+     * against the base table exactly as they do for an unjoined SELECT.
+     * evalColumn() (:2479-2504) is the only reader that knows about them.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @return array{0:list<array<string,mixed>>,1:array<string,mixed>}
+     */
+    private function applyLeftEquiJoin(array $rows, array $ctx, array $join): array {
+        $name = $this->requireTable($join['table']);
+        $join['columns'] = $this->knownColumns($name);
+        $join['table'] = $name;
+        $ctx['join'] = $join;
+        $prefix = ($join['alias'] ?? $join['short']) . '.';
+        $index = [];
+        foreach ($this->store[$name] as $row) {
+            $index[(string) ($row[$join['right']] ?? "\0NULL")][] = $row;
+        }
+        $out = [];
+        foreach ($rows as $row) {
+            $matches = $index[(string) ($row[$join['left']] ?? "\0NULL")] ?? [];
+            if ($matches === []) {
+                $blank = [];
+                foreach ($join['columns'] as $column) {
+                    $blank[$prefix . $column] = null;
+                }
+                $out[] = $row + $blank;
+                continue;
+            }
+            foreach ($matches as $match) {
+                $carried = [];
+                foreach ($join['columns'] as $column) {
+                    $carried[$prefix . $column] = $match[$column] ?? null;
+                }
+                $out[] = $row + $carried;
+            }
+        }
+        return [$out, $ctx];
     }
 
     /** @return list<array{column:array,dir:int}> */
@@ -2325,6 +2482,23 @@ final class FakeWpdb {
             $short = str_starts_with($ctx['table'], $this->prefix)
                 ? substr($ctx['table'], strlen($this->prefix))
                 : $ctx['table'];
+            $join = $ctx['join'] ?? null;
+            $joinNames = $join === null
+                ? []
+                : array_filter(
+                    [$join['alias'], $join['table'], $join['short']],
+                    static fn(?string $name): bool => $name !== null
+                );
+            if ($join !== null && in_array($qualifier, $joinNames, true)) {
+                $key = ($join['alias'] ?? $join['short']) . '.' . $node['name'];
+                if (array_key_exists($key, $row)) {
+                    return $row[$key];
+                }
+                throw new \LogicException(
+                    "FakeWpdb: unknown column '{$node['name']}' on joined table '{$join['table']}'. Seed it in a"
+                    . " row or declare it with setColumns(). Statement: {$this->currentSql}"
+                );
+            }
             if ($qualifier !== $ctx['alias'] && $qualifier !== $ctx['table'] && $qualifier !== $short) {
                 throw $this->unsupported("column qualifier '$qualifier' names another table (JOIN)");
             }
