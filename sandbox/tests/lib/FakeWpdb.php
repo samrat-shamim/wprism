@@ -103,9 +103,10 @@
  *   CREATE / ALTER / DROP / TRUNCATE  (recorded in ddlLog; DROP/TRUNCATE clear rows)
  *
  * JOINs, subqueries, UNION, HAVING and aggregate functions other than
- * COUNT(*) are deliberately NOT supported: a suite that needs one is
- * characterizing a query whose behaviour belongs in the live certification,
- * not in an in-memory reimplementation of MySQL.
+ * COUNT(*) are deliberately NOT supported. The sole opt-in exception is
+ * RelationshipMaterializer's exact owner-range LEFT JOIN, whose fixed row
+ * projection lets the menu mutation regression prove post/term id-keyspace
+ * separation without teaching this fake a general relational planner.
  *
  * Schema-qualified reads (information_schema.COLUMNS / .STATISTICS) remain
  * unsupported -- parseTableRef() refuses the `db.table` form outright. SHOW
@@ -231,6 +232,8 @@ final class FakeWpdb {
     private bool $informationSchemaEnabled = false;
     /** Full-apply offline fixtures may opt into the reviewed apply-only SQL extensions. */
     private bool $fullApplySqlExtensionsEnabled = false;
+    /** Opt-in for RelationshipMaterializer's exact locked owner-range join. */
+    private bool $relationshipOwnershipJoinEnabled = false;
     /** @var list<array{command:string,outcome:string}> one-shot transaction ambiguity probes */
     private array $transactionOutcomes = [];
     /** Reconnect immediately before the next transaction-state-bearing SELECT. */
@@ -444,6 +447,21 @@ final class FakeWpdb {
      */
     public function enableFullApplySqlExtensions(): self {
         $this->fullApplySqlExtensionsEnabled = true;
+        return $this;
+    }
+
+    /**
+     * Enable the one joined owner-range read RelationshipMaterializer uses.
+     *
+     * The default SQL grammar deliberately rejects JOINs: modelling a broad
+     * relational planner here would make a test prove the fake rather than
+     * MySQL. This exact projection is opt-in because menu ownership must
+     * classify a complete locked raw term_relationships range by its joined
+     * taxonomy, including a Polylang term-keyspace row whose object_id happens
+     * to equal a nav_menu_item post id.
+     */
+    public function enableRelationshipOwnershipJoin(): self {
+        $this->relationshipOwnershipJoinEnabled = true;
         return $this;
     }
 
@@ -1953,6 +1971,12 @@ final class FakeWpdb {
     // ------------------------------------------------------------ SELECT
 
     private function execSelect(): array {
+        if ($this->relationshipOwnershipJoinEnabled) {
+            $relationshipOwnershipRows = $this->relationshipOwnershipJoinRows($this->currentSql);
+            if ($relationshipOwnershipRows !== null) {
+                return ['kind' => 'rows', 'rows' => $relationshipOwnershipRows];
+            }
+        }
         if (preg_match(
             '/^SELECT um\.umeta_id AS meta_id FROM wp_usermeta um LEFT JOIN wp_users u '
                 . 'ON u\.ID = um\.user_id WHERE u\.ID IS NULL ORDER BY um\.umeta_id ASC LIMIT 1$/iD',
@@ -2093,6 +2117,67 @@ final class FakeWpdb {
             $out = array_slice($out, 0, $limit);
         }
         return ['kind' => 'rows', 'rows' => array_values($out)];
+    }
+
+    /**
+     * Exact row projection for RelationshipMaterializer::lock_owner_relationships()
+     * after LockingFakeWpdb removes its lock syntax. Keep every other JOIN in
+     * the normal loud-refusal path above.
+     *
+     * @return ?list<array{term_taxonomy_id:mixed,term_order:mixed,taxonomy:mixed}>
+     */
+    private function relationshipOwnershipJoinRows(string $sql): ?array {
+        $relationships = preg_quote($this->term_relationships, '/');
+        $taxonomies = preg_quote($this->term_taxonomy, '/');
+        $pattern = '/^SELECT tr\\.term_taxonomy_id, tr\\.term_order, tt\\.taxonomy '
+            . "FROM $relationships tr LEFT JOIN $taxonomies tt "
+            . 'ON tt\\.term_taxonomy_id = tr\\.term_taxonomy_id '
+            . 'WHERE tr\\.object_id = ([1-9][0-9]*) '
+            . 'ORDER BY tr\\.term_taxonomy_id ASC LIMIT ([1-9][0-9]*)$/D';
+        if (preg_match($pattern, $sql, $match) !== 1) {
+            return null;
+        }
+        $relationshipTable = $this->requireTable($this->term_relationships);
+        $taxonomyTable = $this->requireTable($this->term_taxonomy);
+        $objectId = (int) $match[1];
+        $limit = (int) $match[2];
+        $out = [];
+        foreach ($this->store[$relationshipTable] as $relationship) {
+            if (self::compare($relationship['object_id'] ?? null, $objectId) !== 0) {
+                continue;
+            }
+            $matched = false;
+            foreach ($this->store[$taxonomyTable] as $taxonomy) {
+                if (self::compare(
+                    $taxonomy['term_taxonomy_id'] ?? null,
+                    $relationship['term_taxonomy_id'] ?? null
+                ) !== 0) {
+                    continue;
+                }
+                $out[] = [
+                    'term_taxonomy_id' => $relationship['term_taxonomy_id'] ?? null,
+                    'term_order' => $relationship['term_order'] ?? null,
+                    'taxonomy' => $taxonomy['taxonomy'] ?? null,
+                ];
+                $matched = true;
+            }
+            if (!$matched) {
+                $out[] = [
+                    'term_taxonomy_id' => $relationship['term_taxonomy_id'] ?? null,
+                    'term_order' => $relationship['term_order'] ?? null,
+                    'taxonomy' => null,
+                ];
+            }
+        }
+        usort($out, static function (array $left, array $right): int {
+            $leftId = $left['term_taxonomy_id'];
+            $rightId = $right['term_taxonomy_id'];
+            if ($leftId === null || $rightId === null) {
+                return $leftId === $rightId ? 0 : ($leftId === null ? -1 : 1);
+            }
+            return self::compare($leftId, $rightId) ?? 0;
+        });
+        return array_slice($out, 0, $limit);
     }
 
     /** @return array{type:string,expr?:array,alias:?string,qualifier?:?string} */

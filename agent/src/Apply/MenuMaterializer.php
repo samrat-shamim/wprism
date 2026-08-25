@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
+require_once __DIR__ . '/RelationshipMaterializer.php';
 require_once __DIR__ . '/../Kernel/MetaRows.php';
 
 /**
@@ -27,12 +28,14 @@ require_once __DIR__ . '/../Kernel/MetaRows.php';
 final class MenuMaterializer {
     private const MAX_MENU_ITEMS = 10000;
     private const MAX_ITEM_RELATIONSHIPS = 10000;
+    private readonly RelationshipMaterializer $relationshipMaterializer;
 
     public function __construct(
         private readonly Policy $policy,
         private readonly Tokens $tokens,
         private readonly ApplyFieldMaterializer $fieldMaterializer
     ) {
+        $this->relationshipMaterializer = new RelationshipMaterializer($policy, $fieldMaterializer);
     }
 
     public function finalize_menu(array $front): void {
@@ -524,44 +527,34 @@ final class MenuMaterializer {
         ));
     }
 
-    /** @return list<int> */
+    /** @return list<int> post-keyspace term_taxonomy IDs */
     private function locked_item_relationships(int $itemId, string $menuSlug): array {
-        global $wpdb;
-        $index = $this->fieldMaterializer->proven_lock_index(
-            $wpdb->term_relationships,
-            'object_id',
+        // wp_term_relationships shares one numeric object_id column between
+        // post-object and term-object taxonomies. Polylang's term_language and
+        // term_translations rows therefore legitimately use a TERM id that can
+        // equal this nav_menu_item post id. Lock and join the complete raw
+        // owner range first; filtering in SQL would let a concurrent extra
+        // post-keyspace relationship escape the exact takeover/readback check.
+        $rows = $this->relationshipMaterializer->lock_owner_relationships(
+            $itemId,
             "menu $menuSlug item relationship ownership locking"
         );
-        $wpdb->last_error = '';
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT term_taxonomy_id FROM {$wpdb->term_relationships} FORCE INDEX (`$index`) "
-            . 'WHERE object_id = %d ORDER BY term_taxonomy_id ASC LIMIT '
-            . (self::MAX_ITEM_RELATIONSHIPS + 1) . ' FOR UPDATE',
-            $itemId
-        ), ARRAY_A);
-        if (!is_array($rows)
-            || !array_is_list($rows)
-            || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException(
-                "duo: menu $menuSlug: could not lock relationship ownership for target item $itemId"
-            );
-        }
         if (count($rows) > self::MAX_ITEM_RELATIONSHIPS) {
             throw new \RuntimeException("duo: menu $menuSlug item $itemId exceeds the relationship bound");
         }
         $relationships = [];
-        $seen = [];
-        foreach ($rows as $position => $row) {
-            $tt = is_array($row) && array_keys($row) === ['term_taxonomy_id']
-                ? MetaRows::positive_id($row['term_taxonomy_id'])
-                : null;
-            if ($tt === null || isset($seen[$tt])) {
+        foreach ($rows as $row) {
+            $taxonomy = $row['taxonomy'];
+            $taxonomyObject = get_taxonomy($taxonomy);
+            if (!is_object($taxonomyObject) || !is_array($taxonomyObject->object_type ?? null)) {
                 throw new \RuntimeException(
-                    "duo: menu $menuSlug item $itemId has a malformed/duplicate relationship at position $position"
+                    "duo: menu $menuSlug item $itemId relationship taxonomy $taxonomy is unregistered or malformed"
                 );
             }
-            $seen[$tt] = true;
-            $relationships[] = $tt;
+            if ($this->policy->taxonomy_object_keyspace($taxonomy, $taxonomyObject->object_type) === 'term') {
+                continue;
+            }
+            $relationships[] = $row['term_taxonomy_id'];
         }
         return $relationships;
     }

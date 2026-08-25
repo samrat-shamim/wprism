@@ -175,6 +175,50 @@ final class HarnessLibTest extends TestCase
         );
     }
 
+    public function testRelationshipOwnershipJoinRemainsClosedWithoutExplicitOptIn(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_term_relationships', [])
+            ->seedTable('wp_term_taxonomy', []);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('multi-table SELECT');
+        $db->get_results(
+            'SELECT tr.term_taxonomy_id, tr.term_order, tt.taxonomy '
+            . 'FROM wp_term_relationships tr LEFT JOIN wp_term_taxonomy tt '
+            . 'ON tt.term_taxonomy_id = tr.term_taxonomy_id '
+            . 'WHERE tr.object_id = 7 ORDER BY tr.term_taxonomy_id ASC LIMIT 4',
+            ARRAY_A
+        );
+    }
+
+    public function testOptInRelationshipOwnershipJoinProjectsRawOwnerRowsAndMissingTaxonomy(): void
+    {
+        $db = FakeWpdb::install()->enableRelationshipOwnershipJoin();
+        $db->seedTable('wp_term_relationships', [
+            ['object_id' => 7, 'term_taxonomy_id' => 22, 'term_order' => 0],
+            ['object_id' => 7, 'term_taxonomy_id' => 20, 'term_order' => 2],
+            ['object_id' => 8, 'term_taxonomy_id' => 21, 'term_order' => 0],
+        ])->seedTable('wp_term_taxonomy', [
+            ['term_taxonomy_id' => 20, 'taxonomy' => 'nav_menu'],
+            ['term_taxonomy_id' => 21, 'taxonomy' => 'category'],
+        ]);
+
+        self::assertSame(
+            [
+                ['term_taxonomy_id' => '20', 'term_order' => '2', 'taxonomy' => 'nav_menu'],
+                ['term_taxonomy_id' => '22', 'term_order' => '0', 'taxonomy' => null],
+            ],
+            $db->get_results(
+                'SELECT tr.term_taxonomy_id, tr.term_order, tt.taxonomy '
+                . 'FROM wp_term_relationships tr LEFT JOIN wp_term_taxonomy tt '
+                . 'ON tt.term_taxonomy_id = tr.term_taxonomy_id '
+                . 'WHERE tr.object_id = 7 ORDER BY tr.term_taxonomy_id ASC LIMIT 4',
+                ARRAY_A
+            )
+        );
+    }
+
     public function testInformationSchemaRemainsClosedUnlessExplicitlyEnabled(): void
     {
         $db = FakeWpdb::install();
