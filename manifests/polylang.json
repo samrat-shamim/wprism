@@ -100,7 +100,8 @@
           "native_default_completion": true
         },
         "force_lang": {
-          "class": "authored"
+          "class": "authored",
+          "lint_ok": true
         },
         "hide_default": {
           "class": "authored"
