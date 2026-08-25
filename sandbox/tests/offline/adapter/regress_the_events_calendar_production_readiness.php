@@ -8370,6 +8370,25 @@ foreach (['postmeta', 'termmeta', 'term_relationships', 'tec_events', 'tec_occur
         "deletion refusal fingerprints $witness before and after capture"
     );
 }
+$linkedUpdateCalls = preg_match_all(
+    '/^tec_update_event_preserving_links conf[12] /m',
+    $deletionCheck
+);
+duo_check_same(
+    5,
+    $linkedUpdateCalls,
+    'every late TEC conflict/recovery/concurrency mutation crosses the native link-preserving update helper'
+);
+foreach ([
+    '$args=["description"=>$description,"venue"=>$venue,"organizers"=>$organizers]',
+    '$afterVenue!==$venue||$afterOrganizers!==$organizers',
+    'TEC repository update replaced a linked entity',
+] as $linkedUpdateEvidence) {
+    duo_check(
+        str_contains($deletionCheck, $linkedUpdateEvidence),
+        "late TEC repository updates retain and verify their complete linked preimage: $linkedUpdateEvidence"
+    );
+}
 foreach ([
     'tec_events_custom_tables_v1_event_data_from_post',
     'FILTER_DERIVED_BEFORE=$(tec_derived_hash)',

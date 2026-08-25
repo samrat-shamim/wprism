@@ -2899,24 +2899,61 @@ tec_refuse_term_deletion tribe_events_cat duo-unsupported-delete-category term:t
 unset -f tec_deletion_fingerprint tec_refuse_post_deletion tec_refuse_term_deletion
 pass "all unsupported TEC entity deletions refuse with no tombstone, cascade, reverse-reference, occurrence, or Category Colors mutation"
 
+# TEC's repository update contract replaces linked entities when an update
+# omits them. Every late-event mutation therefore carries the exact native
+# venue/organizer preimage and proves the save retained it; otherwise the
+# fixture manufactures an unsupported deletion before Duo sees its intended
+# conflict/recovery/concurrency scenario.
+tec_update_event_preserving_links() { # <conf1|conf2> <description> <url-path-or-empty> <start-or-empty> <end-or-empty> <timezone-or-empty>
+  local env=$1 description=$2 url_path=$3 start=$4 end=$5 timezone=$6 payload
+  payload=$(jq -nc \
+    --arg description "$description" --arg url_path "$url_path" \
+    --arg start "$start" --arg end "$end" --arg timezone "$timezone" \
+    '{description:$description,url_path:$url_path,start:$start,end:$end,timezone:$timezone}' \
+    | base64 | tr -d '\r\n')
+  wp_env "$env" eval "\$duo_override=json_decode(base64_decode('$payload'),true,512,JSON_THROW_ON_ERROR);"'
+    $posts=get_posts([
+      "post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>2,
+      "title"=>"Duo Production Readiness Event 東京"
+    ]);
+    if(count($posts)!==1)throw new RuntimeException("TEC linked update event is not unique");
+    $event=$posts[0];
+    $venue=(int)get_post_meta($event->ID,"_EventVenueID",true);
+    $organizers=array_map("intval",get_post_meta($event->ID,"_EventOrganizerID",false));
+    $venuePost=get_post($venue);
+    if(!$venuePost instanceof WP_Post||$venuePost->post_type!=="tribe_venue"||count($organizers)!==3){
+      throw new RuntimeException("TEC linked update preimage is incomplete");
+    }
+    foreach($organizers as $organizer){
+      $organizerPost=get_post($organizer);
+      if(!$organizerPost instanceof WP_Post||$organizerPost->post_type!=="tribe_organizer"){
+        throw new RuntimeException("TEC linked update organizer preimage is incomplete");
+      }
+    }
+    $description=$duo_override["description"];
+    if($duo_override["url_path"]!=="")$description.=" ".home_url($duo_override["url_path"]);
+    $args=["description"=>$description,"venue"=>$venue,"organizers"=>$organizers];
+    foreach(["start_date"=>"start","end_date"=>"end","timezone"=>"timezone"] as $arg=>$override){
+      if($duo_override[$override]!=="")$args[$arg]=$duo_override[$override];
+    }
+    $result=tribe_events()->where("id",$event->ID)->set_args($args)->save();
+    if(empty($result[$event->ID]))throw new RuntimeException("TEC linked event update failed");
+    $afterVenue=(int)get_post_meta($event->ID,"_EventVenueID",true);
+    $afterOrganizers=array_map("intval",get_post_meta($event->ID,"_EventOrganizerID",false));
+    if($afterVenue!==$venue||$afterOrganizers!==$organizers
+        ||!get_post($venue) instanceof WP_Post){
+      throw new RuntimeException("TEC repository update replaced a linked entity");
+    }
+  ' >/dev/null
+}
+
 # Competing source/target native repository edits must surface a conflict,
 # remain atomic unforced, and converge only under explicit repository authority.
-wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
-  $result=tribe_events()->where("id",$p->ID)->set_args([
-    "description"=>"Repository competing body 東京 🚀 " . home_url("/repository-authority/"),
-    "start_date"=>"2026-09-07 10:00:00","end_date"=>"2026-09-07 12:30:00","timezone"=>"Asia/Kathmandu"
-  ])->save();
-  if(empty($result[$p->ID])) throw new RuntimeException("TEC source repository update failed");
-' >/dev/null
+tec_update_event_preserving_links conf1 'Repository competing body 東京 🚀' \
+  /repository-authority/ '2026-09-07 10:00:00' '2026-09-07 12:30:00' Asia/Kathmandu
 commit_tec_source 'conformance: competing TEC event intent'
-wp_conf2 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
-  $result=tribe_events()->where("id",$p->ID)->set_args([
-    "description"=>"Target competing body","start_date"=>"2032-01-01 05:00:00","end_date"=>"2032-01-01 06:00:00","timezone"=>"UTC"
-  ])->save();
-  if(empty($result[$p->ID])) throw new RuntimeException("TEC target repository update failed");
-' >/dev/null
+tec_update_event_preserving_links conf2 'Target competing body' '' \
+  '2032-01-01 05:00:00' '2032-01-01 06:00:00' UTC
 CONFLICT_BEFORE=$(tec_target_hash)
 CONFLICT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "TEC competing event plan" json "$CONFLICT_PLAN"
@@ -2946,14 +2983,8 @@ pass "native event conflicts refuse atomically; explicit authority converges and
 # derived row. A same-shape extension callback is still a different authority:
 # refuse it before either custom-table write, retain the batch marker, and let
 # the next process retry the identical canonical intent after the hook leaves.
-wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
-  $result=tribe_events()->where("id",$p->ID)->set_args([
-    "description"=>"TEC filtered-row refusal body 東京 🚀 " . home_url("/filter-refusal/"),
-    "start_date"=>"2026-09-08 13:15:00","end_date"=>"2026-09-08 16:45:00","timezone"=>"Asia/Kathmandu"
-  ])->save();
-  if(empty($result[$p->ID])) throw new RuntimeException("TEC filter-refusal source update failed");
-' >/dev/null
+tec_update_event_preserving_links conf1 'TEC filtered-row refusal body 東京 🚀' \
+  /filter-refusal/ '2026-09-08 13:15:00' '2026-09-08 16:45:00' Asia/Kathmandu
 commit_tec_source 'conformance: TEC filtered derived-row refusal intent'
 FILTER_DERIVED_BEFORE=$(tec_derived_hash)
 FILTER_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
@@ -3020,14 +3051,8 @@ pass "native event-data filter topology refuses before derived writes, arms retr
 
 # A late postmeta constraint failure lands after the post body write. The whole
 # transaction, derived rows, and retry marker must survive as one unit.
-wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
-  $result=tribe_events()->where("id",$p->ID)->set_args([
-    "description"=>"TEC transaction body 東京 🚀 " . home_url("/transaction/"),
-    "start_date"=>"2026-09-09 13:15:00","end_date"=>"2026-09-09 16:45:00","timezone"=>"Asia/Kathmandu"
-  ])->save();
-  if(empty($result[$p->ID])) throw new RuntimeException("TEC transaction source update failed");
-' >/dev/null
+tec_update_event_preserving_links conf1 'TEC transaction body 東京 🚀' \
+  /transaction/ '2026-09-09 13:15:00' '2026-09-09 16:45:00' Asia/Kathmandu
 commit_tec_source 'conformance: TEC transactional recovery intent'
 FAULT_BEFORE=$(tec_target_hash)
 wp_conf2 db query 'ALTER TABLE wp_postmeta DROP CONSTRAINT IF EXISTS duo_tec_fail_end' >/dev/null
@@ -3058,11 +3083,7 @@ pass "late TEC metadata failure rolls back post/meta/projections, retains author
 
 # Two real apply processes race one new event intent. At least one must win;
 # any loser must name serialization rather than an unrelated failure.
-wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
-  $result=tribe_events()->where("id",$p->ID)->set("description","Concurrent TEC intent 東京 🚀")->save();
-  if(empty($result[$p->ID])) throw new RuntimeException("TEC concurrent source update failed");
-' >/dev/null
+tec_update_event_preserving_links conf1 'Concurrent TEC intent 東京 🚀' '' '' '' ''
 commit_tec_source 'conformance: concurrent TEC apply intent'
 CONCURRENT_A="${CONF_REPO2:-siterepo/conf2}/.tmp-tec-concurrent-a.log"
 CONCURRENT_B="${CONF_REPO2:-siterepo/conf2}/.tmp-tec-concurrent-b.log"
