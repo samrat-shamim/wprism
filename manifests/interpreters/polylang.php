@@ -256,7 +256,11 @@ final class Polylang {
             $captured[$key] = $native;
         }
         ksort($captured, SORT_STRING);
-        $this->assert_portable_options($captured, true);
+        // Capture normalization still observes native option bytes. The
+        // ordinary capture codec runs immediately afterward and rewrites the
+        // nav_menus ids through the declared json_refs path; validating those
+        // raw ids as repository tokens here rejects every real source menu.
+        $this->assert_portable_options($captured, false);
         $this->assert_supported_topology($captured['force_lang'], $topologyMarker, 'source');
         $this->assert_source_language_flags($runtime);
         return $captured;

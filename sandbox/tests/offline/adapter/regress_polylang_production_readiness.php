@@ -1215,6 +1215,29 @@ namespace {
         $normalizedKeys,
         'capture normalization projects every native authored default when raw upgrade rows omit keys'
     );
+    $rawMenuNative = array_replace(PllNativeOptions::DEFAULTS, [
+        'default_lang' => 'en',
+        'nav_menus' => ['theme' => ['primary' => ['en' => 99]]],
+    ]);
+    $native = $installNative($rawMenuNative, $rawMenuNative);
+    $rawMenuOptions = $interpreter->normalize_captured_option_sub_keys(
+        'polylang',
+        [
+            'default_lang' => 'en',
+            'nav_menus' => ['theme' => ['primary' => ['en' => 99]]],
+        ],
+        $nativeSubKeys,
+        ['polylang' => serialize([
+            'default_lang' => 'en',
+            'nav_menus' => ['theme' => ['primary' => ['en' => 99]]],
+        ])]
+    );
+    duo_check_same(
+        99,
+        $rawMenuOptions['nav_menus']['theme']['primary']['en'],
+        'capture normalization accepts native nav-menu ids before the ordinary json_refs codec tokenizes them'
+    );
+    $native = $installNative(PllNativeOptions::DEFAULTS, ['default_lang' => '']);
     $native->values['nav_menus'] = ['theme' => ['primary' => ['en' => 99]]];
     $interpreter->option_rule('polylang', [
         'polylang' => serialize(['default_lang' => '']),
