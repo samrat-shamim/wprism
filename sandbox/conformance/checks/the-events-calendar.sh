@@ -2603,6 +2603,9 @@ rm -rf "$ORGANIZER_DUP_DIR"
 
 ORGANIZER_BLOCK_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-organizer-block-owner"
 rm -rf "$ORGANIZER_BLOCK_DIR"
+mkdir -p "$ORGANIZER_BLOCK_DIR"
+cp "$CONF_REPO1/site.duo.json" "$ORGANIZER_BLOCK_DIR/site.duo.json"
+chmod -R a+rwX "$ORGANIZER_BLOCK_DIR"
 wp_conf1 eval '
   global $wpdb;
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
@@ -2615,14 +2618,21 @@ wp_conf1 eval '
     throw new RuntimeException("organizer block wrong-owner premise failed");
   }
 ' >/dev/null
+ORGANIZER_BLOCK_CAPTURE_RC=0
+ORGANIZER_BLOCK_CAPTURE_OUT=$(wp_conf1 duo capture --repo=/siterepo \
+  --out=/siterepo/.tmp-tec-organizer-block-owner/state 2>&1) \
+  || ORGANIZER_BLOCK_CAPTURE_RC=$?
+require_duo_answered "TEC wrong-owner organizer block capture" human "$ORGANIZER_BLOCK_CAPTURE_OUT"
+[ "$ORGANIZER_BLOCK_CAPTURE_RC" -eq 0 ] \
+  && grep -Fq 'Success: captured' <<<"$ORGANIZER_BLOCK_CAPTURE_OUT" \
+  || fail "TEC wrong-owner organizer block did not traverse capture/tokenization: $ORGANIZER_BLOCK_CAPTURE_OUT"
 ORGANIZER_BLOCK_RC=0
-ORGANIZER_BLOCK_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-organizer-block-owner 2>&1) \
+ORGANIZER_BLOCK_OUT=$(wp_conf1 duo compile --repo=/siterepo/.tmp-tec-organizer-block-owner 2>&1) \
   || ORGANIZER_BLOCK_RC=$?
-require_duo_answered "TEC wrong-owner organizer block capture" human "$ORGANIZER_BLOCK_OUT"
+require_duo_answered "TEC wrong-owner organizer block compile" human "$ORGANIZER_BLOCK_OUT"
 [ "$ORGANIZER_BLOCK_RC" -ne 0 ] \
   && grep -Fq 'organizer block must resolve to post type tribe_organizer, not tribe_venue' <<<"$ORGANIZER_BLOCK_OUT" \
   || fail "TEC wrong-owner organizer block did not refuse through capture/token/interpreter paths: $ORGANIZER_BLOCK_OUT"
-[ ! -e "$ORGANIZER_BLOCK_DIR" ] || fail "TEC wrong-owner organizer block refusal published isolated output"
 wp_conf1 eval '
   global $wpdb;
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);

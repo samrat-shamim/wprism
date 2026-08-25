@@ -8252,6 +8252,23 @@ duo_check(
         ),
     'TEC malformed-content probes bypass native save hooks and mutate only their exact physical preimages'
 );
+$wrongOwnerMutationAt = strpos($deletionCheck, 'organizer block wrong-owner premise failed');
+$wrongOwnerCaptureAt = strpos(
+    $deletionCheck,
+    '--out=/siterepo/.tmp-tec-organizer-block-owner/state'
+);
+$wrongOwnerCompileAt = strpos(
+    $deletionCheck,
+    'wp_conf1 duo compile --repo=/siterepo/.tmp-tec-organizer-block-owner'
+);
+duo_check(
+    $wrongOwnerMutationAt !== false
+        && $wrongOwnerCaptureAt !== false
+        && $wrongOwnerCompileAt !== false
+        && $wrongOwnerMutationAt < $wrongOwnerCaptureAt
+        && $wrongOwnerCaptureAt < $wrongOwnerCompileAt,
+    'TEC wrong-owner block evidence tokenizes a complete isolated tree before the compiler runs the cross-entity interpreter'
+);
 foreach ([$deletionSeed, $deletionPostdeploy, $deletionCheck] as $widgetFixtureSource) {
     duo_check(
         str_contains($widgetFixtureSource, 'wp_inactive_widgets')
