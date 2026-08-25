@@ -136,6 +136,29 @@ function build_sealed_prepared_intent(string $root): array {
     return [Publish::intent_path($stateDir), $intent];
 }
 
+/** Build the real post-swap state used by the publication phase tests below. */
+function build_swapped_intent(string $root): array {
+    $stateDir = "$root/state";
+    mkdir($stateDir, 0777, true);
+    Canon::write_file("$stateDir/revision.txt", "old\n");
+    $staging = Publish::stage_dir($stateDir);
+    mkdir($staging, 0777, true);
+    Canon::write_file("$staging/revision.txt", "candidate\n");
+    $intent = Publish::begin_intent($stateDir, $staging);
+    $intent = Publish::mark_swapped($stateDir, $intent);
+    return [$stateDir, $intent];
+}
+
+/** Execute the COMMIT-ready transition under the same destination lock as capture. */
+function mark_commit_ready_locked(string $stateDir, array $intent): array {
+    $lock = Publish::lock($stateDir);
+    try {
+        return Publish::mark_commit_ready($stateDir, $intent);
+    } finally {
+        Publish::unlock($lock);
+    }
+}
+
 $pcntl = function_exists('pcntl_fork');
 if (!$pcntl) {
     echo "note: pcntl_fork unavailable — the stale-cache repro (R1/R1'/R8) is skipped on this host;\n"
@@ -531,6 +554,130 @@ if ($pcntl) {
     check($freshIsFile === true,
         'R8c: clearstatcache(true,$tmp) refreshes the temp identity so the finally removes exactly the owned temp hard link');
     @unlink($tmp);
+}
+
+// ======================================================================
+// R9 — PUBLICATION READBACK: a transient missing canonical read is retried
+// only at the lock-held phase boundaries. Permanent absence and a same-ID
+// but byte-different sealed record remain fail-closed.
+// ======================================================================
+echo "\n== R9: bounded publication readback retry remains exact and fail-closed ==\n";
+
+// R9a — the first mark-commit-ready read can be transiently absent, but the
+// exact sealed intent is accepted after the bounded retry.
+{
+    $root = fresh_root('phase_retry_ready');
+    [$stateDir, $intent] = build_swapped_intent($root);
+    putenv('DUO_TEST_MODE=1');
+    putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE=mark-commit-ready');
+    $err = null;
+    $ready = null;
+    $seamConsumed = false;
+    try {
+        $ready = mark_commit_ready_locked($stateDir, $intent);
+        $seamConsumed = getenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE') === false;
+    } catch (\Throwable $t) {
+        $err = $t;
+    } finally {
+        putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE');
+        putenv('DUO_TEST_MODE');
+    }
+    $readyOnDisk = Publish::intent_record($stateDir);
+    $intentPath = Publish::intent_path($stateDir);
+    check($err === null
+            && is_array($ready)
+            && ($ready['phase'] ?? null) === 'ready'
+            && $seamConsumed
+            && Canon::encode($readyOnDisk) === Canon::encode($ready)
+            && !file_exists($intentPath . '.previous')
+            && !file_exists($intentPath . '.next')
+            && glob($intentPath . '.tmp.*') === [],
+        'R9a: mark_commit_ready retries one transient missing read and publishes the exact ready record'
+            . ($err ? ' (got: ' . $err->getMessage() . ')' : ''));
+}
+
+// R9b — the write_record() expected-existing revalidation has the same narrow
+// retry, covering the second read inside mark_commit_ready without widening
+// any other publication transition.
+{
+    $root = fresh_root('phase_retry_commit');
+    [$stateDir, $intent] = build_swapped_intent($root);
+    putenv('DUO_TEST_MODE=1');
+    putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE=mark-commit-ready-transition');
+    $err = null;
+    $ready = null;
+    $seamConsumed = false;
+    try {
+        $ready = mark_commit_ready_locked($stateDir, $intent);
+        $seamConsumed = getenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE') === false;
+    } catch (\Throwable $t) {
+        $err = $t;
+    } finally {
+        putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE');
+        putenv('DUO_TEST_MODE');
+    }
+    $readyOnDisk = Publish::intent_record($stateDir);
+    $intentPath = Publish::intent_path($stateDir);
+    check($err === null
+            && is_array($ready)
+            && ($ready['phase'] ?? null) === 'ready'
+            && $seamConsumed
+            && Canon::encode($readyOnDisk) === Canon::encode($ready)
+            && !file_exists($intentPath . '.previous')
+            && !file_exists($intentPath . '.next')
+            && glob($intentPath . '.tmp.*') === [],
+        'R9b: COMMIT-ready transition revalidation retries one transient missing read and publishes ready'
+            . ($err ? ' (got: ' . $err->getMessage() . ')' : ''));
+}
+
+// R9c — a canonical record that remains absent through all attempts is still
+// ambiguous and cannot be advanced.
+{
+    $root = fresh_root('phase_retry_missing');
+    [$stateDir, $intent] = build_swapped_intent($root);
+    unlink(Publish::intent_path($stateDir));
+    $err = null;
+    try {
+        mark_commit_ready_locked($stateDir, $intent);
+    } catch (\Throwable $t) {
+        $err = $t;
+    }
+    $intentPath = Publish::intent_path($stateDir);
+    check($err instanceof \Throwable
+            && str_contains($err->getMessage(), 'COMMIT-ready')
+            && str_contains($err->getMessage(), 'missing or changed')
+            && Publish::intent_record($stateDir) === null
+            && !file_exists($intentPath . '.previous')
+            && !file_exists($intentPath . '.next'),
+        'R9c: permanent missing intent remains a fail-closed COMMIT-ready refusal');
+}
+
+// R9d — the old ID-only check would accept this record. It has the same ID,
+// but a different sealed candidate digest, so exact canonical comparison must
+// refuse it before any ready transition.
+{
+    $root = fresh_root('phase_retry_mismatch');
+    [$stateDir, $intent] = build_swapped_intent($root);
+    $mismatch = $intent;
+    $mismatch['candidate_sha256'] = str_repeat('a', 64);
+    unset($mismatch['record_sha256']);
+    $mismatch['record_sha256'] = hash('sha256', Canon::encode($mismatch));
+    Canon::write_file(Publish::intent_path($stateDir), Canon::encode($mismatch));
+    $err = null;
+    try {
+        mark_commit_ready_locked($stateDir, $intent);
+    } catch (\Throwable $t) {
+        $err = $t;
+    }
+    $mismatchOnDisk = Publish::intent_record($stateDir);
+    $intentPath = Publish::intent_path($stateDir);
+    check($err instanceof \Throwable
+            && str_contains($err->getMessage(), 'COMMIT-ready')
+            && str_contains($err->getMessage(), 'missing or changed')
+            && Canon::encode($mismatchOnDisk) === Canon::encode($mismatch)
+            && !file_exists($intentPath . '.previous')
+            && !file_exists($intentPath . '.next'),
+        'R9d: same-ID but byte-different sealed intent is refused before COMMIT-ready');
 }
 
 echo "\n";

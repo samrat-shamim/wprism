@@ -1500,8 +1500,12 @@ PHP;
     public static function mark_commit_ready(string $stateDir, array $intent, bool $initExclusion = false): array {
         self::assert_protocol_roots($stateDir);
         self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
-        $onDisk = self::read_record(self::intent_path($stateDir), 'intent');
-        if ($onDisk === null || ($onDisk['id'] ?? null) !== ($intent['id'] ?? null)) {
+        $onDisk = self::read_record_with_missing_retry(
+            self::intent_path($stateDir),
+            'intent',
+            'mark-commit-ready'
+        );
+        if ($onDisk === null || Canon::encode($onDisk) !== Canon::encode($intent)) {
             throw self::ambiguous_recovery('capture cannot mark COMMIT-ready because its durable intent is missing or changed');
         }
         $intent['phase'] = 'ready';
@@ -1511,7 +1515,8 @@ PHP;
             'intent',
             false,
             $onDisk,
-            $initExclusion
+            $initExclusion,
+            true
         );
         self::fault_checkpoint('intent-ready');
         return $intent;
@@ -2075,7 +2080,8 @@ PHP;
         string $label,
         bool $createOnly = false,
         ?array $expectedExisting = null,
-        bool $initExclusion = false
+        bool $initExclusion = false,
+        bool $retryMissingReadback = false
     ): array {
         self::assert_not_symlink_root($path, "$label record");
         $record = self::seal_record($record);
@@ -2114,7 +2120,9 @@ PHP;
                 self::fsync_dir(dirname($path));
                 self::remove_record_transition_artifact($nextPath, $record, $label);
             } elseif ($expectedExisting !== null) {
-                $current = self::read_record($path, $label);
+                $current = $retryMissingReadback
+                    ? self::read_record_with_missing_retry($path, $label, 'mark-commit-ready-transition')
+                    : self::read_record($path, $label);
                 if ($current === null || Canon::encode($current) !== Canon::encode($expectedExisting)) {
                     throw self::ambiguous_recovery("capture $label record changed before its transition");
                 }
@@ -2182,6 +2190,45 @@ PHP;
         if (file_exists($path) || is_link($path)) {
             throw self::ambiguous_recovery("capture $label slot is already present; retained it");
         }
+    }
+
+    /**
+     * Re-read a canonical record only at a lock-held publication transition.
+     * Docker Desktop bind mounts can briefly report a just-linked canonical
+     * record as absent even though the sealed inode is already durable. A
+     * bounded retry repairs only that null read; read_record() exceptions
+     * (changed inode, malformed bytes, wrong topology, and read failures)
+     * remain immediate fail-closed evidence.
+     */
+    private static function read_record_with_missing_retry(
+        string $path,
+        string $label,
+        string $scope
+    ): ?array {
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $record = $attempt === 0 && self::test_readback_miss_once($scope)
+                ? null
+                : self::read_record($path, $label);
+            if ($record !== null || $attempt === 2) {
+                return $record;
+            }
+            clearstatcache(true, $path);
+            usleep(5000);
+        }
+        return null;
+    }
+
+    /** Test-only seam for one transient missing canonical-record read. */
+    private static function test_readback_miss_once(string $scope): bool {
+        if (getenv('DUO_TEST_MODE') !== '1') {
+            return false;
+        }
+        $requested = (string) (getenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE') ?: '');
+        if ($requested !== $scope) {
+            return false;
+        }
+        putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE');
+        return true;
     }
 
     /** @param array<string,mixed> $record */
