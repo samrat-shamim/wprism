@@ -1409,6 +1409,9 @@ function ws_rows(): array {
             . ws_partition_text() . ' — plus whatever keys its own declared, IMPLEMENTED `engine_features` '
             . 'values claim (today ' . ws_feature_key_text()
             . '). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar '
+            . 'values claim (`engine_features` itself, via `'
+            . implode('`, `', ws_features_claiming('engine_features'))
+            . '`). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar '
             . '`duo adapter-draft` writes — refuses with its own remedy, to strip it. v2 manifests keep the '
             . 'open behaviour byte for byte, so none of the shipped library changes. Measured here by asking '
             . 'the shipped validator and the shipped signer for their sets and comparing them in both '
@@ -1851,6 +1854,40 @@ function ws_feature_key_text(): string {
     }
 
     return implode(', ', $parts);
+}
+
+/**
+ * The implemented engine features that CLAIM one top-level key, sorted.
+ *
+ * R-21's sentence is about which feature admits a key, so it must name the
+ * claimants and not the roster. Those were the same list until WP-6.2 added
+ * `invalidate-vocabulary/v1`, which claims no key at all — it widens a value
+ * vocabulary inside `tables.<t>.invalidate[]` — and printing the roster there
+ * would have made the register say that feature admits `engine_features`, which
+ * is false in the one direction the row exists to be exact about.
+ *
+ * Asked of the engine rather than listed, the same way every other cell here is
+ * measured: the answer is whatever admitted_feature_keys() returns for a
+ * manifest declaring exactly that one feature, so a feature that gains or loses
+ * a key moves this sentence without anybody remembering to.
+ *
+ * @return list<string>
+ */
+function ws_features_claiming(string $key): array {
+    $out = [];
+    foreach (AdapterContractGrammar::implemented_features() as $feature) {
+        $claimed = AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$feature]]);
+        if (in_array($key, $claimed, true)) {
+            $out[] = $feature;
+        }
+    }
+    if ($out === []) {
+        throw new RuntimeException(
+            "wire-surface: no implemented engine feature claims '$key'; R-21's sentence would name nothing"
+        );
+    }
+
+    return $out;
 }
 
 /**

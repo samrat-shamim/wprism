@@ -293,7 +293,7 @@ One file per row (the entity-per-file discipline, for the same merge reason as p
 - **Identity** lives in `duo_map` (`id_kind`, `local_id`) — a plugin's table never gets a `_duo_uuid`-style column added (plugins stay unmodified). Three declared modes: `"identity": {"mode": "mapped"}` (default; fresh source rows mint UUIDv7; populated target rows without mappings block, and a source with canonical UUIDs but missing mappings blocks); `"identity": {"mode": "natural_key", "column": "<col>"}` (for a human-chosen unique column: UUIDv5 of `"<table>:<value>"` is deterministic **bootstrap** identity for a never-seen row, while an existing `duo_map` entry is **continuity** identity thereafter); and `"identity": {"mode": "composite_ref", "columns": ["<ref-col-1>", "<ref-col-2>"]}` for a pure join table whose identity is derived from the two referenced entities' UUIDs. Contradictory mappings never rebind implicitly. Composite-ref ledger rows are recoverable bookkeeping because the referenced UUID tuple remains the identity truth. Changing a mapped `natural_key` value is an ordinary update/file rename and retains the UUID already assigned through the ledger; `UUIDv5(current key) != retained UUID` is therefore expected after a rename, and capture/plan report it as an informational note. Duo never forces re-derivation. A fresh environment that independently captures the already-renamed live row without the ledger or repository history derives UUIDv5 from the new key and therefore gets a different UUID; the existing table adopt flows are the reconciliation path for that documented bootstrap/continuity boundary.
 - **Parent-scoped natural keys** (spec v1, DUO-3318): `"identity": {"mode": "natural_key", "columns": ["<col>", ...]}` is the same mode for a key that is unique only *within* a parent row — a slot code unique per room, an option key unique per form. `column` is exactly its one-component case, and for a **scalar** component its derivation string is frozen unchanged (`"<table>:<value>"`) — which is the whole installed base: every UUIDv5 ever minted by a shipped manifest came from a scalar single-column key, and none of them moves. Two or more components derive from `"<table>:<col>=<component>:<col>=<component>"` in **declared order**, so reordering `columns` is an identity change, not a formatting edit. A component that names a declared `refs[]` column contributes the **referenced row's own UUID**, never the local id in the column (the same portability argument `composite_ref` makes: an auto-increment parent id would mint a different UUID per environment for one authored fact); a scalar component contributes its raw value. That ref rule applies to a one-component key too, where it is strictly new behavior rather than a change: no shipped manifest has ever declared a `natural_key` over a ref column, so there is no derivation to keep frozen there and the portable spelling is the only one this engine has ever produced. Unlike `composite_ref`, `pk` stays required — the table keeps its surrogate primary key, `duo_map.local_id` stays that plain scalar, and delete/adopt/`invalidate` are unchanged. Every component must be a declared `refs[]` column or a declared `columns{}` entry, may not be the primary key, and may not repeat; a multi-component key must declare `slug_column` (a tuple has no portable one-line filename spelling). Adoption resolves the tuple against the target — scalars literally, ref components through the ledger, and on a ledger miss through the referenced row's *own* natural key in the same revision — so a pre-existing unmanaged child row is adoptable exactly as a single-column natural key already is, including on a target where the parent row is itself still unmanaged-but-adoptable (a whole plugin hand-provisioned before its first apply). A ref component naming a post/term parent is not resolved that way: slug adoption is the post/term collision path, and identity for a table row never reaches across into it.
 - **Refs are structural at the row level** (an unmapped non-zero row ref throws, the `post_parent` category) but **optional at the sidecar level** (an unmapped meta-value ref drops with a warning, the ordinary dangling-reference category) — the two severities the dangling-reference rule below already implied but never had to distinguish.
-- **`invalidate`** — declarative per-row cache invalidation run with apply, no plugin PHP in the engine: `[{"table": "nf3_upgrades", "column": "id"}, {"option_pattern": "nf_form_{id}"}]`, where `{id}` substitutes the row's resolved local id (raw deletes fire no hooks, so no canary carve-out). Blanket (non-row-keyed) caches use the top-level `actions` channel instead (a closed native action such as `transient.delete`, or a plugin-owned provider capability — see "Structured rebuild actions and providers" under the manifest registry format).
+- **`invalidate`** — declarative per-row cache invalidation run with apply, no plugin PHP in the engine: `[{"table": "nf3_upgrades", "column": "id"}, {"option_pattern": "nf_form_{id}"}, {"cache_group": "pmpro_membership_level_meta", "cache_key": "{id}"}]`, where `{id}` substitutes the row's resolved local id (raw deletes fire no hooks, so no canary carve-out). The third verb is the object-cache one (WP-6.2) and is feature-gated: `{id}` may sit in either member, so `{"cache_group": "object_{id}", "cache_key": "lookup_table"}` is the same verb, and the engine proves the drop with a readback rather than trusting the delete's return. It is admitted only for a manifest declaring `invalidate-vocabulary/v1` in `engine_features` (§ v3.13). Blanket (non-row-keyed) caches — where neither member carries `{id}` — are still refused here and use the top-level `actions` channel instead (a closed native action such as `transient.delete`, or a plugin-owned provider capability — see "Structured rebuild actions and providers" under the manifest registry format).
 - `block_attrs` rules may name a declared table's `id_kind` as their ref kind (`ninja-forms/form`'s `formID` → `{{nf3_form:<uuid>}}`); `wp duo lint` scans `tables/*/*.json` like any other canonical state; `apply --adopt-by-slug=tables` adopts matching pre-existing env rows (one shared `tables` adopt key for all declared tables — a table entity's *type* is the table name).
 
 - **Option-name-embedded refs** (spec v0.12, task #93): a manifest may declare `"option_name_refs": [{"match": "<regex with a required named group 'id'>", "malformed_match"?: "<regex for would-be names with an invalid id>", "id_kind": "<declared table id_kind>", "class": "authored", "json_refs"?: [...], "key_refs"?: {...}}]` for options whose NAME (not value) embeds another declared table's local id (WooCommerce's `woocommerce_<method_id>_<instance_id>_settings`). A sibling of ordinary `option_patterns`, not a variant: namespace-backed `option_patterns` classify/capture the real option name as-is, while `option_name_refs` drive their own discovery because the canonical key must replace the matched local `id` group with a portable token. `match` must admit only canonical positive decimal ids; a would-be namespace that matches `malformed_match` (for example a leading-zero or zero Woo instance id) is refused rather than disappearing because a stricter `match` did not select it. All consumers resolve the complete rule set together: a live/canonical name matching more than one rule, including rules for different id_kinds, is ambiguous and refused; pin/declaration order never selects a winner. The captured canonical KEY splices the resolved ref TOKEN into the exact byte position of the matched `id` group — `woocommerce_flat_rate_{{wc_zone_method:<uuid>}}_settings` — using the existing token grammar unchanged. Apply detects a token-bearing option KEY and detokenizes it BEFORE ordinary option-rule dispatch, unconditionally — this ordering is load-bearing: skipping it silently writes a real `wp_options` row whose NAME contains literal `{{...}}` bytes. The resolved real name is re-matched against the same patterns to recover the rule governing its VALUE, which routes through structural capture/apply unconditionally, so an array-shaped settings blob gets its string leaves URL-tokenized and deep secret-scanned with zero per-plugin special-casing.
@@ -694,7 +694,7 @@ Every closed vocabulary above has exactly one owner and exactly one extension pa
 | `post_types.<t>.fields.<f>` and its `class` | engine (`Policy::DERIVABLE_FIELD_COLUMNS`) | engine change + spec bump, per field, with its own evidence | load-time |
 | `tables.<t>.class` | engine | engine change + spec bump | load-time |
 | `tables.<t>.identity.mode` | engine | engine change + spec bump | load-time |
-| `tables.<t>.invalidate[]` shape | engine | a native action or provider capability, not a new invalidation verb | load-time |
+| `tables.<t>.invalidate[]` shape | engine | a new verb on TWO OR MORE independent demands, staged through `engine_features` (§ v3.13); otherwise a native action or provider capability | load-time |
 | ref kinds (`ref`, `refs[].kind`, `json_refs`/`key_refs` `kind`, `block_attrs`/`shortcode_attrs` `kind`) | engine for `post`/`term`/`tt`; `user` additionally for scalar `ref` rules and `block_attrs`; **adapter** for every other value | declare a `tables.<t>` you own and name its `id_kind` | load-time, across all pinned manifests |
 | `block_attrs`/`shortcode_attrs` rule shape, `type`, `cast`, `tokenize`, `unsupported` | engine | engine change + spec bump | load-time |
 
@@ -816,6 +816,7 @@ evidence before this line changes.
 | v3.9 | namespace grammar and the closed grandfather list | WP-4.10 | names and provider ids: YES at `spec_version: 3`, live since the flip, inert at v2; `id_kind`: convention only (R-17) |
 | v3.10 | reserved-but-refusing slots | WP-4.11 | YES — four slots refuse by name; the graduated verdict shipped as a word (WP-2.8) |
 | v3.11 | the executable lane's evidence contract (gate G5) | WP-7.1 (shut) | n/a — the lane is shut and the reservations refuse |
+| v3.13 | the `invalidate[]` vocabulary and its two-demand admission rule | WP-6.2 | YES — three verbs; the third gated on `invalidate-vocabulary/v1`, the first section shipped POST-v3 with no bump |
 
 The flip itself — the two defines, the migration verbs, the cohorted rollout and the rollback rehearsal —
 is WP-4.12, is DONE, and § v3.12 is the record of what it deliberately left alone. The runbook that
@@ -888,14 +889,14 @@ adapter; an engine that lacks one refuses **that adapter, naming the feature and
 same blast radius § v3.1 states exactly.
 
 This is what keeps the closed key set (§ v3.3) from becoming the next flag day. A post-v3 primitive ships
-as: an engine feature name, a manifest key the feature claims, and a refusal for the engine that does not
-have it. An older v3 engine meeting a manifest that uses the primitive says so by name instead of
+as: an engine feature name, whatever manifest key the feature claims, and a refusal for the engine that
+does not have it. An older v3 engine meeting a manifest that uses the primitive says so by name instead of
 mis-reading the declaration, and no version integer moves anywhere. The three facts a feature decides —
 its name, the first `spec_version` its sections exist at, and the top-level keys it claims — are ONE
 constant in the engine, because a feature that is implemented while its section is unknown (or the
 reverse) is precisely the silent mis-read the channel exists to remove.
 
-This engine implements four features, and the first one is what the other three ride:
+This engine implements five features, and the first one is what the other four ride:
 
 - **`spec-window/v1`** — the acceptance window of § v3.1 and this channel itself, claiming the
   `engine_features` key from `spec_version` 3. It is a real entry, not a placeholder — the channel's own
@@ -928,6 +929,27 @@ stayed open beside it.
   answered questions, keyed by the declaration they justify. The first section added AFTER v3 shipped —
   its suite asserts `DUO_SPEC_VERSION` is still 3 in the same run that walks all three verdicts, which is
   the no-bump proof § v3.12's window-close condition demands.
+- **`invalidate-vocabulary/v1`** (WP-6.2, § v3.15) — claims NO top-level key: it widens the
+  `tables.<t>.invalidate[]` verb vocabulary with `{cache_group, cache_key}` inside a section that already
+  exists, the row that shows a feature can stage a VALUE-vocabulary change without inventing a section.
+
+
+A feature need not claim a key at all. WP-6.2 is the worked example: `invalidate-vocabulary/v1` widens a
+VALUE vocabulary inside `tables.<t>.invalidate[]`, a section that already exists, so its `keys` list is
+empty and § v3.3's partition does not move. The channel gates the value the same way it would gate a
+section — declared-and-implemented admits it, declared-and-unimplemented refuses by feature name — which
+is what let a grammar change ship after the flip with nothing re-stamped (§ v3.15).
+
+This engine implements two features. **`spec-window/v1`** is the acceptance window of § v3.1 and this
+channel itself, claiming the `engine_features` key from `spec_version` 3. It is a real entry, not a
+placeholder — the channel's own requirement is that one feature the engine IMPLEMENTS exists on the day it
+ships, so that "declared and implemented admits the claimed key" is a path something walks rather than an
+argument about admissibility. That path is walked in
+`sandbox/tests/offline/policy/regress_spec_window.php` against a synthetic `spec_version` 3 engine, which
+is the only place it can be walked before the flip. **`invalidate-vocabulary/v1`** is § v3.15's, and it is
+the first to arrive through the channel rather than beside it. Because `spec-window/v1` is what claims the
+`engine_features` key, a manifest reaching any other feature declares BOTH names — the channel's own
+admission is not free, and that is the growth rule working rather than an awkwardness in it.
 
 Feature names are engine-owned: an adapter may declare one, never mint one. A name nothing implements is
 refused as unimplemented rather than admitted as forward-looking — the honest-refusal posture, which is
@@ -1938,6 +1960,68 @@ EARLIER than that: `engine_features` is in no arm either, so declaring the CHANN
 an adapter uncertifiable and this section made nothing worse — both halves are pinned rather than one
 inferred from the other. Giving the key an arm would also admit it with no feature declared, which would
 delete the demonstration above; the arm is a separate reviewed decision and this rider does not take it.
+
+### v3.15 The `invalidate[]` vocabulary, and the price of admitting a verb
+
+**Rider: WP-6.2. Enforced today: yes — three verbs, the third gated on `invalidate-vocabulary/v1`.**
+This is the first section to arrive POST-v3 through § v3.2's channel, and it is here to be read as
+evidence for the claim § v3.12 makes rather than as a cache feature: a grammar change shipped with no
+version integer moving anywhere, on an engine that had already had its last flag day. It is also the
+condition § v3.12 names for ever closing the window — "at least one grammar section shipped post-v3
+through `engine_features` with no version bump" — now met.
+
+**What the verb is.** `tables.<t>.invalidate[]` admitted exactly two entry shapes: `{table, column}` for a
+targeted row delete and `{option_pattern}` for a named option. Both reach a cache that is STORED as a
+database row. Nothing reached the WordPress object cache, which no `DELETE` can touch, so a plugin that
+caches per row in an object-cache group could only be repaired with hook code. The third shape is
+`{cache_group, cache_key}`, with `{id}` substituting the row's resolved local id into EITHER member; the
+engine drops the entry and then re-reads it, refusing when it survives.
+
+**The admission rule, which is the actual subject.** The old refusal ended "belongs in a native action or
+a provider capability", and that sentence is what converts a declarative adapter into a
+`compatibility_shim` one. Widening the vocabulary is therefore the highest-leverage move available and the
+easiest to abuse — chasing per-plugin behaviour into the engine one verb at a time is precisely what the
+boundary text refuses. So a verb enters on TWO OR MORE INDEPENDENT DEMANDS in the engine-gap ledger and
+the shipped provider corpus, and on nothing less:
+
+- `manifests/providers/paid-memberships-pro-cache.php:92` drops
+  `wp_cache_delete(<level id>, 'pmpro_membership_level_meta')` — the id on the KEY side;
+- `manifests/providers/woocommerce-product-lookups.php:1301` drops
+  `wp_cache_delete('lookup_table', 'object_<product id>')` — the id on the GROUP side, in an unrelated
+  plugin. It is the second demand that made the rule "`{id}` in either member" rather than a
+  transcription of the first plugin's spelling, which is the difference between a generalisation and a
+  branch.
+
+**Single-demand shapes stay refused AND stay recorded.** A cache entry shared by every row of a table —
+neither member carrying `{id}` — is demanded by Code Snippets alone, so it does not enter; it is
+`table_scoped_cache_entry_invalidation` in `tools/engine-gaps.json`, an OPEN primitive with one demanding
+candidate, and the refusal names the `actions` channel where a blanket cache does belong. Recording the
+refusal is what keeps the boundary honest: a ledger that forgot the shapes it turned away would make the
+boundary look free, and the open-demand ranking is the instrument that decides which verb is next.
+
+**The staging, and why the gate is where it is.** The verb is admitted only for a manifest declaring
+`invalidate-vocabulary/v1` in `engine_features` — which, by § v3.3's growth rule, also means declaring
+`spec-window/v1`, since that is the feature claiming the `engine_features` key itself. An engine without
+the feature refuses the adapter BY FEATURE NAME instead of mis-reading the declaration, which is the whole
+property that makes a bump unnecessary. This feature is the first whose `keys` list is EMPTY: it widens a
+value vocabulary inside a section that already exists, so § v3.3's partition does not move and register
+row R-21 still counts 33 top-level keys.
+
+The gate is asked once, in `ManifestGrammar::validate_tables()`, where the declaring document is in hand —
+never inside the per-declaration shape check, which also runs on `Snapshot`'s live re-checks where no
+manifest exists and which must reach the same verdict there as it did at load. `site.duo.json`'s
+`policy.tables` overrides pass through the same funnel with a SITE marker set, so a repository cannot mint
+a feature by writing `engine_features` into its own policy object.
+
+**What it bought, measured.** Paid Memberships Pro's entire executable surface was one `actions[]` entry,
+one `providers[].source: "manifest"` row, and a provider whose whole product act is that
+`wp_cache_delete()` in a loop. All three are replaceable by one declarative line, which drops the adapter
+from `compatibility_shim` to `declarative_manifest` — G5 condition 1's "the answer is more declarative
+primitives" performed once, on a real adapter. The demonstration is a synthetic fixture derived from the
+shipped manifest's bytes at runtime and driven through the real `duo manifest-validate`
+(`sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php`); the shipped manifest is deliberately
+NOT re-stamped, because a byte under `manifests/` is adapter identity and moving it would cost every pin
+and certificate over that adapter for a point already proven.
 
 ## Ledger tables (per environment, never in the repo)
 

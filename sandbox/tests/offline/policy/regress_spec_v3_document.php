@@ -203,10 +203,17 @@ foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
     }
 }
 sort($featureReaders, SORT_STRING);
+// WP-6.2 added the second reader and the second feature, and both moves are
+// § v3.2's channel doing its job rather than leaking. AdapterContractGrammar
+// still owns the vocabulary and is still the only file that refuses an
+// unimplemented name; ManifestGrammar reads a manifest's declared list for the
+// one narrower question its feature-gated `invalidate[]` verbs turn on, which
+// it cannot delegate upward across the module ladder.
 duo_check_same(
-    ['agent/src/Adapter/AdapterContractGrammar.php'],
+    ['agent/src/Adapter/AdapterContractGrammar.php', 'agent/src/Policy/ManifestGrammar.php'],
     $featureReaders,
-    'v3.2 ENFORCED: the channel has exactly one shipped reader — the grammar that owns the feature vocabulary'
+    'v3.2 ENFORCED: the channel has two shipped readers — the grammar that owns the feature vocabulary, and '
+        . 'the manifest grammar that consumes one gated declaration'
 );
 // WP-6.4 moved this from one name to two, and the second is the assertion
 // worth having: `spec-window/v1` claims only the channel's own key, so with it
@@ -215,7 +222,7 @@ duo_check_same(
 // section that did not exist when v3 was cut and that shipped with
 // DUO_SPEC_VERSION unmoved (§ v3.14) — so the channel is a walked path.
 duo_check_same(
-    ['attr-id-codecs/v1', 'spec-window/v1', 'structured-evidence/v1', 'typed-column-codecs/v1'],
+    ['attr-id-codecs/v1', 'invalidate-vocabulary/v1', 'spec-window/v1', 'structured-evidence/v1', 'typed-column-codecs/v1'],
     AdapterContractGrammar::implemented_features(),
     'v3.2: the vocabulary carries four IMPLEMENTED features, and three claim sections v3 did not have — '
         . '"declared and implemented admits" is a path walked three times, not an admissibility argument'

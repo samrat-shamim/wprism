@@ -63,7 +63,13 @@ final class SitePolicyValidator {
             $classes,
             $missingUserModes
         );
-        ManifestGrammar::validate_tables($site['policy'] ?? [], $label);
+        // The third argument is the SITE marker (WP-6.2). An engine-feature
+        // declaration is a MANIFEST section, so a repository's `policy` object
+        // may not carry one, and its table overrides are held to the ungated
+        // invalidate vocabulary. This file passes the flag and reads no feature
+        // list of its own — ManifestGrammar's gate is the only consumer. Same
+        // shape as validate_scope_classes()'s own site flag three lines up.
+        ManifestGrammar::validate_tables($site['policy'] ?? [], $label, true);
         SubKeyGrammar::validate_sub_keys($site['policy'] ?? [], $label);
         ReferenceShapeGrammar::validate_reference_shapes($site['policy'] ?? [], $label);
         // WP-5.5. SHAPE only: whether a resolution decides anything is a fact

@@ -386,9 +386,12 @@ final class TypedTableMaterializer {
         }
     }
 
-    /** Run one generic table-row or option-name cache invalidation rule. */
+    /** Run one generic table-row, option-name, or object-cache-entry invalidation rule. */
     private function runInvalidation(array $invalidation, int $localId): void {
         global $wpdb;
+        if (isset($invalidation['cache_group'])) {
+            $this->runCacheEntryInvalidation($invalidation, $localId);
+        }
         if (isset($invalidation['table'])) {
             $table = preg_replace('/[^A-Za-z0-9_]/', '', $invalidation['table']);
             $column = preg_replace('/[^A-Za-z0-9_]/', '', $invalidation['column'] ?? 'id');
@@ -428,6 +431,59 @@ final class TypedTableMaterializer {
                 ($this->cacheDelete)($name, 'options');
                 ($this->cacheDelete)('alloptions', 'options');
             }
+        }
+    }
+
+    /**
+     * Drop ONE object-cache entry named by a `{cache_group, cache_key}` verb
+     * (WP-6.2), and PROVE it is gone.
+     *
+     * The readback is the whole point, and it is what makes the declarative
+     * verb equal in strength to the provider it replaces rather than a weaker
+     * imitation of it: `manifests/providers/paid-memberships-pro-cache.php`
+     * refuses with "cache invalidation left cached membership level id(s)"
+     * (:96-99) when an entry survives, and so does this. A `wp_cache_delete()`
+     * that quietly returns false against a backend that kept the value is
+     * precisely the stale-read the declaration exists to prevent, so an
+     * unverified delete would ship the bug in a shorter spelling.
+     *
+     * Two runtime paths, matching the option branch above for the same reason.
+     * Under the authored transaction the delete goes through
+     * CacheInvalidationTransaction::queue(), which registers the entry BEFORE
+     * attempting it and re-attempts every registered primitive after the
+     * database outcome (:372-397, :400-408) — a pre-COMMIT purge alone is
+     * insufficient because a later read in the same request repopulates it.
+     * Outside one, the injected cacheDelete closure is used, exactly as the
+     * option branch does, so a directly-constructed materializer stays testable
+     * without a transaction.
+     *
+     * `wp_cache_get` is required rather than guarded away: this engine refuses
+     * loudly instead of skipping a check it cannot make, and the function is
+     * unconditionally present in any WordPress that loaded wp-includes/cache.php
+     * — which is every context this branch can be reached from.
+     */
+    private function runCacheEntryInvalidation(array $invalidation, int $localId): void {
+        $group = str_replace('{id}', (string) $localId, (string) $invalidation['cache_group']);
+        $key = str_replace('{id}', (string) $localId, (string) $invalidation['cache_key']);
+        $purpose = 'apply invalidate declared object-cache entry';
+        if (!function_exists('wp_cache_get')) {
+            throw new \RuntimeException(
+                "duo: $purpose cannot verify the drop of '$key' in group '$group' — wp_cache_get() is absent, "
+                . 'and an unverified cache invalidation proves nothing about the stale read it exists to prevent'
+            );
+        }
+        if (CacheInvalidationTransaction::is_active()) {
+            CacheInvalidationTransaction::queue($key, $group, $purpose);
+        } else {
+            ($this->cacheDelete)($key, $group);
+        }
+        $found = false;
+        wp_cache_get($key, $group, false, $found);
+        if ($found) {
+            throw new \RuntimeException(
+                "duo: $purpose left '$key' cached in group '$group'; the declared invalidation did not take, so "
+                . "the plugin's own read path would still serve the pre-apply value"
+            );
         }
     }
 

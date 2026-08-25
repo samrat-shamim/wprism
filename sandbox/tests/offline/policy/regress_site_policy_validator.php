@@ -128,7 +128,11 @@ $check(
         && substr_count($validatorSource, "OptionGrammar::validate_option_storage(\$site['policy'] ?? [], \$label)") === 1
         && substr_count($validatorSource, "OptionGrammar::validate_env_options(\$site['policy'] ?? [], \$label)") === 1
         && substr_count($validatorSource, 'UserMetaGrammar::validate_user_meta_rules(') === 1
-        && substr_count($validatorSource, "ManifestGrammar::validate_tables(\$site['policy'] ?? [], \$label)") === 1
+        // The trailing `, true` is WP-6.2's SITE marker, and it is pinned here
+        // rather than loosened away: it is what stops a repository's `policy`
+        // object from declaring an engine feature and unlocking a gated
+        // `invalidate[]` verb in a document no adapter contract validates.
+        && substr_count($validatorSource, "ManifestGrammar::validate_tables(\$site['policy'] ?? [], \$label, true)") === 1
         && substr_count($validatorSource, "SubKeyGrammar::validate_sub_keys(\$site['policy'] ?? [], \$label)") === 1
         && substr_count($validatorSource, "ReferenceShapeGrammar::validate_reference_shapes(\$site['policy'] ?? [], \$label)") === 1
         && (strpos($validatorSource, 'CodeConfigGrammar::validate_site_code(') < strpos($validatorSource, 'ScopeGrammar::validate_scope_classes('))

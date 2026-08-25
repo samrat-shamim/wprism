@@ -20199,7 +20199,11 @@
         },
         "Duo\\ManifestGrammar": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "INVALIDATE_VOCABULARY_FEATURE": {
+                    "value_repr": "invalidate-vocabulary/v1"
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
@@ -20321,6 +20325,14 @@
                             "has_default": false,
                             "name": "label",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "site",
+                            "type": "bool",
                             "variadic": false
                         }
                     ],

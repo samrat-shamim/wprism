@@ -94,18 +94,19 @@ function spec_window_report(int $supported): array {
     $featureSection = 'engine_features';
     $since = $sections[$featureSection] ?? ($supported + 1);
     $implemented = \Duo\AdapterContractGrammar::implemented_features();
-    // The feature that claims THIS suite's section, derived rather than taken
-    // as `$implemented[0]`. That index was the same thing while the engine
-    // implemented one feature; WP-6.1 added two more, and the first one
-    // alphabetically now claims a different key entirely — so every probe below
-    // would have declared `engine_features: ["attr-id-codecs/v1"]`, a manifest
-    // whose declared feature does not admit the very key it is written in, and
-    // the suite would have measured the closed key set instead of the channel.
+    // The feature that CLAIMS the `engine_features` key, asked rather than
+    // taken by position. `$implemented[0]` was the same thing while the engine
+    // had one feature; WP-6.1 and WP-6.2 (independently, in sibling worktrees)
+    // each hit the drift when their features sorted first — one claims a
+    // different key, one claims none — so every probe below would have
+    // declared a feature that does not admit the very key it is written in,
+    // and the suite would have measured the wrong rule. Derivation is the fix
+    // both converged on; this is the merged single copy.
     $first = 'none/v0';
-    foreach ($implemented as $feature) {
-        $claims = \Duo\AdapterContractGrammar::admitted_feature_keys([$featureSection => [$feature]]);
+    foreach ($implemented as $candidate) {
+        $claims = \Duo\AdapterContractGrammar::admitted_feature_keys([$featureSection => [$candidate]]);
         if (in_array($featureSection, $claims, true)) {
-            $first = $feature;
+            $first = $candidate;
             break;
         }
     }
@@ -162,6 +163,9 @@ function spec_window_report(int $supported): array {
         'accepted' => $accepted,
         'verdicts' => $verdicts,
         'implemented_features' => $implemented,
+        // Which of them admits `engine_features` — the one every fixture here
+        // declares, and no longer the roster's first entry (see $first above).
+        'section_feature' => $first,
         'section_min_spec' => $sections,
         'admitted_feature_keys' => \Duo\AdapterContractGrammar::admitted_feature_keys(
             [$featureSection => [$first]]
@@ -513,7 +517,7 @@ Canon::write_file($scratch . '/acme-clean.json', Canon::encode([
 // refused — a manifest sitting where the whole shipped library sits, reaching
 // for a section its own declared version does not have.
 Canon::write_file($scratch . '/acme-staged.json', Canon::encode([
-    'engine_features' => [$shipped['implemented_features'][0]],
+    'engine_features' => [$shipped['section_feature']],
     'name' => 'acme-staged',
     'options' => ['acme_staged_setting' => ['class' => 'authored', 'autoload' => 'yes']],
     'spec_version' => $N - 1,

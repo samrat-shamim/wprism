@@ -87,6 +87,11 @@ function v3_reservations_manifest_report(int $supported): array {
     // taken as `[0]`: WP-6.1's two additions sort ahead of it and claim other
     // keys, and this probe declares `engine_features` — so the wrong feature
     // would measure the closed key set instead of the growth channel.
+    // The feature that CLAIMS `engine_features`, not the roster's first entry:
+    // the growth probe below declares that key, so it needs the feature that
+    // ADMITS it. WP-6.2's `invalidate-vocabulary/v1` claims no key at all and
+    // sorts first, so a positional pick started measuring an unrecognised
+    // section instead of the growth rule this part is about.
     $feature = 'none/v0';
     foreach (\Duo\AdapterContractGrammar::implemented_features() as $candidate) {
         $claims = \Duo\AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$candidate]]);

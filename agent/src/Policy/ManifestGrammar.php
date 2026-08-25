@@ -72,6 +72,49 @@ final class ManifestGrammar {
     /** The closed `widgets.<t>.settings.<s>.ref` vocabulary. @see assert_widget_grammar() */
     private const WIDGET_SETTING_REFS = ['term'];
 
+    /**
+     * The engine feature that admits the `{cache_group, cache_key}` verb
+     * (WP-6.2, spec/repo-format.md § v3.15).
+     *
+     * The NAME lives here, in the policy layer, and `AdapterContractGrammar::
+     * IMPLEMENTED_FEATURES` reads it from here rather than restating it —
+     * Adapter is layer 5 and Policy is layer 2, so that direction is the only
+     * legal one (tools/modules.json's ladder), and one definition is the same
+     * discipline `AdapterContractGrammar::admitted_top_level_keys()` applies to
+     * the signer's partition. A second copy would agree on the day it is typed
+     * and diverge on the day the gate stops firing, which is the day nobody is
+     * looking.
+     *
+     * `/v1` is the change channel R-19 records: a verb whose meaning moves is a
+     * NEW feature name implemented beside this one, never an edit of it, so a
+     * manifest that declared the old name keeps its bytes and its digest.
+     */
+    public const INVALIDATE_VOCABULARY_FEATURE = 'invalidate-vocabulary/v1';
+
+    /**
+     * The `invalidate[]` verbs this feature gates, recognised BY PRESENCE of
+     * either member key.
+     *
+     * Presence, not well-formedness, for the reason `AdapterContractGrammar::
+     * tier_decision()` gives for its own presence test (:3650-3653): a
+     * malformed declaration must not be able to reach a privilege its
+     * well-formed spelling would be gated on. `{"cache_group": 42}` is a reach
+     * for the object cache and is gated as one, then refused for its shape.
+     */
+    private const INVALIDATE_FEATURE_KEYS = ['cache_group', 'cache_key'];
+
+    /**
+     * The byte budget for a declared `cache_group`/`cache_key`.
+     *
+     * `CacheInvalidationTransaction::assert_cache_group()` caps a LIVE group at
+     * 191 bytes (agent/src/Apply/CacheInvalidationTransaction.php:434-441) and a
+     * 64-bit local id is at most 20 digits, so a declaration of 160 bytes still
+     * fits after `{id}` (4 bytes) becomes 20: 160 - 4 + 20 = 176 ≤ 191. Checked
+     * on the DECLARATION so the refusal arrives at load, offline, naming the
+     * manifest — not at apply time on the one row whose id happened to be long.
+     */
+    private const INVALIDATE_CACHE_NAME_BYTES = 160;
+
     /** @return list<string> Policy::closed_vocabularies()'s read of TABLE_CLASSES. */
     public static function tableClasses(): array {
         return self::TABLE_CLASSES;
@@ -98,13 +141,28 @@ final class ManifestGrammar {
      * caller supplies the label so the exact same pure enumeration can retain
      * Policy's live/frozen diagnostic context.
      *
+     * $site marks the `site.duo.json` caller, and it is load-bearing rather
+     * than cosmetic (WP-6.2): `engine_features` is a MANIFEST section, so a
+     * repository's `policy` object may not declare one. Without the flag a
+     * `policy.engine_features` list would look exactly like a manifest's and
+     * unlock a feature-gated verb from a document nothing validates it in —
+     * the site half would become the one place a feature can be minted rather
+     * than declared. Same shape and same reason as
+     * `ScopeGrammar::validate_scope_classes($source, $label, $isSite)`.
+     *
      * @param array<string,mixed> $source
      */
-    public static function validate_tables(array $source, string $label): void {
+    public static function validate_tables(array $source, string $label, bool $site = false): void {
         $tables = $source['tables'] ?? [];
         if (!is_array($tables) || (array_is_list($tables) && $tables !== [])) {
             throw new \RuntimeException("duo: $label tables must be an object keyed by unprefixed table name");
         }
+        // The one place the DECLARING DOCUMENT is in hand, which is why WP-6.2's
+        // feature gate is asked here and not inside the per-declaration grammar
+        // below (see assert_invalidate_feature_gate() for the full argument).
+        // Before the shape walk, so a reach for a gated verb is answered by the
+        // gate even when the reach is malformed.
+        self::assert_invalidate_feature_gate($source, $label, $site);
         foreach ($tables as $table => $decl) {
             self::assert_table_grammar((string) $table, $decl, $label);
         }
@@ -506,18 +564,56 @@ final class ManifestGrammar {
     }
 
     /**
-     * `invalidate[]` grammar (DUO-3318): each entry is exactly one targeted
-     * row delete `{table, column}` or one named option `{option_pattern}`.
+     * `invalidate[]` grammar (DUO-3318; third verb WP-6.2): each entry is
+     * exactly one targeted row delete `{table, column}`, one named option
+     * `{option_pattern}`, or one object-cache entry `{cache_group, cache_key}`.
      *
-     * Both branches are generic, plugin-blind primitives, and both are
-     * silently no-ops when misspelled: Snapshot::run_invalidate() dispatches
-     * on `isset($inv['table'])` / `isset($inv['option_pattern'])`, so a
+     * All three branches are generic, plugin-blind primitives, and all three
+     * are silently no-ops when misspelled: TypedTableMaterializer::
+     * runInvalidation() dispatches on `isset($inv['table'])` /
+     * `isset($inv['option_pattern'])` / `isset($inv['cache_group'])`, so a
      * mistyped key used to mean "this cache is never invalidated" with no
      * diagnostic — the exact failure Ninja Forms' stale-cache finding was
      * filed for in the first place. `{id}` is required in an option_pattern
      * for the same reason: a pattern with no substitution point names ONE
      * fixed option row for every row of the table, which is either a no-op or
      * a delete of an unrelated option.
+     *
+     * WHY A THIRD VERB, AND WHY ONLY THIS ONE (WP-6.2's admission rule)
+     * ----------------------------------------------------------------
+     * The refusal below used to end "belongs in a native action or a provider
+     * capability", and that sentence is what converts a declarative adapter
+     * into a `compatibility_shim` one — every `providers[].source: "manifest"`
+     * row in the shipped library is a recorded statement of something the
+     * declarative set could not say. A verb therefore enters on evidence, not
+     * on taste: TWO OR MORE INDEPENDENT DEMANDS in the ledger and the shipped
+     * provider corpus, and nothing less.
+     *
+     * `{cache_group, cache_key}` has exactly two, in two unrelated plugins:
+     *   - `manifests/providers/paid-memberships-pro-cache.php:92` —
+     *     `wp_cache_delete($levelId, 'pmpro_membership_level_meta')`, the id on
+     *     the KEY side. That provider's whole product act is this one call in a
+     *     loop, which is why PMPro is the adapter WP-6.2 shows dropping out of
+     *     `compatibility_shim`.
+     *   - `manifests/providers/woocommerce-product-lookups.php:1301` —
+     *     `wp_cache_delete('lookup_table', 'object_' . $id)`, the id on the
+     *     GROUP side. Two spellings of one primitive, which is what makes the
+     *     `{id}`-in-either-member rule below a generalisation rather than a
+     *     transcription of PMPro.
+     *
+     * Single-demand shapes stay REFUSED and stay RECORDED: a cache entry shared
+     * by every row of a table (no `{id}` anywhere) is demanded only by Code
+     * Snippets (`manifests/providers/code-snippets-state.php:94`), so it is
+     * `table_scoped_cache_entry_invalidation` in tools/engine-gaps.json and it
+     * refuses here. That is also the reviewed boundary manifests/woocommerce.
+     * json:307 already drew — "a BLANKET, not row-id-keyed, invalidation …
+     * covered with zero new engine code" through the top-level `actions`
+     * channel — so admitting it would overturn a decision, not close a gap.
+     *
+     * The gate that decides whether a manifest may USE this verb is not here:
+     * see assert_invalidate_feature_gate(). This method is the pure SHAPE half
+     * and runs on every path, including Snapshot's live re-checks, which carry
+     * no manifest and must reach the same verdict as load did.
      */
     private static function assert_invalidate_grammar(string $table, array $decl, string $where): void {
         if (!array_key_exists('invalidate', $decl)) {
@@ -553,12 +649,144 @@ final class ManifestGrammar {
                 }
                 continue;
             }
+            if ($keys === ['cache_group', 'cache_key']) {
+                self::assert_cache_entry_verb($table, $entry, $where, (int) $i);
+                continue;
+            }
             throw new \RuntimeException(
                 "duo: table '$table'$where invalidate[$i] declares [" . implode(', ', $keys)
                 . '] but the invalidation vocabulary is closed and engine-owned: exactly {table, column} for a '
-                . 'targeted row delete, or exactly {option_pattern} for a named option. Anything a plugin owns '
-                . 'beyond those two generic primitives belongs in a native action or a provider capability'
+                . 'targeted row delete, exactly {option_pattern} for a named option, or exactly {cache_group, '
+                . 'cache_key} for one object-cache entry. Anything a plugin owns beyond those three generic '
+                . 'primitives belongs in a native action or a provider capability'
             );
+        }
+    }
+
+    /**
+     * The exact shape of one `{cache_group, cache_key}` entry.
+     *
+     * Closed in both directions, the way every other verb here is: the entry is
+     * those two members and nothing else (the sorted-key equality above), each
+     * is a non-empty string, and at least one carries `{id}`.
+     *
+     * The `{id}` rule is `option_pattern`'s, restated for the object cache and
+     * for the same reason — a declaration with no substitution point names ONE
+     * fixed entry for every row of the table, so it is either a no-op or a drop
+     * of an unrelated entry. It is deliberately "at least one of the two"
+     * rather than "the key": WooCommerce's own spelling puts the id in the
+     * GROUP (`object_<id>` / `lookup_table`) and PMPro's puts it in the key, and
+     * a rule that admitted only PMPro's would have generalised nothing.
+     *
+     * The character class is what makes the runtime contract unreachable rather
+     * than merely unlikely: with every `{id}` removed the remainder must be
+     * `[A-Za-z0-9_.:-]*`, so a declared name cannot carry the control bytes
+     * `CacheInvalidationTransaction::assert_cache_group()` refuses at apply time
+     * (:434-441), cannot carry whitespace, and cannot carry a stray brace that
+     * would betray a second substitution point this engine does not implement.
+     */
+    private static function assert_cache_entry_verb(string $table, array $entry, string $where, int $i): void {
+        $substituted = false;
+        foreach (self::INVALIDATE_FEATURE_KEYS as $key) {
+            $value = $entry[$key];
+            if (!is_string($value) || $value === '') {
+                throw new \RuntimeException(
+                    "duo: table '$table'$where invalidate[$i].$key must be a non-empty string"
+                );
+            }
+            if (strlen($value) > self::INVALIDATE_CACHE_NAME_BYTES) {
+                throw new \RuntimeException(
+                    "duo: table '$table'$where invalidate[$i].$key is " . strlen($value) . ' bytes, over the '
+                    . self::INVALIDATE_CACHE_NAME_BYTES . '-byte budget — a 20-digit local id substituted for '
+                    . '{id} must still fit the 191-byte cache-name bound the apply-time transaction enforces'
+                );
+            }
+            $literal = str_replace('{id}', '', $value);
+            if (preg_match('/^[A-Za-z0-9_.:-]*$/D', $literal) !== 1) {
+                throw new \RuntimeException(
+                    "duo: table '$table'$where invalidate[$i].$key must be [A-Za-z0-9_.:-] outside its {id} "
+                    . 'substitution points — a cache name carrying whitespace, a control byte, or a second kind '
+                    . 'of brace is refused at load rather than at apply time on one row'
+                );
+            }
+            $substituted = $substituted || str_contains($value, '{id}');
+        }
+        if (!$substituted) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where invalidate[$i] declares neither cache_group nor cache_key with the "
+                . '{id} substitution point — without it every row of this table would name the same one cache '
+                . 'entry. A cache entry SHARED by a table\'s rows is the blanket case, which belongs in the '
+                . 'top-level actions channel or a provider capability, not in this per-row verb'
+            );
+        }
+    }
+
+    /**
+     * May THIS DECLARING DOCUMENT use the feature-gated `invalidate[]` verbs?
+     *
+     * Separate from assert_invalidate_grammar() on purpose, and the split is
+     * the contract. The shape half is a pure function of one declaration and
+     * runs on every path — including TableSchema's live re-checks, which are
+     * handed a `$decl` and no manifest (Snapshot::assert_row_schema():678-685).
+     * If the feature question were asked there, a manifest that legitimately
+     * declared the feature would load and then refuse at capture time, which is
+     * exactly the "two copies of one rule disagree" failure assert_widget_
+     * grammar()'s docblock records three instances of.
+     *
+     * So the gate is asked ONCE, where the declaring document is in hand, by
+     * validate_tables() — which is the single funnel BOTH carriers pass
+     * through: `ManifestValidator::validate_manifest():73` for a manifest and
+     * `SitePolicyValidator::validate():61` for `site.duo.json`'s own
+     * `policy.tables` overrides.
+     *
+     * $site is why that second caller is safe. `engine_features` is a MANIFEST
+     * section — § v3.3 admits it at a manifest's top level and nothing
+     * validates one inside a repository's `policy` object — so a site policy
+     * gets an EMPTY declared set no matter what it writes, and a gated verb in
+     * a `policy.tables` override is refused by the same sentence an undeclared
+     * manifest gets. Reading the list off the source unconditionally would make
+     * the site half the one document where a feature can be minted rather than
+     * declared, which is the opposite of what the channel is for.
+     *
+     * Recognition is BY PRESENCE (INVALIDATE_FEATURE_KEYS) and the gate runs
+     * BEFORE the shape check for that reason — a malformed reach for the object
+     * cache is still a reach, and `validate_adapter_contract()` orders its own
+     * feature channel ahead of its value checks on the same argument (:298-306).
+     *
+     * @param array<string,mixed> $source a manifest, or `site.duo.json`'s `policy`
+     */
+    private static function assert_invalidate_feature_gate(array $source, string $label, bool $site): void {
+        $declared = [];
+        foreach ($site ? [] : (array) ($source['engine_features'] ?? []) as $feature) {
+            if (is_string($feature)) {
+                $declared[$feature] = true;
+            }
+        }
+        if (isset($declared[self::INVALIDATE_VOCABULARY_FEATURE])) {
+            return;
+        }
+        foreach ((array) ($source['tables'] ?? []) as $table => $decl) {
+            if (!is_array($decl)) {
+                continue;
+            }
+            foreach ((array) ($decl['invalidate'] ?? []) as $i => $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                foreach (self::INVALIDATE_FEATURE_KEYS as $key) {
+                    if (!array_key_exists($key, $entry)) {
+                        continue;
+                    }
+                    throw new \RuntimeException(
+                        "duo: $label table '" . (string) $table . "' invalidate[" . (string) $i . "] declares '"
+                        . $key . "', which the engine feature '" . self::INVALIDATE_VOCABULARY_FEATURE
+                        . "' gates — declare it in this manifest's top-level \"engine_features\" list (which "
+                        . 'itself requires spec_version 3, spec/repo-format.md § v3.2). An engine that does not '
+                        . 'implement the feature refuses the adapter by feature name instead of mis-reading the '
+                        . 'declaration, which is what lets this verb ship with no version bump'
+                    );
+                }
+            }
         }
     }
 

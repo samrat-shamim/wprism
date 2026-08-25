@@ -576,10 +576,22 @@ duo_check_same([], $featureDeclarers, 'V3-FEAT: no shipped manifest declares `en
 // that assertion for V3-FEAT: the channel acquired exactly one shipped reader,
 // the grammar that owns the vocabulary, and `fixture:engine-features` below is
 // unchanged.
+// WP-6.2 added the SECOND reader, and the pair is the shape the channel is
+// meant to have rather than a leak. AdapterContractGrammar still owns the one
+// VOCABULARY — which names exist, the first spec_version their sections live
+// at, and the keys each claims — and it is the only file that can refuse an
+// unimplemented name. ManifestGrammar reads a manifest's DECLARED list to
+// answer one narrower question: may this document use the feature-gated
+// `invalidate[]` verbs. It cannot delegate that to the contract grammar,
+// because Policy sits below Adapter on tools/modules.json's ladder; what it
+// does instead is own the feature NAME as a constant the contract grammar
+// reads back, so there is still exactly one spelling of it in the tree.
 duo_check_same(
-    ['agent/src/Adapter/AdapterContractGrammar.php'],
+    ['agent/src/Adapter/AdapterContractGrammar.php', 'agent/src/Policy/ManifestGrammar.php'],
     $featureReaders,
-    'V3-FEAT: the channel has exactly one shipped reader — the contract grammar, which owns the one definition of a feature name, its first spec_version and the keys it claims'
+    'V3-FEAT: the channel has exactly two shipped readers — the contract grammar, which owns the vocabulary '
+        . 'and refuses an unimplemented name, and the manifest grammar, which asks only whether THIS document '
+        . 'declared the feature its gated verbs need'
 );
 // WP-6.4: two names, not one. The dry run's own posture — measure what is
 // there, do not assert what ought to be — makes the COUNT the interesting fact:
@@ -587,7 +599,7 @@ duo_check_same(
 // requirement, and a vocabulary of two is a set the refusal enumerates, the
 // author declares from, and register row R-19 projects.
 duo_check_same(
-    ['attr-id-codecs/v1', 'spec-window/v1', 'structured-evidence/v1', 'typed-column-codecs/v1'],
+    ['attr-id-codecs/v1', 'invalidate-vocabulary/v1', 'spec-window/v1', 'structured-evidence/v1', 'typed-column-codecs/v1'],
     \Duo\AdapterContractGrammar::implemented_features(),
     'V3-FEAT: the vocabulary carries four names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'

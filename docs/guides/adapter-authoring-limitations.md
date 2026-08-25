@@ -17,6 +17,7 @@ Every coordinate names its `primitive_required` from a closed vocabulary in the 
 | a verified post-apply type-registration/process boundary | 1 (Custom Post Type UI) | custom-post-type-ui |
 | an explicit structured-leaf text codec independent of fake reference paths | 1 (Custom Post Type UI) | custom-post-type-ui |
 | structured post-body reference paths | 1 (WPForms Lite) | wpforms |
+| a cache entry shared by every row of a table, dropped once per apply rather than per row | 1 (Code Snippets) | code-snippets |
 | a complete taxonomy/delete-scope exercise | 1 (WPForms Lite) | wpforms |
 
 ## WPForms Lite 2.0.0.4 / 2.0.0.5
@@ -43,6 +44,7 @@ Required platform work: an explicit structured-leaf text codec independent of fa
 ## Shipped experimental adapters with open apply work
 
 - Code Snippets 3.9.6: typed rows and shortcode refs are representable, but direct table writes bypass the plugin's object-cache cleanup and optional flat-file execution rebuild. `manifests/code-snippets.json` therefore does not claim apply.
+- Code Snippets 3.9.6: Code Snippets' own cleanup drops `wp_cache_delete(Settings\CACHE_KEY, CACHE_GROUP)` (manifests/providers/code-snippets-state.php:94) -- one settings entry the whole `snippets` table shares, keyed by neither the row nor anything derived from it. WP-6.2's `{cache_group, cache_key}` verb requires `{id}` in one member, so a table-scoped entry still has no declarative spelling and this plugin's object cache stays reachable only through a provider.
 - WPS Hide Login 1.9.19: both route slugs are representable, but the plugin's own settings path flushes rewrite rules. A clean-target request matrix must establish the required postcondition before apply is claimed.
 
 These are explicit promotion blockers in `manifests/dispositions/`, not silent caveats. `conformance-ecosystem-adapter-batch` exercises their exact artifacts through capture, compile, plan, deterministic recapture, and live plugin readback only. Its `capture-plan` mode stops before target mutation, so none of these entries claims apply.
@@ -61,6 +63,7 @@ Closure is per COORDINATE, so a candidate appears here for the blockers that shi
 | WooCommerce 11.0.0 | `option_name_refs[woocommerce-zone-method-settings]` | an option-name reference rule binding a numeric row id captured from the option NAME | `agent/src/Grammar/OptionReferenceGrammar.php`, `manifests/woocommerce.json` |
 | Ninja Forms 3.14.11 | `tables.nf3_forms.invalidate` | a per-row `invalidate` declaration that drops a plugin's own derived cache after every apply-time write | `agent/src/Apply/TypedTableMaterializer.php`, `manifests/ninja-forms.json` |
 | The Events Calendar 6.17.2 | `post_types.tribe_events.regen_dependency` | a declared regenerator that rebuilds derived tables from applied authored state and fails loudly on a stale row | `manifests/regenerators/the-events-calendar.php`, `manifests/the-events-calendar.json` |
+| Paid Memberships Pro 3.8.2 / 3.8.3 | `tables.pmpro_membership_levels.invalidate` | a per-row object-cache ENTRY invalidation, whose key or group carries the row id | `agent/src/Policy/ManifestGrammar.php`, `agent/src/Apply/TypedTableMaterializer.php`, `sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php` |
 
 What each one could not represent:
 
@@ -75,3 +78,4 @@ What each one could not represent:
 - WooCommerce 11.0.0: Closed in task #93, which graduated shipping zones and tax rates from an intent marker to a declared surface.
 - Ninja Forms 3.14.11: Closed by reading Ninja Forms' own read site rather than by trial: `ModelFactory` falls through to a fresh `nf3_forms`/`nf3_fields` read the moment the cache row is ABSENT, which is why invalidation is sufficient and a rebuilder was not required to close the gap.
 - The Events Calendar 6.17.2: Closed in DUO-3234 plus the 2026-08-22 production-readiness stale-row regression; the existence check remains as the generic backstop underneath the regenerator.
+- Paid Memberships Pro 3.8.2 / 3.8.3: Closed in WP-6.2 by generalising the verb rather than by adopting PMPro's spelling: WooCommerce's `object_<id>`/`lookup_table` drop (manifests/providers/woocommerce-product-lookups.php:1301) is the second independent demand and puts the id on the GROUP side, so the admitted rule is `{id}` in EITHER member. The engine proves the drop with a wp_cache_get() readback, matching the refusal the provider it replaces already raised (paid-memberships-pro-cache.php:96-99) -- an unverified delete would have shipped the stale read in a shorter spelling. The SHIPPED manifest is deliberately not restamped: a byte under manifests/ is adapter identity (AGENTS.md rule 2), so the declarative form is demonstrated on a synthetic fixture derived from those bytes at runtime.
