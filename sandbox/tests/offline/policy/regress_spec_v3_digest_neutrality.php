@@ -31,28 +31,30 @@
  * production-ready) deliberately rewrote `manifests/the-events-calendar.json`
  * and its disposition (experimental -> certified), and widened
  * `manifests/core.json`'s native rewrite action to declare TEC's rewrite
- * listener effects. Under AGENTS.md rule 2 that moves those two adapters'
- * digests BY DESIGN, and it post-dates the flag day, so the frozen numbers
- * for them are simply no longer the shipped ones.
+ * listener effects. The reviewed post-flag Polylang production-readiness port
+ * likewise rewrote `manifests/polylang.json` and its per-subject disposition.
+ * Under AGENTS.md rule 2 those three adapters' digests move BY DESIGN, and
+ * they post-date the flag day, so their frozen numbers are no longer shipped.
  *
  * Re-freezing the whole fixture at today's tree was the obvious repair and is
  * the wrong one: it would recompute both sides of the equality, which is the
  * tautology the paragraph above exists to forbid, and it would do it for all
- * 16 adapters to account for 2. So the move is QUARANTINED instead, as
+ * 16 adapters to account for 3. So the moves are QUARANTINED instead, as
  * REVIEWED_MOVES below — literals, in this file, next to the fixture's own
  * pinned digest and edited under the same rule. What that buys, measured:
  *
- *   - 14 of the 16 adapter digests are still compared against untouched
+ *   - 13 of the 16 adapter digests are still compared against untouched
  *     pre-flag numbers, so the flag day's claim is still evidenced, not
  *     asserted;
- *   - the one pin set that contains neither `core` nor `the-events-calendar`
- *     (`duo-agency-cpt-only`) still holds its untouched frozen manifest_hash,
+ *   - the one pin set that contains none of `core`, `polylang`, or
+ *     `the-events-calendar` (`duo-agency-cpt-only`) still holds its untouched
+ *     frozen manifest_hash,
  *     which is the flip-neutrality control a reviewed manifest edit cannot
  *     reach;
  *   - and each PART additionally asserts that the moved set is EXACTLY the
- *     reviewed one. A third adapter moving is a failure, not a re-pin.
+ *     reviewed one. A fourth adapter moving is a failure, not a re-pin.
  *
- * For those two adapters the across-the-flip measurement is genuinely gone —
+ * For those three adapters the across-the-flip measurement is genuinely gone —
  * stated plainly rather than papered over. What still covers them is PART 1's
  * second check, which holds for all 16: every shipped manifest still declares
  * `spec_version` 2. That no-restamp rule is the MECHANISM the flip's
@@ -130,26 +132,31 @@ $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/pre-flag-identity.json';
 const PRE_FLAG_FIXTURE_SHA256 = '05fcb8368979c6e270ecc71cb651680be317a6921d432d677668fed494523239';
 
 /**
- * The ONE reviewed change that has moved a shipped identity since the freeze:
- * #561, measured on this tree, adapter by adapter.
+ * The reviewed post-flag overlays that have moved shipped identities since the
+ * freeze: #561's core/TEC work and the Polylang production-readiness port,
+ * measured on this tree, adapter by adapter.
  *
  * Every number here is an overlay ON TOP OF the frozen fixture, never a
  * replacement for it — the fixture keeps its pre-flag bytes and its pinned
- * digest above. `adapters` is the closure of #561's two manifest edits, and
- * each PART below asserts that closure is exact, so this constant cannot grow
- * by accident: a third name appearing in the observed delta fails the run
- * rather than being absorbed.
+ * digest above. `adapters` is the closure of those reviewed manifest edits,
+ * and each PART below asserts that closure is exact, so this constant cannot
+ * grow by accident: another name appearing in the observed delta fails the
+ * run rather than being absorbed.
  *
  * `pin_sets` carries only the sets whose pins intersect `adapters`.
  * `duo-agency-cpt-only` is deliberately absent — it is the untouched control.
  */
 const REVIEWED_MOVES = [
-    'adapters' => ['core', 'the-events-calendar'],
+    'adapters' => ['core', 'polylang', 'the-events-calendar'],
     'adapter_digests' => [
         // manifests/core.json: the native rewrite action's declared effect set
         // widened to cover TEC's rewrite-listener option writes and the
         // autoload filters around them.
         'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
+        // The reviewed Polylang production-readiness port pins its 3.8.x
+        // range, expanded authored surface, interpreter, manifest provider,
+        // and per-subject disposition.
+        'polylang' => '0b0e12156f7d3728fccd0767548791ce8afbbadfc0c3419ca78837a066995e2c',
         // manifests/the-events-calendar.json rewritten (block_attrs, widgets,
         // interpreter, option_autoload) AND dispositions/the-events-calendar
         // .json promoted experimental -> certified. Both halves are inside the
@@ -158,19 +165,20 @@ const REVIEWED_MOVES = [
     ],
     'manifest_bytes_sha256' => [
         'core' => 'a2f673cd4107e7b32cc6cfff6e84e7f6aca68b789234cbc8c686458fee4de5b3',
+        'polylang' => 'd8ffa458d6a0088999487c3f47aec787f141b9425757d73c241988e5e77b7cff',
         'the-events-calendar' => '2f9d089a18581383d7dcd2b508b54c34674a4ae1e5fb4f424499e6328010936c',
     ],
     'pin_sets' => [
-        'all-16' => '3f82380949304d08f10c3aaf5887219daae246b4596a70786c7938bf6b0e117d',
+        'all-16' => 'cc4375424f6d14f448c14358537eb10cd83ed09a64ea1912d4b05fe0a27222e1',
         'core+elementor+yoast+contact-form-7' => '52200323db9516a2eb7b5738540534aa58e9115c04fb3ddf0b182ea4089d27f9',
         'core+paid-memberships-pro+code-snippets' => '9d89e59d838e145cbd64c6b172ad5634886bdae6ea027eb8f41e57bcd1b048dc',
-        'core+polylang+the-events-calendar' => '8eeb42c8a33f577ccc7ab8a2dc040fcdefe66455f4228e577ba7b0de921fa42d',
+        'core+polylang+the-events-calendar' => '965f7f063db8f7df89f6b090a280bcd7ae8d7bbb6534a6dddd39fc1268724712',
         'core+woocommerce+acf' => '247e7b9f084d050259130eee1d7bbb42aa1732dc9cd410df165a8c36a51f22b3',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC
-    // moves the whole-registry content address every host contract pins.
-    'registry_sha256' => '1c9feb01227d333c1e0ae2c7a0956d8696b171618b45e0a3cb08eca0449daf26',
+    // and certifying Polylang move the whole-registry address every host pins.
+    'registry_sha256' => '074fa8c9ce484c04577dd5449853b8f025c733a9e40faa3789a9614425ad6f53',
 ];
 
 duo_check(is_file($fixturePath), 'the frozen pre-flag identity fixture is in the tree');
@@ -213,7 +221,7 @@ duo_check_same(
     $observed,
     $unmovedCount . ' OF THE ' . count($names) . ' SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-flag '
         . 'tree — the number in every site.duo.json content pin and every certificate, unmoved by '
-        . 'DUO_SPEC_VERSION 2 -> 3; the other ' . count(REVIEWED_MOVES['adapters']) . ' carry #561\'s reviewed '
+        . 'DUO_SPEC_VERSION 2 -> 3; the other ' . count(REVIEWED_MOVES['adapters']) . ' carry reviewed post-flag '
         . 'manifest edits and are pinned as literals in this file'
 );
 // The other half of the same claim, and the one that keeps REVIEWED_MOVES
@@ -268,7 +276,7 @@ foreach ((array) $frozen['pin_sets'] as $label => $expected) {
             ArtifactPolicyIdentity::manifest_hash($policy),
             "manifest_hash for pin set '$label' (" . count($pins) . ' pinned) is unmoved — the number every '
                 . 'compiled artifact and every recovery checkpoint on such a site binds. THE CONTROL: this set '
-                . 'pins neither adapter #561 touched, so its pre-flag number is still the shipped one'
+                . 'pins no adapter the reviewed overlays touch, so its pre-flag number is still the shipped one'
         );
         continue;
     }
@@ -278,7 +286,7 @@ foreach ((array) $frozen['pin_sets'] as $label => $expected) {
     // would each mean manifest_rows() no longer folds what rule 2 says it does.
     duo_check(
         isset(REVIEWED_MOVES['pin_sets'][$label]),
-        "pin set '$label' pins " . implode('/', $touched) . ', so #561 must have moved its manifest_hash and '
+        "pin set '$label' pins " . implode('/', $touched) . ', so the reviewed overlay must have moved its manifest_hash and '
             . 'this file must carry the re-pin'
     );
     duo_check_same(
@@ -287,29 +295,29 @@ foreach ((array) $frozen['pin_sets'] as $label => $expected) {
         "manifest_hash for pin set '$label' (" . count($pins) . ' pinned, ' . implode('/', $touched)
             . ' reviewed-moved) is the re-pinned number every compiled artifact and every recovery checkpoint '
             . 'on such a site now binds — and every site holding the old one refuses with '
-            . 'compiled_artifact_manifest_mismatch until it is recompiled, which is #561\'s intended cost'
+            . 'compiled_artifact_manifest_mismatch until it is recompiled, which is the reviewed change\'s intended cost'
     );
 }
 duo_check_same(
     ['duo-agency-cpt-only'],
     $disjointSets,
-    'and exactly one of the seven representative pin sets is disjoint from #561 — so the control above is a '
+    'and exactly one of the seven representative pin sets is disjoint from the reviewed overlays — so the control above is a '
         . 'real measurement of a real pin shape, not an empty loop that would pass if every set had moved'
 );
 
 // ---------------------------------------------------------------------------
 echo "\nPART 3 — the reviewed registry, and the manifest file bytes upstream of every digest\n";
 // ---------------------------------------------------------------------------
-// The flip does not touch the reviewed claim source; #561 does, by promoting
-// TEC. So this number moved for a reason that is written down in
-// manifests/dispositions/the-events-calendar.json, and re-pinning it here is
-// the reviewed act — not evidence that the flag day disturbed a host contract.
+// The flip does not touch the reviewed claim source; #561 promotes TEC and
+// this post-flag port certifies Polylang. The number moved for reasons written
+// in their per-subject documents, and re-pinning it here is the reviewed act —
+// not evidence that the flag day disturbed a host contract.
 duo_check_same(
     REVIEWED_MOVES['registry_sha256'],
     ManifestDispositions::load($manifestDir)->sha256(),
     'registry_sha256 — the whole-document hash every host contract pins (ContractProjection) — carries #561\'s '
-        . 'experimental -> certified promotion of the-events-calendar and nothing else; it is pinned here as a '
-        . 'literal, so the next claim edit is a visible re-pin rather than a silent one'
+        . 'experimental -> certified promotion of the-events-calendar plus Polylang\'s reviewed certification; it '
+        . 'is pinned here as a literal, so the next claim edit is a visible re-pin rather than a silent one'
 );
 duo_check(
     REVIEWED_MOVES['registry_sha256'] !== (string) $frozen['registry_sha256'],
@@ -333,20 +341,20 @@ ksort($expectedBytes, SORT_STRING);
 duo_check_same(
     $expectedBytes,
     $fileHashes,
-    'and the shipped manifest FILE bytes are the upstream fact behind every digest above: the same two moved, '
+    'and the shipped manifest FILE bytes are the upstream fact behind every digest above: the same reviewed set moved, '
         . 'the other ' . $unmovedCount . ' did not move a byte, so a moved digest could never be mistaken for '
         . 'an edit nobody meant to make (AGENTS.md rule 2)'
 );
 // The causal link stated as its own assertion: the adapters whose digest moved
-// are exactly the adapters whose file bytes moved. If those two sets ever
+// are exactly the adapters whose file bytes moved. If those sets ever
 // disagreed, a digest would have moved for a reason NOT visible in
 // manifests/*.json -- a changed disposition, interpreter, provider or
 // regenerator -- and PART 1 alone could not tell the reader which.
 duo_check_same(
     $movedNames,
     $movedFiles,
-    'and the two sets coincide: every adapter whose digest moved is one whose manifest file moved, so #561\'s '
-        . 'reviewed edits explain the whole delta with no unexplained interpreter or disposition byte behind it'
+    'and the two sets coincide: every adapter whose digest moved is one whose manifest file moved, so the reviewed '
+        . 'edits explain the whole delta with no unexplained interpreter or disposition byte behind it'
 );
 
 // ---------------------------------------------------------------------------
