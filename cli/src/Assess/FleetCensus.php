@@ -421,6 +421,78 @@ final class FleetCensus {
     }
 
     /**
+     * The cohort re-baseline: read the baseline census, obtain the current
+     * one, and hand both to `CohortRebaseline::project()`.
+     *
+     * The current side comes from ONE of two places and never from both. A
+     * `--current=<census.json>` compares two documents that were each measured
+     * against the manifest library of their own day — the only way to do that,
+     * because a checkout holds one library and a past one cannot be re-derived
+     * from it. Without it the current side is measured HERE, from the same
+     * submissions and library an ordinary `duo census` would fold, so the
+     * re-measurement half of WP-6.3's exit criterion is one command rather
+     * than two and a diff.
+     *
+     * Neither form is the one that "works across a flag day": a kept baseline
+     * document is readable whichever engine wrote it — `comparability.engine`
+     * records the move rather than refusing it — and
+     * sandbox/tests/offline/cli/regress_cohort_rebaseline.php case 5 spans the
+     * spec 2 -> 3 flip with the `--dir` form. What `--current` buys is the
+     * LIBRARY on the current side, not the engine.
+     *
+     * @param array{sites:array<string,string>,manifests:string,health:?string,baseline:string,current:?string} $options
+     * @return array<string,mixed> a `duo-cohort-rebaseline/v1` document
+     */
+    public static function rebaseline(array $options): array {
+        self::boot();
+        require_once __DIR__ . '/CohortRebaseline.php';
+        $baseline = self::read_census((string) $options['baseline'], 'baseline');
+        $current = ($options['current'] ?? null) === null
+            ? self::run($options)
+            : self::read_census((string) $options['current'], 'current');
+        return CohortRebaseline::project($baseline, $current);
+    }
+
+    /**
+     * One census document named on the command line. Read exactly as an
+     * inventory is — same three failure modes — but with its own reason code,
+     * because "your baseline is missing" and "one of forty submissions is
+     * missing" are different problems for the operator holding them.
+     *
+     * @return array<string,mixed>
+     */
+    private static function read_census(string $path, string $side): array {
+        if (!is_file($path)) {
+            throw new FleetCensusRefusal(
+                'rebaseline_document_unreadable',
+                "the --$side census document does not exist",
+                'produce it with `duo census --format=json > <path>`, then name that path',
+                $path
+            );
+        }
+        try {
+            $decoded = \Duo\Canon::decode((string) file_get_contents($path));
+        } catch (\Throwable $t) {
+            throw new FleetCensusRefusal(
+                'rebaseline_document_unreadable',
+                "the --$side census document is not valid JSON",
+                'reproduce it with `duo census --format=json` and pass the output unmodified',
+                $path . ': ' . $t->getMessage(),
+                $t
+            );
+        }
+        if (!is_array($decoded) || array_is_list($decoded)) {
+            throw new FleetCensusRefusal(
+                'rebaseline_document_unreadable',
+                "the --$side census document does not decode to an object",
+                'reproduce it with `duo census --format=json` and pass the output unmodified',
+                $path
+            );
+        }
+        return $decoded;
+    }
+
+    /**
      * The derived freshness document, read exactly as an inventory is: it is
      * another document produced elsewhere on this machine, and the failure
      * modes are the same three.

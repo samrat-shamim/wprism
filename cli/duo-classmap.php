@@ -39,6 +39,7 @@ return [
     'Duo\\Orchestrator\\CodePushTransport' => 'src/Transport/CodePushTransport.php',
     'Duo\\Orchestrator\\CodeResolveCommand' => 'src/Command/CodeResolveCommand.php',
     'Duo\\Orchestrator\\CodeResolver' => 'src/Code/CodeResolver.php',
+    'Duo\\Orchestrator\\CohortRebaseline' => 'src/Assess/CohortRebaseline.php',
     'Duo\\Orchestrator\\CommandEnvironmentProvider' => 'src/Environment/EnvironmentLifecycle.php',
     'Duo\\Orchestrator\\CommandOutput' => 'src/Command/CommandOutput.php',
     'Duo\\Orchestrator\\ContractAttestation' => 'src/Contract/ContractAttestation.php',

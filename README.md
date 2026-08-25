@@ -65,7 +65,7 @@ What this deliberately is not: a claim is not sealed to a content-addressed evid
 | [spec/repo-format.md](spec/repo-format.md) | The normative site-repo contract: entity formats, tokens, ledger, apply semantics |
 | [DESIGN.md](DESIGN.md) | Founding design record: state partition, classification policy, identity model, GitOps semantics |
 | [docs/](docs/README.md) | Map of the documentation tree: guides, runtime references, module map, engineering history |
-| [docs/guides/](docs/guides/README.md) | Operator guides: quickstart, daily workflow, code updates, adapter authoring, limits |
+| [docs/guides/](docs/guides/README.md) | Operator guides: quickstart, daily workflow, code updates, adapter authoring, coverage cohorts, limits |
 | [docs/adoption.md](docs/adoption.md) | Installing/updating Duo on an existing SSH WordPress host |
 | [docs/roadmap.md](docs/roadmap.md) | Owner roadmap: thesis, horizons, standing decisions |
 | [agent/](agent/) | The Duo agent — drop-in mu-plugin + `wp duo …` engine commands |

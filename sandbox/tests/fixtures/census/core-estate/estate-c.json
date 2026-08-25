@@ -1,0 +1,104 @@
+{
+    "format": "duo-assess-inventory/v1",
+    "spec_version": 2,
+    "agent_version": "0.5.0",
+    "target": {
+        "wordpress": "6.9.1",
+        "php": "8.3.33",
+        "database": {
+            "engine": "MariaDB",
+            "version": "11.8.8"
+        },
+        "site_mode": "single-site",
+        "home": "https://reference-estate.invalid",
+        "siteurl": "https://reference-estate.invalid"
+    },
+    "plugins": [
+        {
+            "basename": "woocommerce/woocommerce.php",
+            "name": "Reference Estate Plugin",
+            "version": "1.0.0",
+            "active": true
+        },
+        {
+            "basename": "wp-rocket/wp-rocket.php",
+            "name": "Reference Estate Plugin",
+            "version": "1.0.0",
+            "active": true
+        }
+    ],
+    "plugins_without_adapter": [],
+    "themes": [
+        {
+            "stylesheet": "reference-theme",
+            "name": "Reference Theme",
+            "version": "1.0",
+            "active": true
+        }
+    ],
+    "media": {
+        "count": 0,
+        "bytes": null
+    },
+    "policy": {
+        "manifests": [
+            {
+                "name": "core",
+                "source": "shipped",
+                "adapter_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+                "status": "certified"
+            }
+        ],
+        "surface_groups": []
+    },
+    "coverage": {
+        "format": "duo-coverage-report/v1",
+        "options": {
+            "total": 288,
+            "captured": 33,
+            "declared_excluded": 47,
+            "pending": 0,
+            "invisible_total": 208,
+            "invisible_transient": 0,
+            "invisible_other": 208,
+            "declared_excluded_by_class": [],
+            "invisible_groups": [
+                {
+                    "prefix": "woocommerce_allowed",
+                    "count": 18,
+                    "probable_owner": "woocommerce"
+                },
+                {
+                    "prefix": "wp_rocket",
+                    "count": 29,
+                    "probable_owner": "wp-rocket"
+                }
+            ]
+        },
+        "tables": {
+            "live_total": 13,
+            "core_total": 12,
+            "declared_total": 0,
+            "undeclared_total": 1,
+            "undeclared": [
+                {
+                    "table": "wp_wc_customer_lookup",
+                    "logical_name": "wc_customer_lookup",
+                    "row_count": 205,
+                    "probable_owner": "woocommerce"
+                }
+            ]
+        }
+    },
+    "pending": {
+        "count": 0,
+        "rows": [],
+        "truncated": false
+    },
+    "adapter_survey": {
+        "adapters": [],
+        "not_installed": [],
+        "refusals": [],
+        "sources": []
+    }
+}

@@ -1,0 +1,127 @@
+{
+    "format": "duo-assess-inventory/v1",
+    "spec_version": 2,
+    "agent_version": "0.5.0",
+    "target": {
+        "wordpress": "6.9.1",
+        "php": "8.3.33",
+        "database": {
+            "engine": "MariaDB",
+            "version": "11.8.8"
+        },
+        "site_mode": "single-site",
+        "home": "https://reference-estate.invalid",
+        "siteurl": "https://reference-estate.invalid"
+    },
+    "plugins": [
+        {
+            "basename": "contact-form-7/wp-contact-form-7.php",
+            "name": "Reference Estate Plugin",
+            "version": "1.0.0",
+            "active": true
+        },
+        {
+            "basename": "the-events-calendar/the-events-calendar.php",
+            "name": "Reference Estate Plugin",
+            "version": "1.0.0",
+            "active": true
+        },
+        {
+            "basename": "wp-rocket/wp-rocket.php",
+            "name": "Reference Estate Plugin",
+            "version": "1.0.0",
+            "active": false
+        }
+    ],
+    "plugins_without_adapter": [],
+    "themes": [
+        {
+            "stylesheet": "reference-theme",
+            "name": "Reference Theme",
+            "version": "1.0",
+            "active": true
+        }
+    ],
+    "media": {
+        "count": 0,
+        "bytes": null
+    },
+    "policy": {
+        "manifests": [
+            {
+                "name": "core",
+                "source": "shipped",
+                "adapter_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+                "status": "certified"
+            },
+            {
+                "name": "contact-form-7",
+                "source": "shipped",
+                "adapter_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+                "status": "certified"
+            }
+        ],
+        "surface_groups": []
+    },
+    "coverage": {
+        "format": "duo-coverage-report/v1",
+        "options": {
+            "total": 312,
+            "captured": 41,
+            "declared_excluded": 55,
+            "pending": 0,
+            "invisible_total": 216,
+            "invisible_transient": 0,
+            "invisible_other": 216,
+            "declared_excluded_by_class": [],
+            "invisible_groups": [
+                {
+                    "prefix": "wpcf7",
+                    "count": 4,
+                    "probable_owner": "contact-form-7"
+                },
+                {
+                    "prefix": "tec_ct1",
+                    "count": 9,
+                    "probable_owner": "the-events-calendar"
+                },
+                {
+                    "prefix": "wp_rocket",
+                    "count": 31,
+                    "probable_owner": "wp-rocket"
+                }
+            ]
+        },
+        "tables": {
+            "live_total": 14,
+            "core_total": 12,
+            "declared_total": 0,
+            "undeclared_total": 2,
+            "undeclared": [
+                {
+                    "table": "wp_tec_events",
+                    "logical_name": "tec_events",
+                    "row_count": 88,
+                    "probable_owner": "the-events-calendar"
+                },
+                {
+                    "table": "wp_wpr_rocket_cache",
+                    "logical_name": "wpr_rocket_cache",
+                    "row_count": 12,
+                    "probable_owner": "wp-rocket"
+                }
+            ]
+        }
+    },
+    "pending": {
+        "count": 0,
+        "rows": [],
+        "truncated": false
+    },
+    "adapter_survey": {
+        "adapters": [],
+        "not_installed": [],
+        "refusals": [],
+        "sources": []
+    }
+}

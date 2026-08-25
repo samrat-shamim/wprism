@@ -12,7 +12,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-spec-v3-digest-neutrality regress-spec-migration-verbs
 
 .PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window regress-disposition-split
-.PHONY: regress-cli-json-refusals regress-fleet-census regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-migration-preflight regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
+.PHONY: regress-cli-json-refusals regress-fleet-census regress-cohort-rebaseline regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-migration-preflight regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
 .PHONY: regress-init-command regress-init-contract regress-duo-init regress-bound-helper
@@ -2378,6 +2378,17 @@ regress-merge-check:
 # an in-process call to FleetCensus::project() would see.
 regress-fleet-census:
 	php sandbox/tests/offline/cli/regress_fleet_census.php
+
+# The cohort re-baseline: `duo census --baseline=` folds two duo-fleet-census/v1
+# documents into duo-cohort-rebaseline/v1 — the coverage-ratio delta, funnel
+# movement and per-adapter surface attribution WP-6.3's exit criterion reads.
+# Deterministic over fixture censuses, including the case the program is most
+# likely to hit: a cohort that ships every adapter and moves no ratio, rendered
+# as the FINDING it is rather than counted as a success. Case 5 re-measures the
+# committed core-estate baseline (captured by the pre-flag-day engine at
+# f99f6712) against the library this checkout ships.
+regress-cohort-rebaseline:
+	php sandbox/tests/offline/cli/regress_cohort_rebaseline.php
 
 regress-rollback-authority:
 	php sandbox/tests/offline/recovery/regress_rollback_authority.php

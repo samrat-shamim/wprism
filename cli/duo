@@ -114,6 +114,15 @@ require __DIR__ . '/src/Command/AssessCommand.php';
 // already in this block (:19), so a plain `require` here would redeclare it
 // (the rule :80-84 states).
 require_once __DIR__ . '/src/Assess/FleetCensus.php';
+// Loaded here rather than left to FleetCensus::rebaseline()'s own
+// `require_once` (which stays, because a cli/src file requires its own
+// dependencies). The reason is the gate: tools/api-surface.php reflects
+// whatever THIS shell's prologue has declared, so a class reached only through
+// a lazy require inside one method is absent from the committed snapshot — and
+// CohortRebaseline's six verdict constants are a closed vocabulary a caller may
+// switch on (CohortRebaseline.php:85-105). Renaming one silently is exactly
+// what that snapshot exists to catch.
+require_once __DIR__ . '/src/Assess/CohortRebaseline.php';
 require_once __DIR__ . '/src/Command/CensusCommand.php';
 // After AssessCommand and AdapterCatalog above: this shell loads with plain
 // `require`, and CodeClassifyCommand require_once's AssessCommand for the
@@ -355,6 +364,8 @@ Usage:
   duo census --site=<label>=<inventory.json> [--site=...] [--dir=<dir>]
              [--manifests=<dir>] [--health=<proposals.json>]
              [--limit=<1..200>] [--format=json]
+  duo census --baseline=<census.json> (--current=<census.json> | --dir=<dir>)
+             [--manifests=<dir>] [--limit=<1..200>] [--format=json]
   duo -h | --help
 
 Verbs:
@@ -1324,6 +1335,35 @@ Verbs:
                           releases behind, because "four releases behind" and
                           "eleven sites pin it" are one decision. Only names
                           and counts are read out of that document too.
+  census                  The cohort re-baseline. Given the census you kept
+    --baseline=<f>        before a cohort and the one that describes the estate
+    [--current=<f>]       now, emits `duo-cohort-rebaseline/v1`: the coverage-
+    [--dir=<dir>]         ratio delta, funnel movement stage by stage, and
+    [--limit=<1..200>]    per-adapter attribution — which adapter's claim moved
+    [--format=json]       which surfaces, with `claimed`, `regressed`,
+                          `appeared` and `resolved` kept apart so a net number
+                          cannot hide a narrowed claim. The current side is
+                          either a census you already have (--current) or one
+                          measured now from --site/--dir submissions; naming
+                          both is refused.
+                          `cohort.verdict` is a closed word: coverage_moved,
+                          adoption_only, shipped_without_movement,
+                          coverage_regressed, no_cohort, unmeasured. A cohort
+                          that ships every adapter and moves no ratio reads
+                          shipped_without_movement and carries a FINDING —
+                          that is a result that re-opens the demand rank, not a
+                          success, and it is a fact inside the document rather
+                          than a fourth exit code.
+                          `comparability.class` says whether the two censuses
+                          even describe one estate (same-estate,
+                          population-changed, disjoint-estate) and only the
+                          first makes the delta attributable to a cohort. A
+                          different platform boundary refuses; a different
+                          AGENT or spec version does not, because a program
+                          worth re-baselining usually crossed one.
+                          The loop this grades — rank, probe, draft, boundary,
+                          vectors, kit, certify, bulk-adopt, re-measure — is
+                          docs/guides/coverage-cohort.md.
 
 Global flags:
   --envs-file=<path>      Explicitly trust and load the machine-local overlay

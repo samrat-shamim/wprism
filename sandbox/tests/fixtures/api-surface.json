@@ -1,5 +1,5 @@
 {
-    "class_count": 391,
+    "class_count": 392,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -26517,6 +26517,90 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\CohortRebaseline": {
+            "abstract": false,
+            "constants": {
+                "COMPARABILITY_CLASSES": {
+                    "value_repr": [
+                        "same-estate",
+                        "population-changed",
+                        "disjoint-estate"
+                    ]
+                },
+                "FORMAT": {
+                    "value_repr": "duo-cohort-rebaseline/v1"
+                },
+                "FUNNEL_COUNTERS": {
+                    "value_repr": [
+                        "plugins",
+                        "sites_installed",
+                        "sites_pinning",
+                        "uncovered_surfaces"
+                    ]
+                },
+                "VERDICTS": {
+                    "value_repr": [
+                        "no_cohort",
+                        "coverage_moved",
+                        "adoption_only",
+                        "shipped_without_movement",
+                        "coverage_regressed",
+                        "unmeasured"
+                    ]
+                },
+                "VERDICT_ADOPTION_ONLY": {
+                    "value_repr": "adoption_only"
+                },
+                "VERDICT_COVERAGE_MOVED": {
+                    "value_repr": "coverage_moved"
+                },
+                "VERDICT_COVERAGE_REGRESSED": {
+                    "value_repr": "coverage_regressed"
+                },
+                "VERDICT_NO_COHORT": {
+                    "value_repr": "no_cohort"
+                },
+                "VERDICT_SHIPPED_NO_MOVEMENT": {
+                    "value_repr": "shipped_without_movement"
+                },
+                "VERDICT_UNMEASURED": {
+                    "value_repr": "unmeasured"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "project": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "baseline",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "current",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\CommandEnvironmentProvider": {
             "abstract": false,
             "constants": {
@@ -29473,6 +29557,23 @@
                             "default": [],
                             "has_default": true,
                             "name": "health",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "rebaseline": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "options",
                             "type": "array",
                             "variadic": false
                         }
