@@ -1494,6 +1494,17 @@ regress-reference-keyspace-grammar:
 regress-reference-kind-grammar:
 	php sandbox/tests/offline/grammar/regress_reference_kind_grammar.php
 
+# WP-6.2: the `invalidate[]` verb vocabulary and the rule that decides what
+# enters it. Two or more INDEPENDENT demands admit a verb; a single-demand shape
+# stays refused and stays recorded in tools/engine-gaps.json. Proves the third
+# verb {cache_group, cache_key} on both spellings, its engine_features staging
+# (a grammar change post-v3 with no version bump), the apply-time drop and its
+# readback, and -- through the real `duo manifest-validate` -- a synthetic
+# Paid Memberships Pro whose whole executable surface is replaced by one
+# declarative line, dropping it out of `compatibility_shim`.
+regress-invalidate-vocabulary:
+	php sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php
+
 # DUO-3350 slice 2: the lifecycle dependency graph planner is independent of
 # WordPress side effects; Deploy retains compatibility facades for its reads
 # and execution path.

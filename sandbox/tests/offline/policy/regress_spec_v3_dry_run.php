@@ -559,15 +559,29 @@ duo_check_same([], $featureDeclarers, 'V3-FEAT: no shipped manifest declares `en
 // that assertion for V3-FEAT: the channel acquired exactly one shipped reader,
 // the grammar that owns the vocabulary, and `fixture:engine-features` below is
 // unchanged.
+// WP-6.2 added the SECOND reader, and the pair is the shape the channel is
+// meant to have rather than a leak. AdapterContractGrammar still owns the one
+// VOCABULARY — which names exist, the first spec_version their sections live
+// at, and the keys each claims — and it is the only file that can refuse an
+// unimplemented name. ManifestGrammar reads a manifest's DECLARED list to
+// answer one narrower question: may this document use the feature-gated
+// `invalidate[]` verbs. It cannot delegate that to the contract grammar,
+// because Policy sits below Adapter on tools/modules.json's ladder; what it
+// does instead is own the feature NAME as a constant the contract grammar
+// reads back, so there is still exactly one spelling of it in the tree.
 duo_check_same(
-    ['agent/src/Adapter/AdapterContractGrammar.php'],
+    ['agent/src/Adapter/AdapterContractGrammar.php', 'agent/src/Policy/ManifestGrammar.php'],
     $featureReaders,
-    'V3-FEAT: the channel has exactly one shipped reader — the contract grammar, which owns the one definition of a feature name, its first spec_version and the keys it claims'
+    'V3-FEAT: the channel has exactly two shipped readers — the contract grammar, which owns the vocabulary '
+        . 'and refuses an unimplemented name, and the manifest grammar, which asks only whether THIS document '
+        . 'declared the feature its gated verbs need'
 );
 duo_check_same(
-    ['spec-window/v1'],
+    ['invalidate-vocabulary/v1', 'spec-window/v1'],
     \Duo\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: and the vocabulary is non-empty, so an engine that lacks a declared name has something to compare against'
+    'V3-FEAT: and the vocabulary is non-empty and has GROWN — `invalidate-vocabulary/v1` (WP-6.2) is the '
+        . 'first primitive to ride the channel after the flip instead of a version bump, which is the claim '
+        . '§ v3.2 makes and § v3.12 names as a condition for ever closing the window'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented
 // since spec_version 3, and DUO_SPEC_VERSION is now 3 — so the fixture that

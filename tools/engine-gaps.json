@@ -43,7 +43,11 @@
       "status": "open",
       "definition": "Widens the shipped `option_name_refs` rule, which captures a numeric ROW id out of the option name, to a name whose dynamic segment is a slug and whose VALUE is the local reference."
     },
-
+    "table_scoped_cache_entry_invalidation": {
+      "title": "a cache entry shared by every row of a table, dropped once per apply rather than per row",
+      "status": "open",
+      "definition": "An object-cache entry whose key and group are both literal -- no `{id}` anywhere -- so it is ONE entry the whole table shares rather than one per row. The per-row `{cache_group, cache_key}` verb requires `{id}` in one member and therefore refuses it: with no substitution point every row of the table would name the same entry. This stays recorded rather than admitted because it has exactly ONE demand, which is the same admission rule that let `row_cache_entry_invalidation` in on two. The blanket case was already reviewed into the top-level `actions` channel (manifests/woocommerce.json:307), but that channel has an engine-owned native action for a transient and none for the object cache, so a plugin-owned cache group is still reachable only through a provider."
+    },
     "composite_ref_identity": {
       "title": "join-table identity with no scalar primary key (`identity.mode: composite_ref`)",
       "status": "shipped",
@@ -67,6 +71,12 @@
       "status": "shipped",
       "definition": "An always-on-write `regen_dependency` naming a regenerator file, for derived state where row EXISTENCE is not a sufficient postcondition because a present row can disagree with the authored state that was just applied.",
       "evidence": ["agent/src/Rebuild/DependencyRegenerator.php", "manifests/regenerators/the-events-calendar.php"]
+    },
+    "row_cache_entry_invalidation": {
+      "title": "a per-row object-cache ENTRY invalidation, whose key or group carries the row id",
+      "status": "shipped",
+      "definition": "A `tables.<t>.invalidate[]` verb naming one WordPress object-cache entry -- `{cache_group, cache_key}`, with `{id}` substituting the row's resolved local id into either member -- dropped and PROVEN gone after every apply-time write to that row. Distinct from `row_cache_invalidation`, which reaches a cache stored AS a database row (a table row or an option); no DELETE reaches the object cache. Admitted on TWO independent demands and not before: `manifests/providers/paid-memberships-pro-cache.php:92` puts the id on the key side, `manifests/providers/woocommerce-product-lookups.php:1301` puts it on the group side, and it is the second that made the rule '{id} in EITHER member' rather than a transcription of one plugin's spelling.",
+      "evidence": ["agent/src/Policy/ManifestGrammar.php", "agent/src/Apply/TypedTableMaterializer.php"]
     }
   },
 
@@ -164,6 +174,12 @@
           "cannot_represent": "typed rows and shortcode refs are representable, but direct table writes bypass the plugin's object-cache cleanup and optional flat-file execution rebuild. `manifests/code-snippets.json` therefore does not claim apply.",
           "primitive_required": "verified_provider_postcondition",
           "remedy_phrase": "a bounded postcondition over the plugin's object-cache cleanup and flat-file execution rebuild"
+        },
+        {
+          "coordinate": "tables.snippets.invalidate",
+          "cannot_represent": "Code Snippets' own cleanup drops `wp_cache_delete(Settings\\CACHE_KEY, CACHE_GROUP)` (manifests/providers/code-snippets-state.php:94) -- one settings entry the whole `snippets` table shares, keyed by neither the row nor anything derived from it. WP-6.2's `{cache_group, cache_key}` verb requires `{id}` in one member, so a table-scoped entry still has no declarative spelling and this plugin's object cache stays reachable only through a provider.",
+          "primitive_required": "table_scoped_cache_entry_invalidation",
+          "remedy_phrase": "a table-scoped object-cache invalidation with somewhere engine-owned to live"
         }
       ]
     },
@@ -245,6 +261,22 @@
       ],
       "closed_by": ["manifests/regenerators/the-events-calendar.php", "manifests/the-events-calendar.json"],
       "closing": "Closed in DUO-3234 plus the 2026-08-22 production-readiness stale-row regression; the existence check remains as the generic backstop underneath the regenerator."
+    },
+    {
+      "id": "paid-memberships-pro-level-meta-cache",
+      "candidate": "Paid Memberships Pro",
+      "versions_probed": ["3.8.2", "3.8.3"],
+      "disposition": "closed",
+      "blocked_adapters": ["paid-memberships-pro"],
+      "coordinates": [
+        {
+          "coordinate": "tables.pmpro_membership_levels.invalidate",
+          "cannot_represent": "PMPro reads membership-level metadata through get_metadata(), which caches per level id in the `pmpro_membership_level_meta` object-cache group. Duo writes `pmpro_membership_levelmeta` by SQL and fires none of the metadata API's invalidation, so an applied level served its PRE-APPLY meta for as long as that entry lived. `invalidate[]` could delete a table row or an option row but had no verb for an object-cache ENTRY, so the whole repair had to be hook code: one action, one `providers[].source: \"manifest\"` row, and a provider whose entire product act is wp_cache_delete() in a loop -- which alone held the adapter at `compatibility_shim`.",
+          "primitive_required": "row_cache_entry_invalidation"
+        }
+      ],
+      "closed_by": ["agent/src/Policy/ManifestGrammar.php", "agent/src/Apply/TypedTableMaterializer.php", "sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php"],
+      "closing": "Closed in WP-6.2 by generalising the verb rather than by adopting PMPro's spelling: WooCommerce's `object_<id>`/`lookup_table` drop (manifests/providers/woocommerce-product-lookups.php:1301) is the second independent demand and puts the id on the GROUP side, so the admitted rule is `{id}` in EITHER member. The engine proves the drop with a wp_cache_get() readback, matching the refusal the provider it replaces already raised (paid-memberships-pro-cache.php:96-99) -- an unverified delete would have shipped the stale read in a shorter spelling. The SHIPPED manifest is deliberately not restamped: a byte under manifests/ is adapter identity (AGENTS.md rule 2), so the declarative form is demonstrated on a synthetic fixture derived from those bytes at runtime."
     }
   ]
 }

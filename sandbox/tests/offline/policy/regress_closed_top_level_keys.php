@@ -101,7 +101,20 @@ function closed_keys_report(int $supported): array {
     sort($arms, SORT_STRING);
 
     $implemented = \Duo\AdapterContractGrammar::implemented_features();
-    $feature = $implemented[0] ?? 'none/v0';
+    // The feature that CLAIMS `engine_features`, asked rather than assumed.
+    // This was `$implemented[0]` while the engine had one feature; WP-6.2 added
+    // `invalidate-vocabulary/v1`, which claims NO key (it widens a value
+    // vocabulary inside `tables.<t>.invalidate[]`) and sorts first — so the
+    // positional pick silently started probing a feature that admits nothing,
+    // which is not the verdict this part is about.
+    $feature = 'none/v0';
+    foreach ($implemented as $candidate) {
+        $claims = \Duo\AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$candidate]]);
+        if (in_array('engine_features', $claims, true)) {
+            $feature = $candidate;
+            break;
+        }
+    }
     $featureKeys = \Duo\AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$feature]]);
 
     $verdict = static function (array $manifest): ?string {
@@ -486,7 +499,7 @@ duo_check(
 duo_check_same(
     ['engine_features'],
     $v3['feature_keys'],
-    'the one implemented feature (`' . $v3['feature'] . '`) claims exactly the `engine_features` key'
+    'the feature that claims `engine_features` (`' . $v3['feature'] . '`) claims exactly that one key'
 );
 duo_check(
     !in_array('engine_features', (array) $v3['partition'], true),

@@ -83,7 +83,19 @@ function v3_reservations_manifest_report(int $supported): array {
     };
     $named = static fn(array $extra = []): array
         => ['name' => 'acme-widget', 'spec_version' => $supported] + $extra;
-    $feature = \Duo\AdapterContractGrammar::implemented_features()[0] ?? 'none/v0';
+    // The feature that CLAIMS `engine_features`, not the roster's first entry:
+    // the growth probe below declares that key, so it needs the feature that
+    // ADMITS it. WP-6.2's `invalidate-vocabulary/v1` claims no key at all and
+    // sorts first, so a positional pick started measuring an unrecognised
+    // section instead of the growth rule this part is about.
+    $feature = 'none/v0';
+    foreach (\Duo\AdapterContractGrammar::implemented_features() as $candidate) {
+        $claims = \Duo\AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$candidate]]);
+        if (in_array('engine_features', $claims, true)) {
+            $feature = $candidate;
+            break;
+        }
+    }
 
     return [
         'engine_supported' => $supported,

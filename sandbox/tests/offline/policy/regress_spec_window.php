@@ -94,7 +94,21 @@ function spec_window_report(int $supported): array {
     $featureSection = 'engine_features';
     $since = $sections[$featureSection] ?? ($supported + 1);
     $implemented = \Duo\AdapterContractGrammar::implemented_features();
-    $first = $implemented[0] ?? 'none/v0';
+    // The feature that CLAIMS the `engine_features` key, asked rather than
+    // taken by position. Every fixture below declares that key, so the probe
+    // needs the feature that ADMITS it: `$implemented[0]` was the same thing
+    // while the engine had one feature, and stopped being it when WP-6.2 added
+    // `invalidate-vocabulary/v1` — which claims no key at all and sorts first,
+    // so the fixtures started measuring an unrecognised section instead of the
+    // window rule they are about.
+    $first = 'none/v0';
+    foreach ($implemented as $candidate) {
+        $claims = \Duo\AdapterContractGrammar::admitted_feature_keys([$featureSection => [$candidate]]);
+        if (in_array($featureSection, $claims, true)) {
+            $first = $candidate;
+            break;
+        }
+    }
 
     $verdict = static function (array $manifest): ?string {
         try {
@@ -148,6 +162,9 @@ function spec_window_report(int $supported): array {
         'accepted' => $accepted,
         'verdicts' => $verdicts,
         'implemented_features' => $implemented,
+        // Which of them admits `engine_features` — the one every fixture here
+        // declares, and no longer the roster's first entry (see $first above).
+        'section_feature' => $first,
         'section_min_spec' => $sections,
         'admitted_feature_keys' => \Duo\AdapterContractGrammar::admitted_feature_keys(
             [$featureSection => [$first]]
@@ -369,7 +386,7 @@ duo_check_same(
     null,
     $future['verdicts']['since_implemented'],
     'DECLARATION + IMPLEMENTATION ADMITS: a spec_version ' . ($N + 1) . ' manifest declaring `engine_features: ["'
-        . $shipped['implemented_features'][0] . '"]` loads'
+        . $shipped['section_feature'] . '"]` loads'
 );
 duo_check_same(
     ['engine_features'],
@@ -499,7 +516,7 @@ Canon::write_file($scratch . '/acme-clean.json', Canon::encode([
 // refused — a manifest sitting where the whole shipped library sits, reaching
 // for a section its own declared version does not have.
 Canon::write_file($scratch . '/acme-staged.json', Canon::encode([
-    'engine_features' => [$shipped['implemented_features'][0]],
+    'engine_features' => [$shipped['section_feature']],
     'name' => 'acme-staged',
     'options' => ['acme_staged_setting' => ['class' => 'authored', 'autoload' => 'yes']],
     'spec_version' => $N - 1,

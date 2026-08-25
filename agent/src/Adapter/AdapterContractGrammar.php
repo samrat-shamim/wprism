@@ -5,6 +5,13 @@ require_once __DIR__ . '/AdapterSources.php';
 // WP-4.12: the {N-1, N} window itself, shared with RepositoryCompiler, which
 // judges site.duo.json's own spec_version and cannot reference this layer.
 require_once __DIR__ . '/../Kernel/SpecVersionWindow.php';
+// WP-6.2: IMPLEMENTED_FEATURES keys one row off
+// ManifestGrammar::INVALIDATE_VOCABULARY_FEATURE. Required directly rather than
+// leaned on Policy.php's own require below, because a constant expression that
+// resolves through a circular include is a load-order bug waiting for the first
+// caller that reaches this file first. ManifestGrammar requires nothing itself
+// — that is its stated design property — so this costs one stat.
+require_once __DIR__ . '/../Policy/ManifestGrammar.php';
 // Circular with Policy.php's require_once of this file: safe because
 // require_once records the currently included path before the nested require
 // is reached, while these methods only resolve Policy at call time.
@@ -56,6 +63,14 @@ final class AdapterContractGrammar {
      * post_v1` demonstrates, which is declared by nothing across all 16 shipped
      * manifests.
      *
+     * `invalidate-vocabulary/v1` is the second, and it is the one that proves
+     * the channel does what it was built for: it ships a GRAMMAR change after
+     * the flip with no version integer moving anywhere (§ v3.13). It also shows
+     * that `keys` may legitimately be EMPTY — a feature can widen a value
+     * vocabulary inside a section that already exists instead of claiming a new
+     * top-level one, and forcing it to invent a key it does not need would put
+     * a section in the manifest bytes for the sake of the record's shape.
+     *
      * Feature names are ENGINE-OWNED: an adapter declares one, never mints one
      * (spec/repo-format.md § v3.2). A name is also permanent, which is why
      * docs/wire-surface.md carries it as row R-19: a declared name lives inside
@@ -69,6 +84,27 @@ final class AdapterContractGrammar {
         'spec-window/v1' => [
             'since' => 3,
             'keys' => ['engine_features'],
+        ],
+        // WP-6.2, and the first entry that claims NO top-level key: it widens a
+        // VALUE vocabulary inside a section that already exists
+        // (`tables.<t>.invalidate[]` gains `{cache_group, cache_key}`,
+        // spec/repo-format.md § v3.13). An empty `keys` is therefore the honest
+        // record rather than a placeholder — section_min_spec() and
+        // admitted_feature_keys() both fold over `keys`, so this row correctly
+        // contributes nothing to either, and the partition R-21 counts does not
+        // move. `since: 3` is not decorative: the channel that carries the name
+        // is itself a v3-only section, so an engine reads this feature exactly
+        // when a manifest can declare it.
+        //
+        // This is the growth § v3.2 promised and § v3.12 names as a condition
+        // for ever closing the window — a grammar change shipped post-v3 with
+        // no version integer moving anywhere. The gate that consumes it is
+        // ManifestGrammar::assert_invalidate_feature_gate(); the name is read
+        // from there rather than spelled here because Policy is below Adapter
+        // on tools/modules.json's ladder and one definition cannot drift.
+        ManifestGrammar::INVALIDATE_VOCABULARY_FEATURE => [
+            'since' => 3,
+            'keys' => [],
         ],
     ];
 

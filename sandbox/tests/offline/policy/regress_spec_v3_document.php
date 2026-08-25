@@ -188,15 +188,23 @@ foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
     }
 }
 sort($featureReaders, SORT_STRING);
+// WP-6.2 added the second reader and the second feature, and both moves are
+// § v3.2's channel doing its job rather than leaking. AdapterContractGrammar
+// still owns the vocabulary and is still the only file that refuses an
+// unimplemented name; ManifestGrammar reads a manifest's declared list for the
+// one narrower question its feature-gated `invalidate[]` verbs turn on, which
+// it cannot delegate upward across the module ladder.
 duo_check_same(
-    ['agent/src/Adapter/AdapterContractGrammar.php'],
+    ['agent/src/Adapter/AdapterContractGrammar.php', 'agent/src/Policy/ManifestGrammar.php'],
     $featureReaders,
-    'v3.2 ENFORCED: the channel has exactly one shipped reader — the grammar that owns the feature vocabulary'
+    'v3.2 ENFORCED: the channel has two shipped readers — the grammar that owns the feature vocabulary, and '
+        . 'the manifest grammar that consumes one gated declaration'
 );
 duo_check_same(
-    ['spec-window/v1'],
+    ['invalidate-vocabulary/v1', 'spec-window/v1'],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: and the vocabulary carries one IMPLEMENTED feature, so "declared and implemented admits" is a path something walks'
+    'v3.2: and the vocabulary has GROWN to two implemented features — "declared and implemented admits" is '
+        . 'now a path a real post-flip primitive walked (§ v3.13), not only the channel describing itself'
 );
 // WP-4.12: the channel OPENED. At DUO_SPEC_VERSION 2 this probe refused by
 // SECTION NAME, because the section's own version (3) sat outside the window;
