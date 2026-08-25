@@ -233,6 +233,7 @@ namespace {
         public ?\Throwable $saveThrowOnce = null;
         public string $warningCode = 'pll_native_warning';
         public bool $modified = false;
+        public bool $reorderNavMenus = false;
         public int $saveCalls = 0;
         public int $saveAllCalls = 0;
         public $afterSave = null;
@@ -266,6 +267,26 @@ namespace {
             }
             if (!array_key_exists($key, $this->values) || $this->values[$key] !== $value) {
                 $this->modified = true;
+            }
+            if ($key === 'nav_menus' && $this->reorderNavMenus && is_array($value)) {
+                foreach ($value as &$themeLocations) {
+                    foreach ($themeLocations as &$locationLanguages) {
+                        $ordered = [];
+                        foreach (['en', 'fr', 'ar'] as $language) {
+                            if (array_key_exists($language, $locationLanguages)) {
+                                $ordered[$language] = $locationLanguages[$language];
+                            }
+                        }
+                        foreach ($locationLanguages as $language => $menuId) {
+                            if (!array_key_exists($language, $ordered)) {
+                                $ordered[$language] = $menuId;
+                            }
+                        }
+                        $locationLanguages = $ordered;
+                    }
+                    unset($locationLanguages);
+                }
+                unset($themeLocations);
             }
             $this->values[$key] = $value;
             if ($this->warnOnceAt === $key) {
@@ -371,6 +392,22 @@ namespace Duo {
     }
 
     final class Canon {
+        public static function encode($value): string {
+            $normalize = static function ($value) use (&$normalize) {
+                if (!is_array($value)) {
+                    return $value;
+                }
+                $normalized = [];
+                foreach ($value as $key => $child) {
+                    $normalized[$key] = $normalize($child);
+                }
+                if (!array_is_list($normalized)) {
+                    ksort($normalized, SORT_STRING);
+                }
+                return $normalized;
+            };
+            return json_encode($normalize($value), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
         public static function parse_post_file(string $content): array {
             throw new \RuntimeException('fixture supplies parsed repository data');
         }
@@ -1203,6 +1240,33 @@ namespace {
     duo_check(
         count($GLOBALS['pll_cache_deletes']) >= 2,
         'stale primary cache and cache-key absence (`wp_cache_delete=false`) are accepted only after exact raw/native readback'
+    );
+    $reorderedNative = $installNative($nativeBefore, $nativeBefore);
+    $reorderedNative->reorderNavMenus = true;
+    $reorderedDesired = $nativeDesired;
+    $reorderedDesired['nav_menus'] = [
+        'theme' => ['primary' => ['ar' => 43, 'en' => 41, 'fr' => 42]],
+    ];
+    duo_check_same(
+        true,
+        $interpreter->materialize_option_sub_keys(
+            'polylang',
+            $reorderedDesired,
+            $nativeSubKeys,
+            'yes',
+            $nativeBefore,
+            $lockMarker,
+            $readRawStorage,
+            $restoreRaw,
+            $registerRuntimeRestore,
+            $writeRawStorage
+        ),
+        'native grouped materialization accepts Polylang sanitizer object-key reordering'
+    );
+    duo_check_same(
+        ['en', 'fr', 'ar'],
+        array_keys($reorderedNative->values['nav_menus']['theme']['primary']),
+        'native sanitizer key order remains observable while canonical equality ignores object-key order'
     );
     $GLOBALS['pll_cache_delete_result'] = true;
 

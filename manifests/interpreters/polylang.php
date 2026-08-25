@@ -533,7 +533,13 @@ final class Polylang {
             foreach (self::OPTION_KEYS as $key) {
                 $native[$key] = $options->get($key);
             }
-            if ($native !== $captured) {
+            // Polylang's Nav_Menus sanitizer rebuilds each language map in
+            // the native language-term order. Canonical repository JSON
+            // sorts object keys, so the same menu IDs can arrive here with a
+            // different associative-key order. Canon preserves list order
+            // and scalar types while ignoring only object-key order; a raw
+            // PHP `!==` would falsely reject that byte-equivalent object.
+            if (Canon::encode($native) !== Canon::encode($captured)) {
                 throw new \RuntimeException(
                     'duo: Polylang native option normalization changed portable values; refusing non-convergent apply'
                 );
@@ -567,7 +573,13 @@ final class Polylang {
                 );
             }
             foreach ($captured as $key => $value) {
-                if (!array_key_exists($key, $afterRaw) || $afterRaw[$key] !== $value) {
+                // The native sanitizer may reorder associative objects such
+                // as nav_menus by its language registry order. Compare the
+                // portable group by canonical value (lists and scalar types
+                // remain strict), while target-owned siblings below retain
+                // their exact raw PHP-array order.
+                if (!array_key_exists($key, $afterRaw)
+                    || Canon::encode($afterRaw[$key]) !== Canon::encode($value)) {
                     throw new \RuntimeException(
                         'duo: Polylang native option raw postcondition does not match the portable group; recovery_required'
                     );
@@ -590,7 +602,7 @@ final class Polylang {
             }
             $afterPortable = array_intersect_key($afterNative, array_flip(self::OPTION_KEYS));
             ksort($afterPortable, SORT_STRING);
-            if ($afterPortable !== $captured) {
+            if (Canon::encode($afterPortable) !== Canon::encode($captured)) {
                 throw new \RuntimeException(
                     'duo: Polylang native in-memory postcondition drifted from the portable group; recovery_required'
                 );
