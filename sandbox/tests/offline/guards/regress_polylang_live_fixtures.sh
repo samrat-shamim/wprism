@@ -80,6 +80,7 @@ for needle in \
   'uncategorized-fr' \
   'Polylang Principal Français' \
   'theme_mods_twentytwentyone' \
+  'capture emitted a warning' \
   'exec -T --user root wp2' \
   "<<'PHPEOF'" \
   'unsupported open Polylang rewrite filter' \

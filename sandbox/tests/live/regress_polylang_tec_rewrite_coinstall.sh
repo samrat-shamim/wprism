@@ -25,6 +25,12 @@ export DUO_SOURCE_ROOT="$ROOT" DUO_EXPECTED_SOURCE_SHA="$EXPECTED_SHA" DUO_PAIR=
 PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
 wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
+capture_without_warnings() {
+  local label="$1" output
+  shift
+  output=$("$@" 2>&1) || fail "$label capture failed: $output"
+  ! grep -Fq 'Warning:' <<<"$output" || fail "$label capture emitted a warning: $output"
+}
 R1="siterepo/${PAIR}1"; R2="siterepo/${PAIR}2"; ORIGIN="siterepo/origin-$PAIR.git"
 . bin/fetch-artifact.sh
 validate_artifact_lock conformance/artifacts.lock.json || fail 'artifact lock validation failed'
@@ -46,7 +52,7 @@ git init -q -b main "$R1"; git -C "$R1" remote add origin "../origin-$PAIR.git"
 # identities. Listing either again in generic term/post scope would ask one
 # durable UUID to carry two entity types, an intentionally refused policy.
 jq -n '{manifests:["core","polylang","the-events-calendar"],policy:{options:{},post_meta:{},post_types:["post","page","attachment","wp_block","tribe_events","tribe_venue","tribe_organizer"],taxonomies:["category","post_tag","language","term_language","post_translations","term_translations","tribe_events_cat"]},spec_version:2}' > "$R1/site.duo.json"
-cp site-repo.gitignore.template "$R1/.gitignore"; wp1 duo capture --repo=/siterepo >/dev/null
+cp site-repo.gitignore.template "$R1/.gitignore"; capture_without_warnings 'baseline' wp1 duo capture --repo=/siterepo
 git init --bare -b main "$ORIGIN" >/dev/null
 git -C "$R1" add -A; git -C "$R1" -c user.name=duo-polylang-tec -c user.email=polylang-tec@example.test commit -qm 'capture: Polylang TEC rewrite baseline'; git -C "$R1" push -qu origin main; git clone -q "$ORIGIN" "$R2"; REVISION=$(git -C "$R2" rev-parse HEAD)
 
@@ -79,7 +85,7 @@ $theme_mods=get_option("theme_mods_".get_option("stylesheet"),[]);
 $locations=is_array($theme_mods) ? ($theme_mods["nav_menu_locations"]??[]) : [];
 if ((int)get_option("default_category")!==(int)$category->term_id || (int)($locations["primary"]??0)!==(int)$menu->term_id) throw new RuntimeException("Polylang French projection source graph is incoherent");
 ' >/dev/null
-wp1 duo capture --repo=/siterepo >/dev/null; git -C "$R1" add -A; git -C "$R1" -c user.name=duo-polylang-tec -c user.email=polylang-tec@example.test commit -qm 'capture: Polylang projection retry'; git -C "$R1" push -qu origin main; git -C "$R2" pull -q origin main; REVISION=$(git -C "$R2" rev-parse HEAD)
+capture_without_warnings 'French projection retry' wp1 duo capture --repo=/siterepo; git -C "$R1" add -A; git -C "$R1" -c user.name=duo-polylang-tec -c user.email=polylang-tec@example.test commit -qm 'capture: Polylang projection retry'; git -C "$R1" push -qu origin main; git -C "$R2" pull -q origin main; REVISION=$(git -C "$R2" rev-parse HEAD)
 HOSTILE_MU=/var/www/html/wp-content/mu-plugins/duo-polylang-tec-hostile.php
 "${PAIR_COMPOSE[@]}" exec -T --user root wp2 sh -c 'umask 022; target=$1; tmp="${target}.tmp"; cat > "$tmp"; chmod 0644 "$tmp"; mv "$tmp" "$target"' sh "$HOSTILE_MU" <<'PHPEOF'
 <?php
@@ -98,7 +104,7 @@ echo "$RETRY" | jq -e '.canary=="clean" and any(.actions[];.source=="provider:po
 pass 'hostile callback refused before effect; removal permitted a bounded provider-then-native retry'
 
 say 'clean no-op recapture'
-wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-tec-recapture >/dev/null
+capture_without_warnings 'target recapture' wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-tec-recapture
 # WordPress seeds an unreferenced Twenty Twenty-One sidebar on this exact target; canonical no-op below guards managed drift, while this loop proves every repository-owned byte recaptures unchanged.
 while IFS= read -r -d '' SOURCE_FILE; do
   RELATIVE_FILE=${SOURCE_FILE#"$R2/state/"}

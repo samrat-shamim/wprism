@@ -2930,6 +2930,7 @@ foreach (['_VenueURL', '_VenueProvince', '_VenueShowMap', '_VenueShowMapLink', '
 }
 foreach ([
     '_EventAllDay',
+    '_EventDuration',
     '_EventHideFromUpcoming',
     '_EventShowMap',
     '_EventShowMapLink',
@@ -2940,7 +2941,7 @@ foreach ([
     duo_check_same(
         true,
         $policy->post_meta_rule($key)['lint_ok'] ?? null,
-        "$key is an explicitly reviewed boolean rather than a coincidental local post reference"
+        "$key is an explicitly reviewed non-reference scalar rather than a coincidental local post reference"
     );
 }
 foreach (['_VenueLat', '_VenueLng'] as $key) {
@@ -2954,6 +2955,45 @@ duo_check_same(true, $options['closed_sub_keys'] ?? null, 'the exact main settin
 foreach (['eventsSlug', 'tribeEnableViews', 'category-color-enable-frontend', 'tec_seo_out_of_range_behavior'] as $key) {
     duo_check_same('authored', $options['sub_keys'][$key]['class'] ?? null, "$key is one reviewed portable setting sub-key");
 }
+$tecScalarLintRoster = [
+    'category-color-enable-frontend',
+    'category-color-legend-superpowers',
+    'category-color-reset-button',
+    'category-color-show-hidden-categories',
+    'disable_metabox_custom_fields',
+    'embedGoogleMaps',
+    'embedGoogleMapsZoom',
+    'monthEventAmount',
+    'postsPerPage',
+    'posts_per_page',
+    'reverseCurrencyPosition',
+    'showComments',
+    'showEventsInMainLoop',
+    'tec_seo_disabled_view_404',
+    'tec_seo_noindex_dated_list_urls',
+    'toggle_blocks_editor',
+    'tribeDisableTribeBar',
+    'tribe_events_timezones_show_zone',
+];
+foreach ($tecScalarLintRoster as $key) {
+    duo_check_same(
+        true,
+        $options['sub_keys'][$key]['lint_ok'] ?? null,
+        "$key is an exact reviewed numeric/boolean setting rather than a target-local entity reference"
+    );
+}
+foreach (['tec-events-cat-colors-priority', 'tec-events-cat-colors-hidden'] as $key) {
+    duo_check_same(
+        true,
+        $policy->term_meta_rule($key)['lint_ok'] ?? null,
+        "$key is an exact reviewed Category Colors scalar rather than a target-local entity reference"
+    );
+}
+duo_check_same(
+    null,
+    $options['sub_keys']['category-color-custom-css']['lint_ok'] ?? null,
+    'arbitrary Category Colors CSS remains visible to suspicious-reference lint instead of inheriting a scalar exemption'
+);
 $expectedMainOptionClasses = [
     'authored' => [
         'category-color-custom-css',
