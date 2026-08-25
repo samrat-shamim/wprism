@@ -1687,17 +1687,22 @@ check(
 );
 $plainReport = $plain->capability_report(['operation' => 'promote']);
 $plainBlockers = $plainReport['blockers'] ?? null;
+$plainWooRow = null;
+foreach ($plainReport['manifests'] ?? [] as $row) {
+    if (is_array($row) && ($row['name'] ?? null) === 'woocommerce') {
+        $plainWooRow = $row;
+        break;
+    }
+}
 check(
-    $plainReport['ready'] === false
+    $plainReport['ready'] === true
     && is_array($plainBlockers)
-    && count($plainBlockers) === 1
-    && ($plainBlockers[0]['name'] ?? null) === 'woocommerce'
-    && ($plainBlockers[0]['status'] ?? null) === 'blocked'
-    && ($plainBlockers[0]['code'] ?? null) === 'authored_state_not_certified'
-    && ($plainBlockers[0]['source'] ?? null) === 'shipped'
-    && ($plainBlockers[0]['trust_tier'] ?? null) === 'compatibility_shim'
-    && ($plainBlockers[0]['certification'] ?? null) === 'registry',
-    'the shipped library reports WooCommerce as its exact single experimental blocker until final evidence certifies it'
+    && count($plainBlockers) === 0
+    && is_array($plainWooRow)
+    && ($plainWooRow['verdict']['status'] ?? null) === 'certified'
+    && ($plainWooRow['source']['source'] ?? null) === 'shipped'
+    && ($plainWooRow['source']['certification'] ?? null) === 'registry',
+    'the shipped library reports WooCommerce ready with no authored-state blocker after its reviewed disposition is certified'
 );
 $plainRows = [];
 foreach ($plainReport['manifests'] ?? [] as $row) {
