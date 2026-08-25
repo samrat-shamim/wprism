@@ -35,6 +35,7 @@ final class AttachmentNativeMetadataGenerator {
     private const MAX_IMAGE_DIMENSION = 16384;
     private const MAX_SOURCE_PIXELS = 67108864;
     private const MAX_OUTPUT_PIXELS = 67108864;
+    private bool $polylangNoLanguagesObserved = false;
 
     /** Hooks reached by the audited Core raster path and the explicitly refused sibling media paths. */
     private const CLOSED_FILTERS = [
@@ -204,10 +205,13 @@ final class AttachmentNativeMetadataGenerator {
     /**
      * @param \Closure(int):string $lockTarget returns the exact raw MIME type under row/meta locks
      * @param list<string> $adapterManifests manifest names from the frozen Policy version-range projection
+     * @param bool $polylangNoLanguagesProven an earlier markerless boundary proved
+     *        no languages before the authored transaction materialized them
      */
     public function __construct(
         private readonly \Closure $lockTarget,
-        private readonly array $adapterManifests = []
+        private readonly array $adapterManifests = [],
+        private readonly bool $polylangNoLanguagesProven = false
     ) {
         if (!array_is_list($adapterManifests)
             || count($adapterManifests) > 32
@@ -222,6 +226,10 @@ final class AttachmentNativeMetadataGenerator {
                 throw new \RuntimeException('duo: native attachment metadata adapter authority is malformed');
             }
         }
+    }
+
+    public function polylang_no_languages_proven(): bool {
+        return $this->polylangNoLanguagesObserved;
     }
 
     /**
@@ -748,6 +756,9 @@ final class AttachmentNativeMetadataGenerator {
      * callback is never a valid intermediate topology.
      */
     private function assert_polylang_no_languages(): void {
+        if ($this->polylangNoLanguagesProven || $this->polylangNoLanguagesObserved) {
+            return;
+        }
         if (!function_exists('PLL')) {
             throw new \RuntimeException(
                 'duo: native attachment metadata cannot prove Polylang no-language state'
@@ -766,6 +777,7 @@ final class AttachmentNativeMetadataGenerator {
                 'duo: native attachment metadata refuses absent Polylang sync callbacks while languages are present'
             );
         }
+        $this->polylangNoLanguagesObserved = true;
     }
 
     /**

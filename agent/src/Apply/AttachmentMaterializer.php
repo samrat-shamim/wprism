@@ -65,6 +65,7 @@ if (!class_exists(Ledger::class, false)) {
  * families that the native staging boundary must isolate.
  */
 final class AttachmentMaterializer {
+    private bool $polylangNoLanguagesProven = false;
     private const ATTACHED_FILE_KEY = '_wp_attached_file';
     private const FILESYSTEM_MARKER_PREFIX = 'attachment_fs:';
     private const MAX_FILESYSTEM_MARKERS = 1;
@@ -212,13 +213,18 @@ final class AttachmentMaterializer {
 
     /** @param list<array<string,mixed>> $work */
     public function prepare_filesystem(array $work, array $tree): void {
+        // The witness belongs to this one markerless-to-post-commit transition;
+        // a retry must re-prove the target before accepting an absent callback pair.
+        $this->polylangNoLanguagesProven = false;
+        $generator = new AttachmentNativeMetadataGenerator(static function (int $id): never {
+            throw new \LogicException('duo: markerless attachment preflight must not request a target MIME lock');
+        }, $this->attachment_adapter_manifests());
         $this->filesystem->prepare(
             $work,
             $tree,
-            new AttachmentNativeMetadataGenerator(static function (int $id): never {
-                throw new \LogicException('duo: markerless attachment preflight must not request a target MIME lock');
-            }, $this->attachment_adapter_manifests())
+            $generator
         );
+        $this->polylangNoLanguagesProven = $generator->polylang_no_languages_proven();
     }
 
     /** Seal the exact UUID-to-post-ID mapping inside the authored DB transaction. */
@@ -285,7 +291,8 @@ final class AttachmentMaterializer {
         try {
             $generator = new AttachmentNativeMetadataGenerator(
                 fn(int $id): string => $this->assert_locked_pending_binding($id),
-                $this->attachment_adapter_manifests()
+                $this->attachment_adapter_manifests(),
+                $this->polylangNoLanguagesProven
             );
             $this->filesystem->generate_metadata($generator);
             $this->with_locked_pending_bindings(

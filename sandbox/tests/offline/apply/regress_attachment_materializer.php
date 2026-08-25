@@ -997,6 +997,27 @@ namespace {
             is_array($polylangAbsent),
             'Polylang post-meta synchronization callbacks may be absent before the target has languages and are not fabricated'
         );
+        $polylangTransition = new AttachmentNativeMetadataGenerator(
+            static fn(int $id): string => 'image/png',
+            ['polylang']
+        );
+        $polylangTransition->preflight('image/png', $standalone);
+        $GLOBALS['duo_polylang_has_languages'] = true;
+        $transitionMetadata = $polylangTransition->generate(41, $standalone);
+        $check(
+            is_array($transitionMetadata),
+            'a markerless no-language proof remains authoritative after the authored transaction materializes Polylang languages'
+        );
+        $carriedTransition = (new AttachmentNativeMetadataGenerator(
+            static fn(int $id): string => 'image/png',
+            ['polylang'],
+            true
+        ))->generate(41, $standalone);
+        $check(
+            is_array($carriedTransition),
+            'post-commit metadata accepts only the explicit markerless no-language proof carried by its transaction'
+        );
+        $GLOBALS['duo_polylang_has_languages'] = false;
         $polylangPartial = new PLL_Sync_Post_Metas();
         add_filter('update_post_metadata', [$polylangPartial, 'can_synchronize_metadata'], 1, 3);
         $throws(
