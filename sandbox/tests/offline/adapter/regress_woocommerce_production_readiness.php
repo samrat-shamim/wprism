@@ -1802,6 +1802,7 @@ foreach ([
     'canonical mapped identity|refusing to (create|infer|rebind)',
     'plan minted or rewrote identities before refusal',
     'identity sidecar witness mismatch',
+    'mapped identity row [A-Za-z0-9_]+:[0-9]+ is missing',
     'db import /siterepo/.tmp-woocommerce-remove-all.sql',
     'database recovery did not restore the exact catalog/options/lookup preimage',
     '(.actions | length) == 0',

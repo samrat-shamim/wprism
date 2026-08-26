@@ -162,7 +162,7 @@ check_woocommerce_destructive_lifecycle() {
     || stale_identity_rc=$?
   require_duo_answered 'WooCommerce stale identity sidecar after destructive uninstall' human "$stale_identity"
   [ "$stale_identity_rc" -ne 0 ] \
-    && grep -Eq 'embedded identity does not verify|identity sidecar witness mismatch' <<<"$stale_identity" \
+    && grep -Eq 'embedded identity does not verify|identity sidecar witness mismatch|mapped identity row [A-Za-z0-9_]+:[0-9]+ is missing' <<<"$stale_identity" \
     || fail "WooCommerce destructive uninstall accepted a stale identity sidecar: $stale_identity"
   [ "$(wp_conf2 eval '
     global $wpdb; $state=[
