@@ -427,7 +427,8 @@ grep -qE '^term\|[1-9][0-9]*\|attachment\|file$' <<<"$TERM_META_OUT" \
   || fail "conf2 product_cat thumbnail_id did not resolve to a local attachment with a real media file (got: $TERM_META_OUT)"
 pass "conf2 product_cat thumbnail_id resolves through termmeta to its own local attachment and media file"
 
-THUMBNAIL_LAZY_OUT=$($COMPOSE run --rm -T cli2 wp eval '
+THUMBNAIL_LAZY_RC=0
+THUMBNAIL_LAZY_RAW=$($COMPOSE run --rm -T cli2 wp eval '
 require_once ABSPATH . "wp-admin/includes/image.php";
 
 $has_callback = static function (string $hook, string $class, string $method, int $priority, int $accepted_args): bool {
@@ -581,7 +582,10 @@ try {
         wp_delete_attachment($temporary_id, true);
     }
 }
-' 2>&1 | tail -1)
+' 2>&1) || THUMBNAIL_LAZY_RC=$?
+[ "$THUMBNAIL_LAZY_RC" -eq 0 ] \
+  || fail "Woo request-time thumbnail convergence WP-CLI probe failed (exit $THUMBNAIL_LAZY_RC): $THUMBNAIL_LAZY_RAW"
+THUMBNAIL_LAZY_OUT=$(awk 'NF { line=$0 } END { print line }' <<<"$THUMBNAIL_LAZY_RAW")
 require_observed_nonempty "conf2 WooCommerce thumbnail lazy-convergence observation" "$THUMBNAIL_LAZY_OUT"
 echo "conf2 thumbnail lazy-convergence check: $THUMBNAIL_LAZY_OUT"
 jq -e '

@@ -22,10 +22,22 @@ HEAD="$(git -C "$ROOT" rev-parse HEAD)"
 command -v jq >/dev/null || fail 'jq is required'
 
 export DUO_SOURCE_ROOT="$ROOT" DUO_EXPECTED_SOURCE_SHA="$EXPECTED_SHA" DUO_PAIR="$PAIR"
+. lib/pair_identity.sh
+pair_identity_export_source_mounts \
+  || fail 'WooCommerce rewrite co-install could not pin its candidate mounts in the caller environment'
 COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_COMPOSE=("${COMPOSE[@]}")
-wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
-wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
+# Four exact production plugins exceed PHP's image-default 128 MiB while
+# WordPress loads active plugins, before WP-CLI can raise its own ceiling.
+# Keep the evidence process finite and below pair.yml's 768 MiB cgroup limit.
+WP_CLI_MEMORY_LIMIT=512M
+wp_side() { # side wp-arguments...
+  local side="$1"; shift
+  "${COMPOSE[@]}" run --rm -T --entrypoint php "cli$side" \
+    -d "memory_limit=$WP_CLI_MEMORY_LIMIT" /usr/local/bin/wp "$@"
+}
+wp1() { wp_side 1 "$@"; }
+wp2() { wp_side 2 "$@"; }
 R1="siterepo/$PAIR""1"
 R2="siterepo/$PAIR""2"
 ORIGIN="siterepo/origin-$PAIR.git"
@@ -102,6 +114,13 @@ pass 'candidate, artifact hashes, and audited topology are pinned'
 say "fresh exact co-install pair $PAIR"
 bash bin/pair.sh reset "$PAIR"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --artifacts --headless
+for side in 1 2; do
+  observed_limit=$("${COMPOSE[@]}" run --rm -T --entrypoint php "cli$side" \
+    -d "memory_limit=$WP_CLI_MEMORY_LIMIT" -r 'echo ini_get("memory_limit");' | tail -1)
+  [ "$observed_limit" = "$WP_CLI_MEMORY_LIMIT" ] \
+    || fail "side $side pre-bootstrap PHP memory limit is $observed_limit, not $WP_CLI_MEMORY_LIMIT"
+done
+pass "both sides pin the finite $WP_CLI_MEMORY_LIMIT pre-bootstrap PHP limit for the four-plugin process"
 for side in 1 2; do
   install "$side" woocommerce 11.0.1
   install "$side" wordpress-seo 28.3

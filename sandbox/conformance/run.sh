@@ -224,6 +224,12 @@ export -f wp_env wp_conf1 wp_conf2 say pass fail \
 if [ -n "${CONF_EXPECTED_SOURCE_SHA:-}" ]; then
   export DUO_EXPECTED_SOURCE_SHA="$CONF_EXPECTED_SOURCE_SHA"
 fi
+# Every wp_env call below is a fresh direct Compose process. Keep the selected
+# mounts in this shell so another pair's teardown cannot rewrite shared .env
+# to a different checkout between this candidate gate and apply.
+. lib/pair_identity.sh
+pair_identity_export_source_mounts \
+  || fail 'conformance could not pin its selected source mounts in the caller environment'
 
 say "clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run)"
 bash bin/pair.sh reset "$CONF_PAIR"

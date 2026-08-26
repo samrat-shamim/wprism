@@ -92,6 +92,12 @@ export DUO_PAIR="$PAIR"
 if [ -n "${VMATRIX_EXPECTED_SOURCE_SHA:-}" ]; then
   export DUO_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"
 fi
+# Boundary observations use fresh direct Compose processes. Keep the selected
+# mounts in this shell; shared .env can legitimately move when another pair is
+# cleaned up and therefore cannot carry this matrix's candidate identity.
+. lib/pair_identity.sh
+pair_identity_export_source_mounts \
+  || fail 'version matrix could not pin its selected source mounts in the caller environment'
 PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_UP_FLAGS=(--artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then

@@ -35,6 +35,9 @@ WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
 case "$WORDPRESS_OFFLINE" in 0|1) ;; *) fail 'DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1' ;; esac
 export DUO_SOURCE_ROOT="$ROOT" DUO_EXPECTED_SOURCE_SHA="$EXPECTED_SHA" DUO_PAIR="$PAIR"
 export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
+. lib/pair_identity.sh
+pair_identity_export_source_mounts \
+  || fail 'WooCommerce multisite evidence could not pin its candidate mounts in the caller environment'
 PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
 UP_FLAGS=(--artifacts --headless)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then

@@ -1599,6 +1599,30 @@ foreach ([
     woo_ok(str_contains($wooCheckHarness, $reviewCheckWitness),
         "customer-review native route fixture pins $reviewCheckWitness");
 }
+foreach ([
+    'THUMBNAIL_LAZY_RC=0',
+    'THUMBNAIL_LAZY_RAW=$($COMPOSE run',
+    ') || THUMBNAIL_LAZY_RC=$?',
+    'thumbnail convergence WP-CLI probe failed (exit $THUMBNAIL_LAZY_RC)',
+    "awk 'NF { line=\$0 } END { print line }'",
+] as $thumbnailProbeWitness) {
+    woo_ok(str_contains($wooCheckHarness, $thumbnailProbeWitness),
+        "thumbnail live probe preserves nonzero WP-CLI evidence: $thumbnailProbeWitness");
+}
+woo_ok(
+    strpos($wooCheckHarness, 'thumbnail convergence WP-CLI probe failed (exit $THUMBNAIL_LAZY_RC)')
+        < strpos($wooCheckHarness, 'require_observed_nonempty "conf2 WooCommerce thumbnail lazy-convergence observation"'),
+    'thumbnail live probe reports the raw failing command before set -e or JSON parsing can swallow it'
+);
+foreach ([
+    $conformanceRunnerHarness,
+    $matrixHarness,
+    $wooMultisiteHarness,
+    $wooRewriteCoInstallHarness,
+] as $directComposeHarness) {
+    woo_ok(str_contains($directComposeHarness, 'pair_identity_export_source_mounts'),
+        'Woo live evidence keeps candidate mounts caller-local across parallel shared-.env rewrites');
+}
 woo_ok(str_contains($matrixHarness, 'update_option("default_category", (int) $category->term_id)'), 'version-matrix resets the core default-category reference before each plugin boundary');
 $wooMatrixTaxonomies = '"taxonomies": ["category", "post_tag", "product_brand", "product_cat", "product_shipping_class", "product_tag", "product_type", "product_visibility"]';
 woo_ok(substr_count($matrixHarness, $wooMatrixTaxonomies) === 3,
@@ -1678,6 +1702,10 @@ foreach ([
     '([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0',
     'def static_rewrite_hook:',
     '(.source_files|length==30)',
+    'WP_CLI_MEMORY_LIMIT=512M',
+    '--entrypoint php',
+    '-d "memory_limit=$WP_CLI_MEMORY_LIMIT" /usr/local/bin/wp',
+    'pre-bootstrap PHP memory limit',
     'CALLBACK_IDENTITIES=$(wp2 eval',
     'native rewrite callback identity differs from source services',
     '$GLOBALS["wc_container"]',
@@ -1701,5 +1729,7 @@ foreach ([
     woo_ok(str_contains($wooRewriteCoInstallHarness, $rewriteCoInstallWitness),
         "candidate-bound co-install harness pins $rewriteCoInstallWitness");
 }
+woo_ok(!str_contains($wooRewriteCoInstallHarness, 'memory_limit=-1'),
+    'four-plugin co-install keeps a finite PHP bootstrap ceiling');
 
 echo "PASS: WooCommerce 11.0.x option/table inventory and rebuild contract are explicit\n";
