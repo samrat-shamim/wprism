@@ -1702,13 +1702,15 @@ substitutable for another:
    executable repair AFTER the declarative primitives land, and the `compatibility_shim` share of NEWLY
    authored adapters has fallen below a threshold stated in advance of the measurement. The baseline is
    today's, measured over the shipped library: 11 of the 16 adapters name manifest-shipped hook code, and
-   that code is 20 files totalling 26,497 lines under `manifests/{interpreters,providers,regenerators}`.
+   that code is 20 files totalling 26,512 lines under `manifests/{interpreters,providers,regenerators}`.
    The baseline more than doubled with #561 alone — one adapter reaching production-readiness added a TEC
    interpreter and a Category Colors provider and rewrote its regenerator. Polylang then added the sixteenth
    hook file and 1,828 lines through its reviewed production-readiness port — which is the condition arguing
    against itself, and is recorded here rather than smoothed away. The later reviewed empty-catalog
-   lifecycle correction added seven lines to that measured hook surface; this baseline is re-measured rather
-   than preserving a stale threshold.
+   lifecycle correction added seven lines to that measured hook surface. Woo's final four-plugin
+   co-install correction then added 15 lines to admit only the source-bound inert generic filters that
+   execute during Polylang's native save; this baseline is re-measured rather than preserving a stale
+   threshold.
 2. **Falsifiable effects.** Declared-effect verification is live and REFUSING, with a measured
    false-refusal rate on the shipped 16 below a stated threshold — because the compiled inventory is
    recovery's entire authority, and under-declaring `effects[]` is the cheapest way for an adapter to pass.

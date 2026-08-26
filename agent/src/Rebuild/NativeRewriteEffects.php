@@ -74,6 +74,8 @@ final class NativeRewriteEffects {
         'tribe_last_save_post',
     ];
     private const WOO_CONTAINER = 'Automattic\\WooCommerce\\Container';
+    private const WOO_RUNTIME_CONTAINER =
+        'Automattic\\WooCommerce\\Internal\\DependencyManagement\\RuntimeContainer';
     private const WOO_FEATURES = 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController';
     private const WOO_SYNCHRONIZER =
         'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer';
@@ -82,6 +84,12 @@ final class NativeRewriteEffects {
     private const WPSEO_SITEMAPS = 'WPSEO_Sitemaps';
     private const WPSEO_SITEMAPS_CACHE = 'WPSEO_Sitemaps_Cache';
     private const WPSEO_REWRITE = 'WPSEO_Rewrite';
+    private const HARBOR_PUE = 'TEC\\Common\\Integrations\\Harbor\\PUE';
+    private const TEC_CONTAINER = 'Tribe__Container';
+    private const TEC_DI_CONTAINER = 'TEC\\Common\\lucatume\\DI52\\Container';
+    private const TEC_DI_RESOLVER = 'TEC\\Common\\lucatume\\DI52\\Builders\\Resolver';
+    private const TEC_DI_VALUE_BUILDER = 'TEC\\Common\\lucatume\\DI52\\Builders\\ValueBuilder';
+    private const TEC_DI_SERVICE_PROVIDER = 'TEC\\Common\\lucatume\\DI52\\ServiceProvider';
     /** @var array<string,string> */
     private const WPSEO_OPTIONS = [
         'wpseo' => 'WPSEO_Option_Wpseo',
@@ -146,6 +154,24 @@ final class NativeRewriteEffects {
             $tec['purge_present'] ?? false,
             $tec['purge_value'] ?? null
         );
+    }
+
+    /**
+     * Polylang 3.8.x reads and saves its mixed option through WordPress core.
+     * The exact Woo 11.0.1 and Yoast 28.3 pre-update callbacks return the
+     * value unchanged for option name `polylang`; TEC 6.17.2 Harbor likewise
+     * returns the pre-read value unchanged outside `pue_install_key_*`.
+     * Resolve their canonical services without constructing missing
+     * singletons, then close the callback union before Polylang mutates its
+     * request-local registry.
+     */
+    public static function assert_inert_polylang_option_filter_topology(): void {
+        $preOption = self::hook_records('pre_option');
+        self::resolve_polylang_harbor_service($preOption);
+        $preUpdated = self::hook_records('pre_update_option');
+        $woo = self::resolve_polylang_woo_service($preUpdated);
+        $wpseo = self::resolve_wpseo_option_services($preUpdated);
+        self::assert_polylang_pre_update_callbacks($preUpdated, $woo, $wpseo);
     }
 
     /** Re-prove callback/service identity, then restore the exact local flag. */
@@ -1363,6 +1389,196 @@ final class NativeRewriteEffects {
     }
 
     /**
+     * Bind Harbor's already-resolved controller without calling tribe(),
+     * whose DI52 make() path constructs an unresolved service. The reviewed
+     * 6.17.2 container stores a registered controller as a ValueBuilder; the
+     * callback owner, provider container and stored value must be one object.
+     *
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $records
+     */
+    private static function resolve_polylang_harbor_service(array $records): ?object {
+        $visible = class_exists(self::HARBOR_PUE, false)
+            || self::contains_class_callback($records, self::HARBOR_PUE);
+        if (!$visible) {
+            if ($records !== []) {
+                throw new \RuntimeException(
+                    'duo: native option topology found extended or substituted pre_option callbacks'
+                );
+            }
+            return null;
+        }
+        if (count($records) !== 1) {
+            throw new \RuntimeException(
+                'duo: native option topology found extended or substituted pre_option callbacks'
+            );
+        }
+        [$priority, $record] = $records[0];
+        $callback = $record['function'];
+        $owner = is_array($callback) ? ($callback[0] ?? null) : null;
+        if ($priority !== 10
+            || $record['accepted_args'] !== 3
+            || !is_object($owner)
+            || get_class($owner) !== self::HARBOR_PUE
+            || ($callback[1] ?? null) !== 'filter_pre_get_option'
+            || !class_exists(self::TEC_CONTAINER, false)
+            || !class_exists(self::TEC_DI_CONTAINER, false)
+            || !class_exists(self::TEC_DI_RESOLVER, false)
+            || !class_exists(self::TEC_DI_VALUE_BUILDER, false)
+            || !class_exists(self::TEC_DI_SERVICE_PROVIDER, false)) {
+            throw new \RuntimeException(
+                'duo: native option topology found extended or substituted pre_option callbacks'
+            );
+        }
+        try {
+            $container = (new \ReflectionProperty(self::TEC_CONTAINER, 'instance'))->getValue();
+            $providerContainer = (new \ReflectionProperty(
+                self::TEC_DI_SERVICE_PROVIDER,
+                'container'
+            ))->getValue($owner);
+            $resolver = (new \ReflectionProperty(self::TEC_DI_CONTAINER, 'resolver'))->getValue($container);
+            $bindings = (new \ReflectionProperty(self::TEC_DI_RESOLVER, 'bindings'))->getValue($resolver);
+            $builder = is_array($bindings) ? ($bindings[self::HARBOR_PUE] ?? null) : null;
+            $bound = is_object($builder) && get_class($builder) === self::TEC_DI_VALUE_BUILDER
+                ? (new \ReflectionProperty(self::TEC_DI_VALUE_BUILDER, 'value'))->getValue($builder)
+                : null;
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: native option topology could not inspect the resolved TEC Harbor service',
+                0,
+                $failure
+            );
+        }
+        if (!is_object($container)
+            || get_class($container) !== self::TEC_CONTAINER
+            || $providerContainer !== $container
+            || !is_object($resolver)
+            || get_class($resolver) !== self::TEC_DI_RESOLVER
+            || $bound !== $owner) {
+            throw new \RuntimeException(
+                'duo: native option topology found a substituted TEC Harbor pre_option service'
+            );
+        }
+        return $owner;
+    }
+
+    /**
+     * Read Woo's exact RuntimeContainer cache instead of Container::get(),
+     * which constructs a cache miss. A partial boot therefore refuses without
+     * manufacturing the CustomOrdersTableController used as admission proof.
+     *
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $records
+     */
+    private static function resolve_polylang_woo_service(array $records): ?object {
+        $visible = function_exists('wc_get_container')
+            || array_key_exists('wc_container', $GLOBALS)
+            || class_exists(self::WOO_CONTAINER, false)
+            || class_exists(self::WOO_RUNTIME_CONTAINER, false)
+            || class_exists(self::WOO_CUSTOM_ORDERS, false)
+            || self::contains_class_callback($records, self::WOO_CUSTOM_ORDERS);
+        if (!$visible) {
+            return null;
+        }
+        if (!function_exists('wc_get_container')
+            || !array_key_exists('wc_container', $GLOBALS)
+            || !class_exists(self::WOO_CONTAINER, false)
+            || !class_exists(self::WOO_RUNTIME_CONTAINER, false)
+            || !class_exists(self::WOO_CUSTOM_ORDERS, false)) {
+            throw new \RuntimeException(
+                'duo: native option topology found an incomplete WooCommerce pre_update_option runtime'
+            );
+        }
+        try {
+            $container = $GLOBALS['wc_container'];
+            $runtime = is_object($container) && get_class($container) === self::WOO_CONTAINER
+                ? (new \ReflectionProperty(self::WOO_CONTAINER, 'container'))->getValue($container)
+                : null;
+            $cache = is_object($runtime) && get_class($runtime) === self::WOO_RUNTIME_CONTAINER
+                ? (new \ReflectionProperty(self::WOO_RUNTIME_CONTAINER, 'resolved_cache'))->getValue($runtime)
+                : null;
+            $customOrders = is_array($cache) ? ($cache[self::WOO_CUSTOM_ORDERS] ?? null) : null;
+            $publicContainer = self::call_function('wc_get_container');
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: native option topology could not inspect WooCommerce pre_update_option services',
+                0,
+                $failure
+            );
+        }
+        if (!is_object($container)
+            || get_class($container) !== self::WOO_CONTAINER
+            || $publicContainer !== $container
+            || !is_object($runtime)
+            || get_class($runtime) !== self::WOO_RUNTIME_CONTAINER
+            || !is_object($customOrders)
+            || get_class($customOrders) !== self::WOO_CUSTOM_ORDERS) {
+            throw new \RuntimeException(
+                'duo: native option topology found incomplete or substituted WooCommerce pre_update_option services'
+            );
+        }
+        return $customOrders;
+    }
+
+    /**
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $records
+     * @param ?array<string,object> $wpseo
+     */
+    private static function assert_polylang_pre_update_callbacks(
+        array $records,
+        ?object $woo,
+        ?array $wpseo
+    ): void {
+        $expected = [];
+        if ($woo !== null) {
+            $expected[] = [$woo, 'process_pre_update_option', 999, 3];
+        }
+        if ($wpseo !== null) {
+            foreach ($wpseo as $service) {
+                $expected[] = [$service, 'add_default_filters_if_not_changed', PHP_INT_MAX, 3];
+            }
+        }
+        foreach ($records as [$priority, $record]) {
+            $matched = null;
+            foreach ($expected as $index => [$owner, $method, $expectedPriority, $accepted]) {
+                if ($priority === $expectedPriority
+                    && $record['accepted_args'] === $accepted
+                    && $record['function'] === [$owner, $method]) {
+                    $matched = $index;
+                    break;
+                }
+            }
+            if ($matched === null) {
+                $family = 'normal';
+                $callback = $record['function'];
+                if (is_array($callback)) {
+                    $owner = $callback[0] ?? null;
+                    $class = is_object($owner) ? get_class($owner) : $owner;
+                    if (is_string($class) && in_array($class, self::WPSEO_OPTIONS, true)) {
+                        $family = 'Yoast SEO';
+                    } elseif ($class === self::WOO_CUSTOM_ORDERS) {
+                        $family = 'WooCommerce';
+                    }
+                }
+                throw new \RuntimeException(
+                    "duo: native option topology found extended or substituted $family pre_update_option callbacks"
+                );
+            }
+            unset($expected[$matched]);
+        }
+        if ($expected !== []) {
+            $yoast = false;
+            $wooMissing = false;
+            foreach ($expected as [$owner]) {
+                $yoast = $yoast || ($wpseo !== null && in_array($owner, $wpseo, true));
+                $wooMissing = $wooMissing || $owner === $woo;
+            }
+            $family = $yoast ? 'Yoast SEO' : ($wooMissing ? 'WooCommerce' : 'normal');
+            throw new \RuntimeException(
+                "duo: native option topology found incomplete $family pre_update_option callbacks"
+            );
+        }
+    }
+
+    /**
      * Resolve the exact normal Woo 11.0.1 service graph whenever any part of
      * its option topology is visible. Partial boot, a replaced global
      * container, or a same-class foreign callback is never treated as absence.
@@ -1451,40 +1667,9 @@ final class NativeRewriteEffects {
      */
     private static function resolve_wpseo_services(array $preUpdated, array $update, array $add): ?array {
         $records = array_merge($preUpdated, $update, $add);
-        $visible = class_exists('WPSEO_Options', false);
-        foreach (self::WPSEO_OPTIONS as $class) {
-            $visible = $visible
-                || class_exists($class, false)
-                || self::contains_class_callback($records, $class);
-        }
-        if (!$visible) {
+        $options = self::resolve_wpseo_option_services($records);
+        if ($options === null) {
             return null;
-        }
-        if (!class_exists('WPSEO_Options', false)
-            || !is_callable(['WPSEO_Options', 'get_option_instance'])) {
-            throw new \RuntimeException(
-                'duo: native rewrite found incomplete or substituted Yoast SEO option singletons'
-            );
-        }
-        $options = [];
-        foreach (self::WPSEO_OPTIONS as $optionName => $class) {
-            try {
-                // This getter only reads WPSEO_Options::$option_instances;
-                // get_instance() would construct an unproved option service.
-                $service = self::call_static('WPSEO_Options', 'get_option_instance', $optionName);
-            } catch (\Throwable $failure) {
-                throw new \RuntimeException(
-                    'duo: native rewrite could not resolve Yoast option-callback services',
-                    0,
-                    $failure
-                );
-            }
-            if (!is_object($service) || get_class($service) !== $class) {
-                throw new \RuntimeException(
-                    'duo: native rewrite found incomplete or substituted Yoast SEO option singletons'
-                );
-            }
-            $options[$optionName] = $service;
         }
         $sitemapCallbacks = [];
         foreach ($update as $tuple) {
@@ -1531,6 +1716,49 @@ final class NativeRewriteEffects {
             'sitemaps' => $sitemaps,
             'sitemaps_cache' => $sitemapsCache,
         ];
+    }
+
+    /**
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $records
+     * @return ?array<string,object>
+     */
+    private static function resolve_wpseo_option_services(array $records): ?array {
+        $visible = class_exists('WPSEO_Options', false);
+        foreach (self::WPSEO_OPTIONS as $class) {
+            $visible = $visible
+                || class_exists($class, false)
+                || self::contains_class_callback($records, $class);
+        }
+        if (!$visible) {
+            return null;
+        }
+        if (!class_exists('WPSEO_Options', false)
+            || !is_callable(['WPSEO_Options', 'get_option_instance'])) {
+            throw new \RuntimeException(
+                'duo: native rewrite found incomplete or substituted Yoast SEO option singletons'
+            );
+        }
+        $options = [];
+        foreach (self::WPSEO_OPTIONS as $optionName => $class) {
+            try {
+                // This getter only reads WPSEO_Options::$option_instances;
+                // get_instance() would construct an unproved option service.
+                $service = self::call_static('WPSEO_Options', 'get_option_instance', $optionName);
+            } catch (\Throwable $failure) {
+                throw new \RuntimeException(
+                    'duo: native rewrite could not resolve Yoast option-callback services',
+                    0,
+                    $failure
+                );
+            }
+            if (!is_object($service) || get_class($service) !== $class) {
+                throw new \RuntimeException(
+                    'duo: native rewrite found incomplete or substituted Yoast SEO option singletons'
+                );
+            }
+            $options[$optionName] = $service;
+        }
+        return $options;
     }
 
     private static function assert_wpseo_sitemap_cache_map(): void {

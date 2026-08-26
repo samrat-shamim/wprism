@@ -17,6 +17,7 @@
     "src/Internal/ProductAttributes/VisualAttributeTermMeta.php": "dc7b8c1832549a12fc6962859e4a17491e0621dec0b4a1917106fac3f60368e1",
     "src/StoreApi/Routes/V1/ProductAttributeTerms.php": "2fb1eb1140c4c3258578db89c7416c37355142206b20d06dda26094731876112",
     "src/StoreApi/Routes/V1/ProductBrands.php": "52ea33243bd172a2a023a33cd9f9fc0268dcdea5ec44e9ebbf599dc34d37599a",
+    "src/StoreApi/Routes/V1/ProductBrandsById.php": "9ead04457415af93ff15f495effad0bfda4f127e61760fbf9539242810696c20",
     "src/StoreApi/Schemas/V1/ProductAttributeTermSchema.php": "af17a266c114ae5d3f109d31e4a425499298e80277a2853bb72fcfc144628a23",
     "src/StoreApi/Schemas/V1/ProductBrandSchema.php": "c8b065dad3f6616ec445098e4e7db2f8806dc911f937fc25194b7a8b79664692"
   },

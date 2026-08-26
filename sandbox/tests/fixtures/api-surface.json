@@ -22187,6 +22187,14 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "assert_inert_polylang_option_filter_topology": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "expected_effective_rules": {
                     "abstract": false,
                     "final": false,

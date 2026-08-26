@@ -4742,6 +4742,10 @@ duo_check_same(
     [
         'includes/class-woocommerce.php' =>
             '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7',
+        'src/Container.php' =>
+            '05893eda7dcffa910185fdabe7a0dd5ac783b8169db0fec463f4b69ab4a4d312',
+        'src/Internal/DependencyManagement/RuntimeContainer.php' =>
+            'e3e84d93da8994fe01875ca1322559c5817b4af5a1b8b841bc2a104e68e6c62f',
         'src/Internal/Features/FeaturesController.php' =>
             'c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2',
         'src/Internal/DataStores/Orders/DataSynchronizer.php' =>
@@ -4751,11 +4755,13 @@ duo_check_same(
     ],
     array_intersect_key($wooSourceHashes, array_fill_keys([
         'includes/class-woocommerce.php',
+        'src/Container.php',
+        'src/Internal/DependencyManagement/RuntimeContainer.php',
         'src/Internal/Features/FeaturesController.php',
         'src/Internal/DataStores/Orders/DataSynchronizer.php',
         'src/Internal/DataStores/Orders/CustomOrdersTableController.php',
     ], true)),
-    'the exact Woo container and three no-op option services are source-hash bound'
+    'the exact Woo public/runtime containers and three no-op option services are source-hash bound'
 );
 $coinstallSourceHashes = [];
 foreach (($wooRewriteTopology['source_files'] ?? []) as $sourceFile) {

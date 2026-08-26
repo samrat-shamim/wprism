@@ -36,6 +36,16 @@
     },
     {
       "plugin": "woocommerce",
+      "path": "src/Container.php",
+      "sha256": "05893eda7dcffa910185fdabe7a0dd5ac783b8169db0fec463f4b69ab4a4d312"
+    },
+    {
+      "plugin": "woocommerce",
+      "path": "src/Internal/DependencyManagement/RuntimeContainer.php",
+      "sha256": "e3e84d93da8994fe01875ca1322559c5817b4af5a1b8b841bc2a104e68e6c62f"
+    },
+    {
+      "plugin": "woocommerce",
       "path": "src/Internal/Features/FeaturesController.php",
       "sha256": "c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2"
     },
@@ -156,6 +166,11 @@
     },
     {
       "plugin": "the-events-calendar",
+      "path": "common/src/Tribe/Container.php",
+      "sha256": "9596db7968d4d0b5506dc482f99fed2387d1b2cbc7f11f507d52fbdf902d4b03"
+    },
+    {
+      "plugin": "the-events-calendar",
       "path": "common/src/Tribe/Settings_Manager.php",
       "sha256": "9f51c59cfa2398a66958159db4a66368aa728f4428295dc07dabb834396f9591"
     },
@@ -188,6 +203,26 @@
       "plugin": "the-events-calendar",
       "path": "common/src/Common/Integrations/Harbor/PUE.php",
       "sha256": "abe0ef81332c52aff2983b8f78700169dbcfbeb663497af84e681be245629988"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "common/vendor/vendor-prefixed/lucatume/di52/src/Container.php",
+      "sha256": "6ca7656082adf59d784f30656e85930d20c787222b852d488af3ee654e69b488"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "common/vendor/vendor-prefixed/lucatume/di52/src/ServiceProvider.php",
+      "sha256": "b8a361b68b3d426d406e9c92e46467d6a8a7969e8dc6306fb0ed263f7cea7f84"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "common/vendor/vendor-prefixed/lucatume/di52/src/Builders/Resolver.php",
+      "sha256": "20c08ab15bc604a99c4d7fe1c91043641002698ff65593605cb933dbcff432fb"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "common/vendor/vendor-prefixed/lucatume/di52/src/Builders/ValueBuilder.php",
+      "sha256": "b88c1b92cae835c69e324e9bfce2ba4dce779a7ac7b3f6ed8ca384b53412aadc"
     },
     {
       "plugin": "the-events-calendar",

@@ -1062,14 +1062,14 @@ pass 'external product resolves through Woo CRUD, v3 REST, Store API, and fronte
 BRAND_ID=$(jq -r '.ids.brand_child' <<<"$TARGET")
 COLOR_ATTRIBUTE_ID=$(jq -r '.ids.attribute_color' <<<"$TARGET")
 require_fixture_ids BRAND_ID COLOR_ATTRIBUTE_ID
-BRAND_STORE=$(curl -fsSG "http://localhost:${CONF2_PORT}/wp-json/wc/store/v1/products/brands" \
-  --data-urlencode 'slug=atelier-tokyo') \
+BRAND_STORE=$(curl -fsSL \
+  "http://localhost:${CONF2_PORT}/wp-json/wc/store/v1/products/brands/atelier-tokyo") \
   || fail 'conf2 Store API did not return the core brand'
 require_observed_nonempty 'conf2 core-brand Store API response' "$BRAND_STORE"
 jq -e --arg target "http://localhost:${CONF2_PORT}" --argjson id "$BRAND_ID" '
-  length == 1 and .[0].id == $id and .[0].slug == "atelier-tokyo" and
-  (.[0].permalink | startswith($target + "/maker-houses/")) and
-  (.[0].image.src | startswith($target + "/wp-content/uploads/"))
+  .id == $id and .slug == "atelier-tokyo" and
+  (.permalink | startswith($target + "/maker-houses/")) and
+  (.image.src | startswith($target + "/wp-content/uploads/"))
 ' <<<"$BRAND_STORE" >/dev/null \
   || fail "WooCommerce Store API did not consume brand hierarchy/image/permalink state: $BRAND_STORE"
 

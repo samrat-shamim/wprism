@@ -34,7 +34,7 @@ namespace {
     $GLOBALS['pll_cleaned_terms'] = [];
     $GLOBALS['wp_filter'] = [];
 
-    final class PllHookRegistry {
+    final class WP_Hook {
         /** @var array<int,array<string,array{function:callable,accepted_args:int}>> */
         public array $callbacks = [];
     }
@@ -59,7 +59,7 @@ namespace {
             ));
             return false;
         }
-        $registry = $GLOBALS['wp_filter'][$hook] ??= new PllHookRegistry();
+        $registry = $GLOBALS['wp_filter'][$hook] ??= new WP_Hook();
         $registry->callbacks[$priority][pll_hook_id($callback)] = [
             'function' => $callback,
             'accepted_args' => $acceptedArgs,
@@ -72,7 +72,7 @@ namespace {
         $GLOBALS['pll_remove_filter_attempts'][] = $hook;
         $registry = $GLOBALS['wp_filter'][$hook] ?? null;
         $id = pll_hook_id($callback);
-        if (!$registry instanceof PllHookRegistry || !isset($registry->callbacks[$priority][$id])) {
+        if (!$registry instanceof WP_Hook || !isset($registry->callbacks[$priority][$id])) {
             return false;
         }
         unset($registry->callbacks[$priority][$id]);
@@ -99,7 +99,7 @@ namespace {
 
     function has_filter(string $hook, callable|false $callback = false): bool|int {
         $registry = $GLOBALS['wp_filter'][$hook] ?? null;
-        if (!$registry instanceof PllHookRegistry) return false;
+        if (!$registry instanceof WP_Hook) return false;
         foreach ($registry->callbacks as $priority => $entries) {
             if ($callback === false || isset($entries[pll_hook_id($callback)])) return $priority;
         }
@@ -112,7 +112,7 @@ namespace {
 
     function apply_filters(string $hook, mixed $value, mixed ...$args): mixed {
         $registry = $GLOBALS['wp_filter'][$hook] ?? null;
-        if (!$registry instanceof PllHookRegistry) return $value;
+        if (!$registry instanceof WP_Hook) return $value;
         foreach ($registry->callbacks as $entries) {
             foreach ($entries as $entry) {
                 $all = array_merge([$value], $args);
@@ -449,6 +449,7 @@ namespace Duo {
 }
 
 namespace {
+    require_once dirname(__DIR__, 4) . '/agent/src/Rebuild/NativeRewriteEffects.php';
     require_once dirname(__DIR__, 4) . '/manifests/providers/polylang-nav-menus.php';
     require_once dirname(__DIR__, 4) . '/manifests/interpreters/polylang.php';
 
@@ -2159,6 +2160,468 @@ namespace {
             "portable option $label refuses at immutable repository schema validation"
         );
     }
+
+    /*
+     * These classes/functions are declared only after every standalone
+     * Polylang case above. NativeRewriteEffects treats a loaded Woo/Yoast
+     * service as visible even when its callbacks are absent, so declaring
+     * them at file load would turn the earlier inactive-plugin fixtures into
+     * false partial-boot refusals. The real co-install path sees these exact
+     * class names, canonical globals and resolver functions.
+     */
+    eval(<<<'PHP'
+namespace TEC\Common\lucatume\DI52\Builders {
+    class ValueBuilder {
+        private object $value;
+
+        public function __construct(object $value) {
+            $this->value = $value;
+            ++$GLOBALS['pll_coinstall_constructs']['value_builder'];
+        }
+    }
+
+    class Resolver {
+        /** @param array<string,object> $bindings */
+        private array $bindings;
+
+        public function __construct(array $bindings) {
+            $this->bindings = $bindings;
+            ++$GLOBALS['pll_coinstall_constructs']['resolver'];
+        }
+
+        public function bind(string $class, object $builder): void {
+            $this->bindings[$class] = $builder;
+        }
+    }
+}
+
+namespace TEC\Common\lucatume\DI52 {
+    abstract class ServiceProvider {
+        protected object $container;
+
+        public function __construct(object $container) {
+            $this->container = $container;
+            ++$GLOBALS['pll_coinstall_constructs']['service_provider'];
+        }
+    }
+
+    class Container {
+        private object $resolver;
+
+        public function __construct(object $resolver) {
+            $this->resolver = $resolver;
+            ++$GLOBALS['pll_coinstall_constructs']['tec_container'];
+        }
+    }
+}
+
+namespace {
+    class Tribe__Container extends \TEC\Common\lucatume\DI52\Container {
+        private static ?self $instance = null;
+
+        public static function install(?self $instance): void {
+            self::$instance = $instance;
+        }
+    }
+}
+
+namespace TEC\Common\Integrations\Harbor {
+    class PUE extends \TEC\Common\lucatume\DI52\ServiceProvider {
+        public function __construct(object $container) {
+            parent::__construct($container);
+            ++$GLOBALS['pll_coinstall_constructs']['harbor'];
+        }
+
+        public function filter_pre_get_option(mixed $value, string $name, mixed $default): mixed {
+            $GLOBALS['pll_coinstall_calls'][] = [self::class . '::filter_pre_get_option', $name];
+            return $value;
+        }
+    }
+}
+
+namespace Automattic\WooCommerce\Internal\Features {
+    class FeaturesController {
+        public function __construct() {
+            ++$GLOBALS['pll_coinstall_constructs']['features'];
+        }
+    }
+}
+
+namespace Automattic\WooCommerce\Internal\DataStores\Orders {
+    class DataSynchronizer {
+        public function __construct() {
+            ++$GLOBALS['pll_coinstall_constructs']['synchronizer'];
+        }
+    }
+
+    class CustomOrdersTableController {
+        public function __construct() {
+            ++$GLOBALS['pll_coinstall_constructs']['custom_orders'];
+        }
+
+        public function process_pre_update_option(mixed $value, string $name, mixed $old): mixed {
+            $GLOBALS['pll_coinstall_calls'][] = [self::class . '::process_pre_update_option', $name];
+            return $value;
+        }
+    }
+}
+
+namespace Automattic\WooCommerce\Internal\DependencyManagement {
+    class RuntimeContainer {
+        /** @param array<string,object> $resolvedCache */
+        protected array $resolved_cache;
+
+        public function __construct(array $resolvedCache) {
+            $this->resolved_cache = $resolvedCache;
+            ++$GLOBALS['pll_coinstall_constructs']['runtime_container'];
+        }
+    }
+}
+
+namespace Automattic\WooCommerce {
+    class Container {
+        private object $container;
+
+        public function __construct(object $container) {
+            $this->container = $container;
+            ++$GLOBALS['pll_coinstall_constructs']['woo_container'];
+        }
+
+        public function get(string $class): object {
+            ++$GLOBALS['pll_coinstall_container_get_calls'];
+            throw new \RuntimeException('fixture Woo Container::get() must not be called by validator');
+        }
+    }
+}
+
+namespace {
+    abstract class PllCoInstallYoastOption {
+        public function __construct() {
+            ++$GLOBALS['pll_coinstall_constructs'][get_class($this)];
+        }
+
+        public function add_default_filters_if_not_changed(mixed $value, string $name, mixed $old): mixed {
+            $GLOBALS['pll_coinstall_calls'][] = [get_class($this) . '::add_default_filters_if_not_changed', $name];
+            return $value;
+        }
+    }
+
+    class WPSEO_Option_Wpseo extends PllCoInstallYoastOption {}
+    class WPSEO_Option_Titles extends PllCoInstallYoastOption {}
+    class WPSEO_Option_Social extends PllCoInstallYoastOption {}
+    class WPSEO_Taxonomy_Meta extends PllCoInstallYoastOption {}
+    class WPSEO_Option_Llmstxt extends PllCoInstallYoastOption {}
+    class WPSEO_Option_Tracking_Only extends PllCoInstallYoastOption {}
+
+    class WPSEO_Options {
+        /** @var array<string,object> */
+        private static array $instances = [];
+
+        public static function register_option(string $name, object $service): void {
+            self::$instances[$name] = $service;
+        }
+
+        public static function get_option_instance(string $name): object|false {
+            $GLOBALS['pll_coinstall_option_reads'][] = $name;
+            return self::$instances[$name] ?? false;
+        }
+
+        public static function reset(): void {
+            self::$instances = [];
+        }
+    }
+
+    function tribe(?string $class = null): object {
+        ++$GLOBALS['pll_coinstall_tribe_calls'];
+        if ($class === 'TEC\\Common\\Integrations\\Harbor\\PUE') {
+            return $GLOBALS['pll_harbor_pue'];
+        }
+        throw new \RuntimeException('fixture TEC service is unavailable');
+    }
+
+    function wc_get_container(): object {
+        ++$GLOBALS['pll_coinstall_wc_get_container_calls'];
+        return $GLOBALS['wc_container'];
+    }
+}
+PHP);
+
+    $coInstallYoastClasses = [
+        'wpseo' => WPSEO_Option_Wpseo::class,
+        'wpseo_titles' => WPSEO_Option_Titles::class,
+        'wpseo_social' => WPSEO_Option_Social::class,
+        'wpseo_taxonomy_meta' => WPSEO_Taxonomy_Meta::class,
+        'wpseo_llmstxt' => WPSEO_Option_Llmstxt::class,
+        'wpseo_tracking_only' => WPSEO_Option_Tracking_Only::class,
+    ];
+    $installCoInstallTopology = static function () use ($coInstallYoastClasses): array {
+        $GLOBALS['pll_coinstall_constructs'] = [
+            'resolver' => 0,
+            'tec_container' => 0,
+            'service_provider' => 0,
+            'harbor' => 0,
+            'value_builder' => 0,
+            'features' => 0,
+            'synchronizer' => 0,
+            'custom_orders' => 0,
+            'runtime_container' => 0,
+            'woo_container' => 0,
+        ];
+        foreach ($coInstallYoastClasses as $class) {
+            $GLOBALS['pll_coinstall_constructs'][$class] = 0;
+        }
+        $resolver = new \TEC\Common\lucatume\DI52\Builders\Resolver([]);
+        $tecContainer = new \Tribe__Container($resolver);
+        $harbor = new \TEC\Common\Integrations\Harbor\PUE($tecContainer);
+        $resolver->bind(
+            \TEC\Common\Integrations\Harbor\PUE::class,
+            new \TEC\Common\lucatume\DI52\Builders\ValueBuilder($harbor)
+        );
+        \Tribe__Container::install($tecContainer);
+        $features = new \Automattic\WooCommerce\Internal\Features\FeaturesController();
+        $synchronizer = new \Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer();
+        $customOrders = new \Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController();
+        $runtime = new \Automattic\WooCommerce\Internal\DependencyManagement\RuntimeContainer([
+            get_class($features) => $features,
+            get_class($synchronizer) => $synchronizer,
+            get_class($customOrders) => $customOrders,
+        ]);
+        $container = new \Automattic\WooCommerce\Container($runtime);
+        $GLOBALS['pll_harbor_pue'] = $harbor;
+        $GLOBALS['wc_container'] = $container;
+        $GLOBALS['pll_coinstall_calls'] = [];
+        $GLOBALS['pll_coinstall_option_reads'] = [];
+        $GLOBALS['pll_coinstall_tribe_calls'] = 0;
+        $GLOBALS['pll_coinstall_wc_get_container_calls'] = 0;
+        $GLOBALS['pll_coinstall_container_get_calls'] = 0;
+        add_filter('pre_option', [$harbor, 'filter_pre_get_option'], 10, 3);
+        add_filter('pre_update_option', [$customOrders, 'process_pre_update_option'], 999, 3);
+        $yoastOptions = [];
+        foreach ($coInstallYoastClasses as $name => $class) {
+            $service = new $class();
+            $yoastOptions[$name] = $service;
+            WPSEO_Options::register_option($name, $service);
+            add_filter(
+                'pre_update_option',
+                [$service, 'add_default_filters_if_not_changed'],
+                PHP_INT_MAX,
+                3
+            );
+        }
+        return [
+            'harbor' => $harbor,
+            'container' => $container,
+            'runtime' => $runtime,
+            'tec_container' => $tecContainer,
+            'features' => $features,
+            'synchronizer' => $synchronizer,
+            'custom_orders' => $customOrders,
+            'yoast_options' => $yoastOptions,
+        ];
+    };
+    $clearCoInstallTopology = static function (array $services): void {
+        remove_filter('pre_option', [$services['harbor'], 'filter_pre_get_option'], 10);
+        remove_filter('pre_update_option', [$services['custom_orders'], 'process_pre_update_option'], 999);
+        foreach ($services['yoast_options'] as $service) {
+            remove_filter('pre_update_option', [$service, 'add_default_filters_if_not_changed'], PHP_INT_MAX);
+        }
+        WPSEO_Options::reset();
+        \Tribe__Container::install(null);
+        unset($GLOBALS['pll_harbor_pue'], $GLOBALS['wc_container']);
+    };
+    $invokeCoInstall = function () use (
+        $interpreter,
+        $nativeDesired,
+        $nativeSubKeys,
+        $nativeBefore,
+        $lockMarker,
+        $readRawStorage,
+        $restoreRaw,
+        $registerRuntimeRestore,
+        $writeRawStorage,
+        &$registeredRuntimeRestore
+    ): bool {
+        $registeredRuntimeRestore = null;
+        return $interpreter->materialize_option_sub_keys(
+            'polylang',
+            $nativeDesired,
+            $nativeSubKeys,
+            'yes',
+            $nativeBefore,
+            $lockMarker,
+            $readRawStorage,
+            $restoreRaw,
+            $registerRuntimeRestore,
+            $writeRawStorage
+        );
+    };
+    $native = $installNative($nativeBefore, $nativeBefore);
+    $coInstall = $installCoInstallTopology();
+    $coInstallRawBefore = $GLOBALS['pll_options']['polylang'];
+    duo_check_same(
+        true,
+        $invokeCoInstall(),
+        'the exact inert TEC Harbor plus Woo/Yoast pre-update callback union permits Polylang native materialization'
+    );
+    duo_check(
+        $GLOBALS['pll_options']['polylang'] !== $coInstallRawBefore
+            && $native->values['browser'] === true
+            && $GLOBALS['pll_options']['polylang']['browser'] === true
+            && has_filter('pre_option', [$coInstall['harbor'], 'filter_pre_get_option']) === 10
+            && has_filter('pre_update_option', [$coInstall['custom_orders'], 'process_pre_update_option']) === 999
+            && count($coInstall['yoast_options']) === 6
+            && count($GLOBALS['pll_coinstall_option_reads']) >= 6,
+        'the complete co-install callback union remains a no-op for polylang while native values and storage converge'
+    );
+    duo_check_same(0, $GLOBALS['pll_coinstall_tribe_calls'], 'the validator never calls tribe(PUE) while inspecting Harbor identity');
+    duo_check_same(0, $GLOBALS['pll_coinstall_container_get_calls'], 'the validator never calls Woo Container::get() while inspecting the runtime cache');
+    $coInstallYoastConstructorsStable = true;
+    foreach ($coInstallYoastClasses as $class) {
+        $coInstallYoastConstructorsStable = $coInstallYoastConstructorsStable
+            && ($GLOBALS['pll_coinstall_constructs'][$class] ?? 0) === 1;
+    }
+    duo_check(
+        ($GLOBALS['pll_coinstall_constructs']['harbor'] ?? 0) === 1
+            && ($GLOBALS['pll_coinstall_constructs']['runtime_container'] ?? 0) === 1
+            && ($GLOBALS['pll_coinstall_constructs']['woo_container'] ?? 0) === 1
+            && $coInstallYoastConstructorsStable,
+        'the validator reuses existing Harbor, Woo and Yoast services without constructing replacements'
+    );
+    $clearCoInstallTopology($coInstall);
+
+    $coInstallRefusal = function (
+        string $label,
+        callable $mutate,
+        callable $restore,
+        string $cause
+    ) use (
+        $installNative,
+        $installCoInstallTopology,
+        $clearCoInstallTopology,
+        $invokeCoInstall,
+        $nativeBefore
+    ): void {
+        $native = $installNative($nativeBefore, $nativeBefore);
+        $services = $installCoInstallTopology();
+        $mutate($services);
+        $preimage = $GLOBALS['pll_options']['polylang'];
+        $failure = null;
+        try {
+            $invokeCoInstall();
+        } catch (\Throwable $caught) {
+            $failure = $caught;
+        }
+        $failureText = $failure instanceof \Throwable ? $failure->getMessage() : '';
+        if ($failure instanceof \Throwable && $failure->getPrevious() instanceof \Throwable) {
+            $failureText .= ' | ' . $failure->getPrevious()->getMessage();
+        }
+        duo_check(
+            $failure instanceof \RuntimeException
+                && str_contains($failureText, $cause),
+            "$label refuses with the exact closed-topology cause before native mutation"
+        );
+        duo_check(
+            $native->setOrder === []
+                && $native->values === $nativeBefore
+                && $GLOBALS['pll_options']['polylang'] === $preimage,
+            "$label preserves the raw and native preimage before any setter"
+        );
+        $restore($services);
+        duo_check_same(
+            true,
+            $invokeCoInstall(),
+            "$label restoration permits same-process retry through the exact union"
+        );
+        $clearCoInstallTopology($services);
+    };
+
+    $coInstallRefusal(
+        'missing TEC Harbor pre_option callback',
+        static function (array $services): void {
+            remove_filter('pre_option', [$services['harbor'], 'filter_pre_get_option'], 10);
+        },
+        static function (array $services): void {
+            add_filter('pre_option', [$services['harbor'], 'filter_pre_get_option'], 10, 3);
+        },
+        'extended or substituted pre_option callbacks'
+    );
+    $coInstallRefusal(
+        'partial Yoast pre_update_option callback union',
+        static function (array $services): void {
+            $service = $services['yoast_options']['wpseo'];
+            remove_filter('pre_update_option', [$service, 'add_default_filters_if_not_changed'], PHP_INT_MAX);
+        },
+        static function (array $services): void {
+            $service = $services['yoast_options']['wpseo'];
+            add_filter('pre_update_option', [$service, 'add_default_filters_if_not_changed'], PHP_INT_MAX, 3);
+        },
+        'incomplete Yoast SEO pre_update_option callbacks'
+    );
+
+    $foreignYoast = null;
+    $coInstallRefusal(
+        'same-class foreign Yoast pre_update_option callback',
+        static function (array $services) use (&$foreignYoast): void {
+            $canonical = $services['yoast_options']['wpseo'];
+            remove_filter('pre_update_option', [$canonical, 'add_default_filters_if_not_changed'], PHP_INT_MAX);
+            $foreignYoast = new WPSEO_Option_Wpseo();
+            add_filter('pre_update_option', [$foreignYoast, 'add_default_filters_if_not_changed'], PHP_INT_MAX, 3);
+        },
+        static function (array $services) use (&$foreignYoast): void {
+            remove_filter('pre_update_option', [$foreignYoast, 'add_default_filters_if_not_changed'], PHP_INT_MAX);
+            $canonical = $services['yoast_options']['wpseo'];
+            add_filter('pre_update_option', [$canonical, 'add_default_filters_if_not_changed'], PHP_INT_MAX, 3);
+            $foreignYoast = null;
+        },
+        'extended or substituted Yoast SEO pre_update_option callbacks'
+    );
+
+    $extraCallback = null;
+    $coInstallRefusal(
+        'extra generic pre_update_option callback',
+        static function (array $services) use (&$extraCallback): void {
+            $extraCallback = static fn(mixed $value, string $name, mixed $old): mixed => $value;
+            add_filter('pre_update_option', $extraCallback, 998, 3);
+        },
+        static function (array $services) use (&$extraCallback): void {
+            remove_filter('pre_update_option', $extraCallback, 998);
+            $extraCallback = null;
+        },
+        'extended or substituted normal pre_update_option callbacks'
+    );
+
+    $foreignCanonicalYoast = null;
+    $coInstallRefusal(
+        'foreign canonical Yoast option service',
+        static function (array $services) use (&$foreignCanonicalYoast): void {
+            $foreignCanonicalYoast = new WPSEO_Option_Wpseo();
+            WPSEO_Options::register_option('wpseo', $foreignCanonicalYoast);
+        },
+        static function (array $services) use (&$foreignCanonicalYoast): void {
+            WPSEO_Options::register_option('wpseo', $services['yoast_options']['wpseo']);
+            $foreignCanonicalYoast = null;
+        },
+        'extended or substituted Yoast SEO pre_update_option callbacks'
+    );
+
+    $foreignCanonicalWoo = null;
+    $coInstallRefusal(
+        'foreign canonical WooCommerce option service',
+        static function (array $services) use (&$foreignCanonicalWoo): void {
+            $foreignCanonicalWoo = new \Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController();
+            $runtime = new \Automattic\WooCommerce\Internal\DependencyManagement\RuntimeContainer([
+                get_class($services['features']) => $services['features'],
+                get_class($services['synchronizer']) => $services['synchronizer'],
+                get_class($foreignCanonicalWoo) => $foreignCanonicalWoo,
+            ]);
+            $GLOBALS['wc_container'] = new \Automattic\WooCommerce\Container($runtime);
+        },
+        static function (array $services) use (&$foreignCanonicalWoo): void {
+            $GLOBALS['wc_container'] = $services['container'];
+            $foreignCanonicalWoo = null;
+        },
+        'extended or substituted WooCommerce pre_update_option callbacks'
+    );
 
     duo_check_summary('Polylang production readiness');
 }

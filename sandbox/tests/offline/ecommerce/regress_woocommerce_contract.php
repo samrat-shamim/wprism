@@ -192,8 +192,8 @@ woo_ok(($operationalSourceUnion['classification_counts'] ?? null) === [
         '11.0.1' => 'e73e5fe1dd2844bf2bdc3a59bf728b6d38aee79b2152f616f2f993f515975c76',
     ],
 ], 'the operational union freezes every class count and both exact artifact-specific source authorities');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 93,
-    'the inventory binds all ninety-three byte-identical visible, operational, migration, gateway, email, pickup, scheduler, stock-notification, launch, image-regeneration, attachment-bootstrap, and frontend-read sources');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 95,
+    'the inventory binds all ninety-five byte-identical visible, operational, container, migration, gateway, email, pickup, scheduler, stock-notification, launch, image-regeneration, attachment-bootstrap, and frontend-read sources');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''
@@ -318,8 +318,8 @@ woo_ok(($externalProductInventory['contract']['authored_post_meta'] ?? null) ===
     && ($externalProductInventory['contract']['url_semantics'] ?? null) === 'source-home-tokenized-target-home-rebound',
     'the external-product inventory closes its two authored rows and target-local URL identity');
 woo_ok(($termSurfaceInventory['format'] ?? null) === 'duo-woocommerce-term-surface-inventory/v1'
-    && count((array) ($termSurfaceInventory['source_files'] ?? [])) === 14,
-    'the brand/category/visual inventory binds all fourteen exact native paths');
+    && count((array) ($termSurfaceInventory['source_files'] ?? [])) === 15,
+    'the brand/category/visual inventory binds all fifteen exact native paths');
 foreach ((array) ($termSurfaceInventory['artifacts'] ?? []) as $version => $sha256) {
     woo_ok(($artifactLock['plugins']['woocommerce'][$version]['sha256'] ?? null) === $sha256,
         "term-surface source evidence is pinned to official WooCommerce $version");
@@ -986,9 +986,9 @@ foreach ($yoastOptionSources as $sourceFile => $sha256) {
     woo_ok(($coInstallSourcePins[$sourceFile] ?? null) === $sha256,
         "co-install evidence pins exact Yoast 28.3 option source $sourceFile");
 }
-woo_ok(count((array) ($wooRewriteCoInstallTopology['source_files'] ?? [])) === 41
+woo_ok(count((array) ($wooRewriteCoInstallTopology['source_files'] ?? [])) === 48
     && count((array) ($wooRewriteCoInstallTopology['static_callbacks'] ?? [])) === 39,
-    'co-install evidence closes all 41 source files and 39 static callbacks');
+    'co-install evidence closes all 48 source files and 39 static callbacks');
 $yoastOptionClasses = [
     'WPSEO_Option_Wpseo',
     'WPSEO_Option_Titles',
@@ -1653,6 +1653,11 @@ foreach ([
     woo_ok(str_contains($wooCheckHarness, $termCheckWitness),
         "category/brand/visual target fixture pins $termCheckWitness");
 }
+woo_ok(
+    str_contains($wooCheckHarness, '/wp-json/wc/store/v1/products/brands/atelier-tokyo')
+        && !str_contains($wooCheckHarness, "--data-urlencode 'slug=atelier-tokyo'"),
+    'the Store API brand witness uses Woo 11.0.x single-brand slug routing instead of an unsupported collection parameter'
+);
 foreach ([
     'wc_get_review_order_url',
     '.review_order.rule_actual == .review_order.rule_expected',
@@ -1799,7 +1804,7 @@ foreach ([
     '"pll_rewrite_rules","pll_modify_rewrite_rule"',
     '([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0',
     'def static_rewrite_hook:',
-    '(.source_files|length==41)',
+    '(.source_files|length==48)',
     '(.static_callbacks|length==39)',
     'WP_CLI_MEMORY_LIMIT=512M',
     '--entrypoint php',
