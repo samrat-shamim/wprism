@@ -584,7 +584,7 @@ foreach ($members as $member) {
     }
 }
 $duplicates = [];
-$scan = static function (string $dir) use (&$scan, $sizes, &$duplicates, $repo): void {
+$scan = static function (string $dir, string $root) use (&$scan, $sizes, &$duplicates): void {
     foreach (scandir($dir) ?: [] as $entry) {
         if (
             $entry === '.' || $entry === '..' || $entry === 'vendor'
@@ -607,7 +607,18 @@ $scan = static function (string $dir) use (&$scan, $sizes, &$duplicates, $repo):
             if ($entry[0] === '.') {
                 continue;
             }
-            $scan($path);
+            // A NESTED CHECKOUT is not this repository's tree either. Git
+            // itself refuses to track content below a directory carrying a
+            // `.git` entry (an embedded repo or a linked worktree's gitdir
+            // pointer file), and concurrent sessions on this machine park
+            // exactly such checkouts at the repo root (observed: audit-f1d1/,
+            // a sibling session's worktree whose full copy of the tree turned
+            // every packaged harness file into a false "second copy"). The
+            // clause's claim is about paths the OUTER repository can ship.
+            if (file_exists($path . '/.git')) {
+                continue;
+            }
+            $scan($path, $root);
             continue;
         }
         $size = filesize($path);
@@ -619,18 +630,57 @@ $scan = static function (string $dir) use (&$scan, $sizes, &$duplicates, $repo):
         if ($declared === null) {
             continue;
         }
-        $relative = substr($path, strlen($repo) + 1);
+        $relative = substr($path, strlen($root) + 1);
         if ($relative !== $declared) {
             $duplicates[] = $relative . ' duplicates ' . $declared;
         }
     }
 };
-$scan($repo);
+$scan($repo, $repo);
 duo_check_same(
     [],
     $duplicates,
     'no packaged harness file has a second copy in the tree — the kit is assembled from the one original'
 );
+
+// And the nested-checkout pruning above is pinned deterministically, because
+// the live condition that exposed it (a sibling session's worktree parked at
+// the repo root) comes and goes with that session. A scratch tree holds the
+// one declared original, a nested-checkout dir (`.git` pointer file) with a
+// byte-identical copy, and a plain dir with another: only the plain dir's
+// copy is a duplicate. Before the pruning clause, this scan reported both.
+$dupRoot = sys_get_temp_dir() . '/duo_kit_nested_checkout_' . bin2hex(random_bytes(8));
+$declaredSource = null;
+foreach ($members as $member) {
+    if ($member['origin'] === 'copied') {
+        $declaredSource = (string) $member['source'];
+        break;
+    }
+}
+mkdir($dupRoot . '/' . dirname($declaredSource), 0700, true);
+mkdir($dupRoot . '/sibling-worktree/nested', 0700, true);
+mkdir($dupRoot . '/plain/nested', 0700, true);
+copy($repo . '/' . $declaredSource, $dupRoot . '/' . $declaredSource);
+copy($repo . '/' . $declaredSource, $dupRoot . '/sibling-worktree/nested/copy.php');
+copy($repo . '/' . $declaredSource, $dupRoot . '/plain/nested/copy.php');
+file_put_contents($dupRoot . '/sibling-worktree/.git', "gitdir: /elsewhere\n");
+$duplicates = [];
+$scan($dupRoot, $dupRoot);
+duo_check_same(
+    ['plain/nested/copy.php duplicates ' . $declaredSource],
+    $duplicates,
+    'a nested checkout (a directory carrying a .git entry) is outside the tree the scan judges; a plain directory is not'
+);
+(static function (string $dir) use (&$rm): void {
+    $rm = static function (string $d) use (&$rm): void {
+        foreach (scandir($d) ?: [] as $e) {
+            if ($e === '.' || $e === '..') { continue; }
+            is_dir($d . '/' . $e) && !is_link($d . '/' . $e) ? $rm($d . '/' . $e) : unlink($d . '/' . $e);
+        }
+        rmdir($d);
+    };
+    $rm($dir);
+})($dupRoot);
 
 // Scratch removal is the registered shutdown handler's job, so it happens on
 // the red path too; duo_check_summary() exits, and an exit() runs shutdown
