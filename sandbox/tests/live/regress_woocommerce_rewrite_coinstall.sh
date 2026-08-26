@@ -155,6 +155,19 @@ update_option("permalink_structure","/%postname%/");
 update_option("woocommerce_permalinks",["product_base"=>"store/%product_cat%","category_base"=>"catalog","tag_base"=>"label","attribute_base"=>"feature","use_verbose_page_rules"=>true]);
 $lang=PLL()->model->add_language(["locale"=>"en_US","name"=>"English","slug"=>"en","rtl"=>false,"term_group"=>0,"no_default_cat"=>true]);
 if(is_wp_error($lang)||!$lang instanceof PLL_Language){throw new RuntimeException("could not create the Polylang language");}
+$polylang=get_option("polylang");
+if(!is_array($polylang)){throw new RuntimeException("Polylang source option is not an array");}
+$polylang["default_lang"]="en";
+$polylang["browser"]=false;
+$polylang["force_lang"]=1;
+$polylang["hide_default"]=false;
+$polylang["media_support"]=1;
+$polylang["post_types"]=[];
+$polylang["redirect_lang"]=false;
+$polylang["rewrite"]=true;
+$polylang["taxonomies"]=[];
+$polylang["sync"]=["taxonomies","post_meta","post_date"];
+update_option("polylang",$polylang);
 $product=new WC_Product_Simple();
 $product->set_name("Rewrite Co-install Product");
 $product->set_slug("rewrite-coinstall-product");
@@ -163,6 +176,7 @@ $product_id=$product->save();
 if(!$product_id){throw new RuntimeException("could not create product through WooCommerce CRUD");}
 pll_set_post_language((int)$product_id,"en");
 ' >/dev/null
+wp1 rewrite flush --hard >/dev/null
 cat > "$R1/site.duo.json" <<'EOF'
 {
   "manifests": ["core", "woocommerce", "yoast", "polylang", "the-events-calendar"],
