@@ -926,6 +926,83 @@ $wooPostapplyHarness = (string) file_get_contents($root . '/sandbox/conformance/
 $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
 $wooInterpreterSource = (string) file_get_contents($root . '/manifests/interpreters/woocommerce.php');
 
+// DUO-3525: WP-CLI can reach the mixed-option interpreter after WooCommerce
+// has established its roots but before the legacy settings abstract was
+// included. Both admitted artifacts load that exact file from
+// class-woocommerce.php; exercise that source edge in a fresh process so a
+// predeclared global WC_Settings_API cannot hide a broken absent-class path.
+$settingsApiPath = 'includes/abstracts/abstract-wc-settings-api.php';
+$settingsApiHash = '1c7615bcd26fba9f83961db045edf6bd42acc6ee691383e8a8dd6f6a1e00434c';
+$settingsApiLoaderHashes = [
+    '11.0.0' => '5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4',
+    '11.0.1' => '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7',
+];
+woo_ok(
+    ($settingsInventory['source_files'][$settingsApiPath] ?? null) === $settingsApiHash
+        && ($settingsInventory['version_specific_source_files']['includes/class-woocommerce.php'] ?? null)
+            === $settingsApiLoaderHashes,
+    'the settings abstract and each exact WooCommerce loader remain pinned before partial-runtime loading is admitted'
+);
+
+$settingsApiLoaderStart = strpos($wooInterpreterSource, 'private function load_native_settings_api(): void');
+$settingsApiLoaderEnd = $settingsApiLoaderStart === false
+    ? false
+    : strpos($wooInterpreterSource, 'private function assert_native_mixed_field(', $settingsApiLoaderStart);
+$settingsApiLoader = $settingsApiLoaderStart !== false && $settingsApiLoaderEnd !== false
+    ? substr($wooInterpreterSource, $settingsApiLoaderStart, $settingsApiLoaderEnd - $settingsApiLoaderStart)
+    : '';
+$nativeSettingsApiStart = strpos($wooInterpreterSource, 'private function native_settings_api(): object');
+$nativeSettingsApiEnd = $nativeSettingsApiStart === false
+    ? false
+    : strpos($wooInterpreterSource, 'private function load_native_settings_api(): void', $nativeSettingsApiStart);
+$nativeSettingsApi = $nativeSettingsApiStart !== false && $nativeSettingsApiEnd !== false
+    ? substr($wooInterpreterSource, $nativeSettingsApiStart, $nativeSettingsApiEnd - $nativeSettingsApiStart)
+    : '';
+$settingsApiClassCheck = strpos($nativeSettingsApi, "class_exists('WC_Settings_API', false)");
+$settingsApiLoad = strpos($nativeSettingsApi, '$this->load_native_settings_api();');
+$settingsApiRecheck = $settingsApiLoad === false
+    ? false
+    : strpos($nativeSettingsApi, "class_exists('WC_Settings_API', false)", $settingsApiLoad + 1);
+$settingsApiReflection = strpos($nativeSettingsApi, "new \\ReflectionClass('WC_Settings_API')");
+$settingsApiHashCheck = strpos($settingsApiLoader, "hash_equals(self::WOO_SETTINGS_API_SHA256, \$settingsHash)");
+$settingsApiRequire = strpos($settingsApiLoader, 'require_once $settingsFileReal;');
+woo_ok(
+    str_contains($wooInterpreterSource, "private const WOO_SETTINGS_API_SHA256 =\n        '$settingsApiHash';")
+        && $settingsApiClassCheck !== false
+        && $settingsApiLoad !== false
+        && $settingsApiRecheck !== false
+        && $settingsApiReflection !== false
+        && $settingsApiClassCheck < $settingsApiLoad
+        && $settingsApiLoad < $settingsApiRecheck
+        && $settingsApiRecheck < $settingsApiReflection
+        && $settingsApiLoader !== ''
+        && str_contains($settingsApiLoader, "defined('ABSPATH')")
+        && str_contains($settingsApiLoader, "defined('WC_ABSPATH')")
+        && str_contains($settingsApiLoader, "defined('WC_PLUGIN_FILE')")
+        && str_contains($settingsApiLoader, "constant('ABSPATH')")
+        && str_contains($settingsApiLoader, "constant('WC_ABSPATH')")
+        && str_contains($settingsApiLoader, "constant('WC_PLUGIN_FILE')")
+        && str_contains($settingsApiLoader, 'realpath($pluginFile)')
+        && str_contains($settingsApiLoader, 'realpath(rtrim($configuredRoot')
+        && str_contains($settingsApiLoader, '$pluginRootReal !== $configuredRootReal')
+        && str_contains(
+            $settingsApiLoader,
+            '$pluginFileReal !== $pluginRootReal . DIRECTORY_SEPARATOR . \'woocommerce.php\''
+        )
+        && str_contains($settingsApiLoader, "'woocommerce.php'")
+        && str_contains($settingsApiLoader, "'abstract-wc-settings-api.php'")
+        && str_contains($settingsApiLoader, '$settingsFileReal !== $settingsFile')
+        && $settingsApiHashCheck !== false
+        && $settingsApiRequire !== false
+        && $settingsApiHashCheck < $settingsApiRequire,
+    'class-absent settings validation checks coherent Woo roots and the exact pinned file before its one guarded include'
+);
+woo_ok(
+    substr_count($settingsApiLoader, "'duo: WooCommerce mixed option validation requires WC_Settings_API'") === 1
+        && substr_count($settingsApiLoader, 'throw new \\RuntimeException($message') >= 4,
+    'missing, mismatched, and substituted settings-file authorities retain the established WC_Settings_API refusal'
+);
+
 // Receipt identities are a three-way contract: the manifest is the shipped
 // declaration, provider identity() is the executable authority, and this
 // conformance check is the observed receipt expectation. Keep the exact
@@ -1564,7 +1641,7 @@ $conformanceFamilyWitnesses = [
     'deletion' => [$wooCheckHarness, [
         'WooCommerce unsupported product deletion capture',
         'unsupported deletion refusal partially published canonical state',
-        'source did not restore byte-identically after malformed/unknown-COD/deletion probes',
+        'source did not restore byte-identically after malformed/undeclared-COD/deletion probes',
     ]],
     'failure-recovery' => [$wooCheckHarness, [
         'lookup-schema provider failure',
@@ -1585,8 +1662,8 @@ $conformanceFamilyWitnesses = [
         'malformed product-attribute capture',
         'WooCommerce populated COD boundary capture',
         'cod_addon_secret',
-        'unknown sibling',
-        'malformed attributes, unknown COD add-on sibling, and unsupported product deletion refuse atomically and redact values',
+        'undeclared sibling key(s)',
+        'malformed attributes, undeclared COD add-on sibling, and unsupported product deletion refuse atomically and redact values',
     ]],
     'scope-platform' => [$wooCheckHarness, [
         'WooCommerce scope fixture unexpectedly activated optional extensions',
@@ -1612,10 +1689,10 @@ $codBoundary = $codBoundaryStart !== false && $codBoundaryEnd !== false
 woo_ok(
     str_contains($codBoundary, '"cod_addon_secret" => "AKIAABCDEFGHIJKLMNOP"')
         && str_contains($codBoundary, "grep -Fq 'woocommerce_cod_settings'")
-        && str_contains($codBoundary, "grep -Fq 'unknown sibling'")
+        && str_contains($codBoundary, "grep -Fq 'undeclared sibling key(s)'")
         && str_contains($codBoundary, '! grep -Fq "$FAKE_SECRET"')
         && !str_contains($codBoundary, 'unclassified option'),
-    'the live COD boundary rejects one bounded unknown add-on sibling, names the closed option, and redacts the sentinel instead of expecting an unclassified option'
+    'the live COD boundary rejects one bounded undeclared add-on sibling key, names the closed option, and redacts the sentinel instead of expecting an unclassified option'
 );
 $codNormalizeStart = strpos($wooInterpreterSource, 'public function normalize_captured_option_sub_keys(');
 $codMaterializeStart = $codNormalizeStart === false
@@ -1641,7 +1718,7 @@ woo_ok(
         && $codUnknownAbsolute < $codMutationTopology
         && $codTrackingHook !== false
         && $codMutationTopology < $codTrackingHook,
-    'COD unknown siblings refuse during capture normalization before native validation and WC_Settings_Tracking mutation topology'
+    'COD undeclared sibling keys refuse during capture normalization before native validation and WC_Settings_Tracking mutation topology'
 );
 foreach ([
     'new WC_Product_External()',

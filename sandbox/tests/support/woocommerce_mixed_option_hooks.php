@@ -61,7 +61,146 @@ namespace Automattic\WooCommerce\Internal\Utilities {
     }
 }
 
+namespace TEC\Common\lucatume\DI52\Builders {
+    final class Resolver {
+        /** @param mixed $bindings */
+        public function __construct(protected mixed $bindings) {}
+
+        public function resolve(string $id): object {
+            ++$GLOBALS['wooMixedTecFactoryCalls'];
+            throw new \RuntimeException('TEC mixed-option admission must not resolve or construct a service');
+        }
+    }
+
+    final class ValueBuilder {
+        public function __construct(private object $value) {}
+
+        public function build(): object {
+            ++$GLOBALS['wooMixedTecFactoryCalls'];
+            throw new \RuntimeException('TEC mixed-option admission must not build a service');
+        }
+    }
+}
+
+namespace TEC\Common\lucatume\DI52 {
+    class Container {
+        public function __construct(protected mixed $resolver) {}
+    }
+}
+
+namespace TEC\Common\Contracts {
+    class Container extends \TEC\Common\lucatume\DI52\Container {}
+}
+
+namespace Tribe\Events\Views\V2 {
+    final class Hooks {
+        public function action_save_wplang(string $option, mixed $oldValue, mixed $value): void {
+            ++$GLOBALS['wooMixedTecCallbackCalls'];
+        }
+    }
+}
+
 namespace {
+    final class Tribe__Cache {}
+
+    final class Tribe__Main {
+        public const OPTIONNAME = 'tribe_events_calendar_options';
+    }
+
+    final class Tribe__Container extends \TEC\Common\Contracts\Container {
+        protected static ?self $instance = null;
+
+        public static function install(?self $instance): void {
+            self::$instance = $instance;
+        }
+
+        public static function instance(): self {
+            ++$GLOBALS['wooMixedTecFactoryCalls'];
+            throw new \RuntimeException('TEC mixed-option admission must not call Tribe__Container::instance');
+        }
+    }
+
+    final class Tribe__Settings_Manager {
+        private static ?self $instance = null;
+
+        public static function install(?self $instance): void {
+            self::$instance = $instance;
+        }
+
+        public static function instance(): self {
+            ++$GLOBALS['wooMixedTecFactoryCalls'];
+            throw new \RuntimeException('TEC mixed-option admission must not call Tribe__Settings_Manager::instance');
+        }
+
+        public function update_options_cache(string $option, mixed $oldValue, mixed $value): void {
+            ++$GLOBALS['wooMixedTecCallbackCalls'];
+        }
+    }
+
+    final class Tribe__Events__Aggregator {
+        private static ?self $instance = null;
+
+        public static function install(?self $instance): void {
+            self::$instance = $instance;
+        }
+
+        public static function instance(): self {
+            ++$GLOBALS['wooMixedTecFactoryCalls'];
+            throw new \RuntimeException('TEC mixed-option admission must not call Tribe__Events__Aggregator::instance');
+        }
+
+        public function action_purge_transients(string $option): void {
+            ++$GLOBALS['wooMixedTecCallbackCalls'];
+        }
+    }
+
+    final class Tribe__Cache_Listener {
+        private static ?self $instance = null;
+        /** @var list<string> */
+        public array $writes = [];
+
+        public function __construct(private object $cache) {}
+
+        public static function install(?self $instance = null): ?self {
+            if (func_num_args() === 0) {
+                return self::$instance ??= new self(new Tribe__Cache());
+            }
+            self::$instance = $instance;
+            return self::$instance;
+        }
+
+        public static function instance(): self {
+            ++$GLOBALS['wooMixedTecFactoryCalls'];
+            throw new \RuntimeException('TEC mixed-option admission must not call Tribe__Cache_Listener::instance');
+        }
+
+        public function update_last_updated_option(string $option, mixed $oldValue, mixed $value): void {
+            $GLOBALS['wooMixedTecCallbackCalls'] = ($GLOBALS['wooMixedTecCallbackCalls'] ?? 0) + 1;
+            if ($option === 'rewrite_rules') {
+                $this->mark('tribe_last_updated_option');
+            }
+        }
+
+        public function update_last_save_post(string $option, mixed $oldValue, mixed $value): void {
+            $GLOBALS['wooMixedTecCallbackCalls'] = ($GLOBALS['wooMixedTecCallbackCalls'] ?? 0) + 1;
+            if ($option === 'rewrite_rules') {
+                $this->mark('tribe_last_save_post');
+            }
+        }
+
+        public function generate_rewrite_rules(): void {
+            $this->mark('tribe_last_generate_rewrite_rules');
+        }
+
+        private function mark(string $option): void {
+            $this->writes[] = $option;
+            $GLOBALS['wooHierarchyTecPurgeRequested'] = true;
+            if (function_exists('woo_hierarchy_test_set_option')) {
+                woo_hierarchy_test_set_option($option, (float) count($this->writes));
+            }
+        }
+    }
+
     final class WC_Settings_Tracking {
         /** @var list<string> */
         protected $allowed_options = [];

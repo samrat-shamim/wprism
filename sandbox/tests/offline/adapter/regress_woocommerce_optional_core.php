@@ -171,18 +171,19 @@ function woo_optional_install_native_topology(
                 $GLOBALS['WC_Brands_Admin'], 'validate_product_base', 10, 1,
             ]]);
         }
-        $updates = [
+        $updated = [
             [$services[\Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer::class], 'process_updated_option', 999, 3],
             [$services[\Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController::class], 'process_updated_option', 999, 3],
             [$services[\Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController::class], 'process_updated_option_fts_index', 999, 3],
             [$services[\Automattic\WooCommerce\Internal\Features\FeaturesController::class], 'process_updated_option', 999, 3],
         ];
+        $update = [];
         foreach ($yoast as $service) {
-            $updates[] = [$service, 'add_default_filters_if_same_option', 10, 1];
+            $update[] = [$service, 'add_default_filters_if_same_option', 10, 1];
         }
         $tracking = $GLOBALS['wooMixedSettingsTracking'];
         if ($trackingUpdateActive) {
-            $updates[] = [$tracking, 'track_setting_change', 10, 3];
+            $update[] = [$tracking, 'track_setting_change', 10, 3];
         }
         foreach ([
             'woocommerce_settings_page_init' => ['track_settings_page_view', 1],
@@ -195,12 +196,37 @@ function woo_optional_install_native_topology(
         }
         if ($sitemapsActive) {
             $GLOBALS['wpseo_sitemaps'] = new WPSEO_Sitemaps();
-            $updates[] = [WPSEO_Sitemaps_Cache::class, 'clear_on_option_update', 10, 1];
+            $update[] = [WPSEO_Sitemaps_Cache::class, 'clear_on_option_update', 10, 1];
         } else {
             unset($GLOBALS['wpseo_sitemaps']);
         }
-        woo_optional_install_hook('update_option', $updates);
-        woo_optional_install_hook('updated_option', array_slice($updates, 0, 4));
+        $listener = new Tribe__Cache_Listener(new Tribe__Cache());
+        $manager = new Tribe__Settings_Manager();
+        $aggregator = new Tribe__Events__Aggregator();
+        $views = new \Tribe\Events\Views\V2\Hooks();
+        $resolver = new \TEC\Common\lucatume\DI52\Builders\Resolver([
+            'settings.manager' => $manager,
+            'events-aggregator.main' => $aggregator,
+            \Tribe\Events\Views\V2\Hooks::class =>
+                new \TEC\Common\lucatume\DI52\Builders\ValueBuilder($views),
+            'events.views.v2.hooks' =>
+                new \TEC\Common\lucatume\DI52\Builders\ValueBuilder($views),
+        ]);
+        Tribe__Container::install(new Tribe__Container($resolver));
+        Tribe__Settings_Manager::install($manager);
+        Tribe__Events__Aggregator::install($aggregator);
+        Tribe__Cache_Listener::install($listener);
+        $GLOBALS['wooMixedTecFactoryCalls'] = 0;
+        $GLOBALS['wooMixedTecCallbackCalls'] = 0;
+        $updated = array_merge($updated, [
+            [$manager, 'update_options_cache', 10, 3],
+            [$listener, 'update_last_updated_option', 10, 3],
+            [$listener, 'update_last_save_post', 10, 3],
+            [$aggregator, 'action_purge_transients', 10, 1],
+            [$views, 'action_save_wplang', 10, 3],
+        ]);
+        woo_optional_install_hook('update_option', $update);
+        woo_optional_install_hook('updated_option', $updated);
         return;
     }
     unset($GLOBALS['wpseo_sitemaps']);
@@ -312,6 +338,207 @@ duo_check_same(
 );
 
 $policy = Policy::load(null, ['woocommerce']);
+
+/*
+ * OptionsMaterializer bypasses WordPress's dispatcher, so the reciprocal TEC
+ * observers are admissible only through the interpreter's exact pre-write
+ * check. Every factory/callback double throws if admission executes it.
+ */
+$woocommerceHookInterpreter = $policy->interpreters()['woocommerce'] ?? null;
+duo_check(is_object($woocommerceHookInterpreter), 'the Woo interpreter is available for hook admission probes');
+$assertMixedMutationHooks = (new ReflectionClass($woocommerceHookInterpreter))
+    ->getMethod('assert_mixed_option_mutation_hooks');
+$assertTecAdmission = static function (int &$writes) use (
+    $assertMixedMutationHooks,
+    $woocommerceHookInterpreter
+): bool {
+    $assertMixedMutationHooks->invoke($woocommerceHookInterpreter, 'woocommerce_bacs_settings', true);
+    ++$writes;
+    return true;
+};
+woo_optional_install_native_topology(true, 'woocommerce_bacs_settings');
+$updateCallbacks = $GLOBALS['wp_filter']['update_option']->callbacks ?? [];
+$updateOwners = [];
+foreach ($updateCallbacks as $callbacks) {
+    foreach ($callbacks as $record) {
+        $callback = $record['function'] ?? null;
+        $updateOwners[] = is_array($callback) && is_object($callback[0] ?? null)
+            ? get_class($callback[0])
+            : (is_array($callback) ? (string) ($callback[0] ?? '') : '');
+    }
+}
+duo_check_same(
+    [],
+    array_values(array_intersect($updateOwners, [
+        \Automattic\WooCommerce\Internal\Features\FeaturesController::class,
+        \Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer::class,
+        \Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController::class,
+    ])),
+    'the marker-write update_option union excludes all four Woo updated_option observers'
+);
+duo_check_same(
+    8,
+    array_sum(array_map('count', $updateCallbacks)),
+    'the marker-write update_option union is only six Yoast services, sitemap cache, and tracking'
+);
+$updatedIdentities = [];
+foreach (($GLOBALS['wp_filter']['updated_option']->callbacks ?? []) as $priority => $callbacks) {
+    foreach ($callbacks as $record) {
+        $callback = $record['function'] ?? null;
+        $owner = is_array($callback) && is_object($callback[0] ?? null)
+            ? get_class($callback[0]) . '::' . (string) ($callback[1] ?? '')
+            : '';
+        $updatedIdentities[] = $priority . '|' . $owner . '|' . (string) ($record['accepted_args'] ?? '');
+    }
+}
+sort($updatedIdentities, SORT_STRING);
+$expectedUpdatedIdentities = [
+    '10|Tribe\\Events\\Views\\V2\\Hooks::action_save_wplang|3',
+    '10|Tribe__Cache_Listener::update_last_save_post|3',
+    '10|Tribe__Cache_Listener::update_last_updated_option|3',
+    '10|Tribe__Events__Aggregator::action_purge_transients|1',
+    '10|Tribe__Settings_Manager::update_options_cache|3',
+    '999|Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option_fts_index|3',
+    '999|Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option|3',
+    '999|Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_updated_option|3',
+    '999|Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_updated_option|3',
+];
+sort($expectedUpdatedIdentities, SORT_STRING);
+duo_check_same($expectedUpdatedIdentities, $updatedIdentities,
+    'the marker-write updated_option union is exactly Woo four plus TEC five');
+$tecWrites = 0;
+duo_check($assertTecAdmission($tecWrites) === true && $tecWrites === 1,
+    'the exact TEC five plus Woo four updated_option identities admit before the marker write');
+duo_check_same([0, 0], [$GLOBALS['wooMixedTecFactoryCalls'], $GLOBALS['wooMixedTecCallbackCalls']],
+    'TEC reciprocal admission reads no factory and executes no native callback');
+
+$assertTecRefusal = static function (string $label, Closure $mutate, string $needle) use (
+    $assertTecAdmission
+): void {
+    woo_optional_install_native_topology(true, 'woocommerce_bacs_settings');
+    $writes = 0;
+    $mutate();
+    duo_check_throws(
+        static fn() => $assertTecAdmission($writes),
+        RuntimeException::class,
+        "$label refuses before the marker-write boundary",
+        $needle
+    );
+    duo_check_same(0, $writes, "$label reaches no marker write");
+    duo_check_same([0, 0], [$GLOBALS['wooMixedTecFactoryCalls'], $GLOBALS['wooMixedTecCallbackCalls']],
+        "$label executes neither TEC factory nor callback");
+    woo_optional_install_native_topology(true, 'woocommerce_bacs_settings');
+    $writes = 0;
+    duo_check($assertTecAdmission($writes) === true && $writes === 1,
+        "restoring $label permits the exact same-process marker-write retry");
+};
+$assertTecRefusal(
+    'a missing TEC manager updated_option callback',
+    static function (): void { unset($GLOBALS['wp_filter']['updated_option']->callbacks[10]['callback-4']); },
+    'mutation hook topology is incomplete'
+);
+$assertTecRefusal(
+    'a duplicate TEC listener updated_option callback',
+    static function (): void {
+        $GLOBALS['wp_filter']['updated_option']->callbacks[10]['duplicate-listener'] =
+            $GLOBALS['wp_filter']['updated_option']->callbacks[10]['callback-5'];
+    },
+    'mutation hook topology has an extension callback'
+);
+$assertTecRefusal(
+    'a TEC callback at a substituted priority',
+    static function (): void {
+        $record = $GLOBALS['wp_filter']['updated_option']->callbacks[10]['callback-6'];
+        unset($GLOBALS['wp_filter']['updated_option']->callbacks[10]['callback-6']);
+        $GLOBALS['wp_filter']['updated_option']->callbacks[11]['callback-6'] = $record;
+    },
+    'mutation hook topology has an extension callback'
+);
+$assertTecRefusal(
+    'a TEC callback with substituted arity',
+    static function (): void { $GLOBALS['wp_filter']['updated_option']->callbacks[10]['callback-8']['accepted_args'] = 2; },
+    'mutation hook topology has an extension callback'
+);
+$assertTecRefusal(
+    'a same-class foreign TEC manager callback',
+    static function (): void {
+        $GLOBALS['wp_filter']['updated_option']->callbacks[10]['callback-4']['function'] = [
+            new Tribe__Settings_Manager(), 'update_options_cache',
+        ];
+    },
+    'callback is not the exact native service'
+);
+$assertTecRefusal(
+    'an absent TEC container singleton',
+    static function (): void { Tribe__Container::install(null); },
+    'substituted The Events Calendar services'
+);
+$assertTecRefusal(
+    'a malformed TEC container resolver',
+    static function (): void {
+        $container = (new ReflectionProperty(Tribe__Container::class, 'instance'))->getValue();
+        (new ReflectionProperty(\TEC\Common\lucatume\DI52\Container::class, 'resolver'))
+            ->setValue($container, 'not-a-resolver');
+    },
+    'substituted The Events Calendar services'
+);
+$assertTecRefusal(
+    'a partial TEC direct-binding map',
+    static function (): void {
+        $container = (new ReflectionProperty(Tribe__Container::class, 'instance'))->getValue();
+        $resolver = (new ReflectionProperty(\TEC\Common\lucatume\DI52\Container::class, 'resolver'))
+            ->getValue($container);
+        (new ReflectionProperty(\TEC\Common\lucatume\DI52\Builders\Resolver::class, 'bindings'))
+            ->setValue($resolver, []);
+    },
+    'substituted The Events Calendar services'
+);
+$assertTecRefusal(
+    'a malformed TEC direct-binding map',
+    static function (): void {
+        $container = (new ReflectionProperty(Tribe__Container::class, 'instance'))->getValue();
+        $resolver = (new ReflectionProperty(\TEC\Common\lucatume\DI52\Container::class, 'resolver'))
+            ->getValue($container);
+        (new ReflectionProperty(\TEC\Common\lucatume\DI52\Builders\Resolver::class, 'bindings'))
+            ->setValue($resolver, 'not-a-map');
+    },
+    'substituted The Events Calendar services'
+);
+$assertTecRefusal(
+    'a substituted TEC direct binding',
+    static function (): void {
+        $container = (new ReflectionProperty(Tribe__Container::class, 'instance'))->getValue();
+        $resolver = (new ReflectionProperty(\TEC\Common\lucatume\DI52\Container::class, 'resolver'))
+            ->getValue($container);
+        $bindings = (new ReflectionProperty(\TEC\Common\lucatume\DI52\Builders\Resolver::class, 'bindings'))
+            ->getValue($resolver);
+        $bindings['settings.manager'] = new Tribe__Settings_Manager();
+        (new ReflectionProperty(\TEC\Common\lucatume\DI52\Builders\Resolver::class, 'bindings'))
+            ->setValue($resolver, $bindings);
+    },
+    'callback is not the exact native service'
+);
+$assertTecRefusal(
+    'a substituted TEC listener static instance',
+    static function (): void { Tribe__Cache_Listener::install(new Tribe__Cache_Listener(new Tribe__Cache())); },
+    'callback is not the exact native service'
+);
+foreach ([
+    'tribe_cache_last_occurrence_option_triggers',
+    'tribe_cache_last_occurrence_option_triggers:updated_option',
+    'tribe_cache_last_occurrence_option_triggers:save_post',
+] as $triggerHook) {
+    $assertTecRefusal(
+        "a nonempty $triggerHook registry",
+        static function () use ($triggerHook): void {
+            $hook = new WP_Hook();
+            $hook->callbacks[10]['foreign'] = ['function' => 'strtolower', 'accepted_args' => 1];
+            $GLOBALS['wp_filter'][$triggerHook] = $hook;
+        },
+        'mutation hook topology has an extension callback'
+    );
+}
+woo_optional_clear_hooks();
 
 $reviewFamily = (array) ($inventory['families']['customer_review_requests'] ?? []);
 duo_check_same(
@@ -2309,7 +2536,7 @@ $hostileMixedProductRows = [
     'trailing serialized bytes' => 'a:0:{}trailing-bytes',
     'recursive reference graph' => 'a:1:{i:0;R:1;}',
     'over-deep graph' => serialize($tooDeep),
-    'unknown sibling' => serialize(['enabled' => 'yes', 'extension_secret_key' => 'DO-NOT-ECHO']),
+    'undeclared sibling key' => serialize(['enabled' => 'yes', 'extension_secret_key' => 'DO-NOT-ECHO']),
 ];
 foreach ($hostileMixedProductRows as $label => $wire) {
     $wpdb->seedTable('wp_options', [[

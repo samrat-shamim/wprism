@@ -163,8 +163,20 @@ final class Woocommerce {
     private const WOO_CUSTOM_ORDERS =
         'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController';
     private const WOO_SETTINGS_TRACKING = 'WC_Settings_Tracking';
+    private const WOO_SETTINGS_API_SHA256 =
+        '1c7615bcd26fba9f83961db045edf6bd42acc6ee691383e8a8dd6f6a1e00434c';
     private const WPSEO_SITEMAPS = 'WPSEO_Sitemaps';
     private const WPSEO_SITEMAPS_CACHE = 'WPSEO_Sitemaps_Cache';
+    private const TEC_CONTAINER = 'Tribe__Container';
+    private const TEC_CONTRACT_CONTAINER = 'TEC\\Common\\Contracts\\Container';
+    private const TEC_DI_CONTAINER = 'TEC\\Common\\lucatume\\DI52\\Container';
+    private const TEC_RESOLVER = 'TEC\\Common\\lucatume\\DI52\\Builders\\Resolver';
+    private const TEC_VALUE_BUILDER = 'TEC\\Common\\lucatume\\DI52\\Builders\\ValueBuilder';
+    private const TEC_SETTINGS = 'Tribe__Settings_Manager';
+    private const TEC_CACHE_LISTENER = 'Tribe__Cache_Listener';
+    private const TEC_CACHE = 'Tribe__Cache';
+    private const TEC_AGGREGATOR = 'Tribe__Events__Aggregator';
+    private const TEC_VIEWS = 'Tribe\\Events\\Views\\V2\\Hooks';
     /** @var array<string,string> */
     private const WPSEO_OPTIONS = [
         'wpseo' => 'WPSEO_Option_Wpseo',
@@ -619,7 +631,7 @@ final class Woocommerce {
                 $fingerprint = 'key:' . strlen((string) $key) . ':'
                     . substr(hash('sha256', (string) $key), 0, 16);
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name' $where contains an unknown sibling ($fingerprint)"
+                    "duo: WooCommerce mixed option '$name' $where contains undeclared sibling key(s) ($fingerprint)"
                 );
             }
         }
@@ -674,6 +686,7 @@ final class Woocommerce {
         $woo = $this->resolve_mixed_option_woo_services();
         $wpseo = $this->resolve_mixed_option_wpseo_services($name);
         $tracking = $targetWasPresent ? $this->resolve_mixed_option_tracking_service($name) : null;
+        $tec = $targetWasPresent ? $this->resolve_mixed_option_tec_services() : null;
 
         if ($targetWasPresent) {
             $this->assert_closed_mixed_option_hook("option_$name", []);
@@ -683,33 +696,38 @@ final class Woocommerce {
             $preUpdated = $woo === null ? [] : [
                 [self::WOO_CUSTOM_ORDERS, 'process_pre_update_option', 999, 3, 'woo'],
             ];
+            $update = [];
+            if ($wpseo !== null) {
+                foreach ($wpseo['options'] as $class => $_service) {
+                    $preUpdated[] = [$class, 'add_default_filters_if_not_changed', PHP_INT_MAX, 3, 'yoast'];
+                    $update[] = [$class, 'add_default_filters_if_same_option', 10, 1, 'yoast'];
+                }
+                if ($wpseo['sitemaps_cache'] !== null) {
+                    $update[] = [self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update', 10, 1, 'yoast_static'];
+                }
+            }
+            if ($tracking !== null) {
+                $update[] = [self::WOO_SETTINGS_TRACKING, 'track_setting_change', 10, 3, 'tracking'];
+            }
+            $this->assert_closed_mixed_option_hook('pre_update_option', $preUpdated, $woo, $wpseo);
+            $this->assert_closed_mixed_option_hook('update_option', $update, $woo, $wpseo, $tracking);
+            $this->assert_closed_mixed_option_hook("update_option_$name", []);
             $updated = $woo === null ? [] : [
                 [self::WOO_SYNCHRONIZER, 'process_updated_option', 999, 3, 'woo'],
                 [self::WOO_CUSTOM_ORDERS, 'process_updated_option', 999, 3, 'woo'],
                 [self::WOO_CUSTOM_ORDERS, 'process_updated_option_fts_index', 999, 3, 'woo'],
                 [self::WOO_FEATURES, 'process_updated_option', 999, 3, 'woo'],
             ];
-            if ($wpseo !== null) {
-                foreach ($wpseo['options'] as $class => $_service) {
-                    $preUpdated[] = [$class, 'add_default_filters_if_not_changed', PHP_INT_MAX, 3, 'yoast'];
-                    $updated[] = [$class, 'add_default_filters_if_same_option', 10, 1, 'yoast'];
-                }
-                if ($wpseo['sitemaps_cache'] !== null) {
-                    $updated[] = [self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update', 10, 1, 'yoast_static'];
-                }
+            if ($tec !== null) {
+                $updated = array_merge($updated, [
+                    [self::TEC_SETTINGS, 'update_options_cache', 10, 3, 'tec'],
+                    [self::TEC_CACHE_LISTENER, 'update_last_updated_option', 10, 3, 'tec'],
+                    [self::TEC_CACHE_LISTENER, 'update_last_save_post', 10, 3, 'tec'],
+                    [self::TEC_AGGREGATOR, 'action_purge_transients', 10, 1, 'tec'],
+                    [self::TEC_VIEWS, 'action_save_wplang', 10, 3, 'tec'],
+                ]);
             }
-            if ($tracking !== null) {
-                $updated[] = [self::WOO_SETTINGS_TRACKING, 'track_setting_change', 10, 3, 'tracking'];
-            }
-            $this->assert_closed_mixed_option_hook('pre_update_option', $preUpdated, $woo, $wpseo);
-            $this->assert_closed_mixed_option_hook('update_option', $updated, $woo, $wpseo, $tracking);
-            $this->assert_closed_mixed_option_hook("update_option_$name", []);
-            $this->assert_closed_mixed_option_hook('updated_option', $updated = $woo === null ? [] : [
-                [self::WOO_SYNCHRONIZER, 'process_updated_option', 999, 3, 'woo'],
-                [self::WOO_CUSTOM_ORDERS, 'process_updated_option', 999, 3, 'woo'],
-                [self::WOO_CUSTOM_ORDERS, 'process_updated_option_fts_index', 999, 3, 'woo'],
-                [self::WOO_FEATURES, 'process_updated_option', 999, 3, 'woo'],
-            ], $woo, $wpseo);
+            $this->assert_closed_mixed_option_hook('updated_option', $updated, $woo, $wpseo, null, $tec);
             return;
         }
 
@@ -755,16 +773,18 @@ final class Woocommerce {
     }
 
     /**
-     * @param list<array{0:string,1:string,2:int,3:int,4:'brands_global'|'woo'|'yoast'|'yoast_static'|'tracking'|'wordpress_function'}> $allowed
+     * @param list<array{0:string,1:string,2:int,3:int,4:'brands_global'|'tec'|'woo'|'yoast'|'yoast_static'|'tracking'|'wordpress_function'}> $allowed
      * @param ?array{features:object,synchronizer:object,custom_orders:object} $woo
      * @param ?array{options:array<string,object>,sitemaps:?object,sitemaps_cache:?object} $wpseo
+     * @param ?array{settings:object,cache_listener:object,aggregator:object,views:object} $tec
      */
     private function assert_closed_mixed_option_hook(
         string $hook,
         array $allowed,
         ?array $woo = null,
         ?array $wpseo = null,
-        ?object $tracking = null
+        ?object $tracking = null,
+        ?array $tec = null
     ): void {
         global $wp_filter;
         if (isset($wp_filter) && !is_array($wp_filter)) {
@@ -831,6 +851,7 @@ final class Woocommerce {
                         'yoast' => $wpseo['options'][$class] ?? null,
                         'yoast_static' => $class,
                         'tracking' => $tracking,
+                        'tec' => $tec[$this->mixed_tec_service_key($class)] ?? null,
                         default => null,
                     };
                     if ($callback['function'][0] !== $expected) {
@@ -965,6 +986,17 @@ final class Woocommerce {
         };
     }
 
+    /** @return 'settings'|'cache_listener'|'aggregator'|'views' */
+    private function mixed_tec_service_key(string $class): string {
+        return match ($class) {
+            self::TEC_SETTINGS => 'settings',
+            self::TEC_CACHE_LISTENER => 'cache_listener',
+            self::TEC_AGGREGATOR => 'aggregator',
+            self::TEC_VIEWS => 'views',
+            default => throw new \LogicException('duo: unknown The Events Calendar mixed option service'),
+        };
+    }
+
     /** @return list<mixed> */
     private function mixed_option_callbacks(): array {
         global $wp_filter;
@@ -1048,6 +1080,123 @@ final class Woocommerce {
             }
         }
         return ['features' => $features, 'synchronizer' => $synchronizer, 'custom_orders' => $customOrders];
+    }
+
+    /** @return ?array{settings:object,cache_listener:object,aggregator:object,views:object} */
+    private function resolve_mixed_option_tec_services(): ?array {
+        $callbacks = $this->mixed_option_callbacks();
+        $classes = [
+            self::TEC_CONTAINER,
+            self::TEC_CONTRACT_CONTAINER,
+            self::TEC_DI_CONTAINER,
+            self::TEC_RESOLVER,
+            self::TEC_VALUE_BUILDER,
+            self::TEC_SETTINGS,
+            self::TEC_CACHE_LISTENER,
+            self::TEC_CACHE,
+            self::TEC_AGGREGATOR,
+            self::TEC_VIEWS,
+            'Tribe__Main',
+        ];
+        $visible = false;
+        foreach ($classes as $class) {
+            $visible = $visible || class_exists($class, false);
+        }
+        foreach ($callbacks as $callback) {
+            $owner = is_array($callback) ? ($callback[0] ?? null) : null;
+            $ownerClass = is_object($owner) ? get_class($owner) : null;
+            $visible = $visible || in_array($ownerClass, [
+                self::TEC_SETTINGS,
+                self::TEC_CACHE_LISTENER,
+                self::TEC_AGGREGATOR,
+                self::TEC_VIEWS,
+            ], true);
+        }
+        if (!$visible) {
+            return null;
+        }
+        foreach ($classes as $class) {
+            if (!class_exists($class, false)) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce mixed option mutation hook topology has an incomplete The Events Calendar runtime'
+                );
+            }
+        }
+        if (get_parent_class(self::TEC_CONTAINER) !== self::TEC_CONTRACT_CONTAINER
+            || get_parent_class(self::TEC_CONTRACT_CONTAINER) !== self::TEC_DI_CONTAINER
+            || !defined('Tribe__Main::OPTIONNAME')
+            || constant('Tribe__Main::OPTIONNAME') !== 'tribe_events_calendar_options') {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option mutation hook topology has a substituted The Events Calendar runtime'
+            );
+        }
+        try {
+            $container = (new \ReflectionProperty(self::TEC_CONTAINER, 'instance'))->getValue();
+            $resolver = is_object($container) && get_class($container) === self::TEC_CONTAINER
+                ? (new \ReflectionProperty(self::TEC_DI_CONTAINER, 'resolver'))->getValue($container)
+                : null;
+            $bindings = is_object($resolver) && get_class($resolver) === self::TEC_RESOLVER
+                ? (new \ReflectionProperty(self::TEC_RESOLVER, 'bindings'))->getValue($resolver)
+                : null;
+            $settings = is_array($bindings)
+                ? $this->resolved_tec_binding($bindings, 'settings.manager', self::TEC_SETTINGS)
+                : null;
+            $aggregator = is_array($bindings)
+                ? $this->resolved_tec_binding($bindings, 'events-aggregator.main', self::TEC_AGGREGATOR)
+                : null;
+            $views = is_array($bindings)
+                ? $this->resolved_tec_binding($bindings, self::TEC_VIEWS, self::TEC_VIEWS)
+                : null;
+            $viewsAlias = is_array($bindings)
+                ? $this->resolved_tec_binding($bindings, 'events.views.v2.hooks', self::TEC_VIEWS)
+                : null;
+            $listener = (new \ReflectionProperty(self::TEC_CACHE_LISTENER, 'instance'))->getValue();
+            $listenerCache = is_object($listener) && get_class($listener) === self::TEC_CACHE_LISTENER
+                ? (new \ReflectionProperty(self::TEC_CACHE_LISTENER, 'cache'))->getValue($listener)
+                : null;
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option mutation hook topology could not inspect The Events Calendar services',
+                0,
+                $failure
+            );
+        }
+        if (!is_object($settings) || get_class($settings) !== self::TEC_SETTINGS
+            || !is_object($aggregator) || get_class($aggregator) !== self::TEC_AGGREGATOR
+            || !is_object($views) || get_class($views) !== self::TEC_VIEWS
+            || $viewsAlias !== $views
+            || !is_object($listener) || get_class($listener) !== self::TEC_CACHE_LISTENER
+            || !is_object($listenerCache) || get_class($listenerCache) !== self::TEC_CACHE) {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option mutation hook topology has substituted The Events Calendar services'
+            );
+        }
+
+        // Cache_Listener passes both exact trigger maps through these filters.
+        // Any observer can turn an otherwise inert Woo option into a native TEC
+        // cache mutation, so all three registries are part of the closed union.
+        foreach ([
+            'tribe_cache_last_occurrence_option_triggers',
+            'tribe_cache_last_occurrence_option_triggers:updated_option',
+            'tribe_cache_last_occurrence_option_triggers:save_post',
+        ] as $filter) {
+            $this->assert_closed_mixed_option_hook($filter, []);
+        }
+        return [
+            'settings' => $settings,
+            'cache_listener' => $listener,
+            'aggregator' => $aggregator,
+            'views' => $views,
+        ];
+    }
+
+    /** @param array<string,mixed> $bindings */
+    private function resolved_tec_binding(array $bindings, string $id, string $class): ?object {
+        $binding = $bindings[$id] ?? null;
+        if (is_object($binding) && get_class($binding) === self::TEC_VALUE_BUILDER) {
+            $binding = (new \ReflectionProperty(self::TEC_VALUE_BUILDER, 'value'))->getValue($binding);
+        }
+        return is_object($binding) && get_class($binding) === $class ? $binding : null;
     }
 
     /** @return ?array{options:array<string,object>,sitemaps:?object,sitemaps_cache:?object} */
@@ -1163,6 +1312,9 @@ final class Woocommerce {
 
     private function native_settings_api(): object {
         if (!class_exists('WC_Settings_API', false)) {
+            $this->load_native_settings_api();
+        }
+        if (!class_exists('WC_Settings_API', false)) {
             throw new \RuntimeException('duo: WooCommerce mixed option validation requires WC_Settings_API');
         }
         $reflection = new \ReflectionClass('WC_Settings_API');
@@ -1188,6 +1340,54 @@ final class Woocommerce {
         // exercises those inherited native bytes without constructing a
         // gateway/email service and crossing its hooks or target state.
         return new class extends \WC_Settings_API {};
+    }
+
+    private function load_native_settings_api(): void {
+        $message = 'duo: WooCommerce mixed option validation requires WC_Settings_API';
+        if (!defined('ABSPATH')
+            || !defined('WC_ABSPATH')
+            || !defined('WC_PLUGIN_FILE')) {
+            throw new \RuntimeException($message);
+        }
+        $wpRoot = constant('ABSPATH');
+        $configuredRoot = constant('WC_ABSPATH');
+        $pluginFile = constant('WC_PLUGIN_FILE');
+        if (!is_string($wpRoot) || $wpRoot === ''
+            || !is_string($configuredRoot) || $configuredRoot === ''
+            || !is_string($pluginFile) || $pluginFile === '') {
+            throw new \RuntimeException($message);
+        }
+        $pluginFileReal = realpath($pluginFile);
+        $pluginRootReal = $pluginFileReal === false ? false : realpath(dirname($pluginFileReal));
+        $configuredRootReal = realpath(rtrim($configuredRoot, "/\\"));
+        if ($pluginFileReal === false
+            || $pluginRootReal === false
+            || $configuredRootReal === false
+            || $pluginRootReal !== $configuredRootReal
+            || $pluginFileReal !== $pluginRootReal . DIRECTORY_SEPARATOR . 'woocommerce.php') {
+            throw new \RuntimeException($message);
+        }
+        $settingsFile = $pluginRootReal
+            . DIRECTORY_SEPARATOR . 'includes'
+            . DIRECTORY_SEPARATOR . 'abstracts'
+            . DIRECTORY_SEPARATOR . 'abstract-wc-settings-api.php';
+        $settingsFileReal = realpath($settingsFile);
+        $settingsHash = $settingsFileReal === false || !is_file($settingsFileReal)
+            ? false
+            : hash_file('sha256', $settingsFileReal);
+        if ($settingsFileReal !== $settingsFile
+            || !is_string($settingsHash)
+            || !hash_equals(self::WOO_SETTINGS_API_SHA256, $settingsHash)) {
+            throw new \RuntimeException($message);
+        }
+        try {
+            // Exact Woo 11.0.0/11.0.1 includes this byte-identical abstract
+            // from class-woocommerce.php. A partial CLI load can establish
+            // both root constants before crossing that include edge.
+            require_once $settingsFileReal;
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException($message, 0, $failure);
+        }
     }
 
     private function assert_native_mixed_field(

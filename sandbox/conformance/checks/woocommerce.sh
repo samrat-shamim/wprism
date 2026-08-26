@@ -1423,11 +1423,11 @@ SECRET_RC=0
 SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || SECRET_RC=$?
 require_duo_answered 'WooCommerce populated COD boundary capture' human "$SECRET_OUT"
 [ "$SECRET_RC" -ne 0 ] && grep -Fq 'woocommerce_cod_settings' <<<"$SECRET_OUT" \
-  && grep -Fq 'unknown sibling' <<<"$SECRET_OUT" \
+  && grep -Fq 'undeclared sibling key(s)' <<<"$SECRET_OUT" \
   && ! grep -Fq "$FAKE_SECRET" <<<"$SECRET_OUT" \
-  || fail "WooCommerce COD closed-record unknown sibling did not refuse at normalization and redact: $SECRET_OUT"
+  || fail "WooCommerce COD closed-record undeclared sibling key did not refuse at normalization and redact: $SECRET_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
-  || fail 'WooCommerce COD unknown-sibling refusal partially published canonical state'
+  || fail 'WooCommerce COD undeclared-sibling refusal partially published canonical state'
 wp_conf1 option delete woocommerce_cod_settings >/dev/null
 
 DELETE_ROW=$(wp_conf1 eval '
@@ -1456,9 +1456,9 @@ wp_conf1 eval "
 " >/dev/null
 wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-woocommerce-restored" \
-  || fail 'WooCommerce source did not restore byte-identically after malformed/unknown-COD/deletion probes'
+  || fail 'WooCommerce source did not restore byte-identically after malformed/undeclared-COD/deletion probes'
 rm -rf "$CONF_REPO1/.tmp-woocommerce-restored"
-pass 'malformed attributes, unknown COD add-on sibling, and unsupported product deletion refuse atomically and redact values'
+pass 'malformed attributes, undeclared COD add-on sibling, and unsupported product deletion refuse atomically and redact values'
 
 # Both branches edit one managed native price. Unforced application must be
 # byte-still on the target; explicit repository authority must converge without
