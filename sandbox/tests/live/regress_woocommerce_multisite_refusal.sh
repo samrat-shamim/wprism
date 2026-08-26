@@ -90,11 +90,15 @@ woo_plugin_tree_hash() {
   ' | awk 'NF { line=$0 } END { print line }'
 }
 
-woo_identity() {
+woo_plugin_identity() {
   [ "$(wp1 plugin get woocommerce --field=version)" = 11.0.1 ] \
     || fail 'WooCommerce plugin version is not exact 11.0.1'
   wp1 plugin is-active woocommerce >/dev/null \
     || fail 'WooCommerce is not active'
+}
+
+woo_identity() {
+  woo_plugin_identity
   [ "$(wp1 eval 'echo get_option("woocommerce_custom_orders_table_enabled", "");' | tail -1)" = yes ] \
     || fail 'WooCommerce HPOS is not enabled'
 }
@@ -233,10 +237,10 @@ bash bin/pair.sh reset "$PAIR"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${UP_FLAGS[@]}"
 ARTIFACT=$(fetch_artifact woocommerce 11.0.1 cli1 plugin)
 wp1 plugin install "$ARTIFACT" --force --activate >/dev/null
-woo_identity
+woo_plugin_identity
 PLUGIN_TREE=$(woo_plugin_tree_hash)
 require_observed_nonempty 'WooCommerce 11.0.1 plugin tree fingerprint' "$PLUGIN_TREE"
-pass 'exact WooCommerce 11.0.1 plugin tree is installed, active, and HPOS-enabled'
+pass 'exact WooCommerce 11.0.1 plugin tree is installed and active'
 
 say 'seed the populated native WooCommerce graph'
 . conformance/seeds/woocommerce.sh

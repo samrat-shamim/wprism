@@ -1226,6 +1226,25 @@ woo_ok(
         && !str_contains($wooMultisiteHarness, 'shasum -a 256 "$ARTIFACT"'),
     'Woo multisite installs the resolver-verified container artifact without treating its container path as a host file'
 );
+woo_ok(
+    str_contains(
+        $wooMultisiteHarness,
+        <<<'SH'
+wp1 plugin install "$ARTIFACT" --force --activate >/dev/null
+woo_plugin_identity
+PLUGIN_TREE=$(woo_plugin_tree_hash)
+SH
+    )
+        && str_contains(
+            $wooMultisiteHarness,
+            <<<'SH'
+establish_woocommerce_hpos wp1 >/dev/null \
+  || fail "could not establish HPOS through WooCommerce's native new-shop lifecycle"
+woo_identity
+SH
+        ),
+    'Woo multisite verifies the exact active plugin first and asserts HPOS identity only after native HPOS setup'
+);
 
 // The live conformance script is the candidate proof, but this offline pin
 // holds its twelve reviewed families to one source/target/check topology.
