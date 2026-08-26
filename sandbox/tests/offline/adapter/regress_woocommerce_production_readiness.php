@@ -1689,4 +1689,118 @@ duo_check_same(
     'field diagnostics point at the exact canonical locations a reviewer must repair'
 );
 
+$root = dirname(__DIR__, 4);
+$readiness = json_decode(
+    (string) file_get_contents($root . '/sandbox/conformance/production-readiness.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+$woocommerceReadiness = $readiness['adapters']['woocommerce'] ?? [];
+$scopeEvidence = $woocommerceReadiness['covered']['scope-platform'] ?? [];
+duo_check(
+    in_array('sandbox/tests/live/regress_woocommerce_multisite_refusal.sh', $scopeEvidence, true),
+    'WooCommerce readiness binds scope-platform to the exact populated multisite refusal suite'
+);
+$multisiteRefusal = (string) file_get_contents(
+    $root . '/sandbox/tests/live/regress_woocommerce_multisite_refusal.sh'
+);
+foreach ([
+    'DUO_EXPECTED_SOURCE_SHA',
+    'validate_artifact_lock conformance/artifacts.lock.json',
+    'fetch_artifact woocommerce 11.0.1 cli1 plugin',
+    'ARTIFACT_SHA',
+    'woo_plugin_tree_hash',
+    'woocommerce_custom_orders_table_enabled',
+    'woo_storage_fingerprint',
+    'duo_tables',
+    'duo_options',
+    'repo_git_fingerprint',
+    'duo_woocommerce_multisite_canary',
+    'wp1 core multisite-convert',
+    'for command in capture plan deploy apply; do',
+    'reason_code == "multisite_unsupported"',
+    'state.capture-staging',
+    'site.duo.json',
+    'GREEN=0',
+] as $multisiteEvidence) {
+    duo_check(
+        str_contains($multisiteRefusal, $multisiteEvidence),
+        "WooCommerce multisite refusal statically binds $multisiteEvidence"
+    );
+}
+
+$lifecycleEvidence = $woocommerceReadiness['covered']['lifecycle'] ?? [];
+duo_check(
+    in_array('sandbox/conformance/checks/woocommerce-destructive-lifecycle.sh', $lifecycleEvidence, true),
+    'WooCommerce readiness binds lifecycle to the explicit destructive-uninstall recovery fragment'
+);
+$checksScript = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
+foreach ([
+    'DUO_TEST_PROMOTION_PAUSE_MS=10000',
+    'process_fence_held',
+    'woocommerce_provider_guard',
+    'provider:woocommerce-product-lookups/rebuild_product_lookups',
+    'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
+    'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes',
+    'wc_product_attributes_lookup',
+    'wc_product_download_directories',
+    'actionscheduler_actions',
+    'CONCURRENT_PAUSE_OBSERVED_AT',
+    'left the deterministic pause during the loser mutation guard',
+    'WooCommerce provider race zero-action retry',
+    'conformance/checks/woocommerce-destructive-lifecycle.sh',
+    'check_woocommerce_destructive_lifecycle',
+] as $conformanceEvidence) {
+    duo_check(
+        str_contains($checksScript, $conformanceEvidence),
+        "WooCommerce exact conformance statically binds $conformanceEvidence"
+    );
+}
+
+$destructiveLifecycle = (string) file_get_contents(
+    $root . '/sandbox/conformance/checks/woocommerce-destructive-lifecycle.sh'
+);
+foreach ([
+    'WC_REMOVE_ALL_DATA',
+    'duo identity-export --repo=/siterepo',
+    'db export /siterepo/.tmp-woocommerce-remove-all.sql --add-drop-table',
+    'mapped identity missing|identity history is missing',
+    'identity sidecar witness mismatch',
+    'db import /siterepo/.tmp-woocommerce-remove-all.sql',
+    'database recovery did not restore the exact catalog/options/lookup preimage',
+    '(.actions | length) == 0',
+    'did not recapture byte-identically',
+] as $destructiveEvidence) {
+    duo_check(
+        str_contains($destructiveLifecycle, $destructiveEvidence),
+        "WooCommerce destructive lifecycle statically binds $destructiveEvidence"
+    );
+}
+
+$matrixDriver = (string) file_get_contents(
+    $root . '/sandbox/tests/certify/certify_version_matrix.sh'
+);
+$woocommerceMatrix = (string) file_get_contents(
+    $root . '/sandbox/tests/certify/matrix.d/woocommerce.sh'
+);
+duo_check(
+    str_contains($matrixDriver, 'check_woocommerce_in_range_downgrade "$ARTIFACT_1" "$ARTIFACT_2"'),
+    'WooCommerce version matrix invokes the in-range downgrade with both exact retained artifacts'
+);
+foreach ([
+    'check_woocommerce_in_range_downgrade',
+    '.code_drift[0].installed_version == "11.0.0"',
+    '.code_drift[0].recorded_version == "11.0.1"',
+    'woocommerce_boundary_storage_hash',
+    'FORCED past code_drift',
+    '17.345678',
+    '17.3457',
+    'in-range downgrade lost byte identity',
+] as $downgradeEvidence) {
+    duo_check(
+        str_contains($woocommerceMatrix, $downgradeEvidence),
+        "WooCommerce exact version matrix statically binds $downgradeEvidence"
+    );
+}
+
 duo_check_summary('WooCommerce production readiness');

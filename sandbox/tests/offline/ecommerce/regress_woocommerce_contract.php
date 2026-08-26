@@ -1031,7 +1031,7 @@ $capturePolicy = Policy::from_snapshot([
         'spec_version' => DUO_SPEC_VERSION,
     ],
 ]);
-$captureDb = \DuoTest\FakeWpdb::install();
+$captureDb = \DuoTest\FakeWpdb::install()->enableJoinedCaptureSql();
 $captureDb->seedTable('wp_posts', [])
     ->seedTable('wp_postmeta', [])
     ->seedTable('wp_terms', $termRows)
@@ -1113,9 +1113,9 @@ $conformanceFamilyWitnesses = [
         'lookup-schema failure retains authored intent and retry authority',
     ]],
     'concurrency-idempotence' => [$wooCheckHarness, [
-        'concurrent WooCommerce apply intent',
-        'competing WooCommerce applies serialize and leave one exact idempotent result',
-        'WooCommerce competing applies left retained work',
+        'DUO_TEST_PROMOTION_PAUSE_MS=10000',
+        'process_fence_held',
+        'deterministic WooCommerce provider race refuses the loser',
     ]],
     'lifecycle' => [$wooCheckHarness, [
         'WooCommerce deploy after deactivation',

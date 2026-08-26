@@ -1064,11 +1064,11 @@ manifests/dispositions/<name>.json     # one document per adapter, the entry ver
 manifests/dispositions/profiles.json   # the profiles map, keyed independently of the manifest glob
 ```
 
-17 documents, 1,203 lines, 51,671 bytes — the same entries, the same profile, re-indented as 17 roots
+17 documents, 1,203 lines, 51,937 bytes — the same entries, the same profile, re-indented as 17 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
-promotion of `the-events-calendar` to `certified` and Polylang's reviewed production-readiness port,
-which rewrote those subjects' reviewed entries, and the later reviewed empty-catalog lifecycle correction
-rewrote Polylang's entry without changing the split topology.)
+promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
+the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
+review, all without changing the split topology.)
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
 is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day

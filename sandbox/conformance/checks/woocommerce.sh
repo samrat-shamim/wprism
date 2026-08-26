@@ -1189,6 +1189,73 @@ woocommerce_storage_hash() {
   '
 }
 
+# The ordinary guard intentionally covers authored/runtime state only. A
+# promotion race must also prove that every database checkpoint declared by
+# the selected product, hierarchy, and route providers stayed byte-still behind
+# the losing process's refusal.
+woocommerce_provider_guard() {
+  wp_conf2 eval '
+    global $wpdb;
+    $queries=[
+      "posts"=>"SELECT * FROM {$wpdb->posts} WHERE post_type IN (\"product\",\"product_variation\") ORDER BY ID",
+      "postmeta"=>"SELECT pm.* FROM {$wpdb->postmeta} pm INNER JOIN {$wpdb->posts} p ON p.ID=pm.post_id WHERE p.post_type IN (\"product\",\"product_variation\") ORDER BY pm.meta_id",
+      "term_taxonomy"=>"SELECT * FROM {$wpdb->term_taxonomy} WHERE taxonomy IN (\"product_brand\",\"product_cat\",\"product_type\",\"product_visibility\") OR taxonomy LIKE \"pa\\_%\" ORDER BY term_taxonomy_id",
+      "term_relationships"=>"SELECT tr.* FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tt.taxonomy IN (\"product_brand\",\"product_cat\",\"product_type\",\"product_visibility\") OR tt.taxonomy LIKE \"pa\\_%\" ORDER BY tr.object_id,tr.term_taxonomy_id",
+      "options"=>"SELECT option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (\"product_brand_children\",\"product_cat_children\",\"rewrite_rules\",\"woocommerce_brand_permalink\",\"woocommerce_permalinks\",\"_transient_wc_products_onsale\",\"_transient_timeout_wc_products_onsale\") ORDER BY option_name",
+      "category_lookup"=>"SELECT * FROM {$wpdb->prefix}wc_category_lookup ORDER BY 1,2",
+      "product_meta_lookup"=>"SELECT * FROM {$wpdb->prefix}wc_product_meta_lookup ORDER BY product_id",
+      "product_attributes_lookup"=>"SELECT * FROM {$wpdb->prefix}wc_product_attributes_lookup ORDER BY product_or_parent_id,product_id,taxonomy,term_id",
+      "product_download_directories"=>"SELECT * FROM {$wpdb->prefix}wc_product_download_directories ORDER BY id",
+      "scheduler_actions"=>"SELECT * FROM {$wpdb->prefix}actionscheduler_actions ORDER BY action_id",
+      "scheduler_groups"=>"SELECT * FROM {$wpdb->prefix}actionscheduler_groups ORDER BY group_id",
+      "scheduler_logs"=>"SELECT * FROM {$wpdb->prefix}actionscheduler_logs ORDER BY log_id",
+    ];
+    $state=[];
+    foreach($queries as $name=>$sql){
+      $wpdb->last_error="";
+      $rows=$wpdb->get_results($sql,ARRAY_A);
+      if(!is_array($rows)||$wpdb->last_error!==""){throw new RuntimeException("WooCommerce provider-race guard read failed: ".$name);}
+      if(count($rows)>50000){throw new RuntimeException("WooCommerce provider-race guard exceeded its fixture bound: ".$name);}
+      $state[$name]=$rows;
+    }
+    echo hash("sha256",wp_json_encode($state,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+  '
+}
+
+woocommerce_provider_state() {
+  wp_conf2 eval '
+    global $wpdb;
+    $id=wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT");
+    $product=wc_get_product($id);
+    $brand_parent=get_term_by("slug","conformance-makers","product_brand");
+    $category=get_term_by("slug","conformance-widgets","product_cat");
+    $category_parent=get_term_by("slug","conformance-catalog","product_cat");
+    $children=get_option("product_brand_children",[]);
+    $category_children=get_option("product_cat_children",[]);
+    $rules=get_option("rewrite_rules",[]);
+    $brand_rules=array_values(array_filter(array_keys(is_array($rules)?$rules:[]),static fn($rule)=>is_string($rule)&&str_starts_with($rule,"race-brand/")));
+    sort($brand_rules);
+    echo wp_json_encode([
+      "product"=>$product ? ["regular"=>$product->get_regular_price("edit"),"sale"=>$product->get_sale_price("edit")] : null,
+      "lookup"=>$wpdb->get_row($wpdb->prepare("SELECT min_price,max_price FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id=%d",$id),ARRAY_A),
+      "brand_permalink"=>get_option("woocommerce_brand_permalink"),
+      "product_base"=>(string)(get_option("woocommerce_permalinks",[])["product_base"]??""),
+      "brand_children"=>is_array($children)?($children[(int)($brand_parent->term_id??0)]??[]):[],
+      "category_children"=>is_array($category_children)?($category_children[(int)($category_parent->term_id??0)]??[]):[],
+      "category_lookup"=>$wpdb->get_results($wpdb->prepare("SELECT category_tree_id,category_id FROM {$wpdb->prefix}wc_category_lookup WHERE category_id IN (%d,%d) ORDER BY category_tree_id,category_id",(int)($category_parent->term_id??0),(int)($category->term_id??0)),ARRAY_A),
+      "brand_rules"=>$brand_rules,
+      "hpos"=>get_option("woocommerce_custom_orders_table_enabled")==="yes",
+      "runtime"=>[
+        "neighbor"=>get_option("duo_target_environment_neighbor"),
+        "paypal"=>get_option("woocommerce_paypal_settings"),
+        "orders"=>count(wc_get_orders(["billing_email"=>"target-runtime@example.test","limit"=>-1,"return"=>"ids"])),
+        "sessions"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"duo-target-runtime-session\""),
+        "queue"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"duo_woo_target_runtime_probe\""),
+      ],
+    ],JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+  '
+}
+
 # Add two repository entities only after the first clean round trip, and put
 # hostile same-slug rows on the target before their first apply. This isolates
 # explicit posts adoption from Woo's legitimate derived timestamp churn.
@@ -1431,43 +1498,103 @@ jq -e '.canary == "clean" and .verification.result == "pass" and .plan.update > 
   || fail 'WooCommerce native product API retained the removed purchase note'
 pass 'authored product-meta absence converges as an ordinary verified update'
 
-# Two real processes race one new product title. At least one must succeed; a
-# loser may only refuse at the named promotion lock, and the final native state
-# and plan must be exact.
+# Pause the winner after its precondition recheck, while it has the promotion
+# fence. The contender is therefore deterministic: it must refuse at the named
+# fence before it can mutate authored data or either Woo provider authority.
 wp_conf1 eval '
   $product=wc_get_product(wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT"));
-  $product->set_name("Concurrent WooCommerce intent 東京 🚀"); $product->save();
+  $product->set_name("Concurrent WooCommerce intent 東京 🚀");
+  $product->set_regular_price("66.123456");
+  $product->set_sale_price("61.123456");
+  $product->save();
+  update_option("woocommerce_brand_permalink","race-brand");
+  $permalinks=get_option("woocommerce_permalinks",[]);
+  $permalinks["product_base"]="race-store/%product_cat%";
+  update_option("woocommerce_permalinks",$permalinks);
 ' >/dev/null
 commit_woocommerce_source 'conformance: concurrent WooCommerce apply intent'
-CONCURRENT_A="$CONF_REPO2/.tmp-woocommerce-concurrent-a.log"
-CONCURRENT_B="$CONF_REPO2/.tmp-woocommerce-concurrent-b.log"
+CONCURRENT_HOLDER="$CONF_REPO2/.tmp-woocommerce-provider-holder.log"
+CONCURRENT_LOSER="$CONF_REPO2/.tmp-woocommerce-provider-loser.log"
+CONCURRENT_BEFORE=$(woocommerce_provider_guard)
+woo_apply_test() {
+  $COMPOSE run --rm -T \
+    -e DUO_TEST_MODE=1 -e DUO_TEST_PROMOTION_PAUSE_MS=10000 \
+    cli2 sh -c 'umask 000; exec wp "$@"' sh "$@"
+}
 set +e
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 & PID_A=$!
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 & PID_B=$!
-wait "$PID_A"; RC_A=$?
-wait "$PID_B"; RC_B=$?
+woo_apply_test duo apply --repo=/siterepo --default-author=admin --format=json >"$CONCURRENT_HOLDER" 2>&1 & HOLDER_PID=$!
 set -e
-if [ "$RC_A" -ne 0 ] && [ "$RC_B" -ne 0 ]; then
-  fail "both competing WooCommerce applies failed: A=$(cat "$CONCURRENT_A") B=$(cat "$CONCURRENT_B")"
-fi
-for result in A B; do
-  eval "rc=\$RC_$result"; eval "log=\$CONCURRENT_$result"
-  if [ "$rc" -eq 0 ]; then
-    grep -q 'canary clean' "$log" || fail "successful competing WooCommerce apply lacked a clean canary: $(cat "$log")"
-  else
-    grep -Eqi 'lock|another apply|in progress|promotion' "$log" \
-      || fail "competing WooCommerce apply failed outside the named lock: $(cat "$log")"
+PAUSE_READY=0
+for _ in $(seq 1 120); do
+  if $COMPOSE run --rm -T cli2 wp eval 'echo (\Duo\PromotionLock::current()["phase"] ?? "");' 2>/dev/null | grep -q '^precondition-recheck$'; then
+    PAUSE_READY=1; CONCURRENT_PAUSE_OBSERVED_AT=$(date +%s); break
   fi
+  sleep 0.1
 done
-rm -f "$CONCURRENT_A" "$CONCURRENT_B"
+[ "$PAUSE_READY" -eq 1 ] || fail "WooCommerce promotion holder did not reach deterministic pause: $(cat "$CONCURRENT_HOLDER")"
+[ "$($COMPOSE run --rm -T cli2 wp eval 'echo (\Duo\PromotionLock::current()["phase"] ?? "");' 2>/dev/null | tail -1)" = precondition-recheck ] \
+  || fail 'WooCommerce promotion holder left the deterministic pause before the contender started'
+CONCURRENT_LOSER_RC=0
+wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json >"$CONCURRENT_LOSER" 2>&1 || CONCURRENT_LOSER_RC=$?
+[ "$($COMPOSE run --rm -T cli2 wp eval 'echo (\Duo\PromotionLock::current()["phase"] ?? "");' 2>/dev/null | tail -1)" = precondition-recheck ] \
+  || fail 'WooCommerce promotion holder left the deterministic pause before the contender refusal was observed'
+CONCURRENT_LOSER_JSON=$(awk 'NF { line=$0 } END { print line }' "$CONCURRENT_LOSER")
+require_duo_answered 'WooCommerce deterministic provider race loser' json "$CONCURRENT_LOSER_JSON"
+[ "$CONCURRENT_LOSER_RC" -ne 0 ] || fail "WooCommerce race loser unexpectedly succeeded: $CONCURRENT_LOSER_JSON"
+jq -e '
+  .format == "duo-command-refusal/v1" and .ok == false and
+  .error == "process_fence_held" and .reason_code == "process_fence_held" and
+  .message == "another live process on this target holds the promotion fence; concurrent target mutation was refused"
+' <<<"$CONCURRENT_LOSER_JSON" >/dev/null \
+  || fail "WooCommerce race loser did not return the typed process_fence_held refusal: $CONCURRENT_LOSER_JSON"
+CONCURRENT_AFTER_LOSER=$(woocommerce_provider_guard)
+[ "$($COMPOSE run --rm -T cli2 wp eval 'echo (\Duo\PromotionLock::current()["phase"] ?? "");' 2>/dev/null | tail -1)" = precondition-recheck ] \
+  || fail 'WooCommerce promotion holder left the deterministic pause during the loser mutation guard'
+[ "$(($(date +%s) - CONCURRENT_PAUSE_OBSERVED_AT))" -lt 8 ] \
+  || fail 'WooCommerce contender evidence exceeded the bounded promotion-pause window'
+[ "$CONCURRENT_AFTER_LOSER" = "$CONCURRENT_BEFORE" ] \
+  || fail 'WooCommerce race loser mutated authored or provider-derived state'
+set +e
+wait "$HOLDER_PID"; CONCURRENT_HOLDER_RC=$?
+set -e
+[ "$CONCURRENT_HOLDER_RC" -eq 0 ] || fail "WooCommerce race winner failed: $(cat "$CONCURRENT_HOLDER")"
+CONCURRENT_WINNER_JSON=$(awk 'NF { line=$0 } END { print line }' "$CONCURRENT_HOLDER")
+require_duo_answered 'WooCommerce deterministic provider race winner' json "$CONCURRENT_WINNER_JSON"
+jq -e '
+  .canary == "clean" and .verification.result == "pass" and
+  any(.actions[]?; .source == "provider:woocommerce-product-lookups/rebuild_product_lookups" and .verified == true) and
+  any(.actions[]?; .source == "provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups" and .verified == true) and
+  any(.actions[]?; .source == "provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes" and .verified == true)
+' <<<"$CONCURRENT_WINNER_JSON" >/dev/null \
+  || fail "WooCommerce race winner omitted verified product, hierarchy, or route providers: $CONCURRENT_WINNER_JSON"
 CONCURRENT=$(observe_woocommerce_adoption)
-jq -e '.product.name == "Concurrent WooCommerce intent 東京 🚀"' <<<"$CONCURRENT" >/dev/null \
+jq -e '.product.name == "Concurrent WooCommerce intent 東京 🚀" and .product.regular == "66.123456" and .product.sale == "61.123456"' <<<"$CONCURRENT" >/dev/null \
   || fail "competing WooCommerce applies lost repository intent: $CONCURRENT"
+CONCURRENT_STATE=$(woocommerce_provider_state)
+jq -e '
+  .product.regular == "66.123456" and .product.sale == "61.123456" and
+  .lookup.min_price == "61.1235" and .lookup.max_price == "61.1235" and
+  .brand_permalink == "race-brand" and .product_base == "race-store/%product_cat%" and
+  (.brand_rules | length) >= 1 and (.category_lookup | length) >= 2 and
+  .hpos == true and .runtime.neighbor == "target-neighbor-preserved" and
+  .runtime.paypal.identity_token == "target-secret-token-preserved" and
+  .runtime.orders == 1 and .runtime.sessions == 1 and .runtime.queue == 1
+' <<<"$CONCURRENT_STATE" >/dev/null \
+  || fail "WooCommerce race winner did not verify native lookup/hierarchy/rewrite/runtime state: $CONCURRENT_STATE"
+[ "$(wp_conf2 eval 'echo null === \Duo\PromotionLock::current() ? "clear" : "held";')" = clear ] \
+  || fail 'WooCommerce race winner left a stale promotion-lock marker'
+[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "held";')" = clear ] \
+  || fail 'WooCommerce race winner left a stale apply-in-progress marker'
 CONCURRENT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered 'WooCommerce plan after competing applies' json "$CONCURRENT_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$CONCURRENT_PLAN" >/dev/null \
   || fail "WooCommerce competing applies left retained work: $CONCURRENT_PLAN"
-pass 'competing WooCommerce applies serialize and leave one exact idempotent result'
+CONCURRENT_RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'WooCommerce provider race zero-action retry' json "$CONCURRENT_RETRY"
+jq -e '.canary == "clean" and .verification.result == "pass" and .applied == 0 and (.actions | length) == 0' <<<"$CONCURRENT_RETRY" >/dev/null \
+  || fail "WooCommerce provider race retry was not a zero-action no-op: $CONCURRENT_RETRY"
+rm -f "$CONCURRENT_HOLDER" "$CONCURRENT_LOSER"
+pass 'deterministic WooCommerce provider race refuses the loser at process_fence_held, verifies Woo lookup/hierarchy/rewrite/runtime state, and leaves one exact zero-action retry'
 
 # Deactivation is repaired by deploy. Woo's default uninstall keeps catalog,
 # typed configuration, lookup, approved-directory, and HPOS data unless the
@@ -1502,7 +1629,7 @@ wp_conf2 plugin is-active woocommerce >/dev/null || fail 'WooCommerce exact rein
 RECOVERED=$(observe_woocommerce_adoption)
 jq -e --argjson ids "$TARGET_ADOPT" '
   .product.id == $ids.product and .product.name == "Concurrent WooCommerce intent 東京 🚀" and
-  .product.regular == "55.123456" and .product.sale == "49.123456" and
+  .product.regular == "66.123456" and .product.sale == "61.123456" and
   .coupon.id == $ids.coupon and .runtime.neighbor == "target-neighbor-preserved" and
   .runtime.paypal.identity_token == "target-secret-token-preserved" and
   .runtime.orders == 1 and .runtime.sessions == 1 and .runtime.queue == 1
@@ -1533,3 +1660,9 @@ if [ -n "$FINAL_DIFF" ]; then
 fi
 rm -rf "$CONF_REPO2/.tmp-woocommerce-final"
 pass 'deactivate/reactivate, retained-data uninstall, absent-code refusal, exact reinstall, optional-extension isolation, and final retry are exact modulo declared target-local product timestamps'
+
+# The default uninstall above proves Woo's retention contract. This separate
+# exact-artifact branch proves the operator-authorized destructive inverse and
+# credits only a database-matched backup with recovery.
+. conformance/checks/woocommerce-destructive-lifecycle.sh
+check_woocommerce_destructive_lifecycle

@@ -143,27 +143,28 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * its disposition experimental -> certified, and widened manifests/core.json's
  * native rewrite action to declare TEC's rewrite-listener effects. The
  * reviewed Polylang production-readiness port then rewrote its manifest,
- * interpreter/provider set, and per-subject disposition. Rule 2 makes all
- * three fleet-visible BY DESIGN.
+ * interpreter/provider set, and per-subject disposition. WooCommerce's final
+ * production-readiness review moves its disposition reason. Rule 2 makes all
+ * four fleet-visible BY DESIGN.
  *
- * The 13 frozen digests above are NOT regenerated — this is an overlay, and
- * PART 1 asserts the moved set is exactly these three. A fourth adapter is a
+ * The 12 frozen digests above are NOT regenerated — this is an overlay, and
+ * PART 1 asserts the moved set is exactly these four. A fifth adapter is a
  * tripwire failure, not a re-pin. That keeps the split's
  * own invariant ("relocating the reviewed source moved no identity") measured
  * against numbers captured before the relocation, on every adapter the
- * reviewed changes did not touch. Re-freezing all 16 to absorb 3 would have
- * retired the evidence for the other 13 to fix a red run.
+ * reviewed changes did not touch. Re-freezing all 16 to absorb 4 would have
+ * retired the evidence for the other 12 to fix a red run.
  */
 const SPLIT_REVIEWED_MOVED_ADAPTERS = ['core', 'polylang', 'the-events-calendar', 'woocommerce'];
 const SPLIT_REVIEWED_MOVED_DIGESTS = [
     'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
     'polylang' => '99d82ecc6402fda3a8d651d56ca07ae4a73836947ed5f2ecca11c0df4472e9a4',
     'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
-    'woocommerce' => 'd19f7b341e0025f65b8778a552b9ab3871c7982cf0ef2882b251abd402e50fa4',
+    'woocommerce' => '91ddbf38c323ad456c0faed5925eaae94d07f8a84d76b9dfd688d989f032898f',
 ];
-const SPLIT_REVIEWED_MANIFEST_HASH = 'b45e073add9794b13156653fb80cb50a1f2c5dfe8b596bb90c40777938c08ec3';
-const SPLIT_REVIEWED_REGISTRY_SHA = '2727d0e115a5776f956d5895b69fc131ff9904bca074c82ca5193f4f33225aa1';
-const SPLIT_REVIEWED_SNAPSHOT_SHA = 'aeb81992ddd16d423de8a541112204c907d7c4ecfff2be768fd1d1a4858bec40';
+const SPLIT_REVIEWED_MANIFEST_HASH = '6218a89899a178d2a5860798a8cb5cb0dacb998309adb0c8dac52972d7991dfb';
+const SPLIT_REVIEWED_REGISTRY_SHA = '9fba173b9899e510796e94a82b653f85a665f10da4c91f35a8917849cd1d3d5f';
+const SPLIT_REVIEWED_SNAPSHOT_SHA = '0b391c50a9df597451e1ccd802d06b78a9c1b9a0157fbc200c0c4609759a9fbc';
 
 putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
 $shippedRegistry = ManifestDispositions::load($manifestDir);
@@ -209,21 +210,21 @@ duo_check_same(
 duo_check_same(
     SPLIT_REVIEWED_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
-    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved only with the three '
-    . 'reviewed manifests: a 16-pin site recompiles for #561/Polylang, not for the split'
+    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved only with the four '
+    . 'reviewed adapters: a 16-pin site recompiles for #561/Polylang/WooCommerce, not for the split'
 );
 duo_check(
     SPLIT_REVIEWED_MANIFEST_HASH !== SPLIT_FROZEN_MANIFEST_HASH
         && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
         && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA,
-    '...and all three re-pinned numbers really differ from their frozen originals, so the three assertions '
+    '...and all four re-pinned numbers really differ from their frozen originals, so the four assertions '
     . 'around them are re-pins a reviewer must read rather than restatements of the frozen constants'
 );
 duo_check_same(
     SPLIT_REVIEWED_REGISTRY_SHA,
     $shippedRegistry->sha256(),
     'and registry_sha256, the content address a host contract pins, reassembles from the per-subject documents '
-    . 'to exactly one document — carrying #561\'s TEC promotion and Polylang\'s reviewed certification, not the '
+    . 'to exactly one document — carrying #561\'s TEC promotion plus Polylang and WooCommerce review, not the '
     . 'split itself (WP-4.5 is the rider that narrows this to per-subject addressing)'
 );
 duo_check_same(

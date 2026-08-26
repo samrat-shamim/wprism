@@ -94,6 +94,218 @@ woocommerce_boundary_storage_hash() {
   '
 }
 
+woocommerce_downgrade_duo_storage_hash() {
+  # A code-drift refusal is read-only for Duo-owned persistence.  Project every
+  # prefixed ledger table and the option namespace instead of assuming the
+  # current migration's table list; an added ledger table must therefore enter
+  # this witness automatically.
+  wp2 eval '
+    global $wpdb;
+    $like = $wpdb->esc_like($wpdb->prefix . "duo_") . "%";
+    $tables = $wpdb->get_col($wpdb->prepare("SHOW TABLES LIKE %s", $like));
+    if (!is_array($tables)) { throw new RuntimeException("Duo storage table discovery did not return an array"); }
+    sort($tables, SORT_STRING);
+    $state = ["tables" => [], "options" => []];
+    foreach ($tables as $table) {
+      if (!is_string($table) || preg_match("/^[A-Za-z0-9_]+$/D", $table) !== 1) {
+        throw new RuntimeException("Duo storage table name is not a safe SQL identifier");
+      }
+      $wpdb->last_error = "";
+      $columns = $wpdb->get_col("SHOW COLUMNS FROM `{$table}`", 0);
+      if ($wpdb->last_error !== "" || !is_array($columns) || $columns === []) {
+        throw new RuntimeException("Duo storage column discovery failed for " . $table);
+      }
+      foreach ($columns as $column) {
+        if (!is_string($column) || preg_match("/^[A-Za-z0-9_]+$/D", $column) !== 1) {
+          throw new RuntimeException("Duo storage column name is not a safe SQL identifier");
+        }
+      }
+      $order = implode(",", array_map(static fn(string $column): string => "`{$column}`", $columns));
+      $wpdb->last_error = "";
+      $rows = $wpdb->get_results("SELECT * FROM `{$table}` ORDER BY {$order}", ARRAY_A);
+      if ($wpdb->last_error !== "" || !is_array($rows)) {
+        throw new RuntimeException("Duo storage read failed for " . $table);
+      }
+      if (count($rows) > 50000) { throw new RuntimeException("Duo storage projection exceeded its fixture bound"); }
+      $state["tables"][$table] = $rows;
+    }
+    $wpdb->last_error = "";
+    $state["options"] = $wpdb->get_results(
+      "SELECT option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name REGEXP \"^(duo_|_transient(_timeout)?_duo_)\" ORDER BY option_name",
+      ARRAY_A
+    );
+    if ($wpdb->last_error !== "" || !is_array($state["options"])) {
+      throw new RuntimeException("Duo option storage read failed");
+    }
+    if (count($state["options"]) > 50000) { throw new RuntimeException("Duo option projection exceeded its fixture bound"); }
+    echo hash("sha256", wp_json_encode($state, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+  '
+}
+
+woocommerce_downgrade_runtime_hash() {
+  # The artifact replacement itself is outside this assertion.  Once the exact
+  # 11.0.0 archive is active, ordinary commands may inspect but must not alter
+  # runtime activation or scheduled work while refusing the stale code witness.
+  wp2 eval '
+    $duo_cron = [];
+    foreach (_get_cron_array() as $timestamp => $hooks) {
+      foreach ($hooks as $hook => $events) {
+        if (is_string($hook) && str_starts_with($hook, "duo_")) {
+          $duo_cron[$timestamp][$hook] = $events;
+        }
+      }
+    }
+    $state = [
+      "active_plugins" => get_option("active_plugins", []),
+      "stylesheet" => get_stylesheet(),
+      "template" => get_template(),
+      "duo_cron" => $duo_cron,
+    ];
+    echo hash("sha256", wp_json_encode($state, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+  '
+}
+
+woocommerce_downgrade_repository_hash() {
+  local repo="siterepo/${PAIR}2"
+  {
+    git -C "$repo" status --porcelain=v1 --untracked-files=all
+    git -C "$repo" rev-parse HEAD
+    git -C "$repo" for-each-ref --format='%(refname) %(objectname)' refs/heads refs/remotes
+    git -C "$repo" diff --no-ext-diff --binary HEAD
+  } | shasum -a 256 | awk '{print $1}'
+}
+
+woocommerce_downgrade_refusal_snapshot() {
+  local storage native runtime repository
+  storage=$(woocommerce_downgrade_duo_storage_hash)
+  native=$(woocommerce_boundary_storage_hash)
+  runtime=$(woocommerce_downgrade_runtime_hash)
+  repository=$(woocommerce_downgrade_repository_hash)
+  require_observed_nonempty 'WooCommerce downgrade Duo storage witness' "$storage"
+  require_observed_nonempty 'WooCommerce downgrade native storage witness' "$native"
+  require_observed_nonempty 'WooCommerce downgrade runtime witness' "$runtime"
+  require_observed_nonempty 'WooCommerce downgrade repository witness' "$repository"
+  printf '%s\n' "$storage:$native:$runtime:$repository"
+}
+
+assert_woocommerce_downgrade_refusal_unchanged() { # <operation> <post-install-snapshot>
+  local operation="$1" expected="$2" observed
+  observed=$(woocommerce_downgrade_refusal_snapshot)
+  [ "$observed" = "$expected" ] \
+    || fail "WooCommerce 11.0.1 to 11.0.0 $operation refusal mutated Duo storage, runtime, or repository state"
+}
+
+check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact-11.0.0-target-artifact>
+  local source_artifact="$1" target_artifact="$2" expected_sha snapshot plan_out plan_json plan_rc
+  local deploy_out deploy_rc apply_out apply_rc revision settled source_price target_price downgrade_diff
+  local mutation_note='WooCommerce 11.0.1 to 11.0.0 downgrade 東京 🚀'
+
+  say 'in-range downgrade: populated woocommerce 11.0.1 -> exact 11.0.0 refuses until explicit re-baseline'
+  # Installation has its own activation/migration effects, so establish the
+  # no-mutation baseline only after the exact verified archives replace 11.0.1.
+  wp1 plugin install "$source_artifact" --force --activate >/dev/null
+  wp2 plugin install "$target_artifact" --force --activate >/dev/null
+  expected_sha=$(jq -r '.plugins.woocommerce["11.0.0"].sha256' conformance/artifacts.lock.json)
+  [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || fail 'WooCommerce 11.0.0 downgrade artifact has no exact lock digest'
+  [ "$(wp1 eval "echo hash_file('sha256','$source_artifact');")" = "$expected_sha" ] \
+    && [ "$(wp2 eval "echo hash_file('sha256','$target_artifact');")" = "$expected_sha" ] \
+    || fail 'WooCommerce in-range downgrade did not retain the exact 11.0.0 artifacts'
+  [ "$(wp1 plugin get woocommerce --field=version)" = 11.0.0 ] \
+    && [ "$(wp2 plugin get woocommerce --field=version)" = 11.0.0 ] \
+    || fail 'WooCommerce in-range downgrade did not install exact 11.0.0 on both environments'
+  snapshot=$(woocommerce_downgrade_refusal_snapshot)
+
+  plan_rc=0
+  plan_out=$(wp2 duo plan --repo=/siterepo --format=json 2>&1) || plan_rc=$?
+  require_duo_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade plan' json "$plan_out"
+  [ "$plan_rc" -eq 0 ] || fail "WooCommerce in-range downgrade plan did not report its code drift: $plan_out"
+  plan_json=$(awk 'NF { line=$0 } END { print line }' <<<"$plan_out")
+  jq -e '
+    (.code_drift | length) == 1 and
+    .code_drift[0].plugin == "woocommerce/woocommerce.php" and
+    .code_drift[0].installed_version == "11.0.0" and
+    .code_drift[0].recorded_version == "11.0.1"
+  ' <<<"$plan_json" >/dev/null \
+    || fail "WooCommerce in-range downgrade plan did not identify the exact 11.0.1 to 11.0.0 code_drift: $plan_json"
+  assert_woocommerce_downgrade_refusal_unchanged plan "$snapshot"
+
+  deploy_rc=0
+  deploy_out=$(wp2 duo deploy --repo=/siterepo 2>&1) || deploy_rc=$?
+  require_duo_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade deploy refusal' human "$deploy_out"
+  [ "$deploy_rc" -ne 0 ] && grep -q 'code_drift' <<<"$deploy_out" \
+    && grep -q '11.0.1' <<<"$deploy_out" && grep -q '11.0.0' <<<"$deploy_out" \
+    || fail "WooCommerce in-range downgrade deploy did not refuse at the exact code-drift boundary: $deploy_out"
+  assert_woocommerce_downgrade_refusal_unchanged deploy "$snapshot"
+
+  revision=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+  apply_rc=0
+  apply_out=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision" 2>&1) || apply_rc=$?
+  require_duo_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade apply refusal' human "$apply_out"
+  [ "$apply_rc" -ne 0 ] && grep -q 'code_drift' <<<"$apply_out" \
+    && grep -q '11.0.1' <<<"$apply_out" && grep -q '11.0.0' <<<"$apply_out" \
+    || fail "WooCommerce in-range downgrade apply did not refuse at the exact code-drift boundary: $apply_out"
+  assert_woocommerce_downgrade_refusal_unchanged apply "$snapshot"
+  pass 'WooCommerce 11.0.1 -> 11.0.0 ordinary plan identifies code_drift; deploy/apply refuse without Duo storage, runtime, or repository mutation'
+
+  local forced_source forced_target
+  forced_source=$(wp1 duo deploy --repo=/siterepo --force-code-drift 2>&1)
+  forced_target=$(wp2 duo deploy --repo=/siterepo --force-code-drift 2>&1)
+  grep -q 'FORCED past code_drift' <<<"$forced_source" \
+    && grep -q 'FORCED past code_drift' <<<"$forced_target" \
+    || fail "WooCommerce explicit downgrade re-baseline did not report both forced decisions: source=$forced_source target=$forced_target"
+  settled=$(wp2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+  require_duo_answered 'WooCommerce 11.0.1 to 11.0.0 plan after explicit re-baseline' json "$settled"
+  jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict,.code_mismatch,.code_drift,.incomplete_apply,.incomplete_lifecycle,.regen_pending,.regen_context] | map(length) | add) == 0' <<<"$settled" >/dev/null \
+    || fail "WooCommerce explicit 11.0.0 re-baseline invented work: $settled"
+
+  source_price=$(wp1 eval '
+    global $wpdb;
+    $product = wc_get_product(wc_get_product_id_by_sku("CONF-PRECISION-UTF8"));
+    if (!$product) { throw new RuntimeException("downgrade precision product missing"); }
+    $product->set_regular_price("17.345678");
+    $product->set_sale_price("");
+    $product->set_purchase_note("WooCommerce 11.0.1 to 11.0.0 downgrade 東京 🚀");
+    $product->save();
+    $row = $wpdb->get_row($wpdb->prepare("SELECT CAST(min_price AS CHAR) AS min_price, CAST(max_price AS CHAR) AS max_price FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id=%d", $product->get_id()), ARRAY_A);
+    if (!is_array($row) || $row !== ["min_price" => "17.3457", "max_price" => "17.3457"]) {
+      throw new RuntimeException("downgrade source lookup DECIMAL readback was not exact: " . wp_json_encode($row));
+    }
+    echo wp_json_encode(["price" => $product->get_regular_price("edit"), "note" => $product->get_purchase_note("edit"), "lookup" => $row], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+  ')
+  jq -e --arg note "$mutation_note" '.price == "17.345678" and .note == $note and .lookup == {min_price:"17.3457",max_price:"17.3457"}' <<<"$source_price" >/dev/null \
+    || fail "WooCommerce exact 11.0.0 source mutation/readback was not precise: $source_price"
+  wp1 duo capture --repo=/siterepo
+  wp1 duo lint --repo=/siterepo
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm 'capture: woocommerce 11.0.1 to 11.0.0 in-range downgrade'
+  "${GIT1[@]}" push -q origin main
+
+  git -C "siterepo/${PAIR}2" pull -q origin main
+  revision=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+    || fail 'WooCommerce exact 11.0.0 apply canary was not clean after downgrade re-baseline'
+  target_price=$(wp2 eval '
+    global $wpdb;
+    $product = wc_get_product(wc_get_product_id_by_sku("CONF-PRECISION-UTF8"));
+    if (!$product) { throw new RuntimeException("downgrade precision product missing on target"); }
+    $row = $wpdb->get_row($wpdb->prepare("SELECT CAST(min_price AS CHAR) AS min_price, CAST(max_price AS CHAR) AS max_price FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id=%d", $product->get_id()), ARRAY_A);
+    echo wp_json_encode(["price" => $product->get_regular_price("edit"), "note" => $product->get_purchase_note("edit"), "lookup" => $row], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+  ')
+  jq -e --arg note "$mutation_note" '.price == "17.345678" and .note == $note and .lookup == {min_price:"17.3457",max_price:"17.3457"}' <<<"$target_price" >/dev/null \
+    || fail "WooCommerce exact 11.0.0 target mutation/readback was not precise: $target_price"
+  settled=$(wp2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+  require_duo_answered 'WooCommerce exact 11.0.0 plan after downgrade mutation' json "$settled"
+  jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict,.code_mismatch,.code_drift,.incomplete_apply,.incomplete_lifecycle,.regen_pending,.regen_context] | map(length) | add) == 0' <<<"$settled" >/dev/null \
+    || fail "WooCommerce exact 11.0.0 plan did not settle after downgrade mutation: $settled"
+  wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-downgrade-final >/dev/null
+  downgrade_diff=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-woo-downgrade-final" || true)
+  rm -rf "siterepo/${PAIR}2/.tmp-woo-downgrade-final"
+  [ -z "$downgrade_diff" ] \
+    || fail "WooCommerce 11.0.1 to 11.0.0 in-range downgrade lost byte identity: $downgrade_diff"
+  pass 'WooCommerce 11.0.1 -> 11.0.0 explicit re-baseline applies exact DECIMAL catalog mutation, settles, and recaptures byte-identically'
+}
+
 check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   local version="$1" artifact="$2" expected_sha before_native reactivated_native
   local before_uninstall absent_after_uninstall missing_before missing_after missing_rc missing_out lifecycle_diff

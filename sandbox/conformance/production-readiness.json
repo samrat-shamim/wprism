@@ -312,9 +312,9 @@
         "deletion": ["manifests/dispositions/woocommerce.json", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_deletion_authority.php", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php"],
         "failure-recovery": ["sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_fulfillment_prerequisites.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_hierarchy_lookups.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_scheduler_settings.php", "sandbox/tests/offline/apply/regress_fatal_mutations.php"],
         "concurrency-idempotence": ["sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/live/regress_capture_concurrency.sh", "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_hierarchy_lookups.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php"],
-        "lifecycle": ["sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "lifecycle": ["sandbox/conformance/checks/woocommerce.sh", "sandbox/conformance/checks/woocommerce-destructive-lifecycle.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
         "data-boundary": ["manifests/woocommerce.json", "manifests/interpreters/woocommerce.php", "sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php"],
-        "scope-platform": ["manifests/woocommerce.json", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
+        "scope-platform": ["manifests/woocommerce.json", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh", "sandbox/tests/live/regress_woocommerce_multisite_refusal.sh"]
       },
       "gaps": {},
       "blocked": {},

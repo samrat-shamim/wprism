@@ -104,8 +104,9 @@
  *   SET ...                           (accepted no-op)
  *   CREATE / ALTER / DROP / TRUNCATE  (recorded in ddlLog; DROP/TRUNCATE clear rows)
  *
- * Simple INNER/LEFT JOINs are supported for bounded, explicit join
- * predicates; subqueries, UNION, RIGHT/CROSS JOIN, and HAVING remain
+ * Simple INNER/LEFT JOINs may be explicitly enabled for bounded join
+ * predicates; the default remains closed so a fixture cannot silently become
+ * a relational planner. Subqueries, UNION, RIGHT/CROSS JOIN, and HAVING remain
  * unsupported. Aggregate expressions are evaluated only over the bounded
  * in-memory result set, never over an unbounded synthetic stream.
  *
@@ -246,6 +247,8 @@ final class FakeWpdb {
     private bool $fullApplySqlExtensionsEnabled = false;
     /** Opt-in for RelationshipMaterializer's exact locked owner-range join. */
     private bool $relationshipOwnershipJoinEnabled = false;
+    /** Opt-in for the Woo capture fixture's bounded joined reads. */
+    private bool $joinedCaptureSqlEnabled = false;
     /** @var list<array{command:string,outcome:string}> one-shot transaction ambiguity probes */
     private array $transactionOutcomes = [];
     /** Reconnect immediately before the next transaction-state-bearing SELECT. */
@@ -500,6 +503,15 @@ final class FakeWpdb {
      */
     public function enableRelationshipOwnershipJoin(): self {
         $this->relationshipOwnershipJoinEnabled = true;
+        return $this;
+    }
+
+    /**
+     * Enable bounded joined SELECTs for the Woo capture fixture, which seeds
+     * every participating table. Ordinary fixtures keep multi-table SQL closed.
+     */
+    public function enableJoinedCaptureSql(): self {
+        $this->joinedCaptureSqlEnabled = true;
         return $this;
     }
 
@@ -2322,6 +2334,10 @@ final class FakeWpdb {
             $table = $this->parseTableRef();
             $alias = $this->parseAliasOpt();
             $this->skipIndexHint();
+            if (!$this->joinedCaptureSqlEnabled
+                && in_array($this->keyword(), ['JOIN', 'INNER', 'LEFT'], true)) {
+                throw $this->unsupported('multi-table SELECT (JOIN/UNION)');
+            }
             while (in_array($this->keyword(), ['JOIN', 'INNER', 'LEFT'], true)) {
                 $joinType = 'INNER';
                 if ($this->acceptKeyword('LEFT')) {

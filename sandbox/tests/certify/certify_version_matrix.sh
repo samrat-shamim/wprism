@@ -1908,6 +1908,8 @@ EOF
     [ -z "$UPGRADE_DIFF" ] \
       || fail "WooCommerce 11.0.0 to 11.0.1 in-place upgrade lost byte identity: $UPGRADE_DIFF"
     pass 'populated woocommerce 11.0.0 -> 11.0.1 upgrade preserves native catalog/API behavior, applies cleanly, and recaptures byte-identically'
+
+    check_woocommerce_in_range_downgrade "$ARTIFACT_1" "$ARTIFACT_2"
   fi
 done
 fi
