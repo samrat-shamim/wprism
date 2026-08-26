@@ -538,7 +538,7 @@ RC=$?
 set -e
 [ "$RC" -ne 0 ] || fail "third-party Polylang dynamic callback unexpectedly allowed apply: $FAILED_POLY"
 grep -Fq "apply refused before target mutation — native action 'rewrite.flush' runtime is unsupported" <<<"$FAILED_POLY" \
-  && grep -Fq "extended or substituted 'pll_modify_rewrite_rule' callbacks" <<<"$FAILED_POLY" \
+  && grep -Fq "unsupported open Polylang rewrite filter" <<<"$FAILED_POLY" \
   && ! grep -Fq "required manifest action 'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes' failed" <<<"$FAILED_POLY" \
   || fail "Polylang dynamic refusal did not stop at the pre-mutation rewrite preflight: $FAILED_POLY"
 AFTER_POLY_FAILED=$(witness 2)

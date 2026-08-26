@@ -2368,7 +2368,7 @@ foreach ([
     'remove_hostile_mu duo-woo-polylang-dynamic-hostile.php',
     'third-party Polylang dynamic callback unexpectedly allowed apply',
     "apply refused before target mutation — native action 'rewrite.flush' runtime is unsupported",
-    "extended or substituted 'pll_modify_rewrite_rule' callbacks",
+    'unsupported open Polylang rewrite filter',
     'Polylang dynamic refusal did not stop at the pre-mutation rewrite preflight',
     'third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses',
     'Polylang dynamic retry did not preserve target row identity and copy the exact source Woo row',
