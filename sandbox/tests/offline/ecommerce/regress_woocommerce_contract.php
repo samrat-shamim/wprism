@@ -1605,6 +1605,12 @@ foreach ([
     ') || THUMBNAIL_LAZY_RC=$?',
     'thumbnail convergence WP-CLI probe failed (exit $THUMBNAIL_LAZY_RC)',
     "awk 'NF { line=\$0 } END { print line }'",
+    'get_theme_support("woocommerce")',
+    'remove_theme_support("woocommerce")',
+    'wp_cache_delete("size-woocommerce_thumbnail", "woocommerce")',
+    'WC()->add_image_sizes()',
+    'wp_get_registered_image_subsizes()',
+    '"theme_override_width"',
 ] as $thumbnailProbeWitness) {
     woo_ok(str_contains($wooCheckHarness, $thumbnailProbeWitness),
         "thumbnail live probe preserves nonzero WP-CLI evidence: $thumbnailProbeWitness");
@@ -1706,6 +1712,8 @@ foreach ([
     '--entrypoint php',
     '-d "memory_limit=$WP_CLI_MEMORY_LIMIT" /usr/local/bin/wp',
     'pre-bootstrap PHP memory limit',
+    'DUO_AUDITED_PLUGIN_FILE',
+    '--exec="putenv(',
     'CALLBACK_IDENTITIES=$(wp2 eval',
     'native rewrite callback identity differs from source services',
     '$GLOBALS["wc_container"]',
@@ -1731,5 +1739,7 @@ foreach ([
 }
 woo_ok(!str_contains($wooRewriteCoInstallHarness, 'memory_limit=-1'),
     'four-plugin co-install keeps a finite PHP bootstrap ceiling');
+woo_ok(!str_contains($wooRewriteCoInstallHarness, '$args[0]'),
+    'co-install source hashing uses WP-CLI global execution state, not unsupported eval positional arguments');
 
 echo "PASS: WooCommerce 11.0.x option/table inventory and rebuild contract are explicit\n";

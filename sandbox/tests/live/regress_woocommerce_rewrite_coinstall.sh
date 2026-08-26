@@ -95,11 +95,15 @@ assert_live_source_file_hashes() { # side
     esac
     [[ "$relative" =~ ^[A-Za-z0-9._/-]+$ && "$relative" != *".."* ]] \
       || fail "topology fixture declares an unsafe source path: $relative"
+    # Current `wp eval` accepts only its PHP-code positional argument. Pass the
+    # already-validated path through WP-CLI's supported global execution hook;
+    # a second positional produced "Too many positional arguments" before the
+    # first of the 30 exact source hashes could be observed.
     actual=$("wp$side" eval '
-$relative=$args[0]??"";$path=WP_PLUGIN_DIR."/".$relative;
+$relative=(string)getenv("DUO_AUDITED_PLUGIN_FILE");$path=WP_PLUGIN_DIR."/".$relative;
 if(!is_file($path)){throw new RuntimeException("audited plugin source file is absent: ".$relative);}
 echo hash_file("sha256",$path);
-' -- "$root/$relative" | tail -1) || fail "could not hash audited $plugin source file: $relative"
+' --exec="putenv('DUO_AUDITED_PLUGIN_FILE=$root/$relative');" | tail -1) || fail "could not hash audited $plugin source file: $relative"
     [ "$actual" = "$expected" ] \
       || fail "installed $plugin source hash differs from topology fixture for $relative: $actual"
   done < <(jq -r '.source_files[] | [.plugin,.path,.sha256] | @tsv' "$TOPOLOGY")

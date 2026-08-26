@@ -449,6 +449,20 @@ $set_thumbnail_options = static function (string $mode, int $width, int $ratio_w
     update_option("woocommerce_thumbnail_cropping_custom_height", (string) $ratio_height);
     update_option("woocommerce_thumbnail_image_width", (string) $width);
     wp_cache_delete("size-thumbnail", "woocommerce");
+    wp_cache_delete("size-woocommerce_thumbnail", "woocommerce");
+    WC()->add_image_sizes();
+    $target = wc_get_image_size("thumbnail");
+    $registered = wp_get_registered_image_subsizes()["woocommerce_thumbnail"] ?? [];
+    $expected_height = $mode === "uncropped"
+        ? 0
+        : (int) round(($width / max(1, $mode === "custom" ? $ratio_width : 1))
+            * max(1, $mode === "custom" ? $ratio_height : 1));
+    if ((int) ($target["width"] ?? 0) !== $width
+        || (int) ($target["height"] ?? 0) !== $expected_height
+        || (int) ($registered["width"] ?? 0) !== $width
+        || (int) ($registered["height"] ?? 0) !== $expected_height) {
+        throw new RuntimeException("Woo thumbnail options and registered image size did not converge");
+    }
 };
 $create_image = static function (int $width, int $height, string $label): int {
     $uploads = wp_upload_dir();
@@ -492,6 +506,19 @@ if (!$product || !$product->get_image_id()) {
 }
 $product_image_id = (int) $product->get_image_id();
 $runtime_hash = (string) get_option("woocommerce_maybe_regenerate_images_hash", "");
+// pair_bootstrap.sh:136 activates Twenty Twenty-One, whose exact Woo 11.0.x
+// support fixes thumbnails at 450px. Remove that process-local precedence so
+// this one probe can exercise the authored 300 -> 500 option lifecycle; every
+// transition replays Woo init registration because metadata generation reads
+// WordPress registered sizes, not newly-written options.
+$theme_support = get_theme_support("woocommerce");
+$theme_size = wc_get_image_size("thumbnail");
+if ((int) ($theme_size["width"] ?? 0) !== 450 || false === $theme_support) {
+    throw new RuntimeException("Twenty Twenty-One did not expose its exact 450px Woo thumbnail override");
+}
+if (!remove_theme_support("woocommerce")) {
+    throw new RuntimeException("could not enter the process-local option-controlled Woo thumbnail scenario");
+}
 $temporary_ids = [];
 try {
     $set_thumbnail_options("1:1", 300, 1, 1);
@@ -545,6 +572,7 @@ try {
 
     echo wp_json_encode([
         "callbacks" => $callbacks,
+        "theme_override_width" => (int) ($theme_size["width"] ?? 0),
         "same_aspect" => [
             "dims" => $dims($same_aspect),
             "metadata_unchanged" => hash_equals($same_before, $same_after),
@@ -581,6 +609,11 @@ try {
     foreach ($temporary_ids as $temporary_id) {
         wp_delete_attachment($temporary_id, true);
     }
+    if (is_array($theme_support)) {
+        add_theme_support("woocommerce", ...$theme_support);
+    } elseif (true === $theme_support) {
+        add_theme_support("woocommerce");
+    }
 }
 ' 2>&1) || THUMBNAIL_LAZY_RC=$?
 [ "$THUMBNAIL_LAZY_RC" -eq 0 ] \
@@ -590,6 +623,7 @@ require_observed_nonempty "conf2 WooCommerce thumbnail lazy-convergence observat
 echo "conf2 thumbnail lazy-convergence check: $THUMBNAIL_LAZY_OUT"
 jq -e '
   .callbacks == {"intermediate":true,"metadata":true,"source":true,"product_meta":true} and
+  .theme_override_width == 450 and
   .same_aspect == {"dims":[500,500],"metadata_unchanged":true} and
   .failure_retry.failed_dims == [500,375] and
   .failure_retry.failed_metadata_unchanged == true and

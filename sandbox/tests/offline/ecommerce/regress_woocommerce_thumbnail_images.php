@@ -37,9 +37,18 @@ use DuoTest\WpStore;
  */
 $GLOBALS['wooThumbnailAttachments'] = [];
 
+/** @var array<string,mixed>|null */
+$GLOBALS['wooThumbnailThemeSupport'] = null;
+
+/** @var array<string,array<string,mixed>> */
+$GLOBALS['wooThumbnailRegisteredSizes'] = [];
+
 /** @return array<string,mixed> */
 function woo_thumbnail_target_size(): array {
-    $width = absint(get_option('woocommerce_thumbnail_image_width', 300));
+    $themeSupport = $GLOBALS['wooThumbnailThemeSupport'];
+    $width = absint(is_array($themeSupport) && array_key_exists('thumbnail_image_width', $themeSupport)
+        ? $themeSupport['thumbnail_image_width']
+        : get_option('woocommerce_thumbnail_image_width', 300));
     $cropping = get_option('woocommerce_thumbnail_cropping', '1:1');
     if ($cropping === 'uncropped') {
         return ['width' => $width, 'height' => '', 'crop' => 0];
@@ -63,10 +72,30 @@ if (!function_exists('wc_get_image_size')) {
     /** @return array<string,mixed> */
     function wc_get_image_size(string $size): array {
         if ($size === 'woocommerce_thumbnail' || $size === 'thumbnail') {
-            return woo_thumbnail_target_size();
+            $cacheKey = 'size-' . $size;
+            $cached = wp_cache_get($cacheKey, 'woocommerce');
+            if (is_array($cached)) {
+                return $cached;
+            }
+            $target = woo_thumbnail_target_size();
+            wp_cache_set($cacheKey, $target, 'woocommerce');
+            return $target;
         }
         return ['width' => 600, 'height' => '', 'crop' => 0];
     }
+}
+
+function woo_thumbnail_clear_size_cache(): void {
+    wp_cache_delete('size-thumbnail', 'woocommerce');
+    wp_cache_delete('size-woocommerce_thumbnail', 'woocommerce');
+}
+
+/** @return array<string,mixed> */
+function woo_thumbnail_register_image_size(): array {
+    woo_thumbnail_clear_size_cache();
+    $target = wc_get_image_size('thumbnail');
+    $GLOBALS['wooThumbnailRegisteredSizes']['woocommerce_thumbnail'] = $target;
+    return $target;
 }
 
 if (!function_exists('wp_image_matches_ratio')) {
@@ -158,7 +187,10 @@ function wp_generate_attachment_metadata(int $attachmentId, string $file): array
         --$attachment['editor_failures_remaining'];
         return new WP_Error('image_editor_failed', 'injected image editor failure');
     }
-    $target = wc_get_image_size('woocommerce_thumbnail');
+    $target = $GLOBALS['wooThumbnailRegisteredSizes']['woocommerce_thumbnail'] ?? null;
+    if (!is_array($target)) {
+        throw new RuntimeException('Woo thumbnail size was not registered at request bootstrap');
+    }
     $fullWidth = (int) $attachment['full_width'];
     $fullHeight = (int) $attachment['full_height'];
     if ($target['crop']) {
@@ -558,6 +590,48 @@ duo_check_same('target-runtime-hash', $optionRows['woocommerce_maybe_regenerate_
 duo_check_same('runtime-job', $optionRows['wp_1_wc_regenerate_images_batch_91'] ?? null,
     'authored apply preserves an existing target background job byte-for-byte');
 
+$GLOBALS['wooThumbnailThemeSupport'] = ['thumbnail_image_width' => 450];
+$themeRegistered = woo_thumbnail_register_image_size();
+wc_get_image_size('woocommerce_thumbnail');
+duo_check_same(450, $themeRegistered['width'] ?? null,
+    'the real Twenty Twenty-One precedence model keeps its 450px override above an authored option');
+$store->options['woocommerce_thumbnail_image_width'] = '300';
+wp_cache_delete('size-thumbnail', 'woocommerce');
+duo_check_same(450, wc_get_image_size('woocommerce_thumbnail')['width'] ?? null,
+    'clearing only size-thumbnail leaves the distinct WooCommerce thumbnail cache alias stale');
+$GLOBALS['wooThumbnailThemeSupport'] = null;
+woo_thumbnail_clear_size_cache();
+duo_check_same(300, wc_get_image_size('thumbnail')['width'] ?? null,
+    'process-local theme-support removal exposes the exact option-controlled 300px target');
+
+woo_thumbnail_seed_attachment(90, 800, 800, null);
+$staleRegistration = wp_generate_attachment_metadata(90, (string) get_attached_file(90));
+duo_check_same([450, 450], [
+    $staleRegistration['sizes']['woocommerce_thumbnail']['width'] ?? null,
+    $staleRegistration['sizes']['woocommerce_thumbnail']['height'] ?? null,
+], 'an option write alone cannot manufacture a 300px preimage after the request registered 450px');
+$registered300 = woo_thumbnail_register_image_size();
+$metadata300 = wp_generate_attachment_metadata(90, (string) get_attached_file(90));
+duo_check_same([300, 300, 300, 300], [
+    $registered300['width'] ?? null,
+    $registered300['height'] ?? null,
+    $metadata300['sizes']['woocommerce_thumbnail']['width'] ?? null,
+    $metadata300['sizes']['woocommerce_thumbnail']['height'] ?? null,
+], 'a fresh Woo registration makes native metadata generation consume the exact 300px square');
+$store->options['woocommerce_thumbnail_image_width'] = '500';
+woo_thumbnail_clear_size_cache();
+$stale300 = wp_generate_attachment_metadata(90, (string) get_attached_file(90));
+duo_check_same(300, $stale300['sizes']['woocommerce_thumbnail']['width'] ?? null,
+    'a 300-to-500 option transition stays on the boot-registered 300px size until Woo re-registers it');
+$registered500 = woo_thumbnail_register_image_size();
+$metadata500 = wp_generate_attachment_metadata(90, (string) get_attached_file(90));
+duo_check_same([500, 500, 500, 500], [
+    $registered500['width'] ?? null,
+    $registered500['height'] ?? null,
+    $metadata500['sizes']['woocommerce_thumbnail']['width'] ?? null,
+    $metadata500['sizes']['woocommerce_thumbnail']['height'] ?? null,
+], 'the next-request Woo registration converges the exact 300-to-500 native product path');
+
 WC_Regenerate_Images::init();
 WC_Post_Data::init();
 $relevantHooks = [];
@@ -688,6 +762,7 @@ duo_check_same(0, $GLOBALS['wooThumbnailAttachments'][105]['editor_attempts'],
 
 woo_thumbnail_seed_attachment(106, 800, 600, [500, 500, false]);
 $store->options['woocommerce_thumbnail_cropping'] = 'uncropped';
+woo_thumbnail_register_image_size();
 $uncropped = wp_get_attachment_image_src(106, 'woocommerce_thumbnail');
 duo_check_same([500, 375], [$uncropped[1] ?? null, $uncropped[2] ?? null],
     'cropped-to-uncropped transition follows the original aspect ratio on the next request');
@@ -702,6 +777,7 @@ duo_check_same(true, $uncroppedGenerated['sizes']['woocommerce_thumbnail']['uncr
 $store->options['woocommerce_thumbnail_cropping'] = 'custom';
 $store->options['woocommerce_thumbnail_cropping_custom_width'] = '4';
 $store->options['woocommerce_thumbnail_cropping_custom_height'] = '3';
+woo_thumbnail_register_image_size();
 woo_thumbnail_seed_attachment(107, 800, 600, [500, 500, false]);
 $customRatio = wp_get_attachment_image_src(107, 'woocommerce_thumbnail');
 duo_check_same([500, 375], [$customRatio[1] ?? null, $customRatio[2] ?? null],
@@ -713,6 +789,7 @@ unset(
     $store->options['woocommerce_thumbnail_cropping_custom_height'],
     $store->options['woocommerce_thumbnail_image_width']
 );
+woo_thumbnail_register_image_size();
 duo_check_same(['width' => 300, 'height' => 300, 'crop' => 1], wc_get_image_size('woocommerce_thumbnail'),
     'deleted/absent image options restore the exact 300-pixel square reader defaults');
 woo_thumbnail_seed_attachment(108, 800, 800, [300, 300, false]);
@@ -723,6 +800,7 @@ $store->options['woocommerce_thumbnail_cropping'] = 'custom';
 $store->options['woocommerce_thumbnail_cropping_custom_width'] = '1';
 $store->options['woocommerce_thumbnail_cropping_custom_height'] = '1';
 $store->options['woocommerce_thumbnail_image_width'] = '500';
+woo_thumbnail_register_image_size();
 woo_thumbnail_seed_attachment(109, 800, 600, [300, 300, false], true, true, false);
 $nonImage = wp_get_attachment_image_src(109, 'woocommerce_thumbnail');
 duo_check_same([500, 375], [$nonImage[1] ?? null, $nonImage[2] ?? null],
