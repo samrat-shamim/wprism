@@ -1919,11 +1919,23 @@ EOF
     [ "$UPGRADE_NOTE" = 'WooCommerce 11.0.0 to 11.0.1 upgrade 東京 🚀' ] \
       || fail "WooCommerce 11.0.1 did not preserve/apply the product authored during upgrade: $UPGRADE_NOTE"
     wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-upgrade-final
-    UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-woo-upgrade-final" || true)
+    UPGRADE_DIFF_RC=0
+    UPGRADE_DIFF=$(diff -r "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-woo-upgrade-final" 2>&1) \
+      || UPGRADE_DIFF_RC=$?
+    [ "$UPGRADE_DIFF_RC" -le 1 ] \
+      || fail "WooCommerce 11.0.0 to 11.0.1 in-place upgrade recapture comparison errored: $UPGRADE_DIFF"
+    if [ -n "$UPGRADE_DIFF" ]; then
+      UNEXPECTED_UPGRADE_DIFF=$(grep -Ev \
+        -e '^diff -r .*/state/posts/(product|product_variation)/[^ ]+ .*/\.tmp-woo-upgrade-final/posts/(product|product_variation)/[^ ]+$' \
+        -e '^[0-9]+(,[0-9]+)?c[0-9]+(,[0-9]+)?$' \
+        -e '^---$' \
+        -e '^[<>]     "modified(_gmt)?": "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}",$' \
+        <<<"$UPGRADE_DIFF" || true)
+      [ -z "$UNEXPECTED_UPGRADE_DIFF" ] \
+        || fail "WooCommerce 11.0.0 to 11.0.1 in-place upgrade recapture diverged outside declared derived product timestamps: $UPGRADE_DIFF"
+    fi
     rm -rf "siterepo/${PAIR}2/.tmp-woo-upgrade-final"
-    [ -z "$UPGRADE_DIFF" ] \
-      || fail "WooCommerce 11.0.0 to 11.0.1 in-place upgrade lost byte identity: $UPGRADE_DIFF"
-    pass 'populated woocommerce 11.0.0 -> 11.0.1 upgrade preserves native catalog/API behavior, applies cleanly, and recaptures byte-identically'
+    pass 'populated woocommerce 11.0.0 -> 11.0.1 upgrade preserves native catalog/API behavior, applies cleanly, and recaptures exactly modulo declared derived product timestamps'
 
     check_woocommerce_in_range_downgrade "$ARTIFACT_1" "$ARTIFACT_2"
   fi

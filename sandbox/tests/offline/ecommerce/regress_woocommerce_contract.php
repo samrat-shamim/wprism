@@ -2111,6 +2111,25 @@ woo_ok(
         && !str_contains($woocommerceMatrixHarness, 'exact-reinstall recapture lost byte identity'),
     'exact WooCommerce lifecycle recapture permits only manifest-declared product timestamp drift'
 );
+woo_ok(
+    str_contains(
+        $matrixHarness,
+        'in-place upgrade recapture diverged outside declared derived product timestamps'
+    )
+        && str_contains(
+            $matrixHarness,
+            "posts/(product|product_variation)/[^ ]+ .*/\\.tmp-woo-upgrade-final/posts/(product|product_variation)/[^ ]+"
+        )
+        && str_contains(
+            $matrixHarness,
+            'UPGRADE_DIFF=$(diff -r'
+        )
+        && !str_contains(
+            $matrixHarness,
+            'WooCommerce 11.0.0 to 11.0.1 in-place upgrade lost byte identity'
+        ),
+    'exact WooCommerce upgrade recapture permits only manifest-declared product timestamp drift'
+);
 woo_ok(str_contains($wooCheckHarness, 'wc_product_download_directories ORDER BY url_id')
     && !str_contains($wooCheckHarness, 'wc_product_download_directories ORDER BY id'),
     'provider-race storage evidence orders WooCommerce approved directories by the exact url_id primary key');
