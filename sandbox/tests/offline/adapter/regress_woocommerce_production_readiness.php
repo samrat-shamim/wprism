@@ -829,13 +829,18 @@ foreach (['no', 'YES', '', true, 1, ['yes']] as $hostileSentinel) {
     );
 }
 
-foreach (['color', 'display_type', 'icon', 'order', 'tracking_url_template'] as $metaKey) {
+foreach (['color', 'display_type', 'icon', 'tracking_url_template'] as $metaKey) {
     duo_check_same(
         ['class' => 'authored'],
         $interpreter->term_meta_rule($metaKey, []),
         "$metaKey is an exact WooCommerce-authored term field"
     );
 }
+duo_check_same(
+    ['class' => 'authored', 'lint_ok' => true],
+    $interpreter->term_meta_rule('order', []),
+    'attribute-term menu order is authored and audited as a numeric ordering scalar rather than an entity reference'
+);
 duo_check_same(
     ['class' => 'authored', 'ref' => 'post'],
     $interpreter->term_meta_rule('image', []),
@@ -906,6 +911,16 @@ foreach ([
         'authored',
         $policy->option_rule($optionName)['class'] ?? null,
         "$optionName is exact portable merchant-authored WooCommerce state"
+    );
+}
+foreach ([
+    'woocommerce_thumbnail_cropping_custom_height',
+    'woocommerce_thumbnail_cropping_custom_width',
+] as $optionName) {
+    duo_check_same(
+        true,
+        $policy->option_rule($optionName)['lint_ok'] ?? null,
+        "$optionName is audited as a numeric Customizer ratio dimension rather than an entity reference"
     );
 }
 foreach ([

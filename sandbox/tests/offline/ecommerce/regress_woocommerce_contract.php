@@ -7,8 +7,10 @@ declare(strict_types=1);
 
 define('DUO_SPEC_VERSION', 2);
 require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
+require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
 require dirname(__DIR__, 4) . '/agent/src/Code/Code.php';
 require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
+require dirname(__DIR__, 4) . '/agent/src/Review/Lint.php';
 
 use Duo\CaptureCandidateBuilder;
 use Duo\CommandRefusalException;
@@ -39,6 +41,7 @@ function woo_ok(bool $condition, string $message): void {
 $root = dirname(__DIR__, 4);
 require_once $root . '/sandbox/tests/lib/wp_stubs.php';
 require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
+require_once $root . '/sandbox/tests/lib/frozen_policy.php';
 require_once $root . '/agent/src/Capture/CaptureSafetyGates.php';
 require_once $root . '/agent/src/Capture/CaptureCandidateBuilder.php';
 if (!function_exists('get_taxonomies')) {
@@ -868,6 +871,11 @@ $wooConformanceManifest = json_decode(
 $wooSeedHarness = (string) file_get_contents($root . '/sandbox/conformance/seeds/woocommerce.sh');
 $wooPostdeployHarness = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/woocommerce.sh');
 $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
+$conformanceRunnerHarness = (string) file_get_contents($root . '/sandbox/conformance/run.sh');
+$conformanceAssertsHarness = (string) file_get_contents($root . '/sandbox/conformance/asserts.sh');
+$wooMultisiteHarness = (string) file_get_contents(
+    $root . '/sandbox/tests/live/regress_woocommerce_multisite_refusal.sh'
+);
 $wooRewriteCoInstallHarness = (string) file_get_contents(
     $root . '/sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh'
 );
@@ -1063,6 +1071,156 @@ woo_ok(count(array_filter(
     $candidate['entities'],
     static fn(array $entity): bool => ($entity['type'] ?? null) === 'options'
 )) === 1, 'the candidate completes its downstream options/capture assembly after term discovery');
+
+// Exact 11.0.1 conformance found these four legitimate numeric values by
+// running the real lint path: v3 attribute-term REST menu_order 7/3 and the
+// bounded Customizer thumbnail ratio 1/1 happened to match live entity ids.
+// Recreate that collision through Lint itself so a static flag assertion
+// cannot hide a future scanner/policy integration regression.
+$lintState = sys_get_temp_dir() . '/duo-woo-lint-' . bin2hex(random_bytes(6));
+mkdir($lintState . '/options', 0777, true);
+mkdir($lintState . '/terms/pa_conf-color', 0777, true);
+$lintLibrary = $lintState . '/manifest-library';
+mkdir($lintLibrary . '/interpreters', 0777, true);
+symlink($root . '/manifests/interpreters/woocommerce.php', $lintLibrary . '/interpreters/woocommerce.php');
+$previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
+putenv('DUO_MANIFESTS_DIR=' . $lintLibrary);
+$lintFiles = [
+    $lintState . '/options/core.json',
+    $lintState . '/terms/pa_conf-color/11111111-1111-5111-8111-111111111111--red.json',
+    $lintState . '/terms/pa_conf-color/22222222-2222-5222-8222-222222222222--blue.json',
+    $lintLibrary . '/woocommerce.json',
+    $lintLibrary . '/interpreters/woocommerce.php',
+];
+$lintDirs = [
+    $lintState . '/terms/pa_conf-color',
+    $lintState . '/terms',
+    $lintState . '/options',
+    $lintLibrary . '/interpreters',
+    $lintLibrary,
+    $lintState,
+];
+register_shutdown_function(static function () use ($lintFiles, $lintDirs, $previousManifestsDir): void {
+    putenv($previousManifestsDir === false
+        ? 'DUO_MANIFESTS_DIR'
+        : 'DUO_MANIFESTS_DIR=' . $previousManifestsDir);
+    foreach ($lintFiles as $file) {
+        if (is_file($file)) {
+            unlink($file);
+        }
+    }
+    foreach ($lintDirs as $dir) {
+        if (is_dir($dir)) {
+            rmdir($dir);
+        }
+    }
+});
+file_put_contents($lintFiles[0], \Duo\Canon::encode([
+    'format' => 'duo-options/v1',
+    'records' => [
+        'woocommerce_thumbnail_cropping_custom_height' => [
+            'autoload' => 'auto',
+            'state' => 'present',
+            'value' => '1',
+        ],
+        'woocommerce_thumbnail_cropping_custom_width' => [
+            'autoload' => 'auto',
+            'state' => 'present',
+            'value' => '1',
+        ],
+    ],
+]));
+foreach ([
+    [$lintFiles[1], 'Red', 'red', '7'],
+    [$lintFiles[2], 'Blue', 'blue', '3'],
+] as [$file, $name, $slug, $order]) {
+    file_put_contents($file, \Duo\Canon::encode([
+        'description' => '',
+        'meta' => ['order' => $order],
+        'name' => $name,
+        'parent' => null,
+        'relationships' => (object) [],
+        'slug' => $slug,
+        'taxonomy' => 'pa_conf-color',
+        'uuid' => str_contains($file, '--red.json')
+            ? '11111111-1111-5111-8111-111111111111'
+            : '22222222-2222-5222-8222-222222222222',
+    ]));
+}
+\DuoTest\WpStore::reset()->seedOptions(['home' => 'https://woo-lint.test']);
+\DuoTest\FakeWpdb::install()->seedTable('wp_posts', [
+    ['ID' => 1, 'post_type' => 'attachment', 'post_title' => 'Placeholder', 'post_status' => 'inherit'],
+    ['ID' => 3, 'post_type' => 'page', 'post_title' => 'Cart', 'post_status' => 'publish'],
+    ['ID' => 7, 'post_type' => 'page', 'post_title' => 'Catalog', 'post_status' => 'publish'],
+]);
+$lintPolicy = static function (array $wooManifest) use ($lintLibrary): Policy {
+    return Policy::from_snapshot(\DuoTest\FrozenPolicy::envelope(
+        [$wooManifest],
+        \DuoTest\FrozenPolicy::site([$wooManifest], DUO_SPEC_VERSION),
+        $lintLibrary
+    ));
+};
+$preReviewManifest = $manifest;
+unset(
+    $preReviewManifest['term_meta']['order']['lint_ok'],
+    $preReviewManifest['options']['woocommerce_thumbnail_cropping_custom_height']['lint_ok'],
+    $preReviewManifest['options']['woocommerce_thumbnail_cropping_custom_width']['lint_ok']
+);
+$preReviewFindings = \Duo\Lint::scan_tree(
+    $lintState,
+    $lintPolicy($preReviewManifest),
+    \Duo\LintEnvironment::live()
+);
+$preReviewLocators = array_column($preReviewFindings, 'locator');
+sort($preReviewLocators, SORT_STRING);
+woo_ok($preReviewLocators === [
+    'meta.order',
+    'meta.order',
+    'options.woocommerce_thumbnail_cropping_custom_height',
+    'options.woocommerce_thumbnail_cropping_custom_width',
+] && array_values(array_unique(array_column($preReviewFindings, 'class'))) === ['bare_id'],
+'the pre-review Woo policy reproduces all four exact bare-id collisions through the product linter');
+woo_ok(
+    \Duo\Lint::scan_tree($lintState, $lintPolicy($manifest), \Duo\LintEnvironment::live()) === [],
+    'the shipped Woo policy audits the exact term-order and thumbnail-dimension scalars without suppressing other keys'
+);
+foreach ($lintFiles as $file) {
+    unlink($file);
+}
+foreach ($lintDirs as $dir) {
+    rmdir($dir);
+}
+putenv($previousManifestsDir === false
+    ? 'DUO_MANIFESTS_DIR'
+    : 'DUO_MANIFESTS_DIR=' . $previousManifestsDir);
+$hposHarnesses = [
+    $conformanceRunnerHarness,
+    $wooPostdeployHarness,
+    $matrixHarness,
+    $wooMultisiteHarness,
+    $wooRewriteCoInstallHarness,
+];
+$executableHposCli = array_filter(
+    $hposHarnesses,
+    static fn(string $harness): bool => preg_match('/^[[:space:]]*[^#\r\n]*\bwc[[:space:]]+hpos[[:space:]]+enable\b/m', $harness) === 1
+);
+woo_ok(
+    substr_count($conformanceAssertsHarness, 'establish_woocommerce_hpos()') === 1
+        && str_contains($conformanceAssertsHarness, 'WC_Install::maybe_enable_hpos();')
+        && str_contains($conformanceAssertsHarness, 'WC_Install::create_tables();')
+        && str_contains($conformanceAssertsHarness, 'OrderUtil::custom_orders_table_usage_is_enabled()')
+        && str_contains($conformanceAssertsHarness, 'DataSynchronizer::class')
+        && str_contains($conformanceAssertsHarness, 'check_orders_table_exists()')
+        && preg_match_all('/^[[:space:]]*establish_woocommerce_hpos[[:space:]]+(?:wp_env|wp_conf2)\b/m', $conformanceRunnerHarness) === 2
+        && preg_match_all('/^[[:space:]]*establish_woocommerce_hpos[[:space:]]+wp_conf2\b/m', $wooPostdeployHarness) === 1
+        && preg_match_all('/^[[:space:]]*establish_woocommerce_hpos[[:space:]]+wp1\b/m', $matrixHarness) === 3
+        && preg_match_all('/^[[:space:]]*establish_woocommerce_hpos[[:space:]]+wp1\b/m', $wooMultisiteHarness) === 1
+        && preg_match_all('/^[[:space:]]*establish_woocommerce_hpos[[:space:]]+"wp\$side"/m', $wooRewriteCoInstallHarness) === 1
+        && strpos($wooPostdeployHarness, 'establish_woocommerce_hpos wp_conf2')
+            < strpos($wooPostdeployHarness, 'wc_create_order()')
+        && $executableHposCli === [],
+    'every exact Woo live track establishes and verifies HPOS through one warning-free native new-shop helper before orders'
+);
 
 // The live conformance script is the candidate proof, but this offline pin
 // holds its twelve reviewed families to one source/target/check topology.

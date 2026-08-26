@@ -149,7 +149,8 @@ file_put_contents('/siterepo/.tmp-woocommerce-target.json', wp_json_encode([
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 " >/dev/null
 
-wp_conf2 wc hpos enable >/dev/null
+establish_woocommerce_hpos wp_conf2 >/dev/null \
+  || fail "could not establish HPOS through WooCommerce's native new-shop lifecycle on conf2"
 TARGET_ORDER_ID=$(wp_conf2 eval '
 $existing = wc_get_orders(["billing_email" => "target-runtime@example.test", "limit" => 1, "return" => "ids"]);
 if ($existing) { echo (int) $existing[0]; return; }

@@ -208,7 +208,8 @@ export DUO_PAIR="$CONF_PAIR" DUO_PORT1="$CONF1_PORT" DUO_PORT2="$CONF2_PORT"
 export COMPOSE CONF1_PORT CONF2_PORT
 export -f wp_env wp_conf1 wp_conf2 say pass fail \
   require_fixture_ids require_fixture_values require_fixture_state \
-  require_duo_answered capture_duo_json_success require_observed_nonempty
+  require_duo_answered capture_duo_json_success require_observed_nonempty \
+  establish_woocommerce_hpos
 
 # DUO-3377: a sweep IS evidence, so it must be able to state which
 # agent/manifests bytes produced it. CONF_EXPECTED_SOURCE_SHA=$(git rev-parse
@@ -309,7 +310,10 @@ install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
   if [ "$role" = author ]; then
     case "$SETUP" in
       "") ;;
-      hpos) wp_env "$env" wc hpos enable || fail "could not enable HPOS on $env" ;;
+      hpos)
+        establish_woocommerce_hpos wp_env "$env" \
+          || fail "could not establish HPOS through WooCommerce's native new-shop lifecycle on $env"
+        ;;
       block-theme) wp_env "$env" theme activate twentytwentyfive || fail "could not activate twentytwentyfive on $env" ;;
       *) fail "unknown setup hook '$SETUP' for manifest '$MANIFEST'" ;;
     esac
@@ -486,12 +490,13 @@ case "$SETUP" in
   hpos)
     # WooCommerce is active on conf2 now (deploy, just above). HPOS is a
     # feature FLAG, not activation state, so deploy (activation/theme only)
-    # never touches it — enable it explicitly, the same call conf1's
-    # install_env made pre-capture. Must happen before `duo apply` below:
+    # never owns it. Re-run Woo's idempotent new-shop lifecycle and verify
+    # both the selected store and physical table. Must happen before `duo apply` below:
     # apply is about to write order data, and it needs to land in whichever
     # storage backend HPOS selects — same reason conf1 needed it enabled
     # before its seed authored any orders.
-    wp_conf2 wc hpos enable || fail "could not enable HPOS on conf2 (post-deploy)"
+    establish_woocommerce_hpos wp_conf2 \
+      || fail "could not verify HPOS through WooCommerce's native lifecycle on conf2 (post-deploy)"
     ;;
   block-theme)
     # Nothing left to do — deploy's switch_theme() call above already put

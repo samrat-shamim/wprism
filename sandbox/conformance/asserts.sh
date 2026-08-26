@@ -67,6 +67,29 @@ require_observed_nonempty() { # require_observed_nonempty <what> <captured value
     || fail "infrastructure failure: $1 returned no bytes — a load-starved docker compose run can exit 0 with empty stdout, which hashes to the empty-string digest e3b0c442… and would falsely accuse the engine of mutating the target; nothing here is measuring the engine"
 }
 
+# Exact WooCommerce 11.0.0/11.0.1 new-shop setup. Its `wc hpos enable` CLI
+# deliberately emits "Orders table does not exist. Creating..." on a fresh
+# database, which makes an otherwise successful evidence run non-green. Drive
+# Woo's public install lifecycle instead, then independently require both the
+# selected order store and the physical HPOS table before any order fixture.
+establish_woocommerce_hpos() { # <wp command/function> [arguments before eval]
+  local wp_command="$1"
+  shift
+  command -v "$wp_command" >/dev/null \
+    || fail "establish_woocommerce_hpos: unknown wp command '$wp_command'"
+  "$wp_command" "$@" eval '
+WC_Install::maybe_enable_hpos();
+WC_Install::create_tables();
+if (!\Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
+    throw new RuntimeException("WooCommerce native new-shop lifecycle did not enable HPOS");
+}
+$synchronizer = wc_get_container()->get(\Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer::class);
+if (!$synchronizer->check_orders_table_exists()) {
+    throw new RuntimeException("WooCommerce native new-shop lifecycle did not create the HPOS orders table");
+}
+'
+}
+
 # DUO-3391: the sibling failure domain, and the residual path DUO-3381
 # deliberately did not cover. The three helpers above assert that a hook's own
 # FIXTURE landed; this one asserts that the duo INVOCATION the hook then makes

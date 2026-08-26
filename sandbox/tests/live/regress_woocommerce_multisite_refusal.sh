@@ -243,7 +243,8 @@ pass 'exact WooCommerce 11.0.1 plugin tree is installed, active, and HPOS-enable
 
 say 'seed the populated native WooCommerce graph'
 . conformance/seeds/woocommerce.sh
-wp1 wc hpos enable >/dev/null
+establish_woocommerce_hpos wp1 >/dev/null \
+  || fail "could not establish HPOS through WooCommerce's native new-shop lifecycle"
 woo_identity
 wp1 option update duo_woocommerce_multisite_canary untouched >/dev/null
 

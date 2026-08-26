@@ -144,8 +144,8 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * native rewrite action to declare TEC's rewrite-listener effects. The
  * reviewed Polylang production-readiness port then rewrote its manifest,
  * interpreter/provider set, and per-subject disposition. WooCommerce's final
- * production-readiness review moves its disposition reason. Rule 2 makes all
- * four fleet-visible BY DESIGN.
+ * production-readiness review moves its manifest lint declarations and
+ * disposition reason. Rule 2 makes all four fleet-visible BY DESIGN.
  *
  * The 12 frozen digests above are NOT regenerated — this is an overlay, and
  * PART 1 asserts the moved set is exactly these four. A fifth adapter is a
@@ -160,11 +160,11 @@ const SPLIT_REVIEWED_MOVED_DIGESTS = [
     'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
     'polylang' => '99d82ecc6402fda3a8d651d56ca07ae4a73836947ed5f2ecca11c0df4472e9a4',
     'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
-    'woocommerce' => '91ddbf38c323ad456c0faed5925eaae94d07f8a84d76b9dfd688d989f032898f',
+    'woocommerce' => '6413c90a81585578f929c054ee2c78d40f43215cdc0ab58760f8c90875ffcaab',
 ];
-const SPLIT_REVIEWED_MANIFEST_HASH = '6218a89899a178d2a5860798a8cb5cb0dacb998309adb0c8dac52972d7991dfb';
+const SPLIT_REVIEWED_MANIFEST_HASH = '59edc970b479ebfbf602d8fd5e1061f42dfa91b0001fcac0d57be4ec69cbef4a';
 const SPLIT_REVIEWED_REGISTRY_SHA = '9fba173b9899e510796e94a82b653f85a665f10da4c91f35a8917849cd1d3d5f';
-const SPLIT_REVIEWED_SNAPSHOT_SHA = '0b391c50a9df597451e1ccd802d06b78a9c1b9a0157fbc200c0c4609759a9fbc';
+const SPLIT_REVIEWED_SNAPSHOT_SHA = 'db7da4c1e77c7c05e4c88c2c0db9ea1dcac1c5e24436aba4af22bd4e24fb299c';
 
 putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
 $shippedRegistry = ManifestDispositions::load($manifestDir);

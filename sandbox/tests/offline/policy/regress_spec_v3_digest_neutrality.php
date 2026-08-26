@@ -33,8 +33,9 @@
  * `manifests/core.json`'s native rewrite action to declare TEC's rewrite
  * listener effects. The reviewed post-flag Polylang production-readiness port
  * likewise rewrote `manifests/polylang.json` and its per-subject disposition;
- * WooCommerce's final review moves its per-subject disposition reason. Under
- * AGENTS.md rule 2 those four adapters' digests move BY DESIGN, and
+ * WooCommerce's final review moves its manifest lint declarations and its
+ * per-subject disposition reason. Under AGENTS.md rule 2 those four adapters'
+ * digests move BY DESIGN, and
  * they post-date the flag day, so their frozen numbers are no longer shipped.
  *
  * Re-freezing the whole fixture at today's tree was the obvious repair and is
@@ -163,22 +164,22 @@ const REVIEWED_MOVES = [
         // .json promoted experimental -> certified. Both halves are inside the
         // digest row, so one number carries both.
         'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
-        // WooCommerce production readiness extends reviewed evidence without
-        // changing manifest/hook bytes; the disposition is still identity.
-        'woocommerce' => '91ddbf38c323ad456c0faed5925eaae94d07f8a84d76b9dfd688d989f032898f',
+        // WooCommerce production readiness extends reviewed evidence and
+        // audits three numeric lint exemptions in the shipped manifest.
+        'woocommerce' => '6413c90a81585578f929c054ee2c78d40f43215cdc0ab58760f8c90875ffcaab',
     ],
     'manifest_bytes_sha256' => [
         'core' => 'a2f673cd4107e7b32cc6cfff6e84e7f6aca68b789234cbc8c686458fee4de5b3',
         'polylang' => 'db7130aecf89217cdca8f6591f4481391f61ae84632478f89191bdda74b488d3',
         'the-events-calendar' => '0c72e83a62ba5d461d975fd5380f49eab139d5413edaade07f7f47e396d80729',
-        'woocommerce' => '0d2e7fc210a3da2d8df74d192f5e03b0d44720660b8aa7302647ab6d83ff6271',
+        'woocommerce' => '968c1c8ac7dcb9ce194a380f8fd3070eea344b3bb83fccf4201592e30cffd4a9',
     ],
     'pin_sets' => [
-        'all-16' => '6218a89899a178d2a5860798a8cb5cb0dacb998309adb0c8dac52972d7991dfb',
+        'all-16' => '59edc970b479ebfbf602d8fd5e1061f42dfa91b0001fcac0d57be4ec69cbef4a',
         'core+elementor+yoast+contact-form-7' => '52200323db9516a2eb7b5738540534aa58e9115c04fb3ddf0b182ea4089d27f9',
         'core+paid-memberships-pro+code-snippets' => '9d89e59d838e145cbd64c6b172ad5634886bdae6ea027eb8f41e57bcd1b048dc',
         'core+polylang+the-events-calendar' => '1d26c4687a24e143c8a24045ba85b370bd6d3aad11b16898b4f13966ba76e6e6',
-        'core+woocommerce+acf' => 'c1c0acf2dbbe40c21fd201c6dde708c579fbe4ac20dc22ca5c9dc255a389326b',
+        'core+woocommerce+acf' => 'e6335b981e46f82e94a6a1f7479628da4f3aa396d8ff3c33cd61c8270cae2f20',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC

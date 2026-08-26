@@ -7,6 +7,7 @@ cd "$(dirname "$0")/../.."
 say() { printf '\n== %s ==\n' "$*"; }
 pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. conformance/asserts.sh
 
 PAIR="${WOO_REWRITE_COINSTALL_PAIR:-woorewrite}"
 PORT1="${WOO_REWRITE_COINSTALL_PORT1:-8978}"
@@ -107,7 +108,8 @@ for side in 1 2; do
   install "$side" polylang 3.8.6
   install "$side" the-events-calendar 6.17.2
   "wp$side" site empty --yes >/dev/null
-  "wp$side" wc hpos enable >/dev/null
+  establish_woocommerce_hpos "wp$side" >/dev/null \
+    || fail "side $side could not establish HPOS through WooCommerce's native new-shop lifecycle"
 done
 assert_live_source_file_hashes 1
 assert_live_source_file_hashes 2

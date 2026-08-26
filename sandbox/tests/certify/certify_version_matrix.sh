@@ -1805,7 +1805,8 @@ for WOO_VERSION in 11.0.0 11.0.1; do
   wp1 plugin install "$ARTIFACT_1" --activate >/dev/null
   INSTALLED_1=$(wp1 plugin get woocommerce --field=version)
   [ "$INSTALLED_1" = "$WOO_VERSION" ] || fail "side 1 installed version mismatch: expected $WOO_VERSION, got $INSTALLED_1"
-  wp1 wc hpos enable >/dev/null
+  establish_woocommerce_hpos wp1 >/dev/null \
+    || fail "side 1 could not establish HPOS through WooCommerce's native new-shop lifecycle"
   pass "side 1: woocommerce $WOO_VERSION installed from verified artifact, active, HPOS enabled"
 
   cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
@@ -2844,7 +2845,8 @@ NEGATIVE_INSTALLED=$(wp1 plugin get woocommerce --field=version)
 require_fixture_values NEGATIVE_INSTALLED
 [ "$NEGATIVE_INSTALLED" = "11.0.0" ] \
   || fail "negative control premise did not install exact woocommerce 11.0.0 bytes"
-wp1 wc hpos enable >/dev/null
+establish_woocommerce_hpos wp1 >/dev/null \
+  || fail "negative-control source could not establish HPOS through WooCommerce's native new-shop lifecycle"
 cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {
   "manifests": ["core", "woocommerce"],
@@ -2901,7 +2903,8 @@ IN_RANGE_ARTIFACT=$(fetch_artifact woocommerce 11.0.1 cli1)
 wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
 [ "$(wp1 plugin get woocommerce --field=version)" = "11.0.1" ] \
   || fail "upper-bound premise did not install exact WooCommerce 11.0.1 bytes"
-wp1 wc hpos enable >/dev/null
+establish_woocommerce_hpos wp1 >/dev/null \
+  || fail "upper-bound source could not establish HPOS through WooCommerce's native new-shop lifecycle"
 cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {
   "manifests": ["core", "woocommerce"],
