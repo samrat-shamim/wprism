@@ -1720,7 +1720,8 @@ $conformanceFamilyWitnesses = [
         'lookup-schema failure retains authored intent and retry authority',
     ]],
     'concurrency-idempotence' => [$wooCheckHarness, [
-        'DUO_TEST_PROMOTION_PAUSE_MS=10000',
+        'DUO_TEST_PROMOTION_PAUSE_MS=30000',
+        'CONCURRENT_PAUSE_OBSERVED_AT))" -lt 25',
         'process_fence_held',
         'deterministic WooCommerce provider race refuses the loser',
     ]],
@@ -1750,6 +1751,10 @@ foreach ($conformanceFamilyWitnesses as $family => [$harness, $witnesses]) {
     woo_ok(count($witnesses) >= 3 && $missingWitnesses === [],
         "WooCommerce $family conformance remains bound to its native hostile/recovery witnesses");
 }
+$applyPreparationSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyPreparationCoordinator.php');
+woo_ok(str_contains($applyPreparationSource, '$pauseMs > 0 && $pauseMs <= 30000')
+    && !str_contains($applyPreparationSource, '$pauseMs > 0 && $pauseMs <= 10000'),
+    'the bounded test-only promotion pause covers the full Woo provider mutation guard');
 $codBoundaryStart = strpos($wooCheckHarness, "FAKE_SECRET='AKIAABCDEFGHIJKLMNOP'");
 $codBoundaryEnd = $codBoundaryStart === false
     ? false
@@ -1961,6 +1966,23 @@ foreach ([
     woo_ok(str_contains($wooCheckHarness, $reviewCheckWitness),
         "customer-review native route fixture pins $reviewCheckWitness");
 }
+foreach ([
+    '$project_stock([$simple, $small], 0, "outofstock")',
+    '$project_parent_status($variable, "outofstock")',
+    'target-local stock projection did not converge exactly',
+    '$project_stock([$simple, $small], 5, "instock")',
+    '$project_parent_status($variable, "instock")',
+] as $stockProjectionWitness) {
+    woo_ok(str_contains($wooCheckHarness, $stockProjectionWitness),
+        "repeatable target-stock projection pins $stockProjectionWitness");
+}
+woo_ok(
+    strpos($wooCheckHarness, '$project_stock([$simple, $small], 0, "outofstock")')
+        < strpos($wooCheckHarness, '$blocked_without_target_stock = !$empty_stock_cart->add_to_cart')
+        && strpos($wooCheckHarness, '$blocked_without_target_stock = !$empty_stock_cart->add_to_cart')
+        < strpos($wooCheckHarness, '$project_stock([$simple, $small], 5, "instock")'),
+    'each lifecycle invocation establishes the empty-stock premise before proving target-local stock'
+);
 foreach ([
     'THUMBNAIL_LAZY_RC=0',
     'THUMBNAIL_LAZY_RAW=$($COMPOSE run',
@@ -2207,6 +2229,7 @@ foreach ([
     '.links_model=="PLL_Links_Directory"',
     '.sitemaps=="PLL_Sitemaps"',
     'Polylang sitemap rewrite callback is not the runtime-owned sitemap service',
+    '["product_base","category_base","tag_base","attribute_base","use_verbose_page_rules"]',
     '$wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name=%s LIMIT 1","rewrite_rules")',
     '$bytes="<?php\\nadd_filter(\\"clean_url\\",static fn(\\$url)=>\\$url,10,3);\\n"',
     'duo-woo-polylang-dynamic-hostile.php',
@@ -2228,5 +2251,7 @@ woo_ok(!str_contains($wooRewriteCoInstallHarness, '[[$yoast,"filter_rewrite_rule
     'co-install callback identity tuples keep the callable nested separately from priority and arity');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, 'option_name="rewrite_rules"'),
     'co-install durable-rule observation uses a parse-safe prepared query');
+woo_ok(!str_contains($wooRewriteCoInstallHarness, '["product_base","category_base","attribute_base","tag_base","use_verbose_page_rules"]'),
+    'co-install permalink fixtures retain WooCommerce native key order across fresh bootstraps');
 
 echo "PASS: WooCommerce 11.0.x option/table inventory and rebuild contract are explicit\n";

@@ -272,7 +272,7 @@ final class ApplyPreparationCoordinator {
         ($this->renewPromotionLock)('precondition-recheck');
         if (getenv('DUO_TEST_MODE') === '1') {
             $pauseMs = (int) (getenv('DUO_TEST_PROMOTION_PAUSE_MS') ?: 0);
-            if ($pauseMs > 0 && $pauseMs <= 10000) {
+            if ($pauseMs > 0 && $pauseMs <= 30000) {
                 usleep($pauseMs * 1000);
             }
         }

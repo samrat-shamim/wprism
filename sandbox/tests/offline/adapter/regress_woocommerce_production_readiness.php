@@ -1771,7 +1771,7 @@ duo_check(
 );
 $checksScript = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
 foreach ([
-    'DUO_TEST_PROMOTION_PAUSE_MS=10000',
+    'DUO_TEST_PROMOTION_PAUSE_MS=30000',
     'process_fence_held',
     'woocommerce_provider_guard',
     'provider:woocommerce-product-lookups/rebuild_product_lookups',

@@ -152,7 +152,7 @@ git init --bare -b main "$ORIGIN" >/dev/null
 say 'source: real directory-mode Polylang plus exact five-key Woo source row'
 wp1 eval '
 update_option("permalink_structure","/%postname%/");
-update_option("woocommerce_permalinks",["product_base"=>"store/%product_cat%","category_base"=>"catalog","attribute_base"=>"feature","tag_base"=>"label","use_verbose_page_rules"=>true]);
+update_option("woocommerce_permalinks",["product_base"=>"store/%product_cat%","category_base"=>"catalog","tag_base"=>"label","attribute_base"=>"feature","use_verbose_page_rules"=>true]);
 $lang=PLL()->model->add_language(["locale"=>"en_US","name"=>"English","slug"=>"en","rtl"=>false,"term_group"=>0,"no_default_cat"=>true]);
 if(is_wp_error($lang)||!$lang instanceof PLL_Language){throw new RuntimeException("could not create the Polylang language");}
 $product=new WC_Product_Simple();
@@ -367,7 +367,7 @@ pass 'real callback identities, Yoast durable/effective rules, and TEC marker ro
 say 'hostile clean_url refusal must restore the captured product route, then retry'
 wp1 eval '
 $value=get_option("woocommerce_permalinks");
-if(!is_array($value)||array_keys($value)!==["product_base","category_base","attribute_base","tag_base","use_verbose_page_rules"]){throw new RuntimeException("five-key source witness changed");}
+if(!is_array($value)||array_keys($value)!==["product_base","category_base","tag_base","attribute_base","use_verbose_page_rules"]){throw new RuntimeException("five-key source witness changed");}
 $value["product_base"]="catalogue/%product_cat%";update_option("woocommerce_permalinks",$value);
 ' >/dev/null
 wp1 duo capture --repo=/siterepo >/dev/null
@@ -381,8 +381,8 @@ SOURCE=$(witness 1)
 echo "$SOURCE" | jq -e '
   .woo!=null and (.woo.id|type=="number") and (.woo.autoload|type=="string") and
   (.woo.value_base64|type=="string" and length>0) and
-  .woo.keys==["product_base","category_base","attribute_base","tag_base","use_verbose_page_rules"] and
-  (.woo.value|type=="object" and keys_unsorted==["product_base","category_base","attribute_base","tag_base","use_verbose_page_rules"])
+  .woo.keys==["product_base","category_base","tag_base","attribute_base","use_verbose_page_rules"] and
+  (.woo.value|type=="object" and keys_unsorted==["product_base","category_base","tag_base","attribute_base","use_verbose_page_rules"])
 ' >/dev/null || fail "source Woo raw five-key witness is not exact: $SOURCE"
 SOURCE_ROUTE=$(product_route 1)
 echo "$SOURCE_ROUTE" | jq -e '.language=="en" and (.path|startswith("/en/catalogue/")) and (.path|endswith("/rewrite-coinstall-product/")) and .resolved==.id' >/dev/null || fail "source route does not exercise the directory-mode Woo grammar: $SOURCE_ROUTE"
@@ -423,7 +423,7 @@ pass 'closed sanitizer refusal restored raw witnesses; retry retained target row
 say 'a third-party Polylang dynamic rewrite callback must refuse without an unreceipted generation, then retry'
 wp1 eval '
 $value=get_option("woocommerce_permalinks");
-if(!is_array($value)||array_keys($value)!==["product_base","category_base","attribute_base","tag_base","use_verbose_page_rules"]){throw new RuntimeException("five-key source witness changed before Polylang refusal");}
+if(!is_array($value)||array_keys($value)!==["product_base","category_base","tag_base","attribute_base","use_verbose_page_rules"]){throw new RuntimeException("five-key source witness changed before Polylang refusal");}
 $value["product_base"]="atelier/%product_cat%";
 update_option("woocommerce_permalinks",$value);
 ' >/dev/null

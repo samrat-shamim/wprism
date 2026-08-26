@@ -952,6 +952,54 @@ $variable = (int) get_post_field("post_parent", $small);
 $parent_prices = $wpdb->get_col($wpdb->prepare("SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id=%d AND meta_key=\"_price\" ORDER BY meta_value+0", $variable));
 $lookup = $wpdb->get_row($wpdb->prepare("SELECT min_price,max_price FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id=%d", $variable), ARRAY_A);
 $sale = as_next_scheduled_action("wc_product_end_scheduled_sale", ["product_id" => $simple], "woocommerce-sales");
+$project_stock = static function (array $ids, int $quantity, string $status) use ($wpdb): void {
+  foreach ($ids as $id) {
+    update_post_meta($id, "_stock", (string) $quantity);
+    update_post_meta($id, "_stock_status", $status);
+    $wpdb->last_error = "";
+    $updated = $wpdb->update(
+      $wpdb->prefix . "wc_product_meta_lookup",
+      ["stock_quantity" => $quantity, "stock_status" => $status],
+      ["product_id" => $id],
+      ["%f", "%s"],
+      ["%d"]
+    );
+    $row = $wpdb->get_row($wpdb->prepare(
+      "SELECT stock_quantity,stock_status FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id=%d", $id
+    ), ARRAY_A);
+    if ($updated === false || $wpdb->last_error !== "" || !is_array($row)
+        || get_post_meta($id, "_stock", true) !== (string) $quantity
+        || get_post_meta($id, "_stock_status", true) !== $status
+        || (float) ($row["stock_quantity"] ?? -1) !== (float) $quantity
+        || (string) ($row["stock_status"] ?? "") !== $status) {
+      throw new RuntimeException("target-local stock projection did not converge exactly");
+    }
+    clean_post_cache($id);
+    wc_delete_product_transients($id);
+  }
+};
+$project_parent_status = static function (int $id, string $status) use ($wpdb): void {
+  update_post_meta($id, "_stock_status", $status);
+  $wpdb->last_error = "";
+  $updated = $wpdb->update(
+    $wpdb->prefix . "wc_product_meta_lookup",
+    ["stock_status" => $status],
+    ["product_id" => $id],
+    ["%s"],
+    ["%d"]
+  );
+  $row_status = $wpdb->get_var($wpdb->prepare(
+    "SELECT stock_status FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id=%d", $id
+  ));
+  if ($updated === false || $wpdb->last_error !== ""
+      || get_post_meta($id, "_stock_status", true) !== $status || $row_status !== $status) {
+    throw new RuntimeException("target-local parent stock projection did not converge exactly");
+  }
+  clean_post_cache($id);
+  wc_delete_product_transients($id);
+};
+$project_stock([$simple, $small], 0, "outofstock");
+$project_parent_status($variable, "outofstock");
 $empty_stock_cart = new WC_Cart();
 $blocked_without_target_stock = !$empty_stock_cart->add_to_cart($simple, 1);
 // Stock is runtime by contract, so establish target-local inventory without
@@ -962,29 +1010,8 @@ $blocked_without_target_stock = !$empty_stock_cart->add_to_cart($simple, 1);
 // check is about target-local stock, so do not introduce unrelated observed
 // timestamp churn here. Keep the derived lookup in sync just as a stock write
 // does, while leaving the post rows untouched.
-foreach ([$simple, $small] as $stocked_id) {
-  update_post_meta($stocked_id, "_stock", "5");
-  update_post_meta($stocked_id, "_stock_status", "instock");
-  $wpdb->update(
-    $wpdb->prefix . "wc_product_meta_lookup",
-    ["stock_quantity" => 5, "stock_status" => "instock"],
-    ["product_id" => $stocked_id],
-    ["%f", "%s"],
-    ["%d"]
-  );
-  clean_post_cache($stocked_id);
-  wc_delete_product_transients($stocked_id);
-}
-update_post_meta($variable, "_stock_status", "instock");
-$wpdb->update(
-  $wpdb->prefix . "wc_product_meta_lookup",
-  ["stock_status" => "instock"],
-  ["product_id" => $variable],
-  ["%s"],
-  ["%d"]
-);
-clean_post_cache($variable);
-wc_delete_product_transients($variable);
+$project_stock([$simple, $small], 5, "instock");
+$project_parent_status($variable, "instock");
 $cart = new WC_Cart();
 $simple_added = (bool) $cart->add_to_cart($simple, 1);
 $variation = wc_get_product($small);
@@ -1738,7 +1765,7 @@ CONCURRENT_LOSER="$CONF_REPO2/.tmp-woocommerce-provider-loser.log"
 CONCURRENT_BEFORE=$(woocommerce_provider_guard)
 woo_apply_test() {
   $COMPOSE run --rm -T \
-    -e DUO_TEST_MODE=1 -e DUO_TEST_PROMOTION_PAUSE_MS=10000 \
+    -e DUO_TEST_MODE=1 -e DUO_TEST_PROMOTION_PAUSE_MS=30000 \
     cli2 sh -c 'umask 000; exec wp "$@"' sh "$@"
 }
 set +e
@@ -1770,7 +1797,7 @@ jq -e '
 CONCURRENT_AFTER_LOSER=$(woocommerce_provider_guard)
 [ "$($COMPOSE run --rm -T cli2 wp eval 'echo (\Duo\PromotionLock::current()["phase"] ?? "");' 2>/dev/null | tail -1)" = precondition-recheck ] \
   || fail 'WooCommerce promotion holder left the deterministic pause during the loser mutation guard'
-[ "$(($(date +%s) - CONCURRENT_PAUSE_OBSERVED_AT))" -lt 8 ] \
+[ "$(($(date +%s) - CONCURRENT_PAUSE_OBSERVED_AT))" -lt 25 ] \
   || fail 'WooCommerce contender evidence exceeded the bounded promotion-pause window'
 [ "$CONCURRENT_AFTER_LOSER" = "$CONCURRENT_BEFORE" ] \
   || fail 'WooCommerce race loser mutated authored or provider-derived state'
