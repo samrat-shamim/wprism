@@ -7043,23 +7043,11 @@ function tec_readiness_materialize_mixed_option(
         $desiredRecord = $desiredPresent
             ? \Duo\OptionState::present($desired, $desiredAutoload)
             : \Duo\OptionState::absent();
-        $yoastCallbacksSuspended = false;
-        $yoastServices = $GLOBALS['tec_readiness_woo_services'] ?? null;
-        if (is_array($yoastServices) && function_exists('tec_readiness_suspend_yoast_option_callbacks')) {
-            tec_readiness_suspend_yoast_option_callbacks($yoastServices);
-            $yoastCallbacksSuspended = true;
-        }
-        try {
-            $optionsMaterializer->apply_options(
-                \Duo\OptionState::document([$name => $desiredRecord]),
-                false,
-                $warnings
-            );
-        } finally {
-            if ($yoastCallbacksSuspended) {
-                tec_readiness_resume_yoast_option_callbacks($yoastServices);
-            }
-        }
+        $optionsMaterializer->apply_options(
+            \Duo\OptionState::document([$name => $desiredRecord]),
+            false,
+            $warnings
+        );
         \Duo\Db::commit('TEC mixed-option fixture commit');
         $transactionStarted = false;
         $optionsMaterializer->commit_authored_transaction();
@@ -9722,6 +9710,11 @@ duo_check(
     'the exact Polylang roster retains its canonical registered-but-unreachable attachment callback'
 );
 
+$wooCallsBeforeOptionUnion = $GLOBALS['tec_readiness_woo_calls'] ?? [];
+$wooContainerGetsBeforeOptionUnion = (int) ($GLOBALS['tec_readiness_woo_container_get_calls'] ?? 0);
+$wooContainerConstructsBeforeOptionUnion = (int) ($GLOBALS['tec_readiness_woo_container_constructs'] ?? 0);
+$yoastCallsBeforeOptionUnion = $GLOBALS['tec_readiness_yoast_calls'] ?? [];
+$yoastConstructsBeforeOptionUnion = (int) ($GLOBALS['tec_readiness_yoast_constructs'] ?? 0);
 $wooCustomizerMaterialization = tec_readiness_materialize_mixed_option(
     $policy,
     'tribe_customizer',
@@ -9754,6 +9747,300 @@ duo_check_same(
     $decodeMixedRow($wooMainInsertion),
     'the Woo co-install does not alter the exact materialized TEC main option'
 );
+duo_check_same(
+    $wooCallsBeforeOptionUnion,
+    $GLOBALS['tec_readiness_woo_calls'] ?? [],
+    'the admitted Woo option union is proven but never executed by the checked TEC writer'
+);
+duo_check_same(
+    $yoastCallsBeforeOptionUnion,
+    $GLOBALS['tec_readiness_yoast_calls'] ?? [],
+    'the admitted Yoast option and sitemap union is proven but never executed by the checked TEC writer'
+);
+duo_check_same(
+    $yoastConstructsBeforeOptionUnion,
+    (int) ($GLOBALS['tec_readiness_yoast_constructs'] ?? 0),
+    'TEC option admission reads existing Yoast services without constructing a replacement'
+);
+duo_check_same(
+    $wooContainerGetsBeforeOptionUnion,
+    (int) ($GLOBALS['tec_readiness_woo_container_get_calls'] ?? 0),
+    'TEC option admission reads Woo runtime cache identity without calling Container::get'
+);
+duo_check_same(
+    $wooContainerConstructsBeforeOptionUnion,
+    (int) ($GLOBALS['tec_readiness_woo_container_constructs'] ?? 0),
+    'TEC option admission cannot construct a Woo service from a runtime-cache miss'
+);
+
+$wooRuntime = (new ReflectionProperty(\Automattic\WooCommerce\Container::class, 'container'))
+    ->getValue($wooServices['container']);
+$wooResolvedCache = new ReflectionProperty(
+    \Automattic\WooCommerce\Internal\DependencyManagement\RuntimeContainer::class,
+    'resolved_cache'
+);
+$wooResolvedCachePreimage = $wooResolvedCache->getValue($wooRuntime);
+$partialWooResolvedCache = $wooResolvedCachePreimage;
+unset($partialWooResolvedCache[\Automattic\WooCommerce\Internal\Features\FeaturesController::class]);
+$wooResolvedCache->setValue($wooRuntime, $partialWooResolvedCache);
+$wooGetsBeforePartialCache = (int) ($GLOBALS['tec_readiness_woo_container_get_calls'] ?? 0);
+$wooConstructsBeforePartialCache = (int) ($GLOBALS['tec_readiness_woo_container_constructs'] ?? 0);
+$partialWooCacheMaterialization = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    ['month_view' => ['grid_lines_color' => '#445566']]
+);
+$wooResolvedCache->setValue($wooRuntime, $wooResolvedCachePreimage);
+duo_check(
+    $partialWooCacheMaterialization['failure'] instanceof RuntimeException
+        && str_contains($partialWooCacheMaterialization['failure']->getMessage(), 'substituted WooCommerce services'),
+    'a partial Woo resolved cache refuses an existing TEC option before storage'
+);
+duo_check_same(
+    ['month_view' => ['grid_lines_color' => '#445566']],
+    $decodeMixedRow($partialWooCacheMaterialization),
+    'the partial Woo resolved-cache refusal preserves exact existing TEC option bytes'
+);
+duo_check_same(
+    $wooGetsBeforePartialCache,
+    (int) ($GLOBALS['tec_readiness_woo_container_get_calls'] ?? 0),
+    'the partial Woo resolved-cache refusal never calls Container::get'
+);
+duo_check_same(
+    $wooConstructsBeforePartialCache,
+    (int) ($GLOBALS['tec_readiness_woo_container_constructs'] ?? 0),
+    'the partial Woo resolved-cache refusal cannot construct its missing service'
+);
+duo_check_same(
+    true,
+    tec_readiness_materialize_mixed_option(
+        $policy,
+        'tribe_customizer',
+        ['month_view' => ['grid_lines_color' => '#112233']],
+        ['month_view' => ['grid_lines_color' => '#445566']]
+    )['failure'] === null,
+    'restoring the complete Woo resolved cache permits exact option retry'
+);
+
+$missingYoastPre = $wooServices['yoast_options']['wpseo_social'];
+remove_filter('pre_update_option', [$missingYoastPre, 'add_default_filters_if_not_changed'], PHP_INT_MAX);
+$missingYoastPreMaterialization = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    ['month_view' => ['grid_lines_color' => '#445566']]
+);
+add_filter('pre_update_option', [$missingYoastPre, 'add_default_filters_if_not_changed'], PHP_INT_MAX, 3);
+duo_check(
+    $missingYoastPreMaterialization['failure'] instanceof RuntimeException
+        && str_contains($missingYoastPreMaterialization['failure']->getMessage(), 'incomplete Yoast SEO pre_update_option callbacks'),
+    'a missing canonical Yoast pre-update callback refuses an existing TEC option before storage'
+);
+duo_check_same(
+    ['month_view' => ['grid_lines_color' => '#445566']],
+    $decodeMixedRow($missingYoastPreMaterialization),
+    'the missing Yoast pre-update callback preserves exact existing TEC option bytes'
+);
+duo_check_same(
+    true,
+    tec_readiness_materialize_mixed_option(
+        $policy,
+        'tribe_customizer',
+        ['month_view' => ['grid_lines_color' => '#112233']],
+        ['month_view' => ['grid_lines_color' => '#445566']]
+    )['failure'] === null,
+    'restoring the missing Yoast pre-update callback permits exact option retry'
+);
+
+$foreignYoastUpdate = (new ReflectionClass(WPSEO_Option_Wpseo::class))->newInstanceWithoutConstructor();
+remove_action('update_option', [$wooServices['yoast_options']['wpseo'], 'add_default_filters_if_same_option'], 10);
+add_action('update_option', [$foreignYoastUpdate, 'add_default_filters_if_same_option'], 10, 1);
+$foreignYoastUpdateMaterialization = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    ['month_view' => ['grid_lines_color' => '#445566']]
+);
+remove_action('update_option', [$foreignYoastUpdate, 'add_default_filters_if_same_option'], 10);
+add_action('update_option', [$wooServices['yoast_options']['wpseo'], 'add_default_filters_if_same_option'], 10, 1);
+duo_check(
+    $foreignYoastUpdateMaterialization['failure'] instanceof RuntimeException
+        && str_contains($foreignYoastUpdateMaterialization['failure']->getMessage(), 'extended/substituted Yoast SEO update_option callbacks'),
+    'a same-class foreign Yoast update callback refuses an existing TEC option before storage'
+);
+duo_check_same(
+    ['month_view' => ['grid_lines_color' => '#445566']],
+    $decodeMixedRow($foreignYoastUpdateMaterialization),
+    'the foreign Yoast update callback preserves exact existing TEC option bytes'
+);
+duo_check_same(
+    true,
+    tec_readiness_materialize_mixed_option(
+        $policy,
+        'tribe_customizer',
+        ['month_view' => ['grid_lines_color' => '#112233']],
+        ['month_view' => ['grid_lines_color' => '#445566']]
+    )['failure'] === null,
+    'restoring the canonical Yoast update callback permits exact option retry'
+);
+
+remove_action('add_option', [$wooServices['yoast_options']['wpseo'], 'add_default_filters_if_same_option'], 10);
+$missingYoastAddMaterialization = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_events_calendar_options',
+    ['eventsSlug' => 'yoast-add'],
+    null
+);
+add_action('add_option', [$wooServices['yoast_options']['wpseo'], 'add_default_filters_if_same_option'], 10, 1);
+duo_check(
+    $missingYoastAddMaterialization['failure'] instanceof RuntimeException
+        && str_contains($missingYoastAddMaterialization['failure']->getMessage(), 'incomplete Yoast SEO add_option callbacks'),
+    'a missing canonical Yoast add callback refuses an absent TEC option before insertion'
+);
+duo_check_same(null, $missingYoastAddMaterialization['row'], 'the missing Yoast add callback preserves TEC option absence');
+duo_check_same(
+    true,
+    tec_readiness_materialize_mixed_option(
+        $policy,
+        'tribe_events_calendar_options',
+        ['eventsSlug' => 'yoast-add'],
+        null
+    )['failure'] === null,
+    'restoring the missing Yoast add callback permits exact option insertion retry'
+);
+
+$extraYoastAdd = static function (string $name): void {};
+add_action('add_option', $extraYoastAdd, 999, 1);
+$extraYoastAddMaterialization = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_events_calendar_options',
+    ['eventsSlug' => 'yoast-extra'],
+    null
+);
+remove_action('add_option', $extraYoastAdd, 999);
+duo_check(
+    $extraYoastAddMaterialization['failure'] instanceof RuntimeException
+        && str_contains($extraYoastAddMaterialization['failure']->getMessage(), 'extended/substituted external add_option callbacks'),
+    'an extra generic add callback refuses an absent TEC option before insertion'
+);
+duo_check_same(null, $extraYoastAddMaterialization['row'], 'the extra add callback preserves TEC option absence');
+duo_check_same(
+    true,
+    tec_readiness_materialize_mixed_option(
+        $policy,
+        'tribe_events_calendar_options',
+        ['eventsSlug' => 'yoast-extra'],
+        null
+    )['failure'] === null,
+    'removing the extra generic add callback permits exact option insertion retry'
+);
+
+WPSEO_Options::unregister_option('wpseo_social');
+$partialYoastSingletonMaterialization = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    ['month_view' => ['grid_lines_color' => '#445566']]
+);
+WPSEO_Options::register_option('wpseo_social', $missingYoastPre);
+duo_check(
+    $partialYoastSingletonMaterialization['failure'] instanceof RuntimeException
+        && str_contains($partialYoastSingletonMaterialization['failure']->getMessage(), 'incomplete Yoast SEO option singletons'),
+    'a partial Yoast singleton roster refuses an existing TEC option before storage'
+);
+duo_check_same(
+    ['month_view' => ['grid_lines_color' => '#445566']],
+    $decodeMixedRow($partialYoastSingletonMaterialization),
+    'the partial Yoast singleton refusal preserves exact existing TEC option bytes'
+);
+duo_check_same(
+    true,
+    tec_readiness_materialize_mixed_option(
+        $policy,
+        'tribe_customizer',
+        ['month_view' => ['grid_lines_color' => '#112233']],
+        ['month_view' => ['grid_lines_color' => '#445566']]
+    )['failure'] === null,
+    'restoring the complete Yoast singleton roster permits exact option retry'
+);
+
+$yoastCacheClear = new ReflectionProperty(WPSEO_Sitemaps_Cache::class, 'cache_clear');
+$yoastCacheClearPreimage = $yoastCacheClear->getValue();
+WPSEO_Sitemaps_Cache::register_clear_on_option_update('tribe_last_updated_option', '');
+$markerSitemapMaterialization = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_events_calendar_options',
+    ['eventsSlug' => 'yoast-sitemap'],
+    null
+);
+$yoastCacheClear->setValue(null, $yoastCacheClearPreimage);
+duo_check(
+    $markerSitemapMaterialization['failure'] instanceof RuntimeException
+        && str_contains($markerSitemapMaterialization['failure']->getMessage(), 'TEC marker registered for Yoast SEO sitemap cache invalidation'),
+    'a Yoast sitemap registration for a TEC marker refuses before option insertion'
+);
+duo_check_same(null, $markerSitemapMaterialization['row'], 'the hostile Yoast sitemap registration preserves TEC option absence');
+duo_check_same(
+    true,
+    tec_readiness_materialize_mixed_option(
+        $policy,
+        'tribe_events_calendar_options',
+        ['eventsSlug' => 'yoast-sitemap'],
+        null
+    )['failure'] === null,
+    'restoring the Yoast sitemap registration map permits exact option insertion retry'
+);
+
+foreach ([
+    'tribe_customizer' => [
+        ['month_view' => ['grid_lines_color' => '#112233']],
+        ['month_view' => ['grid_lines_color' => '#445566']],
+        ['month_view' => ['grid_lines_color' => '#445566']],
+        'existing TEC Customizer bytes',
+    ],
+    'tribe_events_calendar_options' => [
+        ['eventsSlug' => 'yoast-current-main'],
+        null,
+        null,
+        'absent TEC main option',
+    ],
+] as $hostileOption => [$desiredOption, $targetOption, $expectedPreimage, $preimageLabel]) {
+    WPSEO_Sitemaps_Cache::register_clear_on_option_update($hostileOption, '');
+    $hostileCurrentOptionMaterialization = tec_readiness_materialize_mixed_option(
+        $policy,
+        $hostileOption,
+        $desiredOption,
+        $targetOption
+    );
+    $yoastCacheClear->setValue(null, $yoastCacheClearPreimage);
+    duo_check(
+        $hostileCurrentOptionMaterialization['failure'] instanceof RuntimeException
+            && str_contains(
+                $hostileCurrentOptionMaterialization['failure']->getMessage(),
+                'TEC marker registered for Yoast SEO sitemap cache invalidation'
+            ),
+        "a Yoast sitemap registration for current option '$hostileOption' refuses before mutation"
+    );
+    if ($expectedPreimage === null) {
+        duo_check_same(
+            null,
+            $hostileCurrentOptionMaterialization['row'],
+            "the hostile current-option sitemap registration preserves $preimageLabel"
+        );
+    } else {
+        duo_check_same(
+            $expectedPreimage,
+            $decodeMixedRow($hostileCurrentOptionMaterialization),
+            "the hostile current-option sitemap registration preserves $preimageLabel"
+        );
+    }
+    duo_check_same(
+        true,
+        tec_readiness_materialize_mixed_option($policy, $hostileOption, $desiredOption, $targetOption)['failure'] === null,
+        "restoring the sitemap map permits '$hostileOption' exact retry"
+    );
+}
 
 $foreignOptionFeatures = new \Automattic\WooCommerce\Internal\Features\FeaturesController();
 remove_action('updated_option', [$wooServices['features'], 'process_updated_option'], 999);
@@ -11143,11 +11430,13 @@ $trackingRetry = $nativeRewriteChild->invoke(null);
 duo_check_same(true, $trackingRetry['verified'] ?? null, 'removing request-conditional tracking permits retry');
 
 $canonicalWooContainer = $wooServices['container'];
-$GLOBALS['tec_readiness_rewrite_drift_woo_container'] = new \Automattic\WooCommerce\Container([
-    get_class($wooServices['features']) => $wooServices['features'],
-    get_class($wooServices['synchronizer']) => $wooServices['synchronizer'],
-    get_class($wooServices['custom_orders']) => $wooServices['custom_orders'],
-]);
+$GLOBALS['tec_readiness_rewrite_drift_woo_container'] = new \Automattic\WooCommerce\Container(
+    new \Automattic\WooCommerce\Internal\DependencyManagement\RuntimeContainer([
+        get_class($wooServices['features']) => $wooServices['features'],
+        get_class($wooServices['synchronizer']) => $wooServices['synchronizer'],
+        get_class($wooServices['custom_orders']) => $wooServices['custom_orders'],
+    ])
+);
 $wooDriftFailure = null;
 try {
     $nativeRewriteChild->invoke(null);

@@ -40,17 +40,31 @@ namespace Automattic\WooCommerce\Internal\DataStores\Orders {
     }
 }
 
+namespace Automattic\WooCommerce\Internal\DependencyManagement {
+    final class RuntimeContainer {
+        /** @param array<class-string,object> $services */
+        public function __construct(private array $resolved_cache) {}
+
+        public function resolve_or_construct(string $class): object {
+            $service = $this->resolved_cache[$class] ?? null;
+            if (is_object($service)) {
+                return $service;
+            }
+            ++$GLOBALS['tec_readiness_woo_container_constructs'];
+            return $this->resolved_cache[$class] = new $class();
+        }
+    }
+}
+
 namespace Automattic\WooCommerce {
     final class Container {
-        /** @param array<class-string,object> $services */
-        public function __construct(private readonly array $services) {}
+        public function __construct(
+            private readonly \Automattic\WooCommerce\Internal\DependencyManagement\RuntimeContainer $container
+        ) {}
 
         public function get(string $class): object {
-            $service = $this->services[$class] ?? null;
-            if (!is_object($service)) {
-                throw new \RuntimeException('offline WooCommerce service is unavailable');
-            }
-            return $service;
+            ++$GLOBALS['tec_readiness_woo_container_get_calls'];
+            return $this->container->resolve_or_construct($class);
         }
     }
 }
@@ -294,11 +308,14 @@ namespace {
         $synchronizer = new \Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer();
         $customOrders =
             new \Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController();
-        $container = new \Automattic\WooCommerce\Container([
+        $runtime = new \Automattic\WooCommerce\Internal\DependencyManagement\RuntimeContainer([
             get_class($features) => $features,
             get_class($synchronizer) => $synchronizer,
             get_class($customOrders) => $customOrders,
         ]);
+        $container = new \Automattic\WooCommerce\Container($runtime);
+        $GLOBALS['tec_readiness_woo_container_get_calls'] = 0;
+        $GLOBALS['tec_readiness_woo_container_constructs'] = 0;
         $GLOBALS['wc_container'] = $container;
         add_action('updated_option', [$features, 'process_updated_option'], 999, 3);
         add_action('updated_option', [$synchronizer, 'process_updated_option'], 999, 3);

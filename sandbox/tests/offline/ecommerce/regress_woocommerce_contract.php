@@ -915,6 +915,63 @@ $wooSeedHarness = (string) file_get_contents($root . '/sandbox/conformance/seeds
 $wooPostdeployHarness = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/woocommerce.sh');
 $wooPostapplyHarness = (string) file_get_contents($root . '/sandbox/conformance/postapply/woocommerce.sh');
 $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
+
+// Receipt identities are a three-way contract: the manifest is the shipped
+// declaration, provider identity() is the executable authority, and this
+// conformance check is the observed receipt expectation. Keep the exact
+// versions here so a one-sided bump cannot hide behind a green offline suite.
+$expectedWooProviderContracts = [
+    'woocommerce-product-lookups' => [
+        'plugin' => 'woocommerce/woocommerce.php',
+        'version' => '3.0.0',
+        'capability' => 'rebuild_product_lookups',
+        'class' => \Duo\Providers\WoocommerceProductLookups::class,
+    ],
+    'woocommerce-hierarchy-lookups' => [
+        'plugin' => 'woocommerce/woocommerce.php',
+        'version' => '2.0.0',
+        'capability' => 'rebuild_hierarchy_lookups',
+        'class' => \Duo\Providers\WoocommerceHierarchyLookups::class,
+    ],
+];
+$manifestWooProviderRows = [];
+foreach ((array) ($manifest['providers'] ?? []) as $provider) {
+    if (is_array($provider) && isset($provider['id'], $provider['version'])) {
+        $manifestWooProviderRows[(string) $provider['id']] = [
+            'plugin' => (string) ($provider['plugin'] ?? ''),
+            'version' => (string) $provider['version'],
+        ];
+    }
+}
+foreach ($expectedWooProviderContracts as $providerId => $contract) {
+    $manifestRow = $manifestWooProviderRows[$providerId] ?? [];
+    woo_ok(
+        $manifestRow === [
+            'plugin' => $contract['plugin'],
+            'version' => $contract['version'],
+        ],
+        "$providerId manifest row pins its exact plugin and {$contract['version']} receipt version"
+    );
+}
+foreach ($expectedWooProviderContracts as $providerId => $contract) {
+    require_once $root . "/manifests/providers/$providerId.php";
+    $providerClass = $contract['class'];
+    $identity = (new $providerClass($policy))->identity();
+    woo_ok(
+        $identity === [
+            'id' => $providerId,
+            'plugin' => $contract['plugin'],
+            'version' => $contract['version'],
+        ],
+        "$providerId identity() stays at the exact manifest contract"
+    );
+    $escapedVersion = str_replace('.', '\\.', $contract['version']);
+    $receiptExpectation = "grep -Eq '{$providerId}@{$escapedVersion} {$contract['capability']} .*verified'";
+    woo_ok(
+        substr_count($wooCheckHarness, $receiptExpectation) === 1,
+        "$providerId conformance receipt check expects exactly {$contract['version']}"
+    );
+}
 $conformanceRunnerHarness = (string) file_get_contents($root . '/sandbox/conformance/run.sh');
 $conformanceAssertsHarness = (string) file_get_contents($root . '/sandbox/conformance/asserts.sh');
 $wooMultisiteHarness = (string) file_get_contents(
@@ -1820,6 +1877,19 @@ foreach ([
     'CALLBACK_IDENTITIES=$(wp2 eval',
     'native rewrite callback identity differs from source services',
     '$GLOBALS["wc_container"]',
+    'get_class($container)!=="Automattic\\\\WooCommerce\\\\Container"||wc_get_container()!==$container',
+    'new ReflectionProperty("Automattic\\\\WooCommerce\\\\Container","container")',
+    '$runtime=$containerProperty->getValue($container)',
+    'Automattic\\\\WooCommerce\\\\Internal\\\\DependencyManagement\\\\RuntimeContainer',
+    'get_class($runtime)!=="Automattic\\\\WooCommerce\\\\Internal\\\\DependencyManagement\\\\RuntimeContainer"',
+    'new ReflectionProperty("Automattic\\\\WooCommerce\\\\Internal\\\\DependencyManagement\\\\RuntimeContainer","resolved_cache")',
+    '$resolvedCache=$cacheProperty->getValue($runtime)',
+    'if(!is_array($resolvedCache))',
+    'array_key_exists($class,$resolvedCache)',
+    'get_class($service)!==$class',
+    'Automattic\\\\WooCommerce\\\\Internal\\\\Features\\\\FeaturesController',
+    'Automattic\\\\WooCommerce\\\\Internal\\\\DataStores\\\\Orders\\\\DataSynchronizer',
+    'Automattic\\\\WooCommerce\\\\Internal\\\\DataStores\\\\Orders\\\\CustomOrdersTableController',
     'Yoast_Dynamic_Rewrites::instance()',
     'WPSEO_Options::get_option_instance($optionName)',
     '$GLOBALS["wpseo_sitemaps"]',
@@ -1850,6 +1920,8 @@ foreach ([
     woo_ok(str_contains($wooRewriteCoInstallHarness, $rewriteCoInstallWitness),
         "candidate-bound co-install harness pins $rewriteCoInstallWitness");
 }
+woo_ok(!str_contains($wooRewriteCoInstallHarness, '->get('),
+    'candidate-bound co-install service witness cannot construct cache misses through Container::get');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, 'memory_limit=-1'),
     'four-plugin co-install keeps a finite PHP bootstrap ceiling');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, '$args[0]'),

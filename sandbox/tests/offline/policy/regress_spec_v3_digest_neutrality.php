@@ -163,7 +163,7 @@ const REVIEWED_MOVES = [
         // interpreter, option_autoload) AND dispositions/the-events-calendar
         // .json promoted experimental -> certified. Both halves are inside the
         // digest row, so one number carries both.
-        'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
+        'the-events-calendar' => '1096dc034e44b27085868cebf23efe6497f340fd8e506cd85122a696ddbbe1b1',
         // WooCommerce production readiness extends reviewed evidence, closes
         // exact attachment callback isolation and provider receipt semantics,
         // binds the canonical mixed-option contract, and records the
@@ -177,10 +177,10 @@ const REVIEWED_MOVES = [
         'woocommerce' => '881d2116ff0ee3bfbb10612999ba19054beebf99d292cada9319b148a3f53187',
     ],
     'pin_sets' => [
-        'all-16' => '71ccb249b5a846a2615fdc51f79d5381c9edde1ba48727b442b0cc96820beeba',
+        'all-16' => '18efa783dd0cb67096723ae2a07ebd75849e8f7710a2df95401dce56e7123fa1',
         'core+elementor+yoast+contact-form-7' => '52200323db9516a2eb7b5738540534aa58e9115c04fb3ddf0b182ea4089d27f9',
         'core+paid-memberships-pro+code-snippets' => '9d89e59d838e145cbd64c6b172ad5634886bdae6ea027eb8f41e57bcd1b048dc',
-        'core+polylang+the-events-calendar' => '05d204e15ac8f220c2d722f7e3c5536b0789d65906fe599c0cd98d4e7955a790',
+        'core+polylang+the-events-calendar' => 'cbc901cf349e27ade6fbc08b1e8ba7f8cb4988770b605a378bda59108be2b0ad',
         'core+woocommerce+acf' => 'ad087cebe26e268ad1392e2c20f03124897a1193032a9016c560852b92cc7867',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],

@@ -247,10 +247,21 @@ $exact=static function(string $hook,array $expected)use($records):void{$actual=$
 if(!function_exists("wc_get_container")||!array_key_exists("wc_container",$GLOBALS)){throw new RuntimeException("WooCommerce container is unavailable");}
 $container=$GLOBALS["wc_container"];
 if(!is_object($container)||get_class($container)!=="Automattic\\WooCommerce\\Container"||wc_get_container()!==$container){throw new RuntimeException("WooCommerce container identity differs from normal boot");}
-$features=$container->get("Automattic\\WooCommerce\\Internal\\Features\\FeaturesController");
-$synchronizer=$container->get("Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer");
-$customOrders=$container->get("Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController");
-foreach([[$features,"Automattic\\WooCommerce\\Internal\\Features\\FeaturesController"],[$synchronizer,"Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer"],[$customOrders,"Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController"]]as[$service,$class]){if(!is_object($service)||get_class($service)!==$class){throw new RuntimeException("WooCommerce option service identity differs from normal boot");}}
+$containerProperty=new ReflectionProperty("Automattic\\WooCommerce\\Container","container");
+$runtime=$containerProperty->getValue($container);
+if(!is_object($runtime)||get_class($runtime)!=="Automattic\\WooCommerce\\Internal\\DependencyManagement\\RuntimeContainer"){throw new RuntimeException("WooCommerce runtime container identity differs from normal boot");}
+$cacheProperty=new ReflectionProperty("Automattic\\WooCommerce\\Internal\\DependencyManagement\\RuntimeContainer","resolved_cache");
+$resolvedCache=$cacheProperty->getValue($runtime);
+if(!is_array($resolvedCache)){throw new RuntimeException("WooCommerce runtime resolved cache is unavailable");}
+$services=[
+  "Automattic\\WooCommerce\\Internal\\Features\\FeaturesController"=>$resolvedCache["Automattic\\WooCommerce\\Internal\\Features\\FeaturesController"]??null,
+  "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer"=>$resolvedCache["Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer"]??null,
+  "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController"=>$resolvedCache["Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController"]??null,
+];
+foreach($services as $class=>$service){if(!array_key_exists($class,$resolvedCache)||!is_object($service)||get_class($service)!==$class){throw new RuntimeException("WooCommerce option service identity differs from normal boot");}}
+$features=$services["Automattic\\WooCommerce\\Internal\\Features\\FeaturesController"];
+$synchronizer=$services["Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer"];
+$customOrders=$services["Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController"];
 $rewrite=$GLOBALS["wp_rewrite"]??null;
 if(!is_object($rewrite)||!class_exists("Yoast_Dynamic_Rewrites")||!is_callable(["Yoast_Dynamic_Rewrites","instance"])){throw new RuntimeException("Yoast dynamic rewrite singleton is unavailable");}
 // The Yoast resolver registers both rewrite callbacks when its slot is empty;
