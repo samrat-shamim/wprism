@@ -166,7 +166,8 @@ pll_set_post_language((int)$product_id,"en");
 # add_language() leaves Polylang's Options singleton dirty; its shutdown save
 # overwrites a direct update in that request with the old hide_default=true.
 # Cross the same fresh-request boundary as the certified Polylang seed before
-# selecting directory mode, then prove the bytes survived that process exit.
+# selecting directory mode with Woo products in Polylang's translated-post
+# registry, then prove the bytes survived that process exit.
 wp1 eval '
 $polylang=get_option("polylang");
 if(!is_array($polylang)){throw new RuntimeException("Polylang source option is not an array");}
@@ -175,7 +176,7 @@ $polylang["browser"]=false;
 $polylang["force_lang"]=1;
 $polylang["hide_default"]=false;
 $polylang["media_support"]=1;
-$polylang["post_types"]=[];
+$polylang["post_types"]=["product"];
 $polylang["redirect_lang"]=false;
 $polylang["rewrite"]=true;
 $polylang["taxonomies"]=[];
@@ -185,7 +186,7 @@ update_option("polylang",$polylang);
 POLYLANG_SOURCE_MODE=$(wp1 option get polylang --format=json)
 jq -e '
   .default_lang=="en" and .browser==false and .force_lang==1 and
-  .hide_default==false and .media_support==1 and .post_types==[] and
+  .hide_default==false and .media_support==1 and .post_types==["product"] and
   .redirect_lang==false and .rewrite==true and .taxonomies==[] and
   .sync==["taxonomies","post_meta","post_date"]
 ' <<<"$POLYLANG_SOURCE_MODE" >/dev/null \

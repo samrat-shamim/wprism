@@ -2213,6 +2213,7 @@ foreach ([
     '$polylang["default_lang"]="en"',
     '$polylang["force_lang"]=1',
     '$polylang["hide_default"]=false',
+    '$polylang["post_types"]=["product"]',
     '$polylang["rewrite"]=true',
     'add_language() leaves Polylang\'s Options singleton dirty',
     'POLYLANG_SOURCE_MODE=$(wp1 option get polylang --format=json)',
