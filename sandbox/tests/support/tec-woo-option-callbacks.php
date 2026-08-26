@@ -130,8 +130,19 @@ namespace {
     }
 
     final class WPSEO_Options {
+        /** @var mixed */
+        protected static $option_values = ['stripcategorybase' => false];
         /** @var array<string,object> */
         private static array $optionInstances = [];
+
+        public static function get(string $name): mixed {
+            $GLOBALS['tec_readiness_yoast_policy_reads'][] = $name;
+            return is_array(self::$option_values) ? (self::$option_values[$name] ?? null) : null;
+        }
+
+        public static function set_option_values(mixed $values): void {
+            self::$option_values = $values;
+        }
 
         public static function register_option(string $name, object $instance): void {
             self::$optionInstances[$name] = $instance;
@@ -144,6 +155,26 @@ namespace {
         public static function get_option_instance(string $name): object|false {
             $GLOBALS['tec_readiness_yoast_option_reads'][] = $name;
             return self::$optionInstances[$name] ?? false;
+        }
+    }
+
+    /** The Yoast 28.3 category wrapper is a stateless normal callback. */
+    final class WPSEO_Rewrite {
+        /** @param array<string,string> $rules @return array<string,string> */
+        public function category_rewrite_rules_wrapper(array $rules): array {
+            $GLOBALS['tec_readiness_rewrite_calls'][] = [__METHOD__, 'category'];
+            // The current fixture models stripcategorybase=false. Enabled
+            // mode is intentionally not emulated: production preflight
+            // refuses its open get_categories()/get_terms() filter graph.
+            if (WPSEO_Options::get('stripcategorybase') === false) {
+                if (($GLOBALS['tec_readiness_yoast_rewrite_drift'] ?? null) instanceof self) {
+                    $GLOBALS['wpseo_rewrite'] = $GLOBALS['tec_readiness_yoast_rewrite_drift'];
+                    unset($GLOBALS['tec_readiness_yoast_rewrite_drift']);
+                }
+                return $rules;
+            }
+            get_terms(['taxonomy' => 'category']);
+            return $rules;
         }
     }
 
@@ -253,7 +284,7 @@ namespace {
     /**
      * @return array{
      *   container:object,features:object,synchronizer:object,custom_orders:object,
-     *   yoast:object,yoast_options:array<string,object>,yoast_sitemaps:object,yoast_sitemaps_cache:object,
+     *   yoast:object,yoast_rewrite:object,yoast_options:array<string,object>,yoast_sitemaps:object,yoast_sitemaps_cache:object,
      *   polylang:object,polylang_links:object,polylang_sitemaps:object,
      *   polylang_types:list<string>
      * }
@@ -307,11 +338,12 @@ namespace {
                 1
             );
         }
+        WPSEO_Options::set_option_values(['stripcategorybase' => false]);
         $sitemaps = new WPSEO_Sitemaps();
         $GLOBALS['wpseo_sitemaps'] = $sitemaps;
         $yoast = Yoast_Dynamic_Rewrites::instance();
         $polylangTypes = [
-            'date', 'root', 'comments', 'search', 'author', 'attachment', 'product', 'product_cat',
+            'date', 'root', 'comments', 'search', 'author', 'attachment', 'category', 'product', 'product_cat',
         ];
         $polylangLinks = new PLL_Links_Directory($polylangTypes);
         $polylang = new PLL_Admin($polylangLinks);
@@ -323,12 +355,21 @@ namespace {
         foreach ($polylangTypes as $type) {
             add_filter($type . '_rewrite_rules', [$polylangLinks, 'rewrite_rules'], 10, 1);
         }
+        $yoastRewrite = new WPSEO_Rewrite();
+        $GLOBALS['wpseo_rewrite'] = $yoastRewrite;
+        add_filter(
+            'category_rewrite_rules',
+            [$yoastRewrite, 'category_rewrite_rules_wrapper'],
+            10,
+            1
+        );
         $services = [
             'container' => $container,
             'features' => $features,
             'synchronizer' => $synchronizer,
             'custom_orders' => $customOrders,
             'yoast_options' => $yoastOptions,
+            'yoast_rewrite' => $yoastRewrite,
             'yoast_sitemaps' => $sitemaps,
             'yoast_sitemaps_cache' => $sitemaps->cache,
             'yoast' => $yoast,
@@ -344,7 +385,7 @@ namespace {
     /**
      * @param array{
      *   container:object,features:object,synchronizer:object,custom_orders:object,
-     *   yoast:object,yoast_options:array<string,object>,yoast_sitemaps:object,yoast_sitemaps_cache:object,
+     *   yoast:object,yoast_rewrite:object,yoast_options:array<string,object>,yoast_sitemaps:object,yoast_sitemaps_cache:object,
      *   polylang:object,polylang_links:object,polylang_sitemaps:object,
      *   polylang_types:list<string>
      * } $services
@@ -363,6 +404,11 @@ namespace {
             remove_action('add_option', [$service, 'add_default_filters_if_same_option'], 10);
             WPSEO_Options::unregister_option($name);
         }
+        remove_filter(
+            'category_rewrite_rules',
+            [$services['yoast_rewrite'], 'category_rewrite_rules_wrapper'],
+            10
+        );
         remove_action('update_option', [WPSEO_Sitemaps_Cache::class, 'clear_on_option_update'], 10);
         remove_filter('rewrite_rules_array', 'wc_fix_rewrite_rules', 10);
         remove_filter('option_rewrite_rules', [$services['yoast'], 'filter_rewrite_rules_option'], 10);
@@ -372,7 +418,7 @@ namespace {
         foreach ($services['polylang_types'] as $type) {
             remove_filter($type . '_rewrite_rules', [$services['polylang_links'], 'rewrite_rules'], 10);
         }
-        unset($GLOBALS['wc_container'], $GLOBALS['polylang'], $GLOBALS['wpseo_sitemaps']);
+        unset($GLOBALS['wc_container'], $GLOBALS['polylang'], $GLOBALS['wpseo_rewrite'], $GLOBALS['wpseo_sitemaps']);
     }
 
     /** Temporarily isolate the TEC option writer from the Yoast option family. */
@@ -382,6 +428,11 @@ namespace {
             remove_action('update_option', [$service, 'add_default_filters_if_same_option'], 10);
             remove_action('add_option', [$service, 'add_default_filters_if_same_option'], 10);
         }
+        remove_filter(
+            'category_rewrite_rules',
+            [$services['yoast_rewrite'], 'category_rewrite_rules_wrapper'],
+            10
+        );
         remove_action('update_option', [WPSEO_Sitemaps_Cache::class, 'clear_on_option_update'], 10);
     }
 
@@ -392,6 +443,12 @@ namespace {
             add_action('update_option', [$service, 'add_default_filters_if_same_option'], 10, 1);
             add_action('add_option', [$service, 'add_default_filters_if_same_option'], 10, 1);
         }
+        add_filter(
+            'category_rewrite_rules',
+            [$services['yoast_rewrite'], 'category_rewrite_rules_wrapper'],
+            10,
+            1
+        );
         add_action('update_option', [WPSEO_Sitemaps_Cache::class, 'clear_on_option_update'], 10, 1);
     }
 }

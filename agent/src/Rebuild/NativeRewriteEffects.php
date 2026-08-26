@@ -47,7 +47,14 @@ namespace Duo;
  * services and would let a partial runtime manufacture admission.
  *
  * The same fresh process also executes exact rewrite interpreters from TEC,
- * Yoast 28.3 and Polylang 3.8.6. Their reviewed sources are respectively
+ * Yoast 28.3 and Polylang 3.8.6. Yoast's normal WPSEO_Rewrite global adds a
+ * category_rewrite_rules callback at 10/1; its reviewed stateless wrapper
+ * (inc/class-rewrite.php, SHA-256
+ * d8e168e467b06e6c49f1f1c60b2c5437d7eb9081ef96aa472ed1de880639dbda)
+ * returns the input unchanged under the exact cached stripcategorybase=false
+ * policy. Enabled mode enters the open get_categories/get_terms filter graph,
+ * so it refuses before native mutation instead of executing unbound callbacks.
+ * The remaining reviewed sources are respectively
  * 2f447a4120a349d5f596c834192b17a5b911c6c94e8a62cfaee58af89cc86aab,
  * 0e198faca151aeca66680e916a038eab5c264f7d0ee6472d8f07d1845d0a7b9a,
  * 3b07ec0af1f94269b2a5a98bba078edbee73e1697aeeed119ae12ff4a3ca7553,
@@ -74,6 +81,7 @@ final class NativeRewriteEffects {
         'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController';
     private const WPSEO_SITEMAPS = 'WPSEO_Sitemaps';
     private const WPSEO_SITEMAPS_CACHE = 'WPSEO_Sitemaps_Cache';
+    private const WPSEO_REWRITE = 'WPSEO_Rewrite';
     /** @var array<string,string> */
     private const WPSEO_OPTIONS = [
         'wpseo' => 'WPSEO_Option_Wpseo',
@@ -505,7 +513,7 @@ final class NativeRewriteEffects {
         }
         $yoast = self::resolve_yoast($wp_rewrite);
         $polylang = self::resolve_polylang();
-        $corePermastructs = self::assert_core_generation_topology($wp_rewrite, $polylang);
+        $corePermastructs = self::assert_core_generation_topology($wp_rewrite, $polylang, $yoast);
         self::assert_rewrite_rules_option_hooks($listener, $woo, $wpseo, $yoast);
 
         $generateExpected = [];
@@ -558,9 +566,11 @@ final class NativeRewriteEffects {
 
         if ($polylang !== null) {
             foreach ($polylang['types'] as $type) {
-                self::assert_exact_hook($type . '_rewrite_rules', [
-                    [$polylang['links'], 'rewrite_rules', 10, 1],
-                ]);
+                $expected = [[$polylang['links'], 'rewrite_rules', 10, 1]];
+                if ($type === 'category' && $yoast !== null) {
+                    $expected[] = [$yoast['category_service'], 'category_rewrite_rules_wrapper', 10, 1];
+                }
+                self::assert_exact_hook($type . '_rewrite_rules', $expected);
             }
         }
 
@@ -586,7 +596,7 @@ final class NativeRewriteEffects {
     /**
      * @param ?array{container:object,features:object,synchronizer:object,custom_orders:object} $woo
      * @param ?array{options:array<string,object>,sitemaps:?object,sitemaps_cache:?object} $wpseo
-     * @param ?array{service:object,state:string,top:array<string,string>,bottom:array<string,string>} $yoast
+     * @param ?array{service:object,category_service:object,state:string,top:array<string,string>,bottom:array<string,string>} $yoast
      */
     private static function assert_rewrite_rules_option_hooks(
         ?object $listener,
@@ -806,8 +816,13 @@ final class NativeRewriteEffects {
      * the durable rewrite receipt can distinguish its side effects.
      *
      * @param ?array{runtime:object,links:object,sitemaps:object,types:list<string>,types_hash:string} $polylang
+     * @param ?array{service:object,category_service:object,state:string,top:array<string,string>,bottom:array<string,string>} $yoast
      */
-    private static function assert_core_generation_topology(object $wpRewrite, ?array $polylang): string {
+    private static function assert_core_generation_topology(
+        object $wpRewrite,
+        ?array $polylang,
+        ?array $yoast
+    ): string {
         if (!property_exists($wpRewrite, 'extra_permastructs')
             || !is_array($wpRewrite->extra_permastructs)
             || count($wpRewrite->extra_permastructs) > 256) {
@@ -830,9 +845,13 @@ final class NativeRewriteEffects {
         // during this mutation.
         $polylangTypes = $polylang === null ? [] : array_fill_keys($polylang['types'], true);
         foreach (array_keys($reachable) as $name) {
-            $expected = isset($polylangTypes[$name])
-                ? [[$polylang['links'], 'rewrite_rules', 10, 1]]
-                : [];
+            $expected = [];
+            if (isset($polylangTypes[$name])) {
+                $expected[] = [$polylang['links'], 'rewrite_rules', 10, 1];
+            }
+            if ($name === 'category' && $yoast !== null) {
+                $expected[] = [$yoast['category_service'], 'category_rewrite_rules_wrapper', 10, 1];
+            }
             self::assert_exact_hook($name . '_rewrite_rules', $expected);
         }
         if (isset($reachable['post_tag'])) {
@@ -915,15 +934,22 @@ final class NativeRewriteEffects {
         return [];
     }
 
-    /** @return ?array{service:object,state:string,top:array<string,string>,bottom:array<string,string>} */
+    /** @return ?array{service:object,category_service:object,state:string,top:array<string,string>,bottom:array<string,string>} */
     private static function resolve_yoast(object $wpRewrite): ?array {
         $option = self::hook_records('option_rewrite_rules');
         $sanitize = self::hook_records('sanitize_option_rewrite_rules');
-        $visible = class_exists('Yoast_Dynamic_Rewrites', false)
+        $category = self::hook_records('category_rewrite_rules');
+        $dynamicVisible = class_exists('Yoast_Dynamic_Rewrites', false)
             || self::contains_class_callback($option, 'Yoast_Dynamic_Rewrites')
             || self::contains_class_callback($sanitize, 'Yoast_Dynamic_Rewrites');
-        if (!$visible) {
+        $categoryVisible = class_exists(self::WPSEO_REWRITE, false)
+            || array_key_exists('wpseo_rewrite', $GLOBALS)
+            || self::contains_class_callback($category, self::WPSEO_REWRITE);
+        if (!$dynamicVisible && !$categoryVisible) {
             return null;
+        }
+        if (!$dynamicVisible || !$categoryVisible) {
+            throw new \RuntimeException('duo: native rewrite found incomplete Yoast rewrite services');
         }
         $service = self::one_exact_class_callback(
             'option_rewrite_rules',
@@ -938,8 +964,16 @@ final class NativeRewriteEffects {
         if ($sanitizeService !== $service || !is_callable(['Yoast_Dynamic_Rewrites', 'instance'])) {
             throw new \RuntimeException('duo: native rewrite found substituted Yoast rewrite services');
         }
+        $categoryService = self::one_exact_class_callback(
+            'category_rewrite_rules',
+            self::WPSEO_REWRITE,
+            'category_rewrite_rules_wrapper'
+        );
         try {
             $resolved = self::call_static('Yoast_Dynamic_Rewrites', 'instance');
+            $categoryGlobal = $GLOBALS['wpseo_rewrite'] ?? null;
+            $categoryProperties = (new \ReflectionClass($categoryService))->getProperties();
+            $categoryDynamicState = get_object_vars($categoryService);
         } catch (\Throwable $failure) {
             throw new \RuntimeException('duo: native rewrite could not resolve the Yoast rewrite service', 0, $failure);
         }
@@ -949,13 +983,49 @@ final class NativeRewriteEffects {
             || $service->wp_rewrite !== $wpRewrite) {
             throw new \RuntimeException('duo: native rewrite found substituted Yoast rewrite services');
         }
+        if (!is_object($categoryGlobal)
+            || get_class($categoryGlobal) !== self::WPSEO_REWRITE
+            || $categoryGlobal !== $categoryService
+            || !is_callable([$categoryService, 'category_rewrite_rules_wrapper'])
+            || $categoryProperties !== []
+            || $categoryDynamicState !== []) {
+            throw new \RuntimeException('duo: native rewrite found substituted Yoast category rewrite service');
+        }
+        self::assert_inert_yoast_category_policy();
         $state = self::yoast_state($service);
         return [
             'service' => $service,
+            'category_service' => $categoryService,
             'state' => $state['hash'],
             'top' => $state['top'],
             'bottom' => $state['bottom'],
         ];
+    }
+
+    /**
+     * The disabled wrapper returns before get_categories(). Enabled mode
+     * traverses third-party term-query filters whose effects are not part of
+     * this closed native action, so only the already-primed false value is
+     * admissible without executing plugin code during preflight.
+     */
+    private static function assert_inert_yoast_category_policy(): void {
+        try {
+            $values = (new \ReflectionProperty('WPSEO_Options', 'option_values'))->getValue();
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: native rewrite could not inspect the Yoast category rewrite policy',
+                0,
+                $failure
+            );
+        }
+        if (!is_array($values)
+            || !array_key_exists('stripcategorybase', $values)
+            || !is_bool($values['stripcategorybase'])) {
+            throw new \RuntimeException('duo: native rewrite found an unprimed Yoast category rewrite policy');
+        }
+        if ($values['stripcategorybase']) {
+            throw new \RuntimeException('duo: native rewrite does not support enabled Yoast category-base removal');
+        }
     }
 
     /** @return array{hash:string,top:array<string,string>,bottom:array<string,string>} */

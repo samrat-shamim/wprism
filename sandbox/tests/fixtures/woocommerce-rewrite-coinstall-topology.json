@@ -56,6 +56,11 @@
     },
     {
       "plugin": "wordpress-seo",
+      "path": "inc/class-rewrite.php",
+      "sha256": "d8e168e467b06e6c49f1f1c60b2c5437d7eb9081ef96aa472ed1de880639dbda"
+    },
+    {
+      "plugin": "wordpress-seo",
       "path": "wp-seo-main.php",
       "sha256": "5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1"
     },
@@ -222,6 +227,7 @@
   ],
   "static_callbacks": [
     {"hook": "rewrite_rules_array", "callback": "wc_fix_rewrite_rules", "priority": 10, "accepted_args": 1},
+    {"hook": "category_rewrite_rules", "callback": "WPSEO_Rewrite::category_rewrite_rules_wrapper", "priority": 10, "accepted_args": 1},
     {"hook": "updated_option", "callback": "Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_updated_option", "priority": 999, "accepted_args": 3},
     {"hook": "added_option", "callback": "Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_added_option", "priority": 999, "accepted_args": 3},
     {"hook": "updated_option", "callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_updated_option", "priority": 999, "accepted_args": 3},

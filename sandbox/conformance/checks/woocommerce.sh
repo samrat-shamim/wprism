@@ -983,7 +983,7 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   .visuals.blue.semantic.type == "image" and
   (.visuals.blue.semantic.value | startswith($target + "/wp-content/uploads/")) and
   .simple.tags == ["portable-tokyo"] and .simple.shipping_class == "oversize-portable" and
-  .simple.image[1] == 500 and .simple.image[2] == 500 and
+  .simple.image[1] == 450 and .simple.image[2] == 450 and
   .simple.upsells == [.ids.precision] and .simple.cross_sells == [.ids.grouped] and
   .grouped.children == [.ids.product,.ids.precision] and
   .coupon.status == "publish" and .coupon.type == "percent" and .coupon.amount == "10" and

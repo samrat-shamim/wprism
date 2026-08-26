@@ -654,6 +654,15 @@ final class TecReadinessRewriteRuntime {
         if (is_array($generated) && is_string($this->tecViewsV2EncodedRule)) {
             $generated[$this->tecViewsV2EncodedRule] = 'index.php?post_type=tribe_events&tec_view=v2';
         }
+        if (is_array($generated)) {
+            $categoryRules = apply_filters(
+                'category_rewrite_rules',
+                ['^category/([^/]+)/?$' => 'index.php?category_name=%1']
+            );
+            if (is_array($categoryRules)) {
+                $generated = array_merge($generated, $categoryRules);
+            }
+        }
         $this->rules = is_array($generated)
             ? apply_filters('rewrite_rules_array', $generated)
             : $generated;
@@ -4758,6 +4767,8 @@ duo_check_same(
     [
         'inc/class-yoast-dynamic-rewrites.php' =>
             '3b07ec0af1f94269b2a5a98bba078edbee73e1697aeeed119ae12ff4a3ca7553',
+        'inc/class-rewrite.php' =>
+            'd8e168e467b06e6c49f1f1c60b2c5437d7eb9081ef96aa472ed1de880639dbda',
         'wp-seo-main.php' =>
             '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1',
         'inc/options/class-wpseo-options.php' =>
@@ -9638,6 +9649,32 @@ duo_check_same(
     (int) ($GLOBALS['tec_readiness_yoast_constructs'] ?? 0),
     'the exact Yoast option singleton roster is constructed once before admission'
 );
+$yoastRewrite = $wooServices['yoast_rewrite'];
+duo_check_same(
+    'WPSEO_Rewrite',
+    get_class($yoastRewrite),
+    'the exact Yoast category rewrite service has the normal class identity'
+);
+duo_check_same(
+    $yoastRewrite,
+    $GLOBALS['wpseo_rewrite'] ?? null,
+    'the exact Yoast category rewrite global is the canonical service object'
+);
+duo_check_same(
+    [],
+    (new ReflectionClass($yoastRewrite))->getProperties(),
+    'the exact Yoast category rewrite service is stateless'
+);
+duo_check_same(
+    false,
+    WPSEO_Options::get('stripcategorybase'),
+    'the exact Yoast category rewrite policy is primed from the cached false value'
+);
+duo_check_same(
+    10,
+    has_filter('category_rewrite_rules', [$yoastRewrite, 'category_rewrite_rules_wrapper']),
+    'Yoast binds its exact stateless category wrapper at category_rewrite_rules 10/1'
+);
 foreach ($wooServices['yoast_options'] as $name => $service) {
     duo_check(
         has_filter('pre_update_option', [$service, 'add_default_filters_if_not_changed']) === PHP_INT_MAX,
@@ -9800,6 +9837,22 @@ duo_check_same(
     $wooUpdatedReceipt['verified'] ?? null,
     'the exact normal Woo callback union permits the TEC rewrite product path'
 );
+duo_check(
+    in_array(
+        ['WPSEO_Rewrite::category_rewrite_rules_wrapper', 'category'],
+        $GLOBALS['tec_readiness_rewrite_calls'] ?? [],
+        true
+    ),
+    'the exact normal Yoast category wrapper executes and records its no-op callback'
+);
+duo_check(
+    in_array(
+        'stripcategorybase',
+        $GLOBALS['tec_readiness_yoast_policy_reads'] ?? [],
+        true
+    ),
+    'the normal Yoast category wrapper reads its cached policy through WPSEO_Options::get'
+);
 duo_check_same(
     [],
     array_values(array_filter(
@@ -9826,6 +9879,172 @@ duo_check_same(
         $yoastReadsBeforeAdmission
     ))),
     'Yoast admission reads every canonical option singleton through WPSEO_Options'
+);
+
+$categoryCallback = [$yoastRewrite, 'category_rewrite_rules_wrapper'];
+foreach ([
+    'enabled policy' => ['stripcategorybase' => true],
+    'missing policy cache' => [],
+    'malformed policy cache' => ['stripcategorybase' => 'false'],
+] as $label => $policyValues) {
+    WPSEO_Options::set_option_values($policyValues);
+    $categoryPolicyPreimage = $rewriteRefusalState();
+    $categoryPolicyFailure = null;
+    try {
+        $nativeRewriteChild->invoke(null);
+    } catch (Throwable $failure) {
+        $categoryPolicyFailure = $failure;
+    }
+    duo_check(
+        $categoryPolicyFailure instanceof RuntimeException
+            && str_contains($categoryPolicyFailure->getMessage(), 'Yoast category'),
+        "$label refuses before native rewrite mutation"
+    );
+    duo_check_same(
+        $categoryPolicyPreimage,
+        $rewriteRefusalState(),
+        "$label refusal preserves the exact rewrite preimage"
+    );
+    WPSEO_Options::set_option_values(['stripcategorybase' => false]);
+    duo_check_same(
+        true,
+        $nativeRewriteChild->invoke(null)['verified'] ?? null,
+        "restoring the exact false Yoast category policy permits same-process retry after $label"
+    );
+}
+
+$foreignYoastRewrite = new WPSEO_Rewrite();
+remove_filter('category_rewrite_rules', $categoryCallback, 10);
+add_filter('category_rewrite_rules', [$foreignYoastRewrite, 'category_rewrite_rules_wrapper'], 10, 1);
+$foreignCategoryPreimage = $rewriteRefusalState();
+$foreignCategoryFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $foreignCategoryFailure = $failure;
+}
+remove_filter('category_rewrite_rules', [$foreignYoastRewrite, 'category_rewrite_rules_wrapper'], 10);
+add_filter('category_rewrite_rules', $categoryCallback, 10, 1);
+duo_check(
+    $foreignCategoryFailure instanceof RuntimeException
+        && str_contains($foreignCategoryFailure->getMessage(), 'substituted Yoast category rewrite service'),
+    'a same-class foreign Yoast category callback refuses before native rewrite mutation'
+);
+duo_check_same(
+    $foreignCategoryPreimage,
+    $rewriteRefusalState(),
+    'the same-class foreign Yoast category callback preserves the exact rewrite preimage'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring the canonical Yoast category callback permits same-process retry'
+);
+
+$foreignCategoryGlobal = new WPSEO_Rewrite();
+$GLOBALS['wpseo_rewrite'] = $foreignCategoryGlobal;
+$foreignCategoryGlobalPreimage = $rewriteRefusalState();
+$foreignCategoryGlobalFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $foreignCategoryGlobalFailure = $failure;
+}
+$GLOBALS['wpseo_rewrite'] = $yoastRewrite;
+duo_check(
+    $foreignCategoryGlobalFailure instanceof RuntimeException
+        && str_contains($foreignCategoryGlobalFailure->getMessage(), 'substituted Yoast category rewrite service'),
+    'a same-class foreign Yoast category global refuses before native rewrite mutation'
+);
+duo_check_same(
+    $foreignCategoryGlobalPreimage,
+    $rewriteRefusalState(),
+    'the same-class foreign Yoast category global preserves the exact rewrite preimage'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring the canonical Yoast category global permits same-process retry'
+);
+
+remove_filter('category_rewrite_rules', $categoryCallback, 10);
+$missingCategoryPreimage = $rewriteRefusalState();
+$missingCategoryFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $missingCategoryFailure = $failure;
+}
+add_filter('category_rewrite_rules', $categoryCallback, 10, 1);
+duo_check(
+    $missingCategoryFailure instanceof RuntimeException
+        && str_contains($missingCategoryFailure->getMessage(), 'incomplete or substituted plugin callbacks'),
+    'a missing Yoast category callback refuses before native rewrite mutation'
+);
+duo_check_same(
+    $missingCategoryPreimage,
+    $rewriteRefusalState(),
+    'the missing Yoast category callback preserves the exact rewrite preimage'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring the missing Yoast category callback permits same-process retry'
+);
+
+$mixedCategoryForeign = new WPSEO_Rewrite();
+add_filter(
+    'category_rewrite_rules',
+    [$mixedCategoryForeign, 'category_rewrite_rules_wrapper'],
+    10,
+    1
+);
+$mixedCategoryPreimage = $rewriteRefusalState();
+$mixedCategoryFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $mixedCategoryFailure = $failure;
+}
+remove_filter(
+    'category_rewrite_rules',
+    [$mixedCategoryForeign, 'category_rewrite_rules_wrapper'],
+    10
+);
+duo_check(
+    $mixedCategoryFailure instanceof RuntimeException
+        && str_contains($mixedCategoryFailure->getMessage(), 'incomplete or substituted plugin callbacks'),
+    'a mixed Yoast category callback topology refuses before native rewrite mutation'
+);
+duo_check_same(
+    $mixedCategoryPreimage,
+    $rewriteRefusalState(),
+    'the mixed Yoast category callback topology preserves the exact rewrite preimage'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring the exact Yoast category callback topology permits same-process retry'
+);
+
+$GLOBALS['tec_readiness_yoast_rewrite_drift'] = new WPSEO_Rewrite();
+$yoastCategoryDriftFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $yoastCategoryDriftFailure = $failure;
+}
+$GLOBALS['wpseo_rewrite'] = $yoastRewrite;
+unset($GLOBALS['tec_readiness_yoast_rewrite_drift']);
+duo_check(
+    $yoastCategoryDriftFailure instanceof RuntimeException
+        && str_contains($yoastCategoryDriftFailure->getMessage(), 'could not restore the proven shipped-plugin runtime'),
+    'Yoast category global drift during native execution fails exact cleanup'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring the Yoast category global after execution drift permits retry'
 );
 
 $cacheClearProperty = new ReflectionProperty('WPSEO_Sitemaps_Cache', 'cache_clear');
@@ -10086,6 +10305,7 @@ foreach ([
     'wc_fix_rewrite_rules',
     'Yoast_Dynamic_Rewrites::sanitize_rewrite_rules_option',
     'Yoast_Dynamic_Rewrites::filter_rewrite_rules_option',
+    'WPSEO_Rewrite::category_rewrite_rules_wrapper',
     'PLL_Sitemaps::rewrite_rules',
     'PLL_Links_Directory::rewrite_rules',
     'Tribe__Events__Rewrite::filter_generate',

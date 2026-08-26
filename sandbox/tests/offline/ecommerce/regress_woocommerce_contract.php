@@ -964,6 +964,7 @@ woo_ok(
     'the candidate-bound co-install hands its exact Compose argv to the pinned artifact resolver before loading it'
 );
 $yoastOptionSources = [
+    'inc/class-rewrite.php' => 'd8e168e467b06e6c49f1f1c60b2c5437d7eb9081ef96aa472ed1de880639dbda',
     'inc/options/class-wpseo-options.php' => 'dfa12977fe7d8e44a46e55106dbd6beff2f62ded44bb72130eb40092c8aa3c93',
     'inc/options/class-wpseo-option.php' => '9be7b8c73ec223dc2349b5976a51c3fcf66d21d12ddd8985742c4ddaaf4057e9',
     'inc/options/class-wpseo-option-wpseo.php' => '39b7002ff87b9b3e44d72c06ddaba43ef9d02539a7a6f74781d8723641cf6f34',
@@ -985,9 +986,9 @@ foreach ($yoastOptionSources as $sourceFile => $sha256) {
     woo_ok(($coInstallSourcePins[$sourceFile] ?? null) === $sha256,
         "co-install evidence pins exact Yoast 28.3 option source $sourceFile");
 }
-woo_ok(count((array) ($wooRewriteCoInstallTopology['source_files'] ?? [])) === 40
-    && count((array) ($wooRewriteCoInstallTopology['static_callbacks'] ?? [])) === 38,
-    'co-install evidence closes all 40 source files and 38 static callbacks');
+woo_ok(count((array) ($wooRewriteCoInstallTopology['source_files'] ?? [])) === 41
+    && count((array) ($wooRewriteCoInstallTopology['static_callbacks'] ?? [])) === 39,
+    'co-install evidence closes all 41 source files and 39 static callbacks');
 $yoastOptionClasses = [
     'WPSEO_Option_Wpseo',
     'WPSEO_Option_Titles',
@@ -1682,6 +1683,11 @@ foreach ([
         "thumbnail live probe preserves nonzero WP-CLI evidence: $thumbnailProbeWitness");
 }
 woo_ok(
+    str_contains($wooCheckHarness, '.simple.image[1] == 450 and .simple.image[2] == 450')
+        && !str_contains($wooCheckHarness, '.simple.image[1] == 500 and .simple.image[2] == 500'),
+    'the final aggregate witness retains the exact Twenty Twenty-One 450px Woo thumbnail override'
+);
+woo_ok(
     strpos($wooCheckHarness, 'thumbnail convergence WP-CLI probe failed (exit $THUMBNAIL_LAZY_RC)')
         < strpos($wooCheckHarness, 'require_observed_nonempty "conf2 WooCommerce thumbnail lazy-convergence observation"'),
     'thumbnail live probe reports the raw failing command before set -e or JSON parsing can swallow it'
@@ -1793,8 +1799,8 @@ foreach ([
     '"pll_rewrite_rules","pll_modify_rewrite_rule"',
     '([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0',
     'def static_rewrite_hook:',
-    '(.source_files|length==40)',
-    '(.static_callbacks|length==38)',
+    '(.source_files|length==41)',
+    '(.static_callbacks|length==39)',
     'WP_CLI_MEMORY_LIMIT=512M',
     '--entrypoint php',
     '-d "memory_limit=$WP_CLI_MEMORY_LIMIT" /usr/local/bin/wp',
@@ -1813,6 +1819,10 @@ foreach ([
     'WPSEO_Options::get_option_instance($optionName)',
     '$GLOBALS["wpseo_sitemaps"]',
     'Yoast sitemap global/cache identity differs from normal boot',
+    '$GLOBALS["wpseo_rewrite"]',
+    'Yoast category rewrite singleton differs from normal boot',
+    'category_rewrite_rules_wrapper',
+    'Yoast category rewrite policy is not the exact primed pass-through state',
     'WPSEO_Sitemaps_Cache","clear_on_option_update',
     '$exact("update_option",array_merge($yoastGeneric,[$yoastSitemap]))',
     '$exact("add_option",$yoastGeneric)',

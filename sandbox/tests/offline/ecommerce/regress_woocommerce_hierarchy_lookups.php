@@ -56,6 +56,7 @@ duo_check_same([
     ['plugin' => 'woocommerce', 'path' => 'src/Internal/DataStores/Orders/DataSynchronizer.php', 'sha256' => 'a10ff8e2e5820deeb5a032cccfc2ffca09a5134e3e87e388e0262a89a8805234'],
     ['plugin' => 'woocommerce', 'path' => 'src/Internal/DataStores/Orders/CustomOrdersTableController.php', 'sha256' => 'b4d1a6772b064de9be6a80750074b0a9e371514f58131a1701cad6cd52ccb8bf'],
     ['plugin' => 'wordpress-seo', 'path' => 'inc/class-yoast-dynamic-rewrites.php', 'sha256' => '3b07ec0af1f94269b2a5a98bba078edbee73e1697aeeed119ae12ff4a3ca7553'],
+    ['plugin' => 'wordpress-seo', 'path' => 'inc/class-rewrite.php', 'sha256' => 'd8e168e467b06e6c49f1f1c60b2c5437d7eb9081ef96aa472ed1de880639dbda'],
     ['plugin' => 'wordpress-seo', 'path' => 'wp-seo-main.php', 'sha256' => '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1'],
     ['plugin' => 'wordpress-seo', 'path' => 'inc/options/class-wpseo-options.php', 'sha256' => 'dfa12977fe7d8e44a46e55106dbd6beff2f62ded44bb72130eb40092c8aa3c93'],
     ['plugin' => 'wordpress-seo', 'path' => 'inc/options/class-wpseo-option.php', 'sha256' => '9be7b8c73ec223dc2349b5976a51c3fcf66d21d12ddd8985742c4ddaaf4057e9'],
@@ -112,6 +113,7 @@ duo_check_same([], $unboundWooSources,
     'every Woo rewrite callback source is bound to the exact source inventory for the installed 11.0.1 artifact');
 duo_check_same([
     ['hook' => 'rewrite_rules_array', 'callback' => 'wc_fix_rewrite_rules', 'priority' => 10, 'accepted_args' => 1],
+    ['hook' => 'category_rewrite_rules', 'callback' => 'WPSEO_Rewrite::category_rewrite_rules_wrapper', 'priority' => 10, 'accepted_args' => 1],
     ['hook' => 'updated_option', 'callback' => 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_updated_option', 'priority' => 999, 'accepted_args' => 3],
     ['hook' => 'added_option', 'callback' => 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_added_option', 'priority' => 999, 'accepted_args' => 3],
     ['hook' => 'updated_option', 'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_updated_option', 'priority' => 999, 'accepted_args' => 3],

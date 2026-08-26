@@ -98,7 +98,7 @@ assert_live_source_file_hashes() { # side
     # Current `wp eval` accepts only its PHP-code positional argument. Pass the
     # already-validated path through WP-CLI's supported global execution hook;
     # a second positional produced "Too many positional arguments" before the
-    # first of the 40 exact source hashes could be observed.
+    # first of the 41 exact source hashes could be observed.
     actual=$("wp$side" eval '
 $relative=(string)getenv("DUO_AUDITED_PLUGIN_FILE");$path=WP_PLUGIN_DIR."/".$relative;
 if(!is_file($path)){throw new RuntimeException("audited plugin source file is absent: ".$relative);}
@@ -110,7 +110,7 @@ echo hash_file("sha256",$path);
 }
 
 say "candidate/source preflight: $HEAD"
-jq -e '.format=="duo-woocommerce-rewrite-coinstall-topology/v1" and .artifacts.woocommerce.version=="11.0.1" and .artifacts["wordpress-seo"].version=="28.3" and .artifacts.polylang.version=="3.8.6" and .artifacts["the-events-calendar"].version=="6.17.2" and (.source_files|length==40) and (.static_callbacks|length==38) and (.marker_option_topology.updated_option|length==5) and (.woocommerce_normal_option_topology.updated_option|length==4) and (.woocommerce_normal_option_topology.pre_update_option|length==1) and (.woocommerce_normal_option_topology.added_option|length==2) and (.yoast_normal_option_topology.pre_update_option|length==6) and (.yoast_normal_option_topology.update_option|length==7) and (.yoast_normal_option_topology.add_option|length==6) and (.yoast_normal_option_topology.pre_update_option|all(.priority==9223372036854775807 and .accepted_args==3)) and (.yoast_normal_option_topology.update_option|all(.priority==10 and .accepted_args==1)) and (.yoast_normal_option_topology.add_option|all(.priority==10 and .accepted_args==1)) and .marker_option_topology.pre_option.optional_callback=="TEC\\Common\\Integrations\\Harbor\\PUE::filter_pre_get_option" and .marker_option_topology.wp_default_autoload_value.callback=="wp_filter_default_autoload_value_via_option_size" and (.dynamic_callback_containers|any(.hook=="pll_modify_rewrite_rule" and .accepted_args==4))' "$TOPOLOGY" >/dev/null || fail 'co-install topology fixture is not exact'
+jq -e '.format=="duo-woocommerce-rewrite-coinstall-topology/v1" and .artifacts.woocommerce.version=="11.0.1" and .artifacts["wordpress-seo"].version=="28.3" and .artifacts.polylang.version=="3.8.6" and .artifacts["the-events-calendar"].version=="6.17.2" and (.source_files|length==41) and (.static_callbacks|length==39) and (.marker_option_topology.updated_option|length==5) and (.woocommerce_normal_option_topology.updated_option|length==4) and (.woocommerce_normal_option_topology.pre_update_option|length==1) and (.woocommerce_normal_option_topology.added_option|length==2) and (.yoast_normal_option_topology.pre_update_option|length==6) and (.yoast_normal_option_topology.update_option|length==7) and (.yoast_normal_option_topology.add_option|length==6) and (.yoast_normal_option_topology.pre_update_option|all(.priority==9223372036854775807 and .accepted_args==3)) and (.yoast_normal_option_topology.update_option|all(.priority==10 and .accepted_args==1)) and (.yoast_normal_option_topology.add_option|all(.priority==10 and .accepted_args==1)) and .marker_option_topology.pre_option.optional_callback=="TEC\\Common\\Integrations\\Harbor\\PUE::filter_pre_get_option" and .marker_option_topology.wp_default_autoload_value.callback=="wp_filter_default_autoload_value_via_option_size" and (.dynamic_callback_containers|any(.hook=="pll_modify_rewrite_rule" and .accepted_args==4))' "$TOPOLOGY" >/dev/null || fail 'co-install topology fixture is not exact'
 validate_artifact_lock conformance/artifacts.lock.json
 jq -e --slurpfile lock conformance/artifacts.lock.json '(.artifacts | to_entries | all(. as $artifact | $lock[0].plugins[$artifact.key][$artifact.value.version].sha256 == $artifact.value.sha256))' "$TOPOLOGY" >/dev/null || fail 'co-install artifact hashes differ from the artifact lock'
 pass 'candidate, artifact hashes, and audited topology are pinned'
@@ -201,7 +201,7 @@ pass 'normal apply invoked the verified product-route provider'
 say 'inspect the actual co-install callback identities and effects'
 HOOKS=$(wp2 eval '
 $markers=["tribe_last_generate_rewrite_rules","tribe_last_updated_option","tribe_last_save_post"];
-$want=["rewrite_rules_array","option_rewrite_rules","sanitize_option_rewrite_rules","generate_rewrite_rules","updated_option","pre_option","wp_default_autoload_value","pre_wp_load_alloptions","pre_cache_alloptions","alloptions","pre_update_option","update_option","wp_autoload_values_to_autoload","wp_max_autoloaded_option_size","add_option","added_option","pll_rewrite_rules","pll_modify_rewrite_rule"];
+$want=["rewrite_rules_array","option_rewrite_rules","sanitize_option_rewrite_rules","generate_rewrite_rules","category_rewrite_rules","updated_option","pre_option","wp_default_autoload_value","pre_wp_load_alloptions","pre_cache_alloptions","alloptions","pre_update_option","update_option","wp_autoload_values_to_autoload","wp_max_autoloaded_option_size","add_option","added_option","pll_rewrite_rules","pll_modify_rewrite_rule"];
 foreach($markers as $name){foreach(["sanitize_option_","pre_option_","default_option_","option_","pre_update_option_","update_option_","add_option_"] as $prefix){$want[]=$prefix.$name;}}
 $rows=[];
 foreach($want as $hook){foreach(($GLOBALS["wp_filter"][$hook]->callbacks??[])as $priority=>$set){foreach($set as $entry){$f=$entry["function"]??null;if(is_string($f)){$name=$f;}elseif(is_array($f)&&isset($f[0],$f[1])){$name=(is_object($f[0])?get_class($f[0]):$f[0])."::".$f[1];}else{continue;}$rows[]=["hook"=>$hook,"priority"=>(int)$priority,"args"=>(int)($entry["accepted_args"]??0),"callback"=>$name];}}}echo wp_json_encode($rows);
@@ -209,9 +209,10 @@ foreach($want as $hook){foreach(($GLOBALS["wp_filter"][$hook]->callbacks??[])as 
 echo "$HOOKS" | jq -e --slurpfile topology "$TOPOLOGY" '
   def canon: sort_by(.priority,.args,.callback);
   def static_rewrite_hook:
-    .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules";
+    .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules" or .hook=="category_rewrite_rules";
   . as $actual |
-  ([ $actual[] | select(static_rewrite_hook) ] | canon) ==
+  ([ $actual[] | select(static_rewrite_hook) |
+      select(.hook!="category_rewrite_rules" or .callback!="PLL_Links_Directory::rewrite_rules") ] | canon) ==
     ([ $topology[0].static_callbacks[] | select(static_rewrite_hook) |
       {hook,priority,args:.accepted_args,callback} ] | canon) and
   ([ $actual[] | select(.hook=="updated_option") | del(.hook) ] | canon) ==
@@ -232,7 +233,7 @@ echo "$HOOKS" | jq -e --slurpfile topology "$TOPOLOGY" '
     ($topology[0].marker_option_topology.wp_default_autoload_value | {priority, args:.accepted_args, callback})
   ] and
   ([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0 and
-  all($actual[]; .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules" or .hook=="updated_option" or .hook=="pre_update_option" or .hook=="update_option" or .hook=="add_option" or .hook=="added_option" or .hook=="pre_option" or .hook=="wp_default_autoload_value" or .hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") and
+  all($actual[]; .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules" or .hook=="category_rewrite_rules" or .hook=="updated_option" or .hook=="pre_update_option" or .hook=="update_option" or .hook=="add_option" or .hook=="added_option" or .hook=="pre_option" or .hook=="wp_default_autoload_value" or .hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") and
   any($actual[]; .hook=="rewrite_rules_array" and .callback=="PLL_Links_Directory::rewrite_rules" and .priority==10 and .args==1)
 ' >/dev/null || fail "live callback topology differs from audited pins: $HOOKS"
 # The printable topology above deliberately uses class::method names, which
@@ -261,7 +262,13 @@ $yoast=Yoast_Dynamic_Rewrites::instance();
 if($yoast!==$registeredYoast||get_class($yoast)!=="Yoast_Dynamic_Rewrites"||!property_exists($yoast,"wp_rewrite")||$yoast->wp_rewrite!==$rewrite){throw new RuntimeException("Yoast dynamic rewrite singleton differs from the canonical WordPress rewrite runtime");}
 $exact("option_rewrite_rules",[[$yoast,"filter_rewrite_rules_option",10,1]]);
 $exact("sanitize_option_rewrite_rules",[[$yoast,"sanitize_rewrite_rules_option",10,1]]);
+$wpseoRewrite=$GLOBALS["wpseo_rewrite"]??null;
+if(!is_object($wpseoRewrite)||get_class($wpseoRewrite)!=="WPSEO_Rewrite"){throw new RuntimeException("Yoast category rewrite singleton differs from normal boot");}
+$categoryYoast=array_values(array_filter($records("category_rewrite_rules"),static fn(array $record):bool=>$record["priority"]===10&&$record["args"]===1&&$record["function"]===[$wpseoRewrite,"category_rewrite_rules_wrapper"]));
+if(count($categoryYoast)!==1){throw new RuntimeException("Yoast category rewrite callback differs from the exact normal rewrite singleton");}
 if(!class_exists("WPSEO_Options")||!is_callable(["WPSEO_Options","get_option_instance"])){throw new RuntimeException("Yoast options manager is unavailable");}
+$yoastValues=(new ReflectionProperty("WPSEO_Options","option_values"))->getValue();
+if(!is_array($yoastValues)||!array_key_exists("stripcategorybase",$yoastValues)||$yoastValues["stripcategorybase"]!==false){throw new RuntimeException("Yoast category rewrite policy is not the exact primed pass-through state");}
 $sitemaps=$GLOBALS["wpseo_sitemaps"]??null;
 $sitemapsCache=is_object($sitemaps)?($sitemaps->cache??null):null;
 if(!is_object($sitemaps)||get_class($sitemaps)!=="WPSEO_Sitemaps"||!is_object($sitemapsCache)||get_class($sitemapsCache)!=="WPSEO_Sitemaps_Cache"){throw new RuntimeException("Yoast sitemap global/cache identity differs from normal boot");}
@@ -320,7 +327,8 @@ if(count($staticMatches)!==1){throw new RuntimeException("Polylang static rewrit
 $types=$links->get_rewrite_rules_filters();
 if(!is_array($types)||$types===[]||!array_is_list($types)||$types!==array_values(array_unique($types))){throw new RuntimeException("Polylang rewrite type inventory is malformed");}
 $dynamic=[];
-foreach($types as $type){if(!is_string($type)||preg_match("/^[a-z0-9_]{1,191}$/D",$type)!==1){throw new RuntimeException("Polylang rewrite type is malformed");}$hook=$type."_rewrite_rules";$current=$records($hook);if(count($current)!==1||$current[0]["priority"]!==10||$current[0]["args"]!==1||$current[0]["function"]!==[$links,"rewrite_rules"]){throw new RuntimeException("Polylang dynamic rewrite callback differs from the directory links model");}$dynamic[]=$hook;}
+foreach($types as $type){if(!is_string($type)||preg_match("/^[a-z0-9_]{1,191}$/D",$type)!==1){throw new RuntimeException("Polylang rewrite type is malformed");}$hook=$type."_rewrite_rules";$current=$records($hook);$polylangMatches=array_values(array_filter($current,static fn(array $record):bool=>$record["priority"]===10&&$record["args"]===1&&$record["function"]===[$links,"rewrite_rules"]));$expectedCount=$type==="category"?2:1;if(count($current)!==$expectedCount||count($polylangMatches)!==1){throw new RuntimeException("Polylang dynamic rewrite callback differs from the directory links model");}$dynamic[]=$hook;}
+if(!in_array("category",$types,true)){throw new RuntimeException("Polylang category rewrite type is absent from the normal roster");}
 echo wp_json_encode(["links_model"=>get_class($links),"types"=>$types,"hooks"=>$dynamic]);
 ' | tail -1) || fail 'could not verify Polylang dynamic rewrite callback identity'
 echo "$PLL_DYNAMIC" | jq -e '
