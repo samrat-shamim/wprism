@@ -464,23 +464,45 @@ $set_thumbnail_options = static function (string $mode, int $width, int $ratio_w
         throw new RuntimeException("Woo thumbnail options and registered image size did not converge");
     }
 };
-$create_image = static function (int $width, int $height, string $label): int {
+$temporary_ids = [];
+$temporary_files = [];
+$create_image = static function (int $width, int $height, string $label) use (&$temporary_ids, &$temporary_files): int {
     $uploads = wp_upload_dir();
     $name = "duo-woo-lazy-" . $label . "-" . wp_generate_uuid4() . ".png";
     $file = trailingslashit($uploads["path"]) . $name;
     wp_mkdir_p(dirname($file));
+    if (file_exists($file) || is_link($file)) {
+        throw new RuntimeException("unique lazy-thumbnail fixture path already exists");
+    }
     $image = imagecreatetruecolor($width, $height);
-    imagefilledrectangle($image, 0, 0, $width - 1, $height - 1, imagecolorallocate($image, 40, 120, 180));
-    imagepng($image, $file);
-    imagedestroy($image);
+    if (false === $image) {
+        throw new RuntimeException("failed to allocate lazy-thumbnail fixture image");
+    }
+    try {
+        imagefilledrectangle($image, 0, 0, $width - 1, $height - 1, imagecolorallocate($image, 40, 120, 180));
+        $written = imagepng($image, $file);
+    } finally {
+        imagedestroy($image);
+    }
+    if (!$written || is_link($file) || !is_file($file)) {
+        if (is_file($file) && !is_link($file)) {
+            unlink($file);
+        }
+        throw new RuntimeException("failed to write lazy-thumbnail fixture image");
+    }
     $id = wp_insert_attachment([
         "post_mime_type" => "image/png",
         "post_title" => "Duo Woo lazy image " . $label,
         "post_status" => "inherit",
     ], $file);
     if (is_wp_error($id)) {
+        if (is_file($file) && !is_link($file)) {
+            unlink($file);
+        }
         throw new RuntimeException($id->get_error_message());
     }
+    $temporary_ids[] = (int) $id;
+    $temporary_files[(int) $id] = $file;
     $metadata = wp_generate_attachment_metadata((int) $id, $file);
     if (!is_array($metadata) || !$metadata) {
         throw new RuntimeException("failed to seed native attachment metadata");
@@ -512,8 +534,61 @@ $product = wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
 if (!$product || !$product->get_image_id()) {
     throw new RuntimeException("missing product image for lazy-regeneration product path");
 }
-$product_image_id = (int) $product->get_image_id();
+$managed_product_image_id = (int) $product->get_image_id();
 $runtime_hash = (string) get_option("woocommerce_maybe_regenerate_images_hash", "");
+$managed_product_file = get_attached_file($managed_product_image_id);
+$managed_product_metadata_before = wp_get_attachment_metadata($managed_product_image_id);
+if (!is_string($managed_product_file) || $managed_product_file === "" || !is_file($managed_product_file)
+    || is_link($managed_product_file) || !is_array($managed_product_metadata_before)) {
+    throw new RuntimeException("managed product image preimage is unavailable for isolation evidence");
+}
+$attachment_state = static function (string $original, bool $must_have_original = true): array {
+    $directory = dirname($original);
+    $filename = pathinfo($original, PATHINFO_FILENAME);
+    $uploads = wp_get_upload_dir();
+    $upload_root = realpath((string) ($uploads["basedir"] ?? ""));
+    $resolved_directory = realpath($directory);
+    $resolved_original = $must_have_original ? realpath($original) : false;
+    $root_prefix = is_string($upload_root) ? rtrim($upload_root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR : "";
+    if (!is_string($upload_root) || !is_string($resolved_directory)
+        || ($must_have_original && (!is_string($resolved_original) || dirname($resolved_original) !== $resolved_directory))
+        || $resolved_directory !== $directory
+        || ($resolved_directory !== $upload_root && !str_starts_with($resolved_directory, $root_prefix))) {
+        throw new RuntimeException("managed product image inventory is outside the exact nonsymlinked upload root");
+    }
+    $entries = scandir($directory);
+    if (!is_array($entries) || count($entries) > 1024 || $filename === "") {
+        throw new RuntimeException("managed product image directory inventory is unavailable or unbounded");
+    }
+    $files = [];
+    $total = 0;
+    foreach ($entries as $entry) {
+        if (!is_string($entry) || ($entry !== basename($original) && !str_starts_with($entry, $filename . "-"))) {
+            continue;
+        }
+        $path = $directory . DIRECTORY_SEPARATOR . $entry;
+        $stat = lstat($path);
+        if (!is_array($stat) || is_link($path) || !is_file($path) || (int) $stat["size"] > 8 * 1024 * 1024) {
+            throw new RuntimeException("managed product image prefix contains an unsafe or oversized file");
+        }
+        $sha256 = hash_file("sha256", $path);
+        if (!is_string($sha256) || strlen($sha256) !== 64) {
+            throw new RuntimeException("managed product image prefix could not be hashed exactly");
+        }
+        $total += (int) $stat["size"];
+        if (count($files) >= 64 || $total > 32 * 1024 * 1024) {
+            throw new RuntimeException("managed product image prefix exceeds the observation bound");
+        }
+        $files[$entry] = [
+            "mode" => ((int) $stat["mode"]) & 0777,
+            "sha256" => $sha256,
+            "size" => (int) $stat["size"],
+        ];
+    }
+    ksort($files, SORT_STRING);
+    return $files;
+};
+$managed_product_files_before = $attachment_state($managed_product_file);
 // pair_bootstrap.sh:136 activates Twenty Twenty-One, whose exact Woo 11.0.x
 // support fixes thumbnails at 450px. Remove that process-local precedence so
 // this one probe can exercise the authored 300 -> 500 option lifecycle; every
@@ -527,18 +602,21 @@ if ((int) ($theme_size["width"] ?? 0) !== 450 || false === $theme_support) {
 if (!remove_theme_support("woocommerce")) {
     throw new RuntimeException("could not enter the process-local option-controlled Woo thumbnail scenario");
 }
-$temporary_ids = [];
+$result = null;
+$probe_error = null;
+$cleanup_errors = [];
+$product_image_id = 0;
+$product_file = "";
 try {
     $set_thumbnail_options("1:1", 300, 1, 1);
+    $product_image_id = $create_image(800, 600, "product-probe");
     $product_file = get_attached_file($product_image_id);
-    $product_metadata = wp_generate_attachment_metadata($product_image_id, $product_file);
-    if (!is_array($product_metadata)) {
-        throw new RuntimeException("failed to manufacture stale 300px product metadata");
+    if (!is_string($product_file) || $product_file === "" || !is_file($product_file) || is_link($product_file)) {
+        throw new RuntimeException("isolated lazy-thumbnail fixture has no exact regular source file");
     }
-    wp_update_attachment_metadata($product_image_id, $product_metadata);
     $stored_product_metadata = wp_get_attachment_metadata($product_image_id);
     if ((int) ($stored_product_metadata["sizes"]["woocommerce_thumbnail"]["width"] ?? 0) !== 300) {
-        throw new RuntimeException("native stale product metadata did not retain the 300px preimage");
+        throw new RuntimeException("isolated stale product metadata did not retain the 300px preimage");
     }
     $same_before = $metadata_hash($product_image_id);
     $set_thumbnail_options("custom", 500, 1, 1);
@@ -547,7 +625,6 @@ try {
 
     $set_thumbnail_options("1:1", 300, 1, 1);
     $failure_id = $create_image(800, 600, "failure");
-    $temporary_ids[] = $failure_id;
     $set_thumbnail_options("custom", 500, 1, 1);
     $failure_before = $metadata_hash($failure_id);
     // An empty supported editor inventory makes WordPress return its native
@@ -570,7 +647,6 @@ try {
 
     $set_thumbnail_options("1:1", 300, 1, 1);
     $small_id = $create_image(240, 180, "small");
-    $temporary_ids[] = $small_id;
     $set_thumbnail_options("custom", 500, 1, 1);
     $small_before = $metadata_hash($small_id);
     $small = wp_get_attachment_image_src($small_id, "woocommerce_thumbnail");
@@ -582,7 +658,7 @@ try {
     $custom = wp_get_attachment_image_src($failure_id, "woocommerce_thumbnail");
     $set_thumbnail_options("custom", 500, 1, 1);
 
-    echo wp_json_encode([
+    $result = [
         "callbacks" => $callbacks,
         "theme_override_width" => (int) ($theme_size["width"] ?? 0),
         "same_aspect" => [
@@ -621,18 +697,71 @@ try {
             (string) get_option("woocommerce_thumbnail_cropping_custom_height", ""),
             (string) get_option("woocommerce_thumbnail_image_width", ""),
         ],
-    ], JSON_UNESCAPED_SLASHES);
+    ];
+} catch (Throwable $error) {
+    $probe_error = $error;
 } finally {
-    $set_thumbnail_options("custom", 500, 1, 1);
-    foreach ($temporary_ids as $temporary_id) {
-        wp_delete_attachment($temporary_id, true);
+    try {
+        $set_thumbnail_options("custom", 500, 1, 1);
+    } catch (Throwable $error) {
+        $cleanup_errors[] = "options: " . $error->getMessage();
     }
-    if (is_array($theme_support)) {
-        add_theme_support("woocommerce", ...$theme_support);
-    } elseif (true === $theme_support) {
-        add_theme_support("woocommerce");
+    foreach ($temporary_ids as $temporary_id) {
+        try {
+            $temporary_file = (string) ($temporary_files[$temporary_id] ?? "");
+            if ($temporary_file === "") {
+                throw new RuntimeException("temporary attachment lacks its owned prefix authority");
+            }
+            $owned_before_delete = $attachment_state($temporary_file, false);
+            if (!wp_delete_attachment($temporary_id, true)) {
+                throw new RuntimeException("native attachment deletion returned no deleted row");
+            }
+            $remaining = $attachment_state($temporary_file, false);
+            foreach ($remaining as $entry => $state) {
+                if (!isset($owned_before_delete[$entry]) || $owned_before_delete[$entry] !== $state) {
+                    throw new RuntimeException("temporary attachment prefix changed outside its frozen ownership");
+                }
+                $path = dirname($temporary_file) . DIRECTORY_SEPARATOR . $entry;
+                clearstatcache(true, $path);
+                $current = $attachment_state($temporary_file, false);
+                if (($current[$entry] ?? null) !== $state || !unlink($path)) {
+                    throw new RuntimeException("temporary attachment owned derivative could not be removed exactly");
+                }
+            }
+            if ($attachment_state($temporary_file, false) !== []) {
+                throw new RuntimeException("temporary attachment prefix retained owned residue");
+            }
+        } catch (Throwable $error) {
+            $cleanup_errors[] = "attachment " . $temporary_id . ": " . $error->getMessage();
+        }
+    }
+    try {
+        if (is_array($theme_support)) {
+            add_theme_support("woocommerce", ...$theme_support);
+        } elseif (true === $theme_support) {
+            add_theme_support("woocommerce");
+        }
+    } catch (Throwable $error) {
+        $cleanup_errors[] = "theme support: " . $error->getMessage();
     }
 }
+if ($cleanup_errors !== []) {
+    throw new RuntimeException("isolated thumbnail probe cleanup failed: " . implode("; ", $cleanup_errors), 0, $probe_error);
+}
+if ($probe_error instanceof Throwable) {
+    throw $probe_error;
+}
+foreach ($temporary_files as $temporary_id => $temporary_file) {
+    if (get_post($temporary_id) !== null || $attachment_state($temporary_file, false) !== []) {
+        throw new RuntimeException("isolated thumbnail probe left attachment or file-prefix residue");
+    }
+}
+if (!is_array($result) || wp_get_attachment_metadata($managed_product_image_id) !== $managed_product_metadata_before
+    || $attachment_state($managed_product_file) !== $managed_product_files_before) {
+    throw new RuntimeException("isolated thumbnail probe changed the exact managed product preimage or left owned residue");
+}
+$result["fixture_isolated"] = true;
+echo wp_json_encode($result, JSON_UNESCAPED_SLASHES);
 ' 2>&1) || THUMBNAIL_LAZY_RC=$?
 [ "$THUMBNAIL_LAZY_RC" -eq 0 ] \
   || fail "Woo request-time thumbnail convergence WP-CLI probe failed (exit $THUMBNAIL_LAZY_RC): $THUMBNAIL_LAZY_RAW"
@@ -655,6 +784,7 @@ jq -e '
   .smaller == {"dims":[240,180],"metadata_unchanged":true} and
   .transitions == {"uncropped":[500,375],"custom_4_3":[500,375]} and
   .runtime_hash_preserved == true and
+  .fixture_isolated == true and
   .final_options == ["custom","1","1","500"]
 ' <<<"$THUMBNAIL_LAZY_OUT" >/dev/null \
   || fail "Woo request-time thumbnail convergence failed: $THUMBNAIL_LAZY_OUT"
@@ -1264,7 +1394,7 @@ woocommerce_provider_guard() {
       "category_lookup"=>"SELECT * FROM {$wpdb->prefix}wc_category_lookup ORDER BY 1,2",
       "product_meta_lookup"=>"SELECT * FROM {$wpdb->prefix}wc_product_meta_lookup ORDER BY product_id",
       "product_attributes_lookup"=>"SELECT * FROM {$wpdb->prefix}wc_product_attributes_lookup ORDER BY product_or_parent_id,product_id,taxonomy,term_id",
-      "product_download_directories"=>"SELECT * FROM {$wpdb->prefix}wc_product_download_directories ORDER BY id",
+      "product_download_directories"=>"SELECT * FROM {$wpdb->prefix}wc_product_download_directories ORDER BY url_id",
       "scheduler_actions"=>"SELECT * FROM {$wpdb->prefix}actionscheduler_actions ORDER BY action_id",
       "scheduler_groups"=>"SELECT * FROM {$wpdb->prefix}actionscheduler_groups ORDER BY group_id",
       "scheduler_logs"=>"SELECT * FROM {$wpdb->prefix}actionscheduler_logs ORDER BY log_id",

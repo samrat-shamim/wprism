@@ -276,8 +276,8 @@ $registeredYoast=$yoastSlot->getValue();
 if(!is_object($registeredYoast)){throw new RuntimeException("Yoast dynamic rewrite singleton was not registered by normal boot");}
 $yoast=Yoast_Dynamic_Rewrites::instance();
 if($yoast!==$registeredYoast||get_class($yoast)!=="Yoast_Dynamic_Rewrites"||!property_exists($yoast,"wp_rewrite")||$yoast->wp_rewrite!==$rewrite){throw new RuntimeException("Yoast dynamic rewrite singleton differs from the canonical WordPress rewrite runtime");}
-$exact("option_rewrite_rules",[[$yoast,"filter_rewrite_rules_option",10,1]]);
-$exact("sanitize_option_rewrite_rules",[[$yoast,"sanitize_rewrite_rules_option",10,1]]);
+$exact("option_rewrite_rules",[[[$yoast,"filter_rewrite_rules_option"],10,1]]);
+$exact("sanitize_option_rewrite_rules",[[[$yoast,"sanitize_rewrite_rules_option"],10,1]]);
 $wpseoRewrite=$GLOBALS["wpseo_rewrite"]??null;
 if(!is_object($wpseoRewrite)||get_class($wpseoRewrite)!=="WPSEO_Rewrite"){throw new RuntimeException("Yoast category rewrite singleton differs from normal boot");}
 $categoryYoast=array_values(array_filter($records("category_rewrite_rules"),static fn(array $record):bool=>$record["priority"]===10&&$record["args"]===1&&$record["function"]===[$wpseoRewrite,"category_rewrite_rules_wrapper"]));
@@ -295,8 +295,8 @@ foreach($yoastOptions as $optionName=>$class){
   // construct missing services, while this evidence must witness normal boot.
   $instance=WPSEO_Options::get_option_instance($optionName);
   if(!is_object($instance)||get_class($instance)!==$class){throw new RuntimeException("Yoast option singleton identity differs from normal boot for ".$optionName);}
-  $yoastPre[]=[$instance,"add_default_filters_if_not_changed",PHP_INT_MAX,3];
-  $yoastGeneric[]=[$instance,"add_default_filters_if_same_option",10,1];
+  $yoastPre[]=[[$instance,"add_default_filters_if_not_changed"],PHP_INT_MAX,3];
+  $yoastGeneric[]=[[$instance,"add_default_filters_if_same_option"],10,1];
 }
 if(!class_exists("WPSEO_Sitemaps_Cache")||!is_callable(["WPSEO_Sitemaps_Cache","clear_on_option_update"])){throw new RuntimeException("Yoast sitemap cache callback is unavailable");}
 $yoastSitemap=[["WPSEO_Sitemaps_Cache","clear_on_option_update"],10,1];
@@ -316,12 +316,12 @@ $tecGeneration=array_values(array_filter($records("generate_rewrite_rules"),stat
 if(count($tecGeneration)!==1){throw new RuntimeException("The Events Calendar rewrite callback differs from the exact TEC event rewrite singleton");}
 $tecRules=array_values(array_filter($records("rewrite_rules_array"),static fn(array $record):bool=>$record["priority"]===25&&$record["args"]===1&&$record["function"]===[$tecRewrite,"filter_rewrite_rules_array"]));
 if(count($tecRules)!==1){throw new RuntimeException("The Events Calendar rewrite callback differs from the exact TEC event rewrite singleton");}
-$exact("updated_option",[[$manager,"update_options_cache",10,3],[$listener,"update_last_updated_option",10,3],[$listener,"update_last_save_post",10,3],[$aggregator,"action_purge_transients",10,1],[$views,"action_save_wplang",10,3],[$features,"process_updated_option",999,3],[$synchronizer,"process_updated_option",999,3],[$customOrders,"process_updated_option",999,3],[$customOrders,"process_updated_option_fts_index",999,3]]);
-$exact("pre_update_option",array_merge([[$customOrders,"process_pre_update_option",999,3]],$yoastPre));
+$exact("updated_option",[[[$manager,"update_options_cache"],10,3],[[$listener,"update_last_updated_option"],10,3],[[$listener,"update_last_save_post"],10,3],[[$aggregator,"action_purge_transients"],10,1],[[$views,"action_save_wplang"],10,3],[[$features,"process_updated_option"],999,3],[[$synchronizer,"process_updated_option"],999,3],[[$customOrders,"process_updated_option"],999,3],[[$customOrders,"process_updated_option_fts_index"],999,3]]);
+$exact("pre_update_option",array_merge([[[$customOrders,"process_pre_update_option"],999,3]],$yoastPre));
 $exact("update_option",array_merge($yoastGeneric,[$yoastSitemap]));
 $exact("add_option",$yoastGeneric);
-$exact("added_option",[[$features,"process_added_option",999,3],[$synchronizer,"process_added_option",999,2]]);
-$pre=$records("pre_option");if($pre!==[]){if(!function_exists("tribe")){throw new RuntimeException("Harbor option callback has no container resolver");}$harbor=tribe("TEC\\Common\\Integrations\\Harbor\\PUE");if(!is_object($harbor)||get_class($harbor)!=="TEC\\Common\\Integrations\\Harbor\\PUE"){throw new RuntimeException("Harbor option service identity differs from normal boot");}$exact("pre_option",[[$harbor,"filter_pre_get_option",10,3]]);}
+$exact("added_option",[[[$features,"process_added_option"],999,3],[[$synchronizer,"process_added_option"],999,2]]);
+$pre=$records("pre_option");if($pre!==[]){if(!function_exists("tribe")){throw new RuntimeException("Harbor option callback has no container resolver");}$harbor=tribe("TEC\\Common\\Integrations\\Harbor\\PUE");if(!is_object($harbor)||get_class($harbor)!=="TEC\\Common\\Integrations\\Harbor\\PUE"){throw new RuntimeException("Harbor option service identity differs from normal boot");}$exact("pre_option",[[[$harbor,"filter_pre_get_option"],10,3]]);}
 $exact("wp_default_autoload_value",[["wp_filter_default_autoload_value_via_option_size",5,4]]);
 echo wp_json_encode(["callbacks"=>"exact-singletons"]);
 ' | tail -1) || fail 'could not bind live callback services to their source singletons'

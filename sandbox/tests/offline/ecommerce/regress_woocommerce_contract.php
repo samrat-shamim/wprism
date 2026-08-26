@@ -1972,6 +1972,19 @@ foreach ([
     'wp_cache_delete("size-woocommerce_thumbnail", "woocommerce")',
     'WC()->add_image_sizes()',
     'wp_get_registered_image_subsizes()',
+    'managed product image preimage is unavailable for isolation evidence',
+    '$managed_product_files_before = $attachment_state($managed_product_file)',
+    '$create_image(800, 600, "product-probe")',
+    '$temporary_ids[] = (int) $id',
+    '$temporary_files[(int) $id] = $file',
+    '$owned_before_delete = $attachment_state($temporary_file, false)',
+    'temporary attachment prefix changed outside its frozen ownership',
+    'isolated thumbnail probe left attachment or file-prefix residue',
+    'isolated thumbnail probe cleanup failed:',
+    'wp_get_attachment_metadata($managed_product_image_id) !== $managed_product_metadata_before',
+    '$attachment_state($managed_product_file) !== $managed_product_files_before',
+    'isolated thumbnail probe changed the exact managed product preimage or left owned residue',
+    '.fixture_isolated == true',
     '"theme_override_width"',
     'static fn(array $editors): array => []',
     '"failed_metadata_changed"',
@@ -1982,6 +1995,10 @@ foreach ([
     woo_ok(str_contains($wooCheckHarness, $thumbnailProbeWitness),
         "thumbnail live probe preserves nonzero WP-CLI evidence: $thumbnailProbeWitness");
 }
+woo_ok(!str_contains($wooCheckHarness, '$restore_attachment_files')
+    && !str_contains($wooCheckHarness, 'unlink($managed_product_file)')
+    && !str_contains($wooCheckHarness, 'file_put_contents($managed_product_file'),
+    'thumbnail evidence observes the managed product preimage without restoring, deleting, or overwriting it');
 woo_ok(
     str_contains($wooCheckHarness, '.simple.image[1] == 450 and .simple.image[2] == 450')
         && !str_contains($wooCheckHarness, '.simple.image[1] == 500 and .simple.image[2] == 500'),
@@ -2029,6 +2046,7 @@ woo_ok(str_contains($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_
     'each exact WooCommerce boundary runs lifecycle evidence before the populated upgrade leg');
 foreach ([
     'woocommerce_boundary_storage_hash',
+    'wc_product_download_directories ORDER BY url_id',
     'WC_REMOVE_ALL_DATA',
     'e06e0c2086f695d39f5d9edead87cd4faeb0ea45184d77e7d8fe5588abfde48e',
     'default uninstall changed retained authored or target-runtime storage',
@@ -2040,6 +2058,9 @@ foreach ([
     woo_ok(str_contains($woocommerceMatrixHarness, $lifecycleWitness),
         "exact WooCommerce lifecycle matrix pins $lifecycleWitness");
 }
+woo_ok(str_contains($wooCheckHarness, 'wc_product_download_directories ORDER BY url_id')
+    && !str_contains($wooCheckHarness, 'wc_product_download_directories ORDER BY id'),
+    'provider-race storage evidence orders WooCommerce approved directories by the exact url_id primary key');
 foreach ([
     'woocommerce_preapply_authority_assertion()',
     'duo-woocommerce-preapply-authority/v1',
@@ -2167,6 +2188,13 @@ foreach ([
     '$exact("add_option",$yoastGeneric)',
     'Yoast dynamic rewrite singleton was not registered by normal boot',
     'Yoast dynamic rewrite singleton differs from the canonical WordPress rewrite runtime',
+    '$exact("option_rewrite_rules",[[[$yoast,"filter_rewrite_rules_option"],10,1]])',
+    '$yoastPre[]=[[$instance,"add_default_filters_if_not_changed"],PHP_INT_MAX,3]',
+    '$yoastGeneric[]=[[$instance,"add_default_filters_if_same_option"],10,1]',
+    '$exact("updated_option",[[[$manager,"update_options_cache"],10,3]',
+    'array_merge([[[$customOrders,"process_pre_update_option"],999,3]],$yoastPre)',
+    '$exact("added_option",[[[$features,"process_added_option"],999,3]',
+    '$exact("pre_option",[[[$harbor,"filter_pre_get_option"],10,3]])',
     'Tribe__Cache_Listener::instance()',
     'The Events Calendar rewrite-generation callback differs from the cache-listener singleton',
     'Tribe__Events__Rewrite::instance()',
@@ -2192,5 +2220,7 @@ woo_ok(!str_contains($wooRewriteCoInstallHarness, 'memory_limit=-1'),
     'four-plugin co-install keeps a finite PHP bootstrap ceiling');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, '$args[0]'),
     'co-install source hashing uses WP-CLI global execution state, not unsupported eval positional arguments');
+woo_ok(!str_contains($wooRewriteCoInstallHarness, '[[$yoast,"filter_rewrite_rules_option",10,1]]'),
+    'co-install callback identity tuples keep the callable nested separately from priority and arity');
 
 echo "PASS: WooCommerce 11.0.x option/table inventory and rebuild contract are explicit\n";

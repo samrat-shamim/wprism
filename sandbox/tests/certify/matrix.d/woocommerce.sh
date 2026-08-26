@@ -75,7 +75,7 @@ woocommerce_boundary_storage_hash() {
       "product_lookup" => "SELECT * FROM {$wpdb->prefix}wc_product_meta_lookup ORDER BY product_id",
       "attribute_lookup" => "SELECT * FROM {$wpdb->prefix}wc_product_attributes_lookup ORDER BY product_or_parent_id,product_id,taxonomy,term_id",
       "category_lookup" => "SELECT * FROM {$wpdb->prefix}wc_category_lookup ORDER BY category_tree_id,category_id",
-      "download_directories" => "SELECT * FROM {$wpdb->prefix}wc_product_download_directories ORDER BY id",
+      "download_directories" => "SELECT * FROM {$wpdb->prefix}wc_product_download_directories ORDER BY url_id",
       "target_orders" => "SELECT * FROM {$wpdb->prefix}wc_orders WHERE billing_email=\"target-runtime@example.test\" ORDER BY id",
       "target_order_addresses" => "SELECT a.* FROM {$wpdb->prefix}wc_order_addresses a INNER JOIN {$wpdb->prefix}wc_orders o ON o.id=a.order_id WHERE o.billing_email=\"target-runtime@example.test\" ORDER BY a.id",
       "target_order_operational" => "SELECT o.* FROM {$wpdb->prefix}wc_order_operational_data o INNER JOIN {$wpdb->prefix}wc_orders p ON p.id=o.order_id WHERE p.billing_email=\"target-runtime@example.test\" ORDER BY o.id",
