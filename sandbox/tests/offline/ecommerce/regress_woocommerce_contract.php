@@ -1611,6 +1611,7 @@ foreach ([
     'WC()->add_image_sizes()',
     'wp_get_registered_image_subsizes()',
     '"theme_override_width"',
+    'static fn(array $editors): array => []',
 ] as $thumbnailProbeWitness) {
     woo_ok(str_contains($wooCheckHarness, $thumbnailProbeWitness),
         "thumbnail live probe preserves nonzero WP-CLI evidence: $thumbnailProbeWitness");
@@ -1620,6 +1621,8 @@ woo_ok(
         < strpos($wooCheckHarness, 'require_observed_nonempty "conf2 WooCommerce thumbnail lazy-convergence observation"'),
     'thumbnail live probe reports the raw failing command before set -e or JSON parsing can swallow it'
 );
+woo_ok(!str_contains($wooCheckHarness, 'Duo_Woo_Missing_Image_Editor'),
+    'thumbnail failure injection asks WordPress for its native no-editor error instead of naming an unloadable callback');
 foreach ([
     $conformanceRunnerHarness,
     $matrixHarness,
@@ -1714,6 +1717,9 @@ foreach ([
     'pre-bootstrap PHP memory limit',
     'DUO_AUDITED_PLUGIN_FILE',
     '--exec="putenv(',
+    'WC_Install::create_terms()',
+    'new WC_Product_Simple()',
+    '"product_visibility"',
     'CALLBACK_IDENTITIES=$(wp2 eval',
     'native rewrite callback identity differs from source services',
     '$GLOBALS["wc_container"]',

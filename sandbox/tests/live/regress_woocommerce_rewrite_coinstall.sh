@@ -131,6 +131,10 @@ for side in 1 2; do
   install "$side" polylang 3.8.6
   install "$side" the-events-calendar 6.17.2
   "wp$side" site empty --yes >/dev/null
+  # `site empty` removes Woo's install-time taxonomy inventory. Restore it
+  # through the exact plugin API so capture sees all nine product_visibility
+  # terms and Woo CRUD below can write the one required product_type relation.
+  "wp$side" eval 'WC_Install::create_terms();' >/dev/null
   establish_woocommerce_hpos "wp$side" >/dev/null \
     || fail "side $side could not establish HPOS through WooCommerce's native new-shop lifecycle"
 done
@@ -151,9 +155,13 @@ update_option("permalink_structure","/%postname%/");
 update_option("woocommerce_permalinks",["product_base"=>"store/%product_cat%","category_base"=>"catalog","attribute_base"=>"feature","tag_base"=>"label","use_verbose_page_rules"=>true]);
 $lang=PLL()->model->add_language(["locale"=>"en_US","name"=>"English","slug"=>"en","rtl"=>false,"term_group"=>0,"no_default_cat"=>true]);
 if(is_wp_error($lang)||!$lang instanceof PLL_Language){throw new RuntimeException("could not create the Polylang language");}
-$product=wp_insert_post(["post_type"=>"product","post_status"=>"publish","post_title"=>"Rewrite Co-install Product","post_name"=>"rewrite-coinstall-product"],true);
-if(is_wp_error($product)||!$product){throw new RuntimeException("could not create product");}
-pll_set_post_language((int)$product,"en");
+$product=new WC_Product_Simple();
+$product->set_name("Rewrite Co-install Product");
+$product->set_slug("rewrite-coinstall-product");
+$product->set_status("publish");
+$product_id=$product->save();
+if(!$product_id){throw new RuntimeException("could not create product through WooCommerce CRUD");}
+pll_set_post_language((int)$product_id,"en");
 ' >/dev/null
 cat > "$R1/site.duo.json" <<'EOF'
 {
@@ -162,7 +170,7 @@ cat > "$R1/site.duo.json" <<'EOF'
     "options": {},
     "post_meta": {},
     "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon", "tribe_events"],
-    "taxonomies": ["category", "post_tag", "product_cat", "product_shipping_class", "product_tag", "product_type", "language", "term_language", "term_translations", "post_translations"]
+    "taxonomies": ["category", "post_tag", "product_cat", "product_shipping_class", "product_tag", "product_type", "product_visibility", "language", "term_language", "term_translations", "post_translations"]
   },
   "spec_version": 2
 }

@@ -542,7 +542,10 @@ try {
     $temporary_ids[] = $failure_id;
     $set_thumbnail_options("custom", 500, 1, 1);
     $failure_before = $metadata_hash($failure_id);
-    $missing_editor = static fn(array $editors): array => ["Duo_Woo_Missing_Image_Editor"];
+    // An empty supported editor inventory makes WordPress return its native
+    // image_no_editor WP_Error. A fictitious class is not equivalent: WP 7.1
+    // calls its static test() and raises TypeError before Woo can fall back.
+    $missing_editor = static fn(array $editors): array => [];
     add_filter("wp_image_editors", $missing_editor, PHP_INT_MAX);
     try {
         $failed = wp_get_attachment_image_src($failure_id, "woocommerce_thumbnail");
