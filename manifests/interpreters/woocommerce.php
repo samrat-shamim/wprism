@@ -167,6 +167,12 @@ final class Woocommerce {
         '1c7615bcd26fba9f83961db045edf6bd42acc6ee691383e8a8dd6f6a1e00434c';
     private const WPSEO_SITEMAPS = 'WPSEO_Sitemaps';
     private const WPSEO_SITEMAPS_CACHE = 'WPSEO_Sitemaps_Cache';
+    private const WPSEO_CONTAINER_REGISTRY = 'Yoast\\WP\\Lib\\Dependency_Injection\\Container_Registry';
+    private const WPSEO_CONTAINER = 'Yoast\\WP\\SEO\\Generated\\Cached_Container';
+    private const WPSEO_CONTAINER_BASE = 'YoastSEO_Vendor\\Symfony\\Component\\DependencyInjection\\Container';
+    private const WPSEO_WOO_PERMALINKS =
+        'Yoast\\WP\\SEO\\Integrations\\Third_Party\\Woocommerce_Permalinks';
+    private const WPSEO_INDEXABLE_HELPER = 'Yoast\\WP\\SEO\\Helpers\\Indexable_Helper';
     private const TEC_CONTAINER = 'Tribe__Container';
     private const TEC_CONTRACT_CONTAINER = 'TEC\\Common\\Contracts\\Container';
     private const TEC_DI_CONTAINER = 'TEC\\Common\\lucatume\\DI52\\Container';
@@ -711,7 +717,11 @@ final class Woocommerce {
             }
             $this->assert_closed_mixed_option_hook('pre_update_option', $preUpdated, $woo, $wpseo);
             $this->assert_closed_mixed_option_hook('update_option', $update, $woo, $wpseo, $tracking);
-            $this->assert_closed_mixed_option_hook("update_option_$name", []);
+            if ($name === 'woocommerce_permalinks') {
+                $this->assert_mixed_option_yoast_permalink_hook();
+            } else {
+                $this->assert_closed_mixed_option_hook("update_option_$name", []);
+            }
             $updated = $woo === null ? [] : [
                 [self::WOO_SYNCHRONIZER, 'process_updated_option', 999, 3, 'woo'],
                 [self::WOO_CUSTOM_ORDERS, 'process_updated_option', 999, 3, 'woo'],
@@ -744,6 +754,114 @@ final class Woocommerce {
             [self::WOO_FEATURES, 'process_added_option', 999, 3, 'woo'],
         ];
         $this->assert_closed_mixed_option_hook('added_option', $added, $woo, $wpseo);
+    }
+
+    private function assert_mixed_option_yoast_permalink_hook(): void {
+        global $wp_filter;
+        $registered = $wp_filter['update_option_woocommerce_permalinks'] ?? null;
+        if ($registered === null) {
+            return;
+        }
+        if (!$registered instanceof \WP_Hook || !is_array($registered->callbacks ?? null)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option Yoast permalink hook topology is unreadable or extension-owned'
+            );
+        }
+        $records = [];
+        foreach ($registered->callbacks as $priority => $callbacks) {
+            foreach (is_array($callbacks) ? $callbacks : [] as $callback) {
+                $records[] = [$priority, $callback];
+            }
+        }
+        if (count($records) !== 1
+            || $records[0][0] !== 10
+            || !is_array($records[0][1])
+            || array_keys($records[0][1]) !== ['function', 'accepted_args']
+            || $records[0][1]['accepted_args'] !== 2
+            || !is_array($records[0][1]['function'] ?? null)
+            || count($records[0][1]['function']) !== 2
+            || !is_object($records[0][1]['function'][0] ?? null)
+            || get_class($records[0][1]['function'][0]) !== self::WPSEO_WOO_PERMALINKS
+            || ($records[0][1]['function'][1] ?? null) !== 'reset_woocommerce_permalinks') {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option Yoast permalink hook topology is extended or substituted'
+            );
+        }
+        foreach ([
+            self::WPSEO_CONTAINER_REGISTRY,
+            self::WPSEO_CONTAINER,
+            self::WPSEO_CONTAINER_BASE,
+            self::WPSEO_WOO_PERMALINKS,
+            self::WPSEO_INDEXABLE_HELPER,
+        ] as $class) {
+            if (!class_exists($class, false)) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce mixed option Yoast permalink service is unavailable'
+                );
+            }
+        }
+        try {
+            $containers = (new \ReflectionProperty(self::WPSEO_CONTAINER_REGISTRY, 'containers'))->getValue();
+            $container = is_array($containers) ? ($containers['yoast-seo'] ?? null) : null;
+            $services = is_object($container) && get_class($container) === self::WPSEO_CONTAINER
+                ? (new \ReflectionProperty(self::WPSEO_CONTAINER_BASE, 'services'))->getValue($container)
+                : null;
+            $service = is_array($services) ? ($services[self::WPSEO_WOO_PERMALINKS] ?? null) : null;
+            $helper = is_object($service) && get_class($service) === self::WPSEO_WOO_PERMALINKS
+                ? (new \ReflectionProperty(self::WPSEO_WOO_PERMALINKS, 'indexable_helper'))->getValue($service)
+                : null;
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option Yoast permalink service is unavailable',
+                0,
+                $failure
+            );
+        }
+        if (!is_array($services)
+            || !is_object($service)
+            || $service !== $records[0][1]['function'][0]
+            || !is_object($helper)
+            || get_class($helper) !== self::WPSEO_INDEXABLE_HELPER
+            || ($services[self::WPSEO_INDEXABLE_HELPER] ?? null) !== $helper) {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option Yoast permalink callback is not the exact resolved service'
+            );
+        }
+
+        // Yoast's exact callback invalidates product and product-taxonomy
+        // indexables. The option writer deliberately bypasses WordPress hooks,
+        // so admitting that callback requires the selected Yoast action to
+        // replace the skipped invalidation with a checkpointed full reindex.
+        foreach ($this->policy->actions_for(['option:woocommerce_permalinks']) as $action) {
+            if (($action['kind'] ?? null) !== 'provider'
+                || ($action['provider'] ?? null) !== 'yoast-index'
+                || ($action['capability'] ?? null) !== 'reindex') {
+                continue;
+            }
+            $covered = [];
+            foreach ((array) ($action['effects'] ?? []) as $effect) {
+                $selector = is_array($effect) ? ($effect['selector'] ?? null) : null;
+                if (($effect['kind'] ?? null) === 'database'
+                    && ($effect['mode'] ?? null) === 'restorable'
+                    && is_array($selector)
+                    && ($selector['scope'] ?? null) === 'database_checkpoint') {
+                    $covered[(string) ($selector['type'] ?? '') . ':' . (string) ($selector['value'] ?? '')] = true;
+                }
+            }
+            $required = [
+                'table:options',
+                'table:yoast_indexable',
+                'table:yoast_indexable_hierarchy',
+                'table:yoast_primary_term',
+                'table:yoast_seo_links',
+            ];
+            if (array_diff_key(array_fill_keys($required, true), $covered) === []) {
+                return;
+            }
+        }
+        throw new \RuntimeException(
+            'duo: WooCommerce mixed option Yoast permalink callback requires the checkpointed yoast-index action'
+        );
     }
 
     /** @param array<string,string> $fields @param array<string,mixed> $value */
@@ -1345,27 +1463,51 @@ final class Woocommerce {
     private function load_native_settings_api(): void {
         $message = 'duo: WooCommerce mixed option validation requires WC_Settings_API';
         if (!defined('ABSPATH')
-            || !defined('WC_ABSPATH')
-            || !defined('WC_PLUGIN_FILE')) {
+            || !defined('WP_PLUGIN_DIR')) {
             throw new \RuntimeException($message);
         }
         $wpRoot = constant('ABSPATH');
-        $configuredRoot = constant('WC_ABSPATH');
-        $pluginFile = constant('WC_PLUGIN_FILE');
+        $pluginDirectory = constant('WP_PLUGIN_DIR');
         if (!is_string($wpRoot) || $wpRoot === ''
-            || !is_string($configuredRoot) || $configuredRoot === ''
-            || !is_string($pluginFile) || $pluginFile === '') {
+            || !is_string($pluginDirectory) || $pluginDirectory === '') {
             throw new \RuntimeException($message);
         }
-        $pluginFileReal = realpath($pluginFile);
-        $pluginRootReal = $pluginFileReal === false ? false : realpath(dirname($pluginFileReal));
-        $configuredRootReal = realpath(rtrim($configuredRoot, "/\\"));
-        if ($pluginFileReal === false
-            || $pluginRootReal === false
-            || $configuredRootReal === false
-            || $pluginRootReal !== $configuredRootReal
-            || $pluginFileReal !== $pluginRootReal . DIRECTORY_SEPARATOR . 'woocommerce.php') {
+        $wpRootReal = realpath(rtrim($wpRoot, "/\\"));
+        $pluginDirectoryReal = realpath(rtrim($pluginDirectory, "/\\"));
+        $installedRootReal = $pluginDirectoryReal === false
+            ? false
+            : realpath($pluginDirectoryReal . DIRECTORY_SEPARATOR . 'woocommerce');
+        $installedFileReal = $installedRootReal === false
+            ? false
+            : realpath($installedRootReal . DIRECTORY_SEPARATOR . 'woocommerce.php');
+        if ($wpRootReal === false
+            || $pluginDirectoryReal === false
+            || $installedRootReal === false
+            || $installedFileReal === false
+            || dirname($installedFileReal) !== $installedRootReal) {
             throw new \RuntimeException($message);
+        }
+
+        $hasConfiguredRoot = defined('WC_ABSPATH');
+        $hasPluginFile = defined('WC_PLUGIN_FILE');
+        if ($hasConfiguredRoot !== $hasPluginFile) {
+            throw new \RuntimeException($message);
+        }
+        $pluginRootReal = $installedRootReal;
+        if ($hasConfiguredRoot) {
+            $configuredRoot = constant('WC_ABSPATH');
+            $pluginFile = constant('WC_PLUGIN_FILE');
+            if (!is_string($configuredRoot) || $configuredRoot === ''
+                || !is_string($pluginFile) || $pluginFile === '') {
+                throw new \RuntimeException($message);
+            }
+            $configuredRootReal = realpath(rtrim($configuredRoot, "/\\"));
+            $pluginFileReal = realpath($pluginFile);
+            if ($configuredRootReal !== $installedRootReal
+                || $pluginFileReal !== $installedFileReal) {
+                throw new \RuntimeException($message);
+            }
+            $pluginRootReal = $configuredRootReal;
         }
         $settingsFile = $pluginRootReal
             . DIRECTORY_SEPARATOR . 'includes'

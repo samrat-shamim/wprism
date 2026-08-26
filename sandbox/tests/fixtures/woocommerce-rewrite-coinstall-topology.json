@@ -145,6 +145,31 @@
       "sha256": "e436a8c3702e6c8c954d8bb3b4dd099124c47a4d6007c87f6693a79a7759a885"
     },
     {
+      "plugin": "wordpress-seo",
+      "path": "src/integrations/third-party/woocommerce-permalinks.php",
+      "sha256": "8913e5e888d96cd4d9797d055cb862381cf4dfe6d2ddd4f1b8c6225c7aaa85a5"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "src/generated/container.php",
+      "sha256": "f41aad93f9c02c150763720d07cfe03fd697805149aa671d628714ef9cde84b4"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "lib/dependency-injection/container-registry.php",
+      "sha256": "36fdda743db041f6dae37e51b70456c52c661dceb8b411fa0e3c2d2f5e92349a"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "vendor_prefixed/symfony/dependency-injection/Container.php",
+      "sha256": "4fc50ac8b32a60246f11173ebe11e9c947152cafea3359f4846da3fa0c407e38"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "src/helpers/indexable-helper.php",
+      "sha256": "b462c43e61fcb755f8357e711d80a0aa2c267ce593d361885e686aa26f9cfe8e"
+    },
+    {
       "plugin": "polylang",
       "path": "src/admin/admin.php",
       "sha256": "7ed2774c6c73c514c64fc1a4b6533e41bacc8278a54785e8246492ce597bfdc5"
@@ -381,6 +406,12 @@
       {"callback": "WPSEO_Option_Llmstxt::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
       {"callback": "WPSEO_Option_Tracking_Only::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1}
     ],
+    "woocommerce_permalinks": {
+      "hook": "update_option_woocommerce_permalinks",
+      "callback": "Yoast\\WP\\SEO\\Integrations\\Third_Party\\Woocommerce_Permalinks::reset_woocommerce_permalinks",
+      "priority": 10,
+      "accepted_args": 2
+    },
     "option_cache_map": {
       "wpseo": "WPSEO_Option_Wpseo",
       "wpseo_titles": "WPSEO_Option_Titles",

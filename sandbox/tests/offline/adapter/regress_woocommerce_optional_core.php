@@ -130,6 +130,19 @@ $GLOBALS['wooMixedYoastServices'] = [
 foreach ($GLOBALS['wooMixedYoastServices'] as $name => $service) {
     WPSEO_Options::register_option($name, $service);
 }
+$GLOBALS['wooMixedYoastIndexableHelper'] = new \Yoast\WP\SEO\Helpers\Indexable_Helper();
+$GLOBALS['wooMixedYoastPermalinks'] =
+    new \Yoast\WP\SEO\Integrations\Third_Party\Woocommerce_Permalinks(
+        $GLOBALS['wooMixedYoastIndexableHelper']
+    );
+\Yoast\WP\Lib\Dependency_Injection\Container_Registry::install(
+    'yoast-seo',
+    new \Yoast\WP\SEO\Generated\Cached_Container([
+        \Yoast\WP\SEO\Helpers\Indexable_Helper::class => $GLOBALS['wooMixedYoastIndexableHelper'],
+        \Yoast\WP\SEO\Integrations\Third_Party\Woocommerce_Permalinks::class =>
+            $GLOBALS['wooMixedYoastPermalinks'],
+    ])
+);
 $GLOBALS['wooMixedSettingsTracking'] = new WC_Settings_Tracking();
 
 /** @param list<array{0:object|string,1:string,2:int,3:int}> $rows */
@@ -154,7 +167,8 @@ function woo_optional_install_native_topology(
     bool $targetWasPresent,
     string $optionName,
     bool $sitemapsActive = true,
-    bool $trackingUpdateActive = true
+    bool $trackingUpdateActive = true,
+    bool $yoastPermalinkActive = false
 ): void {
     woo_optional_clear_hooks();
     $services = $GLOBALS['wooMixedOptionServices'];
@@ -170,6 +184,11 @@ function woo_optional_install_native_topology(
             woo_optional_install_hook('pre_update_option_woocommerce_permalinks', [[
                 $GLOBALS['WC_Brands_Admin'], 'validate_product_base', 10, 1,
             ]]);
+            if ($yoastPermalinkActive) {
+                woo_optional_install_hook('update_option_woocommerce_permalinks', [[
+                    $GLOBALS['wooMixedYoastPermalinks'], 'reset_woocommerce_permalinks', 10, 2,
+                ]]);
+            }
         }
         $updated = [
             [$services[\Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer::class], 'process_updated_option', 999, 3],
@@ -766,10 +785,25 @@ $materializeMixed = static function (
     array $captured,
     array $subKeys,
     string $autoload,
-    ?array $targetValue
+    ?array $targetValue,
+    ?Policy $materializePolicy = null,
+    bool $yoastPermalinkActive = false,
+    ?object $yoastPermalinkOverride = null
 ) use ($policy): array {
-    woo_optional_install_native_topology($targetValue !== null, $name);
-    $effectiveRule = $policy->option_rule($name);
+    $materializePolicy ??= $policy;
+    woo_optional_install_native_topology(
+        $targetValue !== null,
+        $name,
+        true,
+        true,
+        $yoastPermalinkActive
+    );
+    if ($yoastPermalinkOverride !== null) {
+        woo_optional_install_hook('update_option_woocommerce_permalinks', [[
+            $yoastPermalinkOverride, 'reset_woocommerce_permalinks', 10, 2,
+        ]]);
+    }
+    $effectiveRule = $materializePolicy->option_rule($name);
     if (!is_array($effectiveRule) || ($effectiveRule['sub_keys'] ?? null) !== $subKeys) {
         throw new RuntimeException("missing exact manifest-owned mixed option rule for $name");
     }
@@ -777,7 +811,7 @@ $materializeMixed = static function (
     $writeCalls = 0;
     $finalizeCalls = 0;
     $runtimeRestore = null;
-    $handled = $policy->materialize_option_sub_keys_via_interpreter(
+    $handled = $materializePolicy->materialize_option_sub_keys_via_interpreter(
         $name,
         $captured,
         $effectiveRule,
@@ -812,7 +846,7 @@ $materializeMixed = static function (
             $rawAuthored[(string) $field] = $written[(string) $field];
         }
     }
-    $projected = $policy->project_materialized_option_sub_keys_via_interpreter(
+    $projected = $materializePolicy->project_materialized_option_sub_keys_via_interpreter(
         $name,
         $rawAuthored,
         $effectiveRule,
@@ -931,6 +965,81 @@ duo_check(
     )['written'] === $permalinkSource,
     'a missing target permalink row uses the closed Woo/Yoast insertion callback union'
 );
+$wooYoastPolicy = Policy::load(null, ['woocommerce', 'yoast']);
+$wooYoastActions = array_values(array_filter(
+    $wooYoastPolicy->actions_for(['option:woocommerce_permalinks']),
+    static fn(array $action): bool => ($action['provider'] ?? null) === 'yoast-index'
+        && ($action['capability'] ?? null) === 'reindex'
+));
+duo_check_same(1, count($wooYoastActions),
+    'the Woo plus Yoast policy selects one full reindex for a Woo permalink mutation');
+$wooYoastEffects = [];
+foreach ((array) ($wooYoastActions[0]['effects'] ?? []) as $effect) {
+    $selector = (array) ($effect['selector'] ?? []);
+    if (($effect['kind'] ?? null) === 'database'
+        && ($effect['mode'] ?? null) === 'restorable'
+        && ($selector['scope'] ?? null) === 'database_checkpoint') {
+        $wooYoastEffects[(string) ($selector['type'] ?? '') . ':' . (string) ($selector['value'] ?? '')] = true;
+    }
+}
+duo_check_same([], array_diff([
+    'table:options',
+    'table:yoast_indexable',
+    'table:yoast_indexable_hierarchy',
+    'table:yoast_primary_term',
+    'table:yoast_seo_links',
+], array_keys($wooYoastEffects)),
+    'the selected Yoast replacement checkpoints every skipped permalink-callback write surface');
+$GLOBALS['wooMixedYoastPermalinkCalls'] = 0;
+$wooYoastResult = $materializeMixed(
+    'woocommerce_permalinks',
+    $permalinkNormalized,
+    $permalinkRules,
+    'yes',
+    ['product_base' => 'stale-only-sparse-target'],
+    $wooYoastPolicy,
+    true
+);
+duo_check(
+    $wooYoastResult['handled'] === true
+        && $wooYoastResult['written'] === $permalinkSource
+        && $GLOBALS['wooMixedYoastPermalinkCalls'] === 0,
+    'the exact container-owned Yoast permalink callback is replaced by the checkpointed reindex without invocation'
+);
+duo_check_throws(
+    static fn() => $materializeMixed(
+        'woocommerce_permalinks',
+        $permalinkNormalized,
+        $permalinkRules,
+        'yes',
+        ['product_base' => 'stale-only-sparse-target'],
+        $policy,
+        true
+    ),
+    RuntimeException::class,
+    'an exact Yoast callback refuses when the selected policy has no checkpointed replacement action',
+    'requires the checkpointed yoast-index action'
+);
+$foreignYoastPermalinks =
+    new \Yoast\WP\SEO\Integrations\Third_Party\Woocommerce_Permalinks(
+        $GLOBALS['wooMixedYoastIndexableHelper']
+    );
+duo_check_throws(
+    static fn() => $materializeMixed(
+        'woocommerce_permalinks',
+        $permalinkNormalized,
+        $permalinkRules,
+        'yes',
+        ['product_base' => 'stale-only-sparse-target'],
+        $wooYoastPolicy,
+        true,
+        $foreignYoastPermalinks
+    ),
+    RuntimeException::class,
+    'a same-class foreign Yoast permalink observer refuses before direct option storage',
+    'not the exact resolved service'
+);
+woo_optional_clear_hooks();
 duo_check_same(0, $GLOBALS['wooMixedContainerGetCalls'],
     'mixed-option admission reads Woo resolved_cache and never calls Container::get');
 woo_optional_clear_hooks();

@@ -4801,9 +4801,19 @@ duo_check_same(
             'dc99816988fef1554775757fb8ab18b65ec2d46a08f03c475bf6da4dfdc72cc8',
         'inc/sitemaps/class-sitemaps.php' =>
             'e436a8c3702e6c8c954d8bb3b4dd099124c47a4d6007c87f6693a79a7759a885',
+        'src/integrations/third-party/woocommerce-permalinks.php' =>
+            '8913e5e888d96cd4d9797d055cb862381cf4dfe6d2ddd4f1b8c6225c7aaa85a5',
+        'src/generated/container.php' =>
+            'f41aad93f9c02c150763720d07cfe03fd697805149aa671d628714ef9cde84b4',
+        'lib/dependency-injection/container-registry.php' =>
+            '36fdda743db041f6dae37e51b70456c52c661dceb8b411fa0e3c2d2f5e92349a',
+        'vendor_prefixed/symfony/dependency-injection/Container.php' =>
+            '4fc50ac8b32a60246f11173ebe11e9c947152cafea3359f4846da3fa0c407e38',
+        'src/helpers/indexable-helper.php' =>
+            'b462c43e61fcb755f8357e711d80a0aa2c267ce593d361885e686aa26f9cfe8e',
     ],
     $coinstallSourceHashes['wordpress-seo'] ?? null,
-    'the exact Yoast option/sitemap registration and bounded dynamic-rule maps are source-hash bound'
+    'the exact Yoast option/sitemap, Woo permalink, and bounded dynamic-rule maps are source-hash bound'
 );
 duo_check_same(
     [

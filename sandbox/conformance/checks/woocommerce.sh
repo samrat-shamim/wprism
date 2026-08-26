@@ -1506,7 +1506,16 @@ wp_conf1 eval '
   $product->set_sale_price("49.123456"); $product->save();
 ' >/dev/null
 commit_woocommerce_source 'conformance: WooCommerce lookup-schema recovery intent'
-wp_conf2 db query 'ALTER TABLE wp_wc_product_meta_lookup RENAME COLUMN min_price TO duo_fault_min_price' >/dev/null
+wp_conf2 eval '
+  global $wpdb;
+  $wpdb->last_error = "";
+  $wpdb->query("ALTER TABLE {$wpdb->prefix}wc_product_meta_lookup RENAME COLUMN min_price TO duo_fault_min_price");
+  $columns = $wpdb->get_col("SHOW COLUMNS FROM {$wpdb->prefix}wc_product_meta_lookup", 0);
+  if ($wpdb->last_error !== "" || !is_array($columns)
+      || !in_array("duo_fault_min_price", $columns, true) || in_array("min_price", $columns, true)) {
+    throw new RuntimeException("WooCommerce lookup-schema fault injection did not land exactly");
+  }
+' >/dev/null
 SCHEMA_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
 require_observed_nonempty 'WooCommerce applied revision before lookup-schema fault' "$SCHEMA_REV_BEFORE"
 SCHEMA_RC=0
@@ -1525,7 +1534,16 @@ jq -e '
   .runtime.paypal.identity_token == "target-secret-token-preserved" and
   .runtime.orders == 1 and .runtime.sessions == 1 and .runtime.queue == 1
 ' <<<"$FAILED_AUTHORED" >/dev/null || fail "WooCommerce provider failure lost retained authored or runtime state: $FAILED_AUTHORED"
-wp_conf2 db query 'ALTER TABLE wp_wc_product_meta_lookup RENAME COLUMN duo_fault_min_price TO min_price' >/dev/null
+wp_conf2 eval '
+  global $wpdb;
+  $wpdb->last_error = "";
+  $wpdb->query("ALTER TABLE {$wpdb->prefix}wc_product_meta_lookup RENAME COLUMN duo_fault_min_price TO min_price");
+  $columns = $wpdb->get_col("SHOW COLUMNS FROM {$wpdb->prefix}wc_product_meta_lookup", 0);
+  if ($wpdb->last_error !== "" || !is_array($columns)
+      || !in_array("min_price", $columns, true) || in_array("duo_fault_min_price", $columns, true)) {
+    throw new RuntimeException("WooCommerce lookup-schema repair did not land exactly");
+  }
+' >/dev/null
 RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered 'WooCommerce retry after lookup-schema repair' json "$RETRY"
 jq -e '

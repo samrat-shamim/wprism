@@ -926,11 +926,10 @@ $wooPostapplyHarness = (string) file_get_contents($root . '/sandbox/conformance/
 $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
 $wooInterpreterSource = (string) file_get_contents($root . '/manifests/interpreters/woocommerce.php');
 
-// DUO-3525: WP-CLI can reach the mixed-option interpreter after WooCommerce
-// has established its roots but before the legacy settings abstract was
-// included. Both admitted artifacts load that exact file from
-// class-woocommerce.php; exercise that source edge in a fresh process so a
-// predeclared global WC_Settings_API cannot hide a broken absent-class path.
+// DUO-3525: deploy compiles mixed options while installed WooCommerce code can
+// still be inactive, so only WordPress's plugin root exists at that boundary.
+// Once Woo is active, both plugin constants must agree with that same fixed
+// slug before the byte-identical settings abstract may be included.
 $settingsApiPath = 'includes/abstracts/abstract-wc-settings-api.php';
 $settingsApiHash = '1c7615bcd26fba9f83961db045edf6bd42acc6ee691383e8a8dd6f6a1e00434c';
 $settingsApiLoaderHashes = [
@@ -977,25 +976,23 @@ woo_ok(
         && $settingsApiRecheck < $settingsApiReflection
         && $settingsApiLoader !== ''
         && str_contains($settingsApiLoader, "defined('ABSPATH')")
-        && str_contains($settingsApiLoader, "defined('WC_ABSPATH')")
-        && str_contains($settingsApiLoader, "defined('WC_PLUGIN_FILE')")
+        && str_contains($settingsApiLoader, "defined('WP_PLUGIN_DIR')")
         && str_contains($settingsApiLoader, "constant('ABSPATH')")
+        && str_contains($settingsApiLoader, "constant('WP_PLUGIN_DIR')")
         && str_contains($settingsApiLoader, "constant('WC_ABSPATH')")
         && str_contains($settingsApiLoader, "constant('WC_PLUGIN_FILE')")
-        && str_contains($settingsApiLoader, 'realpath($pluginFile)')
-        && str_contains($settingsApiLoader, 'realpath(rtrim($configuredRoot')
-        && str_contains($settingsApiLoader, '$pluginRootReal !== $configuredRootReal')
-        && str_contains(
-            $settingsApiLoader,
-            '$pluginFileReal !== $pluginRootReal . DIRECTORY_SEPARATOR . \'woocommerce.php\''
-        )
+        && str_contains($settingsApiLoader, "realpath(\$pluginDirectoryReal . DIRECTORY_SEPARATOR . 'woocommerce')")
+        && str_contains($settingsApiLoader, "realpath(\$installedRootReal . DIRECTORY_SEPARATOR . 'woocommerce.php')")
+        && str_contains($settingsApiLoader, '$hasConfiguredRoot !== $hasPluginFile')
+        && str_contains($settingsApiLoader, '$configuredRootReal !== $installedRootReal')
+        && str_contains($settingsApiLoader, '$pluginFileReal !== $installedFileReal')
         && str_contains($settingsApiLoader, "'woocommerce.php'")
         && str_contains($settingsApiLoader, "'abstract-wc-settings-api.php'")
         && str_contains($settingsApiLoader, '$settingsFileReal !== $settingsFile')
         && $settingsApiHashCheck !== false
         && $settingsApiRequire !== false
         && $settingsApiHashCheck < $settingsApiRequire,
-    'class-absent settings validation checks coherent Woo roots and the exact pinned file before its one guarded include'
+    'class-absent settings validation resolves inactive code from the fixed plugin root and checks active constants before its one guarded include'
 );
 woo_ok(
     substr_count($settingsApiLoader, "'duo: WooCommerce mixed option validation requires WC_Settings_API'") === 1
@@ -1167,9 +1164,34 @@ woo_ok(($wooRewriteCoInstallTopology['yoast_normal_option_topology']['sitemap'] 
         'accepted_args' => 1,
     ],
 ], 'co-install evidence closes the exact normal Yoast sitemap/cache semantics');
-woo_ok(count((array) ($wooRewriteCoInstallTopology['source_files'] ?? [])) === 50
+woo_ok(($wooRewriteCoInstallTopology['yoast_normal_option_topology']['woocommerce_permalinks'] ?? null) === [
+    'hook' => 'update_option_woocommerce_permalinks',
+    'callback' => 'Yoast\\WP\\SEO\\Integrations\\Third_Party\\Woocommerce_Permalinks::reset_woocommerce_permalinks',
+    'priority' => 10,
+    'accepted_args' => 2,
+], 'co-install evidence closes Yoast 28.3 permalink invalidation to its exact specific callback');
+$yoastPermalinkAuthoritySources = [
+    'src/integrations/third-party/woocommerce-permalinks.php' =>
+        '8913e5e888d96cd4d9797d055cb862381cf4dfe6d2ddd4f1b8c6225c7aaa85a5',
+    'src/generated/container.php' => 'f41aad93f9c02c150763720d07cfe03fd697805149aa671d628714ef9cde84b4',
+    'lib/dependency-injection/container-registry.php' =>
+        '36fdda743db041f6dae37e51b70456c52c661dceb8b411fa0e3c2d2f5e92349a',
+    'vendor_prefixed/symfony/dependency-injection/Container.php' =>
+        '4fc50ac8b32a60246f11173ebe11e9c947152cafea3359f4846da3fa0c407e38',
+    'src/helpers/indexable-helper.php' => 'b462c43e61fcb755f8357e711d80a0aa2c267ce593d361885e686aa26f9cfe8e',
+];
+foreach ($yoastPermalinkAuthoritySources as $path => $sha256) {
+    $rows = array_values(array_filter(
+        (array) ($wooRewriteCoInstallTopology['source_files'] ?? []),
+        static fn(array $row): bool => ($row['plugin'] ?? null) === 'wordpress-seo'
+            && ($row['path'] ?? null) === $path
+    ));
+    woo_ok(count($rows) === 1 && ($rows[0]['sha256'] ?? null) === $sha256,
+        "co-install evidence pins the Yoast permalink authority source $path");
+}
+woo_ok(count((array) ($wooRewriteCoInstallTopology['source_files'] ?? [])) === 55
     && count((array) ($wooRewriteCoInstallTopology['static_callbacks'] ?? [])) === 39,
-    'co-install evidence closes all 50 source files and 39 static callbacks');
+    'co-install evidence closes all 55 source files and 39 static callbacks');
 $yoastOptionClasses = [
     'WPSEO_Option_Wpseo',
     'WPSEO_Option_Titles',
@@ -2053,7 +2075,7 @@ foreach ([
     '"pll_rewrite_rules","pll_modify_rewrite_rule"',
     '([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0',
     'def static_rewrite_hook:',
-    '(.source_files|length==50)',
+    '(.source_files|length==55)',
     '(.static_callbacks|length==39)',
     'WP_CLI_MEMORY_LIMIT=512M',
     '--entrypoint php',

@@ -100,6 +100,46 @@ namespace Tribe\Events\Views\V2 {
     }
 }
 
+namespace YoastSEO_Vendor\Symfony\Component\DependencyInjection {
+    class Container {
+        /** @param array<class-string,object> $services */
+        public function __construct(protected array $services) {}
+    }
+}
+
+namespace Yoast\WP\SEO\Generated {
+    final class Cached_Container extends \YoastSEO_Vendor\Symfony\Component\DependencyInjection\Container {}
+}
+
+namespace Yoast\WP\Lib\Dependency_Injection {
+    final class Container_Registry {
+        /** @var array<string,object> */
+        private static array $containers = [];
+
+        public static function install(string $name, ?object $container): void {
+            if ($container === null) {
+                unset(self::$containers[$name]);
+                return;
+            }
+            self::$containers[$name] = $container;
+        }
+    }
+}
+
+namespace Yoast\WP\SEO\Helpers {
+    final class Indexable_Helper {}
+}
+
+namespace Yoast\WP\SEO\Integrations\Third_Party {
+    final class Woocommerce_Permalinks {
+        public function __construct(protected object $indexable_helper) {}
+
+        public function reset_woocommerce_permalinks(array $oldValue, array $newValue): void {
+            ++$GLOBALS['wooMixedYoastPermalinkCalls'];
+        }
+    }
+}
+
 namespace {
     final class Tribe__Cache {}
 
