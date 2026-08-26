@@ -168,7 +168,7 @@ const REVIEWED_MOVES = [
         // exact attachment callback isolation and provider receipt semantics,
         // binds the canonical mixed-option contract, and records the
         // source-audited WordPress 7.1 thumbnail-failure behavior.
-        'woocommerce' => '89f897c7c11faa69923481e7a9ecec8d290d36093b0497507793a94d8b30ba7c',
+        'woocommerce' => 'cbbb66d47f174b4a734d750586e7e3c06e6f39e3d31b5b8afdd16eba30cc679f',
     ],
     'manifest_bytes_sha256' => [
         'core' => 'a2f673cd4107e7b32cc6cfff6e84e7f6aca68b789234cbc8c686458fee4de5b3',
@@ -177,11 +177,11 @@ const REVIEWED_MOVES = [
         'woocommerce' => '881d2116ff0ee3bfbb10612999ba19054beebf99d292cada9319b148a3f53187',
     ],
     'pin_sets' => [
-        'all-16' => '18efa783dd0cb67096723ae2a07ebd75849e8f7710a2df95401dce56e7123fa1',
+        'all-16' => 'fd2dc1522e739445fe544c2ac7cdc970140e5ae84b1a869919df519b83ca1d5f',
         'core+elementor+yoast+contact-form-7' => '52200323db9516a2eb7b5738540534aa58e9115c04fb3ddf0b182ea4089d27f9',
         'core+paid-memberships-pro+code-snippets' => '9d89e59d838e145cbd64c6b172ad5634886bdae6ea027eb8f41e57bcd1b048dc',
         'core+polylang+the-events-calendar' => 'cbc901cf349e27ade6fbc08b1e8ba7f8cb4988770b605a378bda59108be2b0ad',
-        'core+woocommerce+acf' => 'ad087cebe26e268ad1392e2c20f03124897a1193032a9016c560852b92cc7867',
+        'core+woocommerce+acf' => 'f38daf2e7423e004398e8734d29b41fde11fc5857ee7dabb2e6e37e85c5436f1',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC

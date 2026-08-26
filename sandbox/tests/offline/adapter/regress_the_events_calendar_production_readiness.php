@@ -4777,6 +4777,10 @@ duo_check_same(
             'd8e168e467b06e6c49f1f1c60b2c5437d7eb9081ef96aa472ed1de880639dbda',
         'wp-seo-main.php' =>
             '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1',
+        'admin/class-admin.php' =>
+            '6b18d8e8aab6089b1d425259343f3f0a784c648fbf42ad95f908b67c050a7883',
+        'inc/sitemaps/class-sitemaps-admin.php' =>
+            '03b1fdcb3da0fd6d82edc2d6d9e24f9ede8744d6fb68c3f8877b0d03c433bf82',
         'inc/options/class-wpseo-options.php' =>
             'dfa12977fe7d8e44a46e55106dbd6beff2f62ded44bb72130eb40092c8aa3c93',
         'inc/options/class-wpseo-option.php' =>

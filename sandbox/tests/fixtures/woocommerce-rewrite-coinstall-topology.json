@@ -15,7 +15,12 @@
     },
     "wordpress-seo": {
       "version": "28.3",
-      "sha256": "381edc1603147bd76af81341f21c9155ff3e9f6ce29ed20886d889fb9d6744fb"
+      "sha256": "381edc1603147bd76af81341f21c9155ff3e9f6ce29ed20886d889fb9d6744fb",
+      "versions": {
+        "28.0": "348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f",
+        "28.2": "f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23",
+        "28.3": "381edc1603147bd76af81341f21c9155ff3e9f6ce29ed20886d889fb9d6744fb"
+      }
     }
   },
   "source_files": [
@@ -72,7 +77,22 @@
     {
       "plugin": "wordpress-seo",
       "path": "wp-seo-main.php",
-      "sha256": "5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1"
+      "sha256": "5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1",
+      "versions": {
+        "28.0": "c1eabcbc2c5e8243d7ee9c0a787330355492701603e1869c49eb78a9b51d3a0b",
+        "28.2": "9fdfe9f87a5c11c4d45673d121c81db9117d138357d297d7d2d3a4be5b387117",
+        "28.3": "5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1"
+      }
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "admin/class-admin.php",
+      "sha256": "6b18d8e8aab6089b1d425259343f3f0a784c648fbf42ad95f908b67c050a7883"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "inc/sitemaps/class-sitemaps-admin.php",
+      "sha256": "03b1fdcb3da0fd6d82edc2d6d9e24f9ede8744d6fb68c3f8877b0d03c433bf82"
     },
     {
       "plugin": "wordpress-seo",
@@ -360,7 +380,27 @@
       {"callback": "WPSEO_Taxonomy_Meta::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
       {"callback": "WPSEO_Option_Llmstxt::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
       {"callback": "WPSEO_Option_Tracking_Only::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1}
-    ]
+    ],
+    "option_cache_map": {
+      "wpseo": "WPSEO_Option_Wpseo",
+      "wpseo_titles": "WPSEO_Option_Titles",
+      "wpseo_social": "WPSEO_Option_Social",
+      "wpseo_taxonomy_meta": "WPSEO_Taxonomy_Meta",
+      "wpseo_llmstxt": "WPSEO_Option_Llmstxt",
+      "wpseo_tracking_only": "WPSEO_Option_Tracking_Only"
+    },
+    "sitemap": {
+      "global": "wpseo_sitemaps",
+      "class": "WPSEO_Sitemaps",
+      "cache_property": "cache",
+      "cache_class": "WPSEO_Sitemaps_Cache",
+      "cache_callback": {
+        "hook": "update_option",
+        "method": "clear_on_option_update",
+        "priority": 10,
+        "accepted_args": 1
+      }
+    }
   },
   "dynamic_callback_containers": [
     {

@@ -103,7 +103,34 @@ if (!function_exists('wc_sanitize_permalink')) {
 
 $GLOBALS['wp_filter'] = [];
 $GLOBALS['WC_Brands_Admin'] = new WC_Brands_Admin();
-$GLOBALS['wooMixedOptionContainer'] = new WooMixedOptionContainer();
+$GLOBALS['wooMixedContainerGetCalls'] = 0;
+$GLOBALS['wooMixedOptionServices'] = [
+    \Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController::class
+        => new \Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController(),
+    \Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer::class
+        => new \Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer(),
+    \Automattic\WooCommerce\Internal\Features\FeaturesController::class
+        => new \Automattic\WooCommerce\Internal\Features\FeaturesController(),
+    \Automattic\WooCommerce\Internal\Utilities\HtmlSanitizer::class
+        => new \Automattic\WooCommerce\Internal\Utilities\HtmlSanitizer(),
+];
+$GLOBALS['wc_container'] = new \Automattic\WooCommerce\Container(
+    new \Automattic\WooCommerce\Internal\DependencyManagement\RuntimeContainer(
+        $GLOBALS['wooMixedOptionServices']
+    )
+);
+$GLOBALS['wooMixedYoastServices'] = [
+    'wpseo' => new WPSEO_Option_Wpseo(),
+    'wpseo_titles' => new WPSEO_Option_Titles(),
+    'wpseo_social' => new WPSEO_Option_Social(),
+    'wpseo_taxonomy_meta' => new WPSEO_Taxonomy_Meta(),
+    'wpseo_llmstxt' => new WPSEO_Option_Llmstxt(),
+    'wpseo_tracking_only' => new WPSEO_Option_Tracking_Only(),
+];
+foreach ($GLOBALS['wooMixedYoastServices'] as $name => $service) {
+    WPSEO_Options::register_option($name, $service);
+}
+$GLOBALS['wooMixedSettingsTracking'] = new WC_Settings_Tracking();
 
 /** @param list<array{0:object|string,1:string,2:int,3:int}> $rows */
 function woo_optional_install_hook(string $name, array $rows): void {
@@ -111,7 +138,7 @@ function woo_optional_install_hook(string $name, array $rows): void {
     $hook = new WP_Hook();
     foreach ($rows as $index => [$object, $method, $priority, $acceptedArgs]) {
         $hook->callbacks[$priority]['callback-' . $index] = [
-            'function' => is_string($object) ? $object : [$object, $method],
+            'function' => is_string($object) && $method === '' ? $object : [$object, $method],
             'accepted_args' => $acceptedArgs,
         ];
     }
@@ -120,6 +147,71 @@ function woo_optional_install_hook(string $name, array $rows): void {
 
 function woo_optional_clear_hooks(): void {
     $GLOBALS['wp_filter'] = [];
+}
+
+/** Install the closed native callback union for one existing or absent option write. */
+function woo_optional_install_native_topology(
+    bool $targetWasPresent,
+    string $optionName,
+    bool $sitemapsActive = true,
+    bool $trackingUpdateActive = true
+): void {
+    woo_optional_clear_hooks();
+    $services = $GLOBALS['wooMixedOptionServices'];
+    $yoast = $GLOBALS['wooMixedYoastServices'];
+    woo_optional_install_hook('pre_update_option', array_merge([
+        [$services[\Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController::class], 'process_pre_update_option', 999, 3],
+    ], array_map(
+        static fn(object $service): array => [$service, 'add_default_filters_if_not_changed', PHP_INT_MAX, 3],
+        $yoast
+    )));
+    if ($targetWasPresent) {
+        if ($optionName === 'woocommerce_permalinks') {
+            woo_optional_install_hook('pre_update_option_woocommerce_permalinks', [[
+                $GLOBALS['WC_Brands_Admin'], 'validate_product_base', 10, 1,
+            ]]);
+        }
+        $updates = [
+            [$services[\Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer::class], 'process_updated_option', 999, 3],
+            [$services[\Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController::class], 'process_updated_option', 999, 3],
+            [$services[\Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController::class], 'process_updated_option_fts_index', 999, 3],
+            [$services[\Automattic\WooCommerce\Internal\Features\FeaturesController::class], 'process_updated_option', 999, 3],
+        ];
+        foreach ($yoast as $service) {
+            $updates[] = [$service, 'add_default_filters_if_same_option', 10, 1];
+        }
+        $tracking = $GLOBALS['wooMixedSettingsTracking'];
+        if ($trackingUpdateActive) {
+            $updates[] = [$tracking, 'track_setting_change', 10, 3];
+        }
+        foreach ([
+            'woocommerce_settings_page_init' => ['track_settings_page_view', 1],
+            'woocommerce_update_option' => ['add_option_to_list', 1],
+            'woocommerce_update_non_option_setting' => ['add_option_to_list_and_track_setting_change', 1],
+            'woocommerce_update_options' => ['send_settings_change_event', 1],
+            'admin_enqueue_scripts' => ['possibly_add_settings_tracking_scripts', 1],
+        ] as $hook => [$method, $acceptedArgs]) {
+            woo_optional_install_hook($hook, [[$tracking, $method, 10, $acceptedArgs]]);
+        }
+        if ($sitemapsActive) {
+            $GLOBALS['wpseo_sitemaps'] = new WPSEO_Sitemaps();
+            $updates[] = [WPSEO_Sitemaps_Cache::class, 'clear_on_option_update', 10, 1];
+        } else {
+            unset($GLOBALS['wpseo_sitemaps']);
+        }
+        woo_optional_install_hook('update_option', $updates);
+        woo_optional_install_hook('updated_option', array_slice($updates, 0, 4));
+        return;
+    }
+    unset($GLOBALS['wpseo_sitemaps']);
+    woo_optional_install_hook('add_option', array_map(
+        static fn(object $service): array => [$service, 'add_default_filters_if_same_option', 10, 1],
+        $yoast
+    ));
+    woo_optional_install_hook('added_option', [
+        [$services[\Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer::class], 'process_added_option', 999, 2],
+        [$services[\Automattic\WooCommerce\Internal\Features\FeaturesController::class], 'process_added_option', 999, 3],
+    ]);
 }
 
 final class WooOptionalWakeupCanary {
@@ -449,6 +541,7 @@ $materializeMixed = static function (
     string $autoload,
     ?array $targetValue
 ) use ($policy): array {
+    woo_optional_install_native_topology($targetValue !== null, $name);
     $effectiveRule = $policy->option_rule($name);
     if (!is_array($effectiveRule) || ($effectiveRule['sub_keys'] ?? null) !== $subKeys) {
         throw new RuntimeException("missing exact manifest-owned mixed option rule for $name");
@@ -587,28 +680,7 @@ duo_check_same(
     'the pinned native Brands validator prefixes the otherwise-invalid sole brand placeholder'
 );
 
-$container = $GLOBALS['wooMixedOptionContainer'];
-$customOrders = $container->get(
-    \Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController::class
-);
-$synchronizer = $container->get(
-    \Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer::class
-);
-$features = $container->get(
-    \Automattic\WooCommerce\Internal\Features\FeaturesController::class
-);
-woo_optional_install_hook('pre_update_option_woocommerce_permalinks', [[
-    $GLOBALS['WC_Brands_Admin'], 'validate_product_base', 10, 1,
-]]);
-woo_optional_install_hook('pre_update_option', [[
-    $customOrders, 'process_pre_update_option', 999, 3,
-]]);
-woo_optional_install_hook('updated_option', [
-    [$synchronizer, 'process_updated_option', 999, 3],
-    [$customOrders, 'process_updated_option', 999, 3],
-    [$customOrders, 'process_updated_option_fts_index', 999, 3],
-    [$features, 'process_updated_option', 999, 3],
-]);
+woo_optional_install_native_topology(true, 'woocommerce_permalinks');
 $permalinkResult = $materializeMixed(
     'woocommerce_permalinks',
     $permalinkNormalized,
@@ -622,9 +694,22 @@ duo_check(
         && $permalinkResult['projected'] === $permalinkNormalized,
     'native permalink materialization completes a sparse hostile target through exact source-proven hook topology'
 );
+duo_check(
+    $materializeMixed(
+        'woocommerce_permalinks',
+        $permalinkNormalized,
+        $permalinkRules,
+        'yes',
+        null
+    )['written'] === $permalinkSource,
+    'a missing target permalink row uses the closed Woo/Yoast insertion callback union'
+);
+duo_check_same(0, $GLOBALS['wooMixedContainerGetCalls'],
+    'mixed-option admission reads Woo resolved_cache and never calls Container::get');
 woo_optional_clear_hooks();
 
 $foreignBrands = new WC_Brands_Admin();
+woo_optional_install_native_topology(true, 'woocommerce_permalinks');
 woo_optional_install_hook('pre_update_option_woocommerce_permalinks', [[
     $foreignBrands, 'validate_product_base', 10, 1,
 ]]);
@@ -661,6 +746,7 @@ $hostileHook = new class {
         return $value;
     }
 };
+woo_optional_install_native_topology(true, 'woocommerce_permalinks');
 woo_optional_install_hook('pre_update_option', [[
     $hostileHook, 'mutate', 10, 1,
 ]]);
@@ -708,6 +794,7 @@ $emailTypeValues = [
     'textarea' => '<p>Merchant <strong>content</strong> ✓</p>',
 ];
 $GLOBALS['wooMixedNativeCalls'] = [];
+$trackingRefusalCases = [];
 $emailRecords = (array) ($settingsInventory['closed_records']['email_settings']['records'] ?? []);
 $emailFieldTypes = (array) ($settingsInventory['closed_records']['email_settings']['field_types'] ?? []);
 $emailFieldClasses = (array) ($settingsInventory['closed_records']['email_settings']['field_classes'] ?? []);
@@ -794,6 +881,14 @@ foreach ($emailRecords as $optionName => $record) {
             && $result['projected'] === $normalized,
         "$optionName uses one engine-owned write/finalization and an exact native projection"
     );
+    $created = $materializeMixed((string) $optionName, $normalized, $rules, 'on', null);
+    duo_check(
+        $created['handled'] === true
+            && $created['write_calls'] === 1
+            && $created['finalize_calls'] === 1
+            && $created['runtime_restore'] instanceof Closure,
+        "$optionName exercises the exact absent-target Woo/Yoast insertion union"
+    );
     if (isset($rules['recipient'])) {
         duo_check_same(
             'target-recipient-DO_NOT_ECHO@example.test',
@@ -801,6 +896,7 @@ foreach ($emailRecords as $optionName => $record) {
             "$optionName preserves target recipient identity"
         );
     }
+    $trackingRefusalCases[] = [(string) $optionName, $normalized, $rules, $target];
 }
 duo_check(count($GLOBALS['wooMixedNativeCalls']) >= count($emailRecords),
     'every exact email record crosses WC_Settings_API native validation');
@@ -840,6 +936,430 @@ $gatewayRules = [
     'woocommerce_cheque_settings' => $mixedRules('woocommerce_cheque_settings'),
     'woocommerce_cod_settings' => $mixedRules('woocommerce_cod_settings'),
 ];
+$runClosedExistingTopology = static function (int &$writes, int &$finalizations) use (
+    $policy,
+    $gatewayRules
+): bool {
+    $written = null;
+    return $policy->materialize_option_sub_keys_via_interpreter(
+        'woocommerce_cheque_settings',
+        ['enabled' => 'yes'],
+        $policy->option_rule('woocommerce_cheque_settings'),
+        'woocommerce',
+        'yes',
+        ['enabled' => 'no'],
+        static fn(string $companion): ?array => null,
+        static function () use (&$written, &$finalizations): array {
+            ++$finalizations;
+            return ['option_name' => 'woocommerce_cheque_settings', 'option_value' => serialize($written), 'autoload' => 'yes'];
+        },
+        static fn(): ?array => null,
+        static function (Closure $restore): void {},
+        static function (array $value) use (&$written, &$writes): void {
+            ++$writes;
+            $written = $value;
+        }
+    );
+};
+$trackingSnapshot = static function (): array {
+    $tracker = $GLOBALS['wooMixedSettingsTracking'];
+    return [
+        'calls' => $tracker->calls,
+        'events' => $tracker->events,
+        'allowed_options' => (new ReflectionProperty(WC_Settings_Tracking::class, 'allowed_options'))->getValue($tracker),
+    ];
+};
+$assertTrackingObserverRefusal = static function (
+    string $name,
+    array $captured,
+    array $rules,
+    array $target
+) use ($policy, $trackingSnapshot): void {
+    $tracker = $GLOBALS['wooMixedSettingsTracking'];
+    $tracker->set_allowed_options([$name]);
+    woo_optional_install_native_topology(true, $name);
+    $writes = 0;
+    $finalizations = 0;
+    $restores = 0;
+    $before = $trackingSnapshot();
+    duo_check_throws(
+        static function () use ($policy, $name, $captured, $rules, $target, &$writes, &$finalizations, &$restores): bool {
+            $written = null;
+            return $policy->materialize_option_sub_keys_via_interpreter(
+                $name,
+                $captured,
+                $policy->option_rule($name),
+                'woocommerce',
+                'yes',
+                $target,
+                static fn(string $companion): ?array => null,
+                static function () use (&$written, &$finalizations): array {
+                    ++$finalizations;
+                    return ['option_name' => 'tracking-refusal', 'option_value' => serialize($written), 'autoload' => 'yes'];
+                },
+                static fn(): ?array => null,
+                static function (Closure $restore) use (&$restores): void { ++$restores; },
+                static function (array $value) use (&$written, &$writes): void { ++$writes; $written = $value; }
+            );
+        },
+        RuntimeException::class,
+        "$name refuses the tracking observer before OptionsMaterializer mutation",
+        'tracking observer would track the current option'
+    );
+    duo_check_same([0, 0, 0], [$writes, $finalizations, $restores],
+        "$name tracking refusal reaches no storage, finalization, or runtime-restore callback");
+    duo_check_same($before, $trackingSnapshot(), "$name tracking refusal leaves tracker state untouched");
+    $tracker->set_allowed_options([]);
+};
+foreach ($trackingRefusalCases as [$optionName, $captured, $rules, $target]) {
+    $assertTrackingObserverRefusal($optionName, $captured, $rules, $target);
+    duo_check(
+        $materializeMixed($optionName, $captured, $rules, 'on', $target)['handled'] === true,
+        "$optionName retries after its tracking observer exclusion is removed"
+    );
+}
+woo_optional_install_native_topology(true, 'woocommerce_cheque_settings');
+$trackingSuccessBefore = $trackingSnapshot();
+$trackingSuccessWrites = 0;
+$trackingSuccessFinalizations = 0;
+duo_check(
+    $runClosedExistingTopology($trackingSuccessWrites, $trackingSuccessFinalizations) === true,
+    'the inert exact Woo tracking observer admits an ordinary existing mixed-option write'
+);
+duo_check_same($trackingSuccessBefore, $trackingSnapshot(),
+    'an admitted inert Woo tracking observer is never invoked or mutated');
+woo_optional_install_native_topology(true, 'woocommerce_cheque_settings', true, false);
+$initializedTrackerBefore = $trackingSnapshot();
+$initializedTrackerWrites = 0;
+$initializedTrackerFinalizations = 0;
+duo_check(
+    $runClosedExistingTopology($initializedTrackerWrites, $initializedTrackerFinalizations) === true
+        && [$initializedTrackerWrites, $initializedTrackerFinalizations] === [1, 1],
+    'an initialized Woo tracker without its dynamic update_option observer remains outside the mutation boundary'
+);
+duo_check_same($initializedTrackerBefore, $trackingSnapshot(),
+    'the initialized-only Woo tracker remains untouched');
+woo_optional_install_native_topology(true, 'woocommerce_cheque_settings');
+foreach ([
+    'woocommerce_settings_page_init',
+    'woocommerce_update_option',
+    'woocommerce_update_non_option_setting',
+    'woocommerce_update_options',
+    'admin_enqueue_scripts',
+] as $trackingHook) {
+    $GLOBALS['wp_filter'][$trackingHook]->callbacks[20]['unrelated-' . $trackingHook] = [
+        'function' => 'strtolower',
+        'accepted_args' => 1,
+    ];
+}
+$extendedAncillaryBefore = $trackingSnapshot();
+$extendedAncillaryWrites = 0;
+$extendedAncillaryFinalizations = 0;
+duo_check(
+    $runClosedExistingTopology($extendedAncillaryWrites, $extendedAncillaryFinalizations) === true
+        && [$extendedAncillaryWrites, $extendedAncillaryFinalizations] === [1, 1],
+    'unrelated callbacks on Woo tracker ancillary hooks do not become mutation observers'
+);
+duo_check_same($extendedAncillaryBefore, $trackingSnapshot(),
+    'admitting unrelated ancillary callbacks never executes the Woo tracker');
+$assertTrackingFailureIsInert = static function (string $label, bool $failFinalization) use ($policy, $trackingSnapshot): void {
+    woo_optional_install_native_topology(true, 'woocommerce_cheque_settings');
+    $before = $trackingSnapshot();
+    $writes = 0;
+    $finalizations = 0;
+    duo_check_throws(
+        static function () use ($policy, $failFinalization, &$writes, &$finalizations): bool {
+            $written = null;
+            return $policy->materialize_option_sub_keys_via_interpreter(
+                'woocommerce_cheque_settings',
+                ['enabled' => 'yes'],
+                $policy->option_rule('woocommerce_cheque_settings'),
+                'woocommerce',
+                'yes',
+                ['enabled' => 'no'],
+                static fn(string $companion): ?array => null,
+                static function () use ($failFinalization, &$written, &$finalizations): array {
+                    ++$finalizations;
+                    if ($failFinalization) {
+                        throw new RuntimeException('injected tracking finalization failure');
+                    }
+                    return ['option_name' => 'tracking-failure', 'option_value' => serialize($written), 'autoload' => 'yes'];
+                },
+                static fn(): ?array => null,
+                static function (Closure $restore): void {},
+                static function (array $value) use ($failFinalization, &$written, &$writes): void {
+                    ++$writes;
+                    if (!$failFinalization) {
+                        throw new RuntimeException('injected tracking write failure');
+                    }
+                    $written = $value;
+                }
+            );
+        },
+        RuntimeException::class,
+        "$label fails through OptionsMaterializer without running the tracking observer",
+        'injected tracking'
+    );
+    duo_check_same($before, $trackingSnapshot(), "$label leaves every tracker field untouched");
+};
+$assertTrackingFailureIsInert('an injected mixed-option write failure', false);
+$assertTrackingFailureIsInert('an injected mixed-option finalization failure', true);
+$assertClosedTopologyRefusal = static function (
+    string $label,
+    Closure $mutate,
+    Closure $restore,
+    string $needle
+) use ($runClosedExistingTopology): void {
+    woo_optional_install_native_topology(true, 'woocommerce_cheque_settings');
+    $writes = 0;
+    $finalizations = 0;
+    $mutate();
+    duo_check_throws(
+        static fn() => $runClosedExistingTopology($writes, $finalizations),
+        RuntimeException::class,
+        "$label refuses before the OptionsMaterializer write/finalization boundary",
+        $needle
+    );
+    duo_check_same([0, 0], [$writes, $finalizations], "$label reaches no mixed-option mutation callbacks");
+    $restore();
+    $writes = 0;
+    $finalizations = 0;
+    duo_check(
+        $runClosedExistingTopology($writes, $finalizations) === true && [$writes, $finalizations] === [1, 1],
+        "restoring $label permits same-process exact topology retry"
+    );
+};
+$assertClosedTopologyRefusal(
+    'one missing canonical Yoast pre-update callback',
+    static function (): void { array_pop($GLOBALS['wp_filter']['pre_update_option']->callbacks[PHP_INT_MAX]); },
+    static function (): void { woo_optional_install_native_topology(true, 'woocommerce_cheque_settings'); },
+    'topology is incomplete'
+);
+$assertClosedTopologyRefusal(
+    'a canonical Yoast callback with altered accepted-argument count',
+    static function (): void { $GLOBALS['wp_filter']['update_option']->callbacks[10]['callback-4']['accepted_args'] = 2; },
+    static function (): void { woo_optional_install_native_topology(true, 'woocommerce_cheque_settings'); },
+    'extension callback'
+);
+$assertClosedTopologyRefusal(
+    'a canonical Yoast callback at a substituted priority',
+    static function (): void {
+        $record = $GLOBALS['wp_filter']['update_option']->callbacks[10]['callback-4'];
+        unset($GLOBALS['wp_filter']['update_option']->callbacks[10]['callback-4']);
+        $GLOBALS['wp_filter']['update_option']->callbacks[11]['callback-4'] = $record;
+    },
+    static function (): void { woo_optional_install_native_topology(true, 'woocommerce_cheque_settings'); },
+    'extension callback'
+);
+$assertClosedTopologyRefusal(
+    'a same-class foreign Yoast singleton',
+    static function (): void { WPSEO_Options::register_option('wpseo', new WPSEO_Option_Wpseo()); },
+    static function (): void { WPSEO_Options::register_option('wpseo', $GLOBALS['wooMixedYoastServices']['wpseo']); },
+    'exact native service'
+);
+$assertClosedTopologyRefusal(
+    'a partial canonical Yoast singleton roster',
+    static function (): void { WPSEO_Options::unregister_option('wpseo_social'); },
+    static function (): void { WPSEO_Options::register_option('wpseo_social', $GLOBALS['wooMixedYoastServices']['wpseo_social']); },
+    'incomplete Yoast SEO option singletons'
+);
+$assertClosedTopologyRefusal(
+    'a callback-only Yoast sitemap topology',
+    static function (): void { unset($GLOBALS['wpseo_sitemaps']); },
+    static function (): void { woo_optional_install_native_topology(true, 'woocommerce_cheque_settings'); },
+    'sitemap cache topology'
+);
+$assertClosedTopologyRefusal(
+    'a global-only Yoast sitemap topology',
+    static function (): void {
+        foreach ($GLOBALS['wp_filter']['update_option']->callbacks[10] as $key => $record) {
+            if (($record['function'] ?? null) === [WPSEO_Sitemaps_Cache::class, 'clear_on_option_update']) {
+                unset($GLOBALS['wp_filter']['update_option']->callbacks[10][$key]);
+            }
+        }
+    },
+    static function (): void { woo_optional_install_native_topology(true, 'woocommerce_cheque_settings'); },
+    'sitemap cache topology'
+);
+$assertClosedTopologyRefusal(
+    'a TEC-style extra option callback',
+    static function (): void {
+        $callback = new class {
+            public function observe(mixed $value, string $name, mixed $old): mixed { return $value; }
+        };
+        $GLOBALS['wp_filter']['pre_update_option']->callbacks[10]['tec-refusal'] = [
+            'function' => [$callback, 'observe'], 'accepted_args' => 3,
+        ];
+    },
+    static function (): void { woo_optional_install_native_topology(true, 'woocommerce_cheque_settings'); },
+    'extension callback'
+);
+$cacheClear = new ReflectionProperty(WPSEO_Sitemaps_Cache::class, 'cache_clear');
+$cacheClearPreimage = $cacheClear->getValue();
+$assertClosedTopologyRefusal(
+    'a current Woo option registered in Yoast sitemap cache_clear',
+    static function () use ($cacheClear): void { $cacheClear->setValue(null, ['woocommerce_cheque_settings' => '']); },
+    static function () use ($cacheClear, $cacheClearPreimage): void { $cacheClear->setValue(null, $cacheClearPreimage); },
+    'current WooCommerce option registered'
+);
+$assertClosedTopologyRefusal(
+    'a malformed Yoast sitemap cache_clear map',
+    static function () use ($cacheClear): void { $cacheClear->setValue(null, 'not-a-map'); },
+    static function () use ($cacheClear, $cacheClearPreimage): void { $cacheClear->setValue(null, $cacheClearPreimage); },
+    'malformed Yoast SEO sitemap cache registration map'
+);
+$wooContainerPreimage = $GLOBALS['wc_container'];
+$assertClosedTopologyRefusal(
+    'a partial WooCommerce resolved_cache',
+    static function (): void {
+        $cache = $GLOBALS['wooMixedOptionServices'];
+        unset($cache[\Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController::class]);
+        $GLOBALS['wc_container'] = new \Automattic\WooCommerce\Container(
+            new \Automattic\WooCommerce\Internal\DependencyManagement\RuntimeContainer($cache)
+        );
+    },
+    static function () use ($wooContainerPreimage): void { $GLOBALS['wc_container'] = $wooContainerPreimage; },
+    'substituted WooCommerce services'
+);
+$assertClosedTopologyRefusal(
+    'a missing Woo tracking roster leg',
+    static function (): void { unset($GLOBALS['wp_filter']['woocommerce_update_options']); },
+    static function (): void { woo_optional_install_native_topology(true, 'woocommerce_cheque_settings'); },
+    'tracking observer roster is incomplete'
+);
+foreach ([
+    'woocommerce_settings_page_init',
+    'woocommerce_update_option',
+    'woocommerce_update_non_option_setting',
+    'woocommerce_update_options',
+    'admin_enqueue_scripts',
+] as $trackingHook) {
+    $assertClosedTopologyRefusal(
+        "a missing Woo tracking $trackingHook roster leg",
+        static function () use ($trackingHook): void { unset($GLOBALS['wp_filter'][$trackingHook]); },
+        static function (): void { woo_optional_install_native_topology(true, 'woocommerce_cheque_settings'); },
+        'tracking observer roster is incomplete'
+    );
+}
+$assertClosedTopologyRefusal(
+    'a duplicate Woo tracking update_option callback',
+    static function (): void {
+        foreach ($GLOBALS['wp_filter']['update_option']->callbacks[10] as $key => $record) {
+            if (($record['function'] ?? null) === [$GLOBALS['wooMixedSettingsTracking'], 'track_setting_change']) {
+                $GLOBALS['wp_filter']['update_option']->callbacks[10]['tracking-duplicate'] = $record;
+                return;
+            }
+        }
+    },
+    static function (): void { woo_optional_install_native_topology(true, 'woocommerce_cheque_settings'); },
+    'tracking observer roster is extended or substituted'
+);
+$assertClosedTopologyRefusal(
+    'a Woo tracking update callback at a substituted priority',
+    static function (): void {
+        foreach ($GLOBALS['wp_filter']['update_option']->callbacks[10] as $key => $record) {
+            if (($record['function'] ?? null) === [$GLOBALS['wooMixedSettingsTracking'], 'track_setting_change']) {
+                unset($GLOBALS['wp_filter']['update_option']->callbacks[10][$key]);
+                $GLOBALS['wp_filter']['update_option']->callbacks[11][$key] = $record;
+            }
+        }
+    },
+    static function (): void { woo_optional_install_native_topology(true, 'woocommerce_cheque_settings'); },
+    'tracking observer roster is extended or substituted'
+);
+$assertClosedTopologyRefusal(
+    'a Woo tracking roster arity substitution',
+    static function (): void {
+        $GLOBALS['wp_filter']['woocommerce_settings_page_init']->callbacks[10]['callback-0']['accepted_args'] = 2;
+    },
+    static function (): void { woo_optional_install_native_topology(true, 'woocommerce_cheque_settings'); },
+    'tracking observer roster is extended or substituted'
+);
+$assertClosedTopologyRefusal(
+    'a duplicate Woo tracking roster callback',
+    static function (): void {
+        $GLOBALS['wp_filter']['woocommerce_update_option']->callbacks[10]['duplicate'] =
+            $GLOBALS['wp_filter']['woocommerce_update_option']->callbacks[10]['callback-0'];
+    },
+    static function (): void { woo_optional_install_native_topology(true, 'woocommerce_cheque_settings'); },
+    'tracking observer roster is extended or substituted'
+);
+$assertClosedTopologyRefusal(
+    'a foreign Woo tracking callback owner',
+    static function (): void {
+        $foreign = new WC_Settings_Tracking();
+        foreach ($GLOBALS['wp_filter']['update_option']->callbacks[10] as &$record) {
+            if (($record['function'] ?? null) === [$GLOBALS['wooMixedSettingsTracking'], 'track_setting_change']) {
+                $record['function'] = [$foreign, 'track_setting_change'];
+            }
+        }
+        unset($record);
+    },
+    static function (): void { woo_optional_install_native_topology(true, 'woocommerce_cheque_settings'); },
+    'tracking observer roster is extended or substituted'
+);
+$trackingAllowedOptions = new ReflectionProperty(WC_Settings_Tracking::class, 'allowed_options');
+$trackingAllowedPreimage = $trackingAllowedOptions->getValue($GLOBALS['wooMixedSettingsTracking']);
+$assertClosedTopologyRefusal(
+    'a malformed Woo tracking allowed-options list',
+    static function () use ($trackingAllowedOptions): void { $trackingAllowedOptions->setValue($GLOBALS['wooMixedSettingsTracking'], 'not-a-list'); },
+    static function () use ($trackingAllowedOptions, $trackingAllowedPreimage): void {
+        $trackingAllowedOptions->setValue($GLOBALS['wooMixedSettingsTracking'], $trackingAllowedPreimage);
+    },
+    'tracking observer allowed-options map is malformed'
+);
+woo_optional_install_native_topology(true, 'woocommerce_cheque_settings', false);
+$inactiveSitemapWrites = 0;
+$inactiveSitemapFinalizations = 0;
+duo_check(
+    $runClosedExistingTopology($inactiveSitemapWrites, $inactiveSitemapFinalizations) === true
+        && [$inactiveSitemapWrites, $inactiveSitemapFinalizations] === [1, 1],
+    'the global-and-static-callback-absent Yoast sitemap topology remains an exact admissible inactive state'
+);
+woo_optional_install_native_topology(false, 'woocommerce_cheque_settings');
+$absentUnionWrites = 0;
+$absentUnionFinalizations = 0;
+array_pop($GLOBALS['wp_filter']['add_option']->callbacks[10]);
+duo_check_throws(
+    static function () use ($policy, &$absentUnionWrites, &$absentUnionFinalizations): bool {
+        $written = null;
+        return $policy->materialize_option_sub_keys_via_interpreter(
+            'woocommerce_cheque_settings',
+            ['enabled' => 'yes'],
+            $policy->option_rule('woocommerce_cheque_settings'),
+            'woocommerce',
+            'yes',
+            null,
+            static fn(string $companion): ?array => null,
+            static function () use (&$written, &$absentUnionFinalizations): array {
+                ++$absentUnionFinalizations;
+                return ['option_name' => 'woocommerce_cheque_settings', 'option_value' => serialize($written), 'autoload' => 'yes'];
+            },
+            static fn(): ?array => null,
+            static function (Closure $restore): void {},
+            static function (array $value) use (&$written, &$absentUnionWrites): void {
+                ++$absentUnionWrites;
+                $written = $value;
+            }
+        );
+    },
+    RuntimeException::class,
+    'a missing Yoast add_option callback refuses an absent target before mutation',
+    'topology is incomplete'
+);
+duo_check_same([0, 0], [$absentUnionWrites, $absentUnionFinalizations],
+    'the absent-target Yoast add_option refusal reaches no write/finalization callback');
+woo_optional_install_native_topology(false, 'woocommerce_cheque_settings');
+duo_check(
+    $materializeMixed(
+        'woocommerce_cheque_settings',
+        ['enabled' => 'yes'],
+        $gatewayRules['woocommerce_cheque_settings'],
+        'yes',
+        null
+    )['handled'] === true,
+    'restoring the six Yoast add_option callbacks permits same-process absent-target retry'
+);
 duo_check_same(
     ['account_details' => 'native_empty_ui_placeholder'],
     $settingsInventory['closed_records']['gateway_settings']['woocommerce_bacs_settings']['derived_fields'] ?? null,
@@ -872,6 +1392,11 @@ foreach ($gatewayRules as $optionName => $rules) {
         $expected,
         $absentResult['written'],
         "$optionName materializes source absence as authored deletion without erasing target-owned state"
+    );
+    $assertTrackingObserverRefusal($optionName, $absent, $rules, $absentGatewayTargets[$optionName]);
+    duo_check(
+        $materializeMixed($optionName, $absent, $rules, 'no', $absentGatewayTargets[$optionName])['handled'] === true,
+        "$optionName retries after its tracking observer exclusion is removed"
     );
 }
 duo_check_throws(
@@ -924,6 +1449,19 @@ $bacsResult = $materializeMixed(
         'account_name' => 'TARGET-BANK-SECRET-DO_NOT-ECHO',
     ]
 );
+ $bacsCreated = $materializeMixed(
+        'woocommerce_bacs_settings',
+        $bacsNormalized,
+        $gatewayRules['woocommerce_bacs_settings'],
+        'yes',
+        null
+    );
+duo_check(
+    $bacsCreated['handled'] === true && $bacsCreated['write_calls'] === 1
+        && $bacsCreated['finalize_calls'] === 1
+        && !array_key_exists('account_name', (array) $bacsCreated['written']),
+    'BACS exercises the exact absent-target insertion callbacks without copying target-owned bank identity'
+);
 duo_check_same('TARGET-BANK-SECRET-DO_NOT-ECHO', $bacsResult['written']['account_name'] ?? null,
     'BACS materialization preserves the target bank identity instead of copying source secrets');
 duo_check(!array_key_exists('instructions', (array) $bacsResult['written']),
@@ -970,6 +1508,17 @@ $chequeResult = $materializeMixed(
     $gatewayRules['woocommerce_cheque_settings'],
     'off',
     ['enabled' => 'yes', 'title' => 'Old', 'description' => 'remove', 'instructions' => 'remove']
+);
+duo_check_same(
+    ['enabled' => 'no', 'title' => '<span>Cheque</span>'],
+    $materializeMixed(
+        'woocommerce_cheque_settings',
+        ['enabled' => 'no', 'title' => '<span>Cheque</span>'],
+        $gatewayRules['woocommerce_cheque_settings'],
+        'off',
+        null
+    )['written'],
+    'cheque exercises the exact absent-target insertion callbacks'
 );
 duo_check_same(
     ['enabled' => 'no', 'title' => '<span>Cheque</span>'],
@@ -1212,6 +1761,18 @@ duo_check_same(
 );
 duo_check_same(0, WC_Shipping_Zones::$resolverCalls,
     'COD raw witness and race recheck execute no shipping-service construction path');
+$codCreated = $materializeMixed(
+    'woocommerce_cod_settings',
+    $codRebound,
+    $gatewayRules['woocommerce_cod_settings'],
+    'auto-off',
+    null
+);
+duo_check(
+    $codCreated['handled'] === true && $codCreated['write_calls'] === 1
+        && $codCreated['finalize_calls'] === 1,
+    'COD exercises the exact absent-target insertion callbacks'
+);
 $codRepeat = $materializeMixed(
     'woocommerce_cod_settings',
     $codRebound,

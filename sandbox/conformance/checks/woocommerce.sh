@@ -1377,10 +1377,10 @@ jq -e --argjson ids "$TARGET_ADOPT" '
   || fail 'WooCommerce coupon adoption fixture reused the source identity'
 pass 'hostile same-slug product and coupon rows retain target identities while repository-authored native values converge'
 
-# Corrupt structured product metadata, introduce a populated unsupported
-# gateway record, and remove one repository product row. Each independent capture must
-# refuse before changing canonical state; exact raw restoration must recapture
-# byte-identically.
+# Corrupt structured product metadata, introduce a populated closed COD record
+# with one bounded unknown add-on sibling, and remove one repository product
+# row. Each independent capture must refuse before changing canonical state;
+# exact raw restoration must recapture byte-identically.
 CAPTURE_BASELINE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 ATTR_BACKUP=$(wp_conf1 eval '
   global $wpdb; $id=wc_get_product_id_by_sku("CONF-PRECISION-UTF8");
@@ -1411,21 +1411,23 @@ FAKE_SECRET='AKIAABCDEFGHIJKLMNOP'
 wp_conf1 eval '
   update_option("woocommerce_cod_settings", [
     "enabled" => "yes",
-    "title" => "Unsupported COD boundary",
+    "title" => "Cash on delivery",
     "description" => "Pay on delivery",
     "instructions" => "AKIAABCDEFGHIJKLMNOP",
     "enable_for_methods" => ["flat_rate:3147484001"],
     "enable_for_virtual" => "yes",
+    "cod_addon_secret" => "AKIAABCDEFGHIJKLMNOP",
   ]);
 ' >/dev/null
 SECRET_RC=0
 SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || SECRET_RC=$?
 require_duo_answered 'WooCommerce populated COD boundary capture' human "$SECRET_OUT"
-[ "$SECRET_RC" -ne 0 ] && grep -Eq 'woocommerce_cod_settings|unclassified option' <<<"$SECRET_OUT" \
+[ "$SECRET_RC" -ne 0 ] && grep -Fq 'woocommerce_cod_settings' <<<"$SECRET_OUT" \
+  && grep -Fq 'unknown sibling' <<<"$SECRET_OUT" \
   && ! grep -Fq "$FAKE_SECRET" <<<"$SECRET_OUT" \
-  || fail "WooCommerce populated COD record did not refuse and redact: $SECRET_OUT"
+  || fail "WooCommerce COD closed-record unknown sibling did not refuse at normalization and redact: $SECRET_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
-  || fail 'WooCommerce unsupported gateway refusal partially published canonical state'
+  || fail 'WooCommerce COD unknown-sibling refusal partially published canonical state'
 wp_conf1 option delete woocommerce_cod_settings >/dev/null
 
 DELETE_ROW=$(wp_conf1 eval '
@@ -1454,9 +1456,9 @@ wp_conf1 eval "
 " >/dev/null
 wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-woocommerce-restored" \
-  || fail 'WooCommerce source did not restore byte-identically after malformed/secret/deletion probes'
+  || fail 'WooCommerce source did not restore byte-identically after malformed/unknown-COD/deletion probes'
 rm -rf "$CONF_REPO1/.tmp-woocommerce-restored"
-pass 'malformed attributes, populated mixed gateway data, and unsupported product deletion refuse atomically and redact values'
+pass 'malformed attributes, unknown COD add-on sibling, and unsupported product deletion refuse atomically and redact values'
 
 # Both branches edit one managed native price. Unforced application must be
 # byte-still on the target; explicit repository authority must converge without

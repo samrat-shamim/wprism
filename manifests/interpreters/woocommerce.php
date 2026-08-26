@@ -154,6 +154,27 @@ final class Woocommerce {
     private const MAX_COD_METHODS = 256;
     private const MAX_PERMALINK_BYTES = 2048;
 
+    private const WOO_CONTAINER = 'Automattic\\WooCommerce\\Container';
+    private const WOO_RUNTIME_CONTAINER =
+        'Automattic\\WooCommerce\\Internal\\DependencyManagement\\RuntimeContainer';
+    private const WOO_FEATURES = 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController';
+    private const WOO_SYNCHRONIZER =
+        'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer';
+    private const WOO_CUSTOM_ORDERS =
+        'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController';
+    private const WOO_SETTINGS_TRACKING = 'WC_Settings_Tracking';
+    private const WPSEO_SITEMAPS = 'WPSEO_Sitemaps';
+    private const WPSEO_SITEMAPS_CACHE = 'WPSEO_Sitemaps_Cache';
+    /** @var array<string,string> */
+    private const WPSEO_OPTIONS = [
+        'wpseo' => 'WPSEO_Option_Wpseo',
+        'wpseo_titles' => 'WPSEO_Option_Titles',
+        'wpseo_social' => 'WPSEO_Option_Social',
+        'wpseo_taxonomy_meta' => 'WPSEO_Taxonomy_Meta',
+        'wpseo_llmstxt' => 'WPSEO_Option_Llmstxt',
+        'wpseo_tracking_only' => 'WPSEO_Option_Tracking_Only',
+    ];
+
     private const PERMALINK_OPTION_FIELDS = [
         'product_base' => 'permalink',
         'category_base' => 'permalink',
@@ -646,31 +667,65 @@ final class Woocommerce {
             'wp_filter_default_autoload_value_via_option_size', '', 5, 4, 'wordpress_function',
         ]]);
 
+        // These generic callbacks run even though the checked writer bypasses
+        // WordPress's dispatcher.  A visible runtime is therefore an exact
+        // finite union, not permission to silently discard another plugin's
+        // observer.  Both resolvers only inspect already-built services.
+        $woo = $this->resolve_mixed_option_woo_services();
+        $wpseo = $this->resolve_mixed_option_wpseo_services($name);
+        $tracking = $targetWasPresent ? $this->resolve_mixed_option_tracking_service($name) : null;
+
         if ($targetWasPresent) {
             $this->assert_closed_mixed_option_hook("option_$name", []);
             $this->assert_closed_mixed_option_hook("pre_update_option_$name", $name === 'woocommerce_permalinks'
                 ? [['WC_Brands_Admin', 'validate_product_base', 10, 1, 'brands_global']]
                 : []);
-            $this->assert_closed_mixed_option_hook('pre_update_option', [
-                ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController', 'process_pre_update_option', 999, 3, 'container'],
-            ]);
-            $this->assert_closed_mixed_option_hook('update_option', []);
+            $preUpdated = $woo === null ? [] : [
+                [self::WOO_CUSTOM_ORDERS, 'process_pre_update_option', 999, 3, 'woo'],
+            ];
+            $updated = $woo === null ? [] : [
+                [self::WOO_SYNCHRONIZER, 'process_updated_option', 999, 3, 'woo'],
+                [self::WOO_CUSTOM_ORDERS, 'process_updated_option', 999, 3, 'woo'],
+                [self::WOO_CUSTOM_ORDERS, 'process_updated_option_fts_index', 999, 3, 'woo'],
+                [self::WOO_FEATURES, 'process_updated_option', 999, 3, 'woo'],
+            ];
+            if ($wpseo !== null) {
+                foreach ($wpseo['options'] as $class => $_service) {
+                    $preUpdated[] = [$class, 'add_default_filters_if_not_changed', PHP_INT_MAX, 3, 'yoast'];
+                    $updated[] = [$class, 'add_default_filters_if_same_option', 10, 1, 'yoast'];
+                }
+                if ($wpseo['sitemaps_cache'] !== null) {
+                    $updated[] = [self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update', 10, 1, 'yoast_static'];
+                }
+            }
+            if ($tracking !== null) {
+                $updated[] = [self::WOO_SETTINGS_TRACKING, 'track_setting_change', 10, 3, 'tracking'];
+            }
+            $this->assert_closed_mixed_option_hook('pre_update_option', $preUpdated, $woo, $wpseo);
+            $this->assert_closed_mixed_option_hook('update_option', $updated, $woo, $wpseo, $tracking);
             $this->assert_closed_mixed_option_hook("update_option_$name", []);
-            $this->assert_closed_mixed_option_hook('updated_option', [
-                ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer', 'process_updated_option', 999, 3, 'container'],
-                ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController', 'process_updated_option', 999, 3, 'container'],
-                ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController', 'process_updated_option_fts_index', 999, 3, 'container'],
-                ['Automattic\\WooCommerce\\Internal\\Features\\FeaturesController', 'process_updated_option', 999, 3, 'container'],
-            ]);
+            $this->assert_closed_mixed_option_hook('updated_option', $updated = $woo === null ? [] : [
+                [self::WOO_SYNCHRONIZER, 'process_updated_option', 999, 3, 'woo'],
+                [self::WOO_CUSTOM_ORDERS, 'process_updated_option', 999, 3, 'woo'],
+                [self::WOO_CUSTOM_ORDERS, 'process_updated_option_fts_index', 999, 3, 'woo'],
+                [self::WOO_FEATURES, 'process_updated_option', 999, 3, 'woo'],
+            ], $woo, $wpseo);
             return;
         }
 
-        $this->assert_closed_mixed_option_hook('add_option', []);
+        $add = [];
+        if ($wpseo !== null) {
+            foreach ($wpseo['options'] as $class => $_service) {
+                $add[] = [$class, 'add_default_filters_if_same_option', 10, 1, 'yoast'];
+            }
+        }
+        $this->assert_closed_mixed_option_hook('add_option', $add, $woo, $wpseo);
         $this->assert_closed_mixed_option_hook("add_option_$name", []);
-        $this->assert_closed_mixed_option_hook('added_option', [
-            ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer', 'process_added_option', 999, 2, 'container'],
-            ['Automattic\\WooCommerce\\Internal\\Features\\FeaturesController', 'process_added_option', 999, 3, 'container'],
-        ]);
+        $added = $woo === null ? [] : [
+            [self::WOO_SYNCHRONIZER, 'process_added_option', 999, 2, 'woo'],
+            [self::WOO_FEATURES, 'process_added_option', 999, 3, 'woo'],
+        ];
+        $this->assert_closed_mixed_option_hook('added_option', $added, $woo, $wpseo);
     }
 
     /** @param array<string,string> $fields @param array<string,mixed> $value */
@@ -700,9 +755,17 @@ final class Woocommerce {
     }
 
     /**
-     * @param list<array{0:string,1:string,2:int,3:int,4:'brands_global'|'container'|'wordpress_function'}> $allowed
+     * @param list<array{0:string,1:string,2:int,3:int,4:'brands_global'|'woo'|'yoast'|'yoast_static'|'tracking'|'wordpress_function'}> $allowed
+     * @param ?array{features:object,synchronizer:object,custom_orders:object} $woo
+     * @param ?array{options:array<string,object>,sitemaps:?object,sitemaps_cache:?object} $wpseo
      */
-    private function assert_closed_mixed_option_hook(string $hook, array $allowed): void {
+    private function assert_closed_mixed_option_hook(
+        string $hook,
+        array $allowed,
+        ?array $woo = null,
+        ?array $wpseo = null,
+        ?object $tracking = null
+    ): void {
         global $wp_filter;
         if (isset($wp_filter) && !is_array($wp_filter)) {
             throw new \RuntimeException(
@@ -747,6 +810,14 @@ final class Woocommerce {
                         $matched = true;
                         break;
                     }
+                    if ($owner === 'yoast_static') {
+                        if ($callback['function'] !== [$class, $method]) {
+                            continue;
+                        }
+                        $seen[$index] = true;
+                        $matched = true;
+                        break;
+                    }
                     if (!is_array($callback['function'])
                         || count($callback['function']) !== 2
                         || !is_object($callback['function'][0])
@@ -754,9 +825,14 @@ final class Woocommerce {
                         || get_class($callback['function'][0]) !== $class) {
                         continue;
                     }
-                    $expected = $owner === 'brands_global'
-                        ? $this->native_brands_admin()
-                        : $this->native_container_service($class);
+                    $expected = match ($owner) {
+                        'brands_global' => $this->native_brands_admin(),
+                        'woo' => $woo[$this->mixed_woo_service_key($class)] ?? null,
+                        'yoast' => $wpseo['options'][$class] ?? null,
+                        'yoast_static' => $class,
+                        'tracking' => $tracking,
+                        default => null,
+                    };
                     if ($callback['function'][0] !== $expected) {
                         throw new \RuntimeException(
                             'duo: WooCommerce mixed option mutation hook callback is not the exact native service'
@@ -773,6 +849,11 @@ final class Woocommerce {
                 }
             }
         }
+        if (count($seen) !== count($allowed)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option mutation hook topology is incomplete'
+            );
+        }
     }
 
     private function native_brands_admin(): object {
@@ -785,20 +866,300 @@ final class Woocommerce {
         return $service;
     }
 
+    private function resolve_mixed_option_tracking_service(string $mutatedOption): ?object {
+        // WC_Settings_Tracking is byte-identical in the reviewed 11.0.0/11.0.1
+        // sources (SHA-256 ed15be45…). init() installs five ancillary hooks,
+        // but only a native settings save installs track_setting_change; no
+        // executable update_option observer therefore means no boundary.
+        $records = [];
+        global $wp_filter;
+        $update = $wp_filter['update_option'] ?? null;
+        if ($update instanceof \WP_Hook && is_array($update->callbacks ?? null)) {
+            foreach ($update->callbacks as $priority => $callbacks) {
+                foreach (is_array($callbacks) ? $callbacks : [] as $callback) {
+                    if (is_array($callback)
+                        && is_array($callback['function'] ?? null)
+                        && is_object($callback['function'][0] ?? null)
+                        && get_class($callback['function'][0]) === self::WOO_SETTINGS_TRACKING
+                        && ($callback['function'][1] ?? null) === 'track_setting_change') {
+                        $records[] = [$priority, $callback];
+                    }
+                }
+            }
+        }
+        if ($records === []) {
+            return null;
+        }
+        if (count($records) !== 1
+            || $records[0][0] !== 10
+            || !is_array($records[0][1])
+            || array_keys($records[0][1]) !== ['function', 'accepted_args']
+            || $records[0][1]['accepted_args'] !== 3) {
+            throw new \RuntimeException('duo: WooCommerce mixed option tracking observer roster is extended or substituted');
+        }
+        $tracker = $records[0][1]['function'][0];
+        $this->assert_mixed_option_tracking_roster($tracker);
+        try {
+            $allowed = (new \ReflectionProperty(self::WOO_SETTINGS_TRACKING, 'allowed_options'))->getValue($tracker);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option tracking observer allowed-options map is unreadable',
+                0,
+                $failure
+            );
+        }
+        if (!is_array($allowed)) {
+            throw new \RuntimeException('duo: WooCommerce mixed option tracking observer allowed-options map is malformed');
+        }
+        if (in_array($mutatedOption, $allowed, true)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option tracking observer would track the current option'
+            );
+        }
+        return $tracker;
+    }
+
+    private function assert_mixed_option_tracking_roster(object $tracker): void {
+        $roster = [
+            'woocommerce_settings_page_init' => ['track_settings_page_view', 1],
+            'woocommerce_update_option' => ['add_option_to_list', 1],
+            'woocommerce_update_non_option_setting' => ['add_option_to_list_and_track_setting_change', 1],
+            'woocommerce_update_options' => ['send_settings_change_event', 1],
+            'admin_enqueue_scripts' => ['possibly_add_settings_tracking_scripts', 1],
+        ];
+        global $wp_filter;
+        foreach ($roster as $hook => [$method, $acceptedArgs]) {
+            $registered = $wp_filter[$hook] ?? null;
+            if (!$registered instanceof \WP_Hook || !is_array($registered->callbacks ?? null)) {
+                throw new \RuntimeException('duo: WooCommerce mixed option tracking observer roster is incomplete');
+            }
+            $records = [];
+            foreach ($registered->callbacks as $priority => $callbacks) {
+                foreach (is_array($callbacks) ? $callbacks : [] as $callback) {
+                    if (is_array($callback)
+                        && is_array($callback['function'] ?? null)
+                        && is_object($callback['function'][0] ?? null)
+                        && get_class($callback['function'][0]) === self::WOO_SETTINGS_TRACKING) {
+                        $records[] = [$priority, $callback];
+                    }
+                }
+            }
+            if (count($records) !== 1
+                || $records[0][0] !== 10
+                || !is_array($records[0][1])
+                || array_keys($records[0][1]) !== ['function', 'accepted_args']
+                || $records[0][1]['accepted_args'] !== $acceptedArgs
+                || $records[0][1]['function'] !== [$tracker, $method]) {
+                throw new \RuntimeException('duo: WooCommerce mixed option tracking observer roster is extended or substituted');
+            }
+        }
+    }
+
+    /** @return 'features'|'synchronizer'|'custom_orders' */
+    private function mixed_woo_service_key(string $class): string {
+        return match ($class) {
+            self::WOO_FEATURES => 'features',
+            self::WOO_SYNCHRONIZER => 'synchronizer',
+            self::WOO_CUSTOM_ORDERS => 'custom_orders',
+            default => throw new \LogicException('duo: unknown WooCommerce mixed option service'),
+        };
+    }
+
+    /** @return list<mixed> */
+    private function mixed_option_callbacks(): array {
+        global $wp_filter;
+        if (!isset($wp_filter)) {
+            return [];
+        }
+        if (!is_array($wp_filter)) {
+            throw new \RuntimeException('duo: WooCommerce mixed option mutation hook registry is unreadable');
+        }
+        $callbacks = [];
+        foreach ($wp_filter as $registered) {
+            if (!$registered instanceof \WP_Hook || !is_array($registered->callbacks ?? null)) {
+                continue;
+            }
+            foreach ($registered->callbacks as $records) {
+                if (!is_array($records)) {
+                    continue;
+                }
+                foreach ($records as $record) {
+                    $callbacks[] = is_array($record) ? ($record['function'] ?? null) : null;
+                }
+            }
+        }
+        return $callbacks;
+    }
+
+    /** @return ?array{features:object,synchronizer:object,custom_orders:object} */
+    private function resolve_mixed_option_woo_services(): ?array {
+        $callbacks = $this->mixed_option_callbacks();
+        $visible = function_exists('wc_get_container')
+            || array_key_exists('wc_container', $GLOBALS)
+            || class_exists(self::WOO_CONTAINER, false)
+            || class_exists(self::WOO_RUNTIME_CONTAINER, false);
+        foreach ([self::WOO_FEATURES, self::WOO_SYNCHRONIZER, self::WOO_CUSTOM_ORDERS] as $class) {
+            $visible = $visible || class_exists($class, false);
+            foreach ($callbacks as $callback) {
+                $owner = is_array($callback) ? ($callback[0] ?? null) : null;
+                $visible = $visible || (is_object($owner) && get_class($owner) === $class);
+            }
+        }
+        if (!$visible) {
+            return null;
+        }
+        if (!function_exists('wc_get_container')
+            || !array_key_exists('wc_container', $GLOBALS)
+            || !class_exists(self::WOO_CONTAINER, false)
+            || !class_exists(self::WOO_RUNTIME_CONTAINER, false)
+            || !class_exists(self::WOO_FEATURES, false)
+            || !class_exists(self::WOO_SYNCHRONIZER, false)
+            || !class_exists(self::WOO_CUSTOM_ORDERS, false)) {
+            throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has an incomplete WooCommerce runtime');
+        }
+        try {
+            $container = $GLOBALS['wc_container'];
+            if (!is_object($container)
+                || get_class($container) !== self::WOO_CONTAINER
+                || wc_get_container() !== $container) {
+                throw new \RuntimeException('substituted WooCommerce container');
+            }
+            $runtime = (new \ReflectionProperty(self::WOO_CONTAINER, 'container'))->getValue($container);
+            $cache = is_object($runtime) && get_class($runtime) === self::WOO_RUNTIME_CONTAINER
+                ? (new \ReflectionProperty(self::WOO_RUNTIME_CONTAINER, 'resolved_cache'))->getValue($runtime)
+                : null;
+            $features = is_array($cache) ? ($cache[self::WOO_FEATURES] ?? null) : null;
+            $synchronizer = is_array($cache) ? ($cache[self::WOO_SYNCHRONIZER] ?? null) : null;
+            $customOrders = is_array($cache) ? ($cache[self::WOO_CUSTOM_ORDERS] ?? null) : null;
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option mutation hook topology could not resolve WooCommerce services',
+                0,
+                $failure
+            );
+        }
+        foreach ([
+            [$features, self::WOO_FEATURES],
+            [$synchronizer, self::WOO_SYNCHRONIZER],
+            [$customOrders, self::WOO_CUSTOM_ORDERS],
+        ] as [$service, $class]) {
+            if (!is_object($service) || get_class($service) !== $class) {
+                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has substituted WooCommerce services');
+            }
+        }
+        return ['features' => $features, 'synchronizer' => $synchronizer, 'custom_orders' => $customOrders];
+    }
+
+    /** @return ?array{options:array<string,object>,sitemaps:?object,sitemaps_cache:?object} */
+    private function resolve_mixed_option_wpseo_services(string $mutatedOption): ?array {
+        $callbacks = $this->mixed_option_callbacks();
+        $visible = class_exists('WPSEO_Options', false)
+            || class_exists(self::WPSEO_SITEMAPS_CACHE, false)
+            || array_key_exists('wpseo_sitemaps', $GLOBALS);
+        foreach (self::WPSEO_OPTIONS as $class) {
+            $visible = $visible || class_exists($class, false);
+            foreach ($callbacks as $callback) {
+                $owner = is_array($callback) ? ($callback[0] ?? null) : null;
+                $ownerClass = is_object($owner) ? get_class($owner) : $owner;
+                $visible = $visible || $ownerClass === $class;
+            }
+        }
+        foreach ($callbacks as $callback) {
+            $visible = $visible || (is_array($callback) && ($callback[0] ?? null) === self::WPSEO_SITEMAPS_CACHE);
+        }
+        if (!$visible) {
+            return null;
+        }
+        if (!class_exists('WPSEO_Options', false)
+            || !is_callable(['WPSEO_Options', 'get_option_instance'])) {
+            throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has incomplete Yoast SEO option singletons');
+        }
+        $options = [];
+        foreach (self::WPSEO_OPTIONS as $optionName => $class) {
+            try {
+                // This reads the constructed singleton map only. get_instance()
+                // would manufacture a service and turn partial boot into admission.
+                $service = \WPSEO_Options::get_option_instance($optionName);
+            } catch (\Throwable $failure) {
+                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology could not resolve Yoast SEO option services', 0, $failure);
+            }
+            if (!is_object($service) || get_class($service) !== $class) {
+                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has incomplete Yoast SEO option singletons');
+            }
+            $options[$class] = $service;
+        }
+        $sitemapCallbacks = [];
+        global $wp_filter;
+        $update = $wp_filter['update_option'] ?? null;
+        if ($update instanceof \WP_Hook && is_array($update->callbacks ?? null)) {
+            foreach ($update->callbacks as $priority => $records) {
+                foreach (is_array($records) ? $records : [] as $record) {
+                    if (is_array($record) && ($record['function'] ?? null) === [self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update']) {
+                        $sitemapCallbacks[] = [$priority, $record];
+                    }
+                }
+            }
+        }
+        $sitemapsPresent = array_key_exists('wpseo_sitemaps', $GLOBALS);
+        if (class_exists(self::WPSEO_SITEMAPS_CACHE, false)) {
+            try {
+                $cacheClear = (new \ReflectionProperty(self::WPSEO_SITEMAPS_CACHE, 'cache_clear'))->getValue();
+            } catch (\Throwable $failure) {
+                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology could not inspect the Yoast SEO sitemap cache registration map', 0, $failure);
+            }
+            if (!is_array($cacheClear)) {
+                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has malformed Yoast SEO sitemap cache registration map');
+            }
+            if (array_key_exists($mutatedOption, $cacheClear)) {
+                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has the current WooCommerce option registered for Yoast SEO sitemap cache invalidation');
+            }
+        }
+        if (!$sitemapsPresent && $sitemapCallbacks === []) {
+            return ['options' => $options, 'sitemaps' => null, 'sitemaps_cache' => null];
+        }
+        if (!$sitemapsPresent || count($sitemapCallbacks) !== 1
+            || $sitemapCallbacks[0][0] !== 10
+            || ($sitemapCallbacks[0][1]['accepted_args'] ?? null) !== 1) {
+            throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has incomplete or substituted Yoast SEO sitemap cache topology');
+        }
+        $sitemaps = $GLOBALS['wpseo_sitemaps'];
+        $cache = is_object($sitemaps) ? ($sitemaps->cache ?? null) : null;
+        if (!is_object($sitemaps) || get_class($sitemaps) !== self::WPSEO_SITEMAPS
+            || !is_object($cache) || get_class($cache) !== self::WPSEO_SITEMAPS_CACHE
+            || !class_exists(self::WPSEO_SITEMAPS_CACHE, false)
+            || !is_callable([self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update'])) {
+            throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has incomplete or substituted Yoast SEO sitemap cache service');
+        }
+        return ['options' => $options, 'sitemaps' => $sitemaps, 'sitemaps_cache' => $cache];
+    }
+
     private function native_container_service(string $class): object {
-        if (!function_exists('wc_get_container')) {
-            throw new \RuntimeException('duo: WooCommerce mixed option native service container is unavailable');
+        if (!function_exists('wc_get_container')
+            || !array_key_exists('wc_container', $GLOBALS)
+            || !class_exists(self::WOO_CONTAINER, false)
+            || !class_exists(self::WOO_RUNTIME_CONTAINER, false)) {
+            throw new \RuntimeException('duo: WooCommerce mixed option native hook service is unavailable');
         }
-        $container = wc_get_container();
-        if (!is_object($container) || !is_callable([$container, 'get'])) {
-            throw new \RuntimeException('duo: WooCommerce mixed option native service container is malformed');
+        try {
+            $container = $GLOBALS['wc_container'];
+            if (!is_object($container) || get_class($container) !== self::WOO_CONTAINER
+                || wc_get_container() !== $container) {
+                throw new \RuntimeException('substituted WooCommerce container');
+            }
+            $runtime = (new \ReflectionProperty(self::WOO_CONTAINER, 'container'))->getValue($container);
+            $cache = is_object($runtime) && get_class($runtime) === self::WOO_RUNTIME_CONTAINER
+                ? (new \ReflectionProperty(self::WOO_RUNTIME_CONTAINER, 'resolved_cache'))->getValue($runtime)
+                : null;
+            $service = is_array($cache) ? ($cache[$class] ?? null) : null;
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException('duo: WooCommerce mixed option native hook service is unavailable', 0, $failure);
         }
-        $service = $container->get($class);
         if (!is_object($service) || get_class($service) !== $class) {
             throw new \RuntimeException('duo: WooCommerce mixed option native hook service is unavailable');
         }
         return $service;
     }
+
 
     private function native_settings_api(): object {
         if (!class_exists('WC_Settings_API', false)) {

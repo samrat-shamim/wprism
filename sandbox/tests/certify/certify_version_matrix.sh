@@ -1858,6 +1858,7 @@ EOF
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at woocommerce $WOO_VERSION"
   pass "deploy + apply succeeded on side 2 (woocommerce $WOO_VERSION, HPOS, canary clean)"
 
+  postapply_woocommerce_content
   check_woocommerce_content
 
   wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"

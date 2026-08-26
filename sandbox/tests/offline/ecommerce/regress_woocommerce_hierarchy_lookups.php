@@ -48,6 +48,27 @@ foreach ((array) ($coinstallTopology['artifacts'] ?? []) as $slug => $artifact) 
         "mixed rewrite topology pins the exact $slug artifact that supplies its hooks"
     );
 }
+$yoastArtifactMatrix = (array) ($coinstallTopology['artifacts']['wordpress-seo']['versions'] ?? []);
+duo_check_same([
+    '28.0' => '348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f',
+    '28.2' => 'f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23',
+    '28.3' => '381edc1603147bd76af81341f21c9155ff3e9f6ce29ed20886d889fb9d6744fb',
+], $yoastArtifactMatrix, 'mixed rewrite topology binds every admitted Yoast 28.x artifact ZIP');
+foreach ($yoastArtifactMatrix as $version => $sha256) {
+    duo_check_same($sha256, $artifactLock['plugins']['wordpress-seo'][$version]['sha256'] ?? null,
+        "mixed rewrite topology pins the exact Yoast $version artifact lock");
+}
+$yoastMainRows = array_values(array_filter(
+    (array) ($coinstallTopology['source_files'] ?? []),
+    static fn(array $source): bool => ($source['plugin'] ?? null) === 'wordpress-seo'
+        && ($source['path'] ?? null) === 'wp-seo-main.php'
+));
+duo_check_same([
+    '28.0' => 'c1eabcbc2c5e8243d7ee9c0a787330355492701603e1869c49eb78a9b51d3a0b',
+    '28.2' => '9fdfe9f87a5c11c4d45673d121c81db9117d138357d297d7d2d3a4be5b387117',
+    '28.3' => '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1',
+], $yoastMainRows[0]['versions'] ?? null,
+    'mixed rewrite topology binds each version-specific Yoast main source hash');
 duo_check_same([
     ['plugin' => 'woocommerce', 'path' => 'includes/wc-core-functions.php', 'sha256' => '17bf218326de339c872eba8c9f855b73bb1c7874053c36774c35ef222927e684'],
     ['plugin' => 'woocommerce', 'path' => 'includes/wc-formatting-functions.php', 'sha256' => 'c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41'],
@@ -59,7 +80,13 @@ duo_check_same([
     ['plugin' => 'woocommerce', 'path' => 'src/Internal/DataStores/Orders/CustomOrdersTableController.php', 'sha256' => 'b4d1a6772b064de9be6a80750074b0a9e371514f58131a1701cad6cd52ccb8bf'],
     ['plugin' => 'wordpress-seo', 'path' => 'inc/class-yoast-dynamic-rewrites.php', 'sha256' => '3b07ec0af1f94269b2a5a98bba078edbee73e1697aeeed119ae12ff4a3ca7553'],
     ['plugin' => 'wordpress-seo', 'path' => 'inc/class-rewrite.php', 'sha256' => 'd8e168e467b06e6c49f1f1c60b2c5437d7eb9081ef96aa472ed1de880639dbda'],
-    ['plugin' => 'wordpress-seo', 'path' => 'wp-seo-main.php', 'sha256' => '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1'],
+    ['plugin' => 'wordpress-seo', 'path' => 'wp-seo-main.php', 'sha256' => '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1', 'versions' => [
+        '28.0' => 'c1eabcbc2c5e8243d7ee9c0a787330355492701603e1869c49eb78a9b51d3a0b',
+        '28.2' => '9fdfe9f87a5c11c4d45673d121c81db9117d138357d297d7d2d3a4be5b387117',
+        '28.3' => '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1',
+    ]],
+    ['plugin' => 'wordpress-seo', 'path' => 'admin/class-admin.php', 'sha256' => '6b18d8e8aab6089b1d425259343f3f0a784c648fbf42ad95f908b67c050a7883'],
+    ['plugin' => 'wordpress-seo', 'path' => 'inc/sitemaps/class-sitemaps-admin.php', 'sha256' => '03b1fdcb3da0fd6d82edc2d6d9e24f9ede8744d6fb68c3f8877b0d03c433bf82'],
     ['plugin' => 'wordpress-seo', 'path' => 'inc/options/class-wpseo-options.php', 'sha256' => 'dfa12977fe7d8e44a46e55106dbd6beff2f62ded44bb72130eb40092c8aa3c93'],
     ['plugin' => 'wordpress-seo', 'path' => 'inc/options/class-wpseo-option.php', 'sha256' => '9be7b8c73ec223dc2349b5976a51c3fcf66d21d12ddd8985742c4ddaaf4057e9'],
     ['plugin' => 'wordpress-seo', 'path' => 'inc/options/class-wpseo-option-wpseo.php', 'sha256' => '39b7002ff87b9b3e44d72c06ddaba43ef9d02539a7a6f74781d8723641cf6f34'],
@@ -99,6 +126,28 @@ duo_check_same([
     ['plugin' => 'the-events-calendar', 'path' => 'src/Tribe/Main.php', 'sha256' => '3f7b3c50960071a350077ee1c72bd342ebe4613c374913522361371ca30aaa94'],
 ], $coinstallTopology['source_files'] ?? null,
     'mixed rewrite topology binds each installed extension callback to its exact audited source bytes');
+duo_check_same([
+    'wpseo' => 'WPSEO_Option_Wpseo',
+    'wpseo_titles' => 'WPSEO_Option_Titles',
+    'wpseo_social' => 'WPSEO_Option_Social',
+    'wpseo_taxonomy_meta' => 'WPSEO_Taxonomy_Meta',
+    'wpseo_llmstxt' => 'WPSEO_Option_Llmstxt',
+    'wpseo_tracking_only' => 'WPSEO_Option_Tracking_Only',
+], $coinstallTopology['yoast_normal_option_topology']['option_cache_map'] ?? null,
+    'normal Yoast option cache map closes every registered option singleton');
+duo_check_same([
+    'global' => 'wpseo_sitemaps',
+    'class' => 'WPSEO_Sitemaps',
+    'cache_property' => 'cache',
+    'cache_class' => 'WPSEO_Sitemaps_Cache',
+    'cache_callback' => [
+        'hook' => 'update_option',
+        'method' => 'clear_on_option_update',
+        'priority' => 10,
+        'accepted_args' => 1,
+    ],
+], $coinstallTopology['yoast_normal_option_topology']['sitemap'] ?? null,
+    'normal Yoast sitemap global, cache object, and cache invalidation semantics stay exact');
 $wooVersion = (string) ($coinstallTopology['artifacts']['woocommerce']['version'] ?? '');
 $wooSourceAuthority = (array) ($settingsInventory['source_files'] ?? []);
 foreach ((array) ($settingsInventory['version_specific_source_files'] ?? []) as $path => $versions) {

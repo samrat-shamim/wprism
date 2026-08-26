@@ -164,16 +164,16 @@ foreach ($operationalSourcePaths as $sourcePath) {
         $operationalSourceBytes .= $sourcePath . "\t" . $version . "\t" . $sha256 . "\n";
     }
 }
-woo_ok(($operationalSourceUnion['source_count'] ?? null) === 80
-    && ($operationalSourceUnion['shared_source_count'] ?? null) === 78
-    && count($operationalSharedSources) === 78
+woo_ok(($operationalSourceUnion['source_count'] ?? null) === 82
+    && ($operationalSourceUnion['shared_source_count'] ?? null) === 80
+    && count($operationalSharedSources) === 80
     && count($operationalVersionSources) === 2
-    && count($operationalSourcePaths) === 80
+    && count($operationalSourcePaths) === 82
     && ($operationalSourceUnion['source_set_sha256'] ?? null)
         === hash('sha256', $operationalSourceBytes)
     && ($operationalSourceUnion['classification_sha256'] ?? null)
         === hash('sha256', $operationalClassificationBytes),
-    'the residual classification is bound to all eighty exact source paths and hashes plus its sorted classified-byte inventory');
+    'the residual classification is bound to all eighty-two exact source paths and hashes plus its sorted classified-byte inventory');
 woo_ok(($operationalSourceUnion['classification_counts'] ?? null) === [
     'authored' => 1,
     'dynamic_fragment' => 1,
@@ -192,8 +192,8 @@ woo_ok(($operationalSourceUnion['classification_counts'] ?? null) === [
         '11.0.1' => 'e73e5fe1dd2844bf2bdc3a59bf728b6d38aee79b2152f616f2f993f515975c76',
     ],
 ], 'the operational union freezes every class count and both exact artifact-specific source authorities');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 95,
-    'the inventory binds all ninety-five byte-identical visible, operational, container, migration, gateway, email, pickup, scheduler, stock-notification, launch, image-regeneration, attachment-bootstrap, and frontend-read sources');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 97,
+    'the inventory binds all ninety-seven byte-identical visible, operational, container, migration, gateway, email, pickup, scheduler, stock-notification, launch, image-regeneration, attachment-bootstrap, frontend-read, and conditional tracking-topology sources');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''
@@ -243,6 +243,15 @@ woo_ok(
             ],
     'the review-page resolver and both exact route implementations are source-bound despite the 11.0.1 auth hardening'
 );
+$trackingSources = [
+    'includes/tracks/class-wc-site-tracking.php' => '97906f707989abdb652de6aca71c90095ee4ae137bb2a736e9e01a8f017acdd0',
+    'includes/tracks/events/class-wc-settings-tracking.php' => 'ed15be45c452f20f0e9c256f6975367972fa3a82a6450e600877d09229dad6f9',
+];
+foreach ($trackingSources as $sourceFile => $sha256) {
+    woo_ok(($settingsInventory['source_files'][$sourceFile] ?? null) === $sha256
+        && ($operationalSharedSources[$sourceFile] ?? null) === $sha256,
+        "$sourceFile binds the exact conditional WC_Settings_Tracking topology in both source inventories");
+}
 $schedulerSources = [
     'includes/queue/class-wc-action-queue.php' => 'bb0a9a15659fa8cf8ddf7281a214dd12d7ef6c4b8c266711c1bcc24f46e14f10',
     'packages/action-scheduler/classes/ActionScheduler_ActionFactory.php' => '9316e8fc027e7eca88eb53918288d6b6dafbfc50a59db7c31aa2c4ea16dcf776',
@@ -915,6 +924,7 @@ $wooSeedHarness = (string) file_get_contents($root . '/sandbox/conformance/seeds
 $wooPostdeployHarness = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/woocommerce.sh');
 $wooPostapplyHarness = (string) file_get_contents($root . '/sandbox/conformance/postapply/woocommerce.sh');
 $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
+$wooInterpreterSource = (string) file_get_contents($root . '/manifests/interpreters/woocommerce.php');
 
 // Receipt identities are a three-way contract: the manifest is the shipped
 // declaration, provider identity() is the executable authority, and this
@@ -1021,6 +1031,7 @@ woo_ok(
     'the candidate-bound co-install hands its exact Compose argv to the pinned artifact resolver before loading it'
 );
 $yoastOptionSources = [
+    'admin/class-admin.php' => '6b18d8e8aab6089b1d425259343f3f0a784c648fbf42ad95f908b67c050a7883',
     'inc/class-rewrite.php' => 'd8e168e467b06e6c49f1f1c60b2c5437d7eb9081ef96aa472ed1de880639dbda',
     'inc/options/class-wpseo-options.php' => 'dfa12977fe7d8e44a46e55106dbd6beff2f62ded44bb72130eb40092c8aa3c93',
     'inc/options/class-wpseo-option.php' => '9be7b8c73ec223dc2349b5976a51c3fcf66d21d12ddd8985742c4ddaaf4057e9',
@@ -1032,6 +1043,7 @@ $yoastOptionSources = [
     'inc/options/class-wpseo-option-tracking-only.php' => '24902a45b2912e0f2d8cd731bc1e0990c824c61f35bb5076a7a4b091a8949c8c',
     'inc/sitemaps/class-sitemaps-cache.php' => 'dc99816988fef1554775757fb8ab18b65ec2d46a08f03c475bf6da4dfdc72cc8',
     'inc/sitemaps/class-sitemaps.php' => 'e436a8c3702e6c8c954d8bb3b4dd099124c47a4d6007c87f6693a79a7759a885',
+    'inc/sitemaps/class-sitemaps-admin.php' => '03b1fdcb3da0fd6d82edc2d6d9e24f9ede8744d6fb68c3f8877b0d03c433bf82',
 ];
 $coInstallSourcePins = [];
 foreach ((array) ($wooRewriteCoInstallTopology['source_files'] ?? []) as $sourcePin) {
@@ -1043,9 +1055,44 @@ foreach ($yoastOptionSources as $sourceFile => $sha256) {
     woo_ok(($coInstallSourcePins[$sourceFile] ?? null) === $sha256,
         "co-install evidence pins exact Yoast 28.3 option source $sourceFile");
 }
-woo_ok(count((array) ($wooRewriteCoInstallTopology['source_files'] ?? [])) === 48
+woo_ok(($wooRewriteCoInstallTopology['artifacts']['wordpress-seo']['versions'] ?? null) === [
+    '28.0' => '348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f',
+    '28.2' => 'f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23',
+    '28.3' => '381edc1603147bd76af81341f21c9155ff3e9f6ce29ed20886d889fb9d6744fb',
+], 'co-install evidence binds exact Yoast 28.0/28.2/28.3 artifact ZIP SHAs');
+$yoastMainSource = array_values(array_filter(
+    (array) ($wooRewriteCoInstallTopology['source_files'] ?? []),
+    static fn(array $row): bool => ($row['plugin'] ?? null) === 'wordpress-seo'
+        && ($row['path'] ?? null) === 'wp-seo-main.php'
+))[0] ?? [];
+woo_ok(($yoastMainSource['versions'] ?? null) === [
+    '28.0' => 'c1eabcbc2c5e8243d7ee9c0a787330355492701603e1869c49eb78a9b51d3a0b',
+    '28.2' => '9fdfe9f87a5c11c4d45673d121c81db9117d138357d297d7d2d3a4be5b387117',
+    '28.3' => '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1',
+], 'co-install evidence binds version-specific Yoast wp-seo-main.php hashes');
+woo_ok(($wooRewriteCoInstallTopology['yoast_normal_option_topology']['option_cache_map'] ?? null) === [
+    'wpseo' => 'WPSEO_Option_Wpseo',
+    'wpseo_titles' => 'WPSEO_Option_Titles',
+    'wpseo_social' => 'WPSEO_Option_Social',
+    'wpseo_taxonomy_meta' => 'WPSEO_Taxonomy_Meta',
+    'wpseo_llmstxt' => 'WPSEO_Option_Llmstxt',
+    'wpseo_tracking_only' => 'WPSEO_Option_Tracking_Only',
+], 'co-install evidence closes the exact normal Yoast option cache map');
+woo_ok(($wooRewriteCoInstallTopology['yoast_normal_option_topology']['sitemap'] ?? null) === [
+    'global' => 'wpseo_sitemaps',
+    'class' => 'WPSEO_Sitemaps',
+    'cache_property' => 'cache',
+    'cache_class' => 'WPSEO_Sitemaps_Cache',
+    'cache_callback' => [
+        'hook' => 'update_option',
+        'method' => 'clear_on_option_update',
+        'priority' => 10,
+        'accepted_args' => 1,
+    ],
+], 'co-install evidence closes the exact normal Yoast sitemap/cache semantics');
+woo_ok(count((array) ($wooRewriteCoInstallTopology['source_files'] ?? [])) === 50
     && count((array) ($wooRewriteCoInstallTopology['static_callbacks'] ?? [])) === 39,
-    'co-install evidence closes all 48 source files and 39 static callbacks');
+    'co-install evidence closes all 50 source files and 39 static callbacks');
 $yoastOptionClasses = [
     'WPSEO_Option_Wpseo',
     'WPSEO_Option_Titles',
@@ -1517,7 +1564,7 @@ $conformanceFamilyWitnesses = [
     'deletion' => [$wooCheckHarness, [
         'WooCommerce unsupported product deletion capture',
         'unsupported deletion refusal partially published canonical state',
-        'source did not restore byte-identically after malformed/secret/deletion probes',
+        'source did not restore byte-identically after malformed/unknown-COD/deletion probes',
     ]],
     'failure-recovery' => [$wooCheckHarness, [
         'lookup-schema provider failure',
@@ -1537,7 +1584,9 @@ $conformanceFamilyWitnesses = [
     'data-boundary' => [$wooCheckHarness, [
         'malformed product-attribute capture',
         'WooCommerce populated COD boundary capture',
-        'malformed attributes, populated mixed gateway data, and unsupported product deletion refuse atomically and redact values',
+        'cod_addon_secret',
+        'unknown sibling',
+        'malformed attributes, unknown COD add-on sibling, and unsupported product deletion refuse atomically and redact values',
     ]],
     'scope-platform' => [$wooCheckHarness, [
         'WooCommerce scope fixture unexpectedly activated optional extensions',
@@ -1553,6 +1602,47 @@ foreach ($conformanceFamilyWitnesses as $family => [$harness, $witnesses]) {
     woo_ok(count($witnesses) >= 3 && $missingWitnesses === [],
         "WooCommerce $family conformance remains bound to its native hostile/recovery witnesses");
 }
+$codBoundaryStart = strpos($wooCheckHarness, "FAKE_SECRET='AKIAABCDEFGHIJKLMNOP'");
+$codBoundaryEnd = $codBoundaryStart === false
+    ? false
+    : strpos($wooCheckHarness, 'DELETE_ROW=', $codBoundaryStart);
+$codBoundary = $codBoundaryStart !== false && $codBoundaryEnd !== false
+    ? substr($wooCheckHarness, $codBoundaryStart, $codBoundaryEnd - $codBoundaryStart)
+    : '';
+woo_ok(
+    str_contains($codBoundary, '"cod_addon_secret" => "AKIAABCDEFGHIJKLMNOP"')
+        && str_contains($codBoundary, "grep -Fq 'woocommerce_cod_settings'")
+        && str_contains($codBoundary, "grep -Fq 'unknown sibling'")
+        && str_contains($codBoundary, '! grep -Fq "$FAKE_SECRET"')
+        && !str_contains($codBoundary, 'unclassified option'),
+    'the live COD boundary rejects one bounded unknown add-on sibling, names the closed option, and redacts the sentinel instead of expecting an unclassified option'
+);
+$codNormalizeStart = strpos($wooInterpreterSource, 'public function normalize_captured_option_sub_keys(');
+$codMaterializeStart = $codNormalizeStart === false
+    ? false
+    : strpos($wooInterpreterSource, 'public function materialize_option_sub_keys(', $codNormalizeStart);
+$codNormalize = $codNormalizeStart !== false && $codMaterializeStart !== false
+    ? substr($wooInterpreterSource, $codNormalizeStart, $codMaterializeStart - $codNormalizeStart)
+    : '';
+$codUnknownCheck = strpos($codNormalize, "assert_mixed_record_keys(\$name, \$decoded, \$fields, 'source');");
+$codValidationTopology = strpos($codNormalize, '$this->assert_mixed_validation_topology($fields, $rawAuthored);');
+$codMutationTopology = strpos($wooInterpreterSource, '$this->assert_mixed_option_mutation_hooks($name, $targetWasPresent);');
+$codUnknownAbsolute = $codUnknownCheck === false || $codNormalizeStart === false
+    ? false
+    : $codNormalizeStart + $codUnknownCheck;
+$codTrackingHook = strpos($wooInterpreterSource, "self::WOO_SETTINGS_TRACKING, 'track_setting_change'");
+woo_ok(
+    $codUnknownCheck !== false
+        && $codValidationTopology !== false
+        && $codUnknownCheck < $codValidationTopology
+        && !str_contains($codNormalize, 'WOO_SETTINGS_TRACKING')
+        && $codMutationTopology !== false
+        && $codUnknownAbsolute !== false
+        && $codUnknownAbsolute < $codMutationTopology
+        && $codTrackingHook !== false
+        && $codMutationTopology < $codTrackingHook,
+    'COD unknown siblings refuse during capture normalization before native validation and WC_Settings_Tracking mutation topology'
+);
 foreach ([
     'new WC_Product_External()',
     "new WP_REST_Request('PUT', '/wc/v3/products/",
@@ -1843,6 +1933,31 @@ woo_ok(substr_count($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_
 woo_ok(substr_count($matrixHarness, 'check_woocommerce_product_delete_refusal "$WOO_VERSION"') === 1
     && str_contains($matrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
     'one product-deletion refusal call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
+$wooMatrixCaseAnchor = strpos($matrixHarness, '# WooCommerce 11.0.0 is the declared minimum');
+$wooMatrixCaseStart = $wooMatrixCaseAnchor === false
+    ? false
+    : strpos($matrixHarness, 'if [ "$VMATRIX_MANIFEST" = woocommerce ]; then', $wooMatrixCaseAnchor);
+$wooMatrixCaseEnd = strpos($matrixHarness, "# Yoast's published 28.x line", $wooMatrixCaseStart === false ? 0 : $wooMatrixCaseStart);
+$wooMatrixCase = $wooMatrixCaseStart !== false && $wooMatrixCaseEnd !== false
+    ? substr($matrixHarness, $wooMatrixCaseStart, $wooMatrixCaseEnd - $wooMatrixCaseStart)
+    : '';
+$wooPostapplyCall = strpos($wooMatrixCase, 'postapply_woocommerce_content');
+$wooApplySuccess = strpos($wooMatrixCase, 'pass "deploy + apply succeeded on side 2');
+$wooCheck = strpos($wooMatrixCase, 'check_woocommerce_content');
+$wooCanonicalRecapture = strpos($wooMatrixCase, 'wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"');
+woo_ok(
+    substr_count($woocommerceMatrixHarness, 'postapply_woocommerce_content() {') === 1
+        && str_contains($woocommerceMatrixHarness, '. conformance/postapply/woocommerce.sh')
+        && substr_count($wooMatrixCase, 'postapply_woocommerce_content') === 1
+        && $wooApplySuccess !== false
+        && $wooPostapplyCall !== false
+        && $wooCheck !== false
+        && $wooCanonicalRecapture !== false
+        && $wooApplySuccess < $wooPostapplyCall
+        && $wooPostapplyCall < $wooCheck
+        && $wooCheck < $wooCanonicalRecapture,
+    'each exact WooCommerce boundary invokes its target-local post-apply hook once after apply and before canonical recapture'
+);
 foreach ([
     'wc_get_product_id_by_sku("CONF-WIDGET-1")',
     'wc_order_product_lookup',
@@ -1861,7 +1976,7 @@ foreach ([
     '"pll_rewrite_rules","pll_modify_rewrite_rule"',
     '([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0',
     'def static_rewrite_hook:',
-    '(.source_files|length==48)',
+    '(.source_files|length==50)',
     '(.static_callbacks|length==39)',
     'WP_CLI_MEMORY_LIMIT=512M',
     '--entrypoint php',

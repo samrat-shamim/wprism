@@ -23,6 +23,13 @@ postdeploy_woocommerce_content() {
   woocommerce_preapply_authority_assertion "$WOO_VERSION" 'exact boundary'
 }
 
+postapply_woocommerce_content() {
+  wp_conf2() { wp2 "$@"; }
+  local CONF_REPO2="siterepo/${PAIR}2"
+  . conformance/postapply/woocommerce.sh
+  unset -f wp_conf2
+}
+
 check_woocommerce_content() {
   local COMPOSE="$PAIR_COMPOSE_STRING"
   local CONF1_PORT="$PORT1"
