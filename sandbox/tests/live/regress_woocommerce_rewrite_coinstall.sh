@@ -451,6 +451,10 @@ $value=get_option("woocommerce_permalinks");
 if(!is_array($value)||array_keys($value)!==["product_base","category_base","tag_base","attribute_base","use_verbose_page_rules"]){throw new RuntimeException("five-key source witness changed");}
 $value["product_base"]="catalogue/%product_cat%";update_option("woocommerce_permalinks",$value);
 ' >/dev/null
+# A real Permalinks settings save flushes after Woo persists this option. The
+# direct CLI mutation above deliberately bypasses that admin request, so cross
+# the same native regeneration boundary before treating the source as valid.
+wp1 rewrite flush --hard >/dev/null
 wp1 duo capture --repo=/siterepo >/dev/null
 bash bin/pair.sh repo-host "$PAIR" 1 >/dev/null
 git -C "$R1" -c user.name=duo-woo-rewrite -c user.email=woo-rewrite@example.test add -A
@@ -507,6 +511,10 @@ if(!is_array($value)||array_keys($value)!==["product_base","category_base","tag_
 $value["product_base"]="atelier/%product_cat%";
 update_option("woocommerce_permalinks",$value);
 ' >/dev/null
+# Keep the second authored source coherent for the real HTTP witness too; an
+# earlier successful request cannot make its old catalogue rules authoritative
+# for the newly-authored atelier base.
+wp1 rewrite flush --hard >/dev/null
 wp1 duo capture --repo=/siterepo >/dev/null
 bash bin/pair.sh repo-host "$PAIR" 1 >/dev/null
 git -C "$R1" -c user.name=duo-woo-rewrite -c user.email=woo-rewrite@example.test add -A

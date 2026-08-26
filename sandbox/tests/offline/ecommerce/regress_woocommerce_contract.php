@@ -2365,6 +2365,8 @@ woo_ok(!str_contains($wooRewriteCoInstallHarness, 'url_to_postid('),
     'co-install product-route evidence uses the real HTTP parser, not the CLI url_to_postid helper');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, 'file_put_contents($path,$bytes)'),
     'co-install hostile MU fixtures do not assume the unprivileged WP-CLI process owns the webroot');
+woo_ok(substr_count($wooRewriteCoInstallHarness, 'wp1 rewrite flush --hard >/dev/null') === 3,
+    'each directly-authored source permalink grammar crosses the native rewrite-regeneration boundary');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, '[[$yoast,"filter_rewrite_rules_option",10,1]]'),
     'co-install callback identity tuples keep the callable nested separately from priority and arity');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, 'option_name="rewrite_rules"'),
