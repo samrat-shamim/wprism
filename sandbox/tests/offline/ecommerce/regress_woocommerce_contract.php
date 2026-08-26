@@ -73,6 +73,40 @@ $policy = Policy::from_snapshot([
     'manifests' => [$manifest],
     'site' => ['manifests' => ['woocommerce'], 'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []], 'spec_version' => DUO_SPEC_VERSION],
 ]);
+woo_ok($policy->option_rule_details('pickup_location_pickup_locations') === [
+    'rule' => ['class' => 'authored', 'plain_data' => true, 'autoload' => 'preserve'],
+    'source' => 'woocommerce',
+], 'the pre-apply pickup-location diagnostic seam resolves through the loaded Woo manifest');
+woo_ok($policy->option_rule_details('woocommerce_bacs_settings') === [
+    'rule' => [
+        'class' => 'env',
+        'required' => false,
+        'absent_autoload' => 'yes',
+        'closed_sub_keys' => true,
+        'sub_keys' => [
+            'enabled' => ['class' => 'authored'],
+            'title' => ['class' => 'authored'],
+            'description' => ['class' => 'authored'],
+            'instructions' => ['class' => 'authored'],
+            'account_details' => ['class' => 'derived', 'native_default_completion' => true],
+            'account_name' => ['class' => 'env'],
+            'account_number' => ['class' => 'env'],
+            'bank_name' => ['class' => 'env'],
+            'sort_code' => ['class' => 'env'],
+            'iban' => ['class' => 'env'],
+            'bic' => ['class' => 'env'],
+        ],
+        'autoload' => 'preserve',
+    ],
+    'source' => 'woocommerce',
+], 'the pre-apply BACS diagnostic seam retains its closed mixed-class record authority');
+woo_ok($policy->post_meta_rule_details('_product_url') === [
+    'rule' => ['class' => 'authored'],
+    'source' => 'woocommerce',
+] && $policy->term_meta_rule_details('display_type') === [
+    'rule' => ['class' => 'authored'],
+    'source' => 'woocommerce',
+], 'the pre-apply product and term diagnostic seams resolve through Woo authority');
 
 $settingsInventory = json_decode(
     (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-settings.json'),
@@ -879,6 +913,7 @@ $wooConformanceManifest = json_decode(
 );
 $wooSeedHarness = (string) file_get_contents($root . '/sandbox/conformance/seeds/woocommerce.sh');
 $wooPostdeployHarness = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/woocommerce.sh');
+$wooPostapplyHarness = (string) file_get_contents($root . '/sandbox/conformance/postapply/woocommerce.sh');
 $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
 $conformanceRunnerHarness = (string) file_get_contents($root . '/sandbox/conformance/run.sh');
 $conformanceAssertsHarness = (string) file_get_contents($root . '/sandbox/conformance/asserts.sh');
@@ -1517,10 +1552,22 @@ foreach ([
 foreach ([
     'Hostile selected review page',
     'TARGET_REVIEW_PAGE_ID',
+    "--slug=conformance-widgets --parent=\"\$TARGET_CAT_PARENT_ID\" --porcelain",
+    "--slug=atelier-tokyo --parent=\"\$TARGET_BRAND_PARENT_ID\" --porcelain",
     'woocommerce_review_order_flush_rewrite_pending',
 ] as $reviewTargetWitness) {
     woo_ok(str_contains($wooPostdeployHarness, $reviewTargetWitness),
         "customer-review hostile target fixture pins $reviewTargetWitness");
+}
+foreach ([
+    '.hostile_review_page',
+    'length == 1 and .[0] ==',
+    'option_points_here',
+    'wp_delete_post($id, true)',
+    'distinct target-local Review Order page',
+] as $reviewPostapplyWitness) {
+    woo_ok(str_contains($wooPostapplyHarness, $reviewPostapplyWitness),
+        "customer-review target-local preservation fixture pins $reviewPostapplyWitness");
 }
 foreach ([
     "new WP_REST_Request('GET', '/wc/v3/products/",
@@ -1571,6 +1618,41 @@ foreach ([
     woo_ok(str_contains($woocommerceMatrixHarness, $lifecycleWitness),
         "exact WooCommerce lifecycle matrix pins $lifecycleWitness");
 }
+foreach ([
+    'woocommerce_preapply_authority_assertion()',
+    'duo-woocommerce-preapply-authority/v1',
+    'loaded_manifests',
+    'jq -se',
+    'length == 1',
+    'option:pickup_location_pickup_locations',
+    'option:woocommerce_bacs_settings',
+    'post_meta:_product_url',
+    'term_meta:display_type',
+    'WooCommerce pre-apply authority assertion failed:',
+] as $preapplyAuthorityWitness) {
+    woo_ok(str_contains($woocommerceMatrixHarness, $preapplyAuthorityWitness),
+        "exact WooCommerce pre-apply authority guard pins $preapplyAuthorityWitness");
+}
+woo_ok(
+    substr_count($woocommerceMatrixHarness, 'woocommerce_preapply_authority_assertion ') === 2
+        && str_contains($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion \"\$WOO_VERSION\" 'exact boundary'")
+        && str_contains($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.0 'in-range downgrade'")
+        && strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.0 'in-range downgrade'")
+            < strpos(
+                $woocommerceMatrixHarness,
+                'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision"',
+                strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.0 'in-range downgrade'")
+            )
+        && substr_count($matrixHarness, 'woocommerce_preapply_authority_assertion ') === 1
+        && str_contains($matrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
+        && strpos($matrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
+            < strpos(
+                $matrixHarness,
+                'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV"',
+                strpos($matrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
+            ),
+    'every successful exact WooCommerce boundary, upgrade, and downgrade apply emits deterministic loaded-manifest and diagnostic-seam rule authority evidence first'
+);
 woo_ok(substr_count($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"') === 1
     && str_contains($matrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
     'one lifecycle call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
@@ -1595,7 +1677,7 @@ foreach ([
     '"pll_rewrite_rules","pll_modify_rewrite_rule"',
     '([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0',
     'def static_rewrite_hook:',
-    '(.source_files|length==27)',
+    '(.source_files|length==30)',
     'CALLBACK_IDENTITIES=$(wp2 eval',
     'native rewrite callback identity differs from source services',
     '$GLOBALS["wc_container"]',

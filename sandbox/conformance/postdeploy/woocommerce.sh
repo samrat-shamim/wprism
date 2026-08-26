@@ -18,12 +18,12 @@ do
 done
 
 TARGET_CAT_PARENT_ID=$(wp_conf2 term create product_cat 'Hostile target catalog parent' --slug=conformance-catalog --porcelain)
-TARGET_CAT_ID=$(wp_conf2 term create product_cat 'Hostile target category' --slug=conformance-widgets --porcelain)
+TARGET_CAT_ID=$(wp_conf2 term create product_cat 'Hostile target category' --slug=conformance-widgets --parent="$TARGET_CAT_PARENT_ID" --porcelain)
 TARGET_TAG_ID=$(wp_conf2 term create product_tag 'Hostile target tag' --slug=portable-tokyo --porcelain)
 TARGET_SHIP_CLASS_ID=$(wp_conf2 term create product_shipping_class 'Hostile target class' --slug=oversize-portable --porcelain)
 TARGET_BRAND_PARENT_ID=$(wp_conf2 term create product_brand 'Hostile target maker parent' --slug=conformance-makers --porcelain)
 TARGET_BRAND_EXCLUDED_ID=$(wp_conf2 term create product_brand 'Hostile target excluded brand' --slug=excluded-merchant-brand --porcelain)
-TARGET_BRAND_CHILD_ID=$(wp_conf2 term create product_brand 'Hostile target atelier' --slug=atelier-tokyo --parent="$TARGET_BRAND_EXCLUDED_ID" --porcelain)
+TARGET_BRAND_CHILD_ID=$(wp_conf2 term create product_brand 'Hostile target atelier' --slug=atelier-tokyo --parent="$TARGET_BRAND_PARENT_ID" --porcelain)
 TARGET_COLOR_ATTR_ID=$(wp_conf2 wc product_attribute create --name='Hostile Color' --slug=conf-color --type=select --order_by=name --has_archives=true --porcelain --user=admin)
 TARGET_SIZE_ATTR_ID=$(wp_conf2 wc product_attribute create --name='Hostile Size' --slug=conf-size --type=select --order_by=name --has_archives=true --porcelain --user=admin)
 require_fixture_ids TARGET_CAT_PARENT_ID TARGET_CAT_ID TARGET_TAG_ID TARGET_SHIP_CLASS_ID \
@@ -140,6 +140,7 @@ file_put_contents('/siterepo/.tmp-woocommerce-target.json', wp_json_encode([
   'category_parent' => $TARGET_CAT_PARENT_ID,
   'color_blue' => $TARGET_COLOR_BLUE_ID,
   'color_red' => $TARGET_COLOR_RED_ID,
+  'hostile_review_page' => $TARGET_HOSTILE_REVIEW_PAGE_ID,
   'review_page' => $TARGET_REVIEW_PAGE_ID,
   'shipping_class' => $TARGET_SHIP_CLASS_ID,
   'tag' => $TARGET_TAG_ID,

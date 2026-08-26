@@ -1891,6 +1891,7 @@ EOF
     wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
     normalize_woocommerce_harness_placeholder_mode wp2
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+    woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'
     wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \

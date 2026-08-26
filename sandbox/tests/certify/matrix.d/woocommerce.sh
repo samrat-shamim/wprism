@@ -20,6 +20,7 @@ postdeploy_woocommerce_content() {
   wp_conf2() { wp2 "$@"; }
   . conformance/postdeploy/woocommerce.sh
   unset -f wp_conf2
+  woocommerce_preapply_authority_assertion "$WOO_VERSION" 'exact boundary'
 }
 
 check_woocommerce_content() {
@@ -188,6 +189,120 @@ woocommerce_downgrade_refusal_snapshot() {
   printf '%s\n' "$storage:$native:$runtime:$repository"
 }
 
+woocommerce_preapply_authority_assertion() { # <exact-version> <matrix-phase>
+  # The 85-field unclassified failure was transient enough that apply's own
+  # summary did not identify the manifest library it had actually loaded.
+  # Read the same target Policy immediately before mutation and make its
+  # source paths, file bytes, and representative Woo authority decisions the
+  # failure evidence; none of this path writes WordPress or the repository.
+  local version="$1" phase="$2" evidence
+  evidence=$(wp2 eval '
+$policy = \Duo\Policy::load("/siterepo");
+$sources = $policy->adapter_sources();
+$loaded = [];
+foreach ($policy->manifests as $manifest) {
+    $name = (string) ($manifest["name"] ?? "");
+    if ($name === "") {
+        throw new RuntimeException("WooCommerce pre-apply authority loaded an unnamed manifest");
+    }
+    $file = $sources->file($name, \Duo\Policy::manifests_dir());
+    $loaded[] = [
+        "file" => $file,
+        "path" => $sources->path($name),
+        "sha256" => is_file($file) ? hash_file("sha256", $file) : null,
+        "source" => $sources->source($name),
+        "name" => $name,
+    ];
+}
+usort($loaded, static fn(array $a, array $b): int => strcmp($a["name"], $b["name"]));
+$evidence = [
+    "format" => "duo-woocommerce-preapply-authority/v1",
+    "loaded_manifests" => $loaded,
+    "rules" => [
+        "option:pickup_location_pickup_locations" => $policy->option_rule_details("pickup_location_pickup_locations"),
+        "option:woocommerce_bacs_settings" => $policy->option_rule_details("woocommerce_bacs_settings"),
+        "post_meta:_product_url" => $policy->post_meta_rule_details("_product_url"),
+        "term_meta:display_type" => $policy->term_meta_rule_details("display_type"),
+    ],
+];
+$woocommerce = null;
+foreach ($policy->manifests as $manifest) {
+    if (($manifest["name"] ?? null) === "woocommerce") {
+        $woocommerce = $manifest;
+        break;
+    }
+}
+$valid = array_column($loaded, "name") === ["core", "woocommerce"]
+    && ($woocommerce["version_range"] ?? null) === ["min" => "11.0.0", "max" => "11.0.2"]
+    && ($evidence["rules"]["option:pickup_location_pickup_locations"] ?? null) === [
+        "rule" => ["class" => "authored", "plain_data" => true, "autoload" => "preserve"],
+        "source" => "woocommerce",
+    ]
+    && ($evidence["rules"]["option:woocommerce_bacs_settings"] ?? null) === [
+        "rule" => [
+            "class" => "env",
+            "required" => false,
+            "absent_autoload" => "yes",
+            "closed_sub_keys" => true,
+            "sub_keys" => [
+                "enabled" => ["class" => "authored"],
+                "title" => ["class" => "authored"],
+                "description" => ["class" => "authored"],
+                "instructions" => ["class" => "authored"],
+                "account_details" => ["class" => "derived", "native_default_completion" => true],
+                "account_name" => ["class" => "env"],
+                "account_number" => ["class" => "env"],
+                "bank_name" => ["class" => "env"],
+                "sort_code" => ["class" => "env"],
+                "iban" => ["class" => "env"],
+                "bic" => ["class" => "env"],
+            ],
+            "autoload" => "preserve",
+        ],
+        "source" => "woocommerce",
+    ]
+    && ($evidence["rules"]["post_meta:_product_url"] ?? null) === [
+        "rule" => ["class" => "authored"],
+        "source" => "woocommerce",
+    ]
+    && ($evidence["rules"]["term_meta:display_type"] ?? null) === [
+        "rule" => ["class" => "authored"],
+        "source" => "woocommerce",
+    ];
+foreach ($loaded as $manifest) {
+    $valid = $valid
+        && $manifest["source"] === "shipped"
+        && is_string($manifest["file"])
+        && $manifest["file"] !== ""
+        && is_string($manifest["path"])
+        && $manifest["path"] !== ""
+        && is_string($manifest["sha256"])
+        && preg_match("/^[0-9a-f]{64}$/D", $manifest["sha256"]) === 1;
+}
+$json = wp_json_encode($evidence, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+if (!$valid) {
+    throw new RuntimeException("WooCommerce pre-apply authority assertion failed: " . $json);
+}
+echo $json;
+') || fail "WooCommerce $version $phase pre-apply authority assertion could not load the target policy"
+  require_observed_nonempty "WooCommerce $version $phase pre-apply authority evidence" "$evidence"
+  jq -se '
+    length == 1
+    and .[0].format == "duo-woocommerce-preapply-authority/v1"
+    and (.[0].loaded_manifests | map(.name) == ["core", "woocommerce"])
+    and (.[0].loaded_manifests | all(.source == "shipped" and (.file | type == "string" and length > 0) and (.path | type == "string" and length > 0) and (.sha256 | test("^[0-9a-f]{64}$"))))
+    and .[0].rules["option:pickup_location_pickup_locations"] == {rule:{class:"authored",plain_data:true,autoload:"preserve"},source:"woocommerce"}
+    and .[0].rules["option:woocommerce_bacs_settings"].source == "woocommerce"
+    and .[0].rules["option:woocommerce_bacs_settings"].rule.class == "env"
+    and .[0].rules["option:woocommerce_bacs_settings"].rule.closed_sub_keys == true
+    and .[0].rules["option:woocommerce_bacs_settings"].rule.autoload == "preserve"
+    and .[0].rules["post_meta:_product_url"] == {rule:{class:"authored"},source:"woocommerce"}
+    and .[0].rules["term_meta:display_type"] == {rule:{class:"authored"},source:"woocommerce"}
+  ' <<<"$evidence" >/dev/null \
+    || fail "WooCommerce $version $phase pre-apply authority evidence was malformed: $evidence"
+  pass "WooCommerce $version $phase pre-apply authority is exact: $evidence"
+}
+
 assert_woocommerce_downgrade_refusal_unchanged() { # <operation> <post-install-snapshot>
   local operation="$1" expected="$2" observed
   observed=$(woocommerce_downgrade_refusal_snapshot)
@@ -283,6 +398,7 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
 
   git -C "siterepo/${PAIR}2" pull -q origin main
   revision=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+  woocommerce_preapply_authority_assertion 11.0.0 'in-range downgrade'
   wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
     || fail 'WooCommerce exact 11.0.0 apply canary was not clean after downgrade re-baseline'
