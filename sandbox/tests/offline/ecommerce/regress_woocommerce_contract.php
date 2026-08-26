@@ -1221,6 +1221,11 @@ woo_ok(
         && $executableHposCli === [],
     'every exact Woo live track establishes and verifies HPOS through one warning-free native new-shop helper before orders'
 );
+woo_ok(
+    str_contains($wooMultisiteHarness, 'ARTIFACT=$(fetch_artifact woocommerce 11.0.1 cli1 plugin)')
+        && !str_contains($wooMultisiteHarness, 'shasum -a 256 "$ARTIFACT"'),
+    'Woo multisite installs the resolver-verified container artifact without treating its container path as a host file'
+);
 
 // The live conformance script is the candidate proof, but this offline pin
 // holds its twelve reviewed families to one source/target/check topology.
