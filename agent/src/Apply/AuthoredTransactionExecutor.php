@@ -123,6 +123,7 @@ final class AuthoredTransactionExecutor {
 
         $transactionStarted = false;
         $scopedCommitParticipantStarted = false;
+        $retainNativeRebuildAuthority = false;
         Canary::arm();
         try {
             $this->attachmentMaterializer->prepare_filesystem($work, $tree);
@@ -352,6 +353,10 @@ final class AuthoredTransactionExecutor {
                     $firstPostCommitFailure
                 );
             }
+            // The attachment marker and preflight witness now belong to the
+            // post-COMMIT rebuild coordinator; all failure paths leave them
+            // disposable so a retry cannot reuse a stale in-memory attempt.
+            $retainNativeRebuildAuthority = true;
         } catch (\Throwable $failure) {
             if (!$transactionStarted) {
                 try {
@@ -482,7 +487,7 @@ final class AuthoredTransactionExecutor {
             $this->termMaterializer->end_authored_transaction();
             $this->fieldMaterializer->end_authored_transaction();
             $this->optionsMaterializer->end_authored_transaction();
-            $this->attachmentMaterializer->end_authored_transaction();
+            $this->attachmentMaterializer->end_authored_transaction($retainNativeRebuildAuthority);
             SidebarState::end_authored_transaction();
             CacheInvalidationTransaction::end();
         }

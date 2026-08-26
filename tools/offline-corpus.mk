@@ -171,6 +171,7 @@ regress-offline-corpus: code-half-unit \
 	regress-fixture-makers \
 	regress-fleet-census \
 	regress-frozen-materialization-promotion \
+	regress-full-apply-attachment-recovery \
 	regress-graded-claim \
 	regress-graduated-version-range \
 	regress-grind-r1c-manifest-preserve \
@@ -247,6 +248,8 @@ regress-offline-corpus: code-half-unit \
 	regress-policy-rule-resolver \
 	regress-policy-writer \
 	regress-polylang-fail-helper \
+	regress-polylang-live-fixtures \
+	regress-polylang-production-readiness \
 	regress-post-field-classification \
 	regress-post-materializer \
 	regress-post-type-grammar \

@@ -176,6 +176,207 @@ final class HarnessLibTest extends TestCase
         );
     }
 
+    // The "remains closed without opt-in" companion this test once had is
+    // deliberately gone: the single-equality LEFT JOIN is now the ONE join
+    // form the interpreter accepts generally (its wider-shape refusals each
+    // have their own case below), so the ownership query needs no enable call.
+    public function testRelationshipOwnershipJoinProjectsRawOwnerRowsAndMissingTaxonomy(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_term_relationships', [
+            ['object_id' => 7, 'term_taxonomy_id' => 22, 'term_order' => 0],
+            ['object_id' => 7, 'term_taxonomy_id' => 20, 'term_order' => 2],
+            ['object_id' => 8, 'term_taxonomy_id' => 21, 'term_order' => 0],
+        ])->seedTable('wp_term_taxonomy', [
+            ['term_taxonomy_id' => 20, 'taxonomy' => 'nav_menu'],
+            ['term_taxonomy_id' => 21, 'taxonomy' => 'category'],
+        ]);
+
+        self::assertSame(
+            [
+                ['term_taxonomy_id' => '20', 'term_order' => '2', 'taxonomy' => 'nav_menu'],
+                ['term_taxonomy_id' => '22', 'term_order' => '0', 'taxonomy' => null],
+            ],
+            $db->get_results(
+                'SELECT tr.term_taxonomy_id, tr.term_order, tt.taxonomy '
+                . 'FROM wp_term_relationships tr LEFT JOIN wp_term_taxonomy tt '
+                . 'ON tt.term_taxonomy_id = tr.term_taxonomy_id '
+                . 'WHERE tr.object_id = 7 ORDER BY tr.term_taxonomy_id ASC LIMIT 4',
+                ARRAY_A
+            )
+        );
+    }
+
+    public function testInformationSchemaRemainsClosedUnlessExplicitlyEnabled(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_options', [])->setColumns('wp_options', ['option_name' => 'varchar(191)']);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('schema-qualified table names');
+        $db->get_results('SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES');
+    }
+
+    public function testOptInInformationSchemaProjectsSeededTablesColumnsAndCharacterLength(): void
+    {
+        $db = FakeWpdb::install()->enableInformationSchema();
+        $db->seedTable('wp_options', [])->setColumns(
+            'wp_options',
+            ['option_name' => 'varchar(191)', 'option_value' => 'longtext']
+        )->setTableEngine('wp_options', 'InnoDB');
+        $db->seedTable('wp_users', [])->setColumns('wp_users', ['ID' => 'bigint(20)'])->setTableEngine('wp_users', 'MyISAM');
+
+        self::assertSame(
+            [['TABLE_NAME' => 'wp_options', 'ENGINE' => 'InnoDB']],
+            $db->get_results(
+                "SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('wp_options') ORDER BY TABLE_NAME ASC",
+                ARRAY_A
+            )
+        );
+        self::assertSame(
+            [
+                ['TABLE_NAME' => 'wp_options', 'COLUMN_NAME' => 'option_name'],
+                ['TABLE_NAME' => 'wp_options', 'COLUMN_NAME' => 'option_value'],
+            ],
+            $db->get_results(
+                "SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_options' ORDER BY TABLE_NAME, ORDINAL_POSITION",
+                ARRAY_A
+            )
+        );
+        self::assertSame(
+            '191',
+            $db->get_var(
+                "SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_options' AND COLUMN_NAME = 'option_name'"
+            )
+        );
+    }
+
+    public function testOptInInformationSchemaRefusesUnsupportedOrMalformedShapes(): void
+    {
+        $db = FakeWpdb::install()->enableInformationSchema();
+        $db->seedTable('wp_options', [])->setColumns('wp_options', ['option_name' => 'varchar(191)']);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('unsupported opt-in information_schema shape');
+        $db->get_results('SELECT * FROM information_schema.STATISTICS WHERE TABLE_NAME = \'wp_options\'');
+    }
+
+    public function testFullApplySqlExtensionsRefuseWithoutExplicitOptIn(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_posts', [
+            ['ID' => 7, 'post_type' => 'attachment', 'post_status' => 'inherit'],
+        ]);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('unknown column');
+        $db->get_results(
+            'SELECT COUNT(*) AS row_count, bogus AS total_bytes FROM wp_posts WHERE post_status = \'inherit\''
+        );
+    }
+
+    public function testFullApplySqlExtensionsRefuseMalformedSelectProbesByDefault(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_posts', [
+            ['ID' => 7, 'post_type' => 'attachment', 'post_status' => 'inherit'],
+        ]);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('unknown column');
+        $db->get_results(
+            'SELECT post_type, COUNT(*) AS entities, bogus FROM wp_posts /* malformed full-apply probe */'
+        );
+    }
+
+    public function testEnabledFullApplyExtensionsRefuseMalformedStatementsPerHandlerFamily(): void
+    {
+        $cases = [
+            'attachment marker' => [
+                'sql' => "SELECT k, OCTET_LENGTH(v) AS v_bytes, CASE WHEN v IS NOT NULL AND OCTET_LENGTH(v) <= 512 THEN v ELSE NULL END AS bounded_v, bogus FROM `wp_duo_kv` WHERE LOWER(LEFT(k, 14)) = 'attachment_fs:' ORDER BY BINARY k ASC LIMIT 2",
+                'write' => false,
+            ],
+            'post stats' => [
+                'sql' => "SELECT COUNT(*) AS row_count, bogus AS total_bytes FROM wp_posts WHERE (post_type = 'attachment' AND post_status = 'inherit')",
+                'write' => false,
+            ],
+            'option stats' => [
+                'sql' => 'SELECT COUNT(*) AS row_count, bogus AS total_bytes FROM wp_options',
+                'write' => false,
+            ],
+            'post groups' => [
+                'sql' => 'SELECT post_type, COUNT(*) AS entities FROM wp_posts UNION SELECT bogus FROM wp_posts',
+                'write' => false,
+            ],
+            'post list' => [
+                'sql' => 'SELECT ID, post_author, post_date, post_date_gmt, post_content, post_title, post_excerpt, post_status, comment_status, ping_status, post_password, post_name, post_modified, post_modified_gmt, post_parent, menu_order, post_type, post_mime_type FROM wp_posts UNION SELECT bogus FROM wp_posts',
+                'write' => false,
+            ],
+            'term join' => [
+                'sql' => "SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.taxonomy, tt.description, tt.parent, bogus FROM wp_terms t JOIN wp_term_taxonomy tt ON tt.term_id = t.term_id WHERE tt.taxonomy = 'nav_menu' ORDER BY t.term_id ASC",
+                'write' => false,
+            ],
+            'promotion insert' => [
+                'sql' => "INSERT INTO `wp_duo_kv` (k, v) VALUES ('promotion_lock', '{}') ON DUPLICATE KEY UPDATE v = IF((JSON_EXTRACT(v, '$.owner')), VALUES(v), v) AND 1=1",
+                'write' => true,
+            ],
+            'promotion update' => [
+                'sql' => "UPDATE `wp_duo_kv` SET v = '{}' WHERE k = 'promotion_lock' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = 'owner' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = 'artifact' AND 1=1",
+                'write' => true,
+            ],
+            'prune delete' => [
+                'sql' => 'DELETE m FROM wp_duo_map m LEFT JOIN wp_posts po ON po.ID = m.local_id LEFT JOIN wp_terms t ON t.term_id = m.local_id WHERE m.id_kind = \'post\' AND po.ID IS NULL',
+                'write' => true,
+            ],
+        ];
+
+        foreach ($cases as $label => $case) {
+            $db = FakeWpdb::install()->enableFullApplySqlExtensions();
+            $db->seedTable('wp_duo_kv', [])->setColumns('wp_duo_kv', ['k' => 'varchar(191)', 'v' => 'longtext']);
+            $db->seedTable('wp_duo_map', [])->setColumns('wp_duo_map', ['local_id' => 'bigint', 'id_kind' => 'varchar(32)']);
+            $db->seedTable('wp_posts', [])->setColumns('wp_posts', ['ID' => 'bigint', 'post_type' => 'varchar(32)']);
+            $db->seedTable('wp_options', [])->setColumns('wp_options', ['option_name' => 'varchar(191)', 'option_value' => 'longtext']);
+            $db->seedTable('wp_terms', [])->setColumns('wp_terms', ['term_id' => 'bigint']);
+            $db->seedTable('wp_term_taxonomy', [])->setColumns('wp_term_taxonomy', ['term_id' => 'bigint']);
+
+            try {
+                if ($case['write']) {
+                    $db->query($case['sql']);
+                } else {
+                    $db->get_results($case['sql']);
+                }
+                self::fail("enabled full-apply handler accepted malformed {$label} SQL");
+            } catch (LogicException $failure) {
+                self::assertStringContainsString('FakeWpdb:', $failure->getMessage(), $label);
+            }
+        }
+    }
+
+    public function testWpStubsMirrorNativeHookRegistryForTopologyAudits(): void
+    {
+        if (!class_exists('WP_Hook')) {
+            class_alias(\stdClass::class, 'WP_Hook');
+        }
+
+        $previous = $GLOBALS['wp_filter'] ?? null;
+        $hook = new \WP_Hook();
+        $hook->callbacks = [];
+        $GLOBALS['wp_filter'] = ['wp_generate_attachment_metadata' => $hook];
+        $callback = static fn (mixed $metadata, mixed $attachmentId): mixed => $metadata;
+
+        try {
+            self::assertTrue(add_filter('wp_generate_attachment_metadata', $callback, 10, 2));
+            self::assertSame(
+                [10 => [['function' => $callback, 'accepted_args' => 2]]],
+                $GLOBALS['wp_filter']['wp_generate_attachment_metadata']->callbacks
+            );
+            self::assertTrue(remove_filter('wp_generate_attachment_metadata', $callback, 10));
+            self::assertArrayNotHasKey('wp_generate_attachment_metadata', $GLOBALS['wp_filter']);
+        } finally {
+            $GLOBALS['wp_filter'] = $previous ?? [];
+        }
+    }
+
     public function testSelectLeftCanBindOneBoundedBinaryValueToItsByteLength(): void
     {
         $db = FakeWpdb::install();

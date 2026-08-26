@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
@@ -1201,7 +1202,7 @@ final class OptionsMaterializer {
             }
             foreach ($materialized as $subKey => $desiredValue) {
                 if (!array_key_exists($subKey, $projectedAuthored)
-                    || $projectedAuthored[$subKey] !== $desiredValue) {
+                    || Canon::encode($projectedAuthored[$subKey]) !== Canon::encode($desiredValue)) {
                     throw new \RuntimeException(
                         "duo: native option materializer for '$name' did not persist the exact authored group"
                     );

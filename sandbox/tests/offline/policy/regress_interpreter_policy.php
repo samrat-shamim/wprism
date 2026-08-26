@@ -348,7 +348,8 @@ check(
         ['portable' => 'raw'],
         $nativeRule,
         'native-owner',
-        ['native_blob' => serialize(['portable' => 'raw'])]
+        ['native_blob' => serialize(['portable' => 'raw'])],
+        false
     ) === ['portable' => 'canonical']
         && $ownerState->normalize_calls === 1,
     'exact native capture normalization may canonicalize an already-captured authored value'
@@ -360,7 +361,8 @@ check_throws(
         ['portable' => 'raw'],
         $nativeRule,
         'native-owner',
-        ['native_blob' => serialize(['portable' => 'raw'])]
+        ['native_blob' => serialize(['portable' => 'raw'])],
+        false
     ),
     'dropped already-present authored option',
     'native capture normalization cannot turn authored presence into silent absence'

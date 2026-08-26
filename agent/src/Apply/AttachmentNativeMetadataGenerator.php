@@ -13,6 +13,77 @@ if (!class_exists(DeleteGuardEvaluator::class, false)) {
     require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 }
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
+if (!class_exists(CompiledRepository::class, false)) {
+    require_once __DIR__ . '/../Repository/CompiledArtifact.php';
+}
+if (!class_exists(AttachmentFilesystemTransaction::class, false)) {
+    require_once __DIR__ . '/AttachmentFilesystemTransaction.php';
+}
+if (!class_exists(AttachmentMaterializer::class, false)) {
+    require_once __DIR__ . '/AttachmentMaterializer.php';
+}
+
+/**
+ * Materializer-owned native metadata authority. The compiled artifact and
+ * durable filesystem transaction stay behind this capability; callers cannot
+ * replace them with hashes or a synthetic attempt reader.
+ */
+final class AttachmentNativeMetadataAuthority {
+    private function __construct(
+        private readonly ?CompiledRepository $compiled,
+        private readonly ?AttachmentFilesystemTransaction $filesystem,
+        private readonly array $adapterManifests,
+        private readonly \Closure $lockTarget
+    ) {}
+
+    public static function from_materializer(
+        AttachmentMaterializer $owner,
+        object $secret,
+        CompiledRepository $compiled,
+        AttachmentFilesystemTransaction $filesystem,
+        array $adapterManifests,
+        \Closure $lockTarget
+    ): self {
+        $owner->assert_native_authority_secret($secret);
+        return new self($compiled, $filesystem, $adapterManifests, $lockTarget);
+    }
+
+    /** @return list<string> */
+    public function adapter_manifests(): array {
+        return $this->adapterManifests;
+    }
+
+    public function lock_target(): \Closure {
+        return $this->lockTarget;
+    }
+
+    public function compiled_artifact_hash(): ?string {
+        return $this->compiled?->artifact_hash();
+    }
+
+    public function compiled_manifest_hash(): ?string {
+        return $this->compiled?->manifest_hash();
+    }
+
+    /** @return ?array{intent_id:string,artifact_hash:string,roster_hash:string,manifest_hash:string} */
+    public function post_commit_context(): ?array {
+        if ($this->compiled === null || $this->filesystem === null || !in_array($this->filesystem->phase(), [
+            'originals_published', 'generating_metadata', 'metadata_generated',
+            'publishing_derivatives', 'derivatives_published', 'metadata_committing',
+            'metadata_committed', 'removing_stale', 'complete',
+        ], true)) {
+            return null;
+        }
+        $attempt = $this->filesystem->attempt_identity();
+        if ($attempt === null) return null;
+        return [
+            'intent_id' => $attempt['intent_id'],
+            'artifact_hash' => $attempt['artifact_hash'],
+            'roster_hash' => $attempt['roster_hash'],
+            'manifest_hash' => $this->compiled->manifest_hash(),
+        ];
+    }
+}
 
 /**
  * Runs WordPress's attachment metadata generator against an isolated file.
@@ -35,6 +106,17 @@ final class AttachmentNativeMetadataGenerator {
     private const MAX_IMAGE_DIMENSION = 16384;
     private const MAX_SOURCE_PIXELS = 67108864;
     private const MAX_OUTPUT_PIXELS = 67108864;
+    private bool $polylangNoLanguagesObserved = false;
+    private bool $markerlessPreflightActive = false;
+    private bool $markerlessProofAvailable = false;
+    private bool $nativeRebuildHandoffConsumed = false;
+    /** @var array<int,true> */
+    private array $nativeRebuildAuthorizedAttachmentIds = [];
+    private ?int $currentAttachmentId = null;
+    private readonly AttachmentNativeMetadataAuthority $authority;
+    private \Closure $lockTarget;
+    /** @var list<string> */
+    private array $adapterManifests;
 
     /** Hooks reached by the audited Core raster path and the explicitly refused sibling media paths. */
     private const CLOSED_FILTERS = [
@@ -128,6 +210,18 @@ final class AttachmentNativeMetadataGenerator {
             'kind' => 'instance-any', 'classes' => ['PLL_Links_Domain', 'PLL_Links_Subdomain'],
             'method' => 'upload_dir',
         ],
+        'polylang-post-meta-guard' => [
+            'manifest' => 'polylang', 'presence' => 'conditional-accept',
+            'hook' => 'update_post_metadata', 'priority' => 1, 'accepted_args' => 3,
+            'kind' => 'instance', 'class' => 'PLL_Sync_Post_Metas',
+            'method' => 'can_synchronize_metadata',
+        ],
+        'polylang-post-meta-witness' => [
+            'manifest' => 'polylang', 'presence' => 'conditional-accept',
+            'hook' => 'update_post_metadata', 'priority' => 999, 'accepted_args' => 5,
+            'kind' => 'instance', 'class' => 'PLL_Sync_Post_Metas',
+            'method' => 'update_metadata',
+        ],
         'woocommerce-background-sizes' => [
             'manifest' => 'woocommerce', 'presence' => 'conditional-refuse',
             'hook' => 'intermediate_image_sizes', 'priority' => 10, 'accepted_args' => 1,
@@ -189,20 +283,16 @@ final class AttachmentNativeMetadataGenerator {
         // it generically while this registry binds every stable TEC callback.
     ];
 
-    /**
-     * @param \Closure(int):string $lockTarget returns the exact raw MIME type under row/meta locks
-     * @param list<string> $adapterManifests manifest names from the frozen Policy version-range projection
-     */
-    public function __construct(
-        private readonly \Closure $lockTarget,
-        private readonly array $adapterManifests = []
-    ) {
-        if (!array_is_list($adapterManifests)
-            || count($adapterManifests) > 32
-            || count(array_unique($adapterManifests, SORT_STRING)) !== count($adapterManifests)) {
+    private function __construct(AttachmentNativeMetadataAuthority $authority) {
+        $this->authority = $authority;
+        $this->lockTarget = $authority->lock_target();
+        $this->adapterManifests = $authority->adapter_manifests();
+        if (!array_is_list($this->adapterManifests)
+            || count($this->adapterManifests) > 32
+            || count(array_unique($this->adapterManifests, SORT_STRING)) !== count($this->adapterManifests)) {
             throw new \RuntimeException('duo: native attachment metadata adapter authority is malformed');
         }
-        foreach ($adapterManifests as $manifest) {
+        foreach ($this->adapterManifests as $manifest) {
             if (!is_string($manifest)
                 || $manifest === ''
                 || strlen($manifest) > 191
@@ -210,6 +300,32 @@ final class AttachmentNativeMetadataGenerator {
                 throw new \RuntimeException('duo: native attachment metadata adapter authority is malformed');
             }
         }
+        if (in_array('polylang', $this->adapterManifests, true)
+            && ($authority->compiled_artifact_hash() === null || $authority->compiled_manifest_hash() === null)) {
+            throw new \RuntimeException('duo: Polylang attachment metadata authority lacks its compiled artifact identity');
+        }
+    }
+
+    public static function from_authority(AttachmentNativeMetadataAuthority $authority): self {
+        return new self($authority);
+    }
+
+    public function has_polylang_no_language_handoff(): bool {
+        return $this->markerlessProofAvailable && !$this->nativeRebuildHandoffConsumed;
+    }
+
+    public function __clone(): void {
+        throw new \RuntimeException('duo: native attachment metadata generator cannot be cloned');
+    }
+
+    /** @return array<string,mixed> */
+    public function __serialize(): array {
+        throw new \RuntimeException('duo: native attachment metadata generator cannot be serialized');
+    }
+
+    /** @param array<string,mixed> $data */
+    public function __unserialize(array $data): void {
+        throw new \RuntimeException('duo: native attachment metadata generator cannot be unserialized');
     }
 
     /**
@@ -226,6 +342,7 @@ final class AttachmentNativeMetadataGenerator {
         $adapterQuarantine = null;
         $primary = null;
         $cleanupFailures = [];
+        $this->markerlessPreflightActive = true;
         try {
             set_error_handler(static function (
                 int $severity,
@@ -245,6 +362,7 @@ final class AttachmentNativeMetadataGenerator {
             }, 4096);
             $this->load_core_runtime();
             $adapterQuarantine = $this->quarantine_reviewed_adapter_callbacks();
+            $this->assert_polylang_sync_topology($adapterQuarantine['matched']);
             $this->assert_closed_filter_topology();
             $priorUmask = umask(0077);
             $classification = $this->classify_stage_file($stageFile, $mime);
@@ -263,6 +381,7 @@ final class AttachmentNativeMetadataGenerator {
         } catch (\Throwable $failure) {
             $primary = $failure;
         } finally {
+            $this->markerlessPreflightActive = false;
             if ($adapterQuarantine !== null) {
                 array_push(
                     $cleanupFailures,
@@ -308,6 +427,7 @@ final class AttachmentNativeMetadataGenerator {
         if ($attachmentId <= 0) {
             throw new \RuntimeException('duo: native attachment metadata generation requires a positive attachment id');
         }
+        $this->currentAttachmentId = $attachmentId;
         $this->assert_stage_file($stageFile);
 
         $guard = static function (
@@ -627,6 +747,7 @@ final class AttachmentNativeMetadataGenerator {
                 );
             }
         }
+        $this->assert_polylang_sync_topology($matched);
 
         $removed = [];
         try {
@@ -717,6 +838,100 @@ final class AttachmentNativeMetadataGenerator {
             return in_array(get_class($callback[0]), (array) ($rule['classes'] ?? []), true);
         }
         return false;
+    }
+
+    /**
+     * Polylang registers both sync callbacks only after its model reports at
+     * least one language. An absent pair is therefore admissible only when
+     * the native model proves the bounded no-language state; one missing
+     * callback is never a valid intermediate topology.
+     */
+    private function assert_polylang_no_languages(): void {
+        if ($this->markerlessProofAvailable && !$this->markerlessPreflightActive) {
+            $this->consume_polylang_no_language_handoff();
+            $this->polylangNoLanguagesObserved = true;
+            return;
+        }
+        if ($this->polylangNoLanguagesObserved) {
+            return;
+        }
+        if (!function_exists('PLL')) {
+            throw new \RuntimeException(
+                'duo: native attachment metadata cannot prove Polylang no-language state'
+            );
+        }
+        $runtime = PLL();
+        $model = is_object($runtime) ? ($runtime->model ?? null) : null;
+        if (!is_object($model) || !is_callable([$model, 'has_languages'])) {
+            throw new \RuntimeException(
+                'duo: native attachment metadata cannot audit Polylang language state'
+            );
+        }
+        $hasLanguages = $model->has_languages();
+        if (!is_bool($hasLanguages) || $hasLanguages) {
+            throw new \RuntimeException(
+                'duo: native attachment metadata refuses absent Polylang sync callbacks while languages are present'
+            );
+        }
+        $this->polylangNoLanguagesObserved = true;
+        if ($this->markerlessPreflightActive) {
+            $this->markerlessProofAvailable = true;
+        }
+    }
+
+    private function consume_polylang_no_language_handoff(): void {
+        if ($this->nativeRebuildHandoffConsumed) {
+            if ($this->currentAttachmentId === null
+                || isset($this->nativeRebuildAuthorizedAttachmentIds[$this->currentAttachmentId])) {
+                throw new \RuntimeException('duo: Polylang no-language handoff was replayed for the same attachment attempt');
+            }
+            $this->nativeRebuildAuthorizedAttachmentIds[$this->currentAttachmentId] = true;
+            return;
+        }
+        $context = $this->authority->post_commit_context();
+        if (!is_array($context)) {
+            throw new \RuntimeException('duo: Polylang no-language handoff is not sealed to a post-commit attachment attempt');
+        }
+        self::assert_attempt_context($context);
+        $compiledArtifactHash = $this->authority->compiled_artifact_hash();
+        if ($compiledArtifactHash !== null
+            && !hash_equals($compiledArtifactHash, $context['artifact_hash'])) {
+            throw new \RuntimeException('duo: Polylang no-language handoff does not match the compiled artifact identity');
+        }
+        $compiledManifestHash = $this->authority->compiled_manifest_hash();
+        if ($compiledManifestHash !== null
+            && !hash_equals($compiledManifestHash, $context['manifest_hash'])) {
+            throw new \RuntimeException('duo: Polylang no-language handoff does not match the compiled manifest identity');
+        }
+        $this->nativeRebuildHandoffConsumed = true;
+        if ($this->currentAttachmentId !== null) {
+            $this->nativeRebuildAuthorizedAttachmentIds[$this->currentAttachmentId] = true;
+        }
+    }
+
+    /** @param array<string,mixed> $context */
+    private static function assert_attempt_context(array $context): void {
+        if (array_keys($context) !== ['intent_id', 'artifact_hash', 'roster_hash', 'manifest_hash']
+            || preg_match('/^[0-9a-f]{32}$/D', (string) ($context['intent_id'] ?? '')) !== 1
+            || preg_match('/^[0-9a-f]{64}$/D', (string) ($context['artifact_hash'] ?? '')) !== 1
+            || preg_match('/^[0-9a-f]{64}$/D', (string) ($context['roster_hash'] ?? '')) !== 1
+            || preg_match('/^[0-9a-f]{64}$/D', (string) ($context['manifest_hash'] ?? '')) !== 1) {
+            throw new \RuntimeException('duo: Polylang no-language handoff attempt identity is malformed');
+        }
+    }
+
+    /** @param array<string,true> $matched */
+    private function assert_polylang_sync_topology(array $matched): void {
+        if (!in_array('polylang', $this->adapterManifests, true)) return;
+        $syncIds = ['polylang-post-meta-guard', 'polylang-post-meta-witness'];
+        $missing = array_values(array_diff($syncIds, array_keys($matched)));
+        if ($missing === []) return;
+        if (count($missing) !== count($syncIds)) {
+            throw new \RuntimeException(
+                'duo: native attachment metadata refuses a partial Polylang post-meta callback topology'
+            );
+        }
+        $this->assert_polylang_no_languages();
     }
 
     /**

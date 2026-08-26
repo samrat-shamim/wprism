@@ -43,6 +43,10 @@ final class RepositorySchemaValidator {
             'table' => ['uuid','table','columns','meta'],
             default => [],
         };
+        if ($kind === 'term'
+            && $this->policy->taxonomy_term_group_is_authored((string) ($data['taxonomy'] ?? ''))) {
+            $required[] = 'term_group';
+        }
         foreach ($required as $field) {
             if (!array_key_exists($field, $data)) {
                 $this->add('schema_content_mismatch', $path, $field, 'required field is missing');
@@ -80,6 +84,18 @@ final class RepositorySchemaValidator {
             || !isset($data['relationships']) || !is_array($data['relationships']))) {
             $this->add('schema_content_mismatch', $path, 'meta/relationships', 'term meta and relationships must be object maps');
         } elseif ($kind === 'term') {
+            $ownsTermGroup = $this->policy->taxonomy_term_group_is_authored((string) ($data['taxonomy'] ?? ''));
+            if (array_key_exists('term_group', $data)
+                && (!$ownsTermGroup || !is_int($data['term_group']) || $data['term_group'] < 0)) {
+                $this->add(
+                    'schema_content_mismatch',
+                    $path,
+                    'term_group',
+                    $ownsTermGroup
+                        ? 'manifest-authored term_group must be a non-negative integer'
+                        : 'term_group is not authored by this exact taxonomy declaration'
+                );
+            }
             foreach ((array) ($data['relationships'] ?? []) as $taxonomy => $uuids) {
                 if (!is_string($taxonomy) || !is_array($uuids) || !array_is_list($uuids)) {
                     $this->add('schema_content_mismatch', $path, 'relationships', 'each term-object relationship must be a UUID list');

@@ -72,7 +72,9 @@ final class EntityAdopter {
             return;
         }
 
-        $taxonomy = (string) ($entity['data']['taxonomy'] ?? '');
+        $taxonomy = $entity['type'] === 'menu'
+            ? 'nav_menu'
+            : (string) ($entity['data']['taxonomy'] ?? '');
         if (preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $taxonomy) !== 1) {
             throw new \RuntimeException('duo: adopt term identity has a malformed taxonomy');
         }

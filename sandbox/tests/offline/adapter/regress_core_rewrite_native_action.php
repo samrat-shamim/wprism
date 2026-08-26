@@ -32,6 +32,9 @@ $GLOBALS['core_rewrite_child_flushes'] = 0;
 $GLOBALS['core_rewrite_child_hard_flushes'] = 0;
 $GLOBALS['core_rewrite_child_stdout_prefix'] = '';
 $GLOBALS['core_rewrite_child_stderr'] = '';
+$GLOBALS['core_rewrite_active_cache_bucket'] = 'parent';
+$GLOBALS['core_rewrite_option_caches'] = ['parent' => [], 'child' => []];
+$GLOBALS['core_rewrite_cache_deletes'] = [];
 $GLOBALS['wp_filter'] = [];
 
 final class WP_Hook {
@@ -158,10 +161,35 @@ function get_option(string $name, mixed $default = false): mixed {
     if ($pre !== false) {
         return $pre;
     }
-    if (!array_key_exists($name, $wpdb->optionRows)) {
+    $bucket = $GLOBALS['core_rewrite_active_cache_bucket'];
+    $cache =& $GLOBALS['core_rewrite_option_caches'][$bucket];
+    if (is_array($cache['alloptions'] ?? null)
+        && array_key_exists($name, $cache['alloptions'])) {
+        $value = $cache['alloptions'][$name];
+    } elseif (is_array($cache['notoptions'] ?? null)
+        && !empty($cache['notoptions'][$name])) {
         return apply_filters("default_option_$name", $default, $name, false);
+    } elseif (array_key_exists($name, $cache)) {
+        $value = $cache[$name];
+    } elseif (!array_key_exists($name, $wpdb->optionRows)) {
+        $cache['notoptions'][$name] = true;
+        return apply_filters("default_option_$name", $default, $name, false);
+    } else {
+        $value = maybe_unserialize($wpdb->optionRows[$name]);
+        $cache[$name] = $value;
     }
-    return apply_filters("option_$name", maybe_unserialize($wpdb->optionRows[$name]), $name);
+    return apply_filters("option_$name", $value, $name);
+}
+
+function wp_cache_delete(int|string $key, string $group = ''): bool {
+    if ($group !== 'options') {
+        throw new RuntimeException("unexpected core rewrite cache group: $group");
+    }
+    $bucket = $GLOBALS['core_rewrite_active_cache_bucket'];
+    $GLOBALS['core_rewrite_cache_deletes'][] = [$bucket, (string) $key, $group];
+    $present = array_key_exists((string) $key, $GLOBALS['core_rewrite_option_caches'][$bucket]);
+    unset($GLOBALS['core_rewrite_option_caches'][$bucket][(string) $key]);
+    return $present;
 }
 
 function sanitize_option(string $name, mixed $value): mixed {
@@ -182,6 +210,9 @@ function update_option(string $name, mixed $value): bool {
         return false;
     }
     $wpdb->optionRows[$name] = core_rewrite_serialize($value);
+    wp_cache_delete($name, 'options');
+    wp_cache_delete('alloptions', 'options');
+    wp_cache_delete('notoptions', 'options');
     do_action("update_option_$name", $old, $value, $name);
     do_action('updated_option', $name, $old, $value);
     return true;
@@ -254,6 +285,9 @@ final class WP_CLI {
         }
         $GLOBALS['core_rewrite_child_launches']++;
         $parentRuntime = $wp_rewrite;
+        $parentCacheBucket = $GLOBALS['core_rewrite_active_cache_bucket'];
+        $GLOBALS['core_rewrite_active_cache_bucket'] = 'child';
+        $GLOBALS['core_rewrite_option_caches']['child'] = [];
         $freshRuntime = new CoreRewriteRuntime();
         $freshRuntime->permalink_structure = get_option('permalink_structure', false);
         $freshRuntime->rules = null;
@@ -281,6 +315,7 @@ final class WP_CLI {
             $GLOBALS['core_rewrite_child_flushes'] += $freshRuntime->flushCalls;
             $GLOBALS['core_rewrite_child_hard_flushes'] += $freshRuntime->hardFlushes;
             $wp_rewrite = $parentRuntime;
+            $GLOBALS['core_rewrite_active_cache_bucket'] = $parentCacheBucket;
         }
     }
 }
@@ -307,6 +342,9 @@ function core_rewrite_reset(string|false $structure = '/source/%postname%/'): vo
     $GLOBALS['core_rewrite_child_hard_flushes'] = 0;
     $GLOBALS['core_rewrite_child_stdout_prefix'] = '';
     $GLOBALS['core_rewrite_child_stderr'] = '';
+    $GLOBALS['core_rewrite_active_cache_bucket'] = 'parent';
+    $GLOBALS['core_rewrite_option_caches'] = ['parent' => [], 'child' => []];
+    $GLOBALS['core_rewrite_cache_deletes'] = [];
     $GLOBALS['duo_wp_cli_child_fake_stderr_first'] = false;
 }
 
@@ -325,6 +363,7 @@ function core_rewrite_refuses(callable $callback, string $needle, string $messag
 
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Policy/Policy.php';
+require_once $root . '/agent/src/Rebuild/RebuildActionNegotiator.php';
 
 putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 $policy = Duo\Policy::load(null, ['core']);
@@ -394,6 +433,34 @@ core_rewrite_refuses(
 );
 
 core_rewrite_reset();
+$foreignPreflightHook = new WP_Hook();
+$foreignPreflightHook->callbacks[10]['foreign'] = [
+    'function' => static fn(array $rules): array => $rules,
+    'accepted_args' => 1,
+];
+$GLOBALS['wp_filter']['rewrite_rules_array'] = $foreignPreflightHook;
+$preflight = new ReflectionMethod(Duo\RebuildActionNegotiator::class, 'preflight_native_actions');
+$preflightRows = $GLOBALS['wpdb']->optionRows;
+core_rewrite_refuses(
+    static fn() => $preflight->invoke(null, [[
+        'kind' => 'native',
+        'action' => 'rewrite.flush',
+        'args' => [],
+    ]]),
+    'apply refused before target mutation',
+    'batch negotiation refuses an open Polylang rewrite callback before an earlier provider can mutate'
+);
+duo_check_same($preflightRows, $GLOBALS['wpdb']->optionRows, 'native batch preflight performs no durable mutation');
+duo_check_same(0, $GLOBALS['core_rewrite_child_launches'], 'native batch preflight launches no rewrite child');
+$negotiatorSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionNegotiator.php');
+duo_check(
+    strpos($negotiatorSource, 'self::preflight_native_actions($selectedActions);')
+        < strpos($negotiatorSource, 'Providers::negotiate_scoped'),
+    'ordinary negotiation invokes native topology preflight before provider negotiation returns mutation authority'
+);
+unset($GLOBALS['wp_filter']['rewrite_rules_array']);
+
+core_rewrite_reset();
 $foreignRewriteHook = new WP_Hook();
 $foreignRewriteHook->callbacks[10]['foreign'] = [
     'function' => static fn(object $runtime): object => $runtime,
@@ -427,6 +494,27 @@ duo_check_same(1, $GLOBALS['core_rewrite_child_launches'], 'the action launches 
 duo_check_same(0, $wp_rewrite->initCalls, 'the stale apply runtime is never destructively reinitialized');
 duo_check_same(1, $GLOBALS['core_rewrite_child_flushes'], 'the dirty target is flushed exactly once in the fresh process');
 duo_check_same(0, $GLOBALS['core_rewrite_child_hard_flushes'], 'rewrite.flush never writes target-owned web-server configuration');
+$parentCacheDeletes = array_values(array_map(
+    static fn(array $row): string => $row[1],
+    array_filter(
+        $GLOBALS['core_rewrite_cache_deletes'],
+        static fn(array $row): bool => $row[0] === 'parent' && $row[2] === 'options'
+    )
+));
+$nativeActionConstants = new ReflectionClass(Duo\NativeActions::class);
+$parentCacheKeys = $nativeActionConstants->getReflectionConstant('REWRITE_PARENT_CACHE_KEYS')?->getValue();
+$rewriteEffectConstants = new ReflectionClass(Duo\NativeRewriteEffects::class);
+$tecMarkerOptions = $rewriteEffectConstants->getReflectionConstant('MARKER_OPTIONS')?->getValue();
+duo_check_same(
+    $tecMarkerOptions,
+    is_array($parentCacheKeys) ? array_slice($parentCacheKeys, 1, 3) : null,
+    'the private parent handoff roster stays exact with the TEC marker options the child may write'
+);
+duo_check_same(
+    $parentCacheKeys,
+    array_values(array_unique($parentCacheDeletes)),
+    'the parent discards every child-written named and aggregate option cache before parity readback'
+);
 duo_check_same('/source/%postname%/', get_option('permalink_structure'), 'the authored permalink grammar remains exact');
 duo_check(is_array(get_option('rewrite_rules')), 'stale target rules are replaced by an array-valued native projection');
 duo_check(
@@ -469,6 +557,21 @@ $second = Duo\NativeActions::execute('rewrite.flush', []);
 duo_check_same($stableRows, $wpdb->optionRows, 'an immediate retry is byte-idempotent in persistent storage');
 duo_check_same($first['after'], $second['before'], 'retry begins from the exact previously verified postcondition');
 duo_check_same($first['after'], $second['after'], 'retry preserves the exact verified rewrite evidence');
+
+foreach (['alloptions', 'notoptions'] as $staleCacheKey) {
+    core_rewrite_reset();
+    $oldRules = ['^target-old/([0-9]+)/?$' => 'index.php?p=$matches[1]'];
+    $GLOBALS['core_rewrite_option_caches']['parent'][$staleCacheKey] = $staleCacheKey === 'alloptions'
+        ? ['rewrite_rules' => $oldRules]
+        : ['rewrite_rules' => true];
+    $cacheBoundary = Duo\NativeActions::execute('rewrite.flush', []);
+    duo_check(
+        ($cacheBoundary['verified'] ?? null) === true
+            && ($cacheBoundary['after']['rules_hash'] ?? null)
+                === ($cacheBoundary['after']['runtime_rules_hash'] ?? null),
+        "a stale parent $staleCacheKey entry cannot contradict the fresh child's durable/runtime evidence"
+    );
+}
 
 core_rewrite_reset();
 $dynamicRules = ['^sitemap_index\\.xml$' => 'index.php?sitemap=1'];

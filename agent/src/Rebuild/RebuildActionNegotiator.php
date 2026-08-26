@@ -4,6 +4,7 @@ namespace Duo;
 require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Adapter/Providers.php';
+require_once __DIR__ . '/NativeRewriteEffects.php';
 if (!class_exists(Policy::class, false)) {
     require_once __DIR__ . '/../Policy/Policy.php';
 }
@@ -65,6 +66,14 @@ final class RebuildActionNegotiator {
             }
         }
 
+        // Provider and native actions execute sequentially after the authored
+        // commit. A later native topology refusal cannot undo an earlier
+        // provider projection, so prove every closed rewrite callback/service
+        // before apply_in_progress and the first authored/provider mutation.
+        // The fresh child repeats the same proof immediately before generation
+        // to close topology drift between this preflight and the effect.
+        self::preflight_native_actions($selectedActions);
+
         $negotiation = $scoped && method_exists(Providers::class, 'negotiate_scoped')
             ? Providers::negotiate_scoped($this->policy, $selectedActions)
             : Providers::negotiate($this->policy, $selectedActions);
@@ -105,6 +114,26 @@ final class RebuildActionNegotiator {
                 'scoped_capabilities' => (array) ($negotiation['scoped_capabilities'] ?? []),
             ],
         ];
+    }
+
+    /** @param list<array<string,mixed>> $selectedActions */
+    private static function preflight_native_actions(array $selectedActions): void {
+        foreach ($selectedActions as $action) {
+            if (($action['kind'] ?? '') !== 'native'
+                || ($action['action'] ?? '') !== 'rewrite.flush') {
+                continue;
+            }
+            try {
+                NativeRewriteEffects::prepare();
+            } catch (\Throwable $failure) {
+                throw new \RuntimeException(
+                    "duo: apply refused before target mutation — native action 'rewrite.flush' runtime is unsupported: "
+                    . $failure->getMessage(),
+                    0,
+                    $failure
+                );
+            }
+        }
     }
 
     public static function assert_scoped_promotion_selection(

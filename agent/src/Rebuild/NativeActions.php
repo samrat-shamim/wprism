@@ -30,6 +30,14 @@ final class NativeActions {
     private const SCOPED_OWNER = 'native-actions';
     private const REWRITE_FRESH_FORMAT = 'duo-rewrite-flush-fresh/v1';
     private const REWRITE_FRESH_COMMAND = 'eval \'define("DUO_REWRITE_FLUSH_FRESH_PROCESS", true); $receipt = \\Duo\\NativeActions::execute("rewrite.flush", []); echo json_encode(["format" => "duo-rewrite-flush-fresh/v1", "after" => $receipt["after"]], JSON_THROW_ON_ERROR);\'';
+    private const REWRITE_PARENT_CACHE_KEYS = [
+        'rewrite_rules',
+        'tribe_last_generate_rewrite_rules',
+        'tribe_last_updated_option',
+        'tribe_last_save_post',
+        'alloptions',
+        'notoptions',
+    ];
     /**
      * action name => argument schema (key => {type, required, pattern?}).
      *
@@ -411,6 +419,7 @@ final class NativeActions {
         if (!class_exists('\WP_CLI')
             || !function_exists('maybe_unserialize')
             || !function_exists('get_option')
+            || !function_exists('wp_cache_delete')
             || !is_object($wp_rewrite)) {
             throw new \RuntimeException(
                 "duo: native action 'rewrite.flush' requires a loaded WordPress/WP-CLI rewrite runtime; "
@@ -464,6 +473,14 @@ final class NativeActions {
         $desiredHash = hash('sha256', $structure['present'] ? $structure['value'] : '');
         $storedStructure = self::permalink_structure_state();
         $storedRules = self::raw_option_state('rewrite_rules');
+        // The child invalidated its own option cache after persisting the new
+        // rules, not this already-booted process's cache. Earlier actions in a
+        // multi-adapter batch can have populated a stale named/alloptions/
+        // notoptions entry here; discard the complete child-written roster
+        // before effective readback so durable storage remains the witness.
+        foreach (self::REWRITE_PARENT_CACHE_KEYS as $cacheKey) {
+            wp_cache_delete($cacheKey, 'options');
+        }
         $effectiveRules = get_option('rewrite_rules');
         if (!hash_equals($desiredHash, $after['permalink_hash'])
             || $storedStructure['present'] !== $after['permalink_present']

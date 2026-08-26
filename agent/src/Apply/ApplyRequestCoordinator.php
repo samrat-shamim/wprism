@@ -1358,6 +1358,8 @@ final class ApplyRequestCoordinator {
         $attachmentIds = $authored['attachment_ids'];
         $regenContext = $authored['regen_context'];
 
+        $rebuildEntered = false;
+        try {
         if ($scoped && $this->scopedWorkflow->session !== null) {
             $postAuthor = $this->scopedWorkflow->recheck_target_observation(function () use (
                 $opts,
@@ -1489,8 +1491,7 @@ final class ApplyRequestCoordinator {
         // indistinguishable from an applied one once it reaches a provider.
         // Passing rows rather than re-deriving them keeps the selection and the
         // channel from disagreeing (see rebuild()'s own docblock).
-        $this->rebuildCoordinator->rebuild(
-            new RebuildRequest(
+        $rebuildRequest = new RebuildRequest(
                 attachmentIds: $attachmentIds,
                 work: $work,
                 tree: $tree,
@@ -1507,10 +1508,21 @@ final class ApplyRequestCoordinator {
                 suppressScopedExternalEffects: $scopedPromotion,
                 scopedSession: $this->scopedWorkflow->session,
                 scopedObservation: $this->scopedWorkflow->observation
-            ),
+        );
+        $rebuildEntered = true;
+        $this->rebuildCoordinator->rebuild(
+            $rebuildRequest,
             $this->warnings,
             $this->actionReceipts
         );
+        } finally {
+            if (!$rebuildEntered) {
+                // Authored COMMIT may already have retained native attachment
+                // authority; every scoped recheck, lease renewal, and request
+                // construction failure before coordinator entry must consume it.
+                $this->services->attachment_materializer()->discard_native_rebuild_authority();
+            }
+        }
 
         if ($scoped && $this->scopedWorkflow->session !== null) {
             if ($this->scopedWorkflow->receipt_at(2) === null) {

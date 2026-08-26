@@ -123,7 +123,8 @@ final class SidebarState {
         bool $mint,
         bool $forceUnresolvedRefs = false,
         bool $strictReadOnly = false,
-        ?array $portableWidgetReferences = null
+        ?array $portableWidgetReferences = null,
+        ?array $canonicalTree = null
     ): array {
         self::assert_policy($policy);
         $declared = $policy->widget_types();
@@ -200,6 +201,25 @@ final class SidebarState {
                 $seen[$instanceKey] = true;
                 $settings = $options[$type][$local] ?? null;
                 if (!is_array($settings)) {
+                    // Polylang's PLL_REMOVE_ALL_DATA branch deletes its
+                    // widget family but leaves the core sidebar assignment.
+                    // A compiled file-owned sidebar is complete replacement
+                    // authority, so preserve a deterministic target-only
+                    // marker for ApplyPlanner to delete. Omitting the
+                    // assignment would make an empty desired sidebar compare
+                    // equal and leave native residue behind. Capture and
+                    // unowned sidebars still refuse.
+                    if (self::canonical_owns_sidebar($canonicalTree, $sidebar)) {
+                        $uuid = Uuid::v5(Uuid::NAMESPACE_DUO, "unmanaged-widget:$type:$local");
+                        $widgets[] = [
+                            'uuid' => $uuid,
+                            'type' => $type,
+                            'settings' => (object) ['_duo_unmanaged' => true],
+                        ];
+                        $warnings[] = "sidebar '$sidebar' has contentless declared widget residue '$instanceKey'; "
+                            . 'retained as deterministic target-only deletion evidence because the compiled repository owns the complete sidebar';
+                        continue;
+                    }
                     throw new \RuntimeException("duo: $instanceKey is absent from option widget_$type or is not a settings object");
                 }
                 $kind = self::kind($type);
@@ -252,6 +272,14 @@ final class SidebarState {
             }
         }
         return ['entities' => $entities, 'warnings' => $warnings];
+    }
+
+    private static function canonical_owns_sidebar(?array $tree, string $sidebar): bool {
+        $entity = $tree[self::key($sidebar)] ?? null;
+        return is_array($entity)
+            && ($entity['type'] ?? null) === self::ENTITY_TYPE
+            && ($entity['path'] ?? null) === self::path($sidebar)
+            && is_array($entity['data']['widgets'] ?? null);
     }
 
     /**

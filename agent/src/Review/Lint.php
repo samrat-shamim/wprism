@@ -694,6 +694,20 @@ final class Lint {
             return;
         }
 
+        // Exact adapter interpreters may validate a native serialized term
+        // description as owned data (Polylang language metadata). Let that
+        // same policy decision suppress the generic opaque-serialization
+        // detector, while retaining text-level escaped-home and URL checks.
+        // Capture and Apply call this resolver too, so one declaration owns
+        // the boundary instead of three divergent exemptions.
+        if ($policy->taxonomy_description_lint_rule($taxonomy, $desc) !== null) {
+            if (is_string($desc) && $desc !== '') {
+                self::flag_escaped_home($findings, $rel, 'description', $desc, $home, $homeEscaped);
+                self::flag_unrewritten_url_query_ref($findings, $rel, 'description', $desc, $env);
+            }
+            return;
+        }
+
         if (!is_string($desc) || $desc === '') {
             return;
         }

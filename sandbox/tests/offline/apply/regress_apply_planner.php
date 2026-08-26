@@ -631,6 +631,31 @@ $check(
     ],
     'sidebar projection: mapped desired widgets preserve exact target-only deletion evidence'
 );
+$sidebarContentlessTarget = [
+    'content' => Canon::encode([
+        'widgets' => [[
+            'uuid' => 'widget-target-only',
+            'type' => 'text',
+            'settings' => ['_duo_unmanaged' => true],
+        ]],
+    ]),
+];
+$sidebarEmptyProjection = $sidebarPlanner->project_sidebar_deletes(
+    $sidebarRow,
+    ['widgets' => []],
+    $sidebarContentlessTarget,
+    'sidebar-base-hash'
+);
+$check(
+    $sidebarEmptyProjection === $sidebarRow + [
+        'widget_deletes' => [[
+            'uuid' => 'widget-target-only',
+            'type' => 'text',
+            'unmanaged' => true,
+        ]],
+    ],
+    'sidebar projection: an empty desired sidebar still deletes contentless target-only residue'
+);
 $sidebarMissingMapMessage = null;
 try {
     $sidebarPlanner->project_sidebar_deletes(
