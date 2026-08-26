@@ -537,7 +537,9 @@ FAILED_POLY=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --defau
 RC=$?
 set -e
 [ "$RC" -ne 0 ] || fail "third-party Polylang dynamic callback unexpectedly allowed apply: $FAILED_POLY"
-grep -Fq 'recovery_required' <<<"$FAILED_POLY" || fail "Polylang dynamic refusal was not a bounded recovery failure: $FAILED_POLY"
+grep -Fq "required manifest action 'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes' failed" <<<"$FAILED_POLY" \
+  && grep -Fq "provider 'woocommerce-hierarchy-lookups' capability 'rebuild_product_permalink_routes' failed" <<<"$FAILED_POLY" \
+  || fail "Polylang dynamic refusal did not preserve the public provider boundary: $FAILED_POLY"
 AFTER_POLY_FAILED=$(witness 2)
 [ "$AFTER_POLY_FAILED" = "$BEFORE_POLY" ] || fail "third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses
 before=$BEFORE_POLY
