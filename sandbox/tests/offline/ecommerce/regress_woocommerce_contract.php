@@ -1974,7 +1974,7 @@ foreach ([
     'wp_get_registered_image_subsizes()',
     'managed product image preimage is unavailable for isolation evidence',
     '$managed_product_files_before = $attachment_state($managed_product_file)',
-    '$create_image(800, 600, "product-probe")',
+    '$create_image(800, 800, "product-probe")',
     '$temporary_ids[] = (int) $id',
     '$temporary_files[(int) $id] = $file',
     '$owned_before_delete = $attachment_state($temporary_file, false)',
@@ -1999,6 +1999,8 @@ woo_ok(!str_contains($wooCheckHarness, '$restore_attachment_files')
     && !str_contains($wooCheckHarness, 'unlink($managed_product_file)')
     && !str_contains($wooCheckHarness, 'file_put_contents($managed_product_file'),
     'thumbnail evidence observes the managed product preimage without restoring, deleting, or overwriting it');
+woo_ok(!str_contains($wooCheckHarness, '$create_image(800, 600, "product-probe")'),
+    'same-aspect live evidence uses the exact square original required to prove native full-image fallback');
 woo_ok(
     str_contains($wooCheckHarness, '.simple.image[1] == 450 and .simple.image[2] == 450')
         && !str_contains($wooCheckHarness, '.simple.image[1] == 500 and .simple.image[2] == 500'),
@@ -2205,6 +2207,8 @@ foreach ([
     '.links_model=="PLL_Links_Directory"',
     '.sitemaps=="PLL_Sitemaps"',
     'Polylang sitemap rewrite callback is not the runtime-owned sitemap service',
+    '$wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name=%s LIMIT 1","rewrite_rules")',
+    '$bytes="<?php\\nadd_filter(\\"clean_url\\",static fn(\\$url)=>\\$url,10,3);\\n"',
     'duo-woo-polylang-dynamic-hostile.php',
     'third-party Polylang dynamic callback unexpectedly allowed apply',
     'third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses',
@@ -2222,5 +2226,7 @@ woo_ok(!str_contains($wooRewriteCoInstallHarness, '$args[0]'),
     'co-install source hashing uses WP-CLI global execution state, not unsupported eval positional arguments');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, '[[$yoast,"filter_rewrite_rules_option",10,1]]'),
     'co-install callback identity tuples keep the callable nested separately from priority and arity');
+woo_ok(!str_contains($wooRewriteCoInstallHarness, 'option_name="rewrite_rules"'),
+    'co-install durable-rule observation uses a parse-safe prepared query');
 
 echo "PASS: WooCommerce 11.0.x option/table inventory and rebuild contract are explicit\n";

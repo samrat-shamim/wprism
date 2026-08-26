@@ -609,7 +609,7 @@ $product_image_id = 0;
 $product_file = "";
 try {
     $set_thumbnail_options("1:1", 300, 1, 1);
-    $product_image_id = $create_image(800, 600, "product-probe");
+    $product_image_id = $create_image(800, 800, "product-probe");
     $product_file = get_attached_file($product_image_id);
     if (!is_string($product_file) || $product_file === "" || !is_file($product_file) || is_link($product_file)) {
         throw new RuntimeException("isolated lazy-thumbnail fixture has no exact regular source file");

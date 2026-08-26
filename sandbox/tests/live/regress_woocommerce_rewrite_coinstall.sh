@@ -357,7 +357,7 @@ echo "$PLL_DYNAMIC" | jq -e '
   (.hooks==[.types[]+"_rewrite_rules"])
 ' >/dev/null || fail "Polylang dynamic rewrite topology is malformed: $PLL_DYNAMIC"
 RULES=$(wp2 eval '
-global $wpdb;$raw=$wpdb->get_var("SELECT option_value FROM {$wpdb->options} WHERE option_name="rewrite_rules" LIMIT 1");$durable=is_string($raw)?maybe_unserialize($raw):null;$effective=get_option("rewrite_rules");$h=static fn($x)=>hash("sha256",is_array($x)?wp_json_encode($x):(string)$x);echo wp_json_encode(["durable"=>is_array($durable),"effective"=>is_array($effective),"durable_sha256"=>$h($durable),"effective_sha256"=>$h($effective)]);
+global $wpdb;$raw=$wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name=%s LIMIT 1","rewrite_rules"));$durable=is_string($raw)?maybe_unserialize($raw):null;$effective=get_option("rewrite_rules");$h=static fn($x)=>hash("sha256",is_array($x)?wp_json_encode($x):(string)$x);echo wp_json_encode(["durable"=>is_array($durable),"effective"=>is_array($effective),"durable_sha256"=>$h($durable),"effective_sha256"=>$h($effective)]);
 ' | tail -1)
 echo "$RULES" | jq -e '.durable and .effective and .durable_sha256!=.effective_sha256' >/dev/null || fail "Yoast durable/effective projection did not differ: $RULES"
 MARKERS=$(witness 2)
@@ -389,9 +389,7 @@ echo "$SOURCE_ROUTE" | jq -e '.language=="en" and (.path|startswith("/en/catalog
 BEFORE=$(witness 2)
 echo "$BEFORE" | jq -e '.woo!=null and (.woo.id|type=="number")' >/dev/null || fail "target lacks a pre-existing Woo option identity: $BEFORE"
 wp2 eval '
-$dir=WPMU_PLUGIN_DIR;if(!is_dir($dir)&&!wp_mkdir_p($dir)){throw new RuntimeException("no MU directory");}$path=$dir."/duo-woo-rewrite-hostile.php";$bytes="<?php
-add_filter("clean_url",static fn($url)=>$url,10,3);
-";if(file_put_contents($path,$bytes)!==strlen($bytes)){throw new RuntimeException("could not install hostile callback");}
+$dir=WPMU_PLUGIN_DIR;if(!is_dir($dir)&&!wp_mkdir_p($dir)){throw new RuntimeException("no MU directory");}$path=$dir."/duo-woo-rewrite-hostile.php";$bytes="<?php\nadd_filter(\"clean_url\",static fn(\$url)=>\$url,10,3);\n";if(file_put_contents($path,$bytes)!==strlen($bytes)){throw new RuntimeException("could not install hostile callback");}
 ' >/dev/null
 set +e
 FAILED=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" 2>&1)
