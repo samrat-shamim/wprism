@@ -166,21 +166,22 @@ const REVIEWED_MOVES = [
         'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
         // WooCommerce production readiness extends reviewed evidence, closes
         // exact attachment callback isolation and provider receipt semantics,
-        // and binds the canonical mixed-option contract.
-        'woocommerce' => 'c36138cad07eeda8f843d3a92fc898d924165b9cd00f724dbc0f033421556e92',
+        // binds the canonical mixed-option contract, and records the
+        // source-audited WordPress 7.1 thumbnail-failure behavior.
+        'woocommerce' => '89f897c7c11faa69923481e7a9ecec8d290d36093b0497507793a94d8b30ba7c',
     ],
     'manifest_bytes_sha256' => [
         'core' => 'a2f673cd4107e7b32cc6cfff6e84e7f6aca68b789234cbc8c686458fee4de5b3',
         'polylang' => 'db7130aecf89217cdca8f6591f4481391f61ae84632478f89191bdda74b488d3',
         'the-events-calendar' => '0c72e83a62ba5d461d975fd5380f49eab139d5413edaade07f7f47e396d80729',
-        'woocommerce' => 'dccc013287f344f8dd9ee50a7a3f8a50ca08cdcbe8d40f3366320cdd5776a4af',
+        'woocommerce' => '881d2116ff0ee3bfbb10612999ba19054beebf99d292cada9319b148a3f53187',
     ],
     'pin_sets' => [
-        'all-16' => 'e31a3a766b8460bffb73af9a98ad68504840a22940ea164ded46ca86363e6783',
+        'all-16' => '2a4f00a9b7bbb3b05bb1205cf771150fdf29bea23de6f62d55bd75b9e58ca82b',
         'core+elementor+yoast+contact-form-7' => '52200323db9516a2eb7b5738540534aa58e9115c04fb3ddf0b182ea4089d27f9',
         'core+paid-memberships-pro+code-snippets' => '9d89e59d838e145cbd64c6b172ad5634886bdae6ea027eb8f41e57bcd1b048dc',
         'core+polylang+the-events-calendar' => '1d26c4687a24e143c8a24045ba85b370bd6d3aad11b16898b4f13966ba76e6e6',
-        'core+woocommerce+acf' => 'd054fc4ada2b150e020a61d3e519af822efd5d1e8d04e5377bb03a4fb87076a1',
+        'core+woocommerce+acf' => 'ad087cebe26e268ad1392e2c20f03124897a1193032a9016c560852b92cc7867',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC

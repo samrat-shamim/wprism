@@ -56,6 +56,53 @@ namespace Automattic\WooCommerce {
 }
 
 namespace {
+    trait TecReadinessYoastOptionSingleton {
+        private static ?self $instance = null;
+
+        private function __construct() {
+            $GLOBALS['tec_readiness_yoast_constructs'] =
+                1 + (int) ($GLOBALS['tec_readiness_yoast_constructs'] ?? 0);
+        }
+
+        public static function get_instance(): self {
+            return self::$instance ??= new self();
+        }
+
+        public function add_default_filters_if_not_changed(mixed $value, string $name, mixed $old): mixed {
+            $GLOBALS['tec_readiness_yoast_calls'][] = [__METHOD__, $name, $old, $value];
+            return $value;
+        }
+
+        public function add_default_filters_if_same_option(string $name): void {
+            $GLOBALS['tec_readiness_yoast_calls'][] = [__METHOD__, $name];
+        }
+    }
+
+    final class WPSEO_Option_Wpseo { use TecReadinessYoastOptionSingleton; }
+    final class WPSEO_Option_Titles { use TecReadinessYoastOptionSingleton; }
+    final class WPSEO_Option_Social { use TecReadinessYoastOptionSingleton; }
+    final class WPSEO_Taxonomy_Meta { use TecReadinessYoastOptionSingleton; }
+    final class WPSEO_Option_Llmstxt { use TecReadinessYoastOptionSingleton; }
+    final class WPSEO_Option_Tracking_Only { use TecReadinessYoastOptionSingleton; }
+
+    final class WPSEO_Options {
+        /** @var array<string,object> */
+        private static array $optionInstances = [];
+
+        public static function register_option(string $name, object $instance): void {
+            self::$optionInstances[$name] = $instance;
+        }
+
+        public static function unregister_option(string $name): void {
+            unset(self::$optionInstances[$name]);
+        }
+
+        public static function get_option_instance(string $name): object|false {
+            $GLOBALS['tec_readiness_yoast_option_reads'][] = $name;
+            return self::$optionInstances[$name] ?? false;
+        }
+    }
+
     final class Yoast_Dynamic_Rewrites {
         private static ?self $instance = null;
         /** @var array<string,string> */
@@ -162,7 +209,7 @@ namespace {
     /**
      * @return array{
      *   container:object,features:object,synchronizer:object,custom_orders:object,
-     *   yoast:object,polylang:object,polylang_links:object,polylang_sitemaps:object,
+     *   yoast:object,yoast_options:array<string,object>,polylang:object,polylang_links:object,polylang_sitemaps:object,
      *   polylang_types:list<string>
      * }
      */
@@ -185,6 +232,36 @@ namespace {
         add_action('added_option', [$features, 'process_added_option'], 999, 3);
         add_action('added_option', [$synchronizer, 'process_added_option'], 999, 2);
         add_filter('rewrite_rules_array', 'wc_fix_rewrite_rules', 10, 1);
+        $yoastOptions = [];
+        foreach ([
+            'wpseo' => WPSEO_Option_Wpseo::class,
+            'wpseo_titles' => WPSEO_Option_Titles::class,
+            'wpseo_social' => WPSEO_Option_Social::class,
+            'wpseo_taxonomy_meta' => WPSEO_Taxonomy_Meta::class,
+            'wpseo_llmstxt' => WPSEO_Option_Llmstxt::class,
+            'wpseo_tracking_only' => WPSEO_Option_Tracking_Only::class,
+        ] as $name => $class) {
+            $yoastOptions[$name] = $class::get_instance();
+            WPSEO_Options::register_option($name, $yoastOptions[$name]);
+            add_filter(
+                'pre_update_option',
+                [$yoastOptions[$name], 'add_default_filters_if_not_changed'],
+                PHP_INT_MAX,
+                3
+            );
+            add_action(
+                'update_option',
+                [$yoastOptions[$name], 'add_default_filters_if_same_option'],
+                10,
+                1
+            );
+            add_action(
+                'add_option',
+                [$yoastOptions[$name], 'add_default_filters_if_same_option'],
+                10,
+                1
+            );
+        }
         $yoast = Yoast_Dynamic_Rewrites::instance();
         $polylangTypes = [
             'date', 'root', 'comments', 'search', 'author', 'attachment', 'product', 'product_cat',
@@ -199,23 +276,26 @@ namespace {
         foreach ($polylangTypes as $type) {
             add_filter($type . '_rewrite_rules', [$polylangLinks, 'rewrite_rules'], 10, 1);
         }
-        return [
+        $services = [
             'container' => $container,
             'features' => $features,
             'synchronizer' => $synchronizer,
             'custom_orders' => $customOrders,
+            'yoast_options' => $yoastOptions,
             'yoast' => $yoast,
             'polylang' => $polylang,
             'polylang_links' => $polylangLinks,
             'polylang_sitemaps' => $polylang->sitemaps,
             'polylang_types' => $polylangTypes,
         ];
+        $GLOBALS['tec_readiness_woo_services'] = $services;
+        return $services;
     }
 
     /**
      * @param array{
      *   container:object,features:object,synchronizer:object,custom_orders:object,
-     *   yoast:object,polylang:object,polylang_links:object,polylang_sitemaps:object,
+     *   yoast:object,yoast_options:array<string,object>,polylang:object,polylang_links:object,polylang_sitemaps:object,
      *   polylang_types:list<string>
      * } $services
      */
@@ -227,6 +307,12 @@ namespace {
         remove_filter('pre_update_option', [$services['custom_orders'], 'process_pre_update_option'], 999);
         remove_action('added_option', [$services['features'], 'process_added_option'], 999);
         remove_action('added_option', [$services['synchronizer'], 'process_added_option'], 999);
+        foreach ($services['yoast_options'] as $name => $service) {
+            remove_filter('pre_update_option', [$service, 'add_default_filters_if_not_changed'], PHP_INT_MAX);
+            remove_action('update_option', [$service, 'add_default_filters_if_same_option'], 10);
+            remove_action('add_option', [$service, 'add_default_filters_if_same_option'], 10);
+            WPSEO_Options::unregister_option($name);
+        }
         remove_filter('rewrite_rules_array', 'wc_fix_rewrite_rules', 10);
         remove_filter('option_rewrite_rules', [$services['yoast'], 'filter_rewrite_rules_option'], 10);
         remove_filter('sanitize_option_rewrite_rules', [$services['yoast'], 'sanitize_rewrite_rules_option'], 10);
@@ -236,5 +322,23 @@ namespace {
             remove_filter($type . '_rewrite_rules', [$services['polylang_links'], 'rewrite_rules'], 10);
         }
         unset($GLOBALS['wc_container'], $GLOBALS['polylang']);
+    }
+
+    /** Temporarily isolate the TEC option writer from the Yoast option family. */
+    function tec_readiness_suspend_yoast_option_callbacks(array $services): void {
+        foreach ($services['yoast_options'] as $service) {
+            remove_filter('pre_update_option', [$service, 'add_default_filters_if_not_changed'], PHP_INT_MAX);
+            remove_action('update_option', [$service, 'add_default_filters_if_same_option'], 10);
+            remove_action('add_option', [$service, 'add_default_filters_if_same_option'], 10);
+        }
+    }
+
+    /** Restore the exact Yoast option callback family after a TEC-only write. */
+    function tec_readiness_resume_yoast_option_callbacks(array $services): void {
+        foreach ($services['yoast_options'] as $service) {
+            add_filter('pre_update_option', [$service, 'add_default_filters_if_not_changed'], PHP_INT_MAX, 3);
+            add_action('update_option', [$service, 'add_default_filters_if_same_option'], 10, 1);
+            add_action('add_option', [$service, 'add_default_filters_if_same_option'], 10, 1);
+        }
     }
 }

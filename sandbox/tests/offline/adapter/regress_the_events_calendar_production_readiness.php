@@ -4760,6 +4760,22 @@ duo_check_same(
             '3b07ec0af1f94269b2a5a98bba078edbee73e1697aeeed119ae12ff4a3ca7553',
         'wp-seo-main.php' =>
             '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1',
+        'inc/options/class-wpseo-options.php' =>
+            'dfa12977fe7d8e44a46e55106dbd6beff2f62ded44bb72130eb40092c8aa3c93',
+        'inc/options/class-wpseo-option.php' =>
+            '9be7b8c73ec223dc2349b5976a51c3fcf66d21d12ddd8985742c4ddaaf4057e9',
+        'inc/options/class-wpseo-option-wpseo.php' =>
+            '39b7002ff87b9b3e44d72c06ddaba43ef9d02539a7a6f74781d8723641cf6f34',
+        'inc/options/class-wpseo-option-titles.php' =>
+            'd3ab1e747666f0b8219a4531ad34c262c8c849ed178119f500eeba6fe9774c4f',
+        'inc/options/class-wpseo-option-social.php' =>
+            'c59cb35218f7868b99f03efb027d23ed4b004cbe31473733281d17f9a158292e',
+        'inc/options/class-wpseo-taxonomy-meta.php' =>
+            'b1c7b6e96c0c7d248028ec596ab24877b984913f563dbd4f11196c4ff73ea1f8',
+        'inc/options/class-wpseo-option-llmstxt.php' =>
+            '3626daec1fd21fbf4128a9891f208d9402cce198b3703641221b6973f23786a7',
+        'inc/options/class-wpseo-option-tracking-only.php' =>
+            '24902a45b2912e0f2d8cd731bc1e0990c824c61f35bb5076a7a4b091a8949c8c',
     ],
     $coinstallSourceHashes['wordpress-seo'] ?? null,
     'the exact Yoast singleton registration and bounded dynamic-rule maps are source-hash bound'
@@ -7006,11 +7022,23 @@ function tec_readiness_materialize_mixed_option(
         $desiredRecord = $desiredPresent
             ? \Duo\OptionState::present($desired, $desiredAutoload)
             : \Duo\OptionState::absent();
-        $optionsMaterializer->apply_options(
-            \Duo\OptionState::document([$name => $desiredRecord]),
-            false,
-            $warnings
-        );
+        $yoastCallbacksSuspended = false;
+        $yoastServices = $GLOBALS['tec_readiness_woo_services'] ?? null;
+        if (is_array($yoastServices) && function_exists('tec_readiness_suspend_yoast_option_callbacks')) {
+            tec_readiness_suspend_yoast_option_callbacks($yoastServices);
+            $yoastCallbacksSuspended = true;
+        }
+        try {
+            $optionsMaterializer->apply_options(
+                \Duo\OptionState::document([$name => $desiredRecord]),
+                false,
+                $warnings
+            );
+        } finally {
+            if ($yoastCallbacksSuspended) {
+                tec_readiness_resume_yoast_option_callbacks($yoastServices);
+            }
+        }
         \Duo\Db::commit('TEC mixed-option fixture commit');
         $transactionStarted = false;
         $optionsMaterializer->commit_authored_transaction();
@@ -9588,6 +9616,38 @@ duo_check_same($flushesBeforeTrigger, $GLOBALS['wp_rewrite']->flushCalls, 'trigg
 require_once __DIR__ . '/../../support/tec-woo-option-callbacks.php';
 $wooServices = tec_readiness_install_woo_option_callbacks();
 $GLOBALS['tec_readiness_woo_calls'] = [];
+$yoastOptionClasses = [
+    'wpseo' => 'WPSEO_Option_Wpseo',
+    'wpseo_titles' => 'WPSEO_Option_Titles',
+    'wpseo_social' => 'WPSEO_Option_Social',
+    'wpseo_taxonomy_meta' => 'WPSEO_Taxonomy_Meta',
+    'wpseo_llmstxt' => 'WPSEO_Option_Llmstxt',
+    'wpseo_tracking_only' => 'WPSEO_Option_Tracking_Only',
+];
+duo_check_same(
+    array_values($yoastOptionClasses),
+    array_map('get_class', array_values($wooServices['yoast_options'])),
+    'the exact Yoast 28.3 option singleton roster is installed'
+);
+duo_check_same(
+    6,
+    (int) ($GLOBALS['tec_readiness_yoast_constructs'] ?? 0),
+    'the exact Yoast option singleton roster is constructed once before admission'
+);
+foreach ($wooServices['yoast_options'] as $name => $service) {
+    duo_check(
+        has_filter('pre_update_option', [$service, 'add_default_filters_if_not_changed']) === PHP_INT_MAX,
+        "Yoast $name binds add_default_filters_if_not_changed at PHP_INT_MAX/3"
+    );
+    duo_check(
+        has_action('update_option', [$service, 'add_default_filters_if_same_option']) === 10,
+        "Yoast $name binds update_option add_default_filters_if_same_option at 10/1"
+    );
+    duo_check(
+        has_action('add_option', [$service, 'add_default_filters_if_same_option']) === 10,
+        "Yoast $name binds add_option add_default_filters_if_same_option at 10/1"
+    );
+}
 duo_check(
     in_array('attachment', $wooServices['polylang_types'], true)
         && has_filter(
@@ -9709,12 +9769,122 @@ $tecDb->update(
     ['option_value' => serialize(['^woo-existing/?$' => 'index.php?woo=old'])],
     ['option_name' => 'rewrite_rules']
 );
+$yoastConstructsBeforeAdmission = (int) ($GLOBALS['tec_readiness_yoast_constructs'] ?? 0);
+$yoastReadsBeforeAdmission = count($GLOBALS['tec_readiness_yoast_option_reads'] ?? []);
 $wooUpdatedReceipt = $nativeRewriteChild->invoke(null);
 duo_check_same(
     true,
     $wooUpdatedReceipt['verified'] ?? null,
     'the exact normal Woo callback union permits the TEC rewrite product path'
 );
+duo_check_same(
+    $yoastConstructsBeforeAdmission,
+    (int) ($GLOBALS['tec_readiness_yoast_constructs'] ?? 0),
+    'Yoast admission resolves existing option singletons without constructing replacements'
+);
+duo_check_same(
+    array_keys($yoastOptionClasses),
+    array_values(array_unique(array_slice(
+        $GLOBALS['tec_readiness_yoast_option_reads'] ?? [],
+        $yoastReadsBeforeAdmission
+    ))),
+    'Yoast admission reads every canonical option singleton through WPSEO_Options'
+);
+
+$missingYoastOption = $wooServices['yoast_options']['wpseo_social'];
+remove_filter(
+    'pre_update_option',
+    [$missingYoastOption, 'add_default_filters_if_not_changed'],
+    PHP_INT_MAX
+);
+$flushesBeforeMissingYoastOption = $GLOBALS['wp_rewrite']->flushCalls;
+$missingYoastOptionFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $missingYoastOptionFailure = $failure;
+}
+add_filter(
+    'pre_update_option',
+    [$missingYoastOption, 'add_default_filters_if_not_changed'],
+    PHP_INT_MAX,
+    3
+);
+duo_check(
+    $missingYoastOptionFailure instanceof RuntimeException
+        && str_contains($missingYoastOptionFailure->getMessage(), 'incomplete Yoast SEO pre_update_option callbacks'),
+    'a missing Yoast option callback refuses before TEC rewrite mutation'
+);
+duo_check_same(
+    $flushesBeforeMissingYoastOption,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'a missing Yoast option callback performs no native rewrite mutation'
+);
+duo_check_same(true, $nativeRewriteChild->invoke(null)['verified'] ?? null, 'restoring a missing Yoast callback permits retry');
+
+$extraYoastOptionCallback = static function (string $name): void {};
+add_action('update_option', $extraYoastOptionCallback, 999, 1);
+$flushesBeforeExtraYoastOption = $GLOBALS['wp_rewrite']->flushCalls;
+$extraYoastOptionFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $extraYoastOptionFailure = $failure;
+}
+remove_action('update_option', $extraYoastOptionCallback, 999);
+duo_check(
+    $extraYoastOptionFailure instanceof RuntimeException
+        && str_contains($extraYoastOptionFailure->getMessage(), 'extended marker option topology'),
+    'an unrelated extra option callback retains the pre-existing marker-topology refusal before mutation'
+);
+duo_check_same($flushesBeforeExtraYoastOption, $GLOBALS['wp_rewrite']->flushCalls, 'an extra Yoast callback performs no native rewrite mutation');
+duo_check_same(true, $nativeRewriteChild->invoke(null)['verified'] ?? null, 'removing an extra Yoast callback permits retry');
+
+$foreignYoastOption = (new ReflectionClass(WPSEO_Option_Wpseo::class))->newInstanceWithoutConstructor();
+remove_action(
+    'add_option',
+    [$wooServices['yoast_options']['wpseo'], 'add_default_filters_if_same_option'],
+    10
+);
+add_action('add_option', [$foreignYoastOption, 'add_default_filters_if_same_option'], 10, 1);
+$flushesBeforeForeignYoastOption = $GLOBALS['wp_rewrite']->flushCalls;
+$foreignYoastOptionFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $foreignYoastOptionFailure = $failure;
+}
+remove_action('add_option', [$foreignYoastOption, 'add_default_filters_if_same_option'], 10);
+add_action(
+    'add_option',
+    [$wooServices['yoast_options']['wpseo'], 'add_default_filters_if_same_option'],
+    10,
+    1
+);
+duo_check(
+    $foreignYoastOptionFailure instanceof RuntimeException
+        && str_contains($foreignYoastOptionFailure->getMessage(), 'extended or substituted Yoast SEO add_option callbacks'),
+    'a same-class foreign Yoast option callback refuses before TEC rewrite mutation'
+);
+duo_check_same($flushesBeforeForeignYoastOption, $GLOBALS['wp_rewrite']->flushCalls, 'a same-class foreign Yoast callback performs no native rewrite mutation');
+duo_check_same(true, $nativeRewriteChild->invoke(null)['verified'] ?? null, 'restoring a same-class Yoast callback permits retry');
+
+WPSEO_Options::unregister_option('wpseo_social');
+$flushesBeforeMissingYoastSingleton = $GLOBALS['wp_rewrite']->flushCalls;
+$missingYoastSingletonFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $missingYoastSingletonFailure = $failure;
+}
+WPSEO_Options::register_option('wpseo_social', $missingYoastOption);
+duo_check(
+    $missingYoastSingletonFailure instanceof RuntimeException
+        && str_contains($missingYoastSingletonFailure->getMessage(), 'incomplete or substituted Yoast SEO option singletons'),
+    'a missing Yoast option singleton refuses before TEC rewrite mutation'
+);
+duo_check_same($flushesBeforeMissingYoastSingleton, $GLOBALS['wp_rewrite']->flushCalls, 'a missing Yoast singleton performs no native rewrite mutation');
+duo_check_same(true, $nativeRewriteChild->invoke(null)['verified'] ?? null, 'restoring a missing Yoast singleton permits retry');
 foreach ([
     'wc_fix_rewrite_rules',
     'Yoast_Dynamic_Rewrites::sanitize_rewrite_rules_option',

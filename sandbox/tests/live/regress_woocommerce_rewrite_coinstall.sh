@@ -98,7 +98,7 @@ assert_live_source_file_hashes() { # side
     # Current `wp eval` accepts only its PHP-code positional argument. Pass the
     # already-validated path through WP-CLI's supported global execution hook;
     # a second positional produced "Too many positional arguments" before the
-    # first of the 30 exact source hashes could be observed.
+    # first of the 38 exact source hashes could be observed.
     actual=$("wp$side" eval '
 $relative=(string)getenv("DUO_AUDITED_PLUGIN_FILE");$path=WP_PLUGIN_DIR."/".$relative;
 if(!is_file($path)){throw new RuntimeException("audited plugin source file is absent: ".$relative);}
@@ -110,7 +110,7 @@ echo hash_file("sha256",$path);
 }
 
 say "candidate/source preflight: $HEAD"
-jq -e '.format=="duo-woocommerce-rewrite-coinstall-topology/v1" and .artifacts.woocommerce.version=="11.0.1" and .artifacts["wordpress-seo"].version=="28.3" and .artifacts.polylang.version=="3.8.6" and .artifacts["the-events-calendar"].version=="6.17.2" and (.source_files|length==30) and (.static_callbacks|length==19) and (.marker_option_topology.updated_option|length==5) and (.woocommerce_normal_option_topology.updated_option|length==4) and (.woocommerce_normal_option_topology.pre_update_option|length==1) and (.woocommerce_normal_option_topology.added_option|length==2) and .marker_option_topology.pre_option.optional_callback=="TEC\\Common\\Integrations\\Harbor\\PUE::filter_pre_get_option" and .marker_option_topology.wp_default_autoload_value.callback=="wp_filter_default_autoload_value_via_option_size" and (.dynamic_callback_containers|any(.hook=="pll_modify_rewrite_rule" and .accepted_args==4))' "$TOPOLOGY" >/dev/null || fail 'co-install topology fixture is not exact'
+jq -e '.format=="duo-woocommerce-rewrite-coinstall-topology/v1" and .artifacts.woocommerce.version=="11.0.1" and .artifacts["wordpress-seo"].version=="28.3" and .artifacts.polylang.version=="3.8.6" and .artifacts["the-events-calendar"].version=="6.17.2" and (.source_files|length==38) and (.static_callbacks|length==37) and (.marker_option_topology.updated_option|length==5) and (.woocommerce_normal_option_topology.updated_option|length==4) and (.woocommerce_normal_option_topology.pre_update_option|length==1) and (.woocommerce_normal_option_topology.added_option|length==2) and (.yoast_normal_option_topology.pre_update_option|length==6) and (.yoast_normal_option_topology.update_option|length==6) and (.yoast_normal_option_topology.add_option|length==6) and (.yoast_normal_option_topology.pre_update_option|all(.priority==9223372036854775807 and .accepted_args==3)) and (.yoast_normal_option_topology.update_option|all(.priority==10 and .accepted_args==1)) and (.yoast_normal_option_topology.add_option|all(.priority==10 and .accepted_args==1)) and .marker_option_topology.pre_option.optional_callback=="TEC\\Common\\Integrations\\Harbor\\PUE::filter_pre_get_option" and .marker_option_topology.wp_default_autoload_value.callback=="wp_filter_default_autoload_value_via_option_size" and (.dynamic_callback_containers|any(.hook=="pll_modify_rewrite_rule" and .accepted_args==4))' "$TOPOLOGY" >/dev/null || fail 'co-install topology fixture is not exact'
 validate_artifact_lock conformance/artifacts.lock.json
 jq -e --slurpfile lock conformance/artifacts.lock.json '(.artifacts | to_entries | all(. as $artifact | $lock[0].plugins[$artifact.key][$artifact.value.version].sha256 == $artifact.value.sha256))' "$TOPOLOGY" >/dev/null || fail 'co-install artifact hashes differ from the artifact lock'
 pass 'candidate, artifact hashes, and audited topology are pinned'
@@ -217,7 +217,11 @@ echo "$HOOKS" | jq -e --slurpfile topology "$TOPOLOGY" '
   ([ $actual[] | select(.hook=="updated_option") | del(.hook) ] | canon) ==
     ([ $topology[0].woocommerce_normal_option_topology.updated_option[], $topology[0].marker_option_topology.updated_option[] | {priority, args:.accepted_args, callback} ] | canon) and
   ([ $actual[] | select(.hook=="pre_update_option") | del(.hook) ] | canon) ==
-    ([ $topology[0].woocommerce_normal_option_topology.pre_update_option[] | {priority, args:.accepted_args, callback} ] | canon) and
+    ([ $topology[0].woocommerce_normal_option_topology.pre_update_option[], $topology[0].yoast_normal_option_topology.pre_update_option[] | {priority, args:.accepted_args, callback} ] | canon) and
+  ([ $actual[] | select(.hook=="update_option") | del(.hook) ] | canon) ==
+    ([ $topology[0].yoast_normal_option_topology.update_option[] | {priority, args:.accepted_args, callback} ] | canon) and
+  ([ $actual[] | select(.hook=="add_option") | del(.hook) ] | canon) ==
+    ([ $topology[0].yoast_normal_option_topology.add_option[] | {priority, args:.accepted_args, callback} ] | canon) and
   ([ $actual[] | select(.hook=="added_option") | del(.hook) ] | canon) ==
     ([ $topology[0].woocommerce_normal_option_topology.added_option[] | {priority, args:.accepted_args, callback} ] | canon) and
   ([ $actual[] | select(.hook=="pre_option") | del(.hook) ] | canon) as $pre |
@@ -228,7 +232,7 @@ echo "$HOOKS" | jq -e --slurpfile topology "$TOPOLOGY" '
     ($topology[0].marker_option_topology.wp_default_autoload_value | {priority, args:.accepted_args, callback})
   ] and
   ([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0 and
-  all($actual[]; .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules" or .hook=="updated_option" or .hook=="pre_update_option" or .hook=="added_option" or .hook=="pre_option" or .hook=="wp_default_autoload_value" or .hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") and
+  all($actual[]; .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules" or .hook=="updated_option" or .hook=="pre_update_option" or .hook=="update_option" or .hook=="add_option" or .hook=="added_option" or .hook=="pre_option" or .hook=="wp_default_autoload_value" or .hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") and
   any($actual[]; .hook=="rewrite_rules_array" and .callback=="PLL_Links_Directory::rewrite_rules" and .priority==10 and .args==1)
 ' >/dev/null || fail "live callback topology differs from audited pins: $HOOKS"
 # The printable topology above deliberately uses class::method names, which
@@ -257,6 +261,17 @@ $yoast=Yoast_Dynamic_Rewrites::instance();
 if($yoast!==$registeredYoast||get_class($yoast)!=="Yoast_Dynamic_Rewrites"||!property_exists($yoast,"wp_rewrite")||$yoast->wp_rewrite!==$rewrite){throw new RuntimeException("Yoast dynamic rewrite singleton differs from the canonical WordPress rewrite runtime");}
 $exact("option_rewrite_rules",[[$yoast,"filter_rewrite_rules_option",10,1]]);
 $exact("sanitize_option_rewrite_rules",[[$yoast,"sanitize_rewrite_rules_option",10,1]]);
+if(!class_exists("WPSEO_Options")||!is_callable(["WPSEO_Options","get_option_instance"])){throw new RuntimeException("Yoast options manager is unavailable");}
+$yoastOptions=["wpseo"=>"WPSEO_Option_Wpseo","wpseo_titles"=>"WPSEO_Option_Titles","wpseo_social"=>"WPSEO_Option_Social","wpseo_taxonomy_meta"=>"WPSEO_Taxonomy_Meta","wpseo_llmstxt"=>"WPSEO_Option_Llmstxt","wpseo_tracking_only"=>"WPSEO_Option_Tracking_Only"];
+$yoastPre=[];$yoastGeneric=[];
+foreach($yoastOptions as $optionName=>$class){
+  // Resolve only the already-registered option service. `get_instance()` can
+  // construct missing services, while this evidence must witness normal boot.
+  $instance=WPSEO_Options::get_option_instance($optionName);
+  if(!is_object($instance)||get_class($instance)!==$class){throw new RuntimeException("Yoast option singleton identity differs from normal boot for ".$optionName);}
+  $yoastPre[]=[$instance,"add_default_filters_if_not_changed",PHP_INT_MAX,3];
+  $yoastGeneric[]=[$instance,"add_default_filters_if_same_option",10,1];
+}
 if(!class_exists("Tribe__Cache_Listener")||!class_exists("Tribe__Settings_Manager")||!class_exists("Tribe__Events__Aggregator")||!function_exists("tribe")){throw new RuntimeException("The Events Calendar option services are unavailable");}
 $listener=Tribe__Cache_Listener::instance();$manager=Tribe__Settings_Manager::instance();$aggregator=Tribe__Events__Aggregator::instance();$views=tribe("Tribe\\Events\\Views\\V2\\Hooks");
 foreach([[$listener,"Tribe__Cache_Listener"],[$manager,"Tribe__Settings_Manager"],[$aggregator,"Tribe__Events__Aggregator"],[$views,"Tribe\\Events\\Views\\V2\\Hooks"]]as[$service,$class]){if(!is_object($service)||get_class($service)!==$class){throw new RuntimeException("The Events Calendar option service identity differs from normal boot");}}
@@ -274,7 +289,9 @@ if(count($tecGeneration)!==1){throw new RuntimeException("The Events Calendar re
 $tecRules=array_values(array_filter($records("rewrite_rules_array"),static fn(array $record):bool=>$record["priority"]===25&&$record["args"]===1&&$record["function"]===[$tecRewrite,"filter_rewrite_rules_array"]));
 if(count($tecRules)!==1){throw new RuntimeException("The Events Calendar rewrite callback differs from the exact TEC event rewrite singleton");}
 $exact("updated_option",[[$manager,"update_options_cache",10,3],[$listener,"update_last_updated_option",10,3],[$listener,"update_last_save_post",10,3],[$aggregator,"action_purge_transients",10,1],[$views,"action_save_wplang",10,3],[$features,"process_updated_option",999,3],[$synchronizer,"process_updated_option",999,3],[$customOrders,"process_updated_option",999,3],[$customOrders,"process_updated_option_fts_index",999,3]]);
-$exact("pre_update_option",[[$customOrders,"process_pre_update_option",999,3]]);
+$exact("pre_update_option",array_merge([[$customOrders,"process_pre_update_option",999,3]],$yoastPre));
+$exact("update_option",$yoastGeneric);
+$exact("add_option",$yoastGeneric);
 $exact("added_option",[[$features,"process_added_option",999,3],[$synchronizer,"process_added_option",999,2]]);
 $pre=$records("pre_option");if($pre!==[]){if(!function_exists("tribe")){throw new RuntimeException("Harbor option callback has no container resolver");}$harbor=tribe("TEC\\Common\\Integrations\\Harbor\\PUE");if(!is_object($harbor)||get_class($harbor)!=="TEC\\Common\\Integrations\\Harbor\\PUE"){throw new RuntimeException("Harbor option service identity differs from normal boot");}$exact("pre_option",[[$harbor,"filter_pre_get_option",10,3]]);}
 $exact("wp_default_autoload_value",[["wp_filter_default_autoload_value_via_option_size",5,4]]);

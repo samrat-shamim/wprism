@@ -561,6 +561,7 @@ try {
         remove_filter("wp_image_editors", $missing_editor, PHP_INT_MAX);
     }
     $failure_after = $metadata_hash($failure_id);
+    $failure_metadata = wp_get_attachment_metadata($failure_id);
     $retry = wp_get_attachment_image_src($failure_id, "woocommerce_thumbnail");
     $retry_hash = $metadata_hash($failure_id);
     $retry_metadata = wp_get_attachment_metadata($failure_id);
@@ -590,7 +591,13 @@ try {
         ],
         "failure_retry" => [
             "failed_dims" => $dims($failed),
-            "failed_metadata_unchanged" => hash_equals($failure_before, $failure_after),
+            "failed_metadata_changed" => !hash_equals($failure_before, $failure_after),
+            "failed_full_dims" => [
+                (int) ($failure_metadata["width"] ?? 0),
+                (int) ($failure_metadata["height"] ?? 0),
+            ],
+            "failed_filesize_positive" => (int) ($failure_metadata["filesize"] ?? 0) > 0,
+            "failed_size_names" => array_values(array_keys((array) ($failure_metadata["sizes"] ?? []))),
             "retry_dims" => $dims($retry),
             "stored_dims" => [
                 (int) ($retry_metadata["sizes"]["woocommerce_thumbnail"]["width"] ?? 0),
@@ -637,7 +644,10 @@ jq -e '
   .theme_override_width == 450 and
   .same_aspect == {"dims":[500,500],"metadata_unchanged":true} and
   .failure_retry.failed_dims == [500,375] and
-  .failure_retry.failed_metadata_unchanged == true and
+  .failure_retry.failed_metadata_changed == true and
+  .failure_retry.failed_full_dims == [800,600] and
+  .failure_retry.failed_filesize_positive == true and
+  .failure_retry.failed_size_names == [] and
   .failure_retry.retry_dims == [500,500] and
   .failure_retry.stored_dims == [500,500] and
   .failure_retry.third_dims == [500,500] and

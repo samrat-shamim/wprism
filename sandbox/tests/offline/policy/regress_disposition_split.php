@@ -145,8 +145,8 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * reviewed Polylang production-readiness port then rewrote its manifest,
  * interpreter/provider set, and per-subject disposition. WooCommerce's final
  * production-readiness review moves its manifest lint/compile declarations,
- * interpreter, and disposition reason. Rule 2 makes all four fleet-visible BY
- * DESIGN.
+ * interpreter, disposition reason, and the source-audited WordPress 7.1
+ * thumbnail-failure claim. Rule 2 makes all four fleet-visible BY DESIGN.
  *
  * The 12 frozen digests above are NOT regenerated — this is an overlay, and
  * PART 1 asserts the moved set is exactly these four. A fifth adapter is a
@@ -161,11 +161,11 @@ const SPLIT_REVIEWED_MOVED_DIGESTS = [
     'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
     'polylang' => '99d82ecc6402fda3a8d651d56ca07ae4a73836947ed5f2ecca11c0df4472e9a4',
     'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
-    'woocommerce' => 'c36138cad07eeda8f843d3a92fc898d924165b9cd00f724dbc0f033421556e92',
+    'woocommerce' => '89f897c7c11faa69923481e7a9ecec8d290d36093b0497507793a94d8b30ba7c',
 ];
-const SPLIT_REVIEWED_MANIFEST_HASH = 'e31a3a766b8460bffb73af9a98ad68504840a22940ea164ded46ca86363e6783';
+const SPLIT_REVIEWED_MANIFEST_HASH = '2a4f00a9b7bbb3b05bb1205cf771150fdf29bea23de6f62d55bd75b9e58ca82b';
 const SPLIT_REVIEWED_REGISTRY_SHA = '49c84c27e199e198ac4452d52177fd732d7b1c33110e75a3d74a6a463be1a3f8';
-const SPLIT_REVIEWED_SNAPSHOT_SHA = 'c0ba8e5c4c07e4fef7743c1788c3d202389e68f0eb58b635f8ffdd3a507878cf';
+const SPLIT_REVIEWED_SNAPSHOT_SHA = 'b5943ddca97d0bf5c7a5246ab482e87cda806d40878b644b522b7fa5ee693d74';
 
 putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
 $shippedRegistry = ManifestDispositions::load($manifestDir);

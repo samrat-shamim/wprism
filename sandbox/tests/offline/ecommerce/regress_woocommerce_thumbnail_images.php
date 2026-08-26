@@ -182,10 +182,25 @@ function image_downsize(int $attachmentId, string $size): array|false {
 /** @return array<string,mixed>|WP_Error|false */
 function wp_generate_attachment_metadata(int $attachmentId, string $file): array|WP_Error|false {
     $attachment = &$GLOBALS['wooThumbnailAttachments'][$attachmentId];
+    // WordPress 7.1 persists this base projection before it asks an image
+    // editor to create sub-sizes. An unavailable editor therefore replaces a
+    // stale derivative with sizes=[]; the later successful request commits
+    // only the requested Woo derivative to that base metadata.
+    $baseMetadata = [
+        'file' => $attachment['relative_file'],
+        'width' => (int) $attachment['full_width'],
+        'height' => (int) $attachment['full_height'],
+        'filesize' => (int) filesize($file),
+        'sizes' => [],
+    ];
+    wp_update_attachment_metadata($attachmentId, $baseMetadata);
     ++$attachment['editor_attempts'];
     if (($attachment['editor_failures_remaining'] ?? 0) > 0) {
         --$attachment['editor_failures_remaining'];
-        return new WP_Error('image_editor_failed', 'injected image editor failure');
+        // _wp_make_subsizes() returns the already-persisted base projection
+        // when wp_get_image_editor() fails; wp_generate_attachment_metadata()
+        // then still crosses Woo's metadata filter with that projection.
+        return apply_filters('wp_generate_attachment_metadata', $baseMetadata, $attachmentId, 'create');
     }
     $target = $GLOBALS['wooThumbnailRegisteredSizes']['woocommerce_thumbnail'] ?? null;
     if (!is_array($target)) {
@@ -206,6 +221,7 @@ function wp_generate_attachment_metadata(int $attachmentId, string $file): array
         'file' => $attachment['relative_file'],
         'width' => $fullWidth,
         'height' => $fullHeight,
+        'filesize' => (int) filesize($file),
         'sizes' => [
             'woocommerce_thumbnail' => [
                 'file' => "thumb-$attachmentId-{$width}x{$height}.jpg",
@@ -216,6 +232,11 @@ function wp_generate_attachment_metadata(int $attachmentId, string $file): array
             ],
         ],
     ];
+    // WordPress persists each successful sub-size before the outer
+    // wp_generate_attachment_metadata filter runs. Woo then adds its
+    // uncropped marker to the returned row and commits that distinct row in
+    // resizeAndReturn(), so both writes are part of the exact product path.
+    wp_update_attachment_metadata($attachmentId, $metadata);
     return apply_filters('wp_generate_attachment_metadata', $metadata, $attachmentId, 'create');
 }
 
@@ -232,8 +253,12 @@ function wp_update_attachment_metadata(int $attachmentId, array $metadata): bool
     if ($check !== null) {
         return (bool) $check;
     }
-    $GLOBALS['wooThumbnailAttachments'][$attachmentId]['metadata'] = $metadata;
-    ++$GLOBALS['wooThumbnailAttachments'][$attachmentId]['metadata_writes'];
+    $attachment = &$GLOBALS['wooThumbnailAttachments'][$attachmentId];
+    if (($attachment['metadata'] ?? false) === $metadata) {
+        return false;
+    }
+    $attachment['metadata'] = $metadata;
+    ++$attachment['metadata_writes'];
     return true;
 }
 
@@ -674,39 +699,48 @@ $metadataBeforeFailure = wp_get_attachment_metadata(101);
 $first = wp_get_attachment_image_src(101, 'woocommerce_thumbnail');
 duo_check_same([500, 375], [$first[1] ?? null, $first[2] ?? null],
     'an editor failure returns the bounded full-image fallback instead of stale square dimensions');
-duo_check_same($metadataBeforeFailure, wp_get_attachment_metadata(101),
-    'an editor failure leaves attachment metadata byte-unchanged');
-duo_check_same([1, 0], [
+$metadataAfterFailure = wp_get_attachment_metadata(101);
+duo_check($metadataBeforeFailure !== $metadataAfterFailure,
+    'an editor-selection failure replaces stale derivative metadata with the native base projection');
+duo_check_same([800, 600], [
+    $metadataAfterFailure['width'] ?? null,
+    $metadataAfterFailure['height'] ?? null,
+], 'an editor-selection failure persists the full-image dimensions before returning the bounded fallback');
+duo_check((int) ($metadataAfterFailure['filesize'] ?? 0) > 0,
+    'an editor-selection failure persists the normal JPEG source filesize in core base metadata');
+duo_check_same([], array_keys($metadataAfterFailure['sizes'] ?? []),
+    'an editor-selection failure persists no derivative names in the native base metadata');
+duo_check_same([1, 1], [
     $GLOBALS['wooThumbnailAttachments'][101]['editor_attempts'],
     $GLOBALS['wooThumbnailAttachments'][101]['metadata_writes'],
-], 'the failed request records one attempt and zero partial metadata writes');
+], 'the failed request records one editor attempt and one core base-metadata write');
 
 unset($store->options['wp_1_wc_regenerate_images_batch_91']);
 $second = wp_get_attachment_image_src(101, 'woocommerce_thumbnail');
 duo_check_same([500, 500], [$second[1] ?? null, $second[2] ?? null],
     'the next normal image request retries and returns the exact custom-square projection');
-duo_check_same([2, 1], [
+duo_check_same([2, 3], [
     $GLOBALS['wooThumbnailAttachments'][101]['editor_attempts'],
     $GLOBALS['wooThumbnailAttachments'][101]['metadata_writes'],
-], 'retry performs one successful generation and one metadata commit');
+], 'retry persists the core derivative then Woo commits its uncropped metadata marker');
 duo_check_same(false,
     wp_get_attachment_metadata(101)['sizes']['woocommerce_thumbnail']['uncropped'] ?? null,
     'generated cropped metadata records the exact Woo uncropped=false marker');
 $third = wp_get_attachment_image_src(101, 'woocommerce_thumbnail');
 duo_check_same($second, $third, 'a converged third request is idempotent at the frontend image boundary');
-duo_check_same([2, 1], [
+duo_check_same([2, 3], [
     $GLOBALS['wooThumbnailAttachments'][101]['editor_attempts'],
     $GLOBALS['wooThumbnailAttachments'][101]['metadata_writes'],
 ], 'idempotent read performs no second image-editor or metadata mutation');
-duo_check_same(1, WC_Post_Data::$metadataCalls,
-    'successful regeneration crosses the real Woo product-meta callback exactly once');
+duo_check_same(4, WC_Post_Data::$metadataCalls,
+    'failure base, retry base, core derivative, and Woo marker writes cross the real product-meta callback');
 
 $frontend = woo_thumbnail_frontend(101);
 $rest = woo_thumbnail_rest(101);
 $storeApi = woo_thumbnail_store_api(101);
 duo_check_same($frontend, $rest, 'WordPress REST image readback observes the same converged thumbnail');
 duo_check_same($frontend, $storeApi, 'Woo Store API image readback observes the same converged thumbnail');
-duo_check_same([2, 1], [
+duo_check_same([2, 3], [
     $GLOBALS['wooThumbnailAttachments'][101]['editor_attempts'],
     $GLOBALS['wooThumbnailAttachments'][101]['metadata_writes'],
 ], 'frontend, REST, and Store API repeat reads remain mutation-free');

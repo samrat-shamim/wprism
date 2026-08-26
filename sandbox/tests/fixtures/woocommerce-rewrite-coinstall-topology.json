@@ -60,6 +60,46 @@
       "sha256": "5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1"
     },
     {
+      "plugin": "wordpress-seo",
+      "path": "inc/options/class-wpseo-options.php",
+      "sha256": "dfa12977fe7d8e44a46e55106dbd6beff2f62ded44bb72130eb40092c8aa3c93"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "inc/options/class-wpseo-option.php",
+      "sha256": "9be7b8c73ec223dc2349b5976a51c3fcf66d21d12ddd8985742c4ddaaf4057e9"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "inc/options/class-wpseo-option-wpseo.php",
+      "sha256": "39b7002ff87b9b3e44d72c06ddaba43ef9d02539a7a6f74781d8723641cf6f34"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "inc/options/class-wpseo-option-titles.php",
+      "sha256": "d3ab1e747666f0b8219a4531ad34c262c8c849ed178119f500eeba6fe9774c4f"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "inc/options/class-wpseo-option-social.php",
+      "sha256": "c59cb35218f7868b99f03efb027d23ed4b004cbe31473733281d17f9a158292e"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "inc/options/class-wpseo-taxonomy-meta.php",
+      "sha256": "b1c7b6e96c0c7d248028ec596ab24877b984913f563dbd4f11196c4ff73ea1f8"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "inc/options/class-wpseo-option-llmstxt.php",
+      "sha256": "3626daec1fd21fbf4128a9891f208d9402cce198b3703641221b6973f23786a7"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "inc/options/class-wpseo-option-tracking-only.php",
+      "sha256": "24902a45b2912e0f2d8cd731bc1e0990c824c61f35bb5076a7a4b091a8949c8c"
+    },
+    {
       "plugin": "polylang",
       "path": "src/admin/admin.php",
       "sha256": "7ed2774c6c73c514c64fc1a4b6533e41bacc8278a54785e8246492ce597bfdc5"
@@ -179,6 +219,24 @@
     {"hook": "updated_option", "callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option", "priority": 999, "accepted_args": 3},
     {"hook": "updated_option", "callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option_fts_index", "priority": 999, "accepted_args": 3},
     {"hook": "pre_update_option", "callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_pre_update_option", "priority": 999, "accepted_args": 3},
+    {"hook": "pre_update_option", "callback": "WPSEO_Option_Wpseo::add_default_filters_if_not_changed", "priority": 9223372036854775807, "accepted_args": 3},
+    {"hook": "pre_update_option", "callback": "WPSEO_Option_Titles::add_default_filters_if_not_changed", "priority": 9223372036854775807, "accepted_args": 3},
+    {"hook": "pre_update_option", "callback": "WPSEO_Option_Social::add_default_filters_if_not_changed", "priority": 9223372036854775807, "accepted_args": 3},
+    {"hook": "pre_update_option", "callback": "WPSEO_Taxonomy_Meta::add_default_filters_if_not_changed", "priority": 9223372036854775807, "accepted_args": 3},
+    {"hook": "pre_update_option", "callback": "WPSEO_Option_Llmstxt::add_default_filters_if_not_changed", "priority": 9223372036854775807, "accepted_args": 3},
+    {"hook": "pre_update_option", "callback": "WPSEO_Option_Tracking_Only::add_default_filters_if_not_changed", "priority": 9223372036854775807, "accepted_args": 3},
+    {"hook": "update_option", "callback": "WPSEO_Option_Wpseo::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+    {"hook": "update_option", "callback": "WPSEO_Option_Titles::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+    {"hook": "update_option", "callback": "WPSEO_Option_Social::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+    {"hook": "update_option", "callback": "WPSEO_Taxonomy_Meta::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+    {"hook": "update_option", "callback": "WPSEO_Option_Llmstxt::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+    {"hook": "update_option", "callback": "WPSEO_Option_Tracking_Only::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+    {"hook": "add_option", "callback": "WPSEO_Option_Wpseo::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+    {"hook": "add_option", "callback": "WPSEO_Option_Titles::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+    {"hook": "add_option", "callback": "WPSEO_Option_Social::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+    {"hook": "add_option", "callback": "WPSEO_Taxonomy_Meta::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+    {"hook": "add_option", "callback": "WPSEO_Option_Llmstxt::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+    {"hook": "add_option", "callback": "WPSEO_Option_Tracking_Only::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
     {"hook": "option_rewrite_rules", "callback": "Yoast_Dynamic_Rewrites::filter_rewrite_rules_option", "priority": 10, "accepted_args": 1},
     {"hook": "sanitize_option_rewrite_rules", "callback": "Yoast_Dynamic_Rewrites::sanitize_rewrite_rules_option", "priority": 10, "accepted_args": 1},
     {"hook": "generate_rewrite_rules", "callback": "Tribe__Cache_Listener::generate_rewrite_rules", "priority": 10, "accepted_args": 1},
@@ -223,6 +281,32 @@
     "added_option": [
       {"callback": "Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_added_option", "priority": 999, "accepted_args": 3},
       {"callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_added_option", "priority": 999, "accepted_args": 2}
+    ]
+  },
+  "yoast_normal_option_topology": {
+    "pre_update_option": [
+      {"callback": "WPSEO_Option_Wpseo::add_default_filters_if_not_changed", "priority": 9223372036854775807, "accepted_args": 3},
+      {"callback": "WPSEO_Option_Titles::add_default_filters_if_not_changed", "priority": 9223372036854775807, "accepted_args": 3},
+      {"callback": "WPSEO_Option_Social::add_default_filters_if_not_changed", "priority": 9223372036854775807, "accepted_args": 3},
+      {"callback": "WPSEO_Taxonomy_Meta::add_default_filters_if_not_changed", "priority": 9223372036854775807, "accepted_args": 3},
+      {"callback": "WPSEO_Option_Llmstxt::add_default_filters_if_not_changed", "priority": 9223372036854775807, "accepted_args": 3},
+      {"callback": "WPSEO_Option_Tracking_Only::add_default_filters_if_not_changed", "priority": 9223372036854775807, "accepted_args": 3}
+    ],
+    "update_option": [
+      {"callback": "WPSEO_Option_Wpseo::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+      {"callback": "WPSEO_Option_Titles::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+      {"callback": "WPSEO_Option_Social::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+      {"callback": "WPSEO_Taxonomy_Meta::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+      {"callback": "WPSEO_Option_Llmstxt::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+      {"callback": "WPSEO_Option_Tracking_Only::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1}
+    ],
+    "add_option": [
+      {"callback": "WPSEO_Option_Wpseo::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+      {"callback": "WPSEO_Option_Titles::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+      {"callback": "WPSEO_Option_Social::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+      {"callback": "WPSEO_Taxonomy_Meta::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+      {"callback": "WPSEO_Option_Llmstxt::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1},
+      {"callback": "WPSEO_Option_Tracking_Only::add_default_filters_if_same_option", "priority": 10, "accepted_args": 1}
     ]
   },
   "dynamic_callback_containers": [

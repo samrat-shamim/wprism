@@ -30,6 +30,13 @@ namespace Duo;
  * exact service objects installed in every callback. Request-conditional
  * settings tracking remains outside this closed topology.
  *
+ * Yoast SEO 28.3 normally adds six non-multisite option services: each binds
+ * add_default_filters_if_not_changed to pre_update_option at PHP_INT_MAX/3,
+ * and add_default_filters_if_same_option to update_option and add_option at
+ * 10/1. WPSEO_Options::get_option_instance() reads those already-constructed
+ * services; get_instance() is deliberately not called because it constructs
+ * missing services and would let a partial runtime manufacture admission.
+ *
  * The same fresh process also executes exact rewrite interpreters from TEC,
  * Yoast 28.3 and Polylang 3.8.6. Their reviewed sources are respectively
  * 2f447a4120a349d5f596c834192b17a5b911c6c94e8a62cfaee58af89cc86aab,
@@ -56,6 +63,15 @@ final class NativeRewriteEffects {
         'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer';
     private const WOO_CUSTOM_ORDERS =
         'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController';
+    /** @var array<string,string> */
+    private const WPSEO_OPTIONS = [
+        'wpseo' => 'WPSEO_Option_Wpseo',
+        'wpseo_titles' => 'WPSEO_Option_Titles',
+        'wpseo_social' => 'WPSEO_Option_Social',
+        'wpseo_taxonomy_meta' => 'WPSEO_Taxonomy_Meta',
+        'wpseo_llmstxt' => 'WPSEO_Option_Llmstxt',
+        'wpseo_tracking_only' => 'WPSEO_Option_Tracking_Only',
+    ];
 
     private function __construct(
         private readonly ?object $listener,
@@ -65,6 +81,8 @@ final class NativeRewriteEffects {
         private readonly ?object $wooFeatures,
         private readonly ?object $wooSynchronizer,
         private readonly ?object $wooCustomOrders,
+        /** @var ?array<string,object> */
+        private readonly ?array $wpseoOptions,
         /** @var array<string,mixed> */
         private readonly array $rewriteTopology,
         private readonly bool $purgePresent,
@@ -76,19 +94,22 @@ final class NativeRewriteEffects {
         $updated = self::hook_records('updated_option');
         $generate = self::hook_records('generate_rewrite_rules');
         $preUpdated = self::hook_records('pre_update_option');
+        $update = self::hook_records('update_option');
+        $add = self::hook_records('add_option');
         $added = self::hook_records('added_option');
         $tec = self::resolve_tec_services($updated, $generate);
         $listener = $tec['listener'] ?? null;
         $woo = self::resolve_woo_services($updated, $preUpdated, $added);
+        $wpseo = self::resolve_wpseo_services($preUpdated, $update, $add);
         self::assert_updated_option_callbacks($updated, $listener, $woo);
         if ($listener !== null) {
             self::assert_generate_callback($generate, $listener);
             self::assert_trigger_filters();
             foreach (self::MARKER_OPTIONS as $name) {
-                self::assert_marker_option_hooks($name, $listener, $woo);
+                self::assert_marker_option_hooks($name, $listener, $woo, $wpseo);
             }
         }
-        $rewriteTopology = self::rewrite_topology($listener, $woo);
+        $rewriteTopology = self::rewrite_topology($listener, $woo, $wpseo);
         return new self(
             $listener,
             $tec['listener_cache'] ?? null,
@@ -97,6 +118,7 @@ final class NativeRewriteEffects {
             $woo['features'] ?? null,
             $woo['synchronizer'] ?? null,
             $woo['custom_orders'] ?? null,
+            $wpseo['options'] ?? null,
             $rewriteTopology,
             $tec['purge_present'] ?? false,
             $tec['purge_value'] ?? null
@@ -110,19 +132,22 @@ final class NativeRewriteEffects {
             $updated = self::hook_records('updated_option');
             $generate = self::hook_records('generate_rewrite_rules');
             $preUpdated = self::hook_records('pre_update_option');
+            $update = self::hook_records('update_option');
+            $add = self::hook_records('add_option');
             $added = self::hook_records('added_option');
             $tec = self::resolve_tec_services($updated, $generate);
             $listener = $tec['listener'] ?? null;
             $woo = self::resolve_woo_services($updated, $preUpdated, $added);
+            $wpseo = self::resolve_wpseo_services($preUpdated, $update, $add);
             self::assert_updated_option_callbacks($updated, $listener, $woo);
             if ($listener !== null) {
                 self::assert_generate_callback($generate, $listener);
                 self::assert_trigger_filters();
                 foreach (self::MARKER_OPTIONS as $name) {
-                    self::assert_marker_option_hooks($name, $listener, $woo);
+                    self::assert_marker_option_hooks($name, $listener, $woo, $wpseo);
                 }
             }
-            $rewriteTopology = self::rewrite_topology($listener, $woo);
+            $rewriteTopology = self::rewrite_topology($listener, $woo, $wpseo);
             if ($listener !== $this->listener
                 || ($tec['listener_cache'] ?? null) !== $this->listenerCache
                 || ($tec['global_cache'] ?? null) !== $this->globalCache
@@ -130,6 +155,7 @@ final class NativeRewriteEffects {
                 || ($woo['features'] ?? null) !== $this->wooFeatures
                 || ($woo['synchronizer'] ?? null) !== $this->wooSynchronizer
                 || ($woo['custom_orders'] ?? null) !== $this->wooCustomOrders
+                || ($wpseo['options'] ?? null) !== $this->wpseoOptions
                 || $rewriteTopology !== $this->rewriteTopology) {
                 throw new \RuntimeException(
                     'duo: native rewrite found The Events Calendar cache-listener service drift'
@@ -399,9 +425,10 @@ final class NativeRewriteEffects {
 
     /**
      * @param ?array{container:object,features:object,synchronizer:object,custom_orders:object} $woo
+     * @param ?array{options:array<string,object>} $wpseo
      * @return array<string,mixed>
      */
-    private static function rewrite_topology(?object $listener, ?array $woo): array {
+    private static function rewrite_topology(?object $listener, ?array $woo, ?array $wpseo): array {
         global $wp_rewrite;
         if (!is_object($wp_rewrite)) {
             throw new \RuntimeException('duo: native rewrite found a malformed WordPress rewrite runtime');
@@ -462,7 +489,7 @@ final class NativeRewriteEffects {
         $yoast = self::resolve_yoast($wp_rewrite);
         $polylang = self::resolve_polylang();
         $corePermastructs = self::assert_core_generation_topology($wp_rewrite, $polylang);
-        self::assert_rewrite_rules_option_hooks($listener, $woo, $yoast);
+        self::assert_rewrite_rules_option_hooks($listener, $woo, $wpseo, $yoast);
 
         $generateExpected = [];
         if ($listener !== null) {
@@ -541,11 +568,13 @@ final class NativeRewriteEffects {
 
     /**
      * @param ?array{container:object,features:object,synchronizer:object,custom_orders:object} $woo
+     * @param ?array{options:array<string,object>} $wpseo
      * @param ?array{service:object,state:string,top:array<string,string>,bottom:array<string,string>} $yoast
      */
     private static function assert_rewrite_rules_option_hooks(
         ?object $listener,
         ?array $woo,
+        ?array $wpseo,
         ?array $yoast
     ): void {
         foreach ([
@@ -574,12 +603,19 @@ final class NativeRewriteEffects {
                 self::assert_updated_option_callbacks($records, $listener, $woo);
                 continue;
             }
-            if ($hookName === 'pre_update_option' && $woo !== null) {
-                self::assert_woo_option_callbacks($hookName, $records, $woo);
-                continue;
-            }
-            if ($hookName === 'added_option' && $woo !== null) {
-                self::assert_woo_option_callbacks($hookName, $records, $woo);
+            if (in_array($hookName, ['pre_update_option', 'update_option', 'add_option', 'added_option'], true)) {
+                try {
+                    self::assert_normal_option_callbacks($hookName, $records, $woo, $wpseo);
+                } catch (\RuntimeException $failure) {
+                    if (str_contains($failure->getMessage(), 'extended or substituted normal ')) {
+                        throw new \RuntimeException(
+                            'duo: native rewrite found extended rewrite_rules option topology',
+                            0,
+                            $failure
+                        );
+                    }
+                    throw $failure;
+                }
                 continue;
             }
             if ($hookName === 'sanitize_option_rewrite_rules' && $yoast !== null) {
@@ -1169,8 +1205,16 @@ final class NativeRewriteEffects {
         }
     }
 
-    /** @param ?array{container:object,features:object,synchronizer:object,custom_orders:object} $woo */
-    private static function assert_marker_option_hooks(string $name, object $listener, ?array $woo): void {
+    /**
+     * @param ?array{container:object,features:object,synchronizer:object,custom_orders:object} $woo
+     * @param ?array{options:array<string,object>} $wpseo
+     */
+    private static function assert_marker_option_hooks(
+        string $name,
+        object $listener,
+        ?array $woo,
+        ?array $wpseo
+    ): void {
         foreach ([
             'sanitize_option_' . $name,
             'pre_option_' . $name,
@@ -1197,12 +1241,19 @@ final class NativeRewriteEffects {
                 self::assert_updated_option_callbacks($records, $listener, $woo);
                 continue;
             }
-            if ($hookName === 'pre_update_option' && $woo !== null) {
-                self::assert_woo_option_callbacks($hookName, $records, $woo);
-                continue;
-            }
-            if ($hookName === 'added_option' && $woo !== null) {
-                self::assert_woo_option_callbacks($hookName, $records, $woo);
+            if (in_array($hookName, ['pre_update_option', 'update_option', 'add_option', 'added_option'], true)) {
+                try {
+                    self::assert_normal_option_callbacks($hookName, $records, $woo, $wpseo);
+                } catch (\RuntimeException $failure) {
+                    if (str_contains($failure->getMessage(), 'extended or substituted normal ')) {
+                        throw new \RuntimeException(
+                            "duo: native rewrite found extended marker option topology for '$name'",
+                            0,
+                            $failure
+                        );
+                    }
+                    throw $failure;
+                }
                 continue;
             }
             if ($records === []) {
@@ -1301,20 +1352,100 @@ final class NativeRewriteEffects {
     }
 
     /**
-     * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $records
-     * @param array{container:object,features:object,synchronizer:object,custom_orders:object} $woo
+     * Resolve Yoast's six non-multisite option services without constructing
+     * any missing singleton. A loaded manager, option class, or callback makes
+     * the runtime visible; all six existing instances are then required so a
+     * partial boot cannot be mistaken for an inactive plugin.
+     *
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $preUpdated
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $update
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $add
+     * @return ?array{options:array<string,object>}
      */
-    private static function assert_woo_option_callbacks(string $hookName, array $records, array $woo): void {
-        $expected = match ($hookName) {
-            'pre_update_option' => [
-                [$woo['custom_orders'], 'process_pre_update_option', 999, 3],
-            ],
-            'added_option' => [
-                [$woo['features'], 'process_added_option', 999, 3],
-                [$woo['synchronizer'], 'process_added_option', 999, 2],
-            ],
-            default => throw new \LogicException('duo: unknown WooCommerce option callback family'),
-        };
+    private static function resolve_wpseo_services(array $preUpdated, array $update, array $add): ?array {
+        $records = array_merge($preUpdated, $update, $add);
+        $visible = class_exists('WPSEO_Options', false);
+        foreach (self::WPSEO_OPTIONS as $class) {
+            $visible = $visible
+                || class_exists($class, false)
+                || self::contains_class_callback($records, $class);
+        }
+        if (!$visible) {
+            return null;
+        }
+        if (!class_exists('WPSEO_Options', false)
+            || !is_callable(['WPSEO_Options', 'get_option_instance'])) {
+            throw new \RuntimeException(
+                'duo: native rewrite found incomplete or substituted Yoast SEO option singletons'
+            );
+        }
+        $options = [];
+        foreach (self::WPSEO_OPTIONS as $optionName => $class) {
+            try {
+                // This getter only reads WPSEO_Options::$option_instances;
+                // get_instance() would construct an unproved option service.
+                $service = self::call_static('WPSEO_Options', 'get_option_instance', $optionName);
+            } catch (\Throwable $failure) {
+                throw new \RuntimeException(
+                    'duo: native rewrite could not resolve Yoast option-callback services',
+                    0,
+                    $failure
+                );
+            }
+            if (!is_object($service) || get_class($service) !== $class) {
+                throw new \RuntimeException(
+                    'duo: native rewrite found incomplete or substituted Yoast SEO option singletons'
+                );
+            }
+            $options[$optionName] = $service;
+        }
+        return ['options' => $options];
+    }
+
+    /**
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $records
+     * @param ?array{container:object,features:object,synchronizer:object,custom_orders:object} $woo
+     * @param ?array{options:array<string,object>} $wpseo
+     */
+    private static function assert_normal_option_callbacks(
+        string $hookName,
+        array $records,
+        ?array $woo,
+        ?array $wpseo
+    ): void {
+        $expected = [];
+        if ($woo !== null) {
+            $expected = match ($hookName) {
+                'pre_update_option' => [
+                    [$woo['custom_orders'], 'process_pre_update_option', 999, 3],
+                ],
+                'added_option' => [
+                    [$woo['features'], 'process_added_option', 999, 3],
+                    [$woo['synchronizer'], 'process_added_option', 999, 2],
+                ],
+                'update_option', 'add_option' => [],
+                default => throw new \LogicException('duo: unknown normal option callback family'),
+            };
+        }
+        if ($wpseo !== null) {
+            $yoastExpected = [];
+            foreach ($wpseo['options'] as $service) {
+                if ($hookName === 'pre_update_option') {
+                    $yoastExpected[] = [$service, 'add_default_filters_if_not_changed', PHP_INT_MAX, 3];
+                } elseif ($hookName === 'update_option' || $hookName === 'add_option') {
+                    $yoastExpected[] = [$service, 'add_default_filters_if_same_option', 10, 1];
+                } elseif ($hookName !== 'added_option') {
+                    throw new \LogicException('duo: unknown normal option callback family');
+                }
+            }
+            $expected = array_merge($expected, $yoastExpected);
+        }
+        $yoastServices = $wpseo === null ? [] : array_values($wpseo['options']);
+        $wooServices = $woo === null ? [] : [
+            $woo['features'],
+            $woo['synchronizer'],
+            $woo['custom_orders'],
+        ];
         foreach ($records as [$priority, $record]) {
             $matched = null;
             foreach ($expected as $index => [$object, $method, $expectedPriority, $accepted]) {
@@ -1326,15 +1457,36 @@ final class NativeRewriteEffects {
                 }
             }
             if ($matched === null) {
+                $family = 'normal';
+                $callback = $record['function'];
+                if (is_array($callback) && is_object($callback[0] ?? null)) {
+                    $class = get_class($callback[0]);
+                    if (in_array($class, self::WPSEO_OPTIONS, true)) {
+                        $family = 'Yoast SEO';
+                    } elseif (in_array($class, [self::WOO_FEATURES, self::WOO_SYNCHRONIZER, self::WOO_CUSTOM_ORDERS], true)) {
+                        $family = 'WooCommerce';
+                    }
+                }
                 throw new \RuntimeException(
-                    "duo: native rewrite found extended or substituted WooCommerce $hookName callbacks"
+                    "duo: native rewrite found extended or substituted $family $hookName callbacks"
                 );
             }
             unset($expected[$matched]);
         }
         if ($expected !== []) {
+            $yoastMissing = false;
+            $wooMissing = false;
+            foreach ($expected as [$object]) {
+                if ($wpseo !== null && in_array($object, $yoastServices, true)) {
+                    $yoastMissing = true;
+                }
+                if ($woo !== null && in_array($object, $wooServices, true)) {
+                    $wooMissing = true;
+                }
+            }
+            $family = $yoastMissing ? 'Yoast SEO' : ($wooMissing ? 'WooCommerce' : 'normal');
             throw new \RuntimeException(
-                "duo: native rewrite found incomplete WooCommerce $hookName callbacks"
+                "duo: native rewrite found incomplete $family $hookName callbacks"
             );
         }
     }
@@ -1374,11 +1526,11 @@ final class NativeRewriteEffects {
         return \Closure::fromCallable($name)(...$args);
     }
 
-    private static function call_static(string $class, string $method): mixed {
+    private static function call_static(string $class, string $method, mixed ...$args): mixed {
         if (!is_callable([$class, $method])) {
             throw new \RuntimeException('duo: native rewrite lost a proven runtime service');
         }
-        return \Closure::fromCallable([$class, $method])();
+        return \Closure::fromCallable([$class, $method])(...$args);
     }
 
     private static function call_object(mixed $object, string $method, mixed ...$args): mixed {

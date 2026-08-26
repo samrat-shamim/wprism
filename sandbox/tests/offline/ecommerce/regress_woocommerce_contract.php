@@ -923,6 +923,11 @@ $wooMultisiteHarness = (string) file_get_contents(
 $wooRewriteCoInstallHarness = (string) file_get_contents(
     $root . '/sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh'
 );
+$wooRewriteCoInstallTopology = json_decode(
+    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-rewrite-coinstall-topology.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
 $wooRewriteComposeHandoffIsExact = static function (string $harness): bool {
     $mutations = [];
     $resolverLine = null;
@@ -958,6 +963,50 @@ woo_ok(
     $wooRewriteComposeHandoffIsExact($wooRewriteCoInstallHarness),
     'the candidate-bound co-install hands its exact Compose argv to the pinned artifact resolver before loading it'
 );
+$yoastOptionSources = [
+    'inc/options/class-wpseo-options.php' => 'dfa12977fe7d8e44a46e55106dbd6beff2f62ded44bb72130eb40092c8aa3c93',
+    'inc/options/class-wpseo-option.php' => '9be7b8c73ec223dc2349b5976a51c3fcf66d21d12ddd8985742c4ddaaf4057e9',
+    'inc/options/class-wpseo-option-wpseo.php' => '39b7002ff87b9b3e44d72c06ddaba43ef9d02539a7a6f74781d8723641cf6f34',
+    'inc/options/class-wpseo-option-titles.php' => 'd3ab1e747666f0b8219a4531ad34c262c8c849ed178119f500eeba6fe9774c4f',
+    'inc/options/class-wpseo-option-social.php' => 'c59cb35218f7868b99f03efb027d23ed4b004cbe31473733281d17f9a158292e',
+    'inc/options/class-wpseo-taxonomy-meta.php' => 'b1c7b6e96c0c7d248028ec596ab24877b984913f563dbd4f11196c4ff73ea1f8',
+    'inc/options/class-wpseo-option-llmstxt.php' => '3626daec1fd21fbf4128a9891f208d9402cce198b3703641221b6973f23786a7',
+    'inc/options/class-wpseo-option-tracking-only.php' => '24902a45b2912e0f2d8cd731bc1e0990c824c61f35bb5076a7a4b091a8949c8c',
+];
+$coInstallSourcePins = [];
+foreach ((array) ($wooRewriteCoInstallTopology['source_files'] ?? []) as $sourcePin) {
+    if (($sourcePin['plugin'] ?? null) === 'wordpress-seo') {
+        $coInstallSourcePins[(string) ($sourcePin['path'] ?? '')] = $sourcePin['sha256'] ?? null;
+    }
+}
+foreach ($yoastOptionSources as $sourceFile => $sha256) {
+    woo_ok(($coInstallSourcePins[$sourceFile] ?? null) === $sha256,
+        "co-install evidence pins exact Yoast 28.3 option source $sourceFile");
+}
+woo_ok(count((array) ($wooRewriteCoInstallTopology['source_files'] ?? [])) === 38
+    && count((array) ($wooRewriteCoInstallTopology['static_callbacks'] ?? [])) === 37,
+    'co-install evidence closes all 38 source files and 37 static callbacks');
+$yoastOptionClasses = [
+    'WPSEO_Option_Wpseo',
+    'WPSEO_Option_Titles',
+    'WPSEO_Option_Social',
+    'WPSEO_Taxonomy_Meta',
+    'WPSEO_Option_Llmstxt',
+    'WPSEO_Option_Tracking_Only',
+];
+foreach ([
+    'pre_update_option' => ['add_default_filters_if_not_changed', PHP_INT_MAX, 3],
+    'update_option' => ['add_default_filters_if_same_option', 10, 1],
+    'add_option' => ['add_default_filters_if_same_option', 10, 1],
+] as $hook => [$method, $priority, $acceptedArgs]) {
+    $expected = array_map(static fn(string $class): array => [
+        'callback' => "$class::$method",
+        'priority' => $priority,
+        'accepted_args' => $acceptedArgs,
+    ], $yoastOptionClasses);
+    woo_ok(($wooRewriteCoInstallTopology['yoast_normal_option_topology'][$hook] ?? null) === $expected,
+        "co-install evidence closes the six canonical Yoast callbacks on $hook");
+}
 foreach ([
     'a comment cannot impersonate the executable handoff' => str_replace(
         'PAIR_COMPOSE=("${COMPOSE[@]}")',
@@ -1612,6 +1661,10 @@ foreach ([
     'wp_get_registered_image_subsizes()',
     '"theme_override_width"',
     'static fn(array $editors): array => []',
+    '"failed_metadata_changed"',
+    '"failed_full_dims"',
+    '"failed_filesize_positive"',
+    '"failed_size_names"',
 ] as $thumbnailProbeWitness) {
     woo_ok(str_contains($wooCheckHarness, $thumbnailProbeWitness),
         "thumbnail live probe preserves nonzero WP-CLI evidence: $thumbnailProbeWitness");
@@ -1623,6 +1676,20 @@ woo_ok(
 );
 woo_ok(!str_contains($wooCheckHarness, 'Duo_Woo_Missing_Image_Editor'),
     'thumbnail failure injection asks WordPress for its native no-editor error instead of naming an unloadable callback');
+woo_ok(!str_contains($wooCheckHarness, 'failed_metadata_unchanged'),
+    'thumbnail evidence does not retain the disproved metadata-preservation assertion');
+$thumbnailBehavior = (string) ($manifest['notes'][
+    'thumbnail image settings and request-time convergence (supersedes every earlier thumbnail fail-closed sentence)'
+] ?? '');
+foreach ([
+    'Missing attachment metadata or source-file preconditions preserve the prior image and metadata',
+    'On the evidenced normal 800-by-600 JPEG path with no scale, format conversion, or EXIF rotation',
+    'WordPress 7.1 writes base metadata (file, width, height, filesize, sizes=[]) before subsize editor selection',
+    'An unavailable subsize editor therefore returns the bounded full image with that base metadata persisted',
+] as $thumbnailBehaviorWitness) {
+    woo_ok(str_contains($thumbnailBehavior, $thumbnailBehaviorWitness),
+        "shipped Woo thumbnail claim pins native failure behavior: $thumbnailBehaviorWitness");
+}
 $seedUpdate = strpos($wooCheckHarness, 'wp_update_attachment_metadata((int) $id, $metadata)');
 $seedReadback = strpos($wooCheckHarness, 'wp_get_attachment_metadata((int) $id)', $seedUpdate === false ? 0 : $seedUpdate);
 woo_ok($seedUpdate !== false && $seedReadback !== false && $seedReadback > $seedUpdate,
@@ -1714,7 +1781,8 @@ foreach ([
     '"pll_rewrite_rules","pll_modify_rewrite_rule"',
     '([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0',
     'def static_rewrite_hook:',
-    '(.source_files|length==30)',
+    '(.source_files|length==38)',
+    '(.static_callbacks|length==37)',
     'WP_CLI_MEMORY_LIMIT=512M',
     '--entrypoint php',
     '-d "memory_limit=$WP_CLI_MEMORY_LIMIT" /usr/local/bin/wp',
@@ -1730,6 +1798,9 @@ foreach ([
     'native rewrite callback identity differs from source services',
     '$GLOBALS["wc_container"]',
     'Yoast_Dynamic_Rewrites::instance()',
+    'WPSEO_Options::get_option_instance($optionName)',
+    '$exact("update_option",$yoastGeneric)',
+    '$exact("add_option",$yoastGeneric)',
     'Yoast dynamic rewrite singleton was not registered by normal boot',
     'Yoast dynamic rewrite singleton differs from the canonical WordPress rewrite runtime',
     'Tribe__Cache_Listener::instance()',
