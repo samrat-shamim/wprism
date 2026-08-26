@@ -380,6 +380,8 @@
           "RepositoryCompiler",
           "SidebarState",
           "CanonicalSurfaces",
+          "CanonicalLedgerMapGuard",
+          "CanonicalMapWitness",
           "ReferenceGraph",
           "Identity",
           "StateTreeWalker",
@@ -432,8 +434,10 @@
             ]
           }
         ],
-        "file_count": 24,
+        "file_count": 26,
         "files": [
+          "CanonicalLedgerMapGuard.php",
+          "CanonicalMapWitness.php",
           "CanonicalSurfaces.php",
           "CompiledArtifact.php",
           "CompiledArtifactReader.php",

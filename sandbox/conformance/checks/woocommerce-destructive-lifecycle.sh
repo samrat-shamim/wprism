@@ -133,7 +133,7 @@ check_woocommerce_destructive_lifecycle() {
   lost_plan=$(wp_conf2 duo plan --repo=/siterepo 2>&1) || lost_plan_rc=$?
   require_duo_answered 'WooCommerce plan after destructive uninstall' human "$lost_plan"
   [ "$lost_plan_rc" -ne 0 ] \
-    && grep -Eqi 'mapped identity missing|identity history is missing|refusing to (create|infer|rebind)' <<<"$lost_plan" \
+    && grep -Eqi 'canonical mapped identity|refusing to (create|infer|rebind)' <<<"$lost_plan" \
     || fail "WooCommerce destructive-uninstall plan did not refuse before minting replacement identities: $lost_plan"
   [ "$(wp_conf2 eval '
     global $wpdb; $state=[
@@ -147,7 +147,7 @@ check_woocommerce_destructive_lifecycle() {
   lost_apply=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || lost_apply_rc=$?
   require_duo_answered 'WooCommerce apply after destructive uninstall' human "$lost_apply"
   [ "$lost_apply_rc" -ne 0 ] \
-    && grep -Eqi 'mapped identity missing|identity history is missing|refusing to (create|infer|rebind)' <<<"$lost_apply" \
+    && grep -Eqi 'canonical mapped identity|refusing to (create|infer|rebind)' <<<"$lost_apply" \
     || fail "WooCommerce destructive-uninstall apply did not refuse before minting replacement identities: $lost_apply"
   [ "$(wp_conf2 eval '
     global $wpdb; $state=[

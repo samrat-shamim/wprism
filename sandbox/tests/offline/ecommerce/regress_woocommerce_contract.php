@@ -2167,6 +2167,73 @@ $wooPostapplyCall = strpos($wooMatrixCase, 'postapply_woocommerce_content');
 $wooApplySuccess = strpos($wooMatrixCase, 'pass "deploy + apply succeeded on side 2');
 $wooCheck = strpos($wooMatrixCase, 'check_woocommerce_content');
 $wooCanonicalRecapture = strpos($wooMatrixCase, 'wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"');
+$wooBoundaryApply = strpos(
+    $wooMatrixCase,
+    'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"'
+);
+$wooBoundaryCanary = $wooBoundaryApply === false
+    ? false
+    : strpos($wooMatrixCase, 'grep -q \'canary clean\' "$VMATRIX_APPLY_LOG"', $wooBoundaryApply);
+$wooBoundaryReceipt = $wooBoundaryCanary === false
+    ? false
+    : strpos($wooMatrixCase, 'WOOCOMMERCE_BOUNDARY_PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")', $wooBoundaryCanary);
+$wooUpgradeAuthority = strpos(
+    $wooMatrixCase,
+    "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'"
+);
+$wooUpgradeApply = $wooUpgradeAuthority === false
+    ? false
+    : strpos(
+        $wooMatrixCase,
+        'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV"',
+        $wooUpgradeAuthority
+    );
+$wooUpgradeCanary = $wooUpgradeApply === false
+    ? false
+    : strpos($wooMatrixCase, 'grep -q \'canary clean\' "$VMATRIX_APPLY_LOG"', $wooUpgradeApply);
+$wooUpgradeProviderCount = $wooUpgradeCanary === false
+    ? false
+    : strpos(
+        $wooMatrixCase,
+        'UPGRADE_PROVIDER_COUNT=$(grep -Ec \'provider capability fired:\' "$VMATRIX_APPLY_LOG" || true)',
+        $wooUpgradeCanary
+    );
+$wooUpgradeProviderAssertion = $wooUpgradeProviderCount === false
+    ? false
+    : strpos($wooMatrixCase, '[ "$UPGRADE_PROVIDER_COUNT" -eq 1 ]', $wooUpgradeProviderCount);
+$wooUpgradeLookupReceipt = $wooUpgradeProviderAssertion === false
+    ? false
+    : strpos(
+        $wooMatrixCase,
+        'woocommerce-product-lookups@3\\.0\\.0 rebuild_product_lookups \\([0-9]+(\\.[0-9]+)?s, verified\\)',
+        $wooUpgradeProviderAssertion
+    );
+$wooUpgradeCheck = $wooUpgradeLookupReceipt === false
+    ? false
+    : strpos($wooMatrixCase, 'check_woocommerce_content', $wooUpgradeLookupReceipt);
+woo_ok(
+    substr_count($wooMatrixCase, 'WOOCOMMERCE_BOUNDARY_PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")') === 1
+        && str_contains($woocommerceMatrixHarness, 'local APPLY_JSON="${WOOCOMMERCE_BOUNDARY_PROVIDER_RECEIPT:-}"')
+        && str_contains($wooCheckHarness, 'PROVIDER_RECEIPT="${APPLY_JSON:-}"')
+        && $wooBoundaryApply !== false
+        && $wooBoundaryCanary !== false
+        && $wooBoundaryReceipt !== false
+        && $wooPostapplyCall !== false
+        && $wooBoundaryApply < $wooBoundaryCanary
+        && $wooBoundaryCanary < $wooBoundaryReceipt
+        && $wooBoundaryReceipt < $wooPostapplyCall
+        && $wooUpgradeApply !== false
+        && $wooUpgradeCanary !== false
+        && $wooUpgradeProviderCount !== false
+        && $wooUpgradeProviderAssertion !== false
+        && $wooUpgradeLookupReceipt !== false
+        && $wooUpgradeCheck !== false
+        && $wooUpgradeCanary < $wooUpgradeProviderCount
+        && $wooUpgradeProviderCount < $wooUpgradeProviderAssertion
+        && $wooUpgradeProviderAssertion < $wooUpgradeLookupReceipt
+        && $wooUpgradeLookupReceipt < $wooUpgradeCheck,
+    'exact Woo matrix preserves each full-import receipt before the shared check and proves the product-note upgrade invoked only verified product lookups'
+);
 woo_ok(
     substr_count($woocommerceMatrixHarness, 'postapply_woocommerce_content() {') === 1
         && str_contains($woocommerceMatrixHarness, '. conformance/postapply/woocommerce.sh')
@@ -2219,6 +2286,11 @@ foreach ([
     'POLYLANG_SOURCE_MODE=$(wp1 option get polylang --format=json)',
     'Polylang directory-mode source option did not survive its authoring request',
     'wp1 rewrite flush --hard',
+    'product_route() { # side',
+    'exec -T "wp$side" curl -sS --max-time 20',
+    '__DUO_HTTP_STATUS__%{http_code}',
+    '. + {http_status:$status,single_product:true,postid:$postid}',
+    '.http_status==200 and .single_product==true and .postid==.id',
     'INITIAL_RAW=$(wp2 duo apply',
     'initial co-install apply failed (exit $INITIAL_RC): $INITIAL_RAW',
     'CALLBACK_IDENTITIES=$(wp2 eval',
@@ -2285,6 +2357,8 @@ woo_ok(!str_contains($wooRewriteCoInstallHarness, 'memory_limit=-1'),
     'four-plugin co-install keeps a finite PHP bootstrap ceiling');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, '$args[0]'),
     'co-install source hashing uses WP-CLI global execution state, not unsupported eval positional arguments');
+woo_ok(!str_contains($wooRewriteCoInstallHarness, 'url_to_postid('),
+    'co-install product-route evidence uses the real HTTP parser, not the CLI url_to_postid helper');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, '[[$yoast,"filter_rewrite_rules_option",10,1]]'),
     'co-install callback identity tuples keep the callable nested separately from priority and arity');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, 'option_name="rewrite_rules"'),

@@ -75,15 +75,42 @@ echo wp_json_encode(["permalink"=>$row("permalink_structure"),"woo"=>$woo,"rules
 }
 
 product_route() { # side
-  local side="$1"
-  "wp$side" eval '
+  local side="$1" route id path host response status body
+  route=$("wp$side" eval '
 $product=get_page_by_path("rewrite-coinstall-product",OBJECT,"product");
 if(!$product){throw new RuntimeException("product route witness is absent");}
 $url=get_permalink($product);$path=wp_parse_url($url,PHP_URL_PATH);
 if(!is_string($path)||$path===""){throw new RuntimeException("product permalink has no path");}
 $language=function_exists("pll_get_post_language")?pll_get_post_language((int)$product->ID,"slug"):null;
-echo wp_json_encode(["id"=>(int)$product->ID,"language"=>$language,"path"=>$path,"resolved"=>(int)url_to_postid(home_url($path))]);
-' | tail -1
+ $host=wp_parse_url(home_url("/"),PHP_URL_HOST);
+if(!is_string($host)||$host===""){throw new RuntimeException("product route home host is absent");}
+echo wp_json_encode(["id"=>(int)$product->ID,"language"=>$language,"path"=>$path,"host"=>$host]);
+' | tail -1) || fail "could not inspect the product permalink route on side $side"
+  id=$(jq -er '.id|numbers' <<<"$route") || fail "product route witness has no numeric product id: $route"
+  path=$(jq -er '.path|strings' <<<"$route") || fail "product route witness has no path: $route"
+  host=$(jq -er '.host|strings' <<<"$route") || fail "product route witness has no home host: $route"
+  # The pair is headless, so its published host ports are deliberately absent.
+  # Request the exact generated path inside the web container and retain the
+  # vhost Host header; this exercises WordPress' real request parser rather
+  # than the CLI URL-to-ID helper, which can observe stale rewrite state in a
+  # bootstrap immediately after a Woo permalink mutation.
+  response=$("${COMPOSE[@]}" exec -T "wp$side" curl -sS --max-time 20 \
+    -H "Host: $host" -w '\n__DUO_HTTP_STATUS__%{http_code}' \
+    "http://127.0.0.1$path") || fail "product route HTTP request failed on side $side: $path"
+  status=$(printf '%s\n' "$response" | tail -1)
+  status=${status#__DUO_HTTP_STATUS__}
+  body=$(printf '%s\n' "$response" | sed '$d')
+  [ "$status" = 200 ] || fail "product route did not return HTTP 200 on side $side: path=$path status=$status"
+  case "$body" in
+    *single-product*) ;;
+    *) fail "product route response is not a single-product page on side $side: path=$path" ;;
+  esac
+  case "$body" in
+    *"postid-$id"*) ;;
+    *) fail "product route response does not identify product $id on side $side: path=$path" ;;
+  esac
+  echo "$route" | jq --argjson status "$status" --argjson postid "$id" \
+    '. + {http_status:$status,single_product:true,postid:$postid}'
 }
 
 assert_live_source_file_hashes() { # side
@@ -414,7 +441,7 @@ echo "$SOURCE" | jq -e '
   (.woo.value|type=="object" and keys_unsorted==["product_base","category_base","tag_base","attribute_base","use_verbose_page_rules"])
 ' >/dev/null || fail "source Woo raw five-key witness is not exact: $SOURCE"
 SOURCE_ROUTE=$(product_route 1)
-echo "$SOURCE_ROUTE" | jq -e '.language=="en" and (.path|startswith("/en/catalogue/")) and (.path|endswith("/rewrite-coinstall-product/")) and .resolved==.id' >/dev/null || fail "source route does not exercise the directory-mode Woo grammar: $SOURCE_ROUTE"
+echo "$SOURCE_ROUTE" | jq -e '.language=="en" and (.path|startswith("/en/catalogue/")) and (.path|endswith("/rewrite-coinstall-product/")) and .http_status==200 and .single_product==true and .postid==.id' >/dev/null || fail "source route does not exercise the directory-mode Woo grammar: $SOURCE_ROUTE"
 BEFORE=$(witness 2)
 echo "$BEFORE" | jq -e '.woo!=null and (.woo.id|type=="number")' >/dev/null || fail "target lacks a pre-existing Woo option identity: $BEFORE"
 wp2 eval '
@@ -444,7 +471,7 @@ echo "$AFTER_RETRY" | jq -e --argjson source "$SOURCE" --argjson before "$BEFORE
 [ "$AFTER_RETRY" != "$BEFORE" ] || fail 'retry reported success without changing product-route evidence'
 TARGET_ROUTE=$(product_route 2)
 echo "$TARGET_ROUTE" | jq -e --argjson source "$SOURCE_ROUTE" '
-  .language=="en" and .path==$source.path and .resolved==.id and
+  .language=="en" and .path==$source.path and .http_status==200 and .single_product==true and .postid==.id and
   (.path|startswith("/en/catalogue/")) and (.path|endswith("/rewrite-coinstall-product/"))
 ' >/dev/null || fail "retry did not generate and resolve the exact directory-mode product route: $TARGET_ROUTE"
 pass 'closed sanitizer refusal restored raw witnesses; retry retained target row identity, copied the exact Woo row, and resolved the Polylang directory product route'
@@ -465,7 +492,7 @@ git -C "$R2" pull -q origin main
 REVISION=$(git -C "$R2" rev-parse HEAD)
 SOURCE_POLY=$(witness 1)
 SOURCE_ROUTE_POLY=$(product_route 1)
-echo "$SOURCE_ROUTE_POLY" | jq -e '.language=="en" and (.path|startswith("/en/atelier/")) and .resolved==.id' >/dev/null || fail "source route did not reach the next Polylang directory grammar: $SOURCE_ROUTE_POLY"
+echo "$SOURCE_ROUTE_POLY" | jq -e '.language=="en" and (.path|startswith("/en/atelier/")) and .http_status==200 and .single_product==true and .postid==.id' >/dev/null || fail "source route did not reach the next Polylang directory grammar: $SOURCE_ROUTE_POLY"
 BEFORE_POLY=$(witness 2)
 wp2 eval '
 $dir=WPMU_PLUGIN_DIR;if(!is_dir($dir)&&!wp_mkdir_p($dir)){throw new RuntimeException("no MU directory");}
@@ -496,7 +523,7 @@ echo "$AFTER_POLY_RETRY" | jq -e --argjson source "$SOURCE_POLY" --argjson befor
 ' >/dev/null || fail "Polylang dynamic retry did not preserve target row identity and copy the exact source Woo row: $AFTER_POLY_RETRY"
 TARGET_ROUTE_POLY=$(product_route 2)
 echo "$TARGET_ROUTE_POLY" | jq -e --argjson source "$SOURCE_ROUTE_POLY" '
-  .language=="en" and .path==$source.path and .resolved==.id and (.path|startswith("/en/atelier/"))
+  .language=="en" and .path==$source.path and .http_status==200 and .single_product==true and .postid==.id and (.path|startswith("/en/atelier/"))
 ' >/dev/null || fail "Polylang dynamic retry did not regenerate the exact directory product route: $TARGET_ROUTE_POLY"
 pass 'third-party Polylang dynamic callback refused before generation; retry copied the exact raw Woo witness and resolved the regenerated directory route'
 

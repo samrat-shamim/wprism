@@ -1799,7 +1799,8 @@ foreach ([
     'WC_REMOVE_ALL_DATA',
     'duo identity-export --repo=/siterepo',
     'db export /siterepo/.tmp-woocommerce-remove-all.sql --add-drop-table',
-    'mapped identity missing|identity history is missing',
+    'canonical mapped identity|refusing to (create|infer|rebind)',
+    'plan minted or rewrote identities before refusal',
     'identity sidecar witness mismatch',
     'db import /siterepo/.tmp-woocommerce-remove-all.sql',
     'database recovery did not restore the exact catalog/options/lookup preimage',
@@ -1811,6 +1812,33 @@ foreach ([
         "WooCommerce destructive lifecycle statically binds $destructiveEvidence"
     );
 }
+$canonicalMapGuard = (string) file_get_contents(
+    $root . '/agent/src/Repository/CanonicalLedgerMapGuard.php'
+);
+$snapshotService = (string) file_get_contents(
+    $root . '/agent/src/Capture/CaptureSnapshotService.php'
+);
+$canonicalRefusal = (string) file_get_contents(
+    $root . '/agent/src/Kernel/CommandRefusal.php'
+);
+foreach ([
+    'CanonicalMapWitness::assert_exact(',
+    'count($mappedRows) !== count($kinds)',
+    'canonicalIdentityRecoveryRequired($failure)',
+] as $guardEvidence) {
+    duo_check(
+        str_contains($canonicalMapGuard, $guardEvidence),
+        "WooCommerce destructive recovery guard statically binds $guardEvidence"
+    );
+}
+duo_check(
+    substr_count($snapshotService, 'CanonicalLedgerMapGuard::assert_pre_prune($policy, $repository)') === 2
+        && strpos($snapshotService, 'CanonicalLedgerMapGuard::assert_pre_prune($policy, $repository)')
+            < strpos($snapshotService, 'Ledger::prune_dead_map()')
+        && str_contains($canonicalRefusal, "'canonical_identity_recovery_required'")
+        && str_contains($canonicalRefusal, 'refusing to create or rebind it'),
+    'ordinary and strict plan observations preserve the stable pre-prune canonical recovery refusal'
+);
 
 $matrixDriver = (string) file_get_contents(
     $root . '/sandbox/tests/certify/certify_version_matrix.sh'

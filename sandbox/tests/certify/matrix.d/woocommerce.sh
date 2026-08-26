@@ -38,6 +38,7 @@ check_woocommerce_content() {
   local CONF_REPO2="siterepo/${PAIR}2"
   local WOOCOMMERCE_BOUNDARY_ONLY=1
   local WOOCOMMERCE_EXPECTED_VERSION="$WOO_VERSION"
+  local APPLY_JSON="${WOOCOMMERCE_BOUNDARY_PROVIDER_RECEIPT:-}"
   . conformance/checks/woocommerce.sh
 }
 

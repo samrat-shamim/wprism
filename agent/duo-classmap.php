@@ -49,6 +49,8 @@ return [
     'Duo\\CacheInvalidationTransaction' => 'src/Apply/CacheInvalidationTransaction.php',
     'Duo\\Canary' => 'src/Review/Canary.php',
     'Duo\\Canon' => 'src/Kernel/Canon.php',
+    'Duo\\CanonicalLedgerMapGuard' => 'src/Repository/CanonicalLedgerMapGuard.php',
+    'Duo\\CanonicalMapWitness' => 'src/Repository/CanonicalMapWitness.php',
     'Duo\\CanonicalSurfaces' => 'src/Repository/CanonicalSurfaces.php',
     'Duo\\Capture' => 'src/Capture/Capture.php',
     'Duo\\CaptureCandidateBuilder' => 'src/Capture/CaptureCandidateBuilder.php',

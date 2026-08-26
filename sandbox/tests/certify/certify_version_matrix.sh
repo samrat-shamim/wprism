@@ -1856,6 +1856,7 @@ EOF
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at woocommerce $WOO_VERSION"
+  WOOCOMMERCE_BOUNDARY_PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")
   pass "deploy + apply succeeded on side 2 (woocommerce $WOO_VERSION, HPOS, canary clean)"
 
   postapply_woocommerce_content
@@ -1903,6 +1904,10 @@ EOF
       2>&1 | tee "$VMATRIX_APPLY_LOG"
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
       || fail 'apply canary not clean after woocommerce 11.0.0 to 11.0.1 in-place upgrade'
+    UPGRADE_PROVIDER_COUNT=$(grep -Ec 'provider capability fired:' "$VMATRIX_APPLY_LOG" || true)
+    [ "$UPGRADE_PROVIDER_COUNT" -eq 1 ] \
+      && grep -Eq 'provider capability fired: woocommerce-product-lookups@3\.0\.0 rebuild_product_lookups \([0-9]+(\.[0-9]+)?s, verified\)' "$VMATRIX_APPLY_LOG" \
+      || fail 'WooCommerce 11.0.0 -> 11.0.1 product-note upgrade did not invoke exactly one verified product-lookup provider'
     SAVED_WOO_VERSION="$WOO_VERSION"
     WOO_VERSION=11.0.1
     check_woocommerce_content
