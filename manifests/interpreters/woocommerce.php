@@ -2065,15 +2065,13 @@ final class Woocommerce {
         if ($textDiagnostics !== [] || !is_string($value) || $value === '') {
             return $textDiagnostics;
         }
-        if (!function_exists('wc_format_decimal')) {
-            return [$this->diagnostic(
-                $path,
-                $locator,
-                'WooCommerce local-pickup cost cannot be validated because its native calculation API is unavailable'
-            )];
-        }
-        $formatted = \wc_format_decimal($value, false);
-        if (!is_string($formatted) || !is_numeric($value) || !hash_equals($value, $formatted)) {
+        // Deploy compiles before plugin activation (Policy.php:2566-2574), so
+        // repository validity cannot depend on Woo's runtime being loaded.
+        // Both admitted artifacts' wc_format_decimal($string, false) branch
+        // has this exact fixed-point language once its is_numeric() guard is
+        // applied: finite base-10 bytes, optional leading minus, no exponent,
+        // locale separator, whitespace, trailing dot, or normalization.
+        if (preg_match('/^-?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)$/D', $value) !== 1) {
             return [$this->diagnostic(
                 $path,
                 $locator,

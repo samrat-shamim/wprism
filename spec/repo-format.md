@@ -1064,7 +1064,7 @@ manifests/dispositions/<name>.json     # one document per adapter, the entry ver
 manifests/dispositions/profiles.json   # the profiles map, keyed independently of the manifest glob
 ```
 
-17 documents, 1,203 lines, 51,937 bytes — the same entries, the same profile, re-indented as 17 roots
+17 documents, 1,203 lines, 52,015 bytes — the same entries, the same profile, re-indented as 17 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
@@ -1702,7 +1702,7 @@ substitutable for another:
    executable repair AFTER the declarative primitives land, and the `compatibility_shim` share of NEWLY
    authored adapters has fallen below a threshold stated in advance of the measurement. The baseline is
    today's, measured over the shipped library: 11 of the 16 adapters name manifest-shipped hook code, and
-   that code is 20 files totalling 26,488 lines under `manifests/{interpreters,providers,regenerators}`.
+   that code is 20 files totalling 26,486 lines under `manifests/{interpreters,providers,regenerators}`.
    The baseline more than doubled with #561 alone — one adapter reaching production-readiness added a TEC
    interpreter and a Category Colors provider and rewrote its regenerator. Polylang then added the sixteenth
    hook file and 1,828 lines through its reviewed production-readiness port — which is the condition arguing

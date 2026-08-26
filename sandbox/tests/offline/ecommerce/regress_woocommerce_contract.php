@@ -1232,18 +1232,17 @@ woo_ok(
         <<<'SH'
 wp1 plugin install "$ARTIFACT" --force --activate >/dev/null
 woo_plugin_identity
-PLUGIN_TREE=$(woo_plugin_tree_hash)
-SH
-    )
-        && str_contains(
-            $wooMultisiteHarness,
-            <<<'SH'
 establish_woocommerce_hpos wp1 >/dev/null \
   || fail "could not establish HPOS through WooCommerce's native new-shop lifecycle"
 woo_identity
+PLUGIN_TREE=$(woo_plugin_tree_hash)
+require_observed_nonempty 'WooCommerce 11.0.1 plugin tree fingerprint' "$PLUGIN_TREE"
+pass 'exact WooCommerce 11.0.1 plugin tree is installed, active, and HPOS-enabled'
+
+say 'seed the populated native WooCommerce graph'
 SH
         ),
-    'Woo multisite verifies the exact active plugin first and asserts HPOS identity only after native HPOS setup'
+    'Woo multisite establishes and verifies native new-shop HPOS before seeding the populated refusal fixture'
 );
 
 // The live conformance script is the candidate proof, but this offline pin

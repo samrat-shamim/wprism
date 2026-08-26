@@ -33,9 +33,9 @@
  * `manifests/core.json`'s native rewrite action to declare TEC's rewrite
  * listener effects. The reviewed post-flag Polylang production-readiness port
  * likewise rewrote `manifests/polylang.json` and its per-subject disposition;
- * WooCommerce's final review moves its manifest lint declarations and its
- * per-subject disposition reason. Under AGENTS.md rule 2 those four adapters'
- * digests move BY DESIGN, and
+ * WooCommerce's final review moves its manifest lint/compile declarations,
+ * interpreter, and per-subject disposition reason. Under AGENTS.md rule 2
+ * those four adapters' digests move BY DESIGN, and
  * they post-date the flag day, so their frozen numbers are no longer shipped.
  *
  * Re-freezing the whole fixture at today's tree was the obvious repair and is
@@ -164,28 +164,28 @@ const REVIEWED_MOVES = [
         // .json promoted experimental -> certified. Both halves are inside the
         // digest row, so one number carries both.
         'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
-        // WooCommerce production readiness extends reviewed evidence and
-        // audits three numeric lint exemptions in the shipped manifest.
-        'woocommerce' => '6413c90a81585578f929c054ee2c78d40f43215cdc0ab58760f8c90875ffcaab',
+        // WooCommerce production readiness extends reviewed evidence, audits
+        // numeric lint exemptions, and closes inactive-target compilation.
+        'woocommerce' => 'f2e0cd9ac470a1bbba375fcc60e0fb1b03ddc1484a3f912baa75beff728a8c14',
     ],
     'manifest_bytes_sha256' => [
         'core' => 'a2f673cd4107e7b32cc6cfff6e84e7f6aca68b789234cbc8c686458fee4de5b3',
         'polylang' => 'db7130aecf89217cdca8f6591f4481391f61ae84632478f89191bdda74b488d3',
         'the-events-calendar' => '0c72e83a62ba5d461d975fd5380f49eab139d5413edaade07f7f47e396d80729',
-        'woocommerce' => '968c1c8ac7dcb9ce194a380f8fd3070eea344b3bb83fccf4201592e30cffd4a9',
+        'woocommerce' => '0de8c2690db1c3636591e2d4c1de2b49c0fdaa57be142080541d871e44ead989',
     ],
     'pin_sets' => [
-        'all-16' => '59edc970b479ebfbf602d8fd5e1061f42dfa91b0001fcac0d57be4ec69cbef4a',
+        'all-16' => '32fc384891aa6d7ae76441fe58bd8c92fd0c036ec119845d31312964d499b9da',
         'core+elementor+yoast+contact-form-7' => '52200323db9516a2eb7b5738540534aa58e9115c04fb3ddf0b182ea4089d27f9',
         'core+paid-memberships-pro+code-snippets' => '9d89e59d838e145cbd64c6b172ad5634886bdae6ea027eb8f41e57bcd1b048dc',
         'core+polylang+the-events-calendar' => '1d26c4687a24e143c8a24045ba85b370bd6d3aad11b16898b4f13966ba76e6e6',
-        'core+woocommerce+acf' => 'e6335b981e46f82e94a6a1f7479628da4f3aa396d8ff3c33cd61c8270cae2f20',
+        'core+woocommerce+acf' => '43133d8d951fd7f55a763f97fe13dd6f549cc5e3c2f5b27ffe2ac90d555c1b57',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC
     // and certifying Polylang plus WooCommerce move the whole-registry address
     // every host pins.
-    'registry_sha256' => '9fba173b9899e510796e94a82b653f85a665f10da4c91f35a8917849cd1d3d5f',
+    'registry_sha256' => 'd37455a599a54ad08ad0197052206bba1cf86dc3a797fc140b8610369f173e4e',
 ];
 
 duo_check(is_file($fixturePath), 'the frozen pre-flag identity fixture is in the tree');

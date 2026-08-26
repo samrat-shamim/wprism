@@ -29,7 +29,6 @@ $GLOBALS['wooReadinessBlogId'] = 1;
 $GLOBALS['wooReadinessNativeUrlCalls'] = [];
 $GLOBALS['wooReadinessNativeTextCalls'] = [];
 $GLOBALS['wooReadinessNativeHtmlCalls'] = [];
-$GLOBALS['wooReadinessNativeDecimalCalls'] = [];
 if (!function_exists('get_current_blog_id')) {
     function get_current_blog_id(): int {
         return (int) ($GLOBALS['wooReadinessBlogId'] ?? 1);
@@ -70,19 +69,6 @@ if (!function_exists('wp_kses_post')) {
         return strip_tags($value, '<a><br><em><strong>');
     }
 }
-if (!function_exists('wc_format_decimal')) {
-    function wc_format_decimal(mixed $value, mixed $decimals = false): string {
-        $GLOBALS['wooReadinessNativeDecimalCalls'][] = [$value, $decimals];
-        if ($value === '') {
-            return '';
-        }
-        $clean = (string) preg_replace('/\.(?![^.]+$)|[^0-9.-]/', '', (string) $value);
-        return $decimals === false
-            ? $clean
-            : number_format((float) $clean, (int) $decimals, '.', '');
-    }
-}
-
 final class WooReadinessWpdb {
     public function get_blog_prefix(int $blogId): string {
         return $blogId === 1 ? 'wp_' : "wp_{$blogId}_";
@@ -1480,6 +1466,9 @@ foreach ([
     ['title' => 'Pickup'],
     ['tax_status' => 'none'],
     ['cost' => '-12.50'],
+    ['cost' => '.5'],
+    ['cost' => '-.5'],
+    ['cost' => str_repeat('9', 1024)],
     ['enabled' => 'no', 'cost' => '0'],
 ] as $partialPickupSettings) {
     duo_check_same(
@@ -1550,6 +1539,36 @@ $invalidSettings = [
     ['woocommerce_pickup_location_settings', [
         'cost' => '12 USD',
     ], 'native decimal calculation bytes'],
+    ['woocommerce_pickup_location_settings', [
+        'cost' => '+12.50',
+    ], 'native decimal calculation bytes'],
+    ['woocommerce_pickup_location_settings', [
+        'cost' => '12.',
+    ], 'native decimal calculation bytes'],
+    ['woocommerce_pickup_location_settings', [
+        'cost' => '12,50',
+    ], 'native decimal calculation bytes'],
+    ['woocommerce_pickup_location_settings', [
+        'cost' => '--12.50',
+    ], 'native decimal calculation bytes'],
+    ['woocommerce_pickup_location_settings', [
+        'cost' => '1.2.3',
+    ], 'native decimal calculation bytes'],
+    ['woocommerce_pickup_location_settings', [
+        'cost' => ' 12.50',
+    ], 'native decimal calculation bytes'],
+    ['woocommerce_pickup_location_settings', [
+        'cost' => '12.50 ',
+    ], 'native decimal calculation bytes'],
+    ['woocommerce_pickup_location_settings', [
+        'cost' => 'INF',
+    ], 'native decimal calculation bytes'],
+    ['woocommerce_pickup_location_settings', [
+        'cost' => 'NaN',
+    ], 'native decimal calculation bytes'],
+    ['woocommerce_pickup_location_settings', [
+        'cost' => str_repeat('9', 1025),
+    ], 'valid UTF-8 without controls and at most 1024 bytes'],
     ['pickup_location_pickup_locations', [[
         'name' => 'Depot',
         'address' => [
@@ -1683,8 +1702,8 @@ duo_check(
 duo_check(
     $GLOBALS['wooReadinessNativeTextCalls'] !== []
         && $GLOBALS['wooReadinessNativeHtmlCalls'] !== []
-        && $GLOBALS['wooReadinessNativeDecimalCalls'] !== [],
-    'settings readiness executes the native text, HTML, and decimal calculation boundaries'
+        && !function_exists('wc_format_decimal'),
+    'settings readiness executes native WordPress sanitizers while decimal validation remains compile-safe with Woo inactive'
 );
 woo_readiness_reports(
     $interpreter,
