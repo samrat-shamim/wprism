@@ -165,6 +165,8 @@ final class Woocommerce {
     private const WOO_SETTINGS_TRACKING = 'WC_Settings_Tracking';
     private const WOO_SETTINGS_API_SHA256 =
         '1c7615bcd26fba9f83961db045edf6bd42acc6ee691383e8a8dd6f6a1e00434c';
+    private const WOO_FORMATTING_FUNCTIONS_SHA256 =
+        'c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41';
     private const WPSEO_SITEMAPS = 'WPSEO_Sitemaps';
     private const WPSEO_SITEMAPS_CACHE = 'WPSEO_Sitemaps_Cache';
     private const WPSEO_CONTAINER_REGISTRY = 'Yoast\\WP\\Lib\\Dependency_Injection\\Container_Registry';
@@ -1429,7 +1431,8 @@ final class Woocommerce {
 
 
     private function native_settings_api(): object {
-        if (!class_exists('WC_Settings_API', false)) {
+        if (!class_exists('WC_Settings_API', false)
+            || !function_exists('wc_sanitize_permalink')) {
             $this->load_native_settings_api();
         }
         if (!class_exists('WC_Settings_API', false)) {
@@ -1513,20 +1516,35 @@ final class Woocommerce {
             . DIRECTORY_SEPARATOR . 'includes'
             . DIRECTORY_SEPARATOR . 'abstracts'
             . DIRECTORY_SEPARATOR . 'abstract-wc-settings-api.php';
+        $formattingFile = $pluginRootReal
+            . DIRECTORY_SEPARATOR . 'includes'
+            . DIRECTORY_SEPARATOR . 'wc-formatting-functions.php';
         $settingsFileReal = realpath($settingsFile);
+        $formattingFileReal = realpath($formattingFile);
         $settingsHash = $settingsFileReal === false || !is_file($settingsFileReal)
             ? false
             : hash_file('sha256', $settingsFileReal);
+        $formattingHash = $formattingFileReal === false || !is_file($formattingFileReal)
+            ? false
+            : hash_file('sha256', $formattingFileReal);
         if ($settingsFileReal !== $settingsFile
             || !is_string($settingsHash)
-            || !hash_equals(self::WOO_SETTINGS_API_SHA256, $settingsHash)) {
+            || !hash_equals(self::WOO_SETTINGS_API_SHA256, $settingsHash)
+            || $formattingFileReal !== $formattingFile
+            || !is_string($formattingHash)
+            || !hash_equals(self::WOO_FORMATTING_FUNCTIONS_SHA256, $formattingHash)) {
             throw new \RuntimeException($message);
         }
         try {
-            // Exact Woo 11.0.0/11.0.1 includes this byte-identical abstract
-            // from class-woocommerce.php. A partial CLI load can establish
-            // both root constants before crossing that include edge.
-            require_once $settingsFileReal;
+            // Exact Woo 11.0.0/11.0.1 includes both byte-identical files from
+            // class-woocommerce.php. An inactive deploy needs the permalink
+            // sanitizer as well as WC_Settings_API before activation can run.
+            if (!function_exists('wc_sanitize_permalink')) {
+                require_once $formattingFileReal;
+            }
+            if (!class_exists('WC_Settings_API', false)) {
+                require_once $settingsFileReal;
+            }
         } catch (\Throwable $failure) {
             throw new \RuntimeException($message, 0, $failure);
         }

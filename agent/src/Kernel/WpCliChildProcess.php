@@ -20,6 +20,13 @@ final class WpCliChildProcess {
     private const MAX_COMMAND_LINE_BYTES = 327680;
     private const MAX_LAUNCH_LINE_BYTES = 1572864;
     private const MAX_CAPTURE_BYTES = 1048576;
+    // Woo + Yoast + Polylang + TEC needs 160 MiB merely to bootstrap the
+    // reviewed rewrite child. The caller may have raised its own limit, but
+    // PHP CLI flags are not present in $argv and therefore cannot be inferred
+    // after WordPress boot. Keep every owned PHP generation at the repository's
+    // measured finite 512 MiB WP-CLI ceiling instead of falling back to the
+    // image's 128 MiB default or inheriting an unbounded plugin-raised limit.
+    private const CHILD_MEMORY_LIMIT = '512M';
     // Yoast and Elementor's reviewed native commands each declare 600s;
     // ConvergenceVerifier admits 900s for its full snapshot verification, so
     // that exact longest caller is the hard ceiling rather than an open value.
@@ -244,6 +251,7 @@ final class WpCliChildProcess {
         }
 
         $commandLine = escapeshellarg($phpBinary)
+            . ' -d ' . escapeshellarg('memory_limit=' . self::CHILD_MEMORY_LIMIT)
             . ' ' . escapeshellarg($argv[0])
             . ' ' . $aliasPrefix . $runtime . ' ' . $command;
         if (strlen($commandLine) > self::MAX_COMMAND_LINE_BYTES || str_contains($commandLine, "\0")) {
@@ -255,6 +263,7 @@ final class WpCliChildProcess {
     /** Create the fixed session wrapper without reopening caller command policy. */
     private static function session_launch_line(string $phpBinary, string $commandLine): string {
         $launchLine = 'exec ' . escapeshellarg($phpBinary)
+            . ' -d ' . escapeshellarg('memory_limit=' . self::CHILD_MEMORY_LIMIT)
             . ' -r ' . escapeshellarg(self::SESSION_WRAPPER)
             . ' -- ' . escapeshellarg($commandLine);
         if (strlen($launchLine) > self::MAX_LAUNCH_LINE_BYTES || str_contains($launchLine, "\0")) {

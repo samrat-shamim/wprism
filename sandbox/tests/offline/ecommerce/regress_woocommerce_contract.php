@@ -932,15 +932,18 @@ $wooInterpreterSource = (string) file_get_contents($root . '/manifests/interpret
 // slug before the byte-identical settings abstract may be included.
 $settingsApiPath = 'includes/abstracts/abstract-wc-settings-api.php';
 $settingsApiHash = '1c7615bcd26fba9f83961db045edf6bd42acc6ee691383e8a8dd6f6a1e00434c';
+$formattingFunctionsPath = 'includes/wc-formatting-functions.php';
+$formattingFunctionsHash = 'c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41';
 $settingsApiLoaderHashes = [
     '11.0.0' => '5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4',
     '11.0.1' => '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7',
 ];
 woo_ok(
     ($settingsInventory['source_files'][$settingsApiPath] ?? null) === $settingsApiHash
+        && ($settingsInventory['source_files'][$formattingFunctionsPath] ?? null) === $formattingFunctionsHash
         && ($settingsInventory['version_specific_source_files']['includes/class-woocommerce.php'] ?? null)
             === $settingsApiLoaderHashes,
-    'the settings abstract and each exact WooCommerce loader remain pinned before partial-runtime loading is admitted'
+    'the settings abstract, permalink sanitizer, and each exact WooCommerce loader remain pinned before partial-runtime loading is admitted'
 );
 
 $settingsApiLoaderStart = strpos($wooInterpreterSource, 'private function load_native_settings_api(): void');
@@ -958,20 +961,26 @@ $nativeSettingsApi = $nativeSettingsApiStart !== false && $nativeSettingsApiEnd 
     ? substr($wooInterpreterSource, $nativeSettingsApiStart, $nativeSettingsApiEnd - $nativeSettingsApiStart)
     : '';
 $settingsApiClassCheck = strpos($nativeSettingsApi, "class_exists('WC_Settings_API', false)");
+$permalinkFunctionCheck = strpos($nativeSettingsApi, "function_exists('wc_sanitize_permalink')");
 $settingsApiLoad = strpos($nativeSettingsApi, '$this->load_native_settings_api();');
 $settingsApiRecheck = $settingsApiLoad === false
     ? false
     : strpos($nativeSettingsApi, "class_exists('WC_Settings_API', false)", $settingsApiLoad + 1);
 $settingsApiReflection = strpos($nativeSettingsApi, "new \\ReflectionClass('WC_Settings_API')");
 $settingsApiHashCheck = strpos($settingsApiLoader, "hash_equals(self::WOO_SETTINGS_API_SHA256, \$settingsHash)");
+$formattingHashCheck = strpos($settingsApiLoader, "hash_equals(self::WOO_FORMATTING_FUNCTIONS_SHA256, \$formattingHash)");
 $settingsApiRequire = strpos($settingsApiLoader, 'require_once $settingsFileReal;');
+$formattingRequire = strpos($settingsApiLoader, 'require_once $formattingFileReal;');
 woo_ok(
     str_contains($wooInterpreterSource, "private const WOO_SETTINGS_API_SHA256 =\n        '$settingsApiHash';")
+        && str_contains($wooInterpreterSource, "private const WOO_FORMATTING_FUNCTIONS_SHA256 =\n        '$formattingFunctionsHash';")
         && $settingsApiClassCheck !== false
+        && $permalinkFunctionCheck !== false
         && $settingsApiLoad !== false
         && $settingsApiRecheck !== false
         && $settingsApiReflection !== false
         && $settingsApiClassCheck < $settingsApiLoad
+        && $permalinkFunctionCheck < $settingsApiLoad
         && $settingsApiLoad < $settingsApiRecheck
         && $settingsApiRecheck < $settingsApiReflection
         && $settingsApiLoader !== ''
@@ -988,11 +997,17 @@ woo_ok(
         && str_contains($settingsApiLoader, '$pluginFileReal !== $installedFileReal')
         && str_contains($settingsApiLoader, "'woocommerce.php'")
         && str_contains($settingsApiLoader, "'abstract-wc-settings-api.php'")
+        && str_contains($settingsApiLoader, "'wc-formatting-functions.php'")
         && str_contains($settingsApiLoader, '$settingsFileReal !== $settingsFile')
+        && str_contains($settingsApiLoader, '$formattingFileReal !== $formattingFile')
         && $settingsApiHashCheck !== false
+        && $formattingHashCheck !== false
         && $settingsApiRequire !== false
-        && $settingsApiHashCheck < $settingsApiRequire,
-    'class-absent settings validation resolves inactive code from the fixed plugin root and checks active constants before its one guarded include'
+        && $formattingRequire !== false
+        && $settingsApiHashCheck < $formattingRequire
+        && $formattingHashCheck < $formattingRequire
+        && $formattingRequire < $settingsApiRequire,
+    'inactive settings validation resolves exact native permalink and settings bytes from the fixed plugin root before guarded includes'
 );
 woo_ok(
     substr_count($settingsApiLoader, "'duo: WooCommerce mixed option validation requires WC_Settings_API'") === 1

@@ -31,13 +31,14 @@ if (!class_exists('WP_CLI')) {
         public static function accepts_verify_command(string $command): bool {
             $repo = (string) ($GLOBALS['full_apply_repo'] ?? '');
             $separator = ' -- ';
-            $prefix = 'exec ' . escapeshellarg(PHP_BINARY) . ' -r ';
+            $memory = " -d 'memory_limit=512M'";
+            $prefix = 'exec ' . escapeshellarg(PHP_BINARY) . $memory . ' -r ';
             $separatorPosition = strpos($command, $separator);
             if ($repo === '' || !str_starts_with($command, $prefix) || $separatorPosition === false) return false;
             $inner = self::decode_shell_arg(substr($command, $separatorPosition + strlen($separator)));
             $argv0 = $GLOBALS['argv'][0] ?? null;
             $innerPrefix = is_string($argv0)
-                ? escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($argv0) . '  '
+                ? escapeshellarg(PHP_BINARY) . $memory . ' ' . escapeshellarg($argv0) . '  '
                 : '';
             if ($inner === null || $innerPrefix === '' || !str_starts_with($inner, $innerPrefix)) return false;
             $verify = substr($inner, strlen($innerPrefix));

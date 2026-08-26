@@ -1702,7 +1702,7 @@ substitutable for another:
    executable repair AFTER the declarative primitives land, and the `compatibility_shim` share of NEWLY
    authored adapters has fallen below a threshold stated in advance of the measurement. The baseline is
    today's, measured over the shipped library: 11 of the 16 adapters name manifest-shipped hook code, and
-   that code is 20 files totalling 27,431 lines under `manifests/{interpreters,providers,regenerators}`.
+   that code is 20 files totalling 27,449 lines under `manifests/{interpreters,providers,regenerators}`.
    The baseline more than doubled with #561 alone — one adapter reaching production-readiness added a TEC
    interpreter and a Category Colors provider and rewrote its regenerator. Polylang then added the sixteenth
    hook file and 1,828 lines through its reviewed production-readiness port — which is the condition arguing

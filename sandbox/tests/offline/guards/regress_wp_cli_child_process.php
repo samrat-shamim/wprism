@@ -159,6 +159,10 @@ if ($mode === 'receipt') {
     echo "{\"format\":\"bounded-receipt/v1\",\"verified\":true}\n";
     exit(0);
 }
+if ($mode === 'memory-limit') {
+    echo ini_get('memory_limit');
+    exit(0);
+}
 if ($mode === 'stderr-first') {
     for ($i = 0; $i < 96; $i++) {
         fwrite(STDERR, str_repeat('w', 8192));
@@ -316,6 +320,20 @@ PHP;
         ['Duo bounded child launch'],
         $GLOBALS['wp_cli_child_proc_checks'],
         'the helper preserves WP-CLI process-availability preflight'
+    );
+    $memoryReceipt = Duo\WpCliChildProcess::capture('memory-limit', 5, 65536, 65536);
+    duo_check_same(
+        ['return_code' => 0, 'stdout' => '512M', 'stderr' => ''],
+        $memoryReceipt,
+        'every descendant receives the explicit finite 512 MiB bootstrap ceiling instead of PHP CLI default memory'
+    );
+    $memoryLaunch = (string) end($GLOBALS['wp_cli_child_commands']);
+    $memoryInner = wp_cli_child_inner_command($memoryLaunch);
+    duo_check(
+        substr_count($memoryLaunch, 'memory_limit=512M') === 2
+            && str_contains($memoryLaunch, " -d 'memory_limit=512M' -r ")
+            && str_starts_with($memoryInner, escapeshellarg(PHP_BINARY) . " -d 'memory_limit=512M' "),
+        'both the session wrapper and owned WP-CLI command carry the same exact finite memory flag'
     );
     duo_check(
         str_starts_with((string) ($GLOBALS['wp_cli_child_commands'][0] ?? ''), 'exec ')

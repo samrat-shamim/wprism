@@ -1510,6 +1510,13 @@ wp_conf2 eval '
   global $wpdb;
   $wpdb->last_error = "";
   $wpdb->query("ALTER TABLE {$wpdb->prefix}wc_product_meta_lookup RENAME COLUMN min_price TO duo_fault_min_price");
+' >/dev/null 2>&1 || true
+# MariaDB can commit this DDL while its WP-CLI container returns nonzero during
+# shutdown. A fresh exact schema read is the authority: it detects both a DDL
+# that never landed and an ambiguous partial result without trusting transport.
+wp_conf2 eval '
+  global $wpdb;
+  $wpdb->last_error = "";
   $columns = $wpdb->get_col("SHOW COLUMNS FROM {$wpdb->prefix}wc_product_meta_lookup", 0);
   if ($wpdb->last_error !== "" || !is_array($columns)
       || !in_array("duo_fault_min_price", $columns, true) || in_array("min_price", $columns, true)) {
@@ -1538,6 +1545,10 @@ wp_conf2 eval '
   global $wpdb;
   $wpdb->last_error = "";
   $wpdb->query("ALTER TABLE {$wpdb->prefix}wc_product_meta_lookup RENAME COLUMN duo_fault_min_price TO min_price");
+' >/dev/null 2>&1 || true
+wp_conf2 eval '
+  global $wpdb;
+  $wpdb->last_error = "";
   $columns = $wpdb->get_col("SHOW COLUMNS FROM {$wpdb->prefix}wc_product_meta_lookup", 0);
   if ($wpdb->last_error !== "" || !is_array($columns)
       || !in_array("min_price", $columns, true) || in_array("duo_fault_min_price", $columns, true)) {
