@@ -2341,8 +2341,12 @@ foreach ([
     'Polylang sitemap rewrite callback is not the runtime-owned sitemap service',
     '["product_base","category_base","tag_base","attribute_base","use_verbose_page_rules"]',
     '$wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name=%s LIMIT 1","rewrite_rules")',
-    '$bytes="<?php\\nadd_filter(\\"clean_url\\",static fn(\\$url)=>\\$url,10,3);\\n"',
-    'duo-woo-polylang-dynamic-hostile.php',
+    'install_hostile_mu() { # basename; plugin bytes on stdin',
+    'exec -T --user root wp2 sh -c',
+    'install_hostile_mu duo-woo-rewrite-hostile.php <<\'PHP\'',
+    'remove_hostile_mu duo-woo-rewrite-hostile.php',
+    'install_hostile_mu duo-woo-polylang-dynamic-hostile.php <<\'PHP\'',
+    'remove_hostile_mu duo-woo-polylang-dynamic-hostile.php',
     'third-party Polylang dynamic callback unexpectedly allowed apply',
     'third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses',
     'Polylang dynamic retry did not preserve target row identity and copy the exact source Woo row',
@@ -2359,6 +2363,8 @@ woo_ok(!str_contains($wooRewriteCoInstallHarness, '$args[0]'),
     'co-install source hashing uses WP-CLI global execution state, not unsupported eval positional arguments');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, 'url_to_postid('),
     'co-install product-route evidence uses the real HTTP parser, not the CLI url_to_postid helper');
+woo_ok(!str_contains($wooRewriteCoInstallHarness, 'file_put_contents($path,$bytes)'),
+    'co-install hostile MU fixtures do not assume the unprivileged WP-CLI process owns the webroot');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, '[[$yoast,"filter_rewrite_rules_option",10,1]]'),
     'co-install callback identity tuples keep the callable nested separately from priority and arity');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, 'option_name="rewrite_rules"'),

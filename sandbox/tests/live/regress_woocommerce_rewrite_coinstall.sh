@@ -38,6 +38,31 @@ wp_side() { # side wp-arguments...
 }
 wp1() { wp_side 1 "$@"; }
 wp2() { wp_side 2 "$@"; }
+install_hostile_mu() { # basename; plugin bytes on stdin
+  local name="$1" path
+  [[ "$name" =~ ^duo-woo-[a-z0-9-]+\.php$ ]] || fail "invalid hostile MU-plugin name: $name"
+  path="/var/www/html/wp-content/mu-plugins/$name"
+  # WordPress images may create mu-plugins as root:root 0755. Runtime fixture
+  # ownership belongs to the disposable web container, so use its explicit
+  # root boundary and atomically publish one world-readable hostile file.
+  "${COMPOSE[@]}" exec -T --user root wp2 sh -c '
+set -eu
+mkdir -p "$(dirname "$1")"
+tmp="$1.tmp.$$"
+trap '\''rm -f "$tmp"'\'' EXIT HUP INT TERM
+umask 022
+cat >"$tmp"
+chmod 0644 "$tmp"
+mv "$tmp" "$1"
+trap - EXIT HUP INT TERM
+' sh "$path"
+}
+remove_hostile_mu() { # basename
+  local name="$1" path
+  [[ "$name" =~ ^duo-woo-[a-z0-9-]+\.php$ ]] || fail "invalid hostile MU-plugin name: $name"
+  path="/var/www/html/wp-content/mu-plugins/$name"
+  "${COMPOSE[@]}" exec -T --user root wp2 sh -c 'test -f "$1" && rm "$1"' sh "$path"
+}
 R1="siterepo/$PAIR""1"
 R2="siterepo/$PAIR""2"
 ORIGIN="siterepo/origin-$PAIR.git"
@@ -444,9 +469,10 @@ SOURCE_ROUTE=$(product_route 1)
 echo "$SOURCE_ROUTE" | jq -e '.language=="en" and (.path|startswith("/en/catalogue/")) and (.path|endswith("/rewrite-coinstall-product/")) and .http_status==200 and .single_product==true and .postid==.id' >/dev/null || fail "source route does not exercise the directory-mode Woo grammar: $SOURCE_ROUTE"
 BEFORE=$(witness 2)
 echo "$BEFORE" | jq -e '.woo!=null and (.woo.id|type=="number")' >/dev/null || fail "target lacks a pre-existing Woo option identity: $BEFORE"
-wp2 eval '
-$dir=WPMU_PLUGIN_DIR;if(!is_dir($dir)&&!wp_mkdir_p($dir)){throw new RuntimeException("no MU directory");}$path=$dir."/duo-woo-rewrite-hostile.php";$bytes="<?php\nadd_filter(\"clean_url\",static fn(\$url)=>\$url,10,3);\n";if(file_put_contents($path,$bytes)!==strlen($bytes)){throw new RuntimeException("could not install hostile callback");}
-' >/dev/null
+install_hostile_mu duo-woo-rewrite-hostile.php <<'PHP'
+<?php
+add_filter("clean_url", static fn($url) => $url, 10, 3);
+PHP
 set +e
 FAILED=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" 2>&1)
 RC=$?
@@ -457,9 +483,7 @@ AFTER_FAILED=$(witness 2)
 [ "$AFTER_FAILED" = "$BEFORE" ] || fail "failed apply changed permalink/Woo/rewrite/TEC witnesses
 before=$BEFORE
 after=$AFTER_FAILED"
-wp2 eval '
-$path=WPMU_PLUGIN_DIR."/duo-woo-rewrite-hostile.php";if(!is_file($path)||!unlink($path)){throw new RuntimeException("could not remove hostile callback");}
-' >/dev/null
+remove_hostile_mu duo-woo-rewrite-hostile.php
 RETRY=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json | tail -1) || fail 'retry failed'
 echo "$RETRY" | jq -e '.canary=="clean" and (.actions|any(.kind=="provider" and .source=="provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes" and .verified==true))' >/dev/null || fail "retry receipt missing: $RETRY"
 AFTER_RETRY=$(witness 2)
@@ -494,12 +518,12 @@ SOURCE_POLY=$(witness 1)
 SOURCE_ROUTE_POLY=$(product_route 1)
 echo "$SOURCE_ROUTE_POLY" | jq -e '.language=="en" and (.path|startswith("/en/atelier/")) and .http_status==200 and .single_product==true and .postid==.id' >/dev/null || fail "source route did not reach the next Polylang directory grammar: $SOURCE_ROUTE_POLY"
 BEFORE_POLY=$(witness 2)
-wp2 eval '
-$dir=WPMU_PLUGIN_DIR;if(!is_dir($dir)&&!wp_mkdir_p($dir)){throw new RuntimeException("no MU directory");}
-$path=$dir."/duo-woo-polylang-dynamic-hostile.php";
-$bytes="<?php\nadd_filter(\"pll_modify_rewrite_rule\", static function(bool \$modify, array \$rule, string \$type, string|false \$archive): bool { return \$modify; }, 10, 4);\n";
-if(file_put_contents($path,$bytes)!==strlen($bytes)){throw new RuntimeException("could not install hostile Polylang callback");}
-' >/dev/null
+install_hostile_mu duo-woo-polylang-dynamic-hostile.php <<'PHP'
+<?php
+add_filter("pll_modify_rewrite_rule", static function (bool $modify, array $rule, string $type, string|false $archive): bool {
+    return $modify;
+}, 10, 4);
+PHP
 set +e
 FAILED_POLY=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" 2>&1)
 RC=$?
@@ -510,10 +534,7 @@ AFTER_POLY_FAILED=$(witness 2)
 [ "$AFTER_POLY_FAILED" = "$BEFORE_POLY" ] || fail "third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses
 before=$BEFORE_POLY
 after=$AFTER_POLY_FAILED"
-wp2 eval '
-$path=WPMU_PLUGIN_DIR."/duo-woo-polylang-dynamic-hostile.php";
-if(!is_file($path)||!unlink($path)){throw new RuntimeException("could not remove hostile Polylang callback");}
-' >/dev/null
+remove_hostile_mu duo-woo-polylang-dynamic-hostile.php
 RETRY_POLY=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json | tail -1) || fail 'Polylang dynamic retry failed'
 echo "$RETRY_POLY" | jq -e '.canary=="clean" and (.actions|any(.kind=="provider" and .source=="provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes" and .verified==true))' >/dev/null || fail "Polylang dynamic retry receipt missing: $RETRY_POLY"
 AFTER_POLY_RETRY=$(witness 2)
