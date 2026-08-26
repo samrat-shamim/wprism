@@ -250,6 +250,7 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   local forced_source forced_target
   forced_source=$(wp1 duo deploy --repo=/siterepo --force-code-drift 2>&1)
   forced_target=$(wp2 duo deploy --repo=/siterepo --force-code-drift 2>&1)
+  normalize_woocommerce_harness_placeholder_mode wp2
   grep -q 'FORCED past code_drift' <<<"$forced_source" \
     && grep -q 'FORCED past code_drift' <<<"$forced_target" \
     || fail "WooCommerce explicit downgrade re-baseline did not report both forced decisions: source=$forced_source target=$forced_target"
@@ -323,6 +324,7 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   wp2 plugin is-active woocommerce >/dev/null 2>&1 && fail "WooCommerce $version deactivation premise did not land"
   wp2 duo deploy --repo=/siterepo >/dev/null
   wp2 plugin is-active woocommerce >/dev/null || fail "WooCommerce $version deploy did not reactivate the exact plugin"
+  normalize_woocommerce_harness_placeholder_mode wp2
   reactivated_native=$(woocommerce_boundary_observation)
   [ "$reactivated_native" = "$before_native" ] || fail "WooCommerce $version deactivate/reactivate changed native authored or target-runtime state"
   wp2 plugin deactivate woocommerce >/dev/null
@@ -342,6 +344,7 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   [ "$(wp2 plugin get woocommerce --field=version)" = "$version" ] || fail "WooCommerce exact reinstall reported the wrong version at $version"
   wp2 duo deploy --repo=/siterepo >/dev/null
   wp2 plugin is-active woocommerce >/dev/null || fail "WooCommerce $version exact reinstall was not active after deploy"
+  normalize_woocommerce_harness_placeholder_mode wp2
   check_woocommerce_content
   wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-lifecycle-final >/dev/null
   lifecycle_diff=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-woo-lifecycle-final" || true)

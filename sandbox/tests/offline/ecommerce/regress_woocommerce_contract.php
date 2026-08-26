@@ -158,8 +158,8 @@ woo_ok(($operationalSourceUnion['classification_counts'] ?? null) === [
         '11.0.1' => 'e73e5fe1dd2844bf2bdc3a59bf728b6d38aee79b2152f616f2f993f515975c76',
     ],
 ], 'the operational union freezes every class count and both exact artifact-specific source authorities');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 90,
-    'the inventory binds all ninety byte-identical visible, operational, migration, gateway, email, pickup, scheduler, stock-notification, launch, image-regeneration, and frontend-read sources');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 93,
+    'the inventory binds all ninety-three byte-identical visible, operational, migration, gateway, email, pickup, scheduler, stock-notification, launch, image-regeneration, attachment-bootstrap, and frontend-read sources');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''
@@ -167,6 +167,15 @@ foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $s
         "$sourceFile carries one exact shared 11.0.0/11.0.1 source digest"
     );
 }
+woo_ok(
+    ($settingsInventory['source_files']['includes/admin/class-wc-admin-upload-downloadable-product.php'] ?? null)
+        === '9429ae47760787c84156b9c29514294e49b0d4ec98856b43bb0a704435f82c1e'
+        && ($settingsInventory['source_files']['includes/admin/class-wc-admin-post-types.php'] ?? null)
+            === '65743558642c7c92aa15d5971ebafc310d4e3a8dd076c84f1e033861b6d6c601'
+        && ($settingsInventory['source_files']['src/Admin/API/Init.php'] ?? null)
+            === 'b0d48420c2337f176bbab5d1b1bba662e6f8b58c96eef33cb04ab0e5d0727691',
+    'both exact admin bootstrap paths register one byte-identical downloadable-upload callback authority'
+);
 woo_ok(
     ($settingsInventory['source_files']['src/Internal/CustomerEmailVerification/CustomerEmailVerification.php'] ?? null)
         === '612b2808300ffdc219f2c8764602311ceacb0fdf6cd240501c1f5783905c8cdf'
@@ -1220,6 +1229,74 @@ woo_ok(
             < strpos($wooPostdeployHarness, 'wc_create_order()')
         && $executableHposCli === [],
     'every exact Woo live track establishes and verifies HPOS through one warning-free native new-shop helper before orders'
+);
+$wooMatrixPlaceholderNormalization = strpos(
+    $matrixHarness,
+    'normalize_woocommerce_harness_placeholder_mode wp2'
+);
+$wooMatrixApplyAfterNormalization = $wooMatrixPlaceholderNormalization === false
+    ? false
+    : strpos(
+        $matrixHarness,
+        'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts',
+        $wooMatrixPlaceholderNormalization
+    );
+$wooMatrixUpgradeNormalization = $wooMatrixPlaceholderNormalization === false
+    ? false
+    : strpos(
+        $matrixHarness,
+        'normalize_woocommerce_harness_placeholder_mode wp2',
+        $wooMatrixPlaceholderNormalization + 1
+    );
+$wooMatrixUpgradeApply = $wooMatrixUpgradeNormalization === false
+    ? false
+    : strpos(
+        $matrixHarness,
+        'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts',
+        $wooMatrixUpgradeNormalization
+    );
+$wooReinstallDeploy = strpos($wooCheckHarness, 'REINSTALL_DEPLOY=');
+$wooReinstallNormalization = $wooReinstallDeploy === false
+    ? false
+    : strpos(
+        $wooCheckHarness,
+        'normalize_woocommerce_harness_placeholder_mode wp_conf2',
+        $wooReinstallDeploy
+    );
+$wooFinalApply = $wooReinstallNormalization === false
+    ? false
+    : strpos($wooCheckHarness, 'FINAL_APPLY=', $wooReinstallNormalization);
+$wooLifecycleReinstall = strpos($woocommerceMatrixHarness, 'wp2 plugin install "$artifact" --force');
+$wooLifecycleNormalization = $wooLifecycleReinstall === false
+    ? false
+    : strpos(
+        $woocommerceMatrixHarness,
+        'normalize_woocommerce_harness_placeholder_mode wp2',
+        $wooLifecycleReinstall
+    );
+woo_ok(
+    substr_count($conformanceAssertsHarness, 'normalize_woocommerce_harness_placeholder_mode()') === 1
+        && str_contains($conformanceAssertsHarness, '019e9beec61c9ee5b6009335c7846816452e1e3b420d2bb9e50327681dfade19')
+        && str_contains($conformanceAssertsHarness, '$mode !== 0666 || !@chmod($path, 0644)')
+        && substr_count($conformanceRunnerHarness, 'normalize_woocommerce_harness_placeholder_mode wp_conf2') === 1
+        && substr_count($wooCheckHarness, 'normalize_woocommerce_harness_placeholder_mode wp_conf2') === 2
+        && strpos($conformanceRunnerHarness, 'normalize_woocommerce_harness_placeholder_mode wp_conf2')
+            < strpos($conformanceRunnerHarness, 'say "apply conf2 (content only')
+        && $wooReinstallNormalization !== false
+        && $wooFinalApply !== false
+        && $wooReinstallNormalization < $wooFinalApply
+        && substr_count($matrixHarness, 'normalize_woocommerce_harness_placeholder_mode wp2') === 2
+        && $wooMatrixApplyAfterNormalization !== false
+        && $wooMatrixUpgradeNormalization !== false
+        && $wooMatrixUpgradeApply !== false
+        && $wooMatrixUpgradeNormalization < $wooMatrixUpgradeApply
+        && substr_count($woocommerceMatrixHarness, 'normalize_woocommerce_harness_placeholder_mode wp2') === 3
+        && $wooLifecycleNormalization !== false
+        && !str_contains($conformanceRunnerHarness, 'chmod -R')
+        && !str_contains($wooCheckHarness, 'chmod -R')
+        && !str_contains($matrixHarness, 'chmod -R')
+        && !str_contains($woocommerceMatrixHarness, 'chmod -R'),
+    'every exact Woo target apply, upgrade, and reinstall normalizes only the hash-bound placeholder created by the cooperative test umask'
 );
 woo_ok(
     str_contains($wooMultisiteHarness, 'ARTIFACT=$(fetch_artifact woocommerce 11.0.1 cli1 plugin)')

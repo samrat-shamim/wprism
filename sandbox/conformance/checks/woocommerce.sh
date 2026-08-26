@@ -1605,6 +1605,7 @@ wp_conf2 plugin is-active woocommerce >/dev/null 2>&1 && fail 'WooCommerce deact
 REACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered 'WooCommerce deploy after deactivation' json "$REACTIVATE"
 wp_conf2 plugin is-active woocommerce >/dev/null || fail 'Duo deploy did not reactivate exact WooCommerce code'
+normalize_woocommerce_harness_placeholder_mode wp_conf2
 LIFECYCLE_BEFORE=$(woocommerce_storage_hash)
 wp_conf2 plugin deactivate woocommerce >/dev/null
 wp_conf2 plugin uninstall woocommerce >/dev/null
@@ -1626,6 +1627,7 @@ wp_conf2 plugin install "$WOO_ARTIFACT" --force >/dev/null
 REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered 'WooCommerce deploy after exact reinstall' json "$REINSTALL_DEPLOY"
 wp_conf2 plugin is-active woocommerce >/dev/null || fail 'WooCommerce exact reinstall was not active after deploy'
+normalize_woocommerce_harness_placeholder_mode wp_conf2
 RECOVERED=$(observe_woocommerce_adoption)
 jq -e --argjson ids "$TARGET_ADOPT" '
   .product.id == $ids.product and .product.name == "Concurrent WooCommerce intent 東京 🚀" and

@@ -578,7 +578,11 @@ final class Woocommerce {
             }
             $expected[$key] = ['class' => 'authored'];
         }
-        if ($subKeys !== $expected) {
+        // sub_keys is a JSON object, so key insertion order carries no
+        // authority. Compiled snapshots canonicalize nested maps; compare the
+        // canonical contract bytes so a source-manifest order and a compiled
+        // order cannot disagree while every key/rule remains exact.
+        if (!hash_equals(Canon::encode($subKeys), Canon::encode($expected))) {
             throw new \RuntimeException(
                 "duo: WooCommerce mixed option '$name' sub-key contract disagrees with the exact 11.0.x registry"
             );

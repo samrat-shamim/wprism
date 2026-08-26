@@ -1845,6 +1845,7 @@ EOF
   [ "$INSTALLED_2" = "$WOO_VERSION" ] || fail "side 2 installed version mismatch: expected $WOO_VERSION, got $INSTALLED_2"
 
   wp2 duo deploy --repo=/siterepo
+  normalize_woocommerce_harness_placeholder_mode wp2
   postdeploy_woocommerce_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
@@ -1888,6 +1889,7 @@ EOF
       || fail 'WooCommerce target in-place upgrade did not install exact 11.0.1'
     git -C "siterepo/${PAIR}2" pull -q origin main
     wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    normalize_woocommerce_harness_placeholder_mode wp2
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
     wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
       2>&1 | tee "$VMATRIX_APPLY_LOG"

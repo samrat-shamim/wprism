@@ -147,9 +147,11 @@ final class WoocommerceHierarchyLookups {
                     'duo: WooCommerce product permalink reconciliation accepts no arguments'
                 );
             }
+            $after = self::product_permalink_projection(true, true);
+            self::native_rewrite_evidence();
             return [
                 'operation' => $operation,
-                'after' => self::product_permalink_projection(true, true, true),
+                'after' => $after,
                 'verified' => true,
             ];
         }
@@ -163,9 +165,13 @@ final class WoocommerceHierarchyLookups {
                 'duo: WooCommerce hierarchy reconciliation requires the exact boolean flush_rewrite argument'
             );
         }
+        $after = self::projection_snapshot(true, (bool) $args['flush_rewrite']);
+        if ((bool) $args['flush_rewrite']) {
+            self::native_rewrite_evidence();
+        }
         return [
             'operation' => $operation,
-            'after' => self::projection_snapshot(true, (bool) $args['flush_rewrite'], (bool) $args['flush_rewrite']),
+            'after' => $after,
             'verified' => true,
         ];
     }
@@ -183,7 +189,10 @@ final class WoocommerceHierarchyLookups {
         // observable and repairable; malformed authored hierarchy is not.
         $before = self::projection_snapshot(false, $flushRewrite);
         $childAfter = $this->launch_child($flushRewrite);
-        $after = self::projection_snapshot(true, $flushRewrite, $flushRewrite);
+        $after = self::projection_snapshot(true, $flushRewrite);
+        if ($flushRewrite) {
+            self::native_rewrite_evidence();
+        }
         self::assert_authored_source_unchanged($before, $after, $flushRewrite);
         if ($childAfter !== $after) {
             throw new \RuntimeException(
@@ -211,7 +220,12 @@ final class WoocommerceHierarchyLookups {
         // this Woo adapter guessing a closed set of plugin callbacks.
         $before = self::product_permalink_projection(true, false);
         \Duo\NativeActions::execute('rewrite.flush', []);
-        $after = self::product_permalink_projection(true, true, true);
+        $after = self::product_permalink_projection(true, true);
+        // Native rewrite evidence is post-action verification rather than a
+        // second writable surface or a preimage. Validate it without placing
+        // post-action values in either side of the provider receipt; the raw
+        // option projection alone states what changed.
+        self::native_rewrite_evidence();
         self::assert_product_permalink_source_unchanged($before, $after);
         return ['before' => $before, 'after' => $after, 'verified' => true];
     }
@@ -390,8 +404,9 @@ final class WoocommerceHierarchyLookups {
 
         if ($flushRewrite) {
             \Duo\NativeActions::execute('rewrite.flush', []);
+            self::native_rewrite_evidence();
         }
-        $after = self::projection_snapshot(true, $flushRewrite, $flushRewrite);
+        $after = self::projection_snapshot(true, $flushRewrite);
         echo json_encode(
             ['format' => self::CHILD_FORMAT, 'after' => $after],
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
@@ -418,8 +433,7 @@ final class WoocommerceHierarchyLookups {
     /** @return array<string,int|string|bool> */
     private static function projection_snapshot(
         bool $verify,
-        bool $includeRewrite,
-        bool $includeNativeRewriteEvidence = false
+        bool $includeRewrite
     ): array {
         self::assert_database_identity();
         self::assert_category_lookup_schema();
@@ -461,9 +475,6 @@ final class WoocommerceHierarchyLookups {
             $summary['brand_permalink_sha256'] = self::brand_permalink_state()['brand_permalink_sha256'];
             $summary = array_merge($summary, self::permalink_structure_state());
             $summary = array_merge($summary, self::rewrite_rules_state($verify));
-            if ($includeNativeRewriteEvidence) {
-                $summary = array_merge($summary, self::native_rewrite_evidence());
-            }
         }
         return $summary;
     }
@@ -471,8 +482,7 @@ final class WoocommerceHierarchyLookups {
     /** @return array<string,int|string|bool> */
     private static function product_permalink_projection(
         bool $verifyPermalink,
-        bool $verifyRewrite,
-        bool $includeNativeRewriteEvidence = false
+        bool $verifyRewrite
     ): array {
         self::assert_options_database_identity();
         $projection = array_merge(
@@ -481,9 +491,6 @@ final class WoocommerceHierarchyLookups {
             self::permalink_structure_state(),
             self::rewrite_rules_state($verifyRewrite)
         );
-        if ($includeNativeRewriteEvidence) {
-            $projection = array_merge($projection, self::native_rewrite_evidence());
-        }
         return $projection;
     }
 

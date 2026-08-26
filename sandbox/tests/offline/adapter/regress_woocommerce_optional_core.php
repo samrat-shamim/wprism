@@ -739,6 +739,33 @@ foreach ($emailRecords as $optionName => $record) {
     $expected = $captured;
     ksort($expected, SORT_STRING);
     duo_check_same($expected, $normalized, "$optionName normalizes every portable native email field exactly");
+    if ($optionName === 'woocommerce_admin_payment_gateway_enabled_settings') {
+        $compiledOrderRules = $rules;
+        ksort($compiledOrderRules, SORT_STRING);
+        duo_check_same(
+            $normalized,
+            $woocommerceInterpreter->normalize_captured_option_sub_keys(
+                (string) $optionName,
+                $captured,
+                $compiledOrderRules,
+                [(string) $optionName => serialize($rawRecord)]
+            ),
+            'compiled canonical sub-key order retains the exact Woo admin-payment email contract'
+        );
+        $missingCompiledRule = $compiledOrderRules;
+        unset($missingCompiledRule['preheader']);
+        duo_check_throws(
+            static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
+                (string) $optionName,
+                $captured,
+                $missingCompiledRule,
+                [(string) $optionName => serialize($rawRecord)]
+            ),
+            RuntimeException::class,
+            'canonical map comparison still refuses one missing Woo email sibling',
+            'sub-key contract disagrees'
+        );
+    }
 
     $target = [];
     foreach ($rules as $field => $rule) {
@@ -1010,6 +1037,27 @@ duo_check_same(
             && str_contains((string) ($entry['sql'] ?? ''), 'woocommerce_shipping_zone_methods')
     )),
     'COD capture witnesses each instance through one bounded raw shipping-zone-method query'
+);
+$compiledNestedCodRules = $gatewayRules['woocommerce_cod_settings'];
+$compiledNestedCodRules['enable_for_methods']['json_refs'][0] = [
+    'kind' => 'wc_zone_method',
+    'path' => '$.*.instance_id',
+];
+$codQueriesBeforeCanonicalReplay = count($wpdb->queryLog());
+duo_check_same(
+    $codNormalized,
+    $woocommerceInterpreter->normalize_captured_option_sub_keys(
+        'woocommerce_cod_settings',
+        $codSource,
+        $compiledNestedCodRules,
+        ['woocommerce_cod_settings' => serialize($codSource)]
+    ),
+    'compiled canonical nested json-ref key order retains the exact COD method-instance contract'
+);
+duo_check_same(
+    2,
+    count($wpdb->queryLog()) - $codQueriesBeforeCanonicalReplay,
+    'canonical-order replay still witnesses each COD instance exactly once'
 );
 duo_check_same(0, WC_Shipping_Zones::$resolverCalls,
     'COD capture does not construct or resolve a hook-capable Woo shipping service');

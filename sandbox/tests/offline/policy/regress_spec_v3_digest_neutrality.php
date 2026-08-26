@@ -164,28 +164,29 @@ const REVIEWED_MOVES = [
         // .json promoted experimental -> certified. Both halves are inside the
         // digest row, so one number carries both.
         'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
-        // WooCommerce production readiness extends reviewed evidence, audits
-        // numeric lint exemptions, and closes inactive-target compilation.
-        'woocommerce' => 'f2e0cd9ac470a1bbba375fcc60e0fb1b03ddc1484a3f912baa75beff728a8c14',
+        // WooCommerce production readiness extends reviewed evidence, closes
+        // exact attachment callback isolation and provider receipt semantics,
+        // and binds the canonical mixed-option contract.
+        'woocommerce' => 'c36138cad07eeda8f843d3a92fc898d924165b9cd00f724dbc0f033421556e92',
     ],
     'manifest_bytes_sha256' => [
         'core' => 'a2f673cd4107e7b32cc6cfff6e84e7f6aca68b789234cbc8c686458fee4de5b3',
         'polylang' => 'db7130aecf89217cdca8f6591f4481391f61ae84632478f89191bdda74b488d3',
         'the-events-calendar' => '0c72e83a62ba5d461d975fd5380f49eab139d5413edaade07f7f47e396d80729',
-        'woocommerce' => '0de8c2690db1c3636591e2d4c1de2b49c0fdaa57be142080541d871e44ead989',
+        'woocommerce' => 'dccc013287f344f8dd9ee50a7a3f8a50ca08cdcbe8d40f3366320cdd5776a4af',
     ],
     'pin_sets' => [
-        'all-16' => '32fc384891aa6d7ae76441fe58bd8c92fd0c036ec119845d31312964d499b9da',
+        'all-16' => 'e31a3a766b8460bffb73af9a98ad68504840a22940ea164ded46ca86363e6783',
         'core+elementor+yoast+contact-form-7' => '52200323db9516a2eb7b5738540534aa58e9115c04fb3ddf0b182ea4089d27f9',
         'core+paid-memberships-pro+code-snippets' => '9d89e59d838e145cbd64c6b172ad5634886bdae6ea027eb8f41e57bcd1b048dc',
         'core+polylang+the-events-calendar' => '1d26c4687a24e143c8a24045ba85b370bd6d3aad11b16898b4f13966ba76e6e6',
-        'core+woocommerce+acf' => '43133d8d951fd7f55a763f97fe13dd6f549cc5e3c2f5b27ffe2ac90d555c1b57',
+        'core+woocommerce+acf' => 'd054fc4ada2b150e020a61d3e519af822efd5d1e8d04e5377bb03a4fb87076a1',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC
     // and certifying Polylang plus WooCommerce move the whole-registry address
     // every host pins.
-    'registry_sha256' => 'd37455a599a54ad08ad0197052206bba1cf86dc3a797fc140b8610369f173e4e',
+    'registry_sha256' => '49c84c27e199e198ac4452d52177fd732d7b1c33110e75a3d74a6a463be1a3f8',
 ];
 
 duo_check(is_file($fixturePath), 'the frozen pre-flag identity fixture is in the tree');

@@ -659,13 +659,14 @@ function woo_hierarchy_test_native_child(bool $flushRewrite): object {
 
     if ($flushRewrite) {
         \Duo\NativeActions::execute('rewrite.flush', []);
+        \Duo\NativeActions::rewrite_evidence();
     }
 
     $snapshot = new ReflectionMethod(
         \Duo\Providers\WoocommerceHierarchyLookups::class,
         'projection_snapshot'
     );
-    $after = $snapshot->invoke(null, true, $flushRewrite, $flushRewrite);
+    $after = $snapshot->invoke(null, true, $flushRewrite);
     return (object) [
         'return_code' => 0,
         'stdout' => json_encode(
@@ -857,6 +858,23 @@ duo_check(($productPretty['after']['permalink_structure_present'] ?? null) === t
     && ($productPretty['after']['rewrite_rules_valid'] ?? false) === true
     && ($productPretty['after']['rewrite_rules'] ?? null) === 4,
     'pretty core permalinks bind the single native child generation to ordered rewrite bytes');
+$productPrettyNoOp = \Duo\Providers::invoke(
+    $provider,
+    [
+        'provider' => 'woocommerce-hierarchy-lookups',
+        'capability' => 'rebuild_product_permalink_routes',
+        'args' => [],
+    ],
+    $capabilities['rebuild_product_permalink_routes'],
+    []
+);
+duo_check(($productPrettyNoOp['verified'] ?? null) === true
+    && ($productPrettyNoOp['before'] ?? null) === ($productPrettyNoOp['after'] ?? null)
+    && array_filter(
+        array_keys((array) ($productPrettyNoOp['before'] ?? [])),
+        static fn(string $key): bool => str_starts_with($key, 'native_rewrite_')
+    ) === [],
+    'a converged product-route receipt publishes only its true pre/post durable projection, never post-action evidence as a preimage');
 
 $nativeFirstHelperRow = [
     'product_base' => 'shop/%product_cat%',
@@ -938,13 +956,18 @@ woo_hierarchy_test_install_native_hook('updated_option', [
     [[$tecListener, 'update_last_save_post'], 10, 3],
 ]);
 $mixedRoute = $provider->invoke('rebuild_product_permalink_routes', []);
+$mixedNativeEvidence = \Duo\NativeActions::rewrite_evidence();
 duo_check(($mixedRoute['after']['rewrite_rules_valid'] ?? false) === true
-    && ($mixedRoute['after']['native_rewrite_rules_type'] ?? null) === 'array'
-    && ($mixedRoute['after']['native_rewrite_runtime_rules_type'] ?? null) === 'array'
-    && ($mixedRoute['after']['native_rewrite_rules_count'] ?? null) === 6
-    && ($mixedRoute['after']['native_rewrite_runtime_rules_count'] ?? null) === 7
-    && ($mixedRoute['after']['native_rewrite_rules_sha256'] ?? null)
-        !== ($mixedRoute['after']['native_rewrite_runtime_rules_sha256'] ?? null)
+    && array_filter(
+        array_keys((array) ($mixedRoute['after'] ?? [])),
+        static fn(string $key): bool => str_starts_with($key, 'native_rewrite_')
+    ) === []
+    && ($mixedNativeEvidence['rules_type'] ?? null) === 'array'
+    && ($mixedNativeEvidence['runtime_rules_type'] ?? null) === 'array'
+    && ($mixedNativeEvidence['rules_count'] ?? null) === 6
+    && ($mixedNativeEvidence['runtime_rules_count'] ?? null) === 7
+    && ($mixedNativeEvidence['rules_hash'] ?? null)
+        !== ($mixedNativeEvidence['runtime_rules_hash'] ?? null)
     && $tecRewrite->generationCalls === 1
     && $polylangLinks->dynamicTypeCalls === 1
     && $pllModifyCalls === 1
@@ -954,7 +977,7 @@ duo_check(($mixedRoute['after']['rewrite_rules_valid'] ?? false) === true
         'tribe_last_save_post',
     ]
     && $GLOBALS['wooHierarchyTecPurgeRequested'] === true,
-    'mixed Woo+Yoast+Polylang+TEC delegates one generation to Core: durable/effective Yoast rules differ, Polylang dynamic type/third-party callback runs, and TEC records all marker effects');
+    'mixed Woo+Yoast+Polylang+TEC delegates one generation to Core: native evidence verifies the durable/effective split without entering the receipt preimage, Polylang dynamic type/third-party callback runs, and TEC records all marker effects');
 duo_check(array_keys(array_intersect_key(WpStore::instance()->options, array_flip($tecListener->writes)))
     === $tecListener->writes,
     'mixed Woo+TEC listener writes are explicit option effects rather than an untracked request-local side effect');

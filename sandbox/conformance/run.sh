@@ -449,6 +449,10 @@ if [ "$DEPLOY_RC" != "0" ]; then
 fi
 echo "$DEPLOY_OUT" | jq .
 pass "deploy succeeded on conf2"
+if [ "$MANIFEST" = woocommerce ]; then
+  normalize_woocommerce_harness_placeholder_mode wp_conf2
+  pass 'target WooCommerce placeholder is exact and safe after the cooperative test umask'
+fi
 
 say "acceptance: conf2's activation/theme state matches canonical, from deploy alone"
 CANON_ACTIVE=$(jq -r '.records.active_plugins.value[]? | split("/")[0]' "$R1"/state/options/core.json | sort -u)
