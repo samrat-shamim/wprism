@@ -1702,7 +1702,7 @@ substitutable for another:
    executable repair AFTER the declarative primitives land, and the `compatibility_shim` share of NEWLY
    authored adapters has fallen below a threshold stated in advance of the measurement. The baseline is
    today's, measured over the shipped library: 11 of the 16 adapters name manifest-shipped hook code, and
-   that code is 20 files totalling 27,449 lines under `manifests/{interpreters,providers,regenerators}`.
+   that code is 20 files totalling 27,643 lines under `manifests/{interpreters,providers,regenerators}`.
    The baseline more than doubled with #561 alone — one adapter reaching production-readiness added a TEC
    interpreter and a Category Colors provider and rewrote its regenerator. Polylang then added the sixteenth
    hook file and 1,828 lines through its reviewed production-readiness port — which is the condition arguing
@@ -1716,6 +1716,9 @@ substitutable for another:
    Closing Woo's reciprocal union, including its inert-only settings tracker, TEC's five exact
    `updated_option` observers, and the hash-bound partial-load settings authority, added 561 lines to the
    Woo interpreter; source-bound callback identity and observer-state inspection keep that admission finite.
+   The inactive-Woo lifecycle correction added a net 194 lines for exact installed-root and native-file
+   provenance plus a bounded stdin child that validates permalink bytes without preloading Woo's bare-required
+   formatter into the activation process; the baseline moves because those executable bytes ship with the adapter.
 2. **Falsifiable effects.** Declared-effect verification is live and REFUSING, with a measured
    false-refusal rate on the shipped 16 below a stated threshold — because the compiled inventory is
    recovery's entire authority, and under-declaring `effects[]` is the cheapest way for an adapter to pass.

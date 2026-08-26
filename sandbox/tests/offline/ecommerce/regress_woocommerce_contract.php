@@ -949,7 +949,7 @@ woo_ok(
 $settingsApiLoaderStart = strpos($wooInterpreterSource, 'private function load_native_settings_api(): void');
 $settingsApiLoaderEnd = $settingsApiLoaderStart === false
     ? false
-    : strpos($wooInterpreterSource, 'private function assert_native_mixed_field(', $settingsApiLoaderStart);
+    : strpos($wooInterpreterSource, 'private static function native_validation_files(): array', $settingsApiLoaderStart);
 $settingsApiLoader = $settingsApiLoaderStart !== false && $settingsApiLoaderEnd !== false
     ? substr($wooInterpreterSource, $settingsApiLoaderStart, $settingsApiLoaderEnd - $settingsApiLoaderStart)
     : '';
@@ -960,58 +960,92 @@ $nativeSettingsApiEnd = $nativeSettingsApiStart === false
 $nativeSettingsApi = $nativeSettingsApiStart !== false && $nativeSettingsApiEnd !== false
     ? substr($wooInterpreterSource, $nativeSettingsApiStart, $nativeSettingsApiEnd - $nativeSettingsApiStart)
     : '';
+$nativeValidationFilesStart = strpos($wooInterpreterSource, 'private static function native_validation_files(): array');
+$nativeValidationFilesEnd = $nativeValidationFilesStart === false
+    ? false
+    : strpos($wooInterpreterSource, 'private function assert_native_permalink_record(', $nativeValidationFilesStart);
+$nativeValidationFiles = $nativeValidationFilesStart !== false && $nativeValidationFilesEnd !== false
+    ? substr($wooInterpreterSource, $nativeValidationFilesStart, $nativeValidationFilesEnd - $nativeValidationFilesStart)
+    : '';
+$nativePermalinkRecordStart = strpos($wooInterpreterSource, 'private function assert_native_permalink_record(');
+$nativePermalinkRecordEnd = $nativePermalinkRecordStart === false
+    ? false
+    : strpos($wooInterpreterSource, 'private function assert_native_permalink_child(', $nativePermalinkRecordStart);
+$nativePermalinkRecord = $nativePermalinkRecordStart !== false && $nativePermalinkRecordEnd !== false
+    ? substr($wooInterpreterSource, $nativePermalinkRecordStart, $nativePermalinkRecordEnd - $nativePermalinkRecordStart)
+    : '';
+$nativePermalinkChildStart = strpos($wooInterpreterSource, 'private function assert_native_permalink_child(');
+$nativePermalinkChildEnd = $nativePermalinkChildStart === false
+    ? false
+    : strpos($wooInterpreterSource, 'public static function run_native_permalink_child(): void', $nativePermalinkChildStart);
+$nativePermalinkChild = $nativePermalinkChildStart !== false && $nativePermalinkChildEnd !== false
+    ? substr($wooInterpreterSource, $nativePermalinkChildStart, $nativePermalinkChildEnd - $nativePermalinkChildStart)
+    : '';
+$nativePermalinkRunnerStart = strpos($wooInterpreterSource, 'public static function run_native_permalink_child(): void');
+$nativePermalinkRunnerEnd = $nativePermalinkRunnerStart === false
+    ? false
+    : strpos($wooInterpreterSource, 'private function assert_native_mixed_field(', $nativePermalinkRunnerStart);
+$nativePermalinkRunner = $nativePermalinkRunnerStart !== false && $nativePermalinkRunnerEnd !== false
+    ? substr($wooInterpreterSource, $nativePermalinkRunnerStart, $nativePermalinkRunnerEnd - $nativePermalinkRunnerStart)
+    : '';
 $settingsApiClassCheck = strpos($nativeSettingsApi, "class_exists('WC_Settings_API', false)");
-$permalinkFunctionCheck = strpos($nativeSettingsApi, "function_exists('wc_sanitize_permalink')");
 $settingsApiLoad = strpos($nativeSettingsApi, '$this->load_native_settings_api();');
 $settingsApiRecheck = $settingsApiLoad === false
     ? false
     : strpos($nativeSettingsApi, "class_exists('WC_Settings_API', false)", $settingsApiLoad + 1);
 $settingsApiReflection = strpos($nativeSettingsApi, "new \\ReflectionClass('WC_Settings_API')");
-$settingsApiHashCheck = strpos($settingsApiLoader, "hash_equals(self::WOO_SETTINGS_API_SHA256, \$settingsHash)");
-$formattingHashCheck = strpos($settingsApiLoader, "hash_equals(self::WOO_FORMATTING_FUNCTIONS_SHA256, \$formattingHash)");
-$settingsApiRequire = strpos($settingsApiLoader, 'require_once $settingsFileReal;');
-$formattingRequire = strpos($settingsApiLoader, 'require_once $formattingFileReal;');
+$settingsApiHashCheck = strpos($nativeValidationFiles, "hash_equals(self::WOO_SETTINGS_API_SHA256, \$settingsHash)");
+$formattingHashCheck = strpos($nativeValidationFiles, "hash_equals(self::WOO_FORMATTING_FUNCTIONS_SHA256, \$formattingHash)");
+$settingsApiRequire = strpos($settingsApiLoader, "require_once \$files['settings'];");
+$formattingRequire = strpos($nativePermalinkRunner, "require_once \$files['formatting'];");
 woo_ok(
     str_contains($wooInterpreterSource, "private const WOO_SETTINGS_API_SHA256 =\n        '$settingsApiHash';")
         && str_contains($wooInterpreterSource, "private const WOO_FORMATTING_FUNCTIONS_SHA256 =\n        '$formattingFunctionsHash';")
         && $settingsApiClassCheck !== false
-        && $permalinkFunctionCheck !== false
         && $settingsApiLoad !== false
         && $settingsApiRecheck !== false
         && $settingsApiReflection !== false
         && $settingsApiClassCheck < $settingsApiLoad
-        && $permalinkFunctionCheck < $settingsApiLoad
         && $settingsApiLoad < $settingsApiRecheck
         && $settingsApiRecheck < $settingsApiReflection
         && $settingsApiLoader !== ''
-        && str_contains($settingsApiLoader, "defined('ABSPATH')")
-        && str_contains($settingsApiLoader, "defined('WP_PLUGIN_DIR')")
-        && str_contains($settingsApiLoader, "constant('ABSPATH')")
-        && str_contains($settingsApiLoader, "constant('WP_PLUGIN_DIR')")
-        && str_contains($settingsApiLoader, "constant('WC_ABSPATH')")
-        && str_contains($settingsApiLoader, "constant('WC_PLUGIN_FILE')")
-        && str_contains($settingsApiLoader, "realpath(\$pluginDirectoryReal . DIRECTORY_SEPARATOR . 'woocommerce')")
-        && str_contains($settingsApiLoader, "realpath(\$installedRootReal . DIRECTORY_SEPARATOR . 'woocommerce.php')")
-        && str_contains($settingsApiLoader, '$hasConfiguredRoot !== $hasPluginFile')
-        && str_contains($settingsApiLoader, '$configuredRootReal !== $installedRootReal')
-        && str_contains($settingsApiLoader, '$pluginFileReal !== $installedFileReal')
-        && str_contains($settingsApiLoader, "'woocommerce.php'")
-        && str_contains($settingsApiLoader, "'abstract-wc-settings-api.php'")
-        && str_contains($settingsApiLoader, "'wc-formatting-functions.php'")
-        && str_contains($settingsApiLoader, '$settingsFileReal !== $settingsFile')
-        && str_contains($settingsApiLoader, '$formattingFileReal !== $formattingFile')
+        && $nativeValidationFiles !== ''
+        && str_contains($nativeValidationFiles, "defined('ABSPATH')")
+        && str_contains($nativeValidationFiles, "defined('WP_PLUGIN_DIR')")
+        && str_contains($nativeValidationFiles, "constant('WC_ABSPATH')")
+        && str_contains($nativeValidationFiles, "constant('WC_PLUGIN_FILE')")
+        && str_contains($nativeValidationFiles, "realpath(\$pluginDirectoryReal . DIRECTORY_SEPARATOR . 'woocommerce')")
+        && str_contains($nativeValidationFiles, "realpath(\$installedRootReal . DIRECTORY_SEPARATOR . 'woocommerce.php')")
+        && str_contains($nativeValidationFiles, '$hasConfiguredRoot !== $hasPluginFile')
+        && str_contains($nativeValidationFiles, '$configuredRootReal !== $installedRootReal')
+        && str_contains($nativeValidationFiles, '$pluginFileReal !== $installedFileReal')
+        && str_contains($nativeValidationFiles, "'abstract-wc-settings-api.php'")
+        && str_contains($nativeValidationFiles, "'wc-formatting-functions.php'")
+        && str_contains($nativeValidationFiles, '$settingsFileReal !== $settingsFile')
+        && str_contains($nativeValidationFiles, '$formattingFileReal !== $formattingFile')
         && $settingsApiHashCheck !== false
         && $formattingHashCheck !== false
         && $settingsApiRequire !== false
         && $formattingRequire !== false
-        && $settingsApiHashCheck < $formattingRequire
-        && $formattingHashCheck < $formattingRequire
-        && $formattingRequire < $settingsApiRequire,
-    'inactive settings validation resolves exact native permalink and settings bytes from the fixed plugin root before guarded includes'
+        && !str_contains($settingsApiLoader, "\$files['formatting']")
+        && !str_contains($nativeSettingsApi, "function_exists('wc_sanitize_permalink')")
+        && str_contains($nativePermalinkRecord, "defined('WPINC')")
+        && str_contains($nativePermalinkRecord, "new \\ReflectionFunction('wc_sanitize_permalink')")
+        && str_contains($nativePermalinkRecord, '$reflection->getFileName()')
+        && str_contains($nativePermalinkRecord, 'realpath($declaringFile)')
+        && str_contains($nativePermalinkRecord, "hash_equals(\$files['formatting'], \$declaringFileReal)")
+        && str_contains($nativePermalinkRecord, 'native permalink authority is substituted')
+        && str_contains($nativePermalinkChild, 'WpCliChildProcess::capture_with_input(')
+        && str_contains($nativePermalinkChild, "'eval ' . escapeshellarg(\$code)")
+        && str_contains($nativePermalinkChild, "'duo-woocommerce-native-permalink-input/v1'")
+        && str_contains($nativePermalinkRunner, 'stream_get_contents(STDIN, 16385)')
+        && str_contains($nativePermalinkRunner, "'duo-woocommerce-native-permalink-receipt/v1'")
+        && str_contains($nativePermalinkRunner, "hash('sha256', \$canonical)"),
+    'inactive validation hash-binds both native files, rejects substituted loaded sanitizers, keeps formatting bytes out of the activation process, and sends bounded permalink state to a fresh child over stdin'
 );
 woo_ok(
-    substr_count($settingsApiLoader, "'duo: WooCommerce mixed option validation requires WC_Settings_API'") === 1
-        && substr_count($settingsApiLoader, 'throw new \\RuntimeException($message') >= 4,
+    substr_count($nativeValidationFiles, "'duo: WooCommerce mixed option validation requires WC_Settings_API'") === 1
+        && substr_count($nativeValidationFiles, 'throw new \\RuntimeException($message') >= 4,
     'missing, mismatched, and substituted settings-file authorities retain the established WC_Settings_API refusal'
 );
 
@@ -2092,6 +2126,7 @@ foreach ([
     'def static_rewrite_hook:',
     '(.source_files|length==55)',
     '(.static_callbacks|length==39)',
+    '(.dynamic_callback_containers|length==4)',
     'WP_CLI_MEMORY_LIMIT=512M',
     '--entrypoint php',
     '-d "memory_limit=$WP_CLI_MEMORY_LIMIT" /usr/local/bin/wp',
@@ -2140,6 +2175,8 @@ foreach ([
     '"callbacks"=>"exact-singletons"',
     'Polylang dynamic rewrite callback differs from the directory links model',
     '.links_model=="PLL_Links_Directory"',
+    '.sitemaps=="PLL_Sitemaps"',
+    'Polylang sitemap rewrite callback is not the runtime-owned sitemap service',
     'duo-woo-polylang-dynamic-hostile.php',
     'third-party Polylang dynamic callback unexpectedly allowed apply',
     'third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses',

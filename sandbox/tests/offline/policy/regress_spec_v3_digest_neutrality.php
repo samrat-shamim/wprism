@@ -169,7 +169,7 @@ const REVIEWED_MOVES = [
         // exact attachment callback isolation and provider receipt semantics,
         // binds the canonical mixed-option contract, and records the
         // source-audited WordPress 7.1 thumbnail-failure behavior.
-        'woocommerce' => '13373f0e535a7a65aedf138b55c02af785e44fd70cee66faaebf1daca75b3e2a',
+        'woocommerce' => 'd0eb2e72f121649a4367a50ab59361efc5ca2a24e991c20cc43728f37e4bbfcf',
         // Yoast's exact Woo permalink observer is replaced only when this
         // manifest selects the fully checkpointed yoast-index action.
         'yoast' => '389934c1b3638e4a93284eaaf3cee98a15eaeb76302f4f28b9f1cf1526504609',
@@ -182,11 +182,11 @@ const REVIEWED_MOVES = [
         'yoast' => 'f0ed2a23b8224c11d777218029f347e86db9977659f845cebddcc75152de31f1',
     ],
     'pin_sets' => [
-        'all-16' => 'a77db060ad58498ee883131dd30deef28cd81d9cb8a8f4cf4efa1a0e4d40cbdb',
+        'all-16' => '45285420196f8c427d5c203f5ac39fba075ce9642adc0a7924d1a45ef78fb12c',
         'core+elementor+yoast+contact-form-7' => 'a6da23ffb29487eba791c26c9215c170ed1a27db42caf5ae89226db4cc5747f7',
         'core+paid-memberships-pro+code-snippets' => '9d89e59d838e145cbd64c6b172ad5634886bdae6ea027eb8f41e57bcd1b048dc',
         'core+polylang+the-events-calendar' => 'cbc901cf349e27ade6fbc08b1e8ba7f8cb4988770b605a378bda59108be2b0ad',
-        'core+woocommerce+acf' => 'bae8dccf8a6c21926e6d0dd7cde8df51317e8215d580e9ca21ad16a44fbfbef8',
+        'core+woocommerce+acf' => 'a6227757f9d5917489285f5e481e8478d587c0c1f7ff14583dffc2d266a6ebe4',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC

@@ -6,6 +6,11 @@ namespace Duo\Interpreters;
 use Duo\Canon;
 use Duo\PlainData;
 use Duo\Policy;
+use Duo\WpCliChildProcess;
+
+if (!class_exists(WpCliChildProcess::class, false)) {
+    require_once __DIR__ . '/../../agent/src/Kernel/WpCliChildProcess.php';
+}
 
 /**
  * Exact WooCommerce 11.0.0 and 11.0.1 read `_product_attributes` as a
@@ -363,10 +368,16 @@ final class Woocommerce {
         }
 
         $this->assert_mixed_validation_topology($fields, $rawAuthored);
-        $api = $this->native_settings_api();
+        $api = $name === 'woocommerce_permalinks' ? null : $this->native_settings_api();
+        if ($name === 'woocommerce_permalinks') {
+            $this->assert_native_permalink_record($name, $rawAuthored, $fields, 'source');
+        }
         foreach ($rawAuthored as $key => $value) {
             if ($fields[$key] === 'cod_methods') {
                 $captured[$key] = $this->canonical_cod_methods($value, 'source');
+                continue;
+            }
+            if ($name === 'woocommerce_permalinks') {
                 continue;
             }
             $this->assert_native_mixed_field($api, $name, $key, $fields[$key], $value, 'source');
@@ -407,7 +418,10 @@ final class Woocommerce {
         $this->assert_permalink_record_complete($name, $captured, $fields, 'repository');
 
         $this->assert_mixed_validation_topology($fields, $captured);
-        $api = $this->native_settings_api();
+        $api = $name === 'woocommerce_permalinks' ? null : $this->native_settings_api();
+        if ($name === 'woocommerce_permalinks') {
+            $this->assert_native_permalink_record($name, $captured, $fields, 'repository');
+        }
         $nativeAuthored = [];
         foreach ($captured as $key => $value) {
             $type = $fields[(string) $key];
@@ -420,7 +434,9 @@ final class Woocommerce {
                 $nativeAuthored[(string) $key] = $this->native_cod_methods($value, 'target');
                 continue;
             }
-            $this->assert_native_mixed_field($api, $name, (string) $key, $type, $value, 'repository');
+            if ($name !== 'woocommerce_permalinks') {
+                $this->assert_native_mixed_field($api, $name, (string) $key, $type, $value, 'repository');
+            }
             $nativeAuthored[(string) $key] = $value;
         }
 
@@ -540,7 +556,10 @@ final class Woocommerce {
             $desired[$key] = true;
         }
         $this->assert_mixed_validation_topology($fields, $rawAuthored);
-        $api = $this->native_settings_api();
+        $api = $name === 'woocommerce_permalinks' ? null : $this->native_settings_api();
+        if ($name === 'woocommerce_permalinks') {
+            $this->assert_native_permalink_record($name, $rawAuthored, $fields, 'finalized target');
+        }
         $projected = [];
         foreach ($rawAuthored as $key => $value) {
             $type = $fields[(string) $key];
@@ -553,14 +572,16 @@ final class Woocommerce {
                 $projected[(string) $key] = $this->canonical_cod_methods($value, 'finalized target');
                 continue;
             }
-            $this->assert_native_mixed_field(
-                $api,
-                $name,
-                (string) $key,
-                $type,
-                $value,
-                'finalized target'
-            );
+            if ($name !== 'woocommerce_permalinks') {
+                $this->assert_native_mixed_field(
+                    $api,
+                    $name,
+                    (string) $key,
+                    $type,
+                    $value,
+                    'finalized target'
+                );
+            }
             if (!isset($desired[(string) $key])) {
                 continue;
             }
@@ -1431,8 +1452,7 @@ final class Woocommerce {
 
 
     private function native_settings_api(): object {
-        if (!class_exists('WC_Settings_API', false)
-            || !function_exists('wc_sanitize_permalink')) {
+        if (!class_exists('WC_Settings_API', false)) {
             $this->load_native_settings_api();
         }
         if (!class_exists('WC_Settings_API', false)) {
@@ -1464,6 +1484,25 @@ final class Woocommerce {
     }
 
     private function load_native_settings_api(): void {
+        $files = self::native_validation_files();
+        try {
+            // Exact Woo 11.0.0/11.0.1 loads this class with include_once, so
+            // an inactive lifecycle snapshot may safely bind its stateless
+            // validators before the same process activates the plugin.
+            if (!class_exists('WC_Settings_API', false)) {
+                require_once $files['settings'];
+            }
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: WooCommerce mixed option validation requires WC_Settings_API',
+                0,
+                $failure
+            );
+        }
+    }
+
+    /** @return array{settings:string,formatting:string} */
+    private static function native_validation_files(): array {
         $message = 'duo: WooCommerce mixed option validation requires WC_Settings_API';
         if (!defined('ABSPATH')
             || !defined('WP_PLUGIN_DIR')) {
@@ -1535,18 +1574,173 @@ final class Woocommerce {
             || !hash_equals(self::WOO_FORMATTING_FUNCTIONS_SHA256, $formattingHash)) {
             throw new \RuntimeException($message);
         }
+        return ['settings' => $settingsFileReal, 'formatting' => $formattingFileReal];
+    }
+
+    /** @param array<string,mixed> $value @param array<string,string> $fields */
+    private function assert_native_permalink_record(
+        string $name,
+        array $value,
+        array $fields,
+        string $where
+    ): void {
+        $permalinks = [];
+        foreach ($value as $key => $fieldValue) {
+            $type = $fields[(string) $key] ?? null;
+            if ($type === 'permalink_bool') {
+                if (!is_bool($fieldValue)) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce mixed option '$name.$key' $where is not exact native boolean state"
+                    );
+                }
+                continue;
+            }
+            $this->assert_bounded_mixed_text($name, (string) $key, $fieldValue, $where);
+            if ($type !== 'permalink'
+                || strlen($fieldValue) > self::MAX_PERMALINK_BYTES
+                || ($key !== 'attribute_base' && $fieldValue === '')) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name.$key' $where is outside the bounded native permalink state"
+                );
+            }
+            if ($key === 'product_base'
+                && rtrim($fieldValue, "/\\") . '/' === '/%product_brand%/') {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name.$key' $where bypasses the native Brands product-base guard"
+                );
+            }
+            $permalinks[(string) $key] = $fieldValue;
+        }
+        ksort($permalinks, SORT_STRING);
+        if (function_exists('wc_sanitize_permalink')) {
+            // A loaded WordPress target always defines WPINC (the platform
+            // gate uses the same fact). Partial-load policy fixtures do not
+            // own target mutation and may supply a pure sanitizer double; on
+            // the real path, a same-named global from any byte but the pinned
+            // Woo formatter is substituted authority and must refuse.
+            if (defined('WPINC')) {
+                $files = self::native_validation_files();
+                $reflection = new \ReflectionFunction('wc_sanitize_permalink');
+                $declaringFile = $reflection->getFileName();
+                $declaringFileReal = is_string($declaringFile) ? realpath($declaringFile) : false;
+                if ($declaringFileReal === false
+                    || !hash_equals($files['formatting'], $declaringFileReal)) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce mixed option '$name' $where native permalink authority is substituted"
+                    );
+                }
+            }
+            foreach ($permalinks as $key => $fieldValue) {
+                $canonical = wc_sanitize_permalink($fieldValue);
+                if (!is_string($canonical) || !hash_equals($fieldValue, $canonical)) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce mixed option '$name.$key' $where is not canonical native permalink storage"
+                    );
+                }
+            }
+            return;
+        }
+        $this->assert_native_permalink_child($name, $permalinks, $where);
+    }
+
+    /** @param array<string,string> $permalinks */
+    private function assert_native_permalink_child(string $name, array $permalinks, string $where): void {
+        $payload = Canon::encode([
+            'format' => 'duo-woocommerce-native-permalink-input/v1',
+            'values' => $permalinks,
+        ]);
+        $code = 'require_once ' . var_export(__FILE__, true) . '; '
+            . '\\Duo\\Interpreters\\Woocommerce::run_native_permalink_child();';
         try {
-            // Exact Woo 11.0.0/11.0.1 includes both byte-identical files from
-            // class-woocommerce.php. An inactive deploy needs the permalink
-            // sanitizer as well as WC_Settings_API before activation can run.
-            if (!function_exists('wc_sanitize_permalink')) {
-                require_once $formattingFileReal;
-            }
-            if (!class_exists('WC_Settings_API', false)) {
-                require_once $settingsFileReal;
-            }
+            $result = WpCliChildProcess::capture_with_input(
+                'eval ' . escapeshellarg($code),
+                $payload,
+                120,
+                4096,
+                16384
+            );
         } catch (\Throwable $failure) {
-            throw new \RuntimeException($message, 0, $failure);
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name' $where native permalink validation could not start",
+                0,
+                $failure
+            );
+        }
+        if ($result['return_code'] !== 0 || $result['stderr'] !== '') {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name' $where native permalink validation failed"
+            );
+        }
+        try {
+            $receipt = Canon::decode($result['stdout']);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name' $where native permalink validation returned malformed evidence",
+                0,
+                $failure
+            );
+        }
+        $expected = [];
+        foreach ($permalinks as $key => $fieldValue) {
+            $expected[$key] = hash('sha256', $fieldValue);
+        }
+        if (!is_array($receipt)
+            || array_keys($receipt) !== ['digests', 'format']
+            || ($receipt['format'] ?? null) !== 'duo-woocommerce-native-permalink-receipt/v1'
+            || ($receipt['digests'] ?? null) !== $expected
+            || !hash_equals(Canon::encode($receipt), $result['stdout'])) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name' $where is not canonical native permalink storage"
+            );
+        }
+    }
+
+    /** Fresh-process entrypoint for inactive permalink validation. */
+    public static function run_native_permalink_child(): void {
+        try {
+            $input = stream_get_contents(STDIN, 16385);
+            if (!is_string($input) || $input === '' || strlen($input) > 16384 || !feof(STDIN)) {
+                exit(21);
+            }
+            $payload = Canon::decode($input);
+            if (!is_array($payload)
+                || array_keys($payload) !== ['format', 'values']
+                || ($payload['format'] ?? null) !== 'duo-woocommerce-native-permalink-input/v1'
+                || !is_array($payload['values'])
+                || array_keys($payload['values']) !== [
+                    'attribute_base',
+                    'category_base',
+                    'product_base',
+                    'tag_base',
+                ]
+                || !hash_equals(Canon::encode($payload), $input)) {
+                exit(22);
+            }
+            $files = self::native_validation_files();
+            if (function_exists('wc_sanitize_permalink')) {
+                exit(23);
+            }
+            require_once $files['formatting'];
+            if (!function_exists('wc_sanitize_permalink')) {
+                exit(24);
+            }
+            $digests = [];
+            foreach ($payload['values'] as $key => $value) {
+                if (!is_string($value) || strlen($value) > self::MAX_PERMALINK_BYTES) {
+                    exit(25);
+                }
+                $canonical = wc_sanitize_permalink($value);
+                if (!is_string($canonical)) {
+                    exit(26);
+                }
+                $digests[(string) $key] = hash('sha256', $canonical);
+            }
+            fwrite(STDOUT, Canon::encode([
+                'digests' => $digests,
+                'format' => 'duo-woocommerce-native-permalink-receipt/v1',
+            ]));
+        } catch (\Throwable) {
+            exit(27);
         }
     }
 

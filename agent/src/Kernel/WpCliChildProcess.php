@@ -20,6 +20,7 @@ final class WpCliChildProcess {
     private const MAX_COMMAND_LINE_BYTES = 327680;
     private const MAX_LAUNCH_LINE_BYTES = 1572864;
     private const MAX_CAPTURE_BYTES = 1048576;
+    private const MAX_INPUT_BYTES = 8388608;
     // Woo + Yoast + Polylang + TEC needs 160 MiB merely to bootstrap the
     // reviewed rewrite child. The caller may have raised its own limit, but
     // PHP CLI flags are not present in $argv and therefore cannot be inferred
@@ -57,6 +58,41 @@ final class WpCliChildProcess {
         int $stdoutLimit,
         int $stderrLimit
     ): array {
+        return self::capture_request($command, null, $timeoutSeconds, $stdoutLimit, $stderrLimit);
+    }
+
+    /**
+     * Launch one fixed command with caller-owned bytes on a bounded stdin pipe.
+     *
+     * Secrets and merchant-authored state must not cross the command line or
+     * process environment. The pipe is drained concurrently with both output
+     * streams so a child can emit diagnostics before consuming its full input
+     * without recreating WP-CLI's sequential-pipe deadlock.
+     *
+     * @return array{return_code:int,stdout:string,stderr:string}
+     */
+    public static function capture_with_input(
+        string $command,
+        string $input,
+        int $timeoutSeconds,
+        int $stdoutLimit,
+        int $stderrLimit
+    ): array {
+        $bytes = strlen($input);
+        if ($bytes < 1 || $bytes > self::MAX_INPUT_BYTES) {
+            throw new \RuntimeException('duo: bounded WP-CLI child input is outside the fixed transport boundary');
+        }
+        return self::capture_request($command, $input, $timeoutSeconds, $stdoutLimit, $stderrLimit);
+    }
+
+    /** @return array{return_code:int,stdout:string,stderr:string} */
+    private static function capture_request(
+        string $command,
+        ?string $input,
+        int $timeoutSeconds,
+        int $stdoutLimit,
+        int $stderrLimit
+    ): array {
         self::assert_request($command, $timeoutSeconds, $stdoutLimit, $stderrLimit);
         self::assert_process_profile();
         $commandBoundary = self::command_line($command);
@@ -64,7 +100,7 @@ final class WpCliChildProcess {
             $commandBoundary['php_binary'],
             $commandBoundary['command_line']
         );
-        if (!defined('STDIN') || !is_resource(STDIN)) {
+        if ($input === null && (!defined('STDIN') || !is_resource(STDIN))) {
             throw new \RuntimeException('duo: bounded WP-CLI child has no inherited standard input');
         }
 
@@ -77,7 +113,7 @@ final class WpCliChildProcess {
             // descendant is therefore inside the same lifecycle boundary.
             $process = \WP_CLI\Utils\proc_open_compat(
                 $launchLine,
-                [0 => STDIN, 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                [0 => $input === null ? STDIN : ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
                 $pipes
             );
         } catch (\Throwable $failure) {
@@ -85,6 +121,8 @@ final class WpCliChildProcess {
         }
         if (!is_resource($process)
             || !isset($pipes[1], $pipes[2])
+            || ($input !== null && !isset($pipes[0]))
+            || ($input !== null && !is_resource($pipes[0]))
             || !is_resource($pipes[1])
             || !is_resource($pipes[2])) {
             if (is_resource($process)) {
@@ -111,7 +149,8 @@ final class WpCliChildProcess {
                 $initialStatus,
                 $timeoutSeconds,
                 $stdoutLimit,
-                $stderrLimit
+                $stderrLimit,
+                $input
             );
         } catch (\Throwable $failure) {
             if (is_resource($process)) {
@@ -285,14 +324,18 @@ final class WpCliChildProcess {
         array $initialStatus,
         int $timeoutSeconds,
         int $stdoutLimit,
-        int $stderrLimit
+        int $stderrLimit,
+        ?string $input
     ): array {
         if (@stream_set_blocking($pipes[1], false) !== true
-            || @stream_set_blocking($pipes[2], false) !== true) {
-            throw new \RuntimeException('duo: bounded WP-CLI child could not configure its output pipes');
+            || @stream_set_blocking($pipes[2], false) !== true
+            || ($input !== null && @stream_set_blocking($pipes[0], false) !== true)) {
+            throw new \RuntimeException('duo: bounded WP-CLI child could not configure its transport pipes');
         }
         $buffers = [1 => '', 2 => ''];
         $limits = [1 => $stdoutLimit, 2 => $stderrLimit];
+        $inputLength = $input === null ? 0 : strlen($input);
+        $inputOffset = 0;
         $deadline = hrtime(true) + ($timeoutSeconds * self::NANOSECONDS_PER_SECOND);
         $termination = null;
         $termAt = null;
@@ -328,12 +371,19 @@ final class WpCliChildProcess {
                 $read[] = $pipes[$index];
             }
 
-            if ($read !== []) {
-                $write = null;
+            $write = [];
+            if ($termination === null
+                && $input !== null
+                && isset($pipes[0])
+                && is_resource($pipes[0])
+                && $inputOffset < $inputLength) {
+                $write[] = $pipes[0];
+            }
+            if ($read !== [] || $write !== []) {
                 $except = null;
                 $selected = @stream_select($read, $write, $except, 0, self::SELECT_MICROSECONDS);
                 if ($selected === false && $termination === null) {
-                    $termination = 'duo: bounded WP-CLI child output transport failed';
+                    $termination = 'duo: bounded WP-CLI child transport failed';
                 } elseif (is_int($selected) && $selected > 0) {
                     foreach ($read as $stream) {
                         $index = $stream === ($pipes[1] ?? null) ? 1 : 2;
@@ -352,6 +402,21 @@ final class WpCliChildProcess {
                             continue;
                         }
                         $buffers[$index] .= $chunk;
+                    }
+                    if ($write !== [] && isset($pipes[0]) && is_resource($pipes[0])) {
+                        $chunk = substr($input ?? '', $inputOffset, self::READ_BYTES);
+                        $written = @fwrite($pipes[0], $chunk);
+                        if (!is_int($written)) {
+                            if ($termination === null) {
+                                $termination = 'duo: bounded WP-CLI child input transport failed';
+                            }
+                        } elseif ($written > 0) {
+                            $inputOffset += $written;
+                            if ($inputOffset === $inputLength) {
+                                fclose($pipes[0]);
+                                unset($pipes[0]);
+                            }
+                        }
                     }
                 }
             } else {
@@ -375,6 +440,13 @@ final class WpCliChildProcess {
                     }
                 }
                 if (!$running) {
+                    if ($input !== null && $inputOffset < $inputLength && $termination === null) {
+                        $termination = 'duo: bounded WP-CLI child input transport failed';
+                    }
+                    if (isset($pipes[0]) && is_resource($pipes[0])) {
+                        @fclose($pipes[0]);
+                        unset($pipes[0]);
+                    }
                     // Reap the exact leader before probing its process group.
                     // Otherwise an unreaped zombie can make kill(-pgid, 0)
                     // look like a surviving descendant on some POSIX hosts.
@@ -449,7 +521,7 @@ final class WpCliChildProcess {
             }
         }
 
-        foreach ([1, 2] as $index) {
+        foreach ([0, 1, 2] as $index) {
             if (isset($pipes[$index]) && is_resource($pipes[$index])) {
                 fclose($pipes[$index]);
                 unset($pipes[$index]);

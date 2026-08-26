@@ -1555,8 +1555,8 @@ wp_conf2 eval '
     throw new RuntimeException("WooCommerce lookup-schema repair did not land exactly");
   }
 ' >/dev/null
-RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'WooCommerce retry after lookup-schema repair' json "$RETRY"
+capture_duo_json_success RETRY 'WooCommerce retry after lookup-schema repair' \
+  wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json
 jq -e '
   .canary == "clean" and .verification.result == "pass" and .applied >= 1 and
   any(.actions[]?; .source == "provider:woocommerce-product-lookups/rebuild_product_lookups" and .verified == true)

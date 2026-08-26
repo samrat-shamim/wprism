@@ -442,6 +442,13 @@
       "activation": "at least one Polylang language, wp_loaded, and directory permalink links"
     },
     {
+      "hook": "rewrite_rules_array",
+      "callback": "PLL_Sitemaps::rewrite_rules",
+      "priority": 10,
+      "accepted_args": 1,
+      "activation": "at least one Polylang language and the normal sitemap loader initializes the runtime-owned sitemap service"
+    },
+    {
       "hook": "{type}_rewrite_rules",
       "callback": "PLL_Links_Directory::rewrite_rules",
       "priority": 10,

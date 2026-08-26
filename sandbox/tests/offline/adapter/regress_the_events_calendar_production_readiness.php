@@ -4942,7 +4942,7 @@ foreach ([
     }
 }
 duo_check_same(
-    ['rewrite_rules_array', '{type}_rewrite_rules', 'pll_modify_rewrite_rule'],
+    ['rewrite_rules_array', 'rewrite_rules_array', '{type}_rewrite_rules', 'pll_modify_rewrite_rule'],
     array_column($wooRewriteTopology['dynamic_callback_containers'] ?? [], 'hook'),
     'the Polylang fixture distinguishes its exact dynamic callbacks from the refused open filter chain'
 );
