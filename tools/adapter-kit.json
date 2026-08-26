@@ -65,12 +65,20 @@
             "sha256": "8c3fee11637395de28f63de193a6d5b060c57ce99a482c8b64ac4aceee9bace5"
         },
         {
+            "path": "lib/pair_identity.sh",
+            "origin": "copied",
+            "source": "sandbox/lib/pair_identity.sh",
+            "role": "candidate source resolution and caller-local Compose mount pinning for parallel evidence lanes",
+            "bytes": 2820,
+            "sha256": "b8b98a2b2582a87312ef988a873cf7d4e0d34a07bc59e15bea27e4ab68663a38"
+        },
+        {
             "path": "conformance/run.sh",
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 33256,
-            "sha256": "1b6259b28b427e83686dace099df7c501ad4dd7a12e03fe335c1eb7b6c9efb1c"
+            "bytes": 33628,
+            "sha256": "a8ae2474f5ecbd2aa7a59f323d7febcd3d9c0b417fd47afd8c77bc88b11d5e34"
         },
         {
             "path": "conformance/asserts.sh",
@@ -101,8 +109,8 @@
             "origin": "generated",
             "source": null,
             "role": "what the kit is, how to run it, and what it deliberately omits",
-            "bytes": 4313,
-            "sha256": "d3d9b9a79ac4ff859eebafa645fd583748db7d42901a4389c957ef553f5dbf5c"
+            "bytes": 4470,
+            "sha256": "13444a06d14f8802122458b502631f33cb0596a0864efbd6710bb7fc7a6f47e9"
         }
     ]
 }
