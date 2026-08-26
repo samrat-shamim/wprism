@@ -1476,6 +1476,9 @@ foreach ([
         "customer-review native route fixture pins $reviewCheckWitness");
 }
 woo_ok(str_contains($matrixHarness, 'update_option("default_category", (int) $category->term_id)'), 'version-matrix resets the core default-category reference before each plugin boundary');
+$wooMatrixTaxonomies = '"taxonomies": ["category", "post_tag", "product_brand", "product_cat", "product_shipping_class", "product_tag", "product_type", "product_visibility"]';
+woo_ok(substr_count($matrixHarness, $wooMatrixTaxonomies) === 3,
+    'the two exact Woo boundaries and both range controls share the reviewed closed taxonomy roster');
 woo_ok(str_contains($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"'),
     'each exact WooCommerce boundary runs lifecycle evidence before the populated upgrade leg');
 foreach ([
