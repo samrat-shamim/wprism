@@ -911,6 +911,12 @@ final class FakeWpdb {
 
     /** One row in $output shape, or null. */
     public function get_row(string $query, string $output = OBJECT, int $y = 0): array|object|null {
+        if ($this->fullApplySqlExtensionsEnabled) {
+            $witness = $this->fullApplyCanonicalPostWitnessRow($query);
+            if ($witness !== false) {
+                return is_array($witness) ? $this->shape($witness, $output) : null;
+            }
+        }
         $result = $this->run('get_row', $query);
         if ($result === null || $result['kind'] !== 'rows') {
             return null;
@@ -1103,6 +1109,49 @@ final class FakeWpdb {
             . 'tt.taxonomy, tt.description, tt.parent FROM ' . $this->tableName('terms')
             . ' t JOIN ' . $this->tableName('term_taxonomy')
             . " tt ON tt.term_id = t.term_id WHERE tt.taxonomy = 'nav_menu' ORDER BY t.term_id ASC";
+    }
+
+    /**
+     * Exact post/_duo_uuid join used by the production pre-prune identity
+     * guard. false means this is a different query; null is its real absent
+     * result, preserving LEFT JOIN semantics for a post without the sidecar.
+     *
+     * @return array<string,mixed>|false|null
+     */
+    private function fullApplyCanonicalPostWitnessRow(string $query): array|false|null {
+        $posts = preg_quote($this->tableName('posts'), '~');
+        $postmeta = preg_quote($this->tableName('postmeta'), '~');
+        $pattern = '~^SELECT p\.ID, p\.post_type, pm\.meta_value AS duo_uuid FROM '
+            . $posts . ' p LEFT JOIN ' . $postmeta
+            . " pm ON pm\.post_id = p\.ID AND pm\.meta_key = '_duo_uuid'"
+            . ' WHERE p\.ID = ([0-9]+) ORDER BY pm\.meta_id ASC LIMIT 1$~';
+        if (preg_match($pattern, $this->fullApplySql($query), $match) !== 1) {
+            return false;
+        }
+        $postId = (int) $match[1];
+        $post = null;
+        foreach ($this->store[$this->tableName('posts')] ?? [] as $row) {
+            if ((int) ($row['ID'] ?? 0) === $postId) {
+                $post = $row;
+                break;
+            }
+        }
+        if (!is_array($post)) {
+            return null;
+        }
+        $meta = array_values(array_filter(
+            $this->store[$this->tableName('postmeta')] ?? [],
+            static fn(array $row): bool => (int) ($row['post_id'] ?? 0) === $postId
+                && (string) ($row['meta_key'] ?? '') === '_duo_uuid'
+        ));
+        usort($meta, static fn(array $a, array $b): int =>
+            (int) ($a['meta_id'] ?? 0) <=> (int) ($b['meta_id'] ?? 0)
+        );
+        return [
+            'ID' => $postId,
+            'post_type' => (string) ($post['post_type'] ?? ''),
+            'duo_uuid' => isset($meta[0]) ? (string) ($meta[0]['meta_value'] ?? '') : null,
+        ];
     }
 
     private function isFullApplyPromotionInsertQuery(string $query): bool {

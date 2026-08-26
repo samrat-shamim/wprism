@@ -1,10 +1,18 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . '/../Policy/Policy.php';
-require_once __DIR__ . '/Ledger.php';
-require_once __DIR__ . '/SidebarState.php';
-require_once __DIR__ . '/Snapshot.php';
+if (!class_exists(Policy::class, false)) {
+    require_once __DIR__ . '/../Policy/Policy.php';
+}
+if (!class_exists(Ledger::class, false)) {
+    require_once __DIR__ . '/Ledger.php';
+}
+if (!class_exists(SidebarState::class, false)) {
+    require_once __DIR__ . '/SidebarState.php';
+}
+if (!class_exists(Snapshot::class, false)) {
+    require_once __DIR__ . '/Snapshot.php';
+}
 
 /** Read-only proof that one retained ledger tuple still owns its live row. */
 final class CanonicalMapWitness {

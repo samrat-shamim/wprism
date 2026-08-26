@@ -1,14 +1,30 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . '/../Kernel/CommandRefusal.php';
-require_once __DIR__ . '/../Kernel/Uuid.php';
-require_once __DIR__ . '/../Policy/Policy.php';
-require_once __DIR__ . '/CanonicalMapWitness.php';
-require_once __DIR__ . '/CompiledArtifact.php';
-require_once __DIR__ . '/Ledger.php';
-require_once __DIR__ . '/SidebarState.php';
-require_once __DIR__ . '/Snapshot.php';
+if (!class_exists(CommandRefusalException::class, false)) {
+    require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+}
+if (!class_exists(Uuid::class, false)) {
+    require_once __DIR__ . '/../Kernel/Uuid.php';
+}
+if (!class_exists(Policy::class, false)) {
+    require_once __DIR__ . '/../Policy/Policy.php';
+}
+if (!class_exists(CanonicalMapWitness::class, false)) {
+    require_once __DIR__ . '/CanonicalMapWitness.php';
+}
+if (!class_exists(CompiledRepository::class, false)) {
+    require_once __DIR__ . '/CompiledArtifact.php';
+}
+if (!class_exists(Ledger::class, false)) {
+    require_once __DIR__ . '/Ledger.php';
+}
+if (!class_exists(SidebarState::class, false)) {
+    require_once __DIR__ . '/SidebarState.php';
+}
+if (!class_exists(Snapshot::class, false)) {
+    require_once __DIR__ . '/Snapshot.php';
+}
 
 /** Refuse retained canonical mappings which no longer prove physical identity. */
 final class CanonicalLedgerMapGuard {
