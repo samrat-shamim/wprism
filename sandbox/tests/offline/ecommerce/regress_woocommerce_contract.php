@@ -1623,6 +1623,10 @@ woo_ok(
 );
 woo_ok(!str_contains($wooCheckHarness, 'Duo_Woo_Missing_Image_Editor'),
     'thumbnail failure injection asks WordPress for its native no-editor error instead of naming an unloadable callback');
+$seedUpdate = strpos($wooCheckHarness, 'wp_update_attachment_metadata((int) $id, $metadata)');
+$seedReadback = strpos($wooCheckHarness, 'wp_get_attachment_metadata((int) $id)', $seedUpdate === false ? 0 : $seedUpdate);
+woo_ok($seedUpdate !== false && $seedReadback !== false && $seedReadback > $seedUpdate,
+    'thumbnail seed verifies native metadata by readback after the ambiguous update result');
 foreach ([
     $conformanceRunnerHarness,
     $matrixHarness,
@@ -1720,6 +1724,8 @@ foreach ([
     'WC_Install::create_terms()',
     'new WC_Product_Simple()',
     '"product_visibility"',
+    'INITIAL_RAW=$(wp2 duo apply',
+    'initial co-install apply failed (exit $INITIAL_RC): $INITIAL_RAW',
     'CALLBACK_IDENTITIES=$(wp2 eval',
     'native rewrite callback identity differs from source services',
     '$GLOBALS["wc_container"]',

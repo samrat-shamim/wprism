@@ -188,7 +188,13 @@ git -C "$R1" push -qu origin main
 git clone -q "$ORIGIN" "$R2"
 bash bin/pair.sh repo-host "$PAIR" 2 >/dev/null
 REVISION=$(git -C "$R2" rev-parse HEAD)
-INITIAL=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json | tail -1) || fail 'initial co-install apply failed'
+INITIAL_RC=0
+INITIAL_RAW=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json 2>&1) \
+  || INITIAL_RC=$?
+[ "$INITIAL_RC" -eq 0 ] \
+  || fail "initial co-install apply failed (exit $INITIAL_RC): $INITIAL_RAW"
+[ -n "$INITIAL_RAW" ] || fail 'initial co-install apply returned empty evidence'
+INITIAL=$(printf '%s\n' "$INITIAL_RAW" | tail -1)
 echo "$INITIAL" | jq -e '.canary=="clean" and (.actions|any(.kind=="provider" and .source=="provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes" and .verified==true))' >/dev/null || fail "initial product-route receipt missing: $INITIAL"
 pass 'normal apply invoked the verified product-route provider'
 

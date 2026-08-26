@@ -482,8 +482,16 @@ $create_image = static function (int $width, int $height, string $label): int {
         throw new RuntimeException($id->get_error_message());
     }
     $metadata = wp_generate_attachment_metadata((int) $id, $file);
-    if (!is_array($metadata) || !$metadata || !wp_update_attachment_metadata((int) $id, $metadata)) {
+    if (!is_array($metadata) || !$metadata) {
         throw new RuntimeException("failed to seed native attachment metadata");
+    }
+    // The native update returns false both on storage failure and when the
+    // value is already exact (the 240x180 no-derivative case reaches that
+    // branch). Durable readback, not the ambiguous write boolean, is evidence.
+    wp_update_attachment_metadata((int) $id, $metadata);
+    $stored_metadata = wp_get_attachment_metadata((int) $id);
+    if (!is_array($stored_metadata) || $stored_metadata !== $metadata) {
+        throw new RuntimeException("native attachment metadata did not match exact readback");
     }
     return (int) $id;
 };
