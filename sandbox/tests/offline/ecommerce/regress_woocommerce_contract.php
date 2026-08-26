@@ -1624,6 +1624,10 @@ woo_ok(
     substr_count($conformanceAssertsHarness, 'normalize_woocommerce_harness_placeholder_mode()') === 1
         && str_contains($conformanceAssertsHarness, '019e9beec61c9ee5b6009335c7846816452e1e3b420d2bb9e50327681dfade19')
         && str_contains($conformanceAssertsHarness, '$mode !== 0666 || !@chmod($path, 0644)')
+        && str_contains(
+            $conformanceRunnerHarness,
+            'establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode'
+        )
         && substr_count($conformanceRunnerHarness, 'normalize_woocommerce_harness_placeholder_mode wp_conf2') === 1
         && substr_count($wooCheckHarness, 'normalize_woocommerce_harness_placeholder_mode wp_conf2') === 2
         && strpos($conformanceRunnerHarness, 'normalize_woocommerce_harness_placeholder_mode wp_conf2')
@@ -2082,6 +2086,31 @@ foreach ([
     woo_ok(str_contains($woocommerceMatrixHarness, $lifecycleWitness),
         "exact WooCommerce lifecycle matrix pins $lifecycleWitness");
 }
+$productFields = (array) ($manifest['post_types']['product']['fields'] ?? []);
+$variationFields = (array) ($manifest['post_types']['product_variation']['fields'] ?? []);
+woo_ok(
+    ($productFields['modified'] ?? null) === ['class' => 'derived']
+        && ($productFields['modified_gmt'] ?? null) === ['class' => 'derived']
+        && ($variationFields['modified'] ?? null) === ['class' => 'derived']
+        && ($variationFields['modified_gmt'] ?? null) === ['class' => 'derived'],
+    'only Woo product and variation persistence timestamps authorize lifecycle rendered-byte variance'
+);
+woo_ok(
+    str_contains(
+        $woocommerceMatrixHarness,
+        'exact-reinstall recapture diverged outside declared derived product timestamps'
+    )
+        && str_contains(
+            $woocommerceMatrixHarness,
+            "posts/(product|product_variation)/[^ ]+ .*/\\.tmp-woo-lifecycle-final/posts/(product|product_variation)/[^ ]+"
+        )
+        && str_contains(
+            $woocommerceMatrixHarness,
+            '"modified(_gmt)?": "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}"'
+        )
+        && !str_contains($woocommerceMatrixHarness, 'exact-reinstall recapture lost byte identity'),
+    'exact WooCommerce lifecycle recapture permits only manifest-declared product timestamp drift'
+);
 woo_ok(str_contains($wooCheckHarness, 'wc_product_download_directories ORDER BY url_id')
     && !str_contains($wooCheckHarness, 'wc_product_download_directories ORDER BY id'),
     'provider-race storage evidence orders WooCommerce approved directories by the exact url_id primary key');
@@ -2185,6 +2214,9 @@ foreach ([
     '$polylang["force_lang"]=1',
     '$polylang["hide_default"]=false',
     '$polylang["rewrite"]=true',
+    'add_language() leaves Polylang\'s Options singleton dirty',
+    'POLYLANG_SOURCE_MODE=$(wp1 option get polylang --format=json)',
+    'Polylang directory-mode source option did not survive its authoring request',
     'wp1 rewrite flush --hard',
     'INITIAL_RAW=$(wp2 duo apply',
     'initial co-install apply failed (exit $INITIAL_RC): $INITIAL_RAW',

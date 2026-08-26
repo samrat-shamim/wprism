@@ -77,8 +77,8 @@
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 33628,
-            "sha256": "a8ae2474f5ecbd2aa7a59f323d7febcd3d9c0b417fd47afd8c77bc88b11d5e34"
+            "bytes": 33675,
+            "sha256": "790493066fb780f00df1fd20c36b8ed95f0d47201c943330a3cfb96dd1513e2e"
         },
         {
             "path": "conformance/asserts.sh",

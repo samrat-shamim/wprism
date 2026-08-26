@@ -180,6 +180,8 @@ grep -q '^capture_duo_json_success ' conformance/run.sh \
   || fail "conformance apply does not use the refusal-preserving JSON command wrapper"
 grep -Eq 'require_duo_answered capture_duo_json_success require_observed_nonempty' conformance/run.sh \
   || fail "manifest check subprocesses cannot call the refusal-preserving JSON command wrapper"
+grep -Eq 'establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode' conformance/run.sh \
+  || fail "WooCommerce manifest check subprocesses cannot call their shared lifecycle helpers"
 ! grep -q 'APPLY_JSON=.*duo apply.*| tail -1' conformance/run.sh \
   || fail "conformance apply still discards a nonzero refusal through its old tail pipeline"
 pass "conformance apply preserves answered refusal envelopes, separates dead transport, and publishes only successful JSON"

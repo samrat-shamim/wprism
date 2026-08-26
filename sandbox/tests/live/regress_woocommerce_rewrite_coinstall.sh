@@ -155,6 +155,19 @@ update_option("permalink_structure","/%postname%/");
 update_option("woocommerce_permalinks",["product_base"=>"store/%product_cat%","category_base"=>"catalog","tag_base"=>"label","attribute_base"=>"feature","use_verbose_page_rules"=>true]);
 $lang=PLL()->model->add_language(["locale"=>"en_US","name"=>"English","slug"=>"en","rtl"=>false,"term_group"=>0,"no_default_cat"=>true]);
 if(is_wp_error($lang)||!$lang instanceof PLL_Language){throw new RuntimeException("could not create the Polylang language");}
+$product=new WC_Product_Simple();
+$product->set_name("Rewrite Co-install Product");
+$product->set_slug("rewrite-coinstall-product");
+$product->set_status("publish");
+$product_id=$product->save();
+if(!$product_id){throw new RuntimeException("could not create product through WooCommerce CRUD");}
+pll_set_post_language((int)$product_id,"en");
+' >/dev/null
+# add_language() leaves Polylang's Options singleton dirty; its shutdown save
+# overwrites a direct update in that request with the old hide_default=true.
+# Cross the same fresh-request boundary as the certified Polylang seed before
+# selecting directory mode, then prove the bytes survived that process exit.
+wp1 eval '
 $polylang=get_option("polylang");
 if(!is_array($polylang)){throw new RuntimeException("Polylang source option is not an array");}
 $polylang["default_lang"]="en";
@@ -168,14 +181,15 @@ $polylang["rewrite"]=true;
 $polylang["taxonomies"]=[];
 $polylang["sync"]=["taxonomies","post_meta","post_date"];
 update_option("polylang",$polylang);
-$product=new WC_Product_Simple();
-$product->set_name("Rewrite Co-install Product");
-$product->set_slug("rewrite-coinstall-product");
-$product->set_status("publish");
-$product_id=$product->save();
-if(!$product_id){throw new RuntimeException("could not create product through WooCommerce CRUD");}
-pll_set_post_language((int)$product_id,"en");
 ' >/dev/null
+POLYLANG_SOURCE_MODE=$(wp1 option get polylang --format=json)
+jq -e '
+  .default_lang=="en" and .browser==false and .force_lang==1 and
+  .hide_default==false and .media_support==1 and .post_types==[] and
+  .redirect_lang==false and .rewrite==true and .taxonomies==[] and
+  .sync==["taxonomies","post_meta","post_date"]
+' <<<"$POLYLANG_SOURCE_MODE" >/dev/null \
+  || fail "Polylang directory-mode source option did not survive its authoring request: $POLYLANG_SOURCE_MODE"
 wp1 rewrite flush --hard >/dev/null
 cat > "$R1/site.duo.json" <<'EOF'
 {

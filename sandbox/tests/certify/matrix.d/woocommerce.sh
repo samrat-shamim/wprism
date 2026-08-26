@@ -432,7 +432,8 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
 
 check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   local version="$1" artifact="$2" expected_sha before_native reactivated_native
-  local before_uninstall absent_after_uninstall missing_before missing_after missing_rc missing_out lifecycle_diff
+  local before_uninstall absent_after_uninstall missing_before missing_after missing_rc missing_out
+  local lifecycle_diff lifecycle_diff_rc unexpected_lifecycle_diff
   # Both official boundary artifacts carry byte-identical uninstall.php bytes
   # (sha256 e06e0c2086f695d39f5d9edead87cd4faeb0ea45184d77e7d8fe5588abfde48e):
   # native runtime hooks are cleared unconditionally, while catalog/options/
@@ -470,10 +471,21 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   normalize_woocommerce_harness_placeholder_mode wp2
   check_woocommerce_content
   wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-lifecycle-final >/dev/null
-  lifecycle_diff=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-woo-lifecycle-final" || true)
+  lifecycle_diff_rc=0
+  lifecycle_diff=$(diff -r "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-woo-lifecycle-final" 2>&1) || lifecycle_diff_rc=$?
+  [ "$lifecycle_diff_rc" -le 1 ] || fail "WooCommerce $version exact-reinstall recapture comparison errored: $lifecycle_diff"
+  if [ -n "$lifecycle_diff" ]; then
+    unexpected_lifecycle_diff=$(grep -Ev \
+      -e '^diff -r .*/state/posts/(product|product_variation)/[^ ]+ .*/\.tmp-woo-lifecycle-final/posts/(product|product_variation)/[^ ]+$' \
+      -e '^[0-9]+(,[0-9]+)?c[0-9]+(,[0-9]+)?$' \
+      -e '^---$' \
+      -e '^[<>]     "modified(_gmt)?": "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}",$' \
+      <<<"$lifecycle_diff" || true)
+    [ -z "$unexpected_lifecycle_diff" ] \
+      || fail "WooCommerce $version exact-reinstall recapture diverged outside declared derived product timestamps: $lifecycle_diff"
+  fi
   rm -rf "siterepo/${PAIR}2/.tmp-woo-lifecycle-final"
-  [ -z "$lifecycle_diff" ] || fail "WooCommerce $version exact-reinstall recapture lost byte identity: $lifecycle_diff"
-  pass "WooCommerce $version deactivate/reactivate, retained-data uninstall, absent-code refusal, digest-bound exact reinstall, native readback, recapture, and retry are clean"
+  pass "WooCommerce $version deactivate/reactivate, retained-data uninstall, absent-code refusal, digest-bound exact reinstall, native readback, recapture modulo declared derived product timestamps, and retry are clean"
 }
 
 check_woocommerce_product_delete_refusal() { # <exact-version>
