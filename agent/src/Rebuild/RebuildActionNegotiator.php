@@ -66,13 +66,14 @@ final class RebuildActionNegotiator {
             }
         }
 
-        // Provider and native actions execute sequentially after the authored
-        // commit. A later native topology refusal cannot undo an earlier
-        // provider projection, so prove every closed rewrite callback/service
-        // before apply_in_progress and the first authored/provider mutation.
-        // The fresh child repeats the same proof immediately before generation
-        // to close topology drift between this preflight and the effect.
-        self::preflight_native_actions($selectedActions);
+        // Provider and native actions execute after the authored commit. A
+        // rewrite-topology refusal cannot undo that commit, so preflight every
+        // selected action whose reviewed effects say it reaches Core's
+        // generate_rewrite_rules hook. This includes a provider that delegates
+        // to NativeActions::rewrite.flush, not only a manifest `kind:native`
+        // action. The fresh child repeats the proof immediately before
+        // generation to close topology drift between preflight and effect.
+        self::preflight_rewrite_actions($selectedActions);
 
         $negotiation = $scoped && method_exists(Providers::class, 'negotiate_scoped')
             ? Providers::negotiate_scoped($this->policy, $selectedActions)
@@ -117,10 +118,9 @@ final class RebuildActionNegotiator {
     }
 
     /** @param list<array<string,mixed>> $selectedActions */
-    private static function preflight_native_actions(array $selectedActions): void {
+    private static function preflight_rewrite_actions(array $selectedActions): void {
         foreach ($selectedActions as $action) {
-            if (($action['kind'] ?? '') !== 'native'
-                || ($action['action'] ?? '') !== 'rewrite.flush') {
+            if (!self::action_generates_rewrite_rules($action)) {
                 continue;
             }
             try {
@@ -133,7 +133,31 @@ final class RebuildActionNegotiator {
                     $failure
                 );
             }
+            // One request has one loaded callback/service topology. Every
+            // selected rewrite-generating action is covered by the same proof;
+            // its fresh child still re-proves immediately before each effect.
+            return;
         }
+    }
+
+    /** @param array<string,mixed> $action */
+    private static function action_generates_rewrite_rules(array $action): bool {
+        if (($action['kind'] ?? '') === 'native' && ($action['action'] ?? '') === 'rewrite.flush') {
+            return true;
+        }
+        foreach ((array) ($action['effects'] ?? []) as $effect) {
+            if (!is_array($effect) || ($effect['kind'] ?? '') !== 'external') {
+                continue;
+            }
+            $selector = $effect['selector'] ?? null;
+            if (is_array($selector)
+                && ($selector['scope'] ?? '') === 'external'
+                && ($selector['type'] ?? '') === 'hook'
+                && ($selector['value'] ?? '') === 'generate_rewrite_rules') {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static function assert_scoped_promotion_selection(

@@ -2367,9 +2367,9 @@ foreach ([
     'install_hostile_mu duo-woo-polylang-dynamic-hostile.php <<\'PHP\'',
     'remove_hostile_mu duo-woo-polylang-dynamic-hostile.php',
     'third-party Polylang dynamic callback unexpectedly allowed apply',
-    "required manifest action 'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes' failed",
-    "provider 'woocommerce-hierarchy-lookups' capability 'rebuild_product_permalink_routes' failed",
-    'Polylang dynamic refusal did not preserve the public provider boundary',
+    "apply refused before target mutation — native action 'rewrite.flush' runtime is unsupported",
+    "extended or substituted 'pll_modify_rewrite_rule' callbacks",
+    'Polylang dynamic refusal did not stop at the pre-mutation rewrite preflight',
     'third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses',
     'Polylang dynamic retry did not preserve target row identity and copy the exact source Woo row',
     'Polylang dynamic retry did not regenerate the exact directory product route',
@@ -2387,6 +2387,10 @@ woo_ok(!str_contains($wooRewriteCoInstallHarness, 'url_to_postid('),
     'co-install product-route evidence uses the real HTTP parser, not the CLI url_to_postid helper');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, 'file_put_contents($path,$bytes)'),
     'co-install hostile MU fixtures do not assume the unprivileged WP-CLI process owns the webroot');
+woo_ok(!str_contains(
+    $wooRewriteCoInstallHarness,
+    "provider 'woocommerce-hierarchy-lookups' capability 'rebuild_product_permalink_routes' failed"
+), 'co-install Polylang hostility is refused by rewrite preflight before provider invocation');
 woo_ok(substr_count($wooRewriteCoInstallHarness, 'wp1 rewrite flush --hard >/dev/null') === 3,
     'each directly-authored source permalink grammar crosses the native rewrite-regeneration boundary');
 woo_ok(!str_contains($wooRewriteCoInstallHarness, '[[$yoast,"filter_rewrite_rules_option",10,1]]'),
