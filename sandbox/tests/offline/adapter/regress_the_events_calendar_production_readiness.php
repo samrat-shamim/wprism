@@ -4776,9 +4776,13 @@ duo_check_same(
             '3626daec1fd21fbf4128a9891f208d9402cce198b3703641221b6973f23786a7',
         'inc/options/class-wpseo-option-tracking-only.php' =>
             '24902a45b2912e0f2d8cd731bc1e0990c824c61f35bb5076a7a4b091a8949c8c',
+        'inc/sitemaps/class-sitemaps-cache.php' =>
+            'dc99816988fef1554775757fb8ab18b65ec2d46a08f03c475bf6da4dfdc72cc8',
+        'inc/sitemaps/class-sitemaps.php' =>
+            'e436a8c3702e6c8c954d8bb3b4dd099124c47a4d6007c87f6693a79a7759a885',
     ],
     $coinstallSourceHashes['wordpress-seo'] ?? null,
-    'the exact Yoast singleton registration and bounded dynamic-rule maps are source-hash bound'
+    'the exact Yoast option/sitemap registration and bounded dynamic-rule maps are source-hash bound'
 );
 duo_check_same(
     [
@@ -9649,6 +9653,24 @@ foreach ($wooServices['yoast_options'] as $name => $service) {
     );
 }
 duo_check(
+    has_action('update_option', ['WPSEO_Sitemaps_Cache', 'clear_on_option_update']) === 10,
+    'Yoast binds its exact static sitemap-cache invalidator at update_option 10/1'
+);
+duo_check(
+    ($GLOBALS['wpseo_sitemaps'] ?? null) === $wooServices['yoast_sitemaps']
+        && get_class($wooServices['yoast_sitemaps']) === 'WPSEO_Sitemaps'
+        && $wooServices['yoast_sitemaps']->cache === $wooServices['yoast_sitemaps_cache']
+        && get_class($wooServices['yoast_sitemaps_cache']) === 'WPSEO_Sitemaps_Cache',
+    'active Yoast sitemaps bind the exact normal-boot global and cache object'
+);
+$yoastSitemapCacheState = static function (): array {
+    return [
+        'cache_clear' => (new ReflectionProperty('WPSEO_Sitemaps_Cache', 'cache_clear'))->getValue(),
+        'clear_all' => (new ReflectionProperty('WPSEO_Sitemaps_Cache', 'clear_all'))->getValue(),
+        'clear_types' => (new ReflectionProperty('WPSEO_Sitemaps_Cache', 'clear_types'))->getValue(),
+    ];
+};
+duo_check(
     in_array('attachment', $wooServices['polylang_types'], true)
         && has_filter(
             'attachment_rewrite_rules',
@@ -9771,11 +9793,26 @@ $tecDb->update(
 );
 $yoastConstructsBeforeAdmission = (int) ($GLOBALS['tec_readiness_yoast_constructs'] ?? 0);
 $yoastReadsBeforeAdmission = count($GLOBALS['tec_readiness_yoast_option_reads'] ?? []);
+$yoastSitemapStateBeforeAdmission = $yoastSitemapCacheState();
 $wooUpdatedReceipt = $nativeRewriteChild->invoke(null);
 duo_check_same(
     true,
     $wooUpdatedReceipt['verified'] ?? null,
     'the exact normal Woo callback union permits the TEC rewrite product path'
+);
+duo_check_same(
+    [],
+    array_values(array_filter(
+        $GLOBALS['tec_readiness_yoast_calls'] ?? [],
+        static fn(array $call): bool => ($call[0] ?? null)
+            === 'WPSEO_Sitemaps_Cache::clear_on_option_update'
+    )),
+    'Yoast sitemap invalidation remains a source-faithful no-op for every TEC marker option'
+);
+duo_check_same(
+    $yoastSitemapStateBeforeAdmission,
+    $yoastSitemapCacheState(),
+    'all three TEC marker writes preserve Yoast sitemap registration and queued-purge state exactly'
 );
 duo_check_same(
     $yoastConstructsBeforeAdmission,
@@ -9789,6 +9826,166 @@ duo_check_same(
         $yoastReadsBeforeAdmission
     ))),
     'Yoast admission reads every canonical option singleton through WPSEO_Options'
+);
+
+$cacheClearProperty = new ReflectionProperty('WPSEO_Sitemaps_Cache', 'cache_clear');
+$cacheClearPreimage = $cacheClearProperty->getValue();
+$activeYoastSitemaps = $GLOBALS['wpseo_sitemaps'];
+remove_action('update_option', ['WPSEO_Sitemaps_Cache', 'clear_on_option_update'], 10);
+unset($GLOBALS['wpseo_sitemaps']);
+$inactiveSitemapReceipt = $nativeRewriteChild->invoke(null);
+duo_check_same(
+    true,
+    $inactiveSitemapReceipt['verified'] ?? null,
+    'normal Yoast boot with XML sitemaps disabled admits the exact absent global/callback topology'
+);
+WPSEO_Sitemaps_Cache::register_clear_on_option_update('tribe_last_updated_option', '');
+$flushesBeforeInactiveYoastMarker = $GLOBALS['wp_rewrite']->flushCalls;
+$inactiveYoastMarkerFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $inactiveYoastMarkerFailure = $failure;
+}
+$cacheClearProperty->setValue(null, $cacheClearPreimage);
+duo_check(
+    $inactiveYoastMarkerFailure instanceof RuntimeException
+        && str_contains(
+            $inactiveYoastMarkerFailure->getMessage(),
+            'TEC marker registered for Yoast SEO sitemap cache invalidation'
+        ),
+    'an inactive but loaded Yoast sitemap cache still refuses a hostile TEC marker registration'
+);
+duo_check_same(
+    $flushesBeforeInactiveYoastMarker,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'an inactive hostile Yoast sitemap registration performs no native rewrite mutation'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring the inactive Yoast sitemap registration map permits exact retry'
+);
+add_action('update_option', ['WPSEO_Sitemaps_Cache', 'clear_on_option_update'], 10, 1);
+$flushesBeforeMixedYoastSitemaps = $GLOBALS['wp_rewrite']->flushCalls;
+$mixedYoastSitemapsFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $mixedYoastSitemapsFailure = $failure;
+}
+remove_action('update_option', ['WPSEO_Sitemaps_Cache', 'clear_on_option_update'], 10);
+duo_check(
+    $mixedYoastSitemapsFailure instanceof RuntimeException
+        && str_contains(
+            $mixedYoastSitemapsFailure->getMessage(),
+            'incomplete or substituted Yoast SEO sitemap cache topology'
+        ),
+    'a Yoast sitemap callback without its normal-boot global refuses before rewrite mutation'
+);
+duo_check_same(
+    $flushesBeforeMixedYoastSitemaps,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'a callback-present/global-absent Yoast topology performs no native rewrite mutation'
+);
+$GLOBALS['wpseo_sitemaps'] = $activeYoastSitemaps;
+add_action('update_option', ['WPSEO_Sitemaps_Cache', 'clear_on_option_update'], 10, 1);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring active Yoast sitemaps rebinds the same global/cache objects'
+);
+
+remove_action('update_option', ['WPSEO_Sitemaps_Cache', 'clear_on_option_update'], 10);
+$flushesBeforeMissingSitemapCache = $GLOBALS['wp_rewrite']->flushCalls;
+$missingSitemapCacheFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $missingSitemapCacheFailure = $failure;
+}
+add_action('update_option', ['WPSEO_Sitemaps_Cache', 'clear_on_option_update'], 10, 1);
+duo_check(
+    $missingSitemapCacheFailure instanceof RuntimeException
+        && str_contains(
+            $missingSitemapCacheFailure->getMessage(),
+            'incomplete or substituted Yoast SEO sitemap cache topology'
+        ),
+    'a missing Yoast sitemap-cache callback refuses before TEC rewrite mutation'
+);
+duo_check_same(
+    $flushesBeforeMissingSitemapCache,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'a missing Yoast sitemap-cache callback performs no native rewrite mutation'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring the exact Yoast sitemap-cache callback permits retry'
+);
+
+WPSEO_Sitemaps_Cache::register_clear_on_option_update(
+    'tribe_last_generate_rewrite_rules',
+    ''
+);
+$flushesBeforeYoastMarkerRegistration = $GLOBALS['wp_rewrite']->flushCalls;
+$yoastMarkerRegistrationFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $yoastMarkerRegistrationFailure = $failure;
+}
+$cacheClearProperty->setValue(null, $cacheClearPreimage);
+duo_check(
+    $yoastMarkerRegistrationFailure instanceof RuntimeException
+        && str_contains(
+            $yoastMarkerRegistrationFailure->getMessage(),
+            'TEC marker registered for Yoast SEO sitemap cache invalidation'
+        ),
+    'a Yoast extension registration for a TEC marker refuses before rewrite mutation'
+);
+duo_check_same(
+    $flushesBeforeYoastMarkerRegistration,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'a hostile Yoast sitemap registration cannot queue purge state through a TEC marker write'
+);
+duo_check_same(
+    $yoastSitemapStateBeforeAdmission,
+    $yoastSitemapCacheState(),
+    'the refused Yoast marker registration leaves exact normal cache registration and queue state'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'removing the hostile Yoast marker registration permits exact retry'
+);
+
+$cacheClearProperty->setValue(null, 'malformed');
+$flushesBeforeMalformedYoastMap = $GLOBALS['wp_rewrite']->flushCalls;
+$malformedYoastMapFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $malformedYoastMapFailure = $failure;
+}
+$cacheClearProperty->setValue(null, $cacheClearPreimage);
+duo_check(
+    $malformedYoastMapFailure instanceof RuntimeException
+        && str_contains(
+            $malformedYoastMapFailure->getMessage(),
+            'malformed Yoast SEO sitemap cache registration map'
+        ),
+    'a malformed Yoast sitemap registration map refuses before rewrite mutation'
+);
+duo_check_same(
+    $flushesBeforeMalformedYoastMap,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'a malformed Yoast sitemap registration map performs no native rewrite mutation'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring the exact Yoast sitemap registration map permits retry'
 );
 
 $missingYoastOption = $wooServices['yoast_options']['wpseo_social'];

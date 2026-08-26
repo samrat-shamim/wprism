@@ -743,12 +743,12 @@ jq -e '
   .locations[0].name == "<strong>مخزن</strong> 東京" and
   .locations[0].details == "<em>بوابة ٢</em><br>南口" and
   .rate.cost == "-12.50" and .rate.tax_status == "taxable" and
-  (.rate.label | contains("<strong>مخزن</strong> 東京")) and
-  .rate.location == "<strong>مخزن</strong> 東京" and
-  .rate.details == "<em>بوابة ٢</em><br>南口"
+  .rate.label == "استلام 東京 (مخزن 東京)" and
+  .rate.location == "مخزن 東京" and
+  .rate.details == "بوابة ٢南口"
 ' <<<"$LOCAL_PICKUP_OUT" >/dev/null \
-  || fail "conf2 local-pickup partial settings, REST records, HTML, defaults, or calculated rate diverged (got: $LOCAL_PICKUP_OUT)"
-pass "local-pickup settings and locations round-trip through the native Settings REST route, default completion, HTML rendering, and rate calculation"
+  || fail "conf2 local-pickup partial settings, REST records, stored HTML, defaults, or sanitized calculated rate diverged (got: $LOCAL_PICKUP_OUT)"
+pass "local-pickup settings and stored HTML round-trip through the native Settings REST route while rate calculation strips display markup"
 
 ORDER_OUT=$($COMPOSE run --rm -T cli2 wp eval '
 $source = wc_get_orders(["billing_email" => "source-runtime@example.test", "limit" => -1, "return" => "ids"]);

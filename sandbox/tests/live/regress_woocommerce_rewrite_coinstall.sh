@@ -98,7 +98,7 @@ assert_live_source_file_hashes() { # side
     # Current `wp eval` accepts only its PHP-code positional argument. Pass the
     # already-validated path through WP-CLI's supported global execution hook;
     # a second positional produced "Too many positional arguments" before the
-    # first of the 38 exact source hashes could be observed.
+    # first of the 40 exact source hashes could be observed.
     actual=$("wp$side" eval '
 $relative=(string)getenv("DUO_AUDITED_PLUGIN_FILE");$path=WP_PLUGIN_DIR."/".$relative;
 if(!is_file($path)){throw new RuntimeException("audited plugin source file is absent: ".$relative);}
@@ -110,7 +110,7 @@ echo hash_file("sha256",$path);
 }
 
 say "candidate/source preflight: $HEAD"
-jq -e '.format=="duo-woocommerce-rewrite-coinstall-topology/v1" and .artifacts.woocommerce.version=="11.0.1" and .artifacts["wordpress-seo"].version=="28.3" and .artifacts.polylang.version=="3.8.6" and .artifacts["the-events-calendar"].version=="6.17.2" and (.source_files|length==38) and (.static_callbacks|length==37) and (.marker_option_topology.updated_option|length==5) and (.woocommerce_normal_option_topology.updated_option|length==4) and (.woocommerce_normal_option_topology.pre_update_option|length==1) and (.woocommerce_normal_option_topology.added_option|length==2) and (.yoast_normal_option_topology.pre_update_option|length==6) and (.yoast_normal_option_topology.update_option|length==6) and (.yoast_normal_option_topology.add_option|length==6) and (.yoast_normal_option_topology.pre_update_option|all(.priority==9223372036854775807 and .accepted_args==3)) and (.yoast_normal_option_topology.update_option|all(.priority==10 and .accepted_args==1)) and (.yoast_normal_option_topology.add_option|all(.priority==10 and .accepted_args==1)) and .marker_option_topology.pre_option.optional_callback=="TEC\\Common\\Integrations\\Harbor\\PUE::filter_pre_get_option" and .marker_option_topology.wp_default_autoload_value.callback=="wp_filter_default_autoload_value_via_option_size" and (.dynamic_callback_containers|any(.hook=="pll_modify_rewrite_rule" and .accepted_args==4))' "$TOPOLOGY" >/dev/null || fail 'co-install topology fixture is not exact'
+jq -e '.format=="duo-woocommerce-rewrite-coinstall-topology/v1" and .artifacts.woocommerce.version=="11.0.1" and .artifacts["wordpress-seo"].version=="28.3" and .artifacts.polylang.version=="3.8.6" and .artifacts["the-events-calendar"].version=="6.17.2" and (.source_files|length==40) and (.static_callbacks|length==38) and (.marker_option_topology.updated_option|length==5) and (.woocommerce_normal_option_topology.updated_option|length==4) and (.woocommerce_normal_option_topology.pre_update_option|length==1) and (.woocommerce_normal_option_topology.added_option|length==2) and (.yoast_normal_option_topology.pre_update_option|length==6) and (.yoast_normal_option_topology.update_option|length==7) and (.yoast_normal_option_topology.add_option|length==6) and (.yoast_normal_option_topology.pre_update_option|all(.priority==9223372036854775807 and .accepted_args==3)) and (.yoast_normal_option_topology.update_option|all(.priority==10 and .accepted_args==1)) and (.yoast_normal_option_topology.add_option|all(.priority==10 and .accepted_args==1)) and .marker_option_topology.pre_option.optional_callback=="TEC\\Common\\Integrations\\Harbor\\PUE::filter_pre_get_option" and .marker_option_topology.wp_default_autoload_value.callback=="wp_filter_default_autoload_value_via_option_size" and (.dynamic_callback_containers|any(.hook=="pll_modify_rewrite_rule" and .accepted_args==4))' "$TOPOLOGY" >/dev/null || fail 'co-install topology fixture is not exact'
 validate_artifact_lock conformance/artifacts.lock.json
 jq -e --slurpfile lock conformance/artifacts.lock.json '(.artifacts | to_entries | all(. as $artifact | $lock[0].plugins[$artifact.key][$artifact.value.version].sha256 == $artifact.value.sha256))' "$TOPOLOGY" >/dev/null || fail 'co-install artifact hashes differ from the artifact lock'
 pass 'candidate, artifact hashes, and audited topology are pinned'
@@ -262,6 +262,9 @@ if($yoast!==$registeredYoast||get_class($yoast)!=="Yoast_Dynamic_Rewrites"||!pro
 $exact("option_rewrite_rules",[[$yoast,"filter_rewrite_rules_option",10,1]]);
 $exact("sanitize_option_rewrite_rules",[[$yoast,"sanitize_rewrite_rules_option",10,1]]);
 if(!class_exists("WPSEO_Options")||!is_callable(["WPSEO_Options","get_option_instance"])){throw new RuntimeException("Yoast options manager is unavailable");}
+$sitemaps=$GLOBALS["wpseo_sitemaps"]??null;
+$sitemapsCache=is_object($sitemaps)?($sitemaps->cache??null):null;
+if(!is_object($sitemaps)||get_class($sitemaps)!=="WPSEO_Sitemaps"||!is_object($sitemapsCache)||get_class($sitemapsCache)!=="WPSEO_Sitemaps_Cache"){throw new RuntimeException("Yoast sitemap global/cache identity differs from normal boot");}
 $yoastOptions=["wpseo"=>"WPSEO_Option_Wpseo","wpseo_titles"=>"WPSEO_Option_Titles","wpseo_social"=>"WPSEO_Option_Social","wpseo_taxonomy_meta"=>"WPSEO_Taxonomy_Meta","wpseo_llmstxt"=>"WPSEO_Option_Llmstxt","wpseo_tracking_only"=>"WPSEO_Option_Tracking_Only"];
 $yoastPre=[];$yoastGeneric=[];
 foreach($yoastOptions as $optionName=>$class){
@@ -272,6 +275,8 @@ foreach($yoastOptions as $optionName=>$class){
   $yoastPre[]=[$instance,"add_default_filters_if_not_changed",PHP_INT_MAX,3];
   $yoastGeneric[]=[$instance,"add_default_filters_if_same_option",10,1];
 }
+if(!class_exists("WPSEO_Sitemaps_Cache")||!is_callable(["WPSEO_Sitemaps_Cache","clear_on_option_update"])){throw new RuntimeException("Yoast sitemap cache callback is unavailable");}
+$yoastSitemap=[["WPSEO_Sitemaps_Cache","clear_on_option_update"],10,1];
 if(!class_exists("Tribe__Cache_Listener")||!class_exists("Tribe__Settings_Manager")||!class_exists("Tribe__Events__Aggregator")||!function_exists("tribe")){throw new RuntimeException("The Events Calendar option services are unavailable");}
 $listener=Tribe__Cache_Listener::instance();$manager=Tribe__Settings_Manager::instance();$aggregator=Tribe__Events__Aggregator::instance();$views=tribe("Tribe\\Events\\Views\\V2\\Hooks");
 foreach([[$listener,"Tribe__Cache_Listener"],[$manager,"Tribe__Settings_Manager"],[$aggregator,"Tribe__Events__Aggregator"],[$views,"Tribe\\Events\\Views\\V2\\Hooks"]]as[$service,$class]){if(!is_object($service)||get_class($service)!==$class){throw new RuntimeException("The Events Calendar option service identity differs from normal boot");}}
@@ -290,7 +295,7 @@ $tecRules=array_values(array_filter($records("rewrite_rules_array"),static fn(ar
 if(count($tecRules)!==1){throw new RuntimeException("The Events Calendar rewrite callback differs from the exact TEC event rewrite singleton");}
 $exact("updated_option",[[$manager,"update_options_cache",10,3],[$listener,"update_last_updated_option",10,3],[$listener,"update_last_save_post",10,3],[$aggregator,"action_purge_transients",10,1],[$views,"action_save_wplang",10,3],[$features,"process_updated_option",999,3],[$synchronizer,"process_updated_option",999,3],[$customOrders,"process_updated_option",999,3],[$customOrders,"process_updated_option_fts_index",999,3]]);
 $exact("pre_update_option",array_merge([[$customOrders,"process_pre_update_option",999,3]],$yoastPre));
-$exact("update_option",$yoastGeneric);
+$exact("update_option",array_merge($yoastGeneric,[$yoastSitemap]));
 $exact("add_option",$yoastGeneric);
 $exact("added_option",[[$features,"process_added_option",999,3],[$synchronizer,"process_added_option",999,2]]);
 $pre=$records("pre_option");if($pre!==[]){if(!function_exists("tribe")){throw new RuntimeException("Harbor option callback has no container resolver");}$harbor=tribe("TEC\\Common\\Integrations\\Harbor\\PUE");if(!is_object($harbor)||get_class($harbor)!=="TEC\\Common\\Integrations\\Harbor\\PUE"){throw new RuntimeException("Harbor option service identity differs from normal boot");}$exact("pre_option",[[$harbor,"filter_pre_get_option",10,3]]);}

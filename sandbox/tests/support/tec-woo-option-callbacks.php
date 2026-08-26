@@ -85,6 +85,50 @@ namespace {
     final class WPSEO_Option_Llmstxt { use TecReadinessYoastOptionSingleton; }
     final class WPSEO_Option_Tracking_Only { use TecReadinessYoastOptionSingleton; }
 
+    final class WPSEO_Sitemaps_Cache {
+        /** @var array<string,string|list<string>> */
+        protected static $cache_clear = [
+            'wpseo' => '',
+            'home' => '',
+            'wpseo_titles' => '',
+        ];
+        protected static bool $clear_all = false;
+        /** @var list<string> */
+        protected static array $clear_types = [];
+
+        public function __construct() {
+            add_action('update_option', [self::class, 'clear_on_option_update'], 10, 1);
+        }
+
+        public static function register_clear_on_option_update(string $name, string $type = ''): void {
+            self::$cache_clear[$name] = $type;
+        }
+
+        public static function clear_on_option_update(string $name): void {
+            if (!array_key_exists($name, self::$cache_clear)) {
+                return;
+            }
+            $GLOBALS['tec_readiness_yoast_calls'][] = [__METHOD__, $name];
+            $type = self::$cache_clear[$name];
+            if ($type === '') {
+                self::$clear_all = true;
+                return;
+            }
+            self::$clear_types = array_values(array_unique(array_merge(
+                self::$clear_types,
+                (array) $type
+            )));
+        }
+    }
+
+    final class WPSEO_Sitemaps {
+        public WPSEO_Sitemaps_Cache $cache;
+
+        public function __construct() {
+            $this->cache = new WPSEO_Sitemaps_Cache();
+        }
+    }
+
     final class WPSEO_Options {
         /** @var array<string,object> */
         private static array $optionInstances = [];
@@ -209,7 +253,8 @@ namespace {
     /**
      * @return array{
      *   container:object,features:object,synchronizer:object,custom_orders:object,
-     *   yoast:object,yoast_options:array<string,object>,polylang:object,polylang_links:object,polylang_sitemaps:object,
+     *   yoast:object,yoast_options:array<string,object>,yoast_sitemaps:object,yoast_sitemaps_cache:object,
+     *   polylang:object,polylang_links:object,polylang_sitemaps:object,
      *   polylang_types:list<string>
      * }
      */
@@ -262,6 +307,8 @@ namespace {
                 1
             );
         }
+        $sitemaps = new WPSEO_Sitemaps();
+        $GLOBALS['wpseo_sitemaps'] = $sitemaps;
         $yoast = Yoast_Dynamic_Rewrites::instance();
         $polylangTypes = [
             'date', 'root', 'comments', 'search', 'author', 'attachment', 'product', 'product_cat',
@@ -282,6 +329,8 @@ namespace {
             'synchronizer' => $synchronizer,
             'custom_orders' => $customOrders,
             'yoast_options' => $yoastOptions,
+            'yoast_sitemaps' => $sitemaps,
+            'yoast_sitemaps_cache' => $sitemaps->cache,
             'yoast' => $yoast,
             'polylang' => $polylang,
             'polylang_links' => $polylangLinks,
@@ -295,7 +344,8 @@ namespace {
     /**
      * @param array{
      *   container:object,features:object,synchronizer:object,custom_orders:object,
-     *   yoast:object,yoast_options:array<string,object>,polylang:object,polylang_links:object,polylang_sitemaps:object,
+     *   yoast:object,yoast_options:array<string,object>,yoast_sitemaps:object,yoast_sitemaps_cache:object,
+     *   polylang:object,polylang_links:object,polylang_sitemaps:object,
      *   polylang_types:list<string>
      * } $services
      */
@@ -313,6 +363,7 @@ namespace {
             remove_action('add_option', [$service, 'add_default_filters_if_same_option'], 10);
             WPSEO_Options::unregister_option($name);
         }
+        remove_action('update_option', [WPSEO_Sitemaps_Cache::class, 'clear_on_option_update'], 10);
         remove_filter('rewrite_rules_array', 'wc_fix_rewrite_rules', 10);
         remove_filter('option_rewrite_rules', [$services['yoast'], 'filter_rewrite_rules_option'], 10);
         remove_filter('sanitize_option_rewrite_rules', [$services['yoast'], 'sanitize_rewrite_rules_option'], 10);
@@ -321,7 +372,7 @@ namespace {
         foreach ($services['polylang_types'] as $type) {
             remove_filter($type . '_rewrite_rules', [$services['polylang_links'], 'rewrite_rules'], 10);
         }
-        unset($GLOBALS['wc_container'], $GLOBALS['polylang']);
+        unset($GLOBALS['wc_container'], $GLOBALS['polylang'], $GLOBALS['wpseo_sitemaps']);
     }
 
     /** Temporarily isolate the TEC option writer from the Yoast option family. */
@@ -331,6 +382,7 @@ namespace {
             remove_action('update_option', [$service, 'add_default_filters_if_same_option'], 10);
             remove_action('add_option', [$service, 'add_default_filters_if_same_option'], 10);
         }
+        remove_action('update_option', [WPSEO_Sitemaps_Cache::class, 'clear_on_option_update'], 10);
     }
 
     /** Restore the exact Yoast option callback family after a TEC-only write. */
@@ -340,5 +392,6 @@ namespace {
             add_action('update_option', [$service, 'add_default_filters_if_same_option'], 10, 1);
             add_action('add_option', [$service, 'add_default_filters_if_same_option'], 10, 1);
         }
+        add_action('update_option', [WPSEO_Sitemaps_Cache::class, 'clear_on_option_update'], 10, 1);
     }
 }

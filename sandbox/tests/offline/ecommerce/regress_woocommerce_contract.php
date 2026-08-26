@@ -972,6 +972,8 @@ $yoastOptionSources = [
     'inc/options/class-wpseo-taxonomy-meta.php' => 'b1c7b6e96c0c7d248028ec596ab24877b984913f563dbd4f11196c4ff73ea1f8',
     'inc/options/class-wpseo-option-llmstxt.php' => '3626daec1fd21fbf4128a9891f208d9402cce198b3703641221b6973f23786a7',
     'inc/options/class-wpseo-option-tracking-only.php' => '24902a45b2912e0f2d8cd731bc1e0990c824c61f35bb5076a7a4b091a8949c8c',
+    'inc/sitemaps/class-sitemaps-cache.php' => 'dc99816988fef1554775757fb8ab18b65ec2d46a08f03c475bf6da4dfdc72cc8',
+    'inc/sitemaps/class-sitemaps.php' => 'e436a8c3702e6c8c954d8bb3b4dd099124c47a4d6007c87f6693a79a7759a885',
 ];
 $coInstallSourcePins = [];
 foreach ((array) ($wooRewriteCoInstallTopology['source_files'] ?? []) as $sourcePin) {
@@ -983,9 +985,9 @@ foreach ($yoastOptionSources as $sourceFile => $sha256) {
     woo_ok(($coInstallSourcePins[$sourceFile] ?? null) === $sha256,
         "co-install evidence pins exact Yoast 28.3 option source $sourceFile");
 }
-woo_ok(count((array) ($wooRewriteCoInstallTopology['source_files'] ?? [])) === 38
-    && count((array) ($wooRewriteCoInstallTopology['static_callbacks'] ?? [])) === 37,
-    'co-install evidence closes all 38 source files and 37 static callbacks');
+woo_ok(count((array) ($wooRewriteCoInstallTopology['source_files'] ?? [])) === 40
+    && count((array) ($wooRewriteCoInstallTopology['static_callbacks'] ?? [])) === 38,
+    'co-install evidence closes all 40 source files and 38 static callbacks');
 $yoastOptionClasses = [
     'WPSEO_Option_Wpseo',
     'WPSEO_Option_Titles',
@@ -1004,8 +1006,15 @@ foreach ([
         'priority' => $priority,
         'accepted_args' => $acceptedArgs,
     ], $yoastOptionClasses);
+    if ($hook === 'update_option') {
+        $expected[] = [
+            'callback' => 'WPSEO_Sitemaps_Cache::clear_on_option_update',
+            'priority' => 10,
+            'accepted_args' => 1,
+        ];
+    }
     woo_ok(($wooRewriteCoInstallTopology['yoast_normal_option_topology'][$hook] ?? null) === $expected,
-        "co-install evidence closes the six canonical Yoast callbacks on $hook");
+        "co-install evidence closes the canonical Yoast callback family on $hook");
 }
 foreach ([
     'a comment cannot impersonate the executable handoff' => str_replace(
@@ -1437,6 +1446,9 @@ $conformanceFamilyWitnesses = [
         '/wp-json/wc/store/v1/products/',
         'external product resolves through Woo CRUD, v3 REST, Store API, and frontend',
         'Brands, category hierarchy, and visual attributes resolve through exact v3 REST, Store API, lookup/rewrite, image, and archive paths',
+        '.locations[0].details == "<em>بوابة ٢</em><br>南口"',
+        '.rate.label == "استلام 東京 (مخزن 東京)"',
+        '.rate.details == "بوابة ٢南口"',
     ]],
     'derived-state' => [$wooCheckHarness, [
         'wp_get_attachment_image_src',
@@ -1781,8 +1793,8 @@ foreach ([
     '"pll_rewrite_rules","pll_modify_rewrite_rule"',
     '([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0',
     'def static_rewrite_hook:',
-    '(.source_files|length==38)',
-    '(.static_callbacks|length==37)',
+    '(.source_files|length==40)',
+    '(.static_callbacks|length==38)',
     'WP_CLI_MEMORY_LIMIT=512M',
     '--entrypoint php',
     '-d "memory_limit=$WP_CLI_MEMORY_LIMIT" /usr/local/bin/wp',
@@ -1799,7 +1811,10 @@ foreach ([
     '$GLOBALS["wc_container"]',
     'Yoast_Dynamic_Rewrites::instance()',
     'WPSEO_Options::get_option_instance($optionName)',
-    '$exact("update_option",$yoastGeneric)',
+    '$GLOBALS["wpseo_sitemaps"]',
+    'Yoast sitemap global/cache identity differs from normal boot',
+    'WPSEO_Sitemaps_Cache","clear_on_option_update',
+    '$exact("update_option",array_merge($yoastGeneric,[$yoastSitemap]))',
     '$exact("add_option",$yoastGeneric)',
     'Yoast dynamic rewrite singleton was not registered by normal boot',
     'Yoast dynamic rewrite singleton differs from the canonical WordPress rewrite runtime',

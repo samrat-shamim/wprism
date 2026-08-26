@@ -33,9 +33,18 @@ namespace Duo;
  * Yoast SEO 28.3 normally adds six non-multisite option services: each binds
  * add_default_filters_if_not_changed to pre_update_option at PHP_INT_MAX/3,
  * and add_default_filters_if_same_option to update_option and add_option at
- * 10/1. WPSEO_Options::get_option_instance() reads those already-constructed
- * services; get_instance() is deliberately not called because it constructs
- * missing services and would let a partial runtime manufacture admission.
+ * 10/1. Its sitemap cache adds one static update_option callback at 10/1; the
+ * exact source (inc/sitemaps/class-sitemaps-cache.php, SHA-256
+ * dc99816988fef1554775757fb8ab18b65ec2d46a08f03c475bf6da4dfdc72cc8)
+ * returns without mutation for every TEC marker name unless an extension
+ * registered that marker in its protected cache-clear map. Active sitemaps
+ * bind the exact WPSEO_Sitemaps global/cache object and inspect only the fixed
+ * marker keys in that registration map; inactive sitemaps bind the absence of
+ * both global and callback. Mixed state
+ * or a registered marker refuses before mutation. WPSEO_Options::
+ * get_option_instance() reads the already-constructed option services;
+ * get_instance() is deliberately not called because it constructs missing
+ * services and would let a partial runtime manufacture admission.
  *
  * The same fresh process also executes exact rewrite interpreters from TEC,
  * Yoast 28.3 and Polylang 3.8.6. Their reviewed sources are respectively
@@ -63,6 +72,8 @@ final class NativeRewriteEffects {
         'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer';
     private const WOO_CUSTOM_ORDERS =
         'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController';
+    private const WPSEO_SITEMAPS = 'WPSEO_Sitemaps';
+    private const WPSEO_SITEMAPS_CACHE = 'WPSEO_Sitemaps_Cache';
     /** @var array<string,string> */
     private const WPSEO_OPTIONS = [
         'wpseo' => 'WPSEO_Option_Wpseo',
@@ -83,6 +94,8 @@ final class NativeRewriteEffects {
         private readonly ?object $wooCustomOrders,
         /** @var ?array<string,object> */
         private readonly ?array $wpseoOptions,
+        private readonly ?object $wpseoSitemaps,
+        private readonly ?object $wpseoSitemapsCache,
         /** @var array<string,mixed> */
         private readonly array $rewriteTopology,
         private readonly bool $purgePresent,
@@ -119,6 +132,8 @@ final class NativeRewriteEffects {
             $woo['synchronizer'] ?? null,
             $woo['custom_orders'] ?? null,
             $wpseo['options'] ?? null,
+            $wpseo['sitemaps'] ?? null,
+            $wpseo['sitemaps_cache'] ?? null,
             $rewriteTopology,
             $tec['purge_present'] ?? false,
             $tec['purge_value'] ?? null
@@ -156,6 +171,8 @@ final class NativeRewriteEffects {
                 || ($woo['synchronizer'] ?? null) !== $this->wooSynchronizer
                 || ($woo['custom_orders'] ?? null) !== $this->wooCustomOrders
                 || ($wpseo['options'] ?? null) !== $this->wpseoOptions
+                || ($wpseo['sitemaps'] ?? null) !== $this->wpseoSitemaps
+                || ($wpseo['sitemaps_cache'] ?? null) !== $this->wpseoSitemapsCache
                 || $rewriteTopology !== $this->rewriteTopology) {
                 throw new \RuntimeException(
                     'duo: native rewrite found The Events Calendar cache-listener service drift'
@@ -425,7 +442,7 @@ final class NativeRewriteEffects {
 
     /**
      * @param ?array{container:object,features:object,synchronizer:object,custom_orders:object} $woo
-     * @param ?array{options:array<string,object>} $wpseo
+     * @param ?array{options:array<string,object>,sitemaps:?object,sitemaps_cache:?object} $wpseo
      * @return array<string,mixed>
      */
     private static function rewrite_topology(?object $listener, ?array $woo, ?array $wpseo): array {
@@ -568,7 +585,7 @@ final class NativeRewriteEffects {
 
     /**
      * @param ?array{container:object,features:object,synchronizer:object,custom_orders:object} $woo
-     * @param ?array{options:array<string,object>} $wpseo
+     * @param ?array{options:array<string,object>,sitemaps:?object,sitemaps_cache:?object} $wpseo
      * @param ?array{service:object,state:string,top:array<string,string>,bottom:array<string,string>} $yoast
      */
     private static function assert_rewrite_rules_option_hooks(
@@ -1207,7 +1224,7 @@ final class NativeRewriteEffects {
 
     /**
      * @param ?array{container:object,features:object,synchronizer:object,custom_orders:object} $woo
-     * @param ?array{options:array<string,object>} $wpseo
+     * @param ?array{options:array<string,object>,sitemaps:?object,sitemaps_cache:?object} $wpseo
      */
     private static function assert_marker_option_hooks(
         string $name,
@@ -1360,7 +1377,7 @@ final class NativeRewriteEffects {
      * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $preUpdated
      * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $update
      * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $add
-     * @return ?array{options:array<string,object>}
+     * @return ?array{options:array<string,object>,sitemaps:?object,sitemaps_cache:?object}
      */
     private static function resolve_wpseo_services(array $preUpdated, array $update, array $add): ?array {
         $records = array_merge($preUpdated, $update, $add);
@@ -1399,13 +1416,84 @@ final class NativeRewriteEffects {
             }
             $options[$optionName] = $service;
         }
-        return ['options' => $options];
+        $sitemapCallbacks = [];
+        foreach ($update as $tuple) {
+            $callback = $tuple[1]['function'];
+            if (is_array($callback) && ($callback[0] ?? null) === self::WPSEO_SITEMAPS_CACHE) {
+                $sitemapCallbacks[] = $tuple;
+            }
+        }
+        $sitemapsPresent = array_key_exists('wpseo_sitemaps', $GLOBALS);
+        if (class_exists(self::WPSEO_SITEMAPS_CACHE, false)) {
+            self::assert_wpseo_sitemap_cache_map();
+        }
+        if (!$sitemapsPresent && $sitemapCallbacks === []) {
+            return [
+                'options' => $options,
+                'sitemaps' => null,
+                'sitemaps_cache' => null,
+            ];
+        }
+        if (!$sitemapsPresent
+            || count($sitemapCallbacks) !== 1
+            || $sitemapCallbacks[0][0] !== 10
+            || $sitemapCallbacks[0][1]['accepted_args'] !== 1
+            || $sitemapCallbacks[0][1]['function']
+                !== [self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update']) {
+            throw new \RuntimeException(
+                'duo: native rewrite found incomplete or substituted Yoast SEO sitemap cache topology'
+            );
+        }
+        $sitemaps = $GLOBALS['wpseo_sitemaps'];
+        $sitemapsCache = is_object($sitemaps) ? ($sitemaps->cache ?? null) : null;
+        if (!is_object($sitemaps)
+            || get_class($sitemaps) !== self::WPSEO_SITEMAPS
+            || !is_object($sitemapsCache)
+            || get_class($sitemapsCache) !== self::WPSEO_SITEMAPS_CACHE
+            || !class_exists(self::WPSEO_SITEMAPS_CACHE, false)
+            || !is_callable([self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update'])) {
+            throw new \RuntimeException(
+                'duo: native rewrite found incomplete or substituted Yoast SEO sitemap cache service'
+            );
+        }
+        return [
+            'options' => $options,
+            'sitemaps' => $sitemaps,
+            'sitemaps_cache' => $sitemapsCache,
+        ];
+    }
+
+    private static function assert_wpseo_sitemap_cache_map(): void {
+        try {
+            $cacheClear = (new \ReflectionProperty(
+                self::WPSEO_SITEMAPS_CACHE,
+                'cache_clear'
+            ))->getValue();
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: native rewrite could not inspect the Yoast SEO sitemap cache registration map',
+                0,
+                $failure
+            );
+        }
+        if (!is_array($cacheClear)) {
+            throw new \RuntimeException(
+                'duo: native rewrite found a malformed Yoast SEO sitemap cache registration map'
+            );
+        }
+        foreach (self::MARKER_OPTIONS as $marker) {
+            if (array_key_exists($marker, $cacheClear)) {
+                throw new \RuntimeException(
+                    'duo: native rewrite found a TEC marker registered for Yoast SEO sitemap cache invalidation'
+                );
+            }
+        }
     }
 
     /**
      * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $records
      * @param ?array{container:object,features:object,synchronizer:object,custom_orders:object} $woo
-     * @param ?array{options:array<string,object>} $wpseo
+     * @param ?array{options:array<string,object>,sitemaps:?object,sitemaps_cache:?object} $wpseo
      */
     private static function assert_normal_option_callbacks(
         string $hookName,
@@ -1438,6 +1526,14 @@ final class NativeRewriteEffects {
                     throw new \LogicException('duo: unknown normal option callback family');
                 }
             }
+            if ($hookName === 'update_option' && $wpseo['sitemaps_cache'] !== null) {
+                $yoastExpected[] = [
+                    self::WPSEO_SITEMAPS_CACHE,
+                    'clear_on_option_update',
+                    10,
+                    1,
+                ];
+            }
             $expected = array_merge($expected, $yoastExpected);
         }
         $yoastServices = $wpseo === null ? [] : array_values($wpseo['options']);
@@ -1459,11 +1555,15 @@ final class NativeRewriteEffects {
             if ($matched === null) {
                 $family = 'normal';
                 $callback = $record['function'];
-                if (is_array($callback) && is_object($callback[0] ?? null)) {
-                    $class = get_class($callback[0]);
-                    if (in_array($class, self::WPSEO_OPTIONS, true)) {
+                if (is_array($callback)) {
+                    $owner = $callback[0] ?? null;
+                    $class = is_object($owner) ? get_class($owner) : $owner;
+                    if (is_string($class)
+                        && (in_array($class, self::WPSEO_OPTIONS, true)
+                            || $class === self::WPSEO_SITEMAPS_CACHE)) {
                         $family = 'Yoast SEO';
-                    } elseif (in_array($class, [self::WOO_FEATURES, self::WOO_SYNCHRONIZER, self::WOO_CUSTOM_ORDERS], true)) {
+                    } elseif (is_string($class)
+                        && in_array($class, [self::WOO_FEATURES, self::WOO_SYNCHRONIZER, self::WOO_CUSTOM_ORDERS], true)) {
                         $family = 'WooCommerce';
                     }
                 }
@@ -1477,7 +1577,9 @@ final class NativeRewriteEffects {
             $yoastMissing = false;
             $wooMissing = false;
             foreach ($expected as [$object]) {
-                if ($wpseo !== null && in_array($object, $yoastServices, true)) {
+                if ($wpseo !== null
+                    && ($object === self::WPSEO_SITEMAPS_CACHE
+                        || in_array($object, $yoastServices, true))) {
                     $yoastMissing = true;
                 }
                 if ($woo !== null && in_array($object, $wooServices, true)) {
