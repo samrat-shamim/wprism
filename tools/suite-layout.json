@@ -23,8 +23,6 @@
     "sandbox/tests/grind_r3b_events.sh": "sandbox/tests/grind/grind_r3b_events.sh",
     "sandbox/tests/lint_smoke.sh": "sandbox/tests/spike/lint_smoke.sh",
     "sandbox/tests/manifest_fixtures.php": "sandbox/tests/offline/policy/manifest_fixtures.php",
-    "sandbox/tests/regress_acf_meta_interpreter.php": "sandbox/tests/offline/policy/regress_acf_meta_interpreter.php",
-    "sandbox/tests/regress_acf_term_options_fields.sh": "sandbox/tests/live/regress_acf_term_options_fields.sh",
     "sandbox/tests/regress_action_provider_grammar.php": "sandbox/tests/offline/adapter/regress_action_provider_grammar.php",
     "sandbox/tests/regress_action_scope.php": "sandbox/tests/offline/adapter/regress_action_scope.php",
     "sandbox/tests/regress_actions_providers.php": "sandbox/tests/offline/adapter/regress_actions_providers.php",
@@ -330,6 +328,5 @@
     "sandbox/tests/spike_a_round_trip.sh": "sandbox/tests/spike/spike_a_round_trip.sh",
     "sandbox/tests/spike_b_merge.sh": "sandbox/tests/spike/spike_b_merge.sh",
     "sandbox/tests/spike_c_provenance.sh": "sandbox/tests/spike/spike_c_provenance.sh",
-    "sandbox/tests/spike_d_woo.sh": "sandbox/tests/spike/spike_d_woo.sh",
-    "sandbox/tests/spike_e_acf.sh": "sandbox/tests/spike/spike_e_acf.sh"
+    "sandbox/tests/spike_d_woo.sh": "sandbox/tests/spike/spike_d_woo.sh"
 }
