@@ -20,8 +20,8 @@
  * repository becomes a validated IR "before Tokens, Ledger, Capture, or a
  * target query can be constructed"), so the validators, effects_inventory(),
  * Policy::action_source(), and the digest computation are all reachable
- * against REAL fixture bytes written to a scratch DUO_MANIFESTS_DIR, using the
- * REAL, unmodified engine files. Same idiom as
+ * against REAL fixture bytes closed into an explicit scratch AdapterLibrary,
+ * using the REAL, unmodified engine files. Same idiom as
  * sandbox/tests/offline/adapter/regress_adapter_contract.php.
  *
  * The RUNTIME half of the same contract — negotiation against live plugin
@@ -60,6 +60,7 @@ require $root . '/agent/src/Kernel/Db.php';
 // closed vocabulary at load time), so this file must not require it a second
 // time.
 require $root . '/agent/src/Policy/Policy.php';
+require_once $root . '/sandbox/tests/offline/policy/manifest_fixtures.php';
 require $root . '/agent/src/Adapter/Providers.php';
 require $root . '/agent/src/Repository/Ledger.php';
 require $root . '/agent/src/Repository/RepositoryCompiler.php';
@@ -125,22 +126,52 @@ function fresh_manifests_dir(array $files, array $providers = [], array $regener
     foreach ($regenerators as $name => $source) {
         file_put_contents("$root/regenerators/$name.php", $source);
     }
-    register_shutdown_function(function () use ($root) {
-        foreach (['providers', 'regenerators'] as $sub) {
-            foreach (glob("$root/$sub/*") ?: [] as $f) {
-                unlink($f);
-            }
-            @rmdir("$root/$sub");
-        }
-        foreach (glob("$root/*") ?: [] as $f) {
-            if (is_file($f)) {
-                unlink($f);
-            }
-        }
-        @rmdir($root);
+    register_shutdown_function(static function () use ($root): void {
+        manifest_fixture_remove_tree($root);
     });
-    putenv("DUO_MANIFESTS_DIR=$root");
+    $GLOBALS['actions_providers_adapter_library_root'] = $root;
+    $GLOBALS['actions_providers_adapter_library'] = null;
     return $root;
+}
+
+/** Select one explicit closed library for subsequent fixture loads. */
+function select_fixture_library(string $root): AdapterLibrary {
+    $GLOBALS['actions_providers_adapter_library_root'] = $root;
+    // The shared closer inventories valid runtime declarations. This suite
+    // also feeds Policy a deliberately scalar providers section; mask only
+    // that malformed value while closing the physical inventory, then restore
+    // the exact authored bytes so Policy's real grammar is what refuses it.
+    $masked = [];
+    foreach (glob(rtrim($root, '/') . '/*.json') ?: [] as $manifestPath) {
+        $raw = Canon::read_file($manifestPath);
+        $manifest = Canon::decode($raw);
+        if (is_array($manifest) && array_key_exists('providers', $manifest) && !is_array($manifest['providers'])) {
+            $masked[$manifestPath] = $raw;
+            $manifest['providers'] = [];
+            Canon::write_file($manifestPath, Canon::encode($manifest));
+        }
+    }
+    try {
+        $library = manifest_fixture_adapter_library($root);
+    } finally {
+        foreach ($masked as $manifestPath => $raw) {
+            Canon::write_file($manifestPath, $raw);
+        }
+    }
+    return $GLOBALS['actions_providers_adapter_library'] = $library;
+}
+
+/** Load through the exact fixture inventory rather than process-global path state. */
+function fixture_policy_load(?string $repo, ?array $names = null): Policy {
+    $library = $GLOBALS['actions_providers_adapter_library'] ?? null;
+    if (!$library instanceof AdapterLibrary) {
+        $root = $GLOBALS['actions_providers_adapter_library_root'] ?? null;
+        if (!is_string($root)) {
+            throw new \RuntimeException('actions/providers fixture selected no adapter library');
+        }
+        $library = select_fixture_library($root);
+    }
+    return Policy::load($repo, $names, adapterLibrary: $library);
 }
 
 /** A minimal, valid effect declaration for an action that wants one. */
@@ -194,7 +225,7 @@ function probe_manifest(array $overrides = []): array {
 /** Load one probe fixture with the given mutation applied to the whole manifest. */
 function load_probe(array $manifest): Policy {
     fresh_manifests_dir(['probe' => $manifest]);
-    return Policy::load(null, ['probe']);
+    return fixture_policy_load(null, ['probe']);
 }
 
 /** Assert one probe fixture mutation is refused at Policy::load(). */
@@ -223,12 +254,12 @@ $retired = [
 ];
 fresh_manifests_dir(['retired' => $retired]);
 expect_throw(
-    fn() => Policy::load(null, ['retired']),
+    fn() => fixture_policy_load(null, ['retired']),
     'declares the retired free-form `rebuilders` channel',
     'a manifest declaring `rebuilders` is REFUSED at load (this exact shape loaded and executed before DUO-3338)'
 );
 try {
-    Policy::load(null, ['retired']);
+    fixture_policy_load(null, ['retired']);
 } catch (\RuntimeException $e) {
     check(
         str_contains($e->getMessage(), 'migrate to structured `actions` (native or provider)')
@@ -240,7 +271,7 @@ try {
 // exactly that, and "present but empty" must not be a way to keep the key.
 fresh_manifests_dir(['retired-empty' => ['name' => 'retired-empty', 'spec_version' => DUO_SPEC_VERSION, 'rebuilders' => []]]);
 expect_throw(
-    fn() => Policy::load(null, ['retired-empty']),
+    fn() => fixture_policy_load(null, ['retired-empty']),
     'retired free-form `rebuilders` channel',
     'an EMPTY rebuilders list is refused as well — presence of the key is the refusal, not its contents'
 );
@@ -316,7 +347,7 @@ refuse_probe($m, '.args must be an object', 'action args given as a list are ref
 $m = probe_manifest();
 $m['actions'][1]['args'] = new stdClass();
 fresh_manifests_dir(['probe' => json_decode((string) json_encode($m), true)]);
-Policy::load(null, ['probe']);
+fixture_policy_load(null, ['probe']);
 check(true, 'an argument-free action stays expressible as {} (an empty array is not treated as a malformed list)');
 
 echo "\n== actions: native entries are bound to the closed engine vocabulary ==\n";
@@ -417,7 +448,7 @@ $borrower = [
 ];
 fresh_manifests_dir(['owner' => $owner, 'borrower' => $borrower]);
 expect_throw(
-    fn() => Policy::load(null, ['owner', 'borrower']),
+    fn() => fixture_policy_load(null, ['owner', 'borrower']),
     'must name a `providers` entry declared by manifest',
     "an action may not reach into ANOTHER pinned manifest's provider declaration"
 );
@@ -486,7 +517,7 @@ expect_throw(fn() => load_probe($m), 'probe-dup', 'two actions declaring the sam
 echo "\n== providers: the declaration is an identity assertion, closed on every axis ==\n";
 
 refuse_probe(probe_manifest(['providers' => 'nope']), 'providers must be a list', 'a non-list providers section is refused');
-refuse_probe(probe_manifest(['providers' => ['nope']]), 'must be an object', 'a non-object provider declaration is refused');
+refuse_probe(probe_manifest(['providers' => ['nope']]), 'provider 0 must be a JSON object', 'a non-object provider declaration is refused');
 $m = probe_manifest();
 unset($m['providers'][0]['version']);
 refuse_probe($m, 'must declare exactly capabilities, id, plugin, source, version', 'a provider declaration missing a required key is refused');
@@ -503,7 +534,15 @@ foreach ([
     $m = probe_manifest();
     $m['providers'][0]['id'] = $bad;
     $m['actions'][1]['provider'] = $bad;
-    refuse_probe($m, '.id must match', "$label is refused");
+    refuse_probe(
+        $m,
+        match ($bad) {
+            '../probe' => 'unexpected entry in adapter library root',
+            'Probe-Cache' => 'adapter runtime basename',
+            default => '.id must match',
+        },
+        "$label is refused"
+    );
 }
 foreach ([['1.0', 'a two-part version'], ['1.0.0-beta', 'a prerelease version'], ['*', 'a wildcard version']] as [$bad, $label]) {
     $m = probe_manifest();
@@ -531,7 +570,7 @@ $m['actions'][1]['capability'] = 'flush';
 refuse_probe($m, '.capabilities[0] must match', 'a capability name outside the bounded charset is refused in the declaration too');
 $m = probe_manifest();
 $m['providers'][] = $m['providers'][0];
-refuse_probe($m, "declares provider id 'probe-cache-offline' more than once", 'one manifest declaring the same provider id twice is refused');
+refuse_probe($m, 'declares provider probe-cache-offline more than once', 'one manifest declaring the same provider id twice is refused');
 
 // ======================================================================
 echo "\n== providers: v3 manifest runtime moves protocol mechanics into core ==\n";
@@ -704,8 +743,8 @@ $second['plugin'] = 'second/second.php';
 $second['providers'][0]['plugin'] = 'second/second.php';
 fresh_manifests_dir(['probe' => probe_manifest(), 'second' => $second]);
 expect_throw(
-    fn() => Policy::load(null, ['probe', 'second']),
-    "both declare provider id 'probe-cache-offline'",
+    fn() => fixture_policy_load(null, ['probe', 'second']),
+    'runtime provider probe-cache-offline is declared by both probe and second',
     'two pinned manifests declaring the same provider id are refused (load-order-independent)'
 );
 
@@ -784,7 +823,7 @@ foreach ($sourceLibrary->packages() as $package) {
     $manifest = Canon::decode(Canon::read_file($package->manifestPath()));
     foreach ((array) ($manifest['providers'] ?? []) as $provider) {
         $id = is_array($provider) ? ($provider['id'] ?? null) : null;
-        if (is_string($id)) {
+        if (is_string($id) && ($provider['source'] ?? null) === 'manifest') {
             copy($package->providerPath($id), "$shipped/providers/$id.php");
         }
     }
@@ -839,42 +878,24 @@ foreach ($sourceLibrary->packages() as $package) {
         }
         copy($interpreter, "$shipped/interpreters/" . basename($interpreter));
     }
-    $manifest = Canon::decode(Canon::read_file($package->manifestPath()));
-    foreach ((array) ($manifest['regenerators'] ?? []) as $regenerator) {
-        $id = is_array($regenerator) ? ($regenerator['id'] ?? null) : null;
-        if (is_string($id)) {
+    foreach ($package->shippablePaths() as $runtime) {
+        if (str_contains($runtime, '/runtime/regenerators/')) {
             if (!is_dir("$shipped/regenerators")) {
                 mkdir("$shipped/regenerators", 0777, true);
             }
-            copy($package->regeneratorPath($id), "$shipped/regenerators/$id.php");
+            copy($runtime, "$shipped/regenerators/" . basename($runtime));
         }
     }
 }
-register_shutdown_function(function () use ($shipped, $shippedRoot) {
-    foreach (['providers', 'interpreters', 'regenerators'] as $sub) {
-        foreach (glob("$shipped/$sub/*") ?: [] as $f) {
-            unlink($f);
-        }
-        @rmdir("$shipped/$sub");
-    }
-    foreach (glob("$shipped/*") ?: [] as $f) {
-        if (is_file($f)) {
-            unlink($f);
-        }
-    }
-    @rmdir($shipped);
-    @unlink($shippedRoot . '/agent/src/Kernel/WpCliChildProcess.php');
-    @rmdir($shippedRoot . '/agent/src/Kernel');
-    @rmdir($shippedRoot . '/agent/src');
-    @rmdir($shippedRoot . '/agent');
-    @rmdir($shippedRoot);
+register_shutdown_function(static function () use ($shippedRoot): void {
+    manifest_fixture_remove_tree($shippedRoot);
 });
-putenv("DUO_MANIFESTS_DIR=$shipped");
+select_fixture_library($shipped);
 check(count($copied) >= 10, 'the shipped manifest set was copied into a scratch dir for real-byte validation (' . count($copied) . ' manifests)');
 $shippedPolicies = [];
 foreach ($copied as $name) {
     try {
-        $shippedPolicies[$name] = Policy::load(null, [$name]);
+        $shippedPolicies[$name] = fixture_policy_load(null, [$name]);
         check(true, "shipped manifest '$name' loads clean through the real Policy validators");
     } catch (\Throwable $t) {
         check(false, "shipped manifest '$name' loads clean through the real Policy validators ({$t->getMessage()})");
@@ -1170,7 +1191,7 @@ $digestManifest = [
 ];
 $providerSource = "<?php\nnamespace Duo\\Providers;\nfinal class DigestProbe {\n    public function __construct(\\Duo\\Policy \$policy) {}\n}\n";
 $digestDir = fresh_manifests_dir(['digest' => $digestManifest], ['digest-probe' => $providerSource]);
-$digestPolicy = Policy::load(null, ['digest']);
+$digestPolicy = fixture_policy_load(null, ['digest']);
 $adapterBefore = RepositoryCompiler::resolved_adapters($digestPolicy)[0]['digest'];
 $rowBefore = $rowDigest($manifestRows->invoke(null, $digestPolicy)[0]);
 $combinedBefore = RepositoryCompiler::manifest_hash($digestPolicy);
@@ -1182,7 +1203,7 @@ check(
 
 // Only the provider file changes; the manifest bytes are untouched.
 file_put_contents("$digestDir/providers/digest-probe.php", $providerSource . "// drift\n");
-$digestPolicyAfter = Policy::load(null, ['digest']);
+$digestPolicyAfter = fixture_policy_load(null, ['digest']);
 check(
     $digestPolicyAfter->manifests[0] === $digestPolicy->manifests[0],
     'the manifest bytes are byte-identical across the two loads — only the provider file moved'
@@ -1214,13 +1235,13 @@ check(
     "the combined manifest_hash() moves too — the per-adapter digests are the same bytes exposed per adapter, not a second notion of identity"
 );
 unlink("$digestDir/providers/digest-probe.php");
-$missingRow = $manifestRows->invoke(null, Policy::load(null, ['digest']))[0];
+$missingRow = $manifestRows->invoke(null, fixture_policy_load(null, ['digest']))[0];
 check(
     ($missingRow['providers'] ?? null) === [['id' => 'digest-probe', 'sha256' => null]],
     'a missing provider file hashes as null in the identity row rather than silently vanishing from it'
 );
 file_put_contents("$digestDir/providers/digest-probe.php", $providerSource . "// drift\n");
-$adapterRepeat = RepositoryCompiler::resolved_adapters(Policy::load(null, ['digest']))[0]['digest'];
+$adapterRepeat = RepositoryCompiler::resolved_adapters(fixture_policy_load(null, ['digest']))[0]['digest'];
 check($adapterRepeat === $adapterAfter, 'the digest is deterministic — identical provider bytes re-hash identically');
 
 // A plugin-sourced provider's trust anchor is the installed plugin, not a file
@@ -1230,11 +1251,11 @@ $pluginSourced = $digestManifest;
 $pluginSourced['name'] = 'digestplugin';
 $pluginSourced['providers'][0]['source'] = 'plugin';
 $pluginDir = fresh_manifests_dir(['digestplugin' => $pluginSourced]);
-$pluginPolicy = Policy::load(null, ['digestplugin']);
+$pluginPolicy = fixture_policy_load(null, ['digestplugin']);
 $pluginBefore = RepositoryCompiler::resolved_adapters($pluginPolicy)[0]['digest'];
 file_put_contents("$pluginDir/providers/digest-probe.php", $providerSource);
 check(
-    RepositoryCompiler::resolved_adapters(Policy::load(null, ['digestplugin']))[0]['digest'] === $pluginBefore,
+    RepositoryCompiler::resolved_adapters(fixture_policy_load(null, ['digestplugin']))[0]['digest'] === $pluginBefore,
     'a plugin-sourced provider is NOT file-hashed — its identity anchor is the installed plugin the code half already version-bounds'
 );
 
@@ -1286,7 +1307,7 @@ $regenDir = fresh_manifests_dir(
     ['digest-regen' => $regenSource('DigestRegen'), 'second-regen' => $regenSource('SecondRegen')]
 );
 $regenPins = ['digestregen', 'digestquiet'];
-$regenPolicy = Policy::load(null, $regenPins);
+$regenPolicy = fixture_policy_load(null, $regenPins);
 $regenRow = $manifestRows->invoke(null, $regenPolicy)[0];
 check(
     ($regenRow['regenerators'] ?? null) === [
@@ -1325,7 +1346,7 @@ $reshuffledDir = fresh_manifests_dir(
     [],
     ['digest-regen' => $regenSource('DigestRegen'), 'second-regen' => $regenSource('SecondRegen')]
 );
-$reshuffledPolicy = Policy::load(null, ['digestregen']);
+$reshuffledPolicy = fixture_policy_load(null, ['digestregen']);
 check(
     $reshuffledPolicy->manifests[0] !== $regenPolicy->manifests[0]
         && Canon::encode($reshuffledPolicy->manifests[0]) === Canon::encode($regenPolicy->manifests[0]),
@@ -1336,11 +1357,11 @@ check(
         && $rowDigest($manifestRows->invoke(null, $reshuffledPolicy)[0]) === $regenBefore,
     'and its digest is unchanged, row and reported alike — a no-op key reshuffle must never move a certified adapter'
 );
-putenv("DUO_MANIFESTS_DIR=$regenDir");
+select_fixture_library($regenDir);
 
 // Only the regenerator file changes; the manifest bytes are untouched.
 file_put_contents("$regenDir/regenerators/digest-regen.php", $regenSource('DigestRegen') . "// drift\n");
-$regenPolicyAfter = Policy::load(null, $regenPins);
+$regenPolicyAfter = fixture_policy_load(null, $regenPins);
 check(
     $regenPolicyAfter->manifests[0] === $regenPolicy->manifests[0],
     'the manifest bytes are byte-identical across the two loads — only the regenerator file moved'
@@ -1364,7 +1385,7 @@ check(
     'the combined manifest_hash() moves too — one notion of identity, exposed both per-adapter and combined'
 );
 check(
-    RepositoryCompiler::resolved_adapters(Policy::load(null, $regenPins))[0]['digest'] === $regenAfter,
+    RepositoryCompiler::resolved_adapters(fixture_policy_load(null, $regenPins))[0]['digest'] === $regenAfter,
     'the digest is deterministic — identical regenerator bytes re-hash identically across two loads'
 );
 
@@ -1373,7 +1394,7 @@ check(
 // identity, so the entry must stay present with a null hash — a silent skip
 // would let deleting the file leave the adapter's identity unmoved.
 unlink("$regenDir/regenerators/second-regen.php");
-$regenMissingRow = $manifestRows->invoke(null, Policy::load(null, $regenPins))[0];
+$regenMissingRow = $manifestRows->invoke(null, fixture_policy_load(null, $regenPins))[0];
 check(
     ($regenMissingRow['regenerators'] ?? null) === [
         ['name' => 'digest-regen', 'sha256' => hash_file('sha256', "$regenDir/regenerators/digest-regen.php")],
@@ -1384,7 +1405,7 @@ check(
 check(
     $rowDigest($regenMissingRow) !== $regenAfter
         && $rowDigest($regenMissingRow)
-            === RepositoryCompiler::resolved_adapters(Policy::load(null, $regenPins))[0]['digest'],
+            === RepositoryCompiler::resolved_adapters(fixture_policy_load(null, $regenPins))[0]['digest'],
     'deleting the file therefore MOVES the digest, and the reported digest moves with the row'
 );
 

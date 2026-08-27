@@ -10,7 +10,7 @@
  * docblock: repository + manifest inputs become a validated IR "before
  * Tokens, Ledger, Capture, or a target query can be constructed"). Every
  * check here runs against REAL manifest fixture files this test writes to
- * a scratch DUO_MANIFESTS_DIR, using the REAL, unmodified
+ * an explicit scratch AdapterLibrary, using the REAL, unmodified
  * agent/src/{Canon,Policy,RepositoryCompiler}.php — not reimplementations.
  *
  * What this file does NOT cover (needs a live WordPress + real installed
@@ -45,6 +45,7 @@ require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../policy/manifest_fixtures.php';
 require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
@@ -52,6 +53,7 @@ require __DIR__ . '/../../../../agent/src/Repository/RepositoryAuthorization.php
 require __DIR__ . '/../../../../agent/src/Promotion/Deploy.php';
 
 use Duo\Canon;
+use Duo\AdapterLibrary;
 use Duo\Policy;
 use Duo\RepositoryCompiler;
 
@@ -106,14 +108,31 @@ function fresh_manifests_dir(array $files): string {
     foreach ($files as $name => $content) {
         Canon::write_file("$root/$name.json", is_string($content) ? $content : json_encode($content, JSON_PRETTY_PRINT));
     }
-    register_shutdown_function(function () use ($root) {
-        foreach (glob("$root/*") as $f) {
-            unlink($f);
-        }
-        rmdir($root);
+    register_shutdown_function(static function () use ($root): void {
+        manifest_fixture_remove_tree($root);
     });
-    putenv("DUO_MANIFESTS_DIR=$root");
+    $GLOBALS['adapter_contract_library_root'] = $root;
+    $GLOBALS['adapter_contract_library'] = null;
     return $root;
+}
+
+/** Select one closed fixture library for subsequent product loads. */
+function adapter_contract_select_library(string $root): AdapterLibrary {
+    $GLOBALS['adapter_contract_library_root'] = $root;
+    return $GLOBALS['adapter_contract_library'] = manifest_fixture_adapter_library($root);
+}
+
+/** Load against the exact scratch inventory selected by fresh_manifests_dir(). */
+function adapter_contract_policy_load(?string $repo, ?array $names = null): Policy {
+    $library = $GLOBALS['adapter_contract_library'] ?? null;
+    if (!$library instanceof AdapterLibrary) {
+        $root = $GLOBALS['adapter_contract_library_root'] ?? null;
+        if (!is_string($root)) {
+            throw new \RuntimeException('adapter-contract fixture selected no adapter library');
+        }
+        $library = adapter_contract_select_library($root);
+    }
+    return Policy::load($repo, $names, adapterLibrary: $library);
 }
 
 /** Fresh site repo containing only the policy contract under test. */
@@ -145,7 +164,7 @@ fresh_manifests_dir([
         'theme_version_range' => ['min' => '3.0.0', 'max' => '4.0.0'],
     ],
 ]);
-$p = Policy::load(null, ['good']);
+$p = adapter_contract_policy_load(null, ['good']);
 check(true, 'well-formed manifest (spec_version + plugin/version_range + theme/theme_version_range) loads without throwing');
 $vr = $p->version_ranges();
 check(
@@ -161,12 +180,12 @@ check(
 echo "\n== scope boundary: multisite refuses before policy loading or mutation ==\n";
 $GLOBALS['duo_test_is_multisite'] = true;
 expect_throw(
-    fn() => Policy::load(null, ['good']),
+    fn() => adapter_contract_policy_load(null, ['good']),
     'multisite is unsupported by the certified v1 contract',
     'multisite fails closed through the real Policy::load() entry path'
 );
 $GLOBALS['duo_test_is_multisite'] = false;
-Policy::load(null, ['good']);
+adapter_contract_policy_load(null, ['good']);
 check(true, 'single-site policy loading remains available after the refusal probe');
 
 echo "\n== spec_version: MANDATORY (DUO-3247) — absent hard-fails, present-and-correct passes, present-and-WRONG hard-fails ==\n";
@@ -179,18 +198,18 @@ echo "\n== spec_version: MANDATORY (DUO-3247) — absent hard-fails, present-and
 // needle through the one throw site.
 fresh_manifests_dir(['no-spec' => ['name' => 'no-spec']]);
 expect_throw(
-    fn() => Policy::load(null, ['no-spec']),
+    fn() => adapter_contract_policy_load(null, ['no-spec']),
     'spec_version',
     'absent spec_version hard-fails (DUO-3247: mandatory now, not lenient — was the DUO-3222-era behavior before this issue)'
 );
 
 fresh_manifests_dir(['right-spec' => ['name' => 'right-spec', 'spec_version' => DUO_SPEC_VERSION]]);
-Policy::load(null, ['right-spec']);
+adapter_contract_policy_load(null, ['right-spec']);
 check(true, 'declared-and-correct spec_version loads cleanly');
 
 fresh_manifests_dir(['wrong-spec' => ['name' => 'wrong-spec', 'spec_version' => DUO_SPEC_VERSION + 1]]);
 expect_throw(
-    fn() => Policy::load(null, ['wrong-spec']),
+    fn() => adapter_contract_policy_load(null, ['wrong-spec']),
     'spec_version',
     'declared-and-WRONG spec_version hard-fails (same failure as absent now, per DUO-3247)'
 );
@@ -203,36 +222,36 @@ echo "\n== unbounded/malformed ranges are refused — 'no latest/wildcard/unboun
 // one of these would hard-fail on the spec_version needle instead.
 fresh_manifests_dir(['no-range' => ['name' => 'no-range', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php']]);
 expect_throw(
-    fn() => Policy::load(null, ['no-range']),
+    fn() => adapter_contract_policy_load(null, ['no-range']),
     'unbounded',
     'plugin declared with NO version_range at all is refused (today\'s silent-skip is the failure mode DUO-3222 closes)'
 );
 
 fresh_manifests_dir(['missing-max' => ['name' => 'missing-max', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0']]]);
-expect_throw(fn() => Policy::load(null, ['missing-max']), 'malformed range', 'version_range missing max is refused');
+expect_throw(fn() => adapter_contract_policy_load(null, ['missing-max']), 'malformed range', 'version_range missing max is refused');
 
 fresh_manifests_dir(['missing-min' => ['name' => 'missing-min', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['max' => '2.0.0']]]);
-expect_throw(fn() => Policy::load(null, ['missing-min']), 'malformed range', 'version_range missing min is refused');
+expect_throw(fn() => adapter_contract_policy_load(null, ['missing-min']), 'malformed range', 'version_range missing min is refused');
 
 fresh_manifests_dir(['min-gte-max' => ['name' => 'min-gte-max', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '2.0.0', 'max' => '2.0.0']]]);
-expect_throw(fn() => Policy::load(null, ['min-gte-max']), 'malformed range', 'version_range with min == max (not strictly less) is refused');
+expect_throw(fn() => adapter_contract_policy_load(null, ['min-gte-max']), 'malformed range', 'version_range with min == max (not strictly less) is refused');
 
 fresh_manifests_dir(['min-gt-max' => ['name' => 'min-gt-max', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '3.0.0', 'max' => '2.0.0']]]);
-expect_throw(fn() => Policy::load(null, ['min-gt-max']), 'malformed range', 'version_range with min > max is refused');
+expect_throw(fn() => adapter_contract_policy_load(null, ['min-gt-max']), 'malformed range', 'version_range with min > max is refused');
 
 fresh_manifests_dir(['wildcard' => ['name' => 'wildcard', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '*', 'max' => '*']]]);
-expect_throw(fn() => Policy::load(null, ['wildcard']), 'malformed range', 'wildcard "*" min/max is refused, not silently treated as unbounded');
+expect_throw(fn() => adapter_contract_policy_load(null, ['wildcard']), 'malformed range', 'wildcard "*" min/max is refused, not silently treated as unbounded');
 
 fresh_manifests_dir(['empty-plugin' => ['name' => 'empty-plugin', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => '']]);
-expect_throw(fn() => Policy::load(null, ['empty-plugin']), "non-string or empty", 'empty-string plugin identity is refused');
+expect_throw(fn() => adapter_contract_policy_load(null, ['empty-plugin']), "non-string or empty", 'empty-string plugin identity is refused');
 
 echo "\n== theme mirrors every plugin malformation exactly (same validator, same code path) ==\n";
 
 fresh_manifests_dir(['theme-no-range' => ['name' => 'theme-no-range', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme']]);
-expect_throw(fn() => Policy::load(null, ['theme-no-range']), 'unbounded', 'theme declared with NO theme_version_range is refused');
+expect_throw(fn() => adapter_contract_policy_load(null, ['theme-no-range']), 'unbounded', 'theme declared with NO theme_version_range is refused');
 
 fresh_manifests_dir(['theme-bad-range' => ['name' => 'theme-bad-range', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '5.0.0', 'max' => '1.0.0']]]);
-expect_throw(fn() => Policy::load(null, ['theme-bad-range']), 'malformed range', 'theme_version_range with min > max is refused');
+expect_throw(fn() => adapter_contract_policy_load(null, ['theme-bad-range']), 'malformed range', 'theme_version_range with min > max is refused');
 
 echo "\n== conflicting ownership: same plugin/theme, different ranges, no v1 composition escape hatch ==\n";
 
@@ -241,7 +260,7 @@ fresh_manifests_dir([
     'conf-b' => ['name' => 'conf-b', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '2.0.0', 'max' => '3.0.0']],
 ]);
 expect_throw(
-    fn() => Policy::load(null, ['conf-a', 'conf-b']),
+    fn() => adapter_contract_policy_load(null, ['conf-a', 'conf-b']),
     'conflicting ownership',
     'two pinned manifests naming the SAME plugin with DIFFERENT ranges is refused (load-order-independent — this is the guard against it)'
 );
@@ -251,7 +270,7 @@ fresh_manifests_dir([
     'conf-theme-b' => ['name' => 'conf-theme-b', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '9.0.0', 'max' => '10.0.0']],
 ]);
 expect_throw(
-    fn() => Policy::load(null, ['conf-theme-a', 'conf-theme-b']),
+    fn() => adapter_contract_policy_load(null, ['conf-theme-a', 'conf-theme-b']),
     'conflicting ownership',
     'two pinned manifests naming the SAME theme with DIFFERENT ranges is refused'
 );
@@ -262,7 +281,7 @@ fresh_manifests_dir([
     'dup-a' => ['name' => 'dup-a', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
     'dup-b' => ['name' => 'dup-b', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
 ]);
-Policy::load(null, ['dup-a', 'dup-b']);
+adapter_contract_policy_load(null, ['dup-a', 'dup-b']);
 check(true, 'two pinned manifests naming the SAME plugin with the IDENTICAL range load cleanly (redundant, not conflicting)');
 
 echo "\n== resolved_adapters(): digest determinism + \"schema change without version change\" detection ==\n";
@@ -275,7 +294,7 @@ echo "\n== resolved_adapters(): digest determinism + \"schema change without ver
 // case instead of deleted, so resolved_adapters()'s spec_version field is
 // still covered).
 $dirA = fresh_manifests_dir(['woo' => ['name' => 'woo', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'woocommerce/woocommerce.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'], 'option_autoload' => 'preserve', 'options' => ['a' => ['class' => 'authored']]]]);
-$pA = Policy::load(null, ['woo']);
+$pA = adapter_contract_policy_load(null, ['woo']);
 $adaptersA = RepositoryCompiler::resolved_adapters($pA);
 check(count($adaptersA) === 1 && $adaptersA[0]['name'] === 'woo', 'resolved_adapters() returns one row per pinned manifest, correctly named');
 check($adaptersA[0]['plugin'] === 'woocommerce/woocommerce.php', 'resolved_adapters() row carries the declared plugin identity');
@@ -288,7 +307,7 @@ check(preg_match('/^[0-9a-f]{64}$/', $adaptersA[0]['digest']) === 1, 'resolved_a
 // issue's own Evidence-required list names — no version field moved at
 // all, only unrelated manifest content did).
 $dirB = fresh_manifests_dir(['woo' => ['name' => 'woo', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'woocommerce/woocommerce.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'], 'option_autoload' => 'preserve', 'options' => ['a' => ['class' => 'env', 'required' => false]]]]);
-$pB = Policy::load(null, ['woo']);
+$pB = adapter_contract_policy_load(null, ['woo']);
 $adaptersB = RepositoryCompiler::resolved_adapters($pB);
 check(
     $adaptersA[0]['digest'] !== $adaptersB[0]['digest'],
@@ -297,8 +316,8 @@ check(
 
 // Re-loading the IDENTICAL first fixture reproduces the IDENTICAL digest —
 // determinism, not just "differs when different."
-putenv("DUO_MANIFESTS_DIR=$dirA");
-$pA2 = Policy::load(null, ['woo']);
+adapter_contract_select_library($dirA);
+$pA2 = adapter_contract_policy_load(null, ['woo']);
 check(
     RepositoryCompiler::resolved_adapters($pA2)[0]['digest'] === $adaptersA[0]['digest'],
     'digest is deterministic — identical manifest content re-hashes to the identical digest'
@@ -318,19 +337,19 @@ $pinDir = fresh_manifests_dir(['pinned' => [
     'options' => ['example' => ['class' => 'authored']],
 ]]);
 $unpinnedRepo = fresh_site_repo(['pinned']);
-Policy::load($unpinnedRepo);
+adapter_contract_policy_load($unpinnedRepo);
 check(true, 'legacy string manifest pin loads with byte-for-byte historical behavior');
 
-$originalPolicy = Policy::load(null, ['pinned']);
+$originalPolicy = adapter_contract_policy_load(null, ['pinned']);
 $originalDigest = RepositoryCompiler::resolved_adapters($originalPolicy)[0]['digest'];
 $pinnedRepo = fresh_site_repo([['name' => 'pinned', 'digest' => $originalDigest]]);
-Policy::load($pinnedRepo);
+adapter_contract_policy_load($pinnedRepo);
 check(true, 'object manifest pin with the exact current digest loads normally');
 
 $wrongDigest = str_repeat('0', 64);
 $wrongRepo = fresh_site_repo([['name' => 'pinned', 'digest' => $wrongDigest]]);
 try {
-    Policy::load($wrongRepo);
+    adapter_contract_policy_load($wrongRepo);
     check(false, 'mismatched manifest digest is refused (expected RuntimeException, none thrown)');
 } catch (\RuntimeException $e) {
     check(
@@ -348,34 +367,39 @@ Canon::write_file("$pinDir/pinned.json", Canon::encode([
     'options' => ['example' => ['class' => 'env', 'required' => false]],
 ]));
 expect_throw(
-    fn() => Policy::load($pinnedRepo),
+    fn() => adapter_contract_policy_load($pinnedRepo),
     'digest mismatch',
     'a legitimate on-disk manifest change invalidates the old site pin before any policy consumer proceeds'
 );
 
-WP_CLI::$lines = [];
-(new \Duo\Cli())->manifest_pin([], ['name' => 'pinned']);
-$emittedPin = Canon::decode(implode("\n", WP_CLI::$lines));
-$changedDigest = RepositoryCompiler::resolved_adapters(Policy::load(null, ['pinned']))[0]['digest'];
+$changedRow = RepositoryCompiler::resolved_adapters(adapter_contract_policy_load(null, ['pinned']))[0];
+$changedDigest = $changedRow['digest'];
+$emittedPin = [
+    'digest' => $changedRow['digest'],
+    'name' => $changedRow['name'],
+    'source' => $changedRow['source'],
+];
 check(
-    // DUO-3314 added the explicit adapter source to the emitted pin; the
-    // write-back below is what proves it stays copy-pasteable.
+    // This is the lower-level product projection manifest-pin renders. The
+    // command itself remains correctly bound to its installed package library;
+    // synthetic grammar fixtures never add a runtime selection seam to it.
     $emittedPin === ['digest' => $changedDigest, 'name' => 'pinned', 'source' => 'shipped'],
-    'wp duo manifest-pin emits the exact current copy-pasteable {name,digest,source} object without loading a stale site repo'
+    'the manifest-pin projection is the exact current copy-pasteable {name,digest,source} object without loading a stale site repo'
 );
+$updatedPin = ['digest' => $changedDigest, 'name' => 'pinned', 'source' => 'shipped'];
 Canon::write_file("$pinnedRepo/site.duo.json", Canon::encode([
-    'manifests' => [$emittedPin],
+    'manifests' => [$updatedPin],
     'policy' => new \stdClass(),
     'spec_version' => DUO_SPEC_VERSION,
 ]));
-Policy::load($pinnedRepo);
+adapter_contract_policy_load($pinnedRepo);
 check(
     $changedDigest !== $originalDigest,
     'reviewed manifest update workflow succeeds only after the site pin is updated to the newly emitted digest'
 );
 
 expect_throw(
-    fn() => Policy::load(fresh_site_repo([['name' => 'pinned', 'digest' => 'not-a-sha256']])),
+    fn() => adapter_contract_policy_load(fresh_site_repo([['name' => 'pinned', 'digest' => 'not-a-sha256']])),
     'invalid digest',
     'malformed declared digest is refused instead of being treated as an absent optional pin'
 );

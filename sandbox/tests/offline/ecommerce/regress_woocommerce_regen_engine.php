@@ -212,8 +212,6 @@ file_put_contents($fixtureDir . '/legacy.json', json_encode([
         ],
     ],
 ], JSON_PRETTY_PRINT));
-putenv('DUO_MANIFESTS_DIR=' . $fixtureDir);
-
 // The narrow WordPress surface Apply::rebuild() touches on the provider-dispatch
 // drive below: an object-cache flush either side of the action loop (hard-fails
 // on false) and the future-post cron reschedule for every post-kind work row.
@@ -429,10 +427,12 @@ require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../policy/manifest_fixtures.php';
 require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../../../agent/src/Apply/Apply.php';
 
-$policy = \Duo\Policy::load(null, ['batch', 'legacy']);
+$fixtureLibrary = manifest_fixture_adapter_library($fixtureDir);
+$policy = \Duo\Policy::load(null, ['batch', 'legacy'], adapterLibrary: $fixtureLibrary);
 $apply = new \Duo\RegenerationContextStore(
     $policy,
     static fn(string $channel, string $surface): bool => false
@@ -997,7 +997,7 @@ final class FakeDispatchProvider {
 echo "\n== the same semantics through the provider dispatch (DUO-3342) ==\n";
 
 
-$providerPolicy = \Duo\Policy::load(null, ['provider']);
+$providerPolicy = \Duo\Policy::load(null, ['provider'], adapterLibrary: $fixtureLibrary);
 $providerAction = $providerPolicy->actions_for(['post:duo_widget'])[0];
 $check(($providerAction['capability'] ?? null) === 'rebuild'
     && ($providerAction['triggers'] ?? null) === ['post:duo_widget', 'post:duo_widget_part'],

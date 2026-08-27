@@ -39,17 +39,6 @@
  */
 declare(strict_types=1);
 
-$fixtureDir = sys_get_temp_dir() . '/duo_regress_adapter_registry_' . bin2hex(random_bytes(4));
-mkdir($fixtureDir, 0777, true);
-register_shutdown_function(function () use ($fixtureDir) {
-    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($fixtureDir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
-    foreach ($it as $f) {
-        $f->isDir() ? rmdir($f->getPathname()) : unlink($f->getPathname());
-    }
-    rmdir($fixtureDir);
-});
-putenv("DUO_MANIFESTS_DIR=$fixtureDir");
-
 // Same minimal require set as regress_env_options_policy.php's idiom: Canon
 // (manifest JSON decode) + OptionState (Policy's with_option_autoload()) +
 // Policy.php itself. Deliberately NOT requiring AdapterRegistry's own
@@ -58,9 +47,11 @@ putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../lib/frozen_policy.php';
 
 use Duo\AdapterRegistry;
 use Duo\Policy;
+use DuoTest\FrozenPolicy;
 
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 0);
@@ -104,12 +95,12 @@ $check(
         . 'repository to load'
 );
 
-file_put_contents("$fixtureDir/m.json", json_encode([
+$manifest = [
     'name' => 'm',
     'spec_version' => DUO_SPEC_VERSION,
-], JSON_PRETTY_PRINT));
+];
 
-$policy = Policy::load(null, ['m']);
+$policy = FrozenPolicy::policy([$manifest], FrozenPolicy::site([$manifest], DUO_SPEC_VERSION));
 
 // This bare fixture directory has no dispositions.json/capabilities registry,
 // so Policy::load() leaves manifestDispositions/capabilityRegistry both null
