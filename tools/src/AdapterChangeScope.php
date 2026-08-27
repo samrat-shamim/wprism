@@ -25,6 +25,7 @@ namespace Duo\Tooling;
  *     adapters:list<string>,
  *     scenarios:list<string>,
  *     requires_participant_resolution:bool,
+ *     cross_root_rename:bool,
  *     owners:list<OwnerRow>
  * }
  */
@@ -50,8 +51,12 @@ final class AdapterChangeScope
         'sandbox/conformance/run.sh',
         'sandbox/tests/lib/',
         'tests/Tooling/AdapterChangeScopeTest.php',
+        'tests/Tooling/AdapterChangeScopeCliTest.php',
+        'tools/adapter-change-scope.php',
         'tools/adapter-kit.php',
         'tools/src/AdapterChangeScope.php',
+        'tools/src/AdapterChangeScopeCommand.php',
+        'tools/src/AdapterChangeScopeDecision.php',
     ];
 
     /**
@@ -61,6 +66,7 @@ final class AdapterChangeScope
      *     adapters:list<string>,
      *     scenarios:list<string>,
      *     requires_participant_resolution:bool,
+     *     cross_root_rename:bool,
      *     owners:list<array{path:string,kind:'adapter'|'engine'|'full'|'scenario',name:?string,root:string}>
      * }
      */
@@ -143,6 +149,7 @@ final class AdapterChangeScope
             'adapters' => $adapterNames,
             'scenarios' => $scenarioNames,
             'requires_participant_resolution' => $scenarioNames !== [],
+            'cross_root_rename' => $crossRootRename,
             'owners' => $owners,
         ];
     }
