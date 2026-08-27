@@ -305,10 +305,12 @@ namespace {
             && str_contains($script, 'all(. == true)'),
             "A7: $side live fixture completes and verifies Redirection's public onboarding before authoring rows");
     }
-    duo_check(str_contains($targetSeed, 'cp "${CONF_REPO2:-siterepo/conf2}/site.duo.json"')
+    duo_check(str_contains($targetSeed, '.manifests = ["redirection"]')
+        && str_contains($targetSeed, '.policy.post_types = []')
+        && str_contains($targetSeed, '.policy.taxonomies = []')
         && str_contains($targetSeed, 'duo capture --repo=/siterepo/.tmp-redirection-identity-repo')
         && !str_contains($targetSeed, 'duo capture --repo=/siterepo --out=/siterepo/.tmp-redirection-target-identity'),
-        'A8: target-only mapped identities are minted against an isolated policy root, never the source canonical graph');
+        'A8: target-only mappings use an adapter-only isolated policy, never the source graph or core identities');
 
     $provider = new RedirectionState(new Policy());
     duo_check_same(

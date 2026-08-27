@@ -87,11 +87,15 @@ capture against `/siterepo` already sees the source's canonical mapped UUIDs;
 with no target ledger for those source UUIDs, capture correctly refused with
 `mapped identity history is missing`. The agent retained the target for
 diagnosis, proved its onboarding and hostile rows were intact, then used the
-normal minting capture against an isolated disposable policy root containing
-the same `site.duo.json`. That established identities only for the target's
-current rows and left the real source branch untouched. The fixture now encodes
-that ordering and an offline regression prevents the invalid canonical-root
-shortcut from returning.
+normal minting capture against an isolated disposable policy root. The first
+isolated version copied the whole site policy and exposed another real ordering
+error: it also minted the target's default category, so first apply correctly
+refused `adopt term identity contradicts the exact physical identity row`.
+Narrowing the disposable policy to only the Redirection manifest, with empty
+post and taxonomy scope, established identities only for Redirection's current
+rows and left both core identities and the real source branch untouched. The
+fixture now encodes that ordering and an offline regression prevents either
+the canonical-root shortcut or a cross-plugin identity mint from returning.
 
 After that public onboarding step, the agent used Redirection's `Red_Group`,
 `Red_Item` and `Red_Options` APIs to create a realistic summer marketplace

@@ -99,7 +99,15 @@ NEGATIVE_CODE=$(curl --max-time 20 -sS -o /dev/null -w '%{http_code}' "http://lo
 # database-matched duo_map evidence survives.
 IDENTITY_REPO="${CONF_REPO2:-siterepo/conf2}/.tmp-redirection-identity-repo"
 mkdir -p "$IDENTITY_REPO"
-cp "${CONF_REPO2:-siterepo/conf2}/site.duo.json" "$IDENTITY_REPO/site.duo.json"
+# The identity-minting pass must not touch core's default category/widgets:
+# first apply adopts/reconciles those against the source graph, and a locally
+# minted UUID would make that adoption correctly contradictory. Project the
+# temporary policy down to the one adapter whose target-owned rows need maps.
+jq '
+  .manifests = ["redirection"] |
+  .policy.post_types = [] |
+  .policy.taxonomies = []
+' "${CONF_REPO2:-siterepo/conf2}/site.duo.json" > "$IDENTITY_REPO/site.duo.json"
 TARGET_IDENTITY_CAPTURE=$(wp_conf2 duo capture --repo=/siterepo/.tmp-redirection-identity-repo 2>&1)
 require_duo_answered "Redirection target-only identity capture" human "$TARGET_IDENTITY_CAPTURE"
 rm -rf "$IDENTITY_REPO"
