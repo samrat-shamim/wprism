@@ -221,6 +221,21 @@ const REHEARSAL_GAPS = [
         . 'are part of the digests compared across the transition. The refusal itself is exercised by '
         . 'sandbox/tests/offline/policy/regress_adapter_environment_narrowing.php, on all four narrowable axes. '
         . 'When WP-4.2\'s acceptance window ships and this estate gains the spec half, this gap should close.',
+    'agent/src/Policy/AdapterLibrary.php::assertCapabilityEntries' =>
+        'the archive reader\'s closed capability-directory refusals require a deliberately malformed library. '
+        . 'This estate constructs two strict historical-flat libraries successfully and must keep their bytes '
+        . 'valid across both states. The malformed capability cases are exercised by tests/Adapter/'
+        . 'AdapterLibraryTest.php.',
+    'agent/src/Policy/AdapterLibrary.php::fromLegacyFlatDirectory' =>
+        'this estate drives the explicit archive constructor for every state, but does not refuse through it: '
+        . 'a malformed archive would prevent the transition fixture from existing. Missing, orphaned and '
+        . 'non-regular members are exercised by tests/Adapter/AdapterLibraryTest.php and '
+        . 'sandbox/tests/offline/policy/regress_regen_dependency_policy.php.',
+    'agent/src/Policy/AdapterLibrary.php::fromLogicalLayout' =>
+        'the production source/deployed constructor is outside this historical-flat transition fixture, whose '
+        . 'two version states deliberately use the explicit archive boundary. Its closed-layout refusals are '
+        . 'exercised by tests/Adapter/AdapterLibraryTest.php and sandbox/tests/offline/adapter/'
+        . 'regress_adapter_sources.php.',
     'agent/src/Promotion/Deploy.php::run' =>
         'promotion needs a live target: a promotion lease, the ledger and an apply session. The manifest-identity '
         . 'refusal it surfaces is CompiledArtifactReader::read_artifact()\'s, which this estate drives directly '
@@ -254,6 +269,14 @@ const REHEARSAL_GAPS = [
         . 'and this estate holds no ledger — the state tree is sites and manifest libraries. Exercised by '
         . 'sandbox/tests/offline/adapter/regress_boundary_proposals.php, which additionally proves the pair it '
         . 'emits against the real ManifestDispositions::assert_entry().',
+    'cli/src/Adapter/AdapterDraft.php::make_tmp_library' =>
+        'adapter draft builds a private source-layout library around one proposed package; this estate observes '
+        . 'already-installed adapters and must not add a draft during the transition. The draft workflow is '
+        . 'exercised by sandbox/tests/offline/cli/regress_cohort_rebaseline.php.',
+    'cli/src/Onboarding/BootstrapEligibility.php::sourceComplete' =>
+        'bootstrap eligibility examines a staged adoption source before any site in this estate exists. This '
+        . 'fixture starts from already-adopted repositories, while the source-completeness gate is exercised by '
+        . 'sandbox/tests/offline/cli/regress_local_bootstrap.php.',
     'cli/src/Refresh/RefreshPlan.php::assertProductionCodeMatches' =>
         'needs a git production ref and a refresh plan built against it. Exercised by '
         . 'sandbox/tests/offline/refresh/regress_refresh_orchestration.php.',
@@ -306,8 +329,8 @@ const REHEARSAL_GAPS = [
         . 'revocation document installed it returns before it can. The refusal, on the frozen path and the live '
         . 'path both, plus the preserved operator-own-key asymmetry it must not have closed, is exercised by '
         . 'sandbox/tests/offline/adapter/regress_revocation_reachability.php.',
-    'agent/src/Adapter/AdapterSources.php::survey' =>
-        'the REPORTING half of the same document (G2-FIXES C2): survey() raises a library-scoped row when an '
+    'agent/src/Adapter/AdapterSources.php::survey_from' =>
+        'the REPORTING half of the same document (G2-FIXES C2): survey_from() raises a library-scoped row when an '
         . 'installed revocation document is inert or unreadable. Unreachable from this estate for the reason '
         . 'the two entries above give — no manifest library it copies carries one, because the shipped library '
         . 'does not — and the estate deliberately installs none, since § v3.8\'s gate is that absence. Both rows '

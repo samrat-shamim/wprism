@@ -115,6 +115,11 @@ function rehearsal_project_library(string $repoRoot, string $to): array {
     return duo_cert_projected_bytes($library);
 }
 
+/** Resolve one deliberately frozen historical-flat state without process-global selection. */
+function rehearsal_library(string $directory): \Duo\AdapterLibrary {
+    return \Duo\AdapterLibrary::fromLegacyFlatDirectory($directory);
+}
+
 /** Every file of a directory tree, keyed by relative path, valued by sha256. */
 function rehearsal_tree_hashes(string $dir): array {
     $dir = rtrim($dir, '/');
@@ -414,7 +419,7 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
         'B' => rehearsal_tree_hashes($estate . '/libs/B'),
         'shipped' => $shippedHashes,
     ];
-    putenv('DUO_MANIFESTS_DIR=' . $estate . '/libs/A');
+    $library = rehearsal_library($estate . '/libs/A');
 
     // Operator keys. Two of them, because the site trust root is a registry an
     // operator grows: a fleet with one key cannot show that a certificate under
@@ -469,7 +474,7 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
             if (in_array('site-certified', $plan['pins'], true)) {
                 $certifyArgs[] = '--pin';
             }
-            $exit = rehearsal_run_certify($certifyArgs);
+            $exit = rehearsal_run_certify($certifyArgs, $library);
             if ($exit !== 0) {
                 throw new RuntimeException("rehearsal estate: `duo adapter certify` failed for $id (exit $exit)");
             }
@@ -481,7 +486,7 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
         // whose state has to be valid so that its refusal is about the pin.
         rehearsal_write(
             $repo . '/state/options/core.json',
-            rehearsal_options_document(\Duo\Policy::load($repo), 'Estate ' . $id)
+            rehearsal_options_document(\Duo\Policy::load($repo, null, false, null, $library), 'Estate ' . $id)
         );
 
         // The deliberate drift, applied AFTER a good load so the control is a
@@ -500,7 +505,7 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
 
         $siteRecord = ['about' => $plan['about'], 'kind' => $plan['kind'], 'holdings' => []];
         if ($plan['kind'] !== 'control' || !in_array('digest-drifted', $plan['pins'], true)) {
-            $policy = \Duo\Policy::load($repo);
+            $policy = \Duo\Policy::load($repo, null, false, null, $library);
             $compiled = \Duo\RepositoryCompiler::compile($repo, $policy);
 
             // Exact content pins, taken from the same
@@ -519,7 +524,7 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
                 $site = \Duo\Canon::decode(\Duo\Canon::read_file($repo . '/site.duo.json'));
                 $site['manifests'] = $pinned;
                 rehearsal_write_canon($repo . '/site.duo.json', $site);
-                $policy = \Duo\Policy::load($repo);
+                $policy = \Duo\Policy::load($repo, null, false, null, $library);
                 $compiled = \Duo\RepositoryCompiler::compile($repo, $policy);
             }
 
@@ -586,10 +591,9 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
                 $coreEntry = \Duo\Canon::decode(\Duo\Canon::read_file($coreDocument));
                 $coreEntry['reason'] = (string) $coreEntry['reason'] . ' Re-reviewed for the rehearsal estate.';
                 rehearsal_write_canon($coreDocument, $coreEntry);
-                putenv('DUO_MANIFESTS_DIR=' . $movedLib);
-                $movedPolicy = \Duo\Policy::load($repo);
+                $movedLibrary = rehearsal_library($movedLib);
+                $movedPolicy = \Duo\Policy::load($repo, null, false, null, $movedLibrary);
                 \Duo\RepositoryCompiler::compile($repo, $movedPolicy)->write($holdings . '/artifact.json');
-                putenv('DUO_MANIFESTS_DIR=' . $estate . '/libs/A');
                 $siteRecord['holdings'] = ['artifact'];
             }
             if (in_array('snapshot_only', $holds, true)) {
@@ -611,11 +615,11 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
 function rehearsal_run_duo(string $repoRoot, string $manifestDir, array $args): string {
     $pipes = [];
     $process = proc_open(
-        array_merge([PHP_BINARY, $repoRoot . '/cli/duo'], $args),
+        array_merge([PHP_BINARY, $repoRoot . '/cli/duo'], $args, ['--adapter-library=' . $manifestDir]),
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes,
         null,
-        ['DUO_MANIFESTS_DIR' => $manifestDir, 'PATH' => getenv('PATH') ?: '/usr/bin:/bin']
+        ['PATH' => getenv('PATH') ?: '/usr/bin:/bin']
     );
     if (!is_resource($process)) {
         throw new RuntimeException('rehearsal estate: cannot start the duo executable');
@@ -640,7 +644,8 @@ function rehearsal_run_duo(string $repoRoot, string $manifestDir, array $args): 
  *
  * @param list<string> $args
  */
-function rehearsal_run_certify(array $args): int {
+function rehearsal_run_certify(array $args, \Duo\AdapterLibrary $library): int {
+    $args[] = '--adapter-library=' . $library->root();
     ob_start();
     try {
         $exit = \Duo\Orchestrator\AdapterCertify::run(array_values($args));
@@ -659,7 +664,7 @@ function rehearsal_run_certify(array $args): int {
 
 function rehearsal_observe(string $estate, string $state): array {
     $lib = $estate . '/libs/' . $state;
-    putenv('DUO_MANIFESTS_DIR=' . $lib);
+    $library = rehearsal_library($lib);
     $out = [
         'state' => $state,
         'agent_version' => DUO_AGENT_VERSION,
@@ -671,20 +676,20 @@ function rehearsal_observe(string $estate, string $state): array {
     ];
 
     foreach (array_keys(rehearsal_site_plan()) as $id) {
-        $out['sites'][$id] = rehearsal_observe_site($estate, $id);
+        $out['sites'][$id] = rehearsal_observe_site($estate, $id, $library);
     }
     return $out;
 }
 
 /** @return array<string,mixed> */
-function rehearsal_observe_site(string $estate, string $id): array {
+function rehearsal_observe_site(string $estate, string $id, \Duo\AdapterLibrary $library): array {
     $repo = $estate . '/sites/' . $id;
     $holdings = $estate . '/holdings/' . $id;
     $row = ['load' => 'refused', 'refusal' => '', 'adapters' => []];
 
     $policy = null;
     try {
-        $policy = \Duo\Policy::load($repo);
+        $policy = \Duo\Policy::load($repo, null, false, null, $library);
         $row['load'] = 'ok';
     } catch (Throwable $t) {
         $row['refusal'] = rehearsal_scrub($t->getMessage(), $estate);
@@ -743,7 +748,8 @@ function rehearsal_observe_site(string $estate, string $id): array {
     if (is_file($holdings . '/snapshot.json')) {
         try {
             $frozen = \Duo\Policy::from_snapshot(
-                \Duo\Canon::decode(\Duo\Canon::read_file($holdings . '/snapshot.json'))
+                \Duo\Canon::decode(\Duo\Canon::read_file($holdings . '/snapshot.json')),
+                $library
             );
             $frozenSources = $frozen->adapter_sources();
             $row['snapshot'] = 'rehydrated';
@@ -869,9 +875,10 @@ function rehearsal_probe(string $gate, string $entry, string $expect, callable $
 function rehearsal_probes(string $estate, string $state): array {
     $lib = $estate . '/libs/' . $state;
     $other = $estate . '/libs/' . ($state === 'A' ? 'B' : 'A');
+    $library = rehearsal_library($lib);
+    $otherLibrary = rehearsal_library($other);
     $scratch = $estate . '/scratch/' . $state;
     rehearsal_mkdir($scratch);
-    putenv('DUO_MANIFESTS_DIR=' . $lib);
 
     $rows = [];
     $probe = static function (string $gate, string $entry, string $expect, callable $fn) use (&$rows, $estate): void {
@@ -895,7 +902,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'agent/src/Policy/ManifestDispositions.php::platform_boundary',
         'ManifestDispositions::platform_boundary(libs/other) under agent ' . DUO_AGENT_VERSION,
         'platform version disagrees with the loaded agent',
-        static fn(): string => \Duo\ManifestDispositions::platform_boundary($other) === null
+        static fn(): string => \Duo\ManifestDispositions::platform_boundary_library($otherLibrary) === null
             ? 'no boundary' : 'boundary accepted'
     );
     $probe(
@@ -903,7 +910,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'AdapterCertification::verifyFile(libs/other, certified-alpha)',
         'agent capability platform boundary disagrees with the loaded agent',
         static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
-            $other, $certSite, $certName, $certManifest, $certFile
+            $otherLibrary, $certSite, $certName, $certManifest, $certFile
         )['disposition']['certification'] ?? '?')
     );
     // The § v3.6 binding, driven against a boundary that moved a bound cell.
@@ -935,7 +942,7 @@ function rehearsal_probes(string $estate, string $state): array {
             : 'certification was signed under spec version ' . (DUO_SPEC_VERSION - 1)
                 . ', which is not the spec version ' . DUO_SPEC_VERSION,
         static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
-            rehearsal_cell_moved_library($estate, $state),
+            rehearsal_library(rehearsal_cell_moved_library($estate, $state)),
             $certSite,
             $certName,
             $certManifest,
@@ -1007,7 +1014,7 @@ function rehearsal_probes(string $estate, string $state): array {
             : 'certification was signed under spec version ' . (DUO_SPEC_VERSION - 1)
                 . ', which is not the spec version ' . DUO_SPEC_VERSION,
         static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
-            $lib, $certSite, $certName, $certManifest, $certFile
+            $library, $certSite, $certName, $certManifest, $certFile
         )['disposition']['certification'] ?? '?')
     );
 
@@ -1028,7 +1035,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'AdapterCertification::verifyFile(<site whose trust root no longer carries the signing key>)',
         "authority key 'site-key-alpha' is not installed in",
         static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
-            $lib,
+            $library,
             $unknownKey,
             $certName,
             $certManifest,
@@ -1052,7 +1059,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'AdapterCertification::verifyFile(<site whose trust root declares an unknown root format>)',
         'have an unsupported or malformed root',
         static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
-            $lib,
+            $library,
             $malformedRoot,
             $certName,
             $certManifest,
@@ -1075,7 +1082,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'AdapterCertification::verifyFile(<site whose trust-root record was edited after signing>)',
         'does not match the current site authority record',
         static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
-            $lib,
+            $library,
             $reboundKey,
             $certName,
             $certManifest,
@@ -1106,7 +1113,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'AdapterCertification::verifyFrozen(<library that reviews the operator key id>)',
         'is reviewed and shipped by this agent, so a site trust root cannot claim it',
         static fn(): string => (string) (\Duo\AdapterCertification::verifyFrozen(
-            $collidingLib, 'estate-catalog', $frozenManifest, $frozenEnvelope
+            rehearsal_library($collidingLib), 'estate-catalog', $frozenManifest, $frozenEnvelope
         )['disposition']['certification'] ?? '?')
     );
 
@@ -1135,7 +1142,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'AdapterCertification::sign(<library whose reviewed key is revoked>)',
         "authority key 'platform-review-key' is revoked and cannot certify adapters",
         static fn(): string => substr(\Duo\AdapterCertification::sign(
-            $revokedLib,
+            rehearsal_library($revokedLib),
             $certSite,
             $certName,
             $scratch . '/no-such-bundle',
@@ -1149,7 +1156,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'AdapterCertification::sign_site(<empty operator reason>)',
         'must state its basis',
         static fn(): string => substr(\Duo\AdapterCertification::sign_site(
-            $lib, $certSite, $certName, 'site-key-alpha', $alphaSecret, '   '
+            $library, $certSite, $certName, 'site-key-alpha', $alphaSecret, '   '
         ), 0, 32)
     );
 
@@ -1162,8 +1169,8 @@ function rehearsal_probes(string $estate, string $state): array {
         'agent/src/Policy/Policy.php::load_with',
         'Policy::load(sites/editorial)',
         'loaded',
-        static function () use ($estate): string {
-            $policy = \Duo\Policy::load($estate . '/sites/editorial');
+        static function () use ($estate, $library): string {
+            $policy = \Duo\Policy::load($estate . '/sites/editorial', null, false, null, $library);
             return 'loaded ' . count($policy->manifests) . ' manifests';
         }
     );
@@ -1171,14 +1178,16 @@ function rehearsal_probes(string $estate, string $state): array {
         'agent/src/Policy/PinResolver.php::validate_manifest_pins',
         'Policy::load(sites/drifted-pin)',
         'digest mismatch',
-        static fn(): string => 'loaded ' . count(\Duo\Policy::load($estate . '/sites/drifted-pin')->manifests)
+        static fn(): string => 'loaded ' . count(\Duo\Policy::load(
+            $estate . '/sites/drifted-pin', null, false, null, $library
+        )->manifests)
     );
     $probe(
         'agent/src/Repository/CompiledArtifactReader.php::read_artifact',
         'CompiledArtifactReader::read_artifact(holdings/artifact-drift)',
         'compiled_artifact_manifest_mismatch',
-        static function () use ($estate): string {
-            $policy = \Duo\Policy::load($estate . '/sites/artifact-drift');
+        static function () use ($estate, $library): string {
+            $policy = \Duo\Policy::load($estate . '/sites/artifact-drift', null, false, null, $library);
             try {
                 \Duo\CompiledArtifactReader::read_artifact(
                     $estate . '/holdings/artifact-drift/artifact.json',
@@ -1196,12 +1205,12 @@ function rehearsal_probes(string $estate, string $state): array {
         'agent/src/Policy/Policy.php::from_snapshot',
         'Policy::from_snapshot(<promoted-frozen snapshot restamped to the retired v4 wire>)',
         'duo-policy-snapshot/v4 is retired',
-        static function () use ($estate): string {
+        static function () use ($estate, $library): string {
             $snapshot = \Duo\Canon::decode(
                 \Duo\Canon::read_file($estate . '/holdings/promoted-frozen/snapshot.json')
             );
             $snapshot['format'] = 'duo-policy-snapshot/v4';
-            return 'rehydrated ' . count(\Duo\Policy::from_snapshot($snapshot)->manifests) . ' manifests';
+            return 'rehydrated ' . count(\Duo\Policy::from_snapshot($snapshot, $library)->manifests) . ' manifests';
         }
     );
 
@@ -1223,8 +1232,10 @@ function rehearsal_probes(string $estate, string $state): array {
         'agent/src/Policy/ScopeContract.php::assert_associated',
         'ScopeContract::assert_associated(pinned-shop contract, certified-alpha artifact)',
         'not associated with this exact compiled artifact/policy',
-        static function () use ($contractPath, $estate): string {
-            $foreignPolicy = \Duo\Policy::load($estate . '/sites/certified-alpha');
+        static function () use ($contractPath, $estate, $library): string {
+            $foreignPolicy = \Duo\Policy::load(
+                $estate . '/sites/certified-alpha', null, false, null, $library
+            );
             \Duo\ScopeContract::assert_associated(
                 \Duo\Canon::decode(\Duo\Canon::read_file($contractPath)),
                 \Duo\RepositoryCompiler::compile($estate . '/sites/certified-alpha', $foreignPolicy),
@@ -1273,8 +1284,8 @@ function rehearsal_probes(string $estate, string $state): array {
  */
 function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): array {
     $lib = $estate . '/libs/' . $state;
+    $library = rehearsal_library($lib);
     $scratch = $estate . '/scratch/' . $state;
-    putenv('DUO_MANIFESTS_DIR=' . $lib);
 
     $rows = [];
     $probe = static function (string $gate, string $entry, string $expect, callable $fn) use (&$rows, $estate): void {
@@ -1354,15 +1365,15 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         'ContractAttestation::currentPlatformDigest(libs/' . $state . ')',
         'platform digest ',
         static fn(): string => 'platform digest '
-            . \Duo\Orchestrator\ContractAttestation::currentPlatformDigest($lib)
+            . \Duo\Orchestrator\ContractAttestation::currentPlatformDigest($library)
     );
     $probe(
         'cli/src/Contract/ContractAttestation.php::verify',
         'ContractAttestation::verify(<contract attested at state A>, libs/' . $state . ')',
         $state === 'A' ? 'verified for ' : 'contract_attestation_platform_moved',
-        static function () use ($signed, $contractSite, $lib): string {
+        static function () use ($signed, $contractSite, $library): string {
             try {
-                $proof = \Duo\Orchestrator\ContractAttestation::verify($signed, $contractSite, $lib);
+                $proof = \Duo\Orchestrator\ContractAttestation::verify($signed, $contractSite, $library);
             } catch (\Duo\CommandRefusalException $refusal) {
                 return $refusal->reasonCode;
             }
@@ -1373,7 +1384,7 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         'cli/src/Contract/ContractAttestation.php::sign',
         'ContractAttestation::sign(<contract>, libs/' . $state . ')',
         'attestation binds ',
-        static function () use ($estate, $contractSite, $lib): string {
+        static function () use ($estate, $contractSite, $library): string {
             $document = \Duo\Canon::decode(\Duo\Canon::read_file($estate . '/holdings/_contract/unsigned.json'));
             $resigned = \Duo\Orchestrator\ContractAttestation::sign(
                 $document,
@@ -1384,7 +1395,7 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
                     true
                 ),
                 rehearsal_contract_claim(),
-                $lib
+                $library
             );
             return 'attestation binds ' . (string) $resigned['attestation']['platform_sha256'];
         }
@@ -1412,7 +1423,7 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         'cli/src/Contract/ContractAttestation.php::refuseAuthorities',
         'ContractAttestation::verify(<site whose attestation trust root cannot be read>)',
         'unreadable authority bytes are a broken trust root',
-        static function () use ($scratch, $contractSite, $signed, $lib): string {
+        static function () use ($scratch, $contractSite, $signed, $library): string {
             $unreadable = $scratch . '/contract-authorities-unreadable';
             rehearsal_copy_tree($contractSite, $unreadable);
             rehearsal_write(
@@ -1420,7 +1431,7 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
                 'this is not a JSON object'
             );
             try {
-                \Duo\Orchestrator\ContractAttestation::verify($signed, $unreadable, $lib);
+                \Duo\Orchestrator\ContractAttestation::verify($signed, $unreadable, $library);
             } catch (\Duo\CommandRefusalException $refusal) {
                 return $refusal->reasonCode . ": " . $refusal->publicMessage . " — " . $refusal->remediation;
             }
@@ -1431,11 +1442,11 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         'cli/src/Contract/ContractAttestation.php::refuseUnsignedAnchor',
         'ContractAttestation::verify(<site that has provisioned no attestation trust root>)',
         'contract_attestation_unsigned_anchor',
-        static function () use ($scratch, $signed, $lib): string {
+        static function () use ($scratch, $signed, $library): string {
             $anchorless = $scratch . '/contract-no-anchor';
             rehearsal_mkdir($anchorless);
             try {
-                \Duo\Orchestrator\ContractAttestation::verify($signed, $anchorless, $lib);
+                \Duo\Orchestrator\ContractAttestation::verify($signed, $anchorless, $library);
             } catch (\Duo\CommandRefusalException $refusal) {
                 return $refusal->reasonCode;
             }
@@ -1446,7 +1457,7 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         'cli/src/Contract/ContractAttestation.php::refuseKeyUnknown',
         'ContractAttestation::verify(<attestation naming a key the trust root does not carry>)',
         'contract_attestation_key_unknown',
-        static function () use ($scratch, $contractSite, $signed, $lib): string {
+        static function () use ($scratch, $contractSite, $signed, $library): string {
             $stranger = $scratch . '/contract-key-unknown';
             rehearsal_copy_tree($contractSite, $stranger);
             $document = \Duo\Orchestrator\ContractAttestation::authorities($stranger);
@@ -1458,7 +1469,7 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
                 ])
             );
             try {
-                \Duo\Orchestrator\ContractAttestation::verify($signed, $stranger, $lib);
+                \Duo\Orchestrator\ContractAttestation::verify($signed, $stranger, $library);
             } catch (\Duo\CommandRefusalException $refusal) {
                 return $refusal->reasonCode;
             }
@@ -1469,7 +1480,7 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         'cli/src/Contract/ContractAttestation.php::refuseKeyRevoked',
         'ContractAttestation::verify(<attestation under a revoked key>)',
         'contract_attestation_key_revoked',
-        static function () use ($scratch, $contractSite, $signed, $lib): string {
+        static function () use ($scratch, $contractSite, $signed, $library): string {
             $revoked = $scratch . '/contract-key-revoked';
             rehearsal_copy_tree($contractSite, $revoked);
             $keys = \Duo\Orchestrator\ContractAttestation::authorities($revoked);
@@ -1482,7 +1493,7 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
                 ])
             );
             try {
-                \Duo\Orchestrator\ContractAttestation::verify($signed, $revoked, $lib);
+                \Duo\Orchestrator\ContractAttestation::verify($signed, $revoked, $library);
             } catch (\Duo\CommandRefusalException $refusal) {
                 return $refusal->reasonCode;
             }
@@ -1569,9 +1580,10 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         $state === 'A'
             ? 'the repository pin does not bind both source'
             : 'no reviewed capability claim is bound to this compiled adapter',
-        static function () use ($estate, $lib): string {
-            putenv('DUO_MANIFESTS_DIR=' . $lib);
-            $policy = \Duo\Policy::load($estate . '/sites/certified-beta');
+        static function () use ($estate, $library): string {
+            $policy = \Duo\Policy::load(
+                $estate . '/sites/certified-beta', null, false, null, $library
+            );
             $summary = ['resolved_adapters' => []];
             foreach (\Duo\RepositoryCompiler::resolved_adapters($policy) as $row) {
                 $summary['resolved_adapters'][] = [
@@ -1669,8 +1681,8 @@ function rehearsal_contract_claim(): array {
  */
 function rehearsal_registry_probes(string $estate, string $state): array {
     $lib = $estate . '/libs/' . $state;
+    $library = rehearsal_library($lib);
     $scratch = $estate . '/scratch/' . $state;
-    putenv('DUO_MANIFESTS_DIR=' . $lib);
 
     $rows = [];
     $probe = static function (string $gate, string $entry, string $expect, callable $fn) use (&$rows, $estate): void {
@@ -1690,7 +1702,10 @@ function rehearsal_registry_probes(string $estate, string $state): array {
     ]);
     rehearsal_write(
         $excluded . '/state/options/core.json',
-        rehearsal_options_document(\Duo\Policy::load($excluded), 'Excluded')
+        rehearsal_options_document(
+            \Duo\Policy::load($excluded, null, false, null, $library),
+            'Excluded'
+        )
     );
 
     // The projection every readiness caller funnels through binds each row to
@@ -1700,8 +1715,10 @@ function rehearsal_registry_probes(string $estate, string $state): array {
         'agent/src/Adapter/AdapterRegistry.php::report',
         'Policy::capability_report(sites/editorial) rows under agent ' . DUO_AGENT_VERSION,
         'rows bind agent ' . DUO_AGENT_VERSION,
-        static function () use ($estate): string {
-            $report = \Duo\Policy::load($estate . '/sites/editorial')->capability_report();
+        static function () use ($estate, $library): string {
+            $report = \Duo\Policy::load(
+                $estate . '/sites/editorial', null, false, null, $library
+            )->capability_report();
             $rows = (array) ($report['manifests'] ?? []);
             return 'rows bind agent ' . (string) ($report['platform']['agent_version'] ?? '?')
                 . ' across ' . count($rows) . ' claims';
@@ -1711,8 +1728,8 @@ function rehearsal_registry_probes(string $estate, string $state): array {
         'agent/src/Adapter/AdapterRegistry.php::capability_report',
         'Policy::capability_report(<site pinning the reviewed-excluded adapter>)',
         'ready=false',
-        static function () use ($excluded): string {
-            $report = \Duo\Policy::load($excluded)->capability_report();
+        static function () use ($excluded, $library): string {
+            $report = \Duo\Policy::load($excluded, null, false, null, $library)->capability_report();
             return 'ready=' . (($report['ready'] ?? null) === true ? 'true' : 'false')
                 . ' blockers=' . count((array) ($report['blockers'] ?? []));
         }
@@ -1721,8 +1738,10 @@ function rehearsal_registry_probes(string $estate, string $state): array {
         'agent/src/Adapter/AdapterRegistry.php::certification_readiness_blockers',
         'Policy::certification_readiness_blockers(<site pinning the reviewed-excluded adapter>)',
         'duo-agency-cpt',
-        static function () use ($excluded): string {
-            $blockers = \Duo\Policy::load($excluded)->certification_readiness_blockers();
+        static function () use ($excluded, $library): string {
+            $blockers = \Duo\Policy::load(
+                $excluded, null, false, null, $library
+            )->certification_readiness_blockers();
             return $blockers === []
                 ? 'no blockers'
                 : implode('; ', array_map(
@@ -1755,6 +1774,7 @@ function rehearsal_registry_probes(string $estate, string $state): array {
                 }
                 rehearsal_write_canon($providerLib . '/woocommerce.json', $woocommerce);
             }
+            $providerLibrary = rehearsal_library($providerLib);
             @unlink($providerLib . '/providers/woocommerce-cache.php');
             $providerSite = $scratch . '/provider-missing-site';
             rehearsal_mkdir($providerSite . '/state');
@@ -1767,18 +1787,15 @@ function rehearsal_registry_probes(string $estate, string $state): array {
                 ],
                 'spec_version' => DUO_SPEC_VERSION,
             ]);
-            putenv('DUO_MANIFESTS_DIR=' . $providerLib);
-            try {
-                $blockers = \Duo\Policy::load($providerSite)->provider_readiness_blockers([[
-                    'kind' => 'provider',
-                    'provider' => 'woocommerce-cache',
-                    'capability' => 'flush_caches',
-                    'args' => [],
-                    'triggers' => ['post:product'],
-                ]]);
-            } finally {
-                putenv('DUO_MANIFESTS_DIR=' . $lib);
-            }
+            $blockers = \Duo\Policy::load(
+                $providerSite, null, false, null, $providerLibrary
+            )->provider_readiness_blockers([[
+                'kind' => 'provider',
+                'provider' => 'woocommerce-cache',
+                'capability' => 'flush_caches',
+                'args' => [],
+                'triggers' => ['post:product'],
+            ]]);
             return $blockers === []
                 ? 'the projection returned no rows'
                 : implode('; ', array_map(
@@ -1827,8 +1844,8 @@ function rehearsal_prefix_reproduction(string $estate, string $state): array {
     // bricked on is "an agent-owned boundary moved under a valid certificate",
     // and that is exactly what a moved engine range is now.
     $lib = rehearsal_cell_moved_library($estate, $state);
+    $library = rehearsal_library($lib);
     $scratch = $estate . '/scratch/' . $state;
-    putenv('DUO_MANIFESTS_DIR=' . $lib);
     $site = $estate . '/sites/certified-alpha';
     $name = 'estate-forms';
     $manifest = \Duo\Canon::decode(\Duo\Canon::read_file($site . '/adapters/' . $name . '.json'));
@@ -1836,7 +1853,7 @@ function rehearsal_prefix_reproduction(string $estate, string $state): array {
 
     $out = ['state' => $state];
     try {
-        \Duo\AdapterCertification::verifyFile($lib, $site, $name, $manifest, $certificate);
+        \Duo\AdapterCertification::verifyFile($library, $site, $name, $manifest, $certificate);
         $out['verify'] = 'accepted';
         $out['verify_class'] = '';
         $out['caught_by_prefix_catch_set'] = false;
@@ -1852,7 +1869,7 @@ function rehearsal_prefix_reproduction(string $estate, string $state): array {
     // What the site does TODAY under the same condition, through the product
     // path an operator actually runs.
     try {
-        $policy = \Duo\Policy::load($site);
+        $policy = \Duo\Policy::load($site, null, false, null, $library);
         $sources = $policy->adapter_sources();
         $out['load'] = 'ok';
         $out['certified'] = $sources->is_certified($name);
@@ -1873,7 +1890,7 @@ function rehearsal_prefix_reproduction(string $estate, string $state): array {
     $forged['statement']['bundle']['git_revision'] = str_repeat('f', 40);
     rehearsal_write_canon($forgedSite . '/adapters/certifications/' . $name . '.json', $forged);
     try {
-        \Duo\Policy::load($forgedSite);
+        \Duo\Policy::load($forgedSite, null, false, null, $library);
         $out['forged_source'] = 'loaded';
     } catch (Throwable $t) {
         $out['forged_source'] = 'refused';
@@ -1908,7 +1925,7 @@ function rehearsal_remedy(string $estate, string $state): array {
     // disagrees with the other in both directions — which is the property the
     // rollback half of this rehearsal is about.
     $lib = rehearsal_cell_moved_library($estate, $state);
-    putenv('DUO_MANIFESTS_DIR=' . $lib);
+    $library = rehearsal_library($lib);
     $remedied = $estate . '/scratch/remedied-at-B';
     $out = ['state' => $state];
 
@@ -1924,7 +1941,7 @@ function rehearsal_remedy(string $estate, string $state): array {
             '--secret-key-file=' . $estate . '/keys/site-key-alpha.key',
             '--reason=Re-certified against the post-flag boundary during the rehearsal.',
             '--pin',
-        ]);
+        ], $library);
     }
     if (!is_dir($remedied)) {
         // The first state-A pass runs before anything was remedied; saying so
@@ -1935,7 +1952,7 @@ function rehearsal_remedy(string $estate, string $state): array {
     }
 
     try {
-        $policy = \Duo\Policy::load($remedied);
+        $policy = \Duo\Policy::load($remedied, null, false, null, $library);
         $sources = $policy->adapter_sources();
         $out['observed'] = 'loaded';
         $out['certified'] = $sources->is_certified('estate-forms');
@@ -1966,9 +1983,11 @@ function rehearsal_remedy(string $estate, string $state): array {
             '--secret-key-file=' . $estate . '/keys/site-key-alpha.key',
             '--reason=Re-certified against the restored pre-flag boundary during the rehearsal.',
             '--pin',
-        ]);
+        ], $library);
         try {
-            $out['re_certified'] = \Duo\Policy::load($reRemedied)->adapter_sources()->is_certified('estate-forms');
+            $out['re_certified'] = \Duo\Policy::load(
+                $reRemedied, null, false, null, $library
+            )->adapter_sources()->is_certified('estate-forms');
         } catch (Throwable $t) {
             $out['re_certified'] = false;
             $out['re_certify_reason'] = rehearsal_scrub($t->getMessage(), $estate);
@@ -2026,7 +2045,7 @@ function rehearsal_materialize_contract(string $repoRoot, string $estate): array
         'contract-key',
         $secret,
         rehearsal_contract_claim(),
-        $estate . '/libs/A'
+        rehearsal_library($estate . '/libs/A')
     );
     rehearsal_write_canon($estate . '/holdings/_contract/unsigned.json', $document);
     rehearsal_write_canon($estate . '/holdings/_contract/attested.json', $signed);
