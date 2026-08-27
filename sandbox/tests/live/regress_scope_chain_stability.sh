@@ -268,17 +268,23 @@ fi
 EXPECTED_SOURCE_SHA="$(git rev-parse --verify "${EXPECTED_SOURCE_SHA}^{commit}" 2>/dev/null)" \
   || fail "DUO_EXPECTED_SOURCE_SHA does not resolve to a commit in this standalone clone"
 
-# The shared driver fixture's compose file always references these
-# DUO3344_* variables (even for the config validation below, before any
-# pair exists), so they must be exported before the very first preflight
-# check, not merely before pair.sh up. This suite needs no custom plugin
-# (core posts/terms only), so both sides get an empty, otherwise-inert
-# directory to satisfy the fixture's generic codebind mount.
-export DUO3344_PAIR="$PAIR" DUO3344_AGENT_SRC="$ROOT/agent" DUO3344_MANIFESTS_SRC="$ROOT/manifests"
+# The shared driver fixture's compose file always references these source
+# roots (even for the config validation below, before any pair exists), so
+# they must be exported before the first preflight check. This suite needs no
+# custom plugin (core posts/terms only), so both sides get an empty,
+# otherwise-inert directory to satisfy the fixture's generic codebind mount.
+export DUO3344_PAIR="$PAIR" DUO3344_AGENT_SRC="$ROOT/agent"
+export DUO3344_ADAPTER_PACKAGES_SRC="$ROOT/adapter-packages" DUO3344_PLATFORM_SRC="$ROOT/platform"
 export DUO3344_SITE1="$SITE1" DUO3344_SITE2="$SITE2" DUO3344_PLUGIN_DIR="duo-3344-scope-chain-noop"
 
 say "static/exact-source preflight before allocating pair resources"
 bash -n "$0" || fail "live harness shell syntax failed"
+! grep -Fq 'DUO_''MANIFESTS_DIR' "$DRIVER_COMPOSE" \
+  || fail "public CLI driver reintroduced process-global adapter-library selection"
+grep -Fq '${DUO3344_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro' "$DRIVER_COMPOSE" \
+  || fail "public CLI driver does not mount packaged adapters beside the agent"
+grep -Fq '${DUO3344_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro' "$DRIVER_COMPOSE" \
+  || fail "public CLI driver does not mount the platform contract beside the agent"
 [ "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA" ] \
   || fail "current source HEAD does not equal DUO_EXPECTED_SOURCE_SHA"
 [ -z "$(git status --porcelain)" ] || fail "exact-source live harness requires a clean standalone clone"

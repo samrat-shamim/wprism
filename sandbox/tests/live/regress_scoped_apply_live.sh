@@ -539,7 +539,8 @@ EXPECTED_SOURCE_SHA="$(git rev-parse --verify "${EXPECTED_SOURCE_SHA}^{commit}" 
 export DUO_EXPECTED_SOURCE_SHA="$EXPECTED_SOURCE_SHA"
 export DUO3344_PAIR="$PAIR"
 export DUO3344_AGENT_SRC="$ROOT/agent"
-export DUO3344_MANIFESTS_SRC="$ROOT/manifests"
+export DUO3344_ADAPTER_PACKAGES_SRC="$ROOT/adapter-packages"
+export DUO3344_PLATFORM_SRC="$ROOT/platform"
 export DUO3344_SITE1="$SITE1"
 export DUO3344_SITE2="$SITE2"
 export DUO3344_PLUGIN_DIR="$PLUGIN_DIR"
@@ -551,6 +552,12 @@ say "static/exact-source preflight before allocating pair resources"
 bash -n "$0" || fail "live harness shell syntax failed"
 bash -n "$ROOT/sandbox/bin/pair.sh" || fail "pair lifecycle shell syntax failed"
 git diff --check || fail "working tree has whitespace errors"
+! grep -Fq 'DUO_''MANIFESTS_DIR' "$DRIVER_COMPOSE" \
+  || fail "public CLI driver reintroduced process-global adapter-library selection"
+grep -Fq '${DUO3344_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro' "$DRIVER_COMPOSE" \
+  || fail "public CLI driver does not mount packaged adapters beside the agent"
+grep -Fq '${DUO3344_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro' "$DRIVER_COMPOSE" \
+  || fail "public CLI driver does not mount the platform contract beside the agent"
 [ "$(git rev-parse HEAD)" = "$DUO_EXPECTED_SOURCE_SHA" ] \
   || fail "current source HEAD does not equal DUO_EXPECTED_SOURCE_SHA"
 [ -z "$(git status --porcelain)" ] || fail "exact-source live harness requires a clean standalone clone"

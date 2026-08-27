@@ -6,6 +6,8 @@
 # They deliberately publish no ports and own neither a database nor a
 # long-lived service.  The plugin bind is the pair's own repository codebind,
 # not a host-installed fixture, so provider discovery stays product-real.
+# The agent, packaged adapters, and platform contract use the same sibling
+# mu-plugin mount topology as pair.yml; no process-global selector participates.
 services:
   source:
     image: wordpress:cli-php8.3
@@ -17,7 +19,6 @@ services:
       WORDPRESS_DB_PASSWORD: wordpress
       WORDPRESS_DB_HOST: duo-shared-db
       WORDPRESS_DB_NAME: wp_${DUO3344_PAIR}1
-      DUO_MANIFESTS_DIR: /duo-manifests
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
         define('DISABLE_WP_CRON', true);
@@ -25,7 +26,8 @@ services:
       - source_wp:/var/www/html
       - ${DUO3344_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/duo:ro
       - ${DUO3344_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ${DUO3344_MANIFESTS_SRC}:/duo-manifests:ro
+      - ${DUO3344_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ${DUO3344_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro
       - ${DUO3344_SITE1}:/siterepo
       - ${DUO3344_SITE1}/code/wp-content/plugins/${DUO3344_PLUGIN_DIR}:/var/www/html/wp-content/plugins/${DUO3344_PLUGIN_DIR}:ro
 
@@ -41,7 +43,8 @@ services:
       - target_wp:/var/www/html
       - ${DUO3344_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/duo:ro
       - ${DUO3344_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ${DUO3344_MANIFESTS_SRC}:/duo-manifests:ro
+      - ${DUO3344_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ${DUO3344_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro
       - ${DUO3344_SITE2}:/siterepo
       - ${DUO3344_SITE2}/code/wp-content/plugins/${DUO3344_PLUGIN_DIR}:/var/www/html/wp-content/plugins/${DUO3344_PLUGIN_DIR}:ro
 

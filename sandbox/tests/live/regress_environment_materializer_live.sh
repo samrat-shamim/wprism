@@ -293,6 +293,12 @@ php -l "$PROVIDER" >/dev/null || fail "provider PHP syntax failed"
 bash -n "$0" || fail "live harness shell syntax failed"
 bash -n "$ROOT/sandbox/bin/pair.sh" || fail "pair lifecycle shell syntax failed"
 git diff --check || fail "working tree has whitespace errors"
+! grep -Fq 'DUO_''MANIFESTS_DIR' "$DRIVER_COMPOSE" \
+  || fail "fixture driver reintroduced process-global adapter-library selection"
+grep -Fq '${DUO3324_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro' "$DRIVER_COMPOSE" \
+  || fail "fixture driver does not mount packaged adapters beside the agent"
+grep -Fq '${DUO3324_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro' "$DRIVER_COMPOSE" \
+  || fail "fixture driver does not mount the platform contract beside the agent"
 assert_pair_list_parser
 if docker image inspect "$IMAGE" >/dev/null 2>&1; then
   fail "fixture image '$IMAGE' already exists; refusing to overwrite or delete an image not created by this run"
@@ -320,7 +326,8 @@ docker build -q -t "$IMAGE" -f "$DRIVER_DOCKERFILE" "$ROOT" >/dev/null
 export DUO3324_DRIVER_IMAGE="$IMAGE"
 export DUO3324_PAIR="$PAIR"
 export DUO3324_AGENT_SRC="$ROOT/agent"
-export DUO3324_MANIFESTS_SRC="$ROOT/manifests"
+export DUO3324_ADAPTER_PACKAGES_SRC="$ROOT/adapter-packages"
+export DUO3324_PLATFORM_SRC="$ROOT/platform"
 export DUO3324_SITE1="$SITE1"
 export DUO3324_SITE2="$SITE2"
 docker compose -f "$DRIVER_COMPOSE" config >/dev/null || fail "fixture driver compose configuration is invalid"
