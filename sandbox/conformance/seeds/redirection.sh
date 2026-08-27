@@ -4,6 +4,29 @@
 # before capture and can be proved absent from canonical state.
 set -euo pipefail
 
+# Redirection deliberately separates plugin activation from its onboarding
+# database install. A fresh WP-CLI activation leaves all four tables absent;
+# use the plugin's public command and prove its postcondition before any native
+# writer is exercised (the first live clean-room run failed here, before Duo).
+INSTALL_OUT=$(wp_conf1 redirection database install 2>&1)
+require_observed_nonempty "Redirection source database install" "$INSTALL_OUT"
+SOURCE_DATABASE=$(wp_conf1 eval '
+  global $wpdb;
+  $tables=[];
+  foreach (["redirection_items","redirection_groups","redirection_logs","redirection_404"] as $suffix) {
+    $name=$wpdb->prefix.$suffix;
+    $tables[$suffix]=$wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s",$name))===$name;
+  }
+  echo wp_json_encode([
+    "database"=>(string)(Red_Options::get()["database"] ?? ""),
+    "groups"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}redirection_groups"),
+    "tables"=>$tables,
+  ]);
+')
+require_observed_nonempty "Redirection source database readiness" "$SOURCE_DATABASE"
+jq -e '.database != "" and .groups >= 2 and (.tables | all(. == true))' <<<"$SOURCE_DATABASE" >/dev/null \
+  || fail "Redirection native source database install did not converge: $SOURCE_DATABASE"
+
 read -r -d '' SEED_PHP <<'PHPEOF' || true
 <?php
 wp_set_current_user(1);

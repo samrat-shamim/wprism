@@ -47,6 +47,9 @@ working decisions as it progressed:
    redirect, request logs, 404 history and a primed negative cache.
 6. Add an explicit native-writer framing question to the draft machinery and a
    one-prompt autonomy/escalation contract to the guide.
+7. Treat a clean-room live failure as new authoring evidence: activation alone
+   is not onboarding, so use and verify the plugin's public database installer
+   on both sides without asking the user how to recover.
 
 No user choice was requested after U1. All recoveries below followed typed
 command output or evidence already available in the repository, official
@@ -68,8 +71,19 @@ artifact or disposable target.
 
 ### 2. Exercise the product through native APIs
 
-On a disposable pair, the agent used Redirection's `Red_Group`, `Red_Item` and
-`Red_Options` APIs to create a realistic summer marketplace campaign:
+The first frozen-candidate conformance run exposed a missing premise before Duo
+captured or applied anything. Exact Redirection 5.9.0 activated successfully,
+but its four tables were absent; the first `Red_Group::create()` failed with
+`Table '...redirection_groups' doesn't exist`. Inspection of the same pinned
+artifact found Redirection's documented public command, `wp redirection
+database install`. The agent stopped the idle pair, added that native setup to
+both source and post-deploy target fixtures, and added value-level readiness
+checks for all four tables, the database version marker and default groups.
+No raw SQL schema creation and no user decision were needed.
+
+After that public onboarding step, the agent used Redirection's `Red_Group`,
+`Red_Item` and `Red_Options` APIs to create a realistic summer marketplace
+campaign:
 
 - ordinary `/summer` -> marketplace 302;
 - regex vendor route -> provider route 307;
@@ -128,6 +142,9 @@ plain text, serialization and `NULL`. The exercise changed generic machinery:
 - `duo adapter-draft` now adds a review question requiring every native writer
   variant for text/blob columns and explicitly says `adapter-probe` reads no
   row values;
+- typed-table proposals now say activation is not proof of onboarding and
+  require the plugin's public admin/API/CLI setup plus expected-storage
+  verification before inventory or probe evidence is trusted;
 - the authoring guide explains prefix-scoped seed recovery, safe `--force`
   recovery, agent autonomy/escalation, and storage-framing review;
 - `php_serialized_or_text` is a closed, feature-gated column codec under

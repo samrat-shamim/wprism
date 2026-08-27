@@ -848,10 +848,15 @@ plugin faithfully.
    decoded scalar/array rule with nested strings but no id positions. Both
    re-serialize after tokenization so PHP length prefixes remain correct;
    opaque `verbatim` bytes deliberately do not re-bind.
-5. Exercise activation, one real admin save, one front-end read, an update, and
-   a deletion before declaring the option/table inventory complete. Compare the
-   plugin's own import/export allowlist when it has one; it is strong evidence
-   for portable subkeys, not proof of every other surface.
+5. Exercise activation, complete the plugin's documented onboarding, then make
+   one real admin save, one front-end read, an update, and a deletion before
+   declaring the option/table inventory complete. Activation is not proof of
+   readiness: some plugins intentionally defer table creation or schema
+   upgrades to an admin/API/CLI setup step. Verify the plugin's expected tables
+   and readiness marker through its public lifecycle before observation,
+   coverage or probe; never manufacture them with raw SQL. Compare the plugin's
+   own import/export allowlist when it has one; it is strong evidence for
+   portable subkeys, not proof of every other surface.
 6. Trace the plugin hooks skipped by Duo's direct writes. Cache invalidation,
    generated files, rewrite flushes, index tables, and type registration need a
    bounded provider with value-level verification or an explicit unsupported
@@ -936,10 +941,11 @@ pattern, or a compatibility fallback. Record the required generic primitive in
 A normal user prompt can be as short as: “Author and production-harden an
 adapter for `<plugin>` from the exact installed release.” The coding agent
 should complete the loop without asking the user to classify individual keys.
-It owns the reversible evidence work: inspect the official artifact, exercise
-every reachable native writer, run observation/coverage/probe/draft, ratify the
-smallest defensible manifest, add adversarial offline and live tests, and run
-the repository gates. It records commands, visible outputs, corrections and
+It owns the reversible evidence work: inspect the official artifact, complete
+and verify the plugin's public onboarding lifecycle, exercise every reachable
+native writer, run observation/coverage/probe/draft, ratify the smallest
+defensible manifest, add adversarial offline and live tests, and run the
+repository gates. It records commands, visible outputs, corrections and
 assumptions; it does not record private chain-of-thought.
 
 Continue autonomously when a command already supplies a typed recovery. In

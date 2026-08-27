@@ -1466,6 +1466,15 @@ final class AdapterDraft {
             // incoming evidence row answers, so the two halves of the seam
             // cannot drift into two different vocabularies for one question.
             $questions = [
+                // A schema observation after activation can still describe a
+                // half-installed plugin. Redirection 5.9.0 registers a public
+                // database installer and intentionally leaves its four tables
+                // absent after activation alone. Inventory is representative
+                // only after the plugin's real onboarding path has reached its
+                // own ready state, never after a harness creates tables directly.
+                'activation is not proof that native onboarding completed: confirm the plugin\'s documented '
+                . 'setup lifecycle ran and every expected storage surface exists before inventory/probe; use a '
+                . 'public admin, API, or CLI setup path, never raw SQL',
                 self::live_question(
                     'table_schema',
                     'column TYPES, the real PRIMARY KEY, and nullability are live facts (SHOW COLUMNS) — deferred; '
@@ -1691,6 +1700,9 @@ final class AdapterDraft {
                         . ($owner === null ? '' : ", probably owned by the active plugin '$owner'"),
                 ]],
                 'questions' => [
+                    'activation is not proof that native onboarding completed: confirm the plugin\'s documented '
+                    . 'setup lifecycle ran and every expected storage surface exists before inventory/probe; use a '
+                    . 'public admin, API, or CLI setup path, never raw SQL',
                     "class 'runtime' is the SAFE default: it declares the table VISIBLE and excluded, which "
                     . 'is what stops it reading `unclassified / block` in assess. If this table holds '
                     . 'authored configuration, promote it to a typed authored class — and then its columns, '

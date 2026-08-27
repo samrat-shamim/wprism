@@ -4,6 +4,29 @@
 # Apply must preserve all of it while adding the repository graph under new ids.
 set -euo pipefail
 
+# Deploy has activated the exact plugin bytes, but Redirection's activation
+# hook intentionally does not install its database. Complete the same public
+# onboarding lifecycle a real target requires, then verify every storage
+# surface before manufacturing hostile target-owned state.
+INSTALL_OUT=$(wp_conf2 redirection database install 2>&1)
+require_observed_nonempty "Redirection target database install" "$INSTALL_OUT"
+TARGET_DATABASE=$(wp_conf2 eval '
+  global $wpdb;
+  $tables=[];
+  foreach (["redirection_items","redirection_groups","redirection_logs","redirection_404"] as $suffix) {
+    $name=$wpdb->prefix.$suffix;
+    $tables[$suffix]=$wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s",$name))===$name;
+  }
+  echo wp_json_encode([
+    "database"=>(string)(Red_Options::get()["database"] ?? ""),
+    "groups"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}redirection_groups"),
+    "tables"=>$tables,
+  ]);
+')
+require_observed_nonempty "Redirection target database readiness" "$TARGET_DATABASE"
+jq -e '.database != "" and .groups >= 2 and (.tables | all(. == true))' <<<"$TARGET_DATABASE" >/dev/null \
+  || fail "Redirection native target database install did not converge: $TARGET_DATABASE"
+
 read -r -d '' HOSTILE_PHP <<'PHPEOF' || true
 <?php
 wp_set_current_user(1);

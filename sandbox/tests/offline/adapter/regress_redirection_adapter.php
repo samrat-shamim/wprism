@@ -296,6 +296,15 @@ namespace {
         'A5: server-module configuration stays environment-owned');
     duo_check_same([], $manifest['deletions'] ?? [],
         'A6: no custom-table deletion authority is advertised');
+    $sourceSeed = (string) file_get_contents($root . '/sandbox/conformance/seeds/redirection.sh');
+    $targetSeed = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/redirection.sh');
+    foreach (['source' => $sourceSeed, 'target' => $targetSeed] as $side => $script) {
+        duo_check(str_contains($script, 'redirection database install 2>&1')
+            && str_contains($script, 'SHOW TABLES LIKE %s')
+            && str_contains($script, '.groups >= 2')
+            && str_contains($script, 'all(. == true)'),
+            "A7: $side live fixture completes and verifies Redirection's public onboarding before authoring rows");
+    }
 
     $provider = new RedirectionState(new Policy());
     duo_check_same(
