@@ -2,7 +2,8 @@
 # Candidate-bound mixed Woo rewrite evidence: only the product-route provider,
 # its exact active artifacts, hook topology, and hostile refusal/retry.
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+ROOT="$(cd "$(dirname "$0")/../../../.." && pwd -P)"
+cd "$ROOT/sandbox"
 
 say() { printf '\n== %s ==\n' "$*"; }
 pass() { printf 'ok: %s\n' "$*"; }
@@ -13,7 +14,6 @@ PAIR="${WOO_REWRITE_COINSTALL_PAIR:-woorewrite}"
 PORT1="${WOO_REWRITE_COINSTALL_PORT1:-8978}"
 PORT2="${WOO_REWRITE_COINSTALL_PORT2:-8979}"
 EXPECTED_SHA="${DUO_EXPECTED_SOURCE_SHA:-}"
-ROOT="$(cd .. && pwd -P)"
 HEAD="$(git -C "$ROOT" rev-parse HEAD)"
 [ -n "$EXPECTED_SHA" ] || fail 'DUO_EXPECTED_SOURCE_SHA is required'
 [ "$EXPECTED_SHA" = "$HEAD" ] || fail "expected candidate $EXPECTED_SHA, checkout is $HEAD"
@@ -66,7 +66,7 @@ remove_hostile_mu() { # basename
 R1="siterepo/$PAIR""1"
 R2="siterepo/$PAIR""2"
 ORIGIN="siterepo/origin-$PAIR.git"
-TOPOLOGY="tests/fixtures/woocommerce-rewrite-coinstall-topology.json"
+TOPOLOGY="$ROOT/integration-scenarios/woocommerce-rewrite-coinstall/fixtures/woocommerce-rewrite-coinstall-topology.json"
 . bin/fetch-artifact.sh
 
 GREEN=0

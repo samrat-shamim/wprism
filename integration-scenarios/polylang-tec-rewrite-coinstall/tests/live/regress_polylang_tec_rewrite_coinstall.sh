@@ -3,7 +3,8 @@
 # provider projection, the separate native fresh-process rewrite action, the
 # closed callback topology, failure-before-effect/retry, and clean no-op.
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+ROOT="$(cd "$(dirname "$0")/../../../.." && pwd -P)"
+cd "$ROOT/sandbox"
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 . conformance/asserts.sh
 say() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
@@ -13,7 +14,7 @@ PAIR="${POLYLANG_TEC_REWRITE_PAIR:-plltec}"
 PORT1="${POLYLANG_TEC_REWRITE_PORT1:-9022}"
 PORT2="${POLYLANG_TEC_REWRITE_PORT2:-9023}"
 EXPECTED_SHA="${POLYLANG_TEC_REWRITE_EXPECTED_SOURCE_SHA:-${DUO_EXPECTED_SOURCE_SHA:-}}"
-ROOT="$(cd .. && pwd -P)"; HEAD="$(git -C "$ROOT" rev-parse HEAD)"
+HEAD="$(git -C "$ROOT" rev-parse HEAD)"
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid Polylang+TEC pair '$PAIR'"
 [[ "$PORT1" =~ ^[0-9]+$ && "$PORT2" =~ ^[0-9]+$ && "$PORT1" != "$PORT2" ]] || fail 'invalid Polylang+TEC ports'
 [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'Polylang+TEC evidence requires a candidate SHA'
@@ -43,8 +44,8 @@ bash bin/pair.sh reset "$PAIR"; bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --
 for side in 1 2; do install_exact "$side" polylang 3.8.6; install_exact "$side" the-events-calendar 6.17.2; done
 export CONF_REPO1="$R1" CONF_REPO2="$R2" CONF1_PORT="$PORT1" CONF2_PORT="$PORT2" COMPOSE="${PAIR_COMPOSE[*]}"
 wp_conf1() { wp1 "$@"; }
-. conformance/seeds/polylang.sh
-. conformance/seeds/the-events-calendar.sh
+. "$ROOT/adapter-packages/polylang/tests/conformance/seed.sh"
+. "$ROOT/adapter-packages/the-events-calendar/tests/conformance/seed.sh"
 unset -f wp_conf1
 
 git init -q -b main "$R1"; git -C "$R1" remote add origin "../origin-$PAIR.git"
