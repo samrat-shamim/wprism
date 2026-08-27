@@ -64,8 +64,35 @@ require __DIR__ . '/certification_fixture.php';
 use Duo\AdapterSources;
 use Duo\AdapterLibrary;
 use Duo\Canon;
-use Duo\Policy;
 use Duo\RepositoryCompiler;
+
+/** Keep every legacy call site explicit without a process-global selector. */
+final class Policy {
+    public static function load(
+        ?string $repo,
+        ?array $manifestNames = null,
+        bool $allowUnsupportedSiteForReadOnlyCapabilities = false,
+        ?string $adapterRepo = null
+    ): \Duo\Policy {
+        return test_policy_load(
+            $repo,
+            $manifestNames,
+            $allowUnsupportedSiteForReadOnlyCapabilities,
+            $adapterRepo
+        );
+    }
+
+    public static function from_snapshot(
+        array $snapshot,
+        ?AdapterLibrary $adapterLibrary = null
+    ): \Duo\Policy {
+        return test_policy_from_snapshot($snapshot, $adapterLibrary);
+    }
+
+    public static function closed_vocabularies(): array {
+        return \Duo\Policy::closed_vocabularies();
+    }
+}
 
 /** Minimal command runner surface for exercising the real Cli handler offline. */
 final class WP_CLI {
@@ -223,10 +250,87 @@ function shipped_library(): string {
     return $manifestDir = duo_cert_hermetic_library(dirname(__DIR__, 4), scratch('shipped-library'));
 }
 
-/** A throwaway copy of the shipped library, mutated by $mutate. */
+/** Explicit legacy fixture readers, keyed by root. */
+$GLOBALS['duo_test_adapter_libraries'] = [];
+$GLOBALS['duo_test_adapter_library'] = null;
+$GLOBALS['duo_test_loose_library'] = false;
+
+/** Select one test-owned library without changing process-global runtime state. */
+function select_test_library(string|AdapterLibrary $library, bool $loose = false): void {
+    if ($library instanceof AdapterLibrary) {
+        $GLOBALS['duo_test_adapter_libraries'][$library->root()] = $library;
+        $GLOBALS['duo_test_adapter_library'] = $library;
+    } else {
+        $root = rtrim($library, '/');
+        $GLOBALS['duo_test_adapter_library'] = $loose
+            ? $root
+            : ($GLOBALS['duo_test_adapter_libraries'][$root]
+                ?? AdapterLibrary::fromLegacyFlatDirectory($root));
+    }
+    $GLOBALS['duo_test_loose_library'] = $loose;
+}
+
+function selected_test_library(): AdapterLibrary {
+    $selected = $GLOBALS['duo_test_adapter_library'] ?? null;
+    if (!$selected instanceof AdapterLibrary) {
+        throw new RuntimeException('adapter source fixture has no selected closed library');
+    }
+    return $selected;
+}
+
+/** Product load against the exact library selected by this case. */
+function test_policy_load(
+    ?string $repo,
+    ?array $manifestNames = null,
+    bool $allowUnsupportedSiteForReadOnlyCapabilities = false,
+    ?string $adapterRepo = null
+): \Duo\Policy {
+    $selected = $GLOBALS['duo_test_adapter_library'] ?? null;
+    if (($GLOBALS['duo_test_loose_library'] ?? false) === true && is_string($selected)) {
+        $pins = $manifestNames;
+        if ($pins === null) {
+            $pins = $repo === null
+                ? ['core']
+                : (array) (Canon::decode(Canon::read_file(rtrim($repo, '/') . '/site.duo.json'))['manifests'] ?? ['core']);
+        }
+        $closed = $GLOBALS['duo_test_adapter_libraries'][$selected] ?? null;
+        if (!$closed instanceof AdapterLibrary) {
+            $closed = clone AdapterLibrary::fromLegacyFlatDirectory(shipped_library());
+            $root = new ReflectionProperty(AdapterLibrary::class, 'root');
+            $root->setValue($closed, realpath($selected) ?: $selected);
+        }
+        $looseDir = $closed->root();
+        return \Duo\Policy::load_from_scan([
+            'adapter_library' => $closed,
+            'dir' => $looseDir,
+            'dispositions' => \Duo\ManifestDispositions::load($looseDir),
+            'sources' => AdapterSources::discover($looseDir, $repo),
+        ], $repo, $pins);
+    }
+    return \Duo\Policy::load(
+        $repo,
+        $manifestNames,
+        $allowUnsupportedSiteForReadOnlyCapabilities,
+        $adapterRepo,
+        selected_test_library()
+    );
+}
+
+/** Frozen load against the exact library selected by this case. */
+function test_policy_from_snapshot(array $snapshot, ?AdapterLibrary $library = null): \Duo\Policy {
+    return \Duo\Policy::from_snapshot($snapshot, $library ?? selected_test_library());
+}
+
+function test_adapter_survey(?string $repo): array {
+    return AdapterSources::survey_library(selected_test_library(), $repo);
+}
+
+/** A throwaway copy of the shipped library, mutated after its inventory closes. */
 function library_variant(callable $mutate): string {
     $root = scratch('library-variant');
     copy_tree(shipped_library(), "$root/manifests");
+    $GLOBALS['duo_test_adapter_libraries']["$root/manifests"] =
+        AdapterLibrary::fromLegacyFlatDirectory("$root/manifests");
     $mutate("$root/manifests");
     return "$root/manifests";
 }
@@ -249,11 +353,11 @@ function edit_json(string $file, callable $edit): void {
     Canon::write_file($file, Canon::encode($edit(Canon::decode(Canon::read_file($file)))));
 }
 
-$realManifests = dirname(__DIR__, 4) . '/manifests';
+$sourceLibrary = AdapterLibrary::fromSourceTree(dirname(__DIR__, 4));
 $shippedDir = shipped_library();
 // Every group below resolves the shipped library through this, including the
 // ones that install their own directory and restore it afterwards.
-putenv("DUO_MANIFESTS_DIR=$shippedDir");
+select_test_library($shippedDir);
 
 // ======================================================================
 echo "\n== the fixture library IS the shipped library, whole ==\n";
@@ -265,7 +369,7 @@ echo "\n== the fixture library IS the shipped library, whole ==\n";
 // the true one: not a byte differs anywhere.
 $fixtureBytes = duo_cert_library_bytes($shippedDir);
 check(
-    $fixtureBytes === duo_cert_library_bytes($realManifests) && $fixtureBytes !== [],
+    $fixtureBytes === duo_cert_projected_bytes($sourceLibrary) && $fixtureBytes !== [],
     'every manifest, disposition, interpreter, provider, regenerator, the platform boundary and the shipped trust '
     . 'root under test is the shipped file byte for byte (' . count($fixtureBytes) . ' files)'
 );
@@ -290,15 +394,10 @@ check(
 // generated registry was.
 $fixtureDispositions = \Duo\ManifestDispositions::load($shippedDir);
 $shippedRegistry = ['format' => \Duo\ManifestDispositions::FORMAT, 'manifests' => [], 'profiles' => []];
-foreach (glob("$realManifests/dispositions/*.json") ?: [] as $document) {
-    $subject = basename($document, '.json');
-    $decoded = Canon::decode(Canon::read_file($document));
-    if ($subject === 'profiles') {
-        $shippedRegistry['profiles'] = $decoded;
-        continue;
-    }
-    $shippedRegistry['manifests'][$subject] = $decoded;
+foreach ($sourceLibrary->packages() as $package) {
+    $shippedRegistry['manifests'][$package->name()] = Canon::decode(Canon::read_file($package->dispositionPath()));
 }
+$shippedRegistry['profiles'] = Canon::decode(Canon::read_file($sourceLibrary->profilesPath()));
 ksort($shippedRegistry['manifests'], SORT_STRING);
 check(
     $fixtureDispositions !== null
@@ -307,7 +406,7 @@ check(
     . 'loader — the number did not move when WP-4.4 split the document'
 );
 
-$adapterLibrary = AdapterLibrary::fromDirectory($shippedDir);
+$adapterLibrary = AdapterLibrary::fromLegacyFlatDirectory($shippedDir);
 $packageManifestPaths = [];
 foreach ($adapterLibrary->packages() as $package) {
     $packageManifestPaths[$package->name()] = $package->manifestPath();
@@ -331,7 +430,7 @@ check(
     AdapterSources::scan_anchors_library($adapterLibrary, null)['anchors'] === $adapterLibrary->scanAnchors(),
     'the cheap object memo witness uses AdapterLibrary scan anchors directly'
 );
-$legacySurvey = AdapterSources::survey(null);
+$legacySurvey = test_adapter_survey(null);
 $librarySurvey = AdapterSources::survey_library($adapterLibrary, null);
 $legacyComparable = $legacySurvey;
 foreach ($legacyComparable['adapters'] as &$row) {
@@ -395,7 +494,7 @@ Canon::write_file(
     "$mutatedShipped/manifests/acme-widget.json",
     Canon::encode(site_adapter('acme-widget'))
 );
-putenv("DUO_MANIFESTS_DIR=$mutatedShipped/manifests");
+select_test_library("$mutatedShipped/manifests", true);
 check(
     count(Policy::load(fresh_site(['core']))->manifests) === 1,
     'dropping an unreviewed adapter into the SHIPPED library no longer refuses an unrelated pin — one uncovered '
@@ -407,7 +506,7 @@ check(
     'and PINNING it still refuses, in the sentence the whole-directory check emitted, byte for byte — replacing or '
     . 'extending the reviewed manifest set cannot silently discard shipped claims'
 );
-putenv("DUO_MANIFESTS_DIR=$shippedDir");
+select_test_library($shippedDir);
 
 // ======================================================================
 echo "\n== unrelated shipped adapters are provably unaffected ==\n";
@@ -604,35 +703,38 @@ echo "\n== the certified verdict above is earned: a broken review still refuses 
 // would be asserting a mechanism, not a boundary. What is left is what was
 // always the actual gate: the reviewed bytes, and the platform they describe.
 
-putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+$variant = library_variant(function (string $dir): void {
     edit_json("$dir/dispositions/core.json", function (array $entry): array {
         unset($entry['evidence']);
         return $entry;
     });
-}));
+});
+select_test_library($variant);
 expect_throw(
     fn() => Policy::load(fresh_site(['core'])),
     "certified manifest disposition 'core' lacks current bundle evidence",
     'a certified claim with no named evidence is refused — the citation is the whole difference between a review '
     . 'and an assertion, and nothing else vouches for it now'
 );
-putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+$variant = library_variant(function (string $dir): void {
     edit_json("$dir/dispositions/core.json", function (array $entry): array {
         $entry['evidence']['tests'] = [];
         return $entry;
     });
-}));
+});
+select_test_library($variant);
 expect_throw(
     fn() => Policy::load(fresh_site(['core'])),
     "certified manifest disposition 'core' lacks current bundle evidence",
     'and an empty test list is the same refusal — a citation naming nothing cites nothing'
 );
-putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+$variant = library_variant(function (string $dir): void {
     edit_json("$dir/dispositions/core.json", function (array $entry): array {
         $entry['status'] = 'ratified';
         return $entry;
     });
-}));
+});
+select_test_library($variant);
 expect_throw(
     fn() => Policy::load(fresh_site(['core'])),
     "manifest disposition 'core' has a malformed required field",
@@ -641,12 +743,13 @@ expect_throw(
 // The synthesized runtime status is not a status a review may DECLARE: reading
 // it back would let a library launder "nobody reviewed this" into a reviewed
 // answer about itself.
-putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+$variant = library_variant(function (string $dir): void {
     edit_json("$dir/dispositions/core.json", function (array $entry): array {
         $entry['status'] = \Duo\ManifestDispositions::STATUS_UNCOVERED;
         return $entry;
     });
-}));
+});
+select_test_library($variant);
 expect_throw(
     fn() => Policy::load(fresh_site(['core'])),
     "manifest disposition 'core' has a malformed required field",
@@ -659,19 +762,20 @@ expect_throw(
 $noPlatform = library_variant(function (string $dir): void {
     unlink("$dir/capabilities/platform.json");
 });
-putenv("DUO_MANIFESTS_DIR=$noPlatform");
+select_test_library($noPlatform);
 expect_throw(
     fn() => Policy::load(fresh_site(['core']))->capability_report(['operation' => 'promote']),
     'this manifest library declares no platform boundary',
     'a library with no platform boundary projects no capability claim at all — the environment half of every claim '
     . 'would otherwise be invented by the code reading it'
 );
-putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+$variant = library_variant(function (string $dir): void {
     edit_json("$dir/capabilities/platform.json", function (array $platform): array {
         $platform['platform']['agent_version'] = '0.0.1-not-this-agent';
         return $platform;
     });
-}));
+});
+select_test_library($variant);
 expect_throw(
     fn() => Policy::load(fresh_site(['core']))->capability_report(['operation' => 'promote']),
     'platform version disagrees with the loaded agent',
@@ -690,14 +794,14 @@ $editedLibrary = library_variant(function (string $dir): void {
         return $manifest;
     });
 });
-putenv("DUO_MANIFESTS_DIR=$editedLibrary");
+select_test_library($editedLibrary);
 $editedCore = RepositoryCompiler::resolved_adapters(Policy::load(fresh_site(['core'])))[0];
 check(
     $editedCore['digest'] !== $soloCore['digest'],
     'editing a shipped manifest loads without refusing — no attestation binds its bytes any more — but moves its '
     . 'adapter digest, so a repository pin still catches the change'
 );
-putenv("DUO_MANIFESTS_DIR=$shippedDir");
+select_test_library($shippedDir);
 
 // ======================================================================
 echo "\n== ambiguous identity and shadowing refuse BEFORE anything loads ==\n";
@@ -727,7 +831,7 @@ expect_throw(
 // to install such a shipped manifest.
 $oddShipped = scratch('odd-shipped');
 Canon::write_file("$oddShipped/renamed-file.json", Canon::encode(site_adapter('acme-widget')));
-putenv("DUO_MANIFESTS_DIR=$oddShipped");
+select_test_library($oddShipped, true);
 expect_throw(
     fn() => Policy::load(fresh_site(['renamed-file'], ['acme-widget' => site_adapter('acme-widget')])),
     'already declared by the shipped manifest',
@@ -749,7 +853,7 @@ check(
     'the cross-source collision refusal names the SPECIFIC shipped file it collides with, '
     . "derived from the shipped declared-name index, not a hardcoded origin ($collisionMsg)"
 );
-putenv("DUO_MANIFESTS_DIR=$shippedDir");
+select_test_library($shippedDir);
 // The pins above never name the offending adapter: discovery scans whole
 // sources, so a broken installation surfaces on the next command rather than
 // on the first command that happens to pin it.
@@ -789,7 +893,7 @@ check(
     'the site copy carries the SITE\'s own certification words — an override never inherits the shipped '
     . "adapter's reviewed registry claim"
 );
-$overrideSurvey = AdapterSources::survey($overrideRepo);
+$overrideSurvey = test_adapter_survey($overrideRepo);
 $shadowRow = null;
 foreach ($overrideSurvey['not_installed'] as $row) {
     if (($row['name'] ?? null) === 'woocommerce') {
@@ -821,8 +925,9 @@ check(
 // refuses those for an unrelated site adapter (below, "acquires no executable
 // privileges"); for an override they are the shipped grant repeated, and the
 // site copy inherits exactly them — no more.
-$shippedWoo = json_decode((string) file_get_contents(Policy::manifests_dir() . '/woocommerce.json'), true);
-$grants = AdapterSources::shipped_executable_grants(Policy::manifests_dir(), 'woocommerce');
+$selectedLibrary = selected_test_library();
+$shippedWoo = Canon::decode(Canon::read_file($selectedLibrary->package('woocommerce')?->manifestPath() ?? ''));
+$grants = AdapterSources::shipped_executable_grants($selectedLibrary, 'woocommerce');
 check(
     is_array($grants)
         && array_keys($grants) === ['interpreter', 'regenerators', 'providers']
@@ -831,7 +936,7 @@ check(
     'shipped_executable_grants() returns the shipped interpreter / regenerators / providers by id, verbatim'
 );
 check(
-    AdapterSources::shipped_executable_grants(Policy::manifests_dir(), 'acme-widget') === null,
+    AdapterSources::shipped_executable_grants($selectedLibrary, 'acme-widget') === null,
     'and null for a name the library does not ship — an unrelated site adapter inherits nothing'
 );
 $overrideCopy = $shippedWoo;
@@ -950,15 +1055,18 @@ expect_throw(
 // coverage and to its declared name in every digest, disposition lookup, and
 // capability claim. Both sources now speak one sentence, so the pair of checks
 // below pins that it really is one sentence and not two that happen to rhyme.
-putenv("DUO_MANIFESTS_DIR=$oddShipped");
+select_test_library($oddShipped, true);
 $shippedIdentity = message_of(fn() => Policy::load(fresh_site(['renamed-file'])));
 check(
-    str_contains($shippedIdentity, "duo: shipped adapter '$oddShipped/renamed-file.json' declares name"),
+    str_contains(
+        $shippedIdentity,
+        "duo: shipped adapter '" . (realpath($oddShipped) ?: $oddShipped) . "/renamed-file.json' declares name"
+    ),
     "a shipped manifest whose declared name disagrees with its file name is refused at load, naming the file ($shippedIdentity)"
 );
 // The site half of the pair needs a library that does NOT hold `renamed-file`,
 // or the site file shadows the shipped one and refuses for that reason first.
-putenv("DUO_MANIFESTS_DIR=$shippedDir");
+select_test_library($shippedDir);
 $siteIdentity = message_of(fn() => Policy::load(
     fresh_site(['core'], ['renamed-file' => site_adapter('acme-widget')])
 ));
@@ -973,12 +1081,12 @@ check(
 // file named as it declares itself loads.
 $evenShipped = scratch('even-shipped');
 Canon::write_file("$evenShipped/acme-widget.json", Canon::encode(site_adapter('acme-widget')));
-putenv("DUO_MANIFESTS_DIR=$evenShipped");
+select_test_library($evenShipped, true);
 check(
     (Policy::load(fresh_site(['acme-widget']))->manifests[0]['name'] ?? null) === 'acme-widget',
     'the same shipped manifest, named as it declares itself, loads unchanged'
 );
-putenv("DUO_MANIFESTS_DIR=$shippedDir");
+select_test_library($shippedDir);
 
 expect_throw(
     fn() => Policy::load(fresh_site(
@@ -1388,22 +1496,14 @@ check(
     'frozen reconstruction proves shipped authority through the explicit package library without reopening a '
     . 'global manifest directory'
 );
-$selectedLibrary = getenv('DUO_MANIFESTS_DIR');
-putenv('DUO_MANIFESTS_DIR');
-try {
-    $defaultFrozenSources = AdapterSources::from_snapshot(
-        $snapshot['adapter_sources'],
-        $snapshot['manifests']
-    );
-} finally {
-    $selectedLibrary === false
-        ? putenv('DUO_MANIFESTS_DIR')
-        : putenv('DUO_MANIFESTS_DIR=' . $selectedLibrary);
-}
+$defaultFrozenSources = AdapterSources::from_snapshot(
+    $snapshot['adapter_sources'],
+    $snapshot['manifests']
+);
 check(
     $defaultFrozenSources->export() === $snapshot['adapter_sources']
         && realpath((string) $defaultFrozenSources->path('core'))
-            === Policy::shipped_adapter_library()->package('core')?->manifestPath(),
+            === \Duo\Policy::shipped_adapter_library()->package('core')?->manifestPath(),
     'default frozen reconstruction selects the shipped AdapterLibrary object rather than a guessed manifest path'
 );
 
@@ -1684,7 +1784,7 @@ echo "\n== site-controlled identifier fields cannot carry filesystem paths ==\n"
 // installed out-of-tree, and three code paths concatenate them into
 // filesystem paths. Held to a shape at load, for every source.
 $shapeDir = scratch('shape');
-putenv("DUO_MANIFESTS_DIR=$shapeDir");
+select_test_library($shapeDir, true);
 $writeShipped = function (string $name, array $extra) use ($shapeDir): void {
     Canon::write_file("$shapeDir/$name.json", Canon::encode(site_adapter($name, $extra)));
 };
@@ -1752,7 +1852,7 @@ foreach ([['int', 7], ['bool', true], ['list', ['acf']], ['empty', '']] as [$lab
         "a non-string interpreter ($label) is refused at manifest validation, for every adapter source"
     );
 }
-putenv("DUO_MANIFESTS_DIR=$shippedDir");
+select_test_library($shippedDir);
 // The out-of-tree privilege refusal is keyed on PRESENCE, so a malformed
 // declaration cannot dodge it by being unrecognizable.
 expect_throw(
@@ -1842,7 +1942,8 @@ WP_CLI::$lines = [];
 $allText = implode("\n", WP_CLI::$lines);
 check(
     str_contains($allText, 'CAPABILITY acf ')
-    && preg_match('/CAPABILITY acf [A-Z]+\n  source: shipped \(' . preg_quote($shippedDir, '/') . '\/acf\.json\)\n'
+    && preg_match('/CAPABILITY acf [A-Z]+\n  source: shipped \('
+        . preg_quote($sourceLibrary->package('acf')?->manifestPath() ?? '', '/') . '\)\n'
         . '  trust_tier: compatibility_shim\n/', $allText) === 1,
     'the whole-library view names each row\'s own file and its derived tier — a shipped compatibility shim SAYS '
     . 'compatibility_shim, where the doctrine requires an executable shim to be named in capability diagnostics'
@@ -1876,7 +1977,7 @@ echo "\n== a library with no reviewed dispositions at all reports itself unrevie
 $unreviewedDir = library_variant(function (string $dir): void {
     remove_library_dispositions($dir);
 });
-putenv("DUO_MANIFESTS_DIR=$unreviewedDir");
+select_test_library($unreviewedDir, true);
 $unreviewedPolicy = Policy::load(fresh_site(['core']));
 $unreviewedReport = $unreviewedPolicy->capability_report(['operation' => 'promote']);
 check(
@@ -1892,7 +1993,13 @@ check(
     . 'address, and no rows — it defers its certification to nothing, and says so instead of reading green'
 );
 $unreviewedSurvey = [];
-foreach (AdapterSources::survey(null)['adapters'] as $surveyed) {
+$unreviewedSources = AdapterSources::discover($unreviewedDir, null);
+$unreviewedSourceDiagnostics = $unreviewedSources->diagnostics($unreviewedPolicy->manifests);
+foreach ($unreviewedSources->names() as $name) {
+    $surveyed = $unreviewedSourceDiagnostics[$name]
+        ?? ['name' => $name, 'certification' => null, 'disposition_status' => null];
+    $surveyed += ['certification' => null, 'disposition_status' => null];
+    $surveyed['name'] = $name;
     $unreviewedSurvey[(string) $surveyed['name']] = $surveyed;
 }
 check(
@@ -1934,7 +2041,7 @@ $brokenProviderDir = library_variant(function (string $dir): void {
     remove_library_dispositions($dir);
     unlink("$dir/providers/woocommerce-cache.php");
 });
-putenv("DUO_MANIFESTS_DIR=$brokenProviderDir");
+select_test_library($brokenProviderDir, true);
 $brokenPolicy = Policy::load(fresh_site(['core', 'woocommerce']));
 $brokenBlockers = $brokenPolicy->adapter_readiness_blockers();
 $brokenLines = \Duo\Orchestrator\PlanSummary::render(
@@ -1952,7 +2059,7 @@ check(
     . implode(', ', array_map(static fn($w): string => var_export($w, true), $brokenWords))
     . '; codes: ' . implode(', ', array_column($brokenBlockers, 'code')) . ')'
 );
-putenv("DUO_MANIFESTS_DIR=$shippedDir");
+select_test_library($shippedDir);
 
 // ======================================================================
 echo "\n== WP-1.3: one resolved library per survey, and the same verdicts as a load per row ==\n";
@@ -1966,7 +2073,7 @@ echo "\n== WP-1.3: one resolved library per survey, and the same verdicts as a l
 // row at a time.
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterScan.php';
 $scanRepo = fresh_site(['core'], ['acme-widget' => site_adapter('acme-widget')]);
-$scanSurvey = AdapterSources::survey($scanRepo);
+$scanSurvey = test_adapter_survey($scanRepo);
 $verdictMismatches = [];
 foreach ($scanSurvey['adapters'] as $surveyed) {
     // The unmemoized verdict, taken exactly as grammar_verdict() took it
@@ -1995,14 +2102,14 @@ check(
 // explicit pins into row 2's certification elevation — which is why the
 // resolved sources are cloned per load rather than handed out.
 $handleDir = library_variant(function (string $dir): void {});
-putenv("DUO_MANIFESTS_DIR=$handleDir");
+select_test_library($handleDir);
 $handleLibrary = AdapterLibrary::fromLegacyFlatDirectory($handleDir);
 $handle = \Duo\AdapterScan::open_library($handleLibrary, null);
 $firstLoad = $handle->load('core');
 $secondLoad = $handle->load('classic-editor');
 check(
-    $firstLoad instanceof Policy
-    && $secondLoad instanceof Policy
+    $firstLoad instanceof \Duo\Policy
+    && $secondLoad instanceof \Duo\Policy
     && $firstLoad->adapter_sources() !== $secondLoad->adapter_sources()
     && array_column($firstLoad->manifests, 'name') === ['core']
     && array_column($secondLoad->manifests, 'name') === ['classic-editor'],
@@ -2039,7 +2146,7 @@ check(
 // stale bytes. What must not happen is the SURVEY finishing as though it had
 // read one library, and settle() is where that is refused.
 $settleDir = library_variant(function (string $dir): void {});
-putenv("DUO_MANIFESTS_DIR=$settleDir");
+select_test_library($settleDir);
 $settleLibrary = AdapterLibrary::fromLegacyFlatDirectory($settleDir);
 $settleHandle = \Duo\AdapterScan::open_library($settleLibrary, null);
 $settleHandle->load('core');
@@ -2069,7 +2176,7 @@ check(
     . '(shape survived: ' . var_export($survivedShape, true) . ', settle refused: '
     . var_export($settleRefusal?->reasonCode, true) . ')'
 );
-putenv("DUO_MANIFESTS_DIR=$shippedDir");
+select_test_library($shippedDir);
 
 echo $failures === 0 ? "\nALL PASSED\n" : "\nFAIL: $failures check(s) failed\n";
 exit($failures === 0 ? 0 : 1);
