@@ -724,10 +724,12 @@ cmd_up() {
     echo "  wp2: $url2 (headless — no host port published)"
   fi
   echo
+  local cli_recipe_env="DUO_PAIR=${name} DUO_PORT1=${port1} DUO_PORT2=${port2} DUO_CLI_IMAGE=${DUO_CLI_IMAGE:-wordpress:cli-php8.3}"
+  [ -z "$codebind" ] || cli_recipe_env="${cli_recipe_env} DUO_CODEBIND_PLUGIN=${codebind}"
   echo "  wp-cli invocation pattern for this pair (run from sandbox/):"
-  echo "    docker compose -p duo-${name} -f pair.yml $( [ "$journal" = 1 ] && printf -- '-f pair.journal.yml ' )$( [ -n "$codebind" ] && printf -- '-f pair.codebind.yml ' )$( [ "$artifacts" = 1 ] && printf -- '-f pair.artifacts.yml ' )$( [ "$wordpress_offline" = 1 ] && printf -- '-f pair.wordpress-offline.yml ' )run --rm cli1 wp <command...>"
-  echo "    docker compose -p duo-${name} -f pair.yml $( [ "$journal" = 1 ] && printf -- '-f pair.journal.yml ' )$( [ -n "$codebind" ] && printf -- '-f pair.codebind.yml ' )$( [ "$artifacts" = 1 ] && printf -- '-f pair.artifacts.yml ' )$( [ "$wordpress_offline" = 1 ] && printf -- '-f pair.wordpress-offline.yml ' )run --rm cli2 wp <command...>"
-  echo "  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=${name} must stay exported, or pass -p duo-${name} and set WORDPRESS_DB_NAME/etc. yourself)"
+  echo "    ${cli_recipe_env} docker compose -p duo-${name} -f pair.yml $( [ "$journal" = 1 ] && printf -- '-f pair.journal.yml ' )$( [ -n "$codebind" ] && printf -- '-f pair.codebind.yml ' )$( [ "$artifacts" = 1 ] && printf -- '-f pair.artifacts.yml ' )$( [ "$wordpress_offline" = 1 ] && printf -- '-f pair.wordpress-offline.yml ' )run --rm cli1 wp <command...>"
+  echo "    ${cli_recipe_env} docker compose -p duo-${name} -f pair.yml $( [ "$journal" = 1 ] && printf -- '-f pair.journal.yml ' )$( [ -n "$codebind" ] && printf -- '-f pair.codebind.yml ' )$( [ "$artifacts" = 1 ] && printf -- '-f pair.artifacts.yml ' )$( [ "$wordpress_offline" = 1 ] && printf -- '-f pair.wordpress-offline.yml ' )run --rm cli2 wp <command...>"
+  echo "  (the printed DUO_PAIR/port/image/codebind values are part of the recipe: compose project -p alone does not populate pair.yml's variable interpolation)"
 }
 
 cmd_reset() {

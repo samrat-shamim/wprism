@@ -165,19 +165,14 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
   the library sits one behind `DUO_SPEC_VERSION` until an adapter has an actual
   reason to move. A **new out-of-tree manifest** should declare `3` if and only
   if it wants a post-v3 primitive (`engine_features` and the sections it
-  claims — [see below](#the-grammar-document)), and that "if and only if"
-  carries a real cost, not just a version bump: **declaring the top-level
-  `engine_features` key at all makes the manifest structurally uncertifiable**
-  through `duo adapter certify` / `sign-site` today — the signer refuses that
-  key by name before it ever reaches the section a feature admits
-  (`spec/repo-format.md` § v3.3, § v3.14; the mechanics are in [The grammar
-  document](#the-grammar-document) below). That is true even for a feature
-  that only fixes a known fidelity bug, like the shipped `attr-id-codecs/v1`
-  block-attribute codec: the manifest still loads, pins, plans and applies —
-  it simply never reads `Site-certified`. Decide fidelity-now-uncertified
-  versus certified-now-with-the-known-bug **before** you draft, because
-  `duo adapter certify` will not tell you until after you have already chosen
-  `spec_version: 3` and written the section.
+  claims — [see below](#the-grammar-document)). Every feature is load-bearing:
+  removing it must make the section it admits refuse. Site certification uses
+  the same per-feature surface roster, so a recognised feature and its reviewed
+  section can be signed; an unknown feature, an unrecognised top-level key, or
+  a section no declared feature admits refuses by name. Run
+  `duo adapter inspect` before signing and `duo adapter certify … --pin`
+  immediately after the final byte edit rather than treating version 3 as an
+  automatically stronger manifest.
 - `plugin` is the plugin basename; `version_range` is `{min, max}` with min
   inclusive and max exclusive, checked with two `version_compare()` calls. One
   plugin per manifest. Declaring a plugin without a well-formed range is
@@ -863,6 +858,14 @@ plugin faithfully.
 7. Mutate the proposed manifest in tests: remove a ref, broaden a namespace,
    switch a runtime field to authored, and create a conflicting second owner.
    Each false claim must fail for the reason the production path would fail.
+8. Co-load the adapter with common adjacent manifests and exercise the plugins
+   together, not merely as isolated installs. Enable optional modules through
+   the plugin's native lifecycle before probing their tables: writing an option
+   can select a module without running its installer. Include a hostile
+   schema-driven field whose physical key matches another adapter's static
+   declaration; capture must refuse multiple owners independent of pin order.
+   Preserve target-only queue jobs and plugin state through apply, then prove a
+   repeat plan is unchanged and inspect real front-end output.
 
 ### Getting the harness those tests need
 
@@ -1054,9 +1057,20 @@ what `duo coverage` saw on the live site:
 
 ```sh
 duo coverage prod --format=json > coverage.json
+mkdir -p <site-repo>/adapters
 duo adapter-draft <site-repo> --name=wpforms \
+  --match='^_?wpforms_' \
   --seed=coverage.json --out=<site-repo>/adapters/wpforms.json
 ```
+
+`adapter-draft` will not create the output directory: create `adapters/`
+before the first `--out` run. Scope a coverage seed with `--match` whenever
+you are authoring one plugin. Coverage intentionally reports every invisible
+option family and undeclared table on the site; without that filter, unrelated
+WordPress and plugin surfaces are valid candidates and can bury the adapter's
+own review questions in a very large draft. A later scoped `--force` drops
+unchanged, unratified machine proposals that no longer match while preserving
+ratified or edited candidates.
 
 Why `--seed` earns its place: the offline proposers read `state/**`, so they
 can only see surfaces Duo **already captures** — and the surfaces you are
@@ -1135,6 +1149,16 @@ vocabulary, so it cannot classify anything on your behalf. Read the rows, then
 ratify by hand. The document never carries a row value: enum/set member lists
 are reduced to their base type word for the same reason.
 
+For a natural key, uniqueness is a **source and hostile-target invariant**, not
+one source-side probe result. Populate the candidate key, probe it, then create
+an independently managed target row with the same key. Plan must either offer
+one explicit table adoption or refuse multiple matching local rows; capture,
+plan and apply all reject two live rows with the same full canonical identity
+tuple. Do this even when the table has a primary key: the primary key is local
+storage identity, not portable identity. An identity column also cannot carry a
+column codec — rewriting it during capture/materialization would make portable
+UUID derivation and target lookup disagree.
+
 Everything under `_draft` is inert: `Policy::load()` never applies a proposal,
 and the trigger keys are renamed so no validator mis-collects one. Ratify by
 hand, delete the rest, then `duo adapter inspect <name> --repo=<site-repo>`.
@@ -1148,10 +1172,17 @@ unsupported counts on every run.
 file holds your ratifications; re-running with `--force` is safe, since human
 edits in the prior draft are carried forward.
 
-### 5. Pin it
+### 5. Certify and pin the exact bytes
 
 ```sh
+# Shipped adapter:
 wp duo manifest-pin --name=contact-form-7
+
+# Site adapter, after keygen (sign, verify and pin atomically):
+duo adapter certify <site-repo> --name=<name> \
+  --secret-key-file=<organization-key> \
+  --reason='<what was reviewed>' --pin
+duo adapter inspect <name> --repo=<site-repo>
 ```
 
 This prints the exact canonical `{"digest": …, "name": …, "source": …}` object
@@ -1172,6 +1203,14 @@ loads the repository's policy and site adapter source but overrides only the
 selected manifest pin, so a stale digest for that adapter cannot prevent you
 from computing its reviewed replacement. Unrelated repository errors still
 refuse. Updating a pin is an explicit review act; it is never automatic.
+
+For a site adapter, prefer `certify … --pin` over copying a separately emitted
+digest: it signs the canonical adapter, verifies the certificate it wrote and
+updates the exact site-source pin in one operation. The final `inspect` must
+report the site-rooted certificate as pinned/certified. If any adapter byte is
+edited afterwards, rerun the same command; retaining an old signature or
+relaxing the digest would turn approval of one program into approval of a
+different one.
 
 ### 6. Exercise it
 

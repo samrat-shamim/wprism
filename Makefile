@@ -2195,6 +2195,12 @@ regress-body-ref-grammar:
 regress-wpforms-lite-adapter:
 	php sandbox/tests/offline/adapter/regress_wpforms_lite_adapter.php
 
+# Rank Math SEO 1.0.277 authored through the decentralized site-adapter path:
+# the exact fixture boundary, redirection natural identity, unsupported custom
+# schema, and recorded single-adapter plus multi-plugin outcome evidence.
+regress-rank-math-adapter:
+	php sandbox/tests/offline/adapter/regress_rank_math_adapter.php
+
 # The `taxonomy_delete_scope_exercise` primitive, run rather than asserted: the
 # adversarial matrix tools/engine-gaps.json demands before a post-type adapter
 # carrying an authored taxonomy may claim a deletion selector. Four cases over

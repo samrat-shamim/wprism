@@ -1,0 +1,441 @@
+{
+    "declaration_evidence": {
+        "options.rank-math-options-general": {
+            "evidence": [
+                {
+                    "locator": "Rank Math setup wizard and wp option get rank-math-options-general --format=json",
+                    "observation": "The real wizard persisted the 47-key general settings object, including an environment URL at attachment_redirect_default and Unicode/delimiter-capable presentation strings; plain_data is required to tokenize every nested string leaf without treating module settings as secrets or ids.",
+                    "source": "dogfood pair rmauthor, 2026-08-27, Rank Math SEO 1.0.277"
+                }
+            ]
+        },
+        "options.rank-math-options-titles": {
+            "evidence": [
+                {
+                    "locator": "Rank Math setup wizard plus includes/admin/wizard/class-your-site.php:116-127",
+                    "observation": "The native wizard writes knowledgegraph_logo_id through absint beside its URL, while the same titles object owns homepage_facebook_image_id; both are WordPress attachment references and every other string leaf needs ordinary URL tokenization.",
+                    "source": "dogfood pair rmauthor and exact 1.0.277 source"
+                }
+            ]
+        },
+        "options.rank_math_registration_skip": {
+            "evidence": [
+                {
+                    "locator": "Rank Math registration skip UI, rank-math.php:291-299, and includes/admin/class-registration.php:25-45",
+                    "observation": "The target exercise proved this is executable setup state, not an optional environment hint: without the source site's skip choice, Registration::$invalid makes Rank Math return before constructing its module manager, so redirections and every other selected module remain inert even though rank_math_modules was applied exactly.",
+                    "source": "dogfood pair rmauthor, 2026-08-27, Rank Math SEO 1.0.277"
+                }
+            ]
+        },
+        "post_meta.rank_math_primary_*": {
+            "evidence": [
+                {
+                    "locator": "POST /wp-json/rankmath/v1/updateMeta followed by raw wp_postmeta read",
+                    "observation": "rank_math_primary_category stored the source category's local term id as the digit string '2'. A post with id 2 existed simultaneously, which exposed and now regresses the pending-queue ownership collision; the declaration is term + cast:string.",
+                    "source": "dogfood pair rmauthor, 2026-08-27"
+                }
+            ]
+        },
+        "tables.rank_math_redirections": {
+            "evidence": [
+                {
+                    "locator": "POST /wp-json/rankmath/v1/updateRedirection, SHOW COLUMNS, and two real HTTP requests",
+                    "observation": "The native endpoint created one 302 rule with serialized sources and an authored destination; HTTP returned the exact Location twice while hits/last_accessed changed. Those counters are runtime, the rule fields are authored, and rank_math_redirections_cache is a rebuildable lookup invalidated by redirection_id.",
+                    "source": "dogfood pair rmauthor, 2026-08-27, Rank Math SEO 1.0.277"
+                }
+            ]
+        }
+    },
+    "engine_features": [
+        "spec-window/v1",
+        "structured-evidence/v1"
+    ],
+    "name": "rank-math",
+    "notes": [
+        "WHAT THIS ADAPTER IS. A decentralized site-adapter fixture authored through a real Rank Math SEO 1.0.277 installation: setup wizard, plugin REST writers, HTTP render/redirect traffic, observer, coverage, pending, probe, draft, validate, keygen/certify, pin, capture, deploy, apply and recapture. It is intentionally not a shipped product claim: manifests/ and manifests/dispositions/ contain no rank-math entry, docs/capabilities.md says nothing about Rank Math, and no fleet-visible adapter digest moves.",
+        "THE SUPPORTED PROFILE. Core per-post/per-term SEO metadata, general and titles settings, module selection, the disconnected site's explicit registration-skip choice, and authored redirection rules are portable. A connected Rank Math account remains unsupported because this adapter declares no registration credential surface. Sitemap exclusions are not portable: exclude_posts/exclude_terms are comma-separated local ids with no declarative list-of-ids codec, so the whole sitemap option remains target-owned. Instant Indexing remains target-owned because the same object carries the generated IndexNow API key. A populated Facebook app secret in the titles object trips Duo's deep secret guard and refuses capture; this fixture never authorizes a credential to enter state.",
+        "CUSTOM SCHEMA IS DELIBERATELY UNSUPPORTED. rank_math_schema_<type> values are portable structured data, but every rank_math_shortcode_schema_<name> sibling stores the local wp_postmeta.meta_id of its schema row. Duo has no postmeta-row identity keyspace and a declarative site adapter cannot ship a trusted provider that rebuilds those shortcuts. Both families therefore remain undeclared: a site using custom schema refuses capture instead of carrying a source-local meta_id or silently losing shortcode behavior. Default schema selected through rank-math-options-titles remains supported because it creates no shortcut row.",
+        "DERIVED LINK DATA. rank_math_internal_links/rank_math_internal_meta and rank_math_internal_links_processed are plugin-owned projections. Rank Math 1.0.277 schedules rank_math/links/internal_links and its public RankMath\\Links\\Links::process_post_links() writes both tables from post content. They are excluded here as derived rather than captured. This fixture proves clean-target convergence; stale production projections still need a verified site-provider postcondition before this adapter can graduate to the shipped library.",
+        "ACTION SCHEDULER. Rank Math bundles Action Scheduler and created the four actionscheduler_* tables during this exercise. Their declarations are byte-identical to WooCommerce's runtime declarations so co-installation has no competing owner; queue actions, claims, groups and logs remain target-local execution state.",
+        "REAL-WORLD AUTHORING FRICTION. The first unscoped draft was 223185 bytes. Re-running with --match='^rank[-_]math' still produced about 220 KiB because --force conservatively retained 78 stale machine-owned proposals. AdapterDraft now drops only a stale proposal whose generated_hash still matches its untouched semantic fragment; edited, ratified and legacy fragments remain preserved. The same scoped rerun produced 21736 bytes and only the 15 Rank Math option/table proposals.",
+        "REAL-WORLD OWNERSHIP FRICTION. pending originally described rank_math_primary_category=2 as the post/page whose local id happened to be 2, even though the key and the native API made it a category term. Pending now gives term/category/tag-shaped keys a term-first lookup and retains the old post-first fallback for ambiguous keys. The exact post/term id collision is permanent offline regression coverage.",
+        "REAL-WORLD PAIR FRICTION. pair.sh printed a docker compose recipe with -p duo-rmauthor but omitted DUO_PAIR/DUO_PORT1/DUO_PORT2/DUO_CLI_IMAGE. Compose project naming does not populate ${DUO_PAIR}; copy-paste silently selected wp_1 and failed with Error establishing a database connection. The printed recipe now retains the complete selected environment, and its unit suite pins the replayable command.",
+        "REDIRECTION IDENTITY. Exact 1.0.277 source sanitizes every rule into a domain-free sources array, serializes that array through one plugin writer, and resolves duplicate matching rules by mutable updated order. Treating duplicates as distinct portable objects would preserve an ambiguous winner, so sources is the enforced natural key: a duplicate refuses capture instead of changing behavior by row order. The opaque serialized bytes need no token rewrite because Rank Math has already stripped the home domain; url_to receives ordinary environment tokenization; hit and timestamp columns never enter canonical state; cache rows are invalidated by the applied redirection id. This replaced mapped identity after a populated independent target correctly refused for lack of a cloned Duo identity sidecar.",
+        "VERSION WINDOW. Only official 1.0.277 was exercised end to end and is admitted by [1.0.277, 1.0.278). Official 1.0.276 was separately fetched and hashed as the adjacent below-range control. No compatibility is inferred from neighboring version numbers; sandbox/fixtures/rank-math/rank-math.releases.json records the exact artifact bytes."
+    ],
+    "option_autoload": "preserve",
+    "option_namespaces": [
+        {
+            "match": "^(?:rank-math-options-|rank_math_)"
+        }
+    ],
+    "options": {
+        "rank-math-options-general": {
+            "class": "authored",
+            "plain_data": true
+        },
+        "rank-math-options-instant-indexing": {
+            "class": "env",
+            "required": false
+        },
+        "rank-math-options-sitemap": {
+            "class": "env",
+            "required": false
+        },
+        "rank-math-options-titles": {
+            "class": "authored",
+            "json_refs": [
+                {
+                    "kind": "post",
+                    "path": "$.homepage_facebook_image_id"
+                },
+                {
+                    "kind": "post",
+                    "path": "$.knowledgegraph_logo_id"
+                }
+            ]
+        },
+        "rank_math_db_version": {
+            "class": "runtime"
+        },
+        "rank_math_flush_rewrite": {
+            "class": "runtime"
+        },
+        "rank_math_install_date": {
+            "class": "runtime"
+        },
+        "rank_math_is_configured": {
+            "class": "authored"
+        },
+        "rank_math_known_post_types": {
+            "class": "derived"
+        },
+        "rank_math_modules": {
+            "class": "authored"
+        },
+        "rank_math_notifications": {
+            "class": "runtime"
+        },
+        "rank_math_pro_notice_date": {
+            "class": "runtime"
+        },
+        "rank_math_registration_skip": {
+            "class": "authored"
+        },
+        "rank_math_review_notice_date": {
+            "class": "runtime"
+        },
+        "rank_math_review_posts_converted": {
+            "class": "runtime"
+        },
+        "rank_math_version": {
+            "class": "runtime"
+        }
+    },
+    "plugin": "seo-by-rank-math/rank-math.php",
+    "post_meta": {
+        "rank_math_advanced_robots": {
+            "class": "authored"
+        },
+        "rank_math_breadcrumb_title": {
+            "class": "authored"
+        },
+        "rank_math_canonical_url": {
+            "class": "authored"
+        },
+        "rank_math_contentai_score": {
+            "class": "derived"
+        },
+        "rank_math_description": {
+            "class": "authored"
+        },
+        "rank_math_description_editor": {
+            "class": "runtime"
+        },
+        "rank_math_facebook_author": {
+            "class": "authored"
+        },
+        "rank_math_facebook_description": {
+            "class": "authored"
+        },
+        "rank_math_facebook_enable_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_facebook_image": {
+            "class": "authored"
+        },
+        "rank_math_facebook_image_id": {
+            "cast": "string",
+            "class": "authored",
+            "ref": "post"
+        },
+        "rank_math_facebook_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_facebook_title": {
+            "class": "authored"
+        },
+        "rank_math_focus_keyword": {
+            "class": "authored"
+        },
+        "rank_math_internal_links_processed": {
+            "class": "derived"
+        },
+        "rank_math_pillar_content": {
+            "class": "authored"
+        },
+        "rank_math_rich_snippet": {
+            "class": "authored"
+        },
+        "rank_math_robots": {
+            "class": "authored"
+        },
+        "rank_math_seo_score": {
+            "class": "derived"
+        },
+        "rank_math_title": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_country": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_description": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_googleplay_id": {
+            "class": "authored",
+            "lint_ok": true
+        },
+        "rank_math_twitter_app_googleplay_name": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_googleplay_url": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_ipad_id": {
+            "class": "authored",
+            "lint_ok": true
+        },
+        "rank_math_twitter_app_ipad_name": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_ipad_url": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_iphone_id": {
+            "class": "authored",
+            "lint_ok": true
+        },
+        "rank_math_twitter_app_iphone_name": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_iphone_url": {
+            "class": "authored"
+        },
+        "rank_math_twitter_card_type": {
+            "class": "authored"
+        },
+        "rank_math_twitter_description": {
+            "class": "authored"
+        },
+        "rank_math_twitter_enable_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_twitter_image": {
+            "class": "authored"
+        },
+        "rank_math_twitter_image_id": {
+            "cast": "string",
+            "class": "authored",
+            "ref": "post"
+        },
+        "rank_math_twitter_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_twitter_player_size": {
+            "class": "authored",
+            "lint_ok": true
+        },
+        "rank_math_twitter_player_stream": {
+            "class": "authored"
+        },
+        "rank_math_twitter_player_stream_ctype": {
+            "class": "authored"
+        },
+        "rank_math_twitter_player_url": {
+            "class": "authored"
+        },
+        "rank_math_twitter_title": {
+            "class": "authored"
+        },
+        "rank_math_twitter_use_facebook": {
+            "class": "authored"
+        }
+    },
+    "post_meta_patterns": [
+        {
+            "cast": "string",
+            "class": "authored",
+            "match": "^rank_math_primary_[a-z0-9_-]+\\z",
+            "ref": "term"
+        }
+    ],
+    "spec_version": 3,
+    "tables": {
+        "actionscheduler_actions": {
+            "class": "runtime"
+        },
+        "actionscheduler_claims": {
+            "class": "runtime"
+        },
+        "actionscheduler_groups": {
+            "class": "runtime"
+        },
+        "actionscheduler_logs": {
+            "class": "runtime"
+        },
+        "rank_math_404_logs": {
+            "class": "runtime"
+        },
+        "rank_math_analytics_gsc": {
+            "class": "runtime"
+        },
+        "rank_math_analytics_inspections": {
+            "class": "runtime"
+        },
+        "rank_math_analytics_objects": {
+            "class": "runtime"
+        },
+        "rank_math_internal_links": {
+            "class": "derived"
+        },
+        "rank_math_internal_meta": {
+            "class": "derived"
+        },
+        "rank_math_redirections": {
+            "class": "authored_snapshot",
+            "columns": {
+                "created": {
+                    "class": "runtime"
+                },
+                "header_code": {
+                    "class": "authored",
+                    "lint_ok": true
+                },
+                "hits": {
+                    "class": "runtime"
+                },
+                "last_accessed": {
+                    "class": "runtime"
+                },
+                "sources": {
+                    "class": "authored"
+                },
+                "status": {
+                    "class": "authored"
+                },
+                "updated": {
+                    "class": "runtime"
+                },
+                "url_to": {
+                    "class": "authored"
+                }
+            },
+            "id_kind": "rank_math_redirection",
+            "identity": {
+                "column": "sources",
+                "mode": "natural_key"
+            },
+            "invalidate": [
+                {
+                    "column": "redirection_id",
+                    "table": "rank_math_redirections_cache"
+                }
+            ],
+            "pk": "id",
+            "refs": []
+        },
+        "rank_math_redirections_cache": {
+            "class": "derived"
+        }
+    },
+    "term_meta": {
+        "rank_math_advanced_robots": {
+            "class": "authored"
+        },
+        "rank_math_breadcrumb_title": {
+            "class": "authored"
+        },
+        "rank_math_canonical_url": {
+            "class": "authored"
+        },
+        "rank_math_description": {
+            "class": "authored"
+        },
+        "rank_math_facebook_author": {
+            "class": "authored"
+        },
+        "rank_math_facebook_description": {
+            "class": "authored"
+        },
+        "rank_math_facebook_enable_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_facebook_image": {
+            "class": "authored"
+        },
+        "rank_math_facebook_image_id": {
+            "cast": "string",
+            "class": "authored",
+            "ref": "post"
+        },
+        "rank_math_facebook_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_facebook_title": {
+            "class": "authored"
+        },
+        "rank_math_focus_keyword": {
+            "class": "authored"
+        },
+        "rank_math_pillar_content": {
+            "class": "authored"
+        },
+        "rank_math_robots": {
+            "class": "authored"
+        },
+        "rank_math_title": {
+            "class": "authored"
+        },
+        "rank_math_twitter_card_type": {
+            "class": "authored"
+        },
+        "rank_math_twitter_description": {
+            "class": "authored"
+        },
+        "rank_math_twitter_enable_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_twitter_image": {
+            "class": "authored"
+        },
+        "rank_math_twitter_image_id": {
+            "cast": "string",
+            "class": "authored",
+            "ref": "post"
+        },
+        "rank_math_twitter_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_twitter_title": {
+            "class": "authored"
+        },
+        "rank_math_twitter_use_facebook": {
+            "class": "authored"
+        }
+    },
+    "version_range": {
+        "max": "1.0.278",
+        "min": "1.0.277"
+    }
+}

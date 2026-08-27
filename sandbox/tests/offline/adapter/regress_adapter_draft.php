@@ -1106,6 +1106,19 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
     $out = "$t/repo/adapters/wpforms.json";
     $first = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out], $lib);
     check($first['exit'] === 0 && is_file($out), '--out writes the draft (exit ' . $first['exit'] . ')');
+    $narrowed = duo([
+        'adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed,
+        '--match=^_?wpforms_', '--out=' . $out, '--force',
+    ], $lib);
+    $narrowedDraft = json_decode((string) file_get_contents($out), true);
+    check(
+        $narrowed['exit'] === 0
+            && $targets($narrowedDraft, 'option_namespaces') === [
+                'option_namespaces[wpforms]', 'option_namespaces[wpforms_transient]',
+            ]
+            && $targets($narrowedDraft, 'tables') === ['tables.wpforms_tasks_meta'],
+        'a scoped --force drops stale, unchanged, unratified machine proposals from the prior unscoped draft'
+    );
     $again = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out], $lib);
     check(
         $again['exit'] === 2 && str_contains($again['stderr'], '[draft_output_exists]')

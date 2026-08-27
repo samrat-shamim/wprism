@@ -52,14 +52,12 @@
  *
  * THE ESTATE
  * ----------
- * 16 shipped manifests + 7 constructed fixtures + the 3 on-disk synthetic
+ * 16 shipped manifests + 7 constructed fixtures + the 5 on-disk synthetic
  * manifests, the last DISCOVERED by shape (string `name`, int `spec_version`,
  * a `plugin` or `theme` subject) under `sandbox/`, minus gitignored scratch.
- * Discovery rather than a list because `sandbox/fixtures/acme-catalog/` is the
- * tree's only out-of-tree adapter and out-of-tree adapters are the population
- * the flag day actually hits: a fourth fixture must be measured here, not
- * silently missed, so the estate assertion names all three and fails on a new
- * one.
+ * Discovery rather than a hand-maintained input because out-of-tree adapters
+ * are the population the flag day actually hits: the estate assertion names
+ * every discovered path and fails when a new fixture is not reviewed here.
  *
  * THE MEASUREMENT THIS SUITE OWES ITS CALLER
  * ------------------------------------------
@@ -326,8 +324,10 @@ $fixtures = [
 // long time the only one in the tree. It is no longer alone:
 // `sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json` is the tree's
 // first out-of-tree adapter authored AT `spec_version` 3 and through § v3.2's
-// feature channel, so the two together now straddle the flag day — one from
-// each era, both discovered by the same walk. DISCOVERED, not listed, by the
+// feature channel; `sandbox/fixtures/rank-math/adapters/rank-math.json` is the
+// second, authored by a separate real user/agent exercise. Together with the
+// v2 acme fixture they straddle the flag day, all discovered by the same walk.
+// DISCOVERED, not selected, by the
 // shape that makes a JSON document an adapter manifest — a string `name`, an
 // int `spec_version`, and a `plugin` or `theme` subject — so a fixture added
 // later is measured instead of quietly missed. The two gitignored scratch
@@ -367,12 +367,13 @@ ksort($discovered, SORT_STRING);
 duo_check_same(
     [
         'sandbox/fixtures/acme-catalog/duo-adapter.json',
+        'sandbox/fixtures/rank-math/adapters/rank-math.json',
         'sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json',
         'sandbox/tests/fixtures/duo-sidecar-refs/manifest.json',
         'sandbox/tests/fixtures/duo-taxonomy-keyspace/manifest.json',
     ],
     array_keys($discovered),
-    'the on-disk synthetic manifest estate is four documents; a fifth must be considered by this dry run, not silently added'
+    'the on-disk synthetic manifest estate is five documents; a sixth must be considered by this dry run, not silently added'
 );
 
 $estate = [];

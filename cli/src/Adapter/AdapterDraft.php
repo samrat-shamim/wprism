@@ -2356,11 +2356,26 @@ final class AdapterDraft {
             $meta[$target] = ['generated_hash' => $freshHash, 'ratified' => false, 'edited' => false];
         }
 
-        // A prior candidate with no matching structural target is ambiguous: it
-        // might be a removed source, or it might be the legacy ordinal identity.
-        // In either case retaining it inert is the only no-data-loss outcome.
+        // A prior candidate with no matching structural target is ambiguous only
+        // when it carries human intent. An unchanged, unratified candidate with a
+        // trustworthy generated_hash is machine-owned output; retaining it after
+        // --match narrows (or after the live surface disappears) makes a focused
+        // regeneration accumulate stale proposals forever. The Rank Math authoring
+        // exercise measured the consequence: an initial unscoped 220 KiB draft
+        // kept all 78 unrelated core-option prefixes after a scoped --force run.
+        // Drop that exact machine-owned shape. Ratified, edited, and legacy
+        // untracked candidates still take the conservative preservation path.
         foreach ($priorIndex as $target => $priorCandidate) {
             if (isset($out[$target])) {
+                continue;
+            }
+            $priorEntry = $priorMeta[$target] ?? null;
+            if (is_array($priorEntry)
+                && ($priorEntry['ratified'] ?? false) !== true
+                && ($priorEntry['legacy_untracked'] ?? false) !== true
+                && is_string($priorEntry['generated_hash'] ?? null)
+                && $priorEntry['generated_hash'] !== ''
+                && !self::prior_candidate_edited($priorCandidate, $priorEntry)) {
                 continue;
             }
             $legacy = preg_match('/^unsupported\.[0-9]+$/D', $target) === 1;
@@ -2371,7 +2386,7 @@ final class AdapterDraft {
                     . 'rather than silently dropping possible hand-authored intent';
             $preserved = self::add_draft_question($priorCandidate, $question);
             $out[$target] = $preserved;
-            $meta[$target] = $priorMeta[$target] ?? [
+            $meta[$target] = $priorEntry ?? [
                 'generated_hash' => self::generated_hash($priorCandidate['candidate'] ?? null),
                 'ratified' => false,
                 'edited' => true,
