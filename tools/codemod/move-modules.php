@@ -1425,43 +1425,6 @@ foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($repo . '/
 PHP;
 
 /**
- * `regress_woocommerce_contract.php` proves DUO-3341's deletion: no
- * WooCommerce-named production source under agent/src. Both halves — the named
- * class and the prefix scan — read a FLAT directory listing, which after the
- * move enumerates module directory names and passes for the wrong reason.
- * The assertions and their messages are preserved; only the enumeration
- * becomes a whole-tree walk of .php files.
- */
-const MM_WOO_SCAN_OLD = <<<'PHP'
-woo_ok(!is_file($root . '/agent/src/WooCommerceContract.php'), 'the whole-catalog Woo projection class is deleted from engine core (DUO-3341)');
-$engineSrcEntries = scandir($root . '/agent/src');
-woo_ok(is_array($engineSrcEntries) && count($engineSrcEntries) > 2, 'agent/src enumerates non-empty for the WooCommerce-named source scan');
-$wooNamedEngineSources = array_values(array_filter(
-    (array) $engineSrcEntries,
-    static fn(string $name): bool => stripos($name, 'woocommerce') !== false || stripos($name, 'woo') === 0
-));
-PHP;
-
-const MM_WOO_SCAN_NEW = <<<'PHP'
-// Recursive since the module move (ROUND 3 TRAIN 1): agent/src is a tree of
-// module directories, so a flat scandir() would enumerate module names and let
-// both checks below pass for the wrong reason. The deleted class is now looked
-// for ANYWHERE under agent/src, which is the claim DUO-3341 actually makes.
-$engineSrcEntries = [];
-foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/agent/src', FilesystemIterator::SKIP_DOTS)) as $engineSrcEntry) {
-    if ($engineSrcEntry instanceof SplFileInfo && $engineSrcEntry->isFile() && $engineSrcEntry->getExtension() === 'php') {
-        $engineSrcEntries[] = $engineSrcEntry->getFilename();
-    }
-}
-woo_ok(!in_array('WooCommerceContract.php', $engineSrcEntries, true), 'the whole-catalog Woo projection class is deleted from engine core (DUO-3341)');
-woo_ok(count($engineSrcEntries) > 2, 'agent/src enumerates non-empty for the WooCommerce-named source scan');
-$wooNamedEngineSources = array_values(array_filter(
-    $engineSrcEntries,
-    static fn(string $name): bool => stripos($name, 'woocommerce') !== false || stripos($name, 'woo') === 0
-));
-PHP;
-
-/**
  * `af_dir_signal_excluded()` rejects a candidate that IS an excluded directory
  * or an ANCESTOR of one. Before the move that was exhaustive, because
  * agent/src had no subdirectories. It does now, so a token naming
