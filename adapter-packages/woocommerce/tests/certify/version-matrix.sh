@@ -12,13 +12,17 @@ seed_woocommerce_content() {
   }
   local CONF_REPO1="siterepo/${PAIR}1"
   local COMPOSE="$PAIR_COMPOSE_STRING"
-  . conformance/seeds/woocommerce.sh
+  local package_tests
+  package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+  . "$package_tests/conformance/seed.sh"
   unset -f wp_conf1 wp_env
 }
 
 postdeploy_woocommerce_content() {
   wp_conf2() { wp2 "$@"; }
-  . conformance/postdeploy/woocommerce.sh
+  local package_tests
+  package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+  . "$package_tests/conformance/postdeploy.sh"
   unset -f wp_conf2
   woocommerce_preapply_authority_assertion "$WOO_VERSION" 'exact boundary'
 }
@@ -26,7 +30,9 @@ postdeploy_woocommerce_content() {
 postapply_woocommerce_content() {
   wp_conf2() { wp2 "$@"; }
   local CONF_REPO2="siterepo/${PAIR}2"
-  . conformance/postapply/woocommerce.sh
+  local package_tests
+  package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+  . "$package_tests/conformance/postapply.sh"
   unset -f wp_conf2
 }
 
@@ -39,7 +45,9 @@ check_woocommerce_content() {
   local WOOCOMMERCE_BOUNDARY_ONLY=1
   local WOOCOMMERCE_EXPECTED_VERSION="$WOO_VERSION"
   local APPLY_JSON="${WOOCOMMERCE_BOUNDARY_PROVIDER_RECEIPT:-}"
-  . conformance/checks/woocommerce.sh
+  local package_tests
+  package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+  . "$package_tests/conformance/check.sh"
 }
 
 woocommerce_boundary_observation() {
@@ -322,7 +330,9 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   local source_artifact="$1" target_artifact="$2" expected_sha snapshot plan_out plan_json plan_rc
   local deploy_out deploy_rc apply_out apply_rc revision settled source_price target_price
   local downgrade_compare_out downgrade_compare_rc
+  local package_tests
   local mutation_note='WooCommerce 11.0.1 to 11.0.0 downgrade 東京 🚀'
+  package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
   say 'in-range downgrade: populated woocommerce 11.0.1 -> exact 11.0.0 refuses until explicit re-baseline'
   # Installation has its own activation/migration effects, so establish the
@@ -426,7 +436,7 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
     || fail "WooCommerce exact 11.0.0 plan did not settle after downgrade mutation: $settled"
   wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-downgrade-final >/dev/null
   downgrade_compare_rc=0
-  downgrade_compare_out=$(php tests/support/woocommerce-downgrade-recapture.php \
+  downgrade_compare_out=$(php "$package_tests/../fixtures/woocommerce-downgrade-recapture.php" \
     "siterepo/${PAIR}1/state" \
     "siterepo/${PAIR}2/.tmp-woo-downgrade-final" 2>&1) || downgrade_compare_rc=$?
   rm -rf "siterepo/${PAIR}2/.tmp-woo-downgrade-final"

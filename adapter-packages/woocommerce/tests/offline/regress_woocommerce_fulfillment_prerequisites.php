@@ -23,7 +23,7 @@ namespace Automattic\WooCommerce\Internal\Utilities {
 }
 
 namespace {
-    require_once __DIR__ . '/../../lib/agent_version.php';
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/agent_version.php';
     duo_test_define_agent_versions();
     define('ABSPATH', __DIR__ . '/../../../../sandbox/tmp/fulfillment-wordpress/');
     define('WP_PLUGIN_DIR', ABSPATH . 'wp-content/plugins');
@@ -31,9 +31,9 @@ namespace {
     $root = dirname(__DIR__, 4);
     putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 
-    require_once __DIR__ . '/../../lib/check.php';
-    require_once __DIR__ . '/../../lib/wp_stubs.php';
-    require_once __DIR__ . '/../../lib/FakeWpdb.php';
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/wp_stubs.php';
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/FakeWpdb.php';
     require_once $root . '/agent/src/Kernel/Canon.php';
     require_once $root . '/agent/src/Kernel/OptionState.php';
     require_once $root . '/agent/src/Policy/Policy.php';

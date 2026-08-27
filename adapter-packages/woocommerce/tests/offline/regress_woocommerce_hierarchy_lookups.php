@@ -2,16 +2,16 @@
 /** Offline adversarial product-path regression for Woo hierarchy repair. */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../lib/agent_version.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/agent_version.php';
 duo_test_define_agent_versions();
 $root = dirname(__DIR__, 4);
 putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 
-require_once __DIR__ . '/../../lib/check.php';
-require_once __DIR__ . '/../../lib/wp_stubs.php';
-require_once __DIR__ . '/../../lib/FakeWpdb.php';
-require_once __DIR__ . '/../../support/woocommerce_mixed_option_hooks.php';
-require_once __DIR__ . '/../../support/wp_cli_child_process_fake.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/wp_stubs.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/FakeWpdb.php';
+require_once dirname(__DIR__, 2) . '/fixtures/woocommerce_mixed_option_hooks.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/support/wp_cli_child_process_fake.php';
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/OptionState.php';
 require_once $root . '/agent/src/Kernel/PlainData.php';
@@ -36,7 +36,7 @@ $artifactLock = json_decode(
     flags: JSON_THROW_ON_ERROR
 );
 $settingsInventory = json_decode(
-    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-settings.json'),
+    (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/woocommerce-core-11.0-settings.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );

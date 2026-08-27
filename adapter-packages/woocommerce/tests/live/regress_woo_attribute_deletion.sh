@@ -23,7 +23,7 @@
 # The pair is destroyed only when every assertion is green. A failed run leaves
 # it available for inspection, matching the sandbox certification convention.
 set -euo pipefail
-cd "$(dirname "$0")/../.."   # -> sandbox/
+cd "$(dirname "$0")/../../../../sandbox"
 
 PAIR="${WOOATTRDEL_PAIR:-wooattrdel}"
 PORT1="${WOOATTRDEL_PORT1:-8996}"

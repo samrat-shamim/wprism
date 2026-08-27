@@ -33,7 +33,7 @@
 # updates), mirroring regress_option_ref_scope.sh's established pattern.
 # Self-contained, re-runnable.
 set -euo pipefail
-cd "$(dirname "$0")/../.."   # -> sandbox/
+cd "$(dirname "$0")/../../../../sandbox"
 export DUO_PAIR=r3e
 COMPOSE="docker compose -p duo-r3e -f pair.yml"
 wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }

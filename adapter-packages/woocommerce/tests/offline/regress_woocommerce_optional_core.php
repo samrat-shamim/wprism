@@ -2,7 +2,7 @@
 /** Exact WooCommerce 11.0.0/11.0.1 optional-core storage boundary. */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../lib/agent_version.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/agent_version.php';
 duo_test_define_agent_versions();
 
 if (!function_exists('get_current_blog_id')) {
@@ -77,10 +77,10 @@ if (!class_exists('WC_Shipping_Zones', false)) {
     }
 }
 
-require_once __DIR__ . '/../../lib/check.php';
-require_once __DIR__ . '/../../lib/wp_stubs.php';
-require_once __DIR__ . '/../../lib/FakeWpdb.php';
-require_once __DIR__ . '/../../support/woocommerce_mixed_option_hooks.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/wp_stubs.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/FakeWpdb.php';
+require_once dirname(__DIR__, 2) . '/fixtures/woocommerce_mixed_option_hooks.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ScopeDiscovery.php';
@@ -282,12 +282,12 @@ $dispositions = [
     ],
 ];
 $inventory = json_decode(
-    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-optional.json'),
+    (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/woocommerce-core-11.0-optional.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
 $settingsInventory = json_decode(
-    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-settings.json'),
+    (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/woocommerce-core-11.0-settings.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );

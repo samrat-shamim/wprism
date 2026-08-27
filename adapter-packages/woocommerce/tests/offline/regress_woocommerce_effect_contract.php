@@ -19,7 +19,7 @@ require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
 require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
 require dirname(__DIR__, 4) . '/recovery/rollback-control.php';
-require __DIR__ . '/../../lib/frozen_policy.php';
+require dirname(__DIR__, 4) . '/sandbox/tests/lib/frozen_policy.php';
 
 use Duo\Policy;
 use DuoTest\FrozenPolicy;
@@ -1484,11 +1484,11 @@ try {
     $config = [
         'adapters' => array_fill_keys(
             ['code_restore', 'database_restore', 'prior_verify', 'storage_restore'],
-            [PHP_BINARY, __DIR__ . '/../../fixtures/recovery-adapter.php']
+            [PHP_BINARY, dirname(__DIR__, 4) . '/sandbox/tests/fixtures/recovery-adapter.php']
         ),
         'exclusion_provider' => [
             PHP_BINARY,
-            __DIR__ . '/../../fixtures/recovery-exclusion-provider.php',
+            dirname(__DIR__, 4) . '/sandbox/tests/fixtures/recovery-exclusion-provider.php',
             $tmp . '/exclusion.json',
         ],
         'format' => 'duo-recovery-config/v1',

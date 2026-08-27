@@ -109,7 +109,7 @@ woo_ok($policy->post_meta_rule_details('_product_url') === [
 ], 'the pre-apply product and term diagnostic seams resolve through Woo authority');
 
 $settingsInventory = json_decode(
-    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-settings.json'),
+    (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/woocommerce-core-11.0-settings.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
@@ -119,12 +119,12 @@ $artifactLock = json_decode(
     flags: JSON_THROW_ON_ERROR
 );
 $externalProductInventory = json_decode(
-    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-external-product.json'),
+    (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/woocommerce-core-11.0-external-product.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
 $termSurfaceInventory = json_decode(
-    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-terms.json'),
+    (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/woocommerce-core-11.0-terms.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
@@ -909,21 +909,17 @@ woo_ok(!in_array('derived.wc_product_attributes_lookup', array_column(
     'surface'
 ), true), 'attribute lookup repair is no longer mislabeled as an unsupported apply surface');
 $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/certify_version_matrix.sh');
-$woocommerceMatrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/matrix.d/woocommerce.sh');
+$woocommerceMatrixHarness = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
 $wooEntry = json_decode(
-    (string) file_get_contents($root . '/sandbox/conformance/entries/woocommerce.json'),
+    (string) file_get_contents(dirname(__DIR__) . '/conformance/entry.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
-$wooConformanceManifest = json_decode(
-    (string) file_get_contents($root . '/sandbox/conformance/manifests.json'),
-    true,
-    flags: JSON_THROW_ON_ERROR
-);
-$wooSeedHarness = (string) file_get_contents($root . '/sandbox/conformance/seeds/woocommerce.sh');
-$wooPostdeployHarness = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/woocommerce.sh');
-$wooPostapplyHarness = (string) file_get_contents($root . '/sandbox/conformance/postapply/woocommerce.sh');
-$wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
+$wooConformanceTaxonomies = $wooEntry['entry']['taxonomies'] ?? null;
+$wooSeedHarness = (string) file_get_contents(dirname(__DIR__) . '/conformance/seed.sh');
+$wooPostdeployHarness = (string) file_get_contents(dirname(__DIR__) . '/conformance/postdeploy.sh');
+$wooPostapplyHarness = (string) file_get_contents(dirname(__DIR__) . '/conformance/postapply.sh');
+$wooCheckHarness = (string) file_get_contents(dirname(__DIR__) . '/conformance/check.sh');
 $wooInterpreterSource = (string) file_get_contents($root . '/adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php');
 
 // DUO-3525: deploy compiles mixed options while installed WooCommerce code can
@@ -1113,7 +1109,7 @@ foreach ($expectedWooProviderContracts as $providerId => $contract) {
 $conformanceRunnerHarness = (string) file_get_contents($root . '/sandbox/conformance/run.sh');
 $conformanceAssertsHarness = (string) file_get_contents($root . '/sandbox/conformance/asserts.sh');
 $wooMultisiteHarness = (string) file_get_contents(
-    $root . '/sandbox/tests/live/regress_woocommerce_multisite_refusal.sh'
+    dirname(__DIR__) . '/live/regress_woocommerce_multisite_refusal.sh'
 );
 $wooRewriteCoInstallHarness = (string) file_get_contents(
     $root . '/sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh'
@@ -1297,10 +1293,10 @@ woo_ok(($wooEntry['manifest'] ?? null) === 'woocommerce'
     && ($wooEntry['entry']['pin'] ?? null) === ['core', 'woocommerce']
     && ($wooEntry['entry']['plugins'] ?? null) === [['slug' => 'woocommerce', 'version' => '11.0.1']]
     && ($wooEntry['entry']['setup'] ?? null) === 'hpos'
-    && ($wooEntry['entry']['taxonomies'] ?? null) === ($wooConformanceManifest['woocommerce']['taxonomies'] ?? null),
+    && is_array($wooConformanceTaxonomies),
     'the ordinary WooCommerce conformance entry binds the exact shipped artifact and HPOS target premise');
 woo_ok(
-    ($wooConformanceManifest['woocommerce']['taxonomies'] ?? null) === [
+    $wooConformanceTaxonomies === [
         'category',
         'post_tag',
         'product_brand',
@@ -2088,7 +2084,7 @@ woo_ok(
         && ($variationFields['modified_gmt'] ?? null) === ['class' => 'derived'],
     'only Woo product and variation persistence timestamps authorize lifecycle rendered-byte variance'
 );
-$downgradeComparatorPath = $root . '/sandbox/tests/support/woocommerce-downgrade-recapture.php';
+$downgradeComparatorPath = dirname(__DIR__, 2) . '/fixtures/woocommerce-downgrade-recapture.php';
 $downgradeComparatorSource = (string) file_get_contents($downgradeComparatorPath);
 require_once $downgradeComparatorPath;
 woo_ok(
@@ -2242,15 +2238,15 @@ woo_ok(
 woo_ok(
     str_contains(
         $woocommerceMatrixHarness,
-        'tests/support/woocommerce-downgrade-recapture.php'
+        '$package_tests/../fixtures/woocommerce-downgrade-recapture.php'
     )
         && str_contains(
             $woocommerceMatrixHarness,
             'in-range downgrade recapture diverged outside declared derived product timestamps'
         )
         && strpos($woocommerceMatrixHarness, 'wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-downgrade-final')
-            < strpos($woocommerceMatrixHarness, 'tests/support/woocommerce-downgrade-recapture.php')
-        && strpos($woocommerceMatrixHarness, 'tests/support/woocommerce-downgrade-recapture.php')
+            < strpos($woocommerceMatrixHarness, '$package_tests/../fixtures/woocommerce-downgrade-recapture.php')
+        && strpos($woocommerceMatrixHarness, '$package_tests/../fixtures/woocommerce-downgrade-recapture.php')
             < strpos($woocommerceMatrixHarness, 'rm -rf "siterepo/${PAIR}2/.tmp-woo-downgrade-final"')
         && !str_contains($woocommerceMatrixHarness, 'downgrade_diff=$(diff -rq'),
     'exact WooCommerce downgrade recapture invokes the strict two-product timestamp comparator before cleanup'
@@ -2380,7 +2376,7 @@ woo_ok(
 );
 woo_ok(
     substr_count($woocommerceMatrixHarness, 'postapply_woocommerce_content() {') === 1
-        && str_contains($woocommerceMatrixHarness, '. conformance/postapply/woocommerce.sh')
+        && str_contains($woocommerceMatrixHarness, '. "$package_tests/conformance/postapply.sh"')
         && substr_count($wooMatrixCase, 'postapply_woocommerce_content') === 1
         && $wooApplySuccess !== false
         && $wooPostapplyCall !== false

@@ -206,7 +206,7 @@ namespace {
         }
     }
     define('WOOCOMMERCE_BIS_ALPHA_ENABLED', true);
-    require_once __DIR__ . '/../../lib/agent_version.php';
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/agent_version.php';
     duo_test_define_agent_versions();
 
     final class WP_Hook {
@@ -1368,9 +1368,9 @@ namespace {
 
     $root = dirname(__DIR__, 4);
     putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
-    require_once __DIR__ . '/../../lib/check.php';
-    require_once __DIR__ . '/../../lib/FakeWpdb.php';
-    require_once __DIR__ . '/../../lib/wp_stubs.php';
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/FakeWpdb.php';
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/wp_stubs.php';
     require_once $root . '/agent/src/Kernel/Canon.php';
     require_once $root . '/agent/src/Kernel/PlainData.php';
     require_once $root . '/agent/src/Kernel/OptionState.php';

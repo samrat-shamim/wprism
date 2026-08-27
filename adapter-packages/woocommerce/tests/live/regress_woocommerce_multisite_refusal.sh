@@ -4,7 +4,8 @@
 # populated site to a network, then prove every public repository command
 # refuses before it can publish or mutate the graph.
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+cd "$PACKAGE_ROOT/../../sandbox"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -249,7 +250,7 @@ require_observed_nonempty 'WooCommerce 11.0.1 plugin tree fingerprint' "$PLUGIN_
 pass 'exact WooCommerce 11.0.1 plugin tree is installed, active, and HPOS-enabled'
 
 say 'seed the populated native WooCommerce graph'
-. conformance/seeds/woocommerce.sh
+. "$PACKAGE_ROOT/tests/conformance/seed.sh"
 woo_identity
 wp1 option update duo_woocommerce_multisite_canary untouched >/dev/null
 

@@ -7,7 +7,7 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 3);
 }
 
-require_once __DIR__ . '/../../lib/check.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Uuid.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
@@ -1732,11 +1732,11 @@ $readiness = json_decode(
 $woocommerceReadiness = $readiness['adapters']['woocommerce'] ?? [];
 $scopeEvidence = $woocommerceReadiness['covered']['scope-platform'] ?? [];
 duo_check(
-    in_array('sandbox/tests/live/regress_woocommerce_multisite_refusal.sh', $scopeEvidence, true),
+    in_array('adapter-packages/woocommerce/tests/live/regress_woocommerce_multisite_refusal.sh', $scopeEvidence, true),
     'WooCommerce readiness binds scope-platform to the exact populated multisite refusal suite'
 );
 $multisiteRefusal = (string) file_get_contents(
-    $root . '/sandbox/tests/live/regress_woocommerce_multisite_refusal.sh'
+    dirname(__DIR__) . '/live/regress_woocommerce_multisite_refusal.sh'
 );
 foreach ([
     'DUO_EXPECTED_SOURCE_SHA',
@@ -1766,10 +1766,10 @@ foreach ([
 
 $lifecycleEvidence = $woocommerceReadiness['covered']['lifecycle'] ?? [];
 duo_check(
-    in_array('sandbox/conformance/checks/woocommerce-destructive-lifecycle.sh', $lifecycleEvidence, true),
+    in_array('adapter-packages/woocommerce/fixtures/woocommerce-destructive-lifecycle.sh', $lifecycleEvidence, true),
     'WooCommerce readiness binds lifecycle to the explicit destructive-uninstall recovery fragment'
 );
-$checksScript = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
+$checksScript = (string) file_get_contents(dirname(__DIR__) . '/conformance/check.sh');
 foreach ([
     'DUO_TEST_PROMOTION_PAUSE_MS=30000',
     'process_fence_held',
@@ -1783,7 +1783,7 @@ foreach ([
     'CONCURRENT_PAUSE_OBSERVED_AT',
     'left the deterministic pause during the loser mutation guard',
     'WooCommerce provider race zero-action retry',
-    'conformance/checks/woocommerce-destructive-lifecycle.sh',
+    'fixtures/woocommerce-destructive-lifecycle.sh',
     'check_woocommerce_destructive_lifecycle',
 ] as $conformanceEvidence) {
     duo_check(
@@ -1793,7 +1793,7 @@ foreach ([
 }
 
 $destructiveLifecycle = (string) file_get_contents(
-    $root . '/sandbox/conformance/checks/woocommerce-destructive-lifecycle.sh'
+    dirname(__DIR__, 2) . '/fixtures/woocommerce-destructive-lifecycle.sh'
 );
 foreach ([
     'WC_REMOVE_ALL_DATA',
@@ -1845,7 +1845,7 @@ $matrixDriver = (string) file_get_contents(
     $root . '/sandbox/tests/certify/certify_version_matrix.sh'
 );
 $woocommerceMatrix = (string) file_get_contents(
-    $root . '/sandbox/tests/certify/matrix.d/woocommerce.sh'
+    dirname(__DIR__) . '/certify/version-matrix.sh'
 );
 duo_check(
     str_contains($matrixDriver, 'check_woocommerce_in_range_downgrade "$ARTIFACT_1" "$ARTIFACT_2"'),
@@ -1859,7 +1859,7 @@ foreach ([
     'FORCED past code_drift',
     '17.345678',
     '17.3457',
-    'tests/support/woocommerce-downgrade-recapture.php',
+    '$package_tests/../fixtures/woocommerce-downgrade-recapture.php',
     'in-range downgrade recapture diverged outside declared derived product timestamps',
 ] as $downgradeEvidence) {
     duo_check(
@@ -1868,7 +1868,7 @@ foreach ([
     );
 }
 $downgradeComparator = (string) file_get_contents(
-    $root . '/sandbox/tests/support/woocommerce-downgrade-recapture.php'
+    dirname(__DIR__, 2) . '/fixtures/woocommerce-downgrade-recapture.php'
 );
 duo_check(
     str_contains($downgradeComparator, "str_starts_with(\$path, 'posts/product/')")
