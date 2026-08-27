@@ -315,9 +315,9 @@ Usage:
                     [--evidence=<probe.json>] [--seed=<coverage.json>]
                     [--out=<path> [--force]] [--format=json]
                     [--check-proposals|--gap-report]
-  duo adapter list [--repo=<site-repo>] [--format=json]
-  duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
-  duo adapter doctor [--repo=<site-repo>] [--format=json]
+  duo adapter list [--repo=<site-repo>] [--adapter-library=<root>] [--format=json]
+  duo adapter inspect <name> [--repo=<site-repo>] [--adapter-library=<root>] [--format=json]
+  duo adapter doctor [--repo=<site-repo>] [--adapter-library=<root>] [--format=json]
   duo adapter doctor --migration --repo=<site-repo> [--artifact=<artifact.json>]
                      [--scope-contract=<scope-contract.json>]
                      [--snapshot=<snapshot.json>] [--format=json]
@@ -528,6 +528,7 @@ Verbs:
                           prior draft are carried forward.
   adapter list            The installed adapter catalog, from the two sources
     [--repo=<site-repo>]  this WordPress-free process can reach: the agent's own
+    [--adapter-library=<root>] adapter library, or one explicitly selected source,
     [--format=json]       manifest library and, with --repo, that site
                           repository's own adapters/ overlay. One row per
                           adapter — name, source, derived trust tier and the
@@ -545,6 +546,7 @@ Verbs:
                           mistaken for "nothing is installed".
   adapter inspect <name>  One adapter in full: the list row plus its reviewed
     [--repo=<site-repo>]  disposition entry, the capability claim that
+    [--adapter-library=<root>] belongs to the same explicitly selected library,
     [--format=json]       disposition projects (supported versions, operations,
                           surfaces, explicit unsupported boundaries, the
                           evidence citation), the providers it requires with the
@@ -558,6 +560,7 @@ Verbs:
                           and writes the exact object.
   adapter doctor          list, plus every readiness blocker for this
     [--repo=<site-repo>]  repository's pins (with --repo) and every installed
+    [--adapter-library=<root>] file in the same explicitly selected library,
     [--format=json]       file the engine refuses to load — a shadowed adapter,
                           an ambiguous identity, a case-confusable name, a
                           symlink, a nested or near-miss .json, a reserved name

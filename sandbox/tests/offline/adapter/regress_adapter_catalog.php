@@ -76,6 +76,7 @@ require $repo . '/cli/src/Adapter/AdapterCatalog.php';
 require_once __DIR__ . '/certification_fixture.php';
 
 use Duo\AdapterSources;
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\Policy;
 
@@ -93,28 +94,24 @@ function check(bool $cond, string $msg): void {
 /**
  * Run the real host CLI and return its exact exit code and streams.
  *
- * $manifestDirOverride points the subprocess at a different shipped library
- * through DUO_MANIFESTS_DIR — the env var Policy::manifests_dir() reads, and
- * the only way to exercise a library that is NOT this repository's own.
+ * $adapterLibraryOverride points the subprocess at an explicitly selected
+ * source, embedded, or historical-flat library. Selection is an argument,
+ * never mutable process state shared with another suite.
  *
  * @param list<string> $args
  * @return array{exit:int, stdout:string, stderr:string}
  */
-function duo(array $args, ?string $manifestDirOverride = null): array {
+function duo(array $args, ?string $adapterLibraryOverride = null): array {
     global $repo;
     $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($repo . '/cli/duo') . ' adapter';
     foreach ($args as $arg) {
         $cmd .= ' ' . escapeshellarg($arg);
     }
-    $env = null;
-    if ($manifestDirOverride !== null) {
-        // proc_open REPLACES the environment when given one, so the inherited
-        // env is merged rather than dropped — a bare DUO_MANIFESTS_DIR would
-        // take PATH and HOME with it.
-        $env = array_merge(getenv(), ['DUO_MANIFESTS_DIR' => $manifestDirOverride]);
+    if ($adapterLibraryOverride !== null) {
+        $cmd .= ' ' . escapeshellarg('--adapter-library=' . $adapterLibraryOverride);
     }
     $pipes = [];
-    $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+    $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
     if (!is_resource($proc)) {
         throw new \RuntimeException("could not run: $cmd");
     }
@@ -241,8 +238,9 @@ function site_adapter(string $name, array $extra = []): array {
 
 /** The message AdapterSources::discover() throws for this repository, if any. */
 function discover_message(string $siteRepo): ?string {
+    global $adapterLibrary;
     try {
-        AdapterSources::discover(Policy::manifests_dir(), $siteRepo);
+        AdapterSources::discover_library($adapterLibrary, $siteRepo);
         return null;
     } catch (\Throwable $t) {
         return $t->getMessage();
@@ -263,7 +261,8 @@ function row_named(?array $report, string $name): ?array {
     return null;
 }
 
-$manifestDir = Policy::manifests_dir();
+$adapterLibrary = Policy::adapter_library_context();
+$manifestDir = $adapterLibrary->root();
 
 // ======================================================================
 echo "\n== the real shipped library rows up, every adapter, with its derived tier ==\n";
@@ -307,12 +306,10 @@ check(
     'the summary counts the third source and the not-loaded rows, so a zero is a measured zero'
 );
 
-$shippedFiles = [];
-foreach (glob(rtrim($manifestDir, '/') . '/*.json') ?: [] as $file) {
-    if (basename($file, '.json') !== 'dispositions') {
-        $shippedFiles[] = basename($file, '.json');
-    }
-}
+$shippedFiles = array_map(
+    static fn(\Duo\AdapterPackage $package): string => $package->name(),
+    $adapterLibrary->packages()
+);
 sort($shippedFiles, SORT_STRING);
 $listedNames = array_column($listReport['adapters'] ?? [], 'name');
 check(
@@ -419,7 +416,7 @@ echo "\n== the tier and its basis come from ONE walk of the manifest ==\n";
 $basisMismatch = [];
 $emptyBasis = [];
 foreach ($shippedFiles as $name) {
-    $manifest = Canon::decode(Canon::read_file(rtrim($manifestDir, '/') . "/$name.json"));
+    $manifest = Canon::decode(Canon::read_file($adapterLibrary->package($name)->manifestPath()));
     $decision = AdapterSources::tier_decision($manifest);
     if ($decision['trust_tier'] !== AdapterSources::trust_tier($manifest)) {
         $basisMismatch[] = $name;
@@ -811,7 +808,7 @@ check(
 // registry and no evidence record there is nothing to neutralize, so the Woo
 // row reaches the missing-provider blocker on the untouched copy.
 $missingProviderLibrary = scratch('missing-provider-library');
-copy_tree($manifestDir, $missingProviderLibrary);
+$missingProviderLibrary = duo_cert_project_library($adapterLibrary, $missingProviderLibrary);
 unlink($missingProviderLibrary . '/providers/woocommerce-cache.php');
 $missingProviderRepo = site_repo(['woocommerce']);
 $missingProviderDoctor = duo(
@@ -819,19 +816,14 @@ $missingProviderDoctor = duo(
     $missingProviderLibrary
 );
 $missingProviderReport = report($missingProviderDoctor);
-$missingProviderBlockers = array_values(array_filter(
-    $missingProviderReport['blockers'] ?? [],
-    static fn(array $row): bool => ($row['code'] ?? null) === 'provider_code_unavailable'
-));
 check(
-    $missingProviderDoctor['exit'] === 1
-    && count($missingProviderBlockers) === 1
-    && ($missingProviderBlockers[0]['provider'] ?? null) === 'woocommerce-cache'
-    && ($missingProviderBlockers[0]['manifest'] ?? null) === 'woocommerce',
-    'adapter doctor reports an absent manifest-shipped provider as a structured blocker without loading provider PHP '
-    . '(exit ' . $missingProviderDoctor['exit'] . '; codes: '
-    . implode(', ', array_column($missingProviderReport['blockers'] ?? [], 'code')) . '; reasons: '
-    . implode(' | ', array_column($missingProviderReport['blockers'] ?? [], 'reason')) . ')'
+    $missingProviderDoctor['exit'] === 2
+    && $missingProviderDoctor['stdout'] === ''
+    && str_contains($missingProviderDoctor['stderr'], 'adapter runtime coverage disagrees in providers')
+    && str_contains($missingProviderDoctor['stderr'], 'missing=[woocommerce-cache]'),
+    'an explicitly selected library missing a declared provider is refused before cataloging; a closed package '
+    . 'inventory cannot be reported as an installed adapter set (exit ' . $missingProviderDoctor['exit'] . '; '
+    . 'stderr: ' . trim($missingProviderDoctor['stderr']) . ')'
 );
 
 $brokenList = report(duo(['list', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']));
@@ -1168,79 +1160,48 @@ check(
 // ======================================================================
 echo "\n== a manifest library that is not this repository's ==\n";
 // ======================================================================
-$plainLibrary = scratch('library');
-file_put_contents("$plainLibrary/solo.json", json_encode([
-    'name' => 'solo',
-    'spec_version' => DUO_SPEC_VERSION,
-    'option_autoload' => 'preserve',
-    'options' => ['solo_layout' => ['class' => 'authored']],
-]));
-// Valid JSON, and not a manifest. Canon::decode() returns whatever the
-// document was, so this used to reach trust_tier(array $manifest) as an int
-// and kill the survey with a TypeError — an inventory taken down by one of the
-// files it exists to inventory.
+$plainLibrary = duo_cert_project_library($adapterLibrary, scratch('library'));
+// An explicit historical-flat library remains accepted only through the
+// strict archive reader. A non-object document is an input refusal before a
+// catalog report: the closed library can never silently omit it and carry on.
 file_put_contents("$plainLibrary/scalar.json", '123');
 file_put_contents("$plainLibrary/listy.json", '[1,2,3]');
 $plainResult = duo(['list', '--format=json'], $plainLibrary);
 $plainReport = report($plainResult);
 check(
-    is_array($plainReport) && array_column($plainReport['adapters'] ?? [], 'name') === ['solo'],
-    'a shipped manifest whose top level is not a JSON object is refused, not crashed on — the valid adapter '
-    . 'beside it still reports (rows: '
-    . implode(', ', array_column($plainReport['adapters'] ?? [], 'name')) . ')'
-);
-$shapeRefusals = array_values(array_filter(
-    refusals_of($plainReport),
-    static fn(array $r): bool => $r['code'] === 'malformed_manifest'
-));
-check(
-    count($shapeRefusals) === 2
-    && str_contains((string) $shapeRefusals[0]['message'], 'a manifest is a JSON object'),
-    'each one is a malformed_manifest refusal saying what its top level actually is (rows: '
-    . implode(' | ', array_column($shapeRefusals, 'message')) . ')'
+    $plainResult['exit'] === 2 && $plainResult['stdout'] === '' && $plainReport === null,
+    'a selected archive library with a non-object manifest refuses as an input instead of emitting a partial report'
 );
 check(
-    str_contains((string) $shapeRefusals[0]['remediation'], 'JSON object')
-    && !str_contains((string) $shapeRefusals[0]['remediation'], 'parses as JSON'),
-    'and the remediation matches the actual failure — "make it an object", not "make it parse", which it already does'
+    str_contains($plainResult['stderr'], 'adapter manifest has no string name')
+    && str_contains($plainResult['stderr'], 'listy.json'),
+    'the strict refusal names the first invalid archive member and its missing string identity'
 );
 check(
-    ($shapeRefusals[0]['source'] ?? null) === 'shipped'
-    && ($shapeRefusals[0]['scope'] ?? null) === 'source',
-    'a SHIPPED-library refusal says so on the row — the source word is not a site/plugin-only field'
+    !str_contains($plainResult['stderr'], 'DUO_MANIFESTS_DIR'),
+    'the refusal names the explicit input, never a process-global selection mechanism'
 );
-// The blocker attribution this replaced. `blockers()` used to sniff `paths`
-// for a leading `adapters/` or a trailing `/site.duo.json`, so a refusal about
-// the SHIPPED library — whose paths are absolute — fell through to `unknown`,
-// and a `plugins/<dir>/duo-adapter.json` path would have too. It now reads the
-// row's own `source`, which is why this fixture (a broken shipped library plus
-// a repository pinning one of its manifests) can assert `shipped` at all.
+check(
+    str_contains($plainResult['stderr'], $plainLibrary),
+    'the input refusal identifies the archive library member on disk'
+);
 $brokenLibraryRepo = site_repo(['listy'], []);
-$brokenDoctor = report(duo(['doctor', '--repo=' . $brokenLibraryRepo, '--format=json'], $plainLibrary));
-$pinBlocker = null;
-foreach ($brokenDoctor['blockers'] ?? [] as $blocker) {
-    if (($blocker['code'] ?? null) === 'pin_set_unloadable') {
-        $pinBlocker = $blocker;
-    }
-}
+$brokenDoctor = duo(['doctor', '--repo=' . $brokenLibraryRepo, '--format=json'], $plainLibrary);
 check(
-    is_array($pinBlocker) && ($pinBlocker['source'] ?? null) === 'shipped',
-    'and a pin set that will not load is attributed to the source whose refusal stopped it, read off that '
-    . 'refusal rather than guessed from its path (found: '
-    . (string) ($pinBlocker['source'] ?? '(no pin_set_unloadable row)') . ')'
+    $brokenDoctor['exit'] === 2 && $brokenDoctor['stdout'] === ''
+    && $brokenDoctor['stderr'] === $plainResult['stderr'],
+    'doctor and list reject the same invalid library before repository pins can change the answer'
 );
-$soloRow = $plainReport['adapters'][0] ?? [];
+$defaultAfterInvalid = report(duo(['list', '--format=json']));
 check(
-    array_key_exists('certification', $soloRow) && $soloRow['certification'] === null,
-    'a library with no dispositions and no generated registry reports certification null rather than claiming a '
-    . '`registry` that is not there (found: '
-    . var_export($soloRow['certification'] ?? '(key absent)', true) . ')'
+    is_array($defaultAfterInvalid) && ($defaultAfterInvalid['status'] ?? null) === 'ok',
+    'an invalid explicit library does not mutate the production library selected by the next invocation'
 );
 // R-2: the last DUO-3314 assertion reachable from collect mode that was still
 // unguarded. declared_names() is reached ONLY when a site source exists, so an
 // unguarded throw there made the catalog answer two different ways about one
 // library — which is the single thing an inventory may never do.
-$twoAnswers = scratch('two-answers');
+$twoAnswers = duo_cert_project_library($adapterLibrary, scratch('two-answers'));
 file_put_contents("$twoAnswers/legal-file-name.json", json_encode([
     // The FILE name is a canonical slug; the DECLARED name is not.
     'name' => 'Illegal Declared Name',
@@ -1256,10 +1217,9 @@ $withRepo = duo(
     $twoAnswers
 );
 check(
-    $withoutRepo['exit'] !== 2 && $withRepo['exit'] !== 2,
-    'NEITHER run dies over a manifest whose declared name is not a canonical slug: the --repo run used to exit 2 '
-    . 'from an unguarded assertion while the same library listed clean without --repo, so one library gave two '
-    . "answers and one of them was a crash (without --repo: {$withoutRepo['exit']}, with --repo: {$withRepo['exit']})"
+    $withoutRepo['exit'] === 2 && $withRepo['exit'] === 2,
+    'the strict archive reader refuses an invalid declared name before either run can survey it '
+    . "(without --repo: {$withoutRepo['exit']}, with --repo: {$withRepo['exit']})"
 );
 // DUO-3371 closed the last of that asymmetry from the other end. This library's
 // declared name is not the file's name either, and the per-adapter grammar
@@ -1268,36 +1228,30 @@ check(
 // has a problem; they differ only in how much of it each one is in a position
 // to have read.
 check(
-    $withoutRepo['exit'] === 1 && $withRepo['exit'] === 1,
-    'both runs report the same library as broken (without --repo: ' . $withoutRepo['exit']
-    . ", with --repo: {$withRepo['exit']})"
+    $withoutRepo['stderr'] === $withRepo['stderr'],
+    'with and without --repo produce the same library refusal bytes'
 );
 $withoutRepoParsed = report($withoutRepo);
 check(
-    str_contains(
-        (string) ($withoutRepoParsed['adapters'][0]['grammar']['message'] ?? ''),
-        'ambiguous identity'
-    ) && refusals_of($withoutRepoParsed) === [],
-    'the run with no site source reports it where it actually read it — the adapter\'s own grammar verdict — and '
-    . 'still raises no source refusal, because the scan really did not open the declared names (grammar: '
-    . ($withoutRepoParsed['adapters'][0]['grammar']['status'] ?? '(none)') . ')'
+    $withoutRepoParsed === null && $withoutRepo['stdout'] === '',
+    'the invalid archive never produces a partial catalog document without --repo'
 );
 $withRepoParsed = report($withRepo);
 check(
-    is_array($withRepoParsed)
-    && in_array('invalid_adapter_name', array_column(refusals_of($withRepoParsed), 'code'), true),
-    'and the --repo run reports it as an invalid_adapter_name ROW rather than dying with a usage exit (rows: '
-    . implode(', ', array_column(refusals_of($withRepoParsed), 'code')) . ')'
+    $withRepoParsed === null && $withRepo['stdout'] === '',
+    'the invalid archive never produces a partial catalog document with --repo either'
 );
 check(
-    $withRepo['stderr'] === '',
-    'writing nothing to stderr — the exit-2 IO path is for this command\'s own inputs, never for a manifest'
+    str_contains($withRepo['stderr'], 'adapter name declared by')
+    && str_contains($withRepo['stderr'], 'canonical lowercase ASCII slug'),
+    'the input refusal names the invalid declaration and its canonical-slug contract'
 );
 
 $plainText = duo(['inspect', 'solo'], $plainLibrary);
 check(
-    str_contains($plainText['stdout'], 'certification:     (none —'),
-    'and the human renderer says so in words rather than printing an empty field'
+    $plainText['exit'] === 2 && $plainText['stdout'] === ''
+    && str_contains($plainText['stderr'], 'adapter manifest has no string name'),
+    'inspect applies the same closed-library input gate before looking up a name'
 );
 
 // ======================================================================
@@ -1500,7 +1454,8 @@ for ($i = 0; $i < 60; $i++) {
         'options' => [str_replace('-', '_', $filler) . '_layout' => ['class' => 'authored']],
     ]));
 }
-$largeRun = report(duo(['list', '--format=json'], $sizedLibrary));
+$largeResult = duo(['list', '--format=json'], $sizedLibrary);
+$largeRun = report($largeResult);
 $largeRows = [];
 foreach ($largeRun['adapters'] ?? [] as $row) {
     $largeRows[(string) $row['name']] = json_encode($row);
@@ -1512,10 +1467,9 @@ foreach ($smallRows as $name => $encoded) {
     }
 }
 check(
-    count($smallRows) > 10 && $changedRows === [],
-    'all ' . count($smallRows) . ' rows of the shipped library are byte-identical when sixty unrelated adapters '
-    . 'are surveyed alongside them — one shared library resolution, and no row reads differently for it'
-    . ($changedRows === [] ? '' : ' (changed: ' . implode(', ', $changedRows) . ')')
+    count($smallRows) > 10 && $largeResult['exit'] === 2 && $largeRun === null,
+    'adding sixty manifest files without package dispositions is rejected as an invalid library instead of '
+    . 'changing any of the ' . count($smallRows) . ' accepted baseline rows'
 );
 // The sixty ARE grammar errors, and correctly so: no reviewed disposition
 // covers them, and WP-1.2 made that refuse at the moment a manifest is
@@ -1533,14 +1487,10 @@ $leaked = array_values(array_filter(
     static fn(string $name): bool => !str_starts_with($name, 'zz-filler-')
 ));
 check(
-    count($largeRows) === count($smallRows) + 60
-    && refusals_of($largeRun) === refusals_of($smallRun)
-    && ($smallRun['summary']['grammar_error'] ?? null) === 0
-    && count($erroredNames) === 60
-    && $leaked === [],
-    'the sixty new rows are the only difference: ' . count($largeRows) . ' rows against ' . count($smallRows)
-    . ', the same refusal list, and the ' . count($erroredNames) . ' unreviewed fillers carry every grammar error '
-    . 'between them' . ($leaked === [] ? '' : ' (leaked onto: ' . implode(', ', $leaked) . ')')
+    $largeResult['stdout'] === ''
+    && str_contains($largeResult['stderr'], 'adapter disposition coverage disagrees with manifests')
+    && str_contains($largeResult['stderr'], 'zz-filler-000'),
+    'the closed archive refusal names the missing package-owned disposition coverage before cataloging'
 );
 
 echo $failures === 0 ? "\nALL PASSED\n" : "\n$failures check(s) failed\n";

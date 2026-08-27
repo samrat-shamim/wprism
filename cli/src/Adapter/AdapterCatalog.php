@@ -237,6 +237,7 @@ final class AdapterCatalog {
         $verb = null;
         $name = null;
         $repoArg = null;
+        $libraryArg = null;
         $json = false;
 
         // A repeated flag is refused rather than last-wins, the posture
@@ -258,6 +259,11 @@ final class AdapterCatalog {
                 $repoArg = trim(substr($arg, strlen('--repo=')));
                 if ($repoArg === '') {
                     return self::fail('--repo needs the path of a duo site repo (the directory holding site.duo.json)');
+                }
+            } elseif (str_starts_with($arg, '--adapter-library=')) {
+                $libraryArg = trim(substr($arg, strlen('--adapter-library=')));
+                if ($libraryArg === '') {
+                    return self::fail('--adapter-library needs a non-empty directory path');
                 }
             } elseif (str_starts_with($arg, '-')) {
                 return self::fail("unsupported flag '$arg'");
@@ -309,13 +315,15 @@ final class AdapterCatalog {
             return self::fail($t->getMessage());
         }
 
-        $library = Policy::adapter_library_context();
-        $libraryRoot = $library instanceof AdapterLibrary ? $library->root() : $library;
+        try {
+            $library = self::adapter_library($libraryArg);
+        } catch (\Throwable $t) {
+            return self::fail($t->getMessage());
+        }
+        $libraryRoot = $library->root();
 
         try {
-            $survey = $library instanceof AdapterLibrary
-                ? AdapterSources::survey_library($library, $repo)
-                : AdapterSources::survey($repo);
+            $survey = AdapterSources::survey_library($library, $repo);
         } catch (\Throwable $t) {
             // survey() reports rather than throws by construction, so reaching
             // here means the library itself is unreadable — an IO fault about
@@ -474,7 +482,9 @@ final class AdapterCatalog {
                 // exists when a repository named the pins. Without --repo the
                 // doctor is honest about having no pin set rather than
                 // inventing one out of the whole library.
-                $report['blockers'] = $repo === null ? [] : self::blockers($repo, $survey['refusals']);
+                $report['blockers'] = $repo === null
+                    ? []
+                    : self::blockers($repo, $survey['refusals'], $library);
                 $report['summary']['blockers'] = count($report['blockers']);
                 $healthy = $healthy && $report['blockers'] === [];
             }
@@ -487,6 +497,24 @@ final class AdapterCatalog {
             self::render($report);
         }
         return $report['status'] === 'ok' ? 0 : 1;
+    }
+
+    /** Resolve only a caller-selected source, deployed, or historical-flat library. */
+    private static function adapter_library(?string $path): AdapterLibrary {
+        if ($path === null) {
+            return Policy::adapter_library_context();
+        }
+        $root = realpath($path);
+        if ($root === false || !is_dir($root)) {
+            throw new \RuntimeException("adapter library '$path' is not a directory");
+        }
+        if (is_dir($root . '/adapter-packages') || is_dir($root . '/platform/adapter-library')) {
+            return AdapterLibrary::fromSourceTree($root);
+        }
+        if (is_dir($root . '/adapters') && is_dir($root . '/platform')) {
+            return AdapterLibrary::fromEmbeddedDirectory($root);
+        }
+        return AdapterLibrary::fromLegacyFlatDirectory($root);
     }
 
     /**
@@ -514,7 +542,7 @@ final class AdapterCatalog {
      */
     private static function inspect_row(
         array $row,
-        string|AdapterLibrary $library,
+        AdapterLibrary $library,
         ?string $repo,
         array $adapters
     ): array {
@@ -530,9 +558,7 @@ final class AdapterCatalog {
 
         $dispositions = null;
         try {
-            $dispositions = $library instanceof AdapterLibrary
-                ? ManifestDispositions::load_library($library)
-                : ManifestDispositions::load($library);
+            $dispositions = ManifestDispositions::load_library($library);
         } catch (\Throwable $t) {
             $dispositions = null;
         }
@@ -548,9 +574,7 @@ final class AdapterCatalog {
         // registry that was never supposed to name it.
         if ($row['source'] === AdapterSources::SITE && $repo !== null) {
             try {
-                $sources = $library instanceof AdapterLibrary
-                    ? AdapterSources::discover_library($library, $repo)
-                    : AdapterSources::discover($library, $repo);
+                $sources = AdapterSources::discover_library($library, $repo);
                 $out['disposition'] = $sources->provenance($name);
             } catch (\Throwable $t) {
                 // discover() refuses whole-directory, so ANOTHER file in this
@@ -587,9 +611,7 @@ final class AdapterCatalog {
             // gate only, which is exactly what the deferred list above says.
             $sources = [];
             try {
-                $discovered = $library instanceof AdapterLibrary
-                    ? AdapterSources::discover_library($library, $repo)
-                    : AdapterSources::discover($library, $repo);
+                $discovered = AdapterSources::discover_library($library, $repo);
                 $sources = $discovered->diagnostics($manifests);
             } catch (\Throwable $t) {
                 // discover() refuses WHOLE-DIRECTORY, so an unrelated file in
@@ -607,9 +629,7 @@ final class AdapterCatalog {
                     null,
                     $sources,
                     [],
-                    $library instanceof AdapterLibrary
-                        ? ManifestDispositions::platform_boundary_library($library)
-                        : ManifestDispositions::platform_boundary($library)
+                    ManifestDispositions::platform_boundary_library($library)
                 );
             } catch (\Throwable $t) {
                 $report = null;
@@ -653,7 +673,9 @@ final class AdapterCatalog {
                 $report = Policy::load(
                     $repo,
                     self::repository_pin_for($repo, $name),
-                    true
+                    true,
+                    null,
+                    $library
                 )->capability_report(['operation' => 'promote']);
                 foreach ($report['manifests'] as $reported) {
                     if (($reported['name'] ?? null) === $name) {
@@ -741,9 +763,9 @@ final class AdapterCatalog {
      * @param list<array<string,mixed>> $refusals this run's refusals, for attribution
      * @return list<array<string,mixed>>
      */
-    private static function blockers(string $repo, array $refusals): array {
+    private static function blockers(string $repo, array $refusals, AdapterLibrary $library): array {
         try {
-            return Policy::load($repo, null, true)->adapter_readiness_blockers();
+            return Policy::load($repo, null, true, null, $library)->adapter_readiness_blockers();
         } catch (\Throwable $t) {
             // A repository whose pins cannot load has no readiness verdict to
             // report. Surfacing the engine's own message as a blocker row
