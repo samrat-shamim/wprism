@@ -3815,8 +3815,11 @@ final class Cli {
                 $query['surface'] = (string) $assoc['surface'];
             }
             if ($all) {
-                $dir = Policy::manifests_dir();
-                $dispositions = ManifestDispositions::load($dir);
+                $library = Policy::adapter_library_context();
+                $dir = is_string($library) ? $library : $library->root();
+                $dispositions = is_string($library)
+                    ? ManifestDispositions::load($library)
+                    : ManifestDispositions::load_library($library);
                 if ($dispositions === null) {
                     throw new \RuntimeException("duo: $dir has no external manifest disposition registry");
                 }
@@ -3825,13 +3828,28 @@ final class Cli {
                 // reviewed claim source into `dispositions/`, which this glob
                 // does not match, and ManifestDispositions::load() above has
                 // already refused a library that still carries the file.
-                foreach (glob(rtrim($dir, '/') . '/*.json') ?: [] as $file) {
+                $manifestFiles = [];
+                if (is_string($library)) {
+                    foreach (glob(rtrim($dir, '/') . '/*.json') ?: [] as $file) {
+                        $manifestFiles[basename($file, '.json')] = $file;
+                    }
+                } else {
+                    foreach ($library->packages() as $package) {
+                        $manifestFiles[$package->name()] = $package->manifestPath();
+                    }
+                }
+                foreach ($manifestFiles as $expectedName => $file) {
                     $manifest = Canon::decode(Canon::read_file($file));
                     // DUO-3371: this path loads the library without Policy::load(),
                     // so it must hold the same name==basename rule itself — a
                     // mismatch otherwise surfaces as a malformed registry claim
                     // that never says the name field is wrong.
-                    AdapterSources::assert_declared_name($manifest, basename($file, '.json'), AdapterSources::SHIPPED, $file);
+                    AdapterSources::assert_declared_name(
+                        $manifest,
+                        $expectedName,
+                        AdapterSources::SHIPPED,
+                        $file
+                    );
                     $manifests[] = $manifest;
                 }
                 // DUO-3339: real provenance, not the absent-sources default.
@@ -3851,7 +3869,13 @@ final class Cli {
                     $manifests,
                     $query,
                     null,
-                    AdapterSources::discover($dir, null)->diagnostics($manifests)
+                    (is_string($library)
+                        ? AdapterSources::discover($dir, null)
+                        : AdapterSources::discover_library($library, null))->diagnostics($manifests),
+                    [],
+                    is_string($library)
+                        ? ManifestDispositions::platform_boundary($library)
+                        : ManifestDispositions::platform_boundary_library($library)
                 );
             } else {
                 if ($repo === null || $repo === '') {

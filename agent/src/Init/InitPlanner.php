@@ -13,6 +13,7 @@ require_once __DIR__ . '/InitRecovery.php';
 require_once __DIR__ . '/InitRepositoryBoundary.php';
 require_once __DIR__ . '/InitSiteProbe.php';
 require_once __DIR__ . '/../Policy/ManifestDispositions.php';
+require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Policy/ScopeAdoption.php';
 require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
@@ -1030,8 +1031,7 @@ final class InitPlanner {
     /** @return array<string,array<string,mixed>> */
     private static function installed_manifests(string $repo): array {
         $out = [];
-        $dir = Policy::manifests_dir();
-        $sources = AdapterSources::discover($dir, $repo);
+        [$dir, $sources] = self::adapter_sources($repo);
         foreach ($sources->names() as $name) {
             $file = $sources->file($name, $dir);
             $manifest = Canon::decode(Canon::read_file($file));
@@ -1189,8 +1189,7 @@ final class InitPlanner {
      */
     private static function pin_scope_rules(array $pinned, string $repo, array $seed): array {
         try {
-            $dir = Policy::manifests_dir();
-            $sources = AdapterSources::discover($dir, $repo);
+            [$dir, $sources] = self::adapter_sources($repo);
         } catch (\Throwable $t) {
             return [];
         }
@@ -1218,6 +1217,15 @@ final class InitPlanner {
             }
         }
         return $rules;
+    }
+
+    /** @return array{0:string,1:AdapterSources} */
+    private static function adapter_sources(string $repo): array {
+        $context = Policy::adapter_library_context();
+        if ($context instanceof AdapterLibrary) {
+            return [$context->root(), AdapterSources::discover_library($context, $repo)];
+        }
+        return [$context, AdapterSources::discover($context, $repo)];
     }
 
     /**

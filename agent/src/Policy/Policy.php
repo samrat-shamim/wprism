@@ -320,6 +320,20 @@ final class Policy {
     }
 
     /**
+     * The active library boundary during migration.
+     *
+     * Shipped runtime code receives the closed object. The string arm exists
+     * only for callers that explicitly selected a sparse legacy authoring or
+     * regression fixture with DUO_MANIFESTS_DIR; the package-layout flag day
+     * removes that process-global input and this union with it.
+     */
+    public static function adapter_library_context(): string|AdapterLibrary {
+        return self::has_manifest_directory_override()
+            ? self::manifests_dir()
+            : self::shipped_adapter_library();
+    }
+
+    /**
      * Resolve the shipped physical library once per policy instance.
      *
      * This preparatory reader still opens the current flat tree. Keeping the
