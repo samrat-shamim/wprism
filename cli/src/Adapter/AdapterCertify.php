@@ -6,6 +6,7 @@ namespace Duo\Orchestrator;
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\Policy;
@@ -335,8 +336,8 @@ final class AdapterCertify {
         // two producers is the failure mode both halves of this train were
         // trying to avoid, and the producer belongs beside the validator that
         // refuses it.
-        $manifestDir = Policy::manifests_dir();
         try {
+            $manifestDir = Policy::adapter_library_context();
             $certificate = AdapterCertification::sign_site(
                 $manifestDir,
                 $repo,
@@ -453,6 +454,10 @@ final class AdapterCertify {
 
         self::boot();
         AdapterSources::assert_name($name, 'adapter pin --name');
+        $adapterLibrary = Policy::adapter_library_context();
+        $shippedManifestExists = $adapterLibrary instanceof AdapterLibrary
+            ? $adapterLibrary->package($name) !== null
+            : is_file(rtrim($adapterLibrary, '/') . '/' . $name . '.json');
 
         // The override bootstrap (T6 §3.3, AdapterSources::override_pins()):
         // a site copy of a SHIPPED name loads only once site.duo.json pins that
@@ -463,7 +468,7 @@ final class AdapterCertify {
         // command. If the load then refuses, the file is put back exactly.
         $before = null;
         if ($source === AdapterSources::SITE
-            && is_file(rtrim(Policy::manifests_dir(), '/') . '/' . $name . '.json')
+            && $shippedManifestExists
             && !self::hasSourcePin($repo, $name, AdapterSources::SITE)) {
             $before = (string) file_get_contents($repo . '/site.duo.json');
             self::writePin($repo, ['name' => $name, 'source' => AdapterSources::SITE]);

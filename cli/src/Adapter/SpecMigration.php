@@ -6,6 +6,7 @@ namespace Duo\Orchestrator;
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\ArtifactPolicyIdentity;
 use Duo\Canon;
@@ -167,7 +168,7 @@ final class SpecMigration {
         }
 
         AdapterCertify::bootPublic();
-        $manifestDir = Policy::manifests_dir();
+        $manifestDir = Policy::adapter_library_context();
 
         $certificateDir = $repo . '/' . AdapterSources::SITE_DIR . '/' . AdapterSources::CERTIFICATION_DIR;
         $certificates = self::certificateFiles($certificateDir);
@@ -401,7 +402,7 @@ final class SpecMigration {
 
         try {
             AdapterCertify::bootPublic();
-            $manifestDir = Policy::manifests_dir();
+            $manifestDir = Policy::adapter_library_context();
             // The preflight, CALLED and not restated (WP-1.5). Every movement
             // row below is its verdict; deriving a second answer here is the
             // drift that turns a controlled bump into an incident.
@@ -617,10 +618,10 @@ final class SpecMigration {
     }
 
     /** @return array<string,mixed> */
-    private static function target(string $manifestDir): array {
+    private static function target(string|AdapterLibrary $manifestDir): array {
         return [
             'agent_version' => DUO_AGENT_VERSION,
-            'manifests_dir' => $manifestDir,
+            'manifests_dir' => $manifestDir instanceof AdapterLibrary ? $manifestDir->root() : $manifestDir,
             'spec_version' => DUO_SPEC_VERSION,
         ];
     }

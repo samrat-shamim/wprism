@@ -33007,7 +33007,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "manifestDir",
-                            "type": "string",
+                            "type": "Duo\\AdapterLibrary|string",
                             "variadic": false
                         },
                         {

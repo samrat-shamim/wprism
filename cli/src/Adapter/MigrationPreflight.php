@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\ArtifactPolicyIdentity;
 use Duo\Canon;
@@ -271,12 +272,12 @@ final class MigrationPreflight {
 
         try {
             self::boot();
+            $manifestDir = Policy::adapter_library_context();
         } catch (\Throwable $t) {
             return self::fail($t->getMessage());
         }
 
-        $manifestDir = Policy::manifests_dir();
-        if (!is_dir($manifestDir)) {
+        if (is_string($manifestDir) && !is_dir($manifestDir)) {
             return self::fail("the agent manifest library '$manifestDir' is not a directory");
         }
 
@@ -308,13 +309,13 @@ final class MigrationPreflight {
      * which is the drift `run()`'s own header warns about for the gates it
      * calls rather than restates.
      *
-     * The caller owns booting the engine (`Policy::manifests_dir()` must
+     * The caller owns booting the engine (`Policy::adapter_library_context()` must
      * already resolve) and owns every verdict; this returns facts.
      *
      * @param array<string,?string> $held `artifact`, `scope-contract`, `snapshot` paths, each optional
      * @return array<string,mixed>
      */
-    public static function enumerate(string $repo, string $manifestDir, array $held = []): array {
+    public static function enumerate(string $repo, string|AdapterLibrary $manifestDir, array $held = []): array {
         return self::report($repo, $manifestDir, $held + ['artifact' => null, 'scope-contract' => null, 'snapshot' => null]);
     }
 
@@ -326,7 +327,7 @@ final class MigrationPreflight {
      * @param array<string,?string> $held
      * @return array<string,mixed>
      */
-    private static function report(string $repo, string $manifestDir, array $held): array {
+    private static function report(string $repo, string|AdapterLibrary $manifestDir, array $held): array {
         $state = [
             'movements' => [],
             'unclassified' => [],
@@ -345,9 +346,11 @@ final class MigrationPreflight {
             'target' => [
                 'agent_version' => DUO_AGENT_VERSION,
                 'spec_version' => DUO_SPEC_VERSION,
-                'manifests_dir' => $manifestDir,
+                'manifests_dir' => $manifestDir instanceof AdapterLibrary ? $manifestDir->root() : $manifestDir,
                 'platform_sha256' => ContractAttestation::currentPlatformDigest($manifestDir),
-                'registry_sha256' => ManifestDispositions::load($manifestDir)->sha256(),
+                'registry_sha256' => ($manifestDir instanceof AdapterLibrary
+                    ? ManifestDispositions::load_library($manifestDir)
+                    : ManifestDispositions::load($manifestDir))->sha256(),
             ],
         ];
 
@@ -498,7 +501,7 @@ final class MigrationPreflight {
      */
     private static function certificates(
         string $repo,
-        string $manifestDir,
+        string|AdapterLibrary $manifestDir,
         ?Policy $policy,
         string $site,
         array &$state
@@ -528,9 +531,9 @@ final class MigrationPreflight {
         // only kind an operator mints — still gets its reachability answer from
         // the site root below. The shipped root is empty on every shipped build.
         $authoritySource = $policy === null ? $manifestDir : $policy->adapter_library();
-        $authoritiesPath = $policy === null
-            ? $manifestDir . '/capabilities/adapter-authorities.json'
-            : $policy->adapter_library()->authoritiesPath();
+        $authoritiesPath = $authoritySource instanceof AdapterLibrary
+            ? $authoritySource->authoritiesPath()
+            : $authoritySource . '/capabilities/adapter-authorities.json';
         $platformKeyIds = AdapterCertification::hasAuthorities($authoritySource)
             ? self::authorityKeyIds($authoritiesPath)
             : [];
@@ -990,7 +993,12 @@ final class MigrationPreflight {
      * @param array<string,mixed> $state
      * @return list<array<string,mixed>>
      */
-    private static function contracts(string $repo, string $manifestDir, string $registry, array &$state): array {
+    private static function contracts(
+        string $repo,
+        string|AdapterLibrary $manifestDir,
+        string $registry,
+        array &$state
+    ): array {
         $path = $repo . '/' . ContractStore::DIRECTORY . '/' . ContractStore::CONTRACT_FILE;
         if (!is_file($path)) {
             return [];

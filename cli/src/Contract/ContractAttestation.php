@@ -11,6 +11,7 @@ require_once __DIR__ . '/ApplicationContract.php';
 use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\CommandRefusalException;
+use Duo\Policy;
 
 /**
  * Sign and verify `attestation.state: "signed"` on the application contract,
@@ -496,13 +497,14 @@ final class ContractAttestation {
      * string spelling used by custom migration fixtures during this phase.
      */
     private static function platformPath(string|AdapterLibrary|null $manifestDir): string {
+        if ($manifestDir === null || $manifestDir === '') {
+            require_once dirname(__DIR__, 3) . '/agent/src/Policy/Policy.php';
+            $manifestDir = Policy::adapter_library_context();
+        }
         if ($manifestDir instanceof AdapterLibrary) {
             return $manifestDir->platformBoundaryPath();
         }
-        $directory = $manifestDir !== null && $manifestDir !== ''
-            ? $manifestDir
-            : dirname(__DIR__, 3) . '/manifests';
-        return rtrim($directory, '/') . '/' . self::PLATFORM_RELATIVE;
+        return rtrim($manifestDir, '/') . '/' . self::PLATFORM_RELATIVE;
     }
 
     private static function signedBytes(string $attestedDigest): string {

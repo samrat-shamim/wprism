@@ -603,7 +603,7 @@ final class AdapterDistribution {
         $staging = self::staging($repo, $name, $adapterRaw, $certificateRaw);
         try {
             $verified = AdapterCertification::verifyFile(
-                Policy::manifests_dir(),
+                Policy::adapter_library_context(),
                 $staging['root'],
                 $name,
                 $manifest,
