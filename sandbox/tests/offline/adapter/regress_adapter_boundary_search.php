@@ -66,8 +66,8 @@
  *
  * ## And the one negative property the whole design rests on
  *
- * No manifest is written. Asserted the only way worth asserting it: every file
- * under `manifests/` is hashed before the suite runs and after, across the
+ * No package payload is written. Asserted the only way worth asserting it:
+ * every shipped adapter-library file is hashed before the suite runs and after, across the
  * in-process searches AND the real subprocess runs, including the run that
  * passes `--manifest=acf` and reads a range out of that very directory.
  */
@@ -78,22 +78,19 @@ require_once __DIR__ . '/../../lib/check.php';
 
 $repoRoot = dirname(__DIR__, 4);
 require_once $repoRoot . '/agent/src/Kernel/Canon.php';
+require_once $repoRoot . '/agent/src/Policy/AdapterLibrary.php';
 require_once $repoRoot . '/cli/src/Command/CommandOutput.php';
 require_once $repoRoot . '/cli/src/Adapter/AdapterBoundary.php';
 
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\Orchestrator\AdapterBoundary;
 
-/** @return array<string,string> path => sha256 for every file under manifests/ */
+/** @return array<string,string> path => sha256 for every shipped adapter-library file */
 function boundary_manifest_digests(string $root): array {
     $digests = [];
-    $walk = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($root . '/manifests', FilesystemIterator::SKIP_DOTS)
-    );
-    foreach ($walk as $file) {
-        if ($file->isFile()) {
-            $digests[$file->getPathname()] = (string) hash_file('sha256', $file->getPathname());
-        }
+    foreach (AdapterLibrary::fromSourceTree($root)->scanFiles() as $file) {
+        $digests[$file] = (string) hash_file('sha256', $file);
     }
     ksort($digests);
     return $digests;
@@ -422,7 +419,7 @@ duo_check_same(
 // ------------------------------- 9. the recorded inputs are validated, loudly
 
 /**
- * @param array<string,mixed> $document
+ * @param list<string> $args
  * @return array{stdout:string,stderr:string,status:int}
  */
 function boundary_cli(string $root, array $args): array {
@@ -656,7 +653,7 @@ duo_check(
 duo_check_same(
     $manifestsBefore,
     boundary_manifest_digests($repoRoot),
-    'no byte under manifests/ moved — the range and its dispositions restatement stay a reviewed human edit'
+    'no adapter-package or platform-library byte moved — the range and its disposition stay a reviewed human edit'
 );
 
 duo_check_summary('adapter boundary search');
