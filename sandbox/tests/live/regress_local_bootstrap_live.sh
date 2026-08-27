@@ -44,7 +44,6 @@ WP_VOLUME="duo-${PAIR}_wp1"
 REPO_VOLUME="duo-${PAIR}-bootstrap-repo"
 IMAGE="duo-local-bootstrap-cli:${PAIR}"
 SCRATCH_ROOT=""
-HERMETIC_ROOT=""
 ENVS_FILE=""
 EVIDENCE_LOG=""
 PAIR_OWNED=0
@@ -66,7 +65,6 @@ if docker image inspect "$IMAGE" >/dev/null 2>&1; then
 fi
 
 SCRATCH_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/${PAIR}-local-bootstrap.XXXXXX")"
-HERMETIC_ROOT="$SCRATCH_ROOT/hermetic"
 ENVS_FILE="$SCRATCH_ROOT/envs.json"
 EVIDENCE_LOG="$SCRATCH_ROOT/evidence.log"
 
@@ -107,23 +105,6 @@ cleanup_on_exit() {
 }
 trap cleanup_on_exit EXIT
 
-say "build the hermetic manifest library before Docker mutation"
-# Built rather than mounted from the checkout so nothing this pair does can
-# reach the shipped bytes. It no longer re-derives anything — the generated
-# attestation it used to seal is gone — so the assertion is that the copy is
-# loadable and reviewed, which is what the mounted library has to be.
-HERMETIC_MANIFESTS="$(php sandbox/tests/offline/adapter/certification_fixture.php "$HERMETIC_ROOT")" \
-  || fail "could not build the hermetic manifest library"
-[ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
-  || fail "hermetic manifest library landed outside the owned scratch root"
-jq -e -s '[.[] | select(.status == "certified") | .evidence.tests | length] | all(. > 0)' \
-  "$HERMETIC_MANIFESTS"/dispositions/*.json >/dev/null \
-  || fail "a certified disposition in the hermetic library cites no evidence"
-jq -e '.format == "duo-platform-boundary/v1"' \
-  "$HERMETIC_MANIFESTS/capabilities/platform.json" >/dev/null \
-  || fail "the hermetic library has no platform boundary"
-pass "hermetic manifest library is ready"
-
 say "build a Git-capable controller and create one headless disposable pair"
 docker build -q -f sandbox/init-cli.Dockerfile -t "$IMAGE" sandbox >/dev/null
 IMAGE_OWNED=1
@@ -152,7 +133,8 @@ docker run --rm --user 0 \
     chown 33:33 /var/www/html/wp-content/mu-plugins
     rm -rf /var/www/html/wp-content/mu-plugins/duo \
       /var/www/html/wp-content/mu-plugins/duo-loader.php \
-      /var/www/html/wp-content/mu-plugins/manifests
+      /var/www/html/wp-content/mu-plugins/manifests \
+      /var/www/html/wp-content/mu-plugins/duo-control
   '
 
 php -r '
@@ -184,7 +166,6 @@ DOCKER_COMMON=(
   -v "$WP_VOLUME:/var/www/html"
   -v "$REPO_VOLUME:/siterepo"
   -v "$REPO_ROOT:/duo-source:ro"
-  -v "$HERMETIC_MANIFESTS:/duo-source/manifests:ro"
   -v "$ENVS_FILE:/controller/envs.json:ro"
 )
 
@@ -295,7 +276,8 @@ grep -Fq 'doctor (verified before commit)' <<<"$OUT" || fail "adoption did not r
 target_sh '
   test -f /var/www/html/wp-content/mu-plugins/duo/duo.php
   test -f /var/www/html/wp-content/mu-plugins/duo-loader.php
-  test -f /var/www/html/wp-content/mu-plugins/manifests/core.json
+  test -f /var/www/html/wp-content/mu-plugins/duo/adapter-library/platform/core/manifest.json
+  test ! -e /var/www/html/wp-content/mu-plugins/manifests
   test -f /siterepo/site/site.duo.json
   test -f /siterepo/site/.duo/control/target.json
   test -d /siterepo/site/.duo/rollback
