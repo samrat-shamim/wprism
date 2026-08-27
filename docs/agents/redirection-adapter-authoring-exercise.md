@@ -107,7 +107,17 @@ That established mappings only for Redirection's current rows and left core
 identities, core content and the real source branch untouched. The fixture now
 encodes the ordering and an offline regression prevents the canonical-root
 shortcut, a cross-plugin identity mint, or leaked widget mutation from
-returning. The same activation finding was propagated to the exact-version
+returning.
+
+The next clean-room run passed that bootstrap and reached the real apply, which
+refused `options/core.json` as changed on both sides. Private refusal evidence
+showed the disposable capture had updated the target's three-way base; restoring
+the widgets then looked like a target edit while the source repository was the
+other edit. The agent restored capture's existing `--out` mode to the isolated
+pass. That mode still commits new `duo_map` identities but deliberately skips
+canonical `duo_state` and media publication, exactly matching this fixture's
+intent. The regression now requires both the isolated policy and its output-only
+destination. The same activation finding was propagated to the exact-version
 matrix target before running it: that target now completes and verifies the
 public database install before it truncates any boundary fixture tables.
 

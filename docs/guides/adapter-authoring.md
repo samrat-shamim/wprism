@@ -883,7 +883,12 @@ plugin faithfully.
    unrelated live surface an explicit runtime disposition, or quiesce it
    through native APIs and restore it exactly on both success and failure. A
    default category or widget must not acquire an identity merely because the
-   fixture needed a target-only custom-table row.
+   fixture needed a target-only custom-table row. Run this minting capture with
+   `--out=<disposable-state>`: output-only capture commits new identity maps but
+   skips canonical state-hash and media publication. Without `--out`, the
+   disposable projection becomes the target's three-way base and the real
+   first apply can correctly report a false-for-the-scenario conflict as soon
+   as quiesced global state is restored.
 
 ### Getting the harness those tests need
 

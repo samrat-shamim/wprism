@@ -314,9 +314,11 @@ namespace {
         && str_contains($targetSeed, 'update_option("widget_block"')
         && str_contains($targetSeed, 'trap restore_redirection_identity_widgets EXIT')
         && str_contains($targetSeed, 'RESTORED_WIDGET_HASH')
-        && str_contains($targetSeed, 'duo capture --repo=/siterepo/.tmp-redirection-identity-repo')
+        && str_contains($targetSeed, '--repo=/siterepo/.tmp-redirection-identity-repo')
+        && str_contains($targetSeed, '--out=/siterepo/.tmp-redirection-identity-state')
+        && str_contains($targetSeed, 'skips canonical duo_state/media publication')
         && !str_contains($targetSeed, 'duo capture --repo=/siterepo --out=/siterepo/.tmp-redirection-target-identity'),
-        'A8: target-only mappings retain core grammar but isolate core identities and exactly restore globally-audited state');
+        'A8: output-only target mapping retains core grammar without rebasing canonical conflict state');
     $matrixSeed = (string) file_get_contents($root . '/sandbox/tests/certify/matrix.d/redirection.sh');
     duo_check(str_contains($matrixSeed, 'wp2 redirection database install')
         && str_contains($matrixSeed, 'Redirection 5.9.0 boundary target database readiness')

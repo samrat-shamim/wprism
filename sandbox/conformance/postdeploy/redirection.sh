@@ -98,6 +98,7 @@ NEGATIVE_CODE=$(curl --max-time 20 -sS -o /dev/null -w '%{http_code}' "http://lo
 # lost identity sidecar. The disposable state is never published; only the
 # database-matched duo_map evidence survives.
 IDENTITY_REPO="${CONF_REPO2:-siterepo/conf2}/.tmp-redirection-identity-repo"
+IDENTITY_STATE="${CONF_REPO2:-siterepo/conf2}/.tmp-redirection-identity-state"
 WIDGET_STATE="${CONF_REPO2:-siterepo/conf2}/.tmp-redirection-identity-widgets"
 mkdir -p "$IDENTITY_REPO"
 # The identity-minting pass must not touch core's default category/widgets:
@@ -154,14 +155,20 @@ WIDGET_HASH=$(wp_conf2 eval '
   echo hash("sha256",serialize($state));
 ')
 require_observed_nonempty "Redirection identity widget backup" "$WIDGET_HASH"
-TARGET_IDENTITY_CAPTURE=$(wp_conf2 duo capture --repo=/siterepo/.tmp-redirection-identity-repo 2>&1)
+# --out is load-bearing: capture still commits newly minted duo_map rows, but
+# it skips canonical duo_state/media publication. Omitting it would rebase the
+# target's conflict ledger against this disposable projection, so restoring
+# the quiesced widgets would make the real first apply accuse options/core.
+TARGET_IDENTITY_CAPTURE=$(wp_conf2 duo capture \
+  --repo=/siterepo/.tmp-redirection-identity-repo \
+  --out=/siterepo/.tmp-redirection-identity-state 2>&1)
 require_duo_answered "Redirection target-only identity capture" human "$TARGET_IDENTITY_CAPTURE"
 RESTORED_WIDGET_HASH=$(restore_redirection_identity_widgets)
 require_observed_nonempty "Redirection identity widget restore" "$RESTORED_WIDGET_HASH"
 [ "$RESTORED_WIDGET_HASH" = "$WIDGET_HASH" ] \
   || fail "Redirection identity pass did not exactly restore unrelated WordPress widgets"
 trap - EXIT
-rm -rf "$IDENTITY_REPO"
+rm -rf "$IDENTITY_REPO" "$IDENTITY_STATE"
 RUNTIME=$(wp_conf2 eval '
   global $wpdb;
   echo wp_json_encode([
