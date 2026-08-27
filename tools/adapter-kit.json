@@ -45,8 +45,8 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/FakeWpdb.php",
             "role": "DuoTest\\FakeWpdb — a $wpdb that holds ROWS and interprets SQL against them",
-            "bytes": 140805,
-            "sha256": "a06b927ec9f20e0c781a6881678010719a1f53fda51c22e8aa533332d2ce30e4"
+            "bytes": 173724,
+            "sha256": "0d8b7f984ef9bfced08820938cc53bb7fcfd26c03b8f448a0169f7f62d8c05bb"
         },
         {
             "path": "lib/frozen_policy.php",
@@ -65,20 +65,28 @@
             "sha256": "8c3fee11637395de28f63de193a6d5b060c57ce99a482c8b64ac4aceee9bace5"
         },
         {
+            "path": "lib/pair_identity.sh",
+            "origin": "copied",
+            "source": "sandbox/lib/pair_identity.sh",
+            "role": "candidate source resolution and caller-local Compose mount pinning for parallel evidence lanes",
+            "bytes": 2820,
+            "sha256": "b8b98a2b2582a87312ef988a873cf7d4e0d34a07bc59e15bea27e4ab68663a38"
+        },
+        {
             "path": "conformance/run.sh",
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 32866,
-            "sha256": "22aadea908717984c15690c3d9391ad792dfb7a9d07400f1d6953ab726b51796"
+            "bytes": 33675,
+            "sha256": "790493066fb780f00df1fd20c36b8ed95f0d47201c943330a3cfb96dd1513e2e"
         },
         {
             "path": "conformance/asserts.sh",
             "origin": "copied",
             "source": "sandbox/conformance/asserts.sh",
             "role": "premise assertions every seed/postdeploy hook calls before its engine assertion",
-            "bytes": 9742,
-            "sha256": "fdf14fb660fb2394b8b9439e5c54932a7aa51818a9f8e84818de3b7b7a27fcbc"
+            "bytes": 12868,
+            "sha256": "5454d14deaad2a5150ee5da02c9071e221a73b72f4f52dd26858aa5cd6c0b6fb"
         },
         {
             "path": "skeleton/example-adapter.php",
@@ -101,8 +109,8 @@
             "origin": "generated",
             "source": null,
             "role": "what the kit is, how to run it, and what it deliberately omits",
-            "bytes": 4313,
-            "sha256": "d3d9b9a79ac4ff859eebafa645fd583748db7d42901a4389c957ef553f5dbf5c"
+            "bytes": 4470,
+            "sha256": "13444a06d14f8802122458b502631f33cb0596a0864efbd6710bb7fc7a6f47e9"
         }
     ]
 }

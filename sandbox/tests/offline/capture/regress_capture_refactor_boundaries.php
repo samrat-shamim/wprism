@@ -54,6 +54,17 @@ foreach (token_get_all($capture) as $token) {
 $buildStart = strpos($candidate, 'public function build(');
 $buildEnd = strpos($candidate, 'private function reset(', (int) $buildStart);
 $candidateBuild = substr($candidate, (int) $buildStart, (int) $buildEnd - (int) $buildStart);
+$ordinarySnapshotStart = strpos($snapshot, 'public static function snapshot(');
+$ordinarySnapshotEnd = strpos($snapshot, "\n    /**", (int) $ordinarySnapshotStart + 1);
+$ordinarySnapshot = substr(
+    $snapshot,
+    (int) $ordinarySnapshotStart,
+    (int) $ordinarySnapshotEnd - (int) $ordinarySnapshotStart
+);
+$prePruneGuard = strpos($ordinarySnapshot, 'CanonicalLedgerMapGuard::assert_pre_prune(');
+$ledgerPrune = strpos($ordinarySnapshot, 'Ledger::prune_dead_map()');
+$sidebarPrune = strpos($ordinarySnapshot, 'SidebarState::prune_dead_map($policy)');
+$typedPrune = strpos($ordinarySnapshot, 'Snapshot::prune_dead_map($policy, $repositoryOptions)');
 
 require_once "$root/agent/src/Capture/Capture.php";
 $captureReflection = new ReflectionClass(Duo\Capture::class);
@@ -64,6 +75,18 @@ $check(!str_contains($captureCode, 'Db::') && !str_contains($captureCode, '$wpdb
     'Capture owns neither database discovery nor transaction implementation');
 $check(!str_contains($capture, 'Publish::begin_intent(') && !str_contains($capture, 'Publish::swap('),
     'Capture owns no publication implementation');
+$check(
+    $ordinarySnapshotStart !== false
+        && $ordinarySnapshotEnd !== false
+        && $prePruneGuard !== false
+        && $ledgerPrune !== false
+        && $sidebarPrune !== false
+        && $typedPrune !== false
+        && $prePruneGuard < $ledgerPrune
+        && $prePruneGuard < $sidebarPrune
+        && $prePruneGuard < $typedPrune,
+    'ordinary plan/apply proves retained canonical maps before every dead-map pruner can erase recovery evidence'
+);
 
 $check(!$captureReflection->isInstantiable(), 'Capture preserves its historical non-instantiable boundary');
 $constructor = $captureReflection->getConstructor();

@@ -196,12 +196,12 @@ foreach ($members as $member) {
         "kit member $path is the live {$member['source']}, not a parallel copy"
     );
 }
-// Six from WP-2.6, plus WP-2.7's lib/ConformanceVector.php — a third party who
+// Seven from WP-2.6, plus WP-2.7's lib/ConformanceVector.php — a third party who
 // can prove a round trip on a pair but cannot replay it offline is back to
 // spending a pair per iteration, which is the cost this kit exists to remove.
-duo_check_same(7, $copiedCount, 'the kit packages the seven live harness files WP-2.6 and WP-2.7 name');
+duo_check_same(8, $copiedCount, 'the kit packages the eight live harness files WP-2.6 and WP-2.7 name');
 
-// The five lib files and the two conformance files, by name: a silent drop
+// The six lib files and the two conformance files, by name: a silent drop
 // (say frozen_policy.php) would still leave clauses A and B green.
 $paths = array_map(static fn(array $m): string => (string) $m['path'], $members);
 foreach (
@@ -211,6 +211,7 @@ foreach (
         'lib/FakeWpdb.php',
         'lib/frozen_policy.php',
         'lib/ConformanceVector.php',
+        'lib/pair_identity.sh',
         'conformance/run.sh',
         'conformance/asserts.sh',
     ] as $required
@@ -306,7 +307,7 @@ if (!is_file($kit . '/lib/FakeWpdb.php')) {
     $wpdb->seedTable('wp_kit_probe', [['id' => 1, 'title' => 'a']]);
     duo_check_throws(
         static fn(): array => $wpdb->get_results(
-            'SELECT f.id FROM wp_kit_probe AS f LEFT JOIN wp_posts AS p ON p.ID = f.id WHERE p.ID IS NULL',
+            'SELECT f.id FROM wp_kit_probe AS f RIGHT JOIN wp_posts AS p ON p.ID = f.id WHERE p.ID IS NULL',
             ARRAY_A
         ),
         LogicException::class,
@@ -317,15 +318,15 @@ if (!is_file($kit . '/lib/FakeWpdb.php')) {
     // other type is exactly the defect under test, and it must be reported as
     // a failed assertion rather than escape as a fatal.
     try {
-        $wpdb->get_results('SELECT f.id FROM wp_kit_probe AS f LEFT JOIN wp_posts AS p ON p.ID = f.id', ARRAY_A);
+        $wpdb->get_results('SELECT f.id FROM wp_kit_probe AS f RIGHT JOIN wp_posts AS p ON p.ID = f.id', ARRAY_A);
         duo_check(false, 'the refusal names the statement it could not interpret');
         duo_check_detail('nothing was thrown — the statement was answered');
     } catch (Throwable $e) {
         duo_check(
-            $e instanceof LogicException && str_contains($e->getMessage(), 'LEFT JOIN'),
+            $e instanceof LogicException && str_contains($e->getMessage(), 'RIGHT'),
             'the refusal names the statement it could not interpret, so the author can act on it'
         );
-        if (!($e instanceof LogicException) || !str_contains($e->getMessage(), 'LEFT JOIN')) {
+        if (!($e instanceof LogicException) || !str_contains($e->getMessage(), 'RIGHT')) {
             duo_check_detail(get_class($e) . ': ' . $e->getMessage());
         }
     }

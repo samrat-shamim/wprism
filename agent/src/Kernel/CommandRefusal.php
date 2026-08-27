@@ -102,6 +102,18 @@ final class CommandRefusalException extends \RuntimeException {
         );
     }
 
+    /** Stable refusal when full plan/apply finds retained but unbacked identity. */
+    public static function canonicalIdentityRecoveryRequired(?\Throwable $previous = null): self {
+        return new self(
+            'canonical_identity_recovery_required',
+            'canonical mapped identity has no matching live backing row; plan/apply was refused before creating or rebinding it',
+            'restore the database-matched backup or capture the intended deletion before retrying plan/apply',
+            [],
+            'duo: canonical mapped identity has no matching live backing row; refusing to create or rebind it. Restore the database-matched backup or capture the intended deletion before plan/apply.',
+            $previous
+        );
+    }
+
     /** Stable public boundary for explain's deliberately non-repairing read. */
     public static function explainObservationPrecondition(\Throwable $previous): self {
         return new self(

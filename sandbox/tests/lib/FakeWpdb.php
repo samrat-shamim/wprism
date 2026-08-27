@@ -73,12 +73,14 @@
  * SUPPORTED SQL GRAMMAR (everything else throws \LogicException):
  *
  *   SELECT [DISTINCT] <items> [FROM <table> [[AS] alias]]
+ *          [INNER|LEFT [OUTER]] JOIN <table> [[AS] alias] ON <cond>
  *          [WHERE <cond>] [GROUP BY <cols>] [ORDER BY <cols> [ASC|DESC]]
  *          [LIMIT n [OFFSET m] | LIMIT m, n]
  *     items: * | alias.* | COUNT(*) | <literal> | [alias.]col | LENGTH(col)
  *            | OCTET_LENGTH(col) | SHA2(<operand>, 256) | LEFT(<operand>, <length>)
  *            | GET_LOCK(..) | RELEASE_LOCK(..) | IS_USED_LOCK(..)
- *            | CONNECTION_ID() | VERSION()      , each with an optional AS alias
+ *            | CONNECTION_ID() | VERSION() | COALESCE(..) | SUM(..) | MAX(..)
+ *            | CAST(.. AS CHAR), each with an optional AS alias
  *     cond:  AND / OR / parentheses over
  *            <operand> = != <> < <= > >= <operand>
  *            <operand> [NOT] IN (<values>)
@@ -102,17 +104,20 @@
  *   SET ...                           (accepted no-op)
  *   CREATE / ALTER / DROP / TRUNCATE  (recorded in ddlLog; DROP/TRUNCATE clear rows)
  *
- * JOINs, subqueries, UNION, HAVING and aggregate functions other than
- * COUNT(*) are deliberately NOT supported. The sole opt-in exception is
- * RelationshipMaterializer's exact owner-range LEFT JOIN, whose fixed row
- * projection lets the menu mutation regression prove post/term id-keyspace
- * separation without teaching this fake a general relational planner.
+ * Simple INNER/LEFT JOINs may be explicitly enabled for bounded join
+ * predicates; the default remains closed so a fixture cannot silently become
+ * a relational planner. Subqueries, UNION, RIGHT/CROSS JOIN, and HAVING remain
+ * unsupported. Aggregate expressions are evaluated only over the bounded
+ * in-memory result set, never over an unbounded synthetic stream.
  *
- * Schema-qualified reads (information_schema.COLUMNS / .STATISTICS) remain
- * unsupported -- parseTableRef() refuses the `db.table` form outright. SHOW
- * schema probes are supported only from explicit setColumnDefinitions(),
- * setIndexes(), and setTableEngine() fixtures; no schema fact is inferred from
- * stored rows. Concretely it means
+ * Schema-qualified row inventories (information_schema.COLUMNS /
+ * .STATISTICS) remain unsupported -- parseTableRef() refuses the `db.table`
+ * form outright. The one narrow exception is an exact COUNT(*)/binary table
+ * identity query against either inventory: providers use that compact witness
+ * solely to bound a following SHOW transfer, whose rows still come from
+ * setColumns()/setColumnDefinitions()/setIndexes(). SHOW schema probes are
+ * otherwise supported only from explicit fixtures; no schema fact is inferred
+ * from stored rows. Concretely it means
  * Ledger::assert_read_only_schema(), Ledger::prune_dead_table_map() (a
  * multi-table DELETE) and Snapshot::assert_all_mapped_rows_managed() (a LEFT
  * JOIN) cannot be migrated to this fake; they stay live-certification paths.
@@ -182,6 +187,7 @@ final class FakeWpdb {
 
     public string $prefix = 'wp_';
     public string $base_prefix = 'wp_';
+    public string $dbname = 'wordpress';
     public string $last_error = '';
     public string $last_query = '';
     public int $insert_id = 0;
@@ -201,6 +207,13 @@ final class FakeWpdb {
     public string $users = 'wp_users';
     public string $usermeta = 'wp_usermeta';
     public string $links = 'wp_links';
+    // Action Scheduler registers these non-core tables as wpdb properties.
+    // The scheduler provider refuses a target whose runtime registration does
+    // not match its site prefix, so the shared fake exposes that exact shape.
+    public string $actionscheduler_actions = 'wp_actionscheduler_actions';
+    public string $actionscheduler_claims = 'wp_actionscheduler_claims';
+    public string $actionscheduler_groups = 'wp_actionscheduler_groups';
+    public string $actionscheduler_logs = 'wp_actionscheduler_logs';
 
     /** @var array<string,list<array<string,mixed>>> full table name => rows */
     private array $store = [];
@@ -212,7 +225,7 @@ final class FakeWpdb {
     private array $uniqueKeys = [];
     /** @var array<string,array<string,string>> full table name => column => SQL type */
     private array $columnTypes = [];
-    /** @var array<string,array<string,array{Type:string,Null:string,Default:mixed,Extra:string}>> */
+    /** @var array<string,array<string,array{Type:string,Null:string,Default:mixed,Extra:string}>|list<array<string,mixed>>> */
     private array $columnDefinitions = [];
     /** @var array<string,list<array{Key_name:string,Non_unique:int,Seq_in_index:int,Column_name:string,Sub_part:?int,Index_type:string}>> */
     private array $indexes = [];
@@ -234,10 +247,14 @@ final class FakeWpdb {
     private bool $fullApplySqlExtensionsEnabled = false;
     /** Opt-in for RelationshipMaterializer's exact locked owner-range join. */
     private bool $relationshipOwnershipJoinEnabled = false;
+    /** Opt-in for the Woo capture fixture's bounded joined reads. */
+    private bool $joinedCaptureSqlEnabled = false;
     /** @var list<array{command:string,outcome:string}> one-shot transaction ambiguity probes */
     private array $transactionOutcomes = [];
     /** Reconnect immediately before the next transaction-state-bearing SELECT. */
     private bool $reconnectBeforeTransactionState = false;
+    /** @var list<array{match:?string,remaining:int}> */
+    private array $injectedAcknowledgements = [];
     /**
      * Row snapshot taken at START TRANSACTION. Deliberately does NOT include
      * $autoIncrement -- see execTransaction().
@@ -272,15 +289,17 @@ final class FakeWpdb {
 
     /** Full server banner returned by SELECT VERSION(). */
     private string $serverVersion = '8.0.36';
-    /** Session default returned by the MariaDB/MySQL system-variable probe. */
+    /** Session isolation returned by MySQL's transaction-isolation variable. */
     private string $transactionIsolation = 'REPEATABLE-READ';
-    /** One-shot SET TRANSACTION characteristic consumed by the next boundary. */
+    /** One-shot isolation consumed by the next START TRANSACTION. */
     private ?string $nextTransactionIsolation = null;
-    /** Isolation selected when the current transaction began. */
+    /** Isolation of the currently open transaction, for adversarial fixtures. */
     private ?string $activeTransactionIsolation = null;
 
     /** @var array<string,int> lock name => holding connection id */
     private array $heldLocks = [];
+    /** @var array<string,int> simulated InnoDB row/range lock => connection id */
+    private array $rowLocks = [];
 
     public function __construct(string $prefix = 'wp_') {
         $this->prefix = $prefix;
@@ -290,6 +309,10 @@ final class FakeWpdb {
             if ($pk !== null) {
                 $this->primaryKeys[$prefix . $name] = $pk;
             }
+        }
+        foreach (['actions', 'claims', 'groups', 'logs'] as $suffix) {
+            $property = 'actionscheduler_' . $suffix;
+            $this->$property = $prefix . $property;
         }
     }
 
@@ -400,15 +423,33 @@ final class FakeWpdb {
      * Configure exact SHOW FULL COLUMNS attributes without inferring schema
      * from seeded values. Definition order is physical ordinal order.
      *
-     * @param array<string,array{Type:string,Null:string,Default:mixed,Extra:string}> $definitions
+     * The map form is used by older suites; the list form retains arbitrary
+     * driver rows (including malformed or duplicate rows) for schema-boundary
+     * refusals. Only valid Field/Type pairs from the list form widen ordinary
+     * SELECT resolution.
+     *
+     * @param array<string,array{Type:string,Null:string,Default:mixed,Extra:string}>|list<array<string,mixed>> $definitions
      */
     public function setColumnDefinitions(string $table, array $definitions): self {
         $name = $this->tableName($table);
-        $this->columnDefinitions[$name] = $definitions;
-        $this->columnTypes[$name] = array_map(
-            static fn(array $definition): string => $definition['Type'],
-            $definitions
-        );
+        if ($definitions === [] || array_is_list($definitions)) {
+            $types = [];
+            foreach ($definitions as $row) {
+                $field = $row['Field'] ?? null;
+                $type = $row['Type'] ?? null;
+                if (is_string($field) && $field !== '' && is_string($type)) {
+                    $types[$field] = $type;
+                }
+            }
+            $this->columnTypes[$name] = $types;
+            $this->columnDefinitions[$name] = array_values($definitions);
+        } else {
+            $this->columnDefinitions[$name] = $definitions;
+            $this->columnTypes[$name] = array_map(
+                static fn(array $definition): string => $definition['Type'],
+                $definitions
+            );
+        }
         $this->store[$name] ??= [];
         return $this;
     }
@@ -425,8 +466,8 @@ final class FakeWpdb {
 
     public function setTableEngine(string $table, string $engine): self {
         $name = $this->tableName($table);
-        $this->tableEngines[$name] = $engine;
         $this->store[$name] ??= [];
+        $this->tableEngines[$name] = $engine;
         return $this;
     }
 
@@ -465,6 +506,15 @@ final class FakeWpdb {
         return $this;
     }
 
+    /**
+     * Enable bounded joined SELECTs for the Woo capture fixture, which seeds
+     * every participating table. Ordinary fixtures keep multi-table SQL closed.
+     */
+    public function enableJoinedCaptureSql(): self {
+        $this->joinedCaptureSqlEnabled = true;
+        return $this;
+    }
+
     public function setTransactionIsolation(string $isolation): self {
         $this->transactionIsolation = $isolation;
         return $this;
@@ -478,7 +528,6 @@ final class FakeWpdb {
             'active' => $this->activeTransactionIsolation,
         ];
     }
-
     /** Result GET_LOCK() reports; 0 makes the engine's lock acquisition fail. */
     public function setLockResult(int $result): self {
         $this->lockResult = $result;
@@ -499,11 +548,51 @@ final class FakeWpdb {
             $this->store = $this->transactionSnapshot;
             $this->transactionSnapshot = null;
         }
+        $old = $this->connectionId;
         $this->connectionId = $id;
-        $this->heldLocks = [];
+        foreach ($this->heldLocks as $name => $holder) {
+            if ($holder === $old) {
+                unset($this->heldLocks[$name]);
+            }
+        }
+        foreach ($this->rowLocks as $name => $holder) {
+            if ($holder === $old) {
+                unset($this->rowLocks[$name]);
+            }
+        }
         $this->reconnectBeforeTransactionState = false;
         $this->nextTransactionIsolation = null;
         $this->activeTransactionIsolation = null;
+        return $this;
+    }
+
+    /** Seed a foreign one-shot transaction characteristic before provider entry. */
+    public function setNextTransactionIsolation(string $isolation): self {
+        $this->nextTransactionIsolation = $isolation;
+        return $this;
+    }
+
+    public function activeTransactionIsolation(): ?string {
+        return $this->activeTransactionIsolation;
+    }
+
+    /** Share one simulated MySQL server's advisory-lock namespace. */
+    public function shareAdvisoryLocksWith(self $other): self {
+        $this->heldLocks =& $other->heldLocks;
+        return $this;
+    }
+
+    /** Share a simulated database server while retaining separate sessions. */
+    public function shareDatabaseStateWith(self $other): self {
+        $this->store =& $other->store;
+        $this->autoIncrement =& $other->autoIncrement;
+        $this->primaryKeys =& $other->primaryKeys;
+        $this->uniqueKeys =& $other->uniqueKeys;
+        $this->columnTypes =& $other->columnTypes;
+        $this->columnDefinitions =& $other->columnDefinitions;
+        $this->indexes =& $other->indexes;
+        $this->tableEngines =& $other->tableEngines;
+        $this->rowLocks =& $other->rowLocks;
         return $this;
     }
 
@@ -587,6 +676,18 @@ final class FakeWpdb {
 
     public function clearTransactionOutcomes(): self {
         $this->transactionOutcomes = [];
+        return $this;
+    }
+
+    /**
+     * Report a successful statement acknowledgement without applying it.
+     *
+     * Drivers and proxies can lose or misclassify transaction acknowledgements;
+     * this seam pins callers that must prove server state instead of trusting a
+     * truthy wpdb::query() result.
+     */
+    public function acknowledgeNextQueryWithoutExecution(?string $matching = null, int $times = 1): self {
+        $this->injectedAcknowledgements[] = ['match' => $matching, 'remaining' => $times];
         return $this;
     }
 
@@ -810,6 +911,12 @@ final class FakeWpdb {
 
     /** One row in $output shape, or null. */
     public function get_row(string $query, string $output = OBJECT, int $y = 0): array|object|null {
+        if ($this->fullApplySqlExtensionsEnabled) {
+            $witness = $this->fullApplyCanonicalPostWitnessRow($query);
+            if ($witness !== false) {
+                return is_array($witness) ? $this->shape($witness, $output) : null;
+            }
+        }
         $result = $this->run('get_row', $query);
         if ($result === null || $result['kind'] !== 'rows') {
             return null;
@@ -1004,6 +1111,49 @@ final class FakeWpdb {
             . " tt ON tt.term_id = t.term_id WHERE tt.taxonomy = 'nav_menu' ORDER BY t.term_id ASC";
     }
 
+    /**
+     * Exact post/_duo_uuid join used by the production pre-prune identity
+     * guard. false means this is a different query; null is its real absent
+     * result, preserving LEFT JOIN semantics for a post without the sidecar.
+     *
+     * @return array<string,mixed>|false|null
+     */
+    private function fullApplyCanonicalPostWitnessRow(string $query): array|false|null {
+        $posts = preg_quote($this->tableName('posts'), '~');
+        $postmeta = preg_quote($this->tableName('postmeta'), '~');
+        $pattern = '~^SELECT p\.ID, p\.post_type, pm\.meta_value AS duo_uuid FROM '
+            . $posts . ' p LEFT JOIN ' . $postmeta
+            . " pm ON pm\.post_id = p\.ID AND pm\.meta_key = '_duo_uuid'"
+            . ' WHERE p\.ID = ([0-9]+) ORDER BY pm\.meta_id ASC LIMIT 1$~';
+        if (preg_match($pattern, $this->fullApplySql($query), $match) !== 1) {
+            return false;
+        }
+        $postId = (int) $match[1];
+        $post = null;
+        foreach ($this->store[$this->tableName('posts')] ?? [] as $row) {
+            if ((int) ($row['ID'] ?? 0) === $postId) {
+                $post = $row;
+                break;
+            }
+        }
+        if (!is_array($post)) {
+            return null;
+        }
+        $meta = array_values(array_filter(
+            $this->store[$this->tableName('postmeta')] ?? [],
+            static fn(array $row): bool => (int) ($row['post_id'] ?? 0) === $postId
+                && (string) ($row['meta_key'] ?? '') === '_duo_uuid'
+        ));
+        usort($meta, static fn(array $a, array $b): int =>
+            (int) ($a['meta_id'] ?? 0) <=> (int) ($b['meta_id'] ?? 0)
+        );
+        return [
+            'ID' => $postId,
+            'post_type' => (string) ($post['post_type'] ?? ''),
+            'duo_uuid' => isset($meta[0]) ? (string) ($meta[0]['meta_value'] ?? '') : null,
+        ];
+    }
+
     private function isFullApplyPromotionInsertQuery(string $query): bool {
         $normalized = $this->fullApplySql($query);
         $prefix = "INSERT INTO `{$this->tableName('duo_kv')}` (k, v) VALUES ('promotion_lock', '";
@@ -1127,7 +1277,11 @@ final class FakeWpdb {
         if (($error = $this->intercept('insert', $sql)) !== null) {
             return $this->fail('insert', $sql, $error);
         }
-        $this->applyInsert($this->tableName($table), $data);
+        $name = $this->tableName($table);
+        if ($this->writeConflictsWithLocks($name, $data, [])) {
+            return $this->fail('insert', $sql, 'simulated InnoDB row lock wait timeout');
+        }
+        $this->applyInsert($name, $data);
         $this->log('insert', $sql);
         $this->rows_affected = 1;
         return 1;
@@ -1167,6 +1321,9 @@ final class FakeWpdb {
             return $this->fail('update', $sql, $error);
         }
         $name = $this->requireTable($this->tableName($table));
+        if ($this->writeConflictsWithLocks($name, $data, $where)) {
+            return $this->fail('update', $sql, 'simulated InnoDB row lock wait timeout');
+        }
         $affected = 0;
         foreach ($this->store[$name] as $index => $row) {
             if (!$this->matchesEquality($row, $where)) {
@@ -1191,6 +1348,9 @@ final class FakeWpdb {
             return $this->fail('delete', $sql, $error);
         }
         $name = $this->requireTable($this->tableName($table));
+        if ($this->writeConflictsWithLocks($name, [], $where)) {
+            return $this->fail('delete', $sql, 'simulated InnoDB row lock wait timeout');
+        }
         $kept = [];
         $removed = 0;
         foreach ($this->store[$name] as $row) {
@@ -1230,6 +1390,16 @@ final class FakeWpdb {
         if (($error = $this->intercept($method, $sql)) !== null) {
             $this->fail($method, $sql, $error);
             return null;
+        }
+        foreach ($this->injectedAcknowledgements as $index => $acknowledgement) {
+            if ($acknowledgement['remaining'] <= 0
+                || ($acknowledgement['match'] !== null
+                    && !str_contains($sql, $acknowledgement['match']))) {
+                continue;
+            }
+            $this->injectedAcknowledgements[$index]['remaining']--;
+            $this->log($method, $sql);
+            return ['kind' => 'ok'];
         }
         $transactionOutcome = $this->takeTransactionOutcome($sql);
         if ($transactionOutcome === 'before_false') {
@@ -1727,7 +1897,109 @@ final class FakeWpdb {
             ];
         }
         $this->currentSql = $trimmed;
+        if (preg_match('/^(.*)\s+FOR\s+UPDATE$/isD', $trimmed, $locking) === 1) {
+            if (preg_match('/\bFROM\s+`?([A-Za-z0-9_]{1,64})`?/is', $trimmed, $tableMatch) !== 1) {
+                throw $this->unsupported('SELECT FOR UPDATE without an exact table');
+            }
+            $table = $this->tableName($tableMatch[1]);
+            if ($this->transactionSnapshot !== null) {
+                $schemaKey = $table . "\0schema";
+                if (isset($this->rowLocks[$schemaKey]) && $this->rowLocks[$schemaKey] !== $this->connectionId) {
+                    throw new \RuntimeException('FakeWpdb: simulated InnoDB metadata lock wait timeout');
+                }
+                $this->rowLocks[$schemaKey] = $this->connectionId;
+                if (preg_match(
+                    "/\\bFROM\\s+`?([A-Za-z0-9_]{1,64})`?.*\\boption_name\\s*=\\s*"
+                    . "(?:BINARY\\s+)?'((?:[^'\\\\]|\\\\.)*)'/is",
+                    $trimmed,
+                    $target
+                ) === 1) {
+                    $optionName = stripslashes($target[2]);
+                    $key = $this->tableName($target[1]) . "\0option_name\0" . $optionName;
+                    if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                        throw new \RuntimeException('FakeWpdb: simulated InnoDB row lock wait timeout');
+                    }
+                    $this->rowLocks[$key] = $this->connectionId;
+                } elseif (str_ends_with($table, 'actionscheduler_groups')
+                    && preg_match("/\\bWHERE\\s+slug\\s*=\\s*'((?:[^'\\\\]|\\\\.)*)'/is", $trimmed, $group) === 1) {
+                    $key = $table . "\0slug\0" . stripslashes($group[1]);
+                    if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                        throw new \RuntimeException('FakeWpdb: simulated InnoDB group-range lock wait timeout');
+                    }
+                    $this->rowLocks[$key] = $this->connectionId;
+                } elseif (str_ends_with($table, 'duo_map')) {
+                    // Apply finalization takes one bounded inventory lock over
+                    // the complete engine-owned map; its exact table and
+                    // PRIMARY order are the lock target, without a WHERE key.
+                } elseif (preg_match(
+                    "/\\bWHERE\\s+hook\\s*=\\s*'([^']+)'\\s+AND\\s+status\\s*=\\s*'([^']+)'/is",
+                    $trimmed,
+                    $range
+                ) === 1) {
+                    $key = $table . "\0hook-status\0" . stripslashes($range[1]) . "\0" . stripslashes($range[2]);
+                    if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                        throw new \RuntimeException('FakeWpdb: simulated InnoDB range lock wait timeout');
+                    }
+                    $this->rowLocks[$key] = $this->connectionId;
+                } elseif (str_ends_with($table, 'actionscheduler_logs')
+                    && preg_match('/\bWHERE\s+action_id\s*=\s*([0-9]+)\b/is', $trimmed, $owner) === 1) {
+                    $key = $table . "\0action_id\0" . $owner[1];
+                    if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                        throw new \RuntimeException('FakeWpdb: simulated InnoDB owner-range lock wait timeout');
+                    }
+                    $this->rowLocks[$key] = $this->connectionId;
+                } elseif ($table === $this->postmeta
+                    && preg_match(
+                        "/\\bWHERE\\s+meta_key\\s*=\\s*'_wp_attached_file'\\s+AND\\s+meta_id\\s*>\\s*0\\b/is",
+                        $trimmed
+                    ) === 1) {
+                    // Attachment recovery's exact bounded metadata roster is
+                    // separately interpreted below; it has no shared-write
+                    // seam, so a synthetic range lock would only reject it.
+                } elseif (preg_match(
+                    '/\bWHERE\b[^;]*\b`?(?:ID|option_id|meta_id|event_id|occurrence_id|post_id|action_id|claim_id|group_id|log_id)`?\s*=\s*[0-9]+\b/is',
+                    $trimmed
+                ) !== 1) {
+                    throw $this->unsupported('unregistered SELECT FOR UPDATE lock target');
+                }
+            }
+            $trimmed = rtrim($locking[1]);
+            $trimmed = preg_replace(
+                '/\s+FORCE\s+INDEX\s*\(`?[A-Za-z0-9_]{1,64}`?\)/i',
+                '',
+                $trimmed
+            ) ?? $trimmed;
+        }
         $head = preg_match('/^[A-Za-z_]+/', $trimmed, $m) === 1 ? strtoupper($m[0]) : '';
+        if (preg_match(
+            "/^SELECT\\s+CONNECTION_ID\\(\\)\\s+AS\\s+connection_id,\\s*"
+            . "@@(?:SESSION\\.)?in_transaction\\s+AS\\s+in_transaction,\\s*"
+            . "IS_USED_LOCK\\('((?:[^'\\\\]|\\\\.)*)'\\)\\s+AS\\s+lock_holder$/iD",
+            $trimmed,
+            $session
+        ) === 1) {
+            $lockName = stripslashes($session[1]);
+            return [
+                'kind' => 'rows',
+                'rows' => [[
+                    'connection_id' => $this->connectionId,
+                    'in_transaction' => $this->transactionSnapshot === null ? 0 : 1,
+                    'lock_holder' => $this->heldLocks[$lockName] ?? null,
+                ]],
+            ];
+        }
+        if (preg_match('/^SELECT\s+@@(?:SESSION\.)?in_transaction$/iD', $trimmed) === 1) {
+            return [
+                'kind' => 'rows',
+                'rows' => [['@@in_transaction' => $this->transactionSnapshot === null ? 0 : 1]],
+            ];
+        }
+        if (preg_match('/^SELECT\s+@@(?:SESSION\.)?(?:transaction_isolation|tx_isolation)$/iD', $trimmed) === 1) {
+            return [
+                'kind' => 'rows',
+                'rows' => [['@@transaction_isolation' => $this->transactionIsolation]],
+            ];
+        }
         if (($head === 'SAVEPOINT' && preg_match('/^SAVEPOINT `[A-Za-z0-9_]+`$/D', $trimmed) === 1)
             || ($head === 'RELEASE'
                 && preg_match('/^RELEASE SAVEPOINT `[A-Za-z0-9_]+`$/D', $trimmed) === 1)) {
@@ -1735,6 +2007,16 @@ final class FakeWpdb {
                 throw $this->unsupported('savepoint outside a transaction');
             }
             return ['kind' => 'ok'];
+        }
+        if ($head === 'SELECT') {
+            $optionStats = $this->boundedOptionStats($trimmed);
+            if ($optionStats !== null) {
+                return ['kind' => 'rows', 'rows' => [$optionStats]];
+            }
+            $schemaCount = $this->boundedSchemaCount($trimmed);
+            if ($schemaCount !== null) {
+                return ['kind' => 'rows', 'rows' => [['COUNT(*)' => $schemaCount]]];
+            }
         }
         switch ($head) {
             case 'CREATE':
@@ -1745,10 +2027,15 @@ final class FakeWpdb {
             case 'SET':
                 if (preg_match(
                     '/^SET\s+TRANSACTION\s+ISOLATION\s+LEVEL\s+'
-                    . '(READ\s+COMMITTED|REPEATABLE\s+READ|SERIALIZABLE)$/iD',
+                    . '(READ\s+UNCOMMITTED|READ\s+COMMITTED|REPEATABLE\s+READ|SERIALIZABLE)$/iD',
                     $trimmed,
                     $isolationMatch
                 ) === 1) {
+                    if ($this->transactionSnapshot !== null) {
+                        throw new \RuntimeException(
+                            'FakeWpdb: transaction characteristics cannot change inside a transaction'
+                        );
+                    }
                     $this->nextTransactionIsolation = strtoupper(
                         preg_replace('/\s+/', '-', $isolationMatch[1]) ?? $isolationMatch[1]
                     );
@@ -1778,6 +2065,67 @@ final class FakeWpdb {
             'SHOW' => $this->execShow(),
             default => throw $this->unsupported('statement type ' . ($head === '' ? '(none)' : $head)),
         };
+    }
+
+    /** Exact compact witness used before OptionsCapture transfers option rows. */
+    private function boundedOptionStats(string $sql): ?array {
+        if (preg_match(
+            '/^SELECT COUNT\(\*\) AS row_count, '
+            . 'COALESCE\(SUM\(OCTET_LENGTH\(option_name\) \+ OCTET_LENGTH\(option_value\)\), 0\) AS total_bytes, '
+            . 'COALESCE\(MAX\(OCTET_LENGTH\(option_name\)\), 0\) AS max_name_bytes, '
+            . 'COALESCE\(MAX\(CHAR_LENGTH\(option_name\)\), 0\) AS max_name_characters, '
+            . 'COALESCE\(MAX\(OCTET_LENGTH\(option_value\)\), 0\) AS max_value_bytes '
+            . 'FROM `?([A-Za-z0-9_]{1,64})`?$/D',
+            $sql,
+            $matches
+        ) !== 1) {
+            return null;
+        }
+        $rows = $this->store[$this->requireTable($matches[1])];
+        $totalBytes = 0;
+        $maxNameBytes = 0;
+        $maxNameCharacters = 0;
+        $maxValueBytes = 0;
+        foreach ($rows as $row) {
+            $name = (string) ($row['option_name'] ?? '');
+            $value = (string) ($row['option_value'] ?? '');
+            $nameBytes = strlen($name);
+            $valueBytes = strlen($value);
+            $characters = preg_match('//u', $name) === 1
+                ? preg_match_all('/./us', $name)
+                : $nameBytes;
+            $totalBytes += $nameBytes + $valueBytes;
+            $maxNameBytes = max($maxNameBytes, $nameBytes);
+            $maxNameCharacters = max($maxNameCharacters, is_int($characters) ? $characters : 0);
+            $maxValueBytes = max($maxValueBytes, $valueBytes);
+        }
+        return [
+            'row_count' => count($rows),
+            'total_bytes' => $totalBytes,
+            'max_name_bytes' => $maxNameBytes,
+            'max_name_characters' => $maxNameCharacters,
+            'max_value_bytes' => $maxValueBytes,
+        ];
+    }
+
+    /** Exact compact witness used before a bounded SHOW schema transfer. */
+    private function boundedSchemaCount(string $sql): ?int {
+        if (preg_match(
+            '/^SELECT COUNT\(\*\) FROM information_schema\.(COLUMNS|STATISTICS) '
+            . "WHERE TABLE_SCHEMA = DATABASE\(\) AND BINARY TABLE_NAME = BINARY '([A-Za-z0-9_]{1,64})'$/D",
+            $sql,
+            $matches
+        ) !== 1) {
+            return null;
+        }
+        $table = $this->requireTable($matches[2]);
+        if ($matches[1] === 'STATISTICS') {
+            return count($this->indexes[$table] ?? []);
+        }
+        if (isset($this->columnDefinitions[$table])) {
+            return count($this->columnDefinitions[$table]);
+        }
+        return count($this->columnTypes[$table] ?? []);
     }
 
     private function unsupported(string $what): \LogicException {
@@ -2030,13 +2378,43 @@ final class FakeWpdb {
 
         $table = null;
         $alias = null;
+        $joins = [];
         if ($this->acceptKeyword('FROM')) {
             $table = $this->parseTableRef();
             $alias = $this->parseAliasOpt();
             $this->skipIndexHint();
-            if (in_array($this->keyword(), ['JOIN', 'INNER', 'LEFT', 'RIGHT', 'CROSS', 'STRAIGHT_JOIN', 'UNION'], true)
-                || ($this->peek()['t'] === 'op' && $this->peek()['v'] === ',')) {
+            if (!$this->joinedCaptureSqlEnabled
+                && in_array($this->keyword(), ['JOIN', 'INNER', 'LEFT'], true)) {
                 throw $this->unsupported('multi-table SELECT (JOIN/UNION)');
+            }
+            while (in_array($this->keyword(), ['JOIN', 'INNER', 'LEFT'], true)) {
+                $joinType = 'INNER';
+                if ($this->acceptKeyword('LEFT')) {
+                    $joinType = 'LEFT';
+                    $this->acceptKeyword('OUTER');
+                    $this->expectKeyword('JOIN');
+                } elseif ($this->acceptKeyword('INNER')) {
+                    $this->expectKeyword('JOIN');
+                } else {
+                    $this->expectKeyword('JOIN');
+                }
+                $joinTable = $this->parseTableRef();
+                $joinAlias = $this->parseAliasOpt();
+                $this->skipIndexHint();
+                $this->expectKeyword('ON');
+                $joins[] = [
+                    'type' => $joinType,
+                    'table' => $joinTable,
+                    'alias' => $joinAlias,
+                    'condition' => $this->parseCondition(),
+                ];
+            }
+            if ($this->keyword() === 'RIGHT'
+                || $this->keyword() === 'CROSS'
+                || $this->keyword() === 'STRAIGHT_JOIN'
+                || $this->keyword() === 'UNION'
+                || ($this->peek()['t'] === 'op' && $this->peek()['v'] === ',')) {
+                throw $this->unsupported('unsupported multi-table SELECT shape');
             }
         }
         $where = $this->acceptKeyword('WHERE') ? $this->parseCondition() : null;
@@ -2044,6 +2422,7 @@ final class FakeWpdb {
         if ($this->acceptKeyword('GROUP')) {
             $this->expectKeyword('BY');
             do {
+                $this->acceptKeyword('BINARY');
                 $group[] = $this->parseColumnRef()['name'];
             } while ($this->acceptOp(','));
         }
@@ -2070,17 +2449,84 @@ final class FakeWpdb {
         }
 
         $name = $this->requireTable($table);
-        $ctx = ['table' => $name, 'alias' => $alias, 'columns' => $this->knownColumns($name)];
-        $matched = [];
-        foreach ($this->store[$name] as $row) {
-            if ($where === null || $this->evalCondition($where, $row, $ctx)) {
-                $matched[] = $row;
+        $sources = [[
+            'table' => $name,
+            'alias' => $alias,
+            'short' => str_starts_with($name, $this->prefix)
+                ? substr($name, strlen($this->prefix))
+                : $name,
+            'columns' => $this->knownColumns($name),
+        ]];
+        foreach ($joins as $join) {
+            $joinName = $this->requireTable($join['table']);
+            $sources[] = [
+                'table' => $joinName,
+                'alias' => $join['alias'],
+                'short' => str_starts_with($joinName, $this->prefix)
+                    ? substr($joinName, strlen($this->prefix))
+                    : $joinName,
+                'columns' => $this->knownColumns($joinName),
+            ];
+        }
+        $ctx = [
+            'table' => $name,
+            'alias' => $alias,
+            'columns' => $this->knownColumns($name),
+            'sources' => $joins === [] ? null : $sources,
+        ];
+        if ($joins === []) {
+            $matched = [];
+            foreach ($this->store[$name] as $row) {
+                if ($where === null || $this->evalCondition($where, $row, $ctx)) {
+                    $matched[] = $row;
+                }
+            }
+        } else {
+            $matched = array_map(
+                static fn(array $row): array => ['__join_sources' => [$row]],
+                $this->store[$name]
+            );
+            foreach (array_slice($joins, 0, null, true) as $joinIndex => $join) {
+                $joinName = $sources[$joinIndex + 1]['table'];
+                $next = [];
+                foreach ($matched as $left) {
+                    $found = false;
+                    foreach ($this->store[$joinName] as $right) {
+                        $candidate = [
+                            '__join_sources' => array_merge(
+                                $left['__join_sources'],
+                                [$right]
+                            ),
+                        ];
+                        if ($this->evalCondition($join['condition'], $candidate, $ctx)) {
+                            $next[] = $candidate;
+                            $found = true;
+                        }
+                    }
+                    if (!$found && $join['type'] === 'LEFT') {
+                        $next[] = [
+                            '__join_sources' => array_merge(
+                                $left['__join_sources'],
+                                [null]
+                            ),
+                        ];
+                    }
+                }
+                $matched = $next;
+            }
+            if ($where !== null) {
+                $matched = array_values(array_filter(
+                    $matched,
+                    fn(array $row): bool => $this->evalCondition($where, $row, $ctx)
+                ));
             }
         }
 
         $aggregate = $group !== [];
         foreach ($items as $item) {
-            $aggregate = $aggregate || $item['type'] === 'count';
+            $aggregate = $aggregate
+                || $item['type'] === 'count'
+                || ($item['type'] === 'expr' && $this->containsAggregate($item['expr']));
         }
 
         if ($aggregate) {
@@ -2108,7 +2554,12 @@ final class FakeWpdb {
             $out = $unique;
         }
         if ($aggregate && $order !== []) {
-            $out = $this->sortRows($out, $order, ['table' => $name, 'alias' => $alias, 'columns' => null]);
+            $out = $this->sortRows($out, $order, [
+                'table' => $name,
+                'alias' => $alias,
+                'columns' => null,
+                'sources' => $joins === [] ? null : $sources,
+            ]);
         }
         if ($offset > 0) {
             $out = array_slice($out, $offset);
@@ -2268,6 +2719,7 @@ final class FakeWpdb {
         $this->expectKeyword('BY');
         $order = [];
         do {
+            $binary = $this->acceptKeyword('BINARY');
             $column = $this->parseColumnRef();
             $dir = 1;
             if ($this->acceptKeyword('DESC')) {
@@ -2275,7 +2727,7 @@ final class FakeWpdb {
             } else {
                 $this->acceptKeyword('ASC');
             }
-            $order[] = ['column' => $column, 'dir' => $dir];
+            $order[] = ['column' => $column, 'dir' => $dir, 'binary' => $binary];
         } while ($this->acceptOp(','));
         return $order;
     }
@@ -2359,6 +2811,23 @@ final class FakeWpdb {
     private function parseFunction(): array {
         $name = strtoupper((string) $this->peek()['v']);
         $this->tp += 2;
+        if ($name === 'CAST') {
+            $argument = $this->parseOperand();
+            $this->expectKeyword('AS');
+            $type = $this->peek();
+            if (!in_array($type['t'], ['word', 'id'], true)) {
+                throw $this->unsupported('CAST() expected a target type');
+            }
+            $this->tp++;
+            $this->expectOp(')');
+            return [
+                'k' => 'fn',
+                'name' => 'CAST',
+                'args' => [$argument],
+                'cast_type' => strtoupper((string) $type['v']),
+                'label' => 'CAST()',
+            ];
+        }
         $args = [];
         if (!$this->acceptOp(')')) {
             do {
@@ -2370,7 +2839,7 @@ final class FakeWpdb {
             $name,
             [
                 'LENGTH', 'OCTET_LENGTH', 'CHAR_LENGTH', 'LEFT', 'GET_LOCK', 'RELEASE_LOCK', 'IS_FREE_LOCK',
-                'IS_USED_LOCK', 'CONNECTION_ID', 'VERSION', 'SHA2',
+                'IS_USED_LOCK', 'CONNECTION_ID', 'VERSION', 'SHA2', 'COALESCE', 'SUM', 'MAX',
             ],
             true
         )) {
@@ -2599,6 +3068,10 @@ final class FakeWpdb {
         $args = array_map(fn(array $arg): mixed => $this->evalOperand($arg, $row, $ctx), $node['args']);
         return match ($node['name']) {
             'LENGTH', 'OCTET_LENGTH', 'CHAR_LENGTH' => $args[0] === null ? null : strlen((string) $args[0]),
+            'CAST' => $node['cast_type'] === 'CHAR'
+                ? ($args[0] === null ? null : (string) $args[0])
+                : throw $this->unsupported("CAST(... AS {$node['cast_type']})"),
+            'COALESCE' => self::firstNonNull($args),
             'LEFT' => $this->leftFunction(
                 $args,
                 isset($node['args'][0]) && self::isBinary($node['args'][0])
@@ -2616,8 +3089,86 @@ final class FakeWpdb {
             'IS_USED_LOCK' => $this->heldLocks[(string) ($args[0] ?? '')] ?? null,
             'CONNECTION_ID' => $this->connectionId,
             'VERSION' => $this->serverVersion,
+            'SUM', 'MAX' => throw $this->unsupported(
+                "{$node['name']}() is valid only in an aggregate SELECT"
+            ),
             default => throw $this->unsupported('SQL function ' . $node['name']),
         };
+    }
+
+    private static function firstNonNull(array $values): mixed {
+        foreach ($values as $value) {
+            if ($value !== null) {
+                return $value;
+            }
+        }
+        return null;
+    }
+
+    private function containsAggregate(array $node): bool {
+        if (($node['k'] ?? null) === 'fn'
+            && in_array($node['name'] ?? null, ['SUM', 'MAX'], true)) {
+            return true;
+        }
+        foreach (['arg', 'l', 'r'] as $key) {
+            if (is_array($node[$key] ?? null) && $this->containsAggregate($node[$key])) {
+                return true;
+            }
+        }
+        foreach ((array) ($node['args'] ?? []) as $argument) {
+            if (is_array($argument) && $this->containsAggregate($argument)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function evalAggregateOperand(
+        array $node,
+        array $rows,
+        array $ctx
+    ): mixed {
+        if (($node['k'] ?? null) === 'fn') {
+            if ($node['name'] === 'SUM' || $node['name'] === 'MAX') {
+                $values = [];
+                foreach ($rows as $row) {
+                    $value = $this->evalOperand($node['args'][0], $row, $ctx);
+                    if ($value !== null) {
+                        $values[] = $value;
+                    }
+                }
+                if ($values === []) {
+                    return null;
+                }
+                return $node['name'] === 'SUM' ? array_sum($values) : max($values);
+            }
+            if ($node['name'] === 'COALESCE') {
+                $values = [];
+                foreach ($node['args'] as $argument) {
+                    $values[] = $this->containsAggregate($argument)
+                        ? $this->evalAggregateOperand($argument, $rows, $ctx)
+                        : $this->evalOperand($argument, $rows[0] ?? [], $ctx);
+                }
+                return self::firstNonNull($values);
+            }
+            if ($node['name'] === 'CAST') {
+                $value = $this->containsAggregate($node['args'][0])
+                    ? $this->evalAggregateOperand($node['args'][0], $rows, $ctx)
+                    : $this->evalOperand($node['args'][0], $rows[0] ?? [], $ctx);
+                return $node['cast_type'] === 'CHAR'
+                    ? ($value === null ? null : (string) $value)
+                    : throw $this->unsupported("CAST(... AS {$node['cast_type']})");
+            }
+        }
+        if (($node['k'] ?? null) === 'arith') {
+            $left = $this->evalAggregateOperand($node['l'], $rows, $ctx);
+            $right = $this->evalAggregateOperand($node['r'], $rows, $ctx);
+            if ($left === null || $right === null) {
+                return null;
+            }
+            return $node['op'] === '+' ? $left + $right : $left - $right;
+        }
+        return $this->evalOperand($node, $rows[0] ?? [], $ctx);
     }
 
     private function leftFunction(array $args, bool $binary): ?string {
@@ -2703,20 +3254,73 @@ final class FakeWpdb {
 
     /** GET_LOCK(): records the holder only when the configured result is 1. */
     private function acquireAdvisoryLock(string $name): int {
-        if ($this->lockResult === 1 && $name !== '') {
-            $this->heldLocks[$name] = $this->connectionId;
+        if ($this->lockResult !== 1 || $name === '') {
+            return $this->lockResult;
         }
-        return $this->lockResult;
+        if (isset($this->heldLocks[$name]) && $this->heldLocks[$name] !== $this->connectionId) {
+            return 0;
+        }
+        $this->heldLocks[$name] = $this->connectionId;
+        return 1;
     }
 
     /** RELEASE_LOCK(): a released lock stops being held, whatever it reports. */
     private function releaseAdvisoryLock(string $name): int {
+        if (!isset($this->heldLocks[$name])) {
+            return 0;
+        }
+        if ($this->heldLocks[$name] !== $this->connectionId) {
+            return 0;
+        }
         unset($this->heldLocks[$name]);
-        return $this->lockResult;
+        return 1;
     }
 
     private function evalColumn(array $node, array $row, ?array $ctx): mixed {
         $qualifier = $node['q'];
+        if (is_array($ctx['sources'] ?? null)) {
+            $joinedRows = $row['__join_sources'] ?? [];
+            if (!is_array($joinedRows)) {
+                throw $this->unsupported('joined SELECT row has malformed source state');
+            }
+            if ($qualifier !== null) {
+                foreach ($ctx['sources'] as $index => $source) {
+                    if ($qualifier !== $source['alias']
+                        && $qualifier !== $source['table']
+                        && $qualifier !== $source['short']) {
+                        continue;
+                    }
+                    $sourceRow = $joinedRows[$index] ?? null;
+                    if ($sourceRow === null) {
+                        return null;
+                    }
+                    if (array_key_exists($node['name'], $sourceRow)) {
+                        return $sourceRow[$node['name']];
+                    }
+                    if (in_array($node['name'], $source['columns'], true)) {
+                        return null;
+                    }
+                    throw new \LogicException(
+                        "FakeWpdb: unknown column '{$node['name']}' on joined table '{$source['table']}'."
+                    );
+                }
+                throw $this->unsupported("column qualifier '$qualifier' names another table (JOIN)");
+            }
+            $found = false;
+            $value = null;
+            foreach ($ctx['sources'] as $index => $source) {
+                $sourceRow = $joinedRows[$index] ?? null;
+                if ($sourceRow === null || !array_key_exists($node['name'], $sourceRow)) {
+                    continue;
+                }
+                if ($found) {
+                    throw $this->unsupported("ambiguous unqualified joined column '{$node['name']}'");
+                }
+                $found = true;
+                $value = $sourceRow[$node['name']];
+            }
+            return $found ? $value : null;
+        }
         if ($qualifier !== null && $ctx !== null) {
             $short = str_starts_with($ctx['table'], $this->prefix)
                 ? substr($ctx['table'], strlen($this->prefix))
@@ -2818,6 +3422,23 @@ final class FakeWpdb {
         $out = [];
         foreach ($items as $index => $item) {
             if ($item['type'] === 'star') {
+                if (is_array($ctx['sources'] ?? null)) {
+                    foreach ($ctx['sources'] as $index => $source) {
+                        if ($item['qualifier'] !== null
+                            && $item['qualifier'] !== $source['alias']
+                            && $item['qualifier'] !== $source['table']
+                            && $item['qualifier'] !== $source['short']) {
+                            continue;
+                        }
+                        $sourceRow = $row['__join_sources'][$index] ?? null;
+                        foreach ($source['columns'] as $column) {
+                            $out[$column] = is_array($sourceRow)
+                                ? ($sourceRow[$column] ?? null)
+                                : null;
+                        }
+                    }
+                    continue;
+                }
                 $columns = $ctx['columns'] ?? null;
                 foreach ($columns ?? array_keys($row) as $column) {
                     $out[$column] = $row[$column] ?? null;
@@ -2875,14 +3496,16 @@ final class FakeWpdb {
                 if ($item['type'] === 'star') {
                     throw $this->unsupported('SELECT * alongside an aggregate');
                 }
-                $projected[$this->itemName($item, $index)] = $this->evalOperand($item['expr'], $first, $ctx);
+                $projected[$this->itemName($item, $index)] = $this->containsAggregate($item['expr'])
+                    ? $this->evalAggregateOperand($item['expr'], $members, $ctx)
+                    : $this->evalOperand($item['expr'], $first, $ctx);
             }
             $out[] = $projected;
         }
         return $out;
     }
 
-    /** @param list<array{column:array,dir:int}> $order */
+    /** @param list<array{column:array,dir:int,binary:bool}> $order */
     private function sortRows(array $rows, array $order, array $ctx): array {
         usort($rows, function (array $a, array $b) use ($order, $ctx): int {
             foreach ($order as $term) {
@@ -2898,7 +3521,9 @@ final class FakeWpdb {
                 if ($right === null) {
                     return $term['dir'];
                 }
-                $cmp = self::compare($left, $right) ?? 0;
+                $cmp = $term['binary']
+                    ? (self::compareBinary($left, $right) ?? 0)
+                    : (self::compare($left, $right) ?? 0);
                 if ($cmp !== 0) {
                     return $cmp * $term['dir'];
                 }
@@ -3099,7 +3724,8 @@ final class FakeWpdb {
 
     private function execShow(): array {
         $this->expectKeyword('SHOW');
-        if ($this->acceptKeyword('TABLE', 'STATUS')) {
+        if ($this->acceptKeyword('TABLE')) {
+            $this->expectKeyword('STATUS');
             $pattern = null;
             if ($this->acceptKeyword('LIKE')) {
                 $token = $this->peek();
@@ -3113,7 +3739,10 @@ final class FakeWpdb {
             $rows = [];
             foreach (array_keys($this->store) as $name) {
                 if ($pattern === null || self::likeMatches($pattern, $name)) {
-                    $rows[] = ['Name' => $name, 'Engine' => $this->tableEngines[$name] ?? null];
+                    $rows[] = [
+                        'Name' => $name,
+                        'Engine' => $this->tableEngines[$name] ?? null,
+                    ];
                 }
             }
             return ['kind' => 'rows', 'rows' => $rows];
@@ -3137,15 +3766,22 @@ final class FakeWpdb {
             }
             return ['kind' => 'rows', 'rows' => $rows];
         }
-        $this->acceptKeyword('FULL');
+        $full = $this->acceptKeyword('FULL');
         if ($this->acceptKeyword('COLUMNS') || $this->acceptKeyword('FIELDS')) {
             $this->expectKeyword('FROM');
             $table = $this->parseTableRef();
             $this->expectEnd();
             $name = $this->requireTable($table);
+            if ($full && isset($this->columnDefinitions[$name])
+                && array_is_list($this->columnDefinitions[$name])) {
+                return ['kind' => 'rows', 'rows' => $this->columnDefinitions[$name]];
+            }
             $types = $this->columnTypes[$name] ?? [];
             $definitions = $this->columnDefinitions[$name] ?? [];
             $rows = [];
+            if ($definitions !== [] && array_is_list($definitions)) {
+                return ['kind' => 'rows', 'rows' => $definitions];
+            }
             $columns = $definitions === [] ? $this->knownColumns($name) : array_keys($definitions);
             foreach ($columns as $column) {
                 $definition = $definitions[$column] ?? null;
@@ -3208,8 +3844,8 @@ final class FakeWpdb {
     private function execTransaction(string $head): array {
         if ($head === 'START' || $head === 'BEGIN') {
             $this->transactionSnapshot = $this->store;
-            $this->activeTransactionIsolation =
-                $this->nextTransactionIsolation ?? $this->transactionIsolation;
+            $this->activeTransactionIsolation = $this->nextTransactionIsolation
+                ?? $this->transactionIsolation;
             $this->nextTransactionIsolation = null;
             return ['kind' => 'ok'];
         }
@@ -3218,11 +3854,93 @@ final class FakeWpdb {
         }
         $this->transactionSnapshot = null;
         $this->activeTransactionIsolation = null;
+        foreach ($this->rowLocks as $name => $holder) {
+            if ($holder === $this->connectionId) {
+                unset($this->rowLocks[$name]);
+            }
+        }
         // A transaction boundary consumes a still-pending one-shot SET. The
         // TEC recovery regression also starts and rolls back one data-free
         // cleanup transaction so this property is observed, not assumed.
         $this->nextTransactionIsolation = null;
         return ['kind' => 'ok'];
+    }
+
+    /** @param array<string,mixed> $data @param array<string,mixed> $where */
+    private function writeConflictsWithLocks(string $table, array $data, array $where): bool {
+        $optionName = null;
+        if (array_key_exists('option_name', $where)) {
+            $optionName = (string) $where['option_name'];
+        } elseif (array_key_exists('option_name', $data)) {
+            $optionName = (string) $data['option_name'];
+        } elseif (array_key_exists('option_id', $where)) {
+            foreach ($this->store[$table] ?? [] as $row) {
+                if (self::compare($row['option_id'] ?? null, $where['option_id']) === 0) {
+                    $optionName = is_string($row['option_name'] ?? null) ? $row['option_name'] : null;
+                    break;
+                }
+            }
+        }
+        if ($optionName !== null) {
+            $key = $table . "\0option_name\0" . $optionName;
+            if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                return true;
+            }
+        }
+
+        if (str_ends_with($table, 'actionscheduler_groups')) {
+            $candidate = $data;
+            if ($where !== []) {
+                foreach ($this->store[$table] ?? [] as $row) {
+                    if ($this->matchesEquality($row, $where)) {
+                        $candidate = array_merge($row, $data);
+                        break;
+                    }
+                }
+            }
+            $slug = $candidate['slug'] ?? null;
+            if (is_string($slug)) {
+                $key = $table . "\0slug\0" . $slug;
+                return isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId;
+            }
+        }
+
+        if (!str_ends_with($table, 'actionscheduler_actions')) {
+            $candidate = $data;
+            if ($where !== []) {
+                foreach ($this->store[$table] ?? [] as $row) {
+                    if ($this->matchesEquality($row, $where)) {
+                        $candidate = array_merge($row, $data);
+                        break;
+                    }
+                }
+            }
+            $logActionId = $candidate['action_id'] ?? null;
+            if (!str_ends_with($table, 'actionscheduler_logs')
+                || (!is_int($logActionId)
+                    && (!is_string($logActionId) || preg_match('/^[1-9][0-9]*$/D', $logActionId) !== 1))
+                || (int) $logActionId < 1) {
+                return false;
+            }
+            $key = $table . "\0action_id\0" . (string) $logActionId;
+            return isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId;
+        }
+        $candidate = $data;
+        if ($where !== []) {
+            foreach ($this->store[$table] ?? [] as $row) {
+                if ($this->matchesEquality($row, $where)) {
+                    $candidate = array_merge($row, $data);
+                    break;
+                }
+            }
+        }
+        $hook = $candidate['hook'] ?? null;
+        $status = $candidate['status'] ?? null;
+        if (!is_string($hook) || !is_string($status)) {
+            return false;
+        }
+        $key = $table . "\0hook-status\0$hook\0$status";
+        return isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId;
     }
 
     /**
@@ -3232,12 +3950,19 @@ final class FakeWpdb {
      * TRUNCATE empties it -- enough for the engine's install/uninstall paths.
      */
     private function execDdl(string $head): array {
-        $this->ddlLog[] = $this->currentSql;
         $matched = preg_match(
             '/^(?:CREATE|DROP|TRUNCATE|ALTER)\s+TABLE\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?`?([A-Za-z0-9_$]+)`?/i',
             $this->currentSql,
             $m
         );
+        if ($matched === 1) {
+            $name = $this->tableName($m[1]);
+            $schemaKey = $name . "\0schema";
+            if (isset($this->rowLocks[$schemaKey]) && $this->rowLocks[$schemaKey] !== $this->connectionId) {
+                throw new \RuntimeException('FakeWpdb: simulated InnoDB metadata lock wait timeout');
+            }
+        }
+        $this->ddlLog[] = $this->currentSql;
         if ($matched === 1) {
             $name = $this->tableName($m[1]);
             if ($head === 'CREATE') {

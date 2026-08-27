@@ -448,6 +448,7 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
 run_case() {
   local label="$1" pair="$2" codebind="$3" git_mode="${4:-canonical}"
   local artifacts="${5:-0}" wordpress_offline="${6:-0}"
+  local launcher="${7:-}"
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" log="$TMP/$label/docker.log"
   local output="$TMP/$label/output.log" web cli mount1 mount2 compose_prefix canonical_root
   local up_args=(up "$pair" 9911 9912 --headless)
@@ -479,7 +480,9 @@ run_case() {
   [ "$wordpress_offline" = 0 ] || up_args+=(--wordpress-offline)
   if [ -n "$codebind" ]; then
     up_args+=(--codebind "$codebind")
-    "$case_root/sandbox/bin/pair.sh" "${up_args[@]}" \
+  fi
+  if [ -n "$launcher" ]; then
+    "$launcher" "$case_root/sandbox/bin/pair.sh" "${up_args[@]}" \
       >"$output" 2>&1 || { cat "$output" >&2; fail "$label pair bootstrap failed"; }
   else
     "$case_root/sandbox/bin/pair.sh" "${up_args[@]}" \
@@ -2019,6 +2022,15 @@ assert_file_contains "$ROOT/sandbox/lib/pair_siterepo.sh" 'if [ -L "$root_abs" ]
   'pair handback does not check the resolved physical root before Docker owns it'
 assert_file_contains "$ROOT/sandbox/lib/pair_siterepo.sh" 'pair_siterepo_revalidate_root "$root_abs" "$root_inode_before"' \
   'pair handback does not revalidate the physical root shape and inode after Docker returns'
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" '"${PAIR_COMPOSE[@]}" up -d --force-recreate wp1 wp2' \
+  'codebind bootstrap no longer passes --force-recreate explicitly'
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" '"${PAIR_COMPOSE[@]}" up -d wp1 wp2' \
+  'ordinary bootstrap no longer has an empty-optional-argument-free compose path'
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'if [ "${#overlays[@]}" -gt 0 ]; then' \
+  'plain bootstrap no longer guards its legitimately empty overlay array'
+if grep -Fq '${force_recreate[@]}' "$ROOT/sandbox/bin/pair.sh"; then
+  fail 'ordinary bootstrap still expands an empty optional array under stock Bash 3.2'
+fi
 assert_file_contains "$ROOT/sandbox/lib/pair_siterepo.sh" 'owner_uid="${owner%%:*}"' \
   'pair handback does not isolate and check the returned root uid before chgrp'
 assert_before "$ROOT/sandbox/lib/pair_siterepo.sh" 'owner_uid="${owner%%:*}"' 'if ! chgrp -h "$host_gid" "$root_abs"; then'
@@ -2031,6 +2043,9 @@ pass "pair launcher, readiness/bootstrap/site-repository libraries, and offline 
 
 say "default pair.sh bootstrap (fake compose; no Docker/DB)"
 run_case default pairunit "" canonical
+
+say "stock /bin/bash pair.sh bootstrap (fake compose; no Docker/DB)"
+run_case stock_bash pairbash "" canonical 0 0 /bin/bash
 
 say "--codebind pair.sh bootstrap (fake compose; no Docker/DB)"
 run_case codebind pairbind demo-plugin canonical

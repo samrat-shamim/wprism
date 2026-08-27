@@ -40,13 +40,13 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
 	regress-env-options-policy regress-shipped-option-declarations regress-export-manifest-roundtrip regress-manifest-reclassification-policy regress-ecommerce-developer-matrix \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
-	regress-woocommerce-product-lookups regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
+	regress-woocommerce-product-lookups regress-woocommerce-product-lookups-fake regress-woocommerce-hierarchy-lookups regress-woocommerce-fulfillment-prerequisites regress-woocommerce-scheduler-settings regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-action-scope regress-provider-contract regress-actions-providers regress-ninja-forms-form-cache-provider regress-yoast-index-provider regress-core-rewrite-native-action regress-provider-contract-live regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
-	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-acf-production-readiness regress-contact-form-7-production-readiness regress-paid-memberships-pro-production-readiness regress-ninja-forms-production-readiness regress-the-events-calendar-production-readiness regress-collision \
+	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-acf-production-readiness regress-contact-form-7-production-readiness regress-paid-memberships-pro-production-readiness regress-ninja-forms-production-readiness regress-the-events-calendar-production-readiness regress-woocommerce-production-readiness regress-woocommerce-optional-core regress-collision \
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
 	regress-snapshot-meta regress-generic-reference-shapes regress-ssh-adopt regress-tec-regen regress-user-meta \
-	regress-option-name-refs-wiring regress-offline-all regress-live-list regress-code-compatibility regress-upload-bundle \
+	regress-option-name-refs-wiring regress-offline-all regress-live-list regress-woocommerce-rewrite-coinstall regress-code-compatibility regress-upload-bundle \
 	regress-effect-bundle regress-woocommerce-effect-contract regress-ssh-rollback-certification \
 	regress-coverage-offline regress-coverage regress-classification-batch \
 	regress-refresh-orchestration \
@@ -63,7 +63,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-env-provider-conformance-live \
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-suite-wiring regress-platform-move-gates \
-	regress-multisite-refusal regress-polylang-multisite-refusal regress-polylang-tec-rewrite-coinstall regress-polylang-live-fixtures regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification regress-certificate-axis-binding regress-cross-root-replay \
+	regress-multisite-refusal regress-polylang-multisite-refusal regress-woocommerce-multisite-refusal regress-polylang-tec-rewrite-coinstall regress-polylang-live-fixtures regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification regress-certificate-axis-binding regress-cross-root-replay \
 	regress-post-field-classification regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
 	regress-lint-host-verb regress-lint-type-exemptions \
@@ -654,6 +654,12 @@ regress-polylang-tec-rewrite-coinstall:
 regress-the-events-calendar-multisite-refusal:
 	bash sandbox/tests/live/regress_the_events_calendar_multisite_refusal.sh
 
+# Exact WooCommerce 11.0.1 HPOS populated-network refusal. Candidate SHA,
+# artifact/tree identity, Woo authored/runtime fingerprint, repository Git
+# state, and typed capture/plan/deploy/apply refusals are re-proved per command.
+regress-woocommerce-multisite-refusal:
+	bash sandbox/tests/live/regress_woocommerce_multisite_refusal.sh
+
 # DUO-3262: optional term/user interpreter hooks plus static-policy fallback;
 # pure PHP fixture manifests/interpreters, no WordPress or docker.
 regress-interpreter-policy:
@@ -685,6 +691,9 @@ regress-the-events-calendar-production-readiness:
 
 regress-polylang-production-readiness:
 	php sandbox/tests/offline/adapter/regress_polylang_production_readiness.php
+
+regress-woocommerce-production-readiness:
+	php sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php
 
 # DUO-3222's one genuinely live leg: Deploy::code_mismatch()'s new THEME
 # version_range check, called directly against a real bundled WordPress
@@ -2386,6 +2395,21 @@ regress-woocommerce-product-lookups:
 regress-woocommerce-product-lookups-fake:
 	php sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php
 
+regress-woocommerce-hierarchy-lookups:
+	php sandbox/tests/offline/ecommerce/regress_woocommerce_hierarchy_lookups.php
+
+regress-woocommerce-fulfillment-prerequisites:
+	php sandbox/tests/offline/ecommerce/regress_woocommerce_fulfillment_prerequisites.php
+
+regress-woocommerce-scheduler-settings:
+	php sandbox/tests/offline/ecommerce/regress_woocommerce_scheduler_settings.php
+
+regress-woocommerce-thumbnail-images:
+	php sandbox/tests/offline/ecommerce/regress_woocommerce_thumbnail_images.php
+
+regress-woocommerce-optional-core:
+	php sandbox/tests/offline/adapter/regress_woocommerce_optional_core.php
+
 regress-woocommerce-deletion-authority:
 	php sandbox/tests/offline/ecommerce/regress_woocommerce_deletion_authority.php
 
@@ -2566,6 +2590,13 @@ regress-option-ref-scope:
 
 regress-pmpro-composite-ref:
 	bash sandbox/tests/live/regress_pmpro_composite_ref.sh
+
+# Candidate-bound production leg for WooCommerce product permalink rebuilds
+# under the exact supported Yoast, Polylang, and TEC co-install topology.
+# Docker/pair.sh-dependent, so it is discoverable in regress-live-list rather
+# than folded into the offline corpus.
+regress-woocommerce-rewrite-coinstall:
+	bash sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh
 
 regress-repository-authorization:
 	bash sandbox/tests/live/regress_repository_authorization.sh
@@ -2758,6 +2789,7 @@ regress-live-list:
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
 	@echo "  regress-polylang-multisite-refusal        own disposable pair (parameterized: POLYLANG_MULTISITE_PAIR/PORT1/PORT2; exact Polylang 3.8.6 populated multisite refusal)"
+	@echo "  regress-woocommerce-multisite-refusal     own disposable pair (parameterized: WOO_MULTISITE_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact WooCommerce 11.0.1 HPOS populated multisite refusal)"
 	@echo "  regress-polylang-tec-rewrite-coinstall    own disposable pair (parameterized: POLYLANG_TEC_REWRITE_PAIR/PORT1/PORT2; exact Polylang 3.8.6 + TEC 6.17.2 child-process/topology sweep)"
 	@echo "  regress-the-events-calendar-multisite-refusal own disposable pair (parameterized: TEC_MULTISITE_PAIR/TEC_MULTISITE_PORT1/TEC_MULTISITE_PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact TEC 6.17.2/6.17.3 populated multisite refusal)"
 	@echo "  regress-adapter-theme-range               pair asub3222tr 8918/8919"
@@ -2782,6 +2814,7 @@ regress-live-list:
 	@echo "  regress-env-set                           pair asnapenvset"
 	@echo "  regress-option-ref-scope                  legacy docker-compose.yml --profile r1b"
 	@echo "  regress-pmpro-composite-ref               pair asnaprt"
+	@echo "  regress-woocommerce-rewrite-coinstall     own disposable pair (parameterized: WOO_REWRITE_COINSTALL_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; Woo 11.0.1 + Yoast 28.3 + Polylang 3.8.6 + TEC 6.17.2 product routes and refusal/retry)"
 	@echo "  regress-repository-authorization          pair conf 8806/8807"
 	@echo "  regress-repository-compiler-integration   pair conf 8806/8807"
 	@echo "  regress-scope-gate                        pair codexmac3229 8900/8901"

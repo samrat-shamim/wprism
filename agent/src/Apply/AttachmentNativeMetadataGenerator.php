@@ -241,13 +241,13 @@ final class AttachmentNativeMetadataGenerator {
             'method' => 'adjust_intermediate_image_sizes',
         ],
         'woocommerce-download-upload-dir' => [
-            'manifest' => 'woocommerce', 'presence' => 'conditional-refuse',
+            'manifest' => 'woocommerce', 'presence' => 'required',
             'hook' => 'upload_dir', 'priority' => 10, 'accepted_args' => 1,
             'kind' => 'instance', 'class' => 'WC_Admin_Upload_Downloadable_Product',
             'method' => 'upload_dir',
         ],
         'woocommerce-download-filename' => [
-            'manifest' => 'woocommerce', 'presence' => 'conditional-refuse',
+            'manifest' => 'woocommerce', 'presence' => 'required',
             'hook' => 'wp_unique_filename', 'priority' => 10, 'accepted_args' => 3,
             'kind' => 'instance', 'class' => 'WC_Admin_Upload_Downloadable_Product',
             'method' => 'update_filename',
@@ -747,6 +747,7 @@ final class AttachmentNativeMetadataGenerator {
                 );
             }
         }
+        $this->assert_woocommerce_download_topology($callbacks);
         $this->assert_polylang_sync_topology($matched);
 
         $removed = [];
@@ -838,6 +839,61 @@ final class AttachmentNativeMetadataGenerator {
             return in_array(get_class($callback[0]), (array) ($rule['classes'] ?? []), true);
         }
         return false;
+    }
+
+    /**
+     * Exact WooCommerce 11.0.0/11.0.1 admin bootstrap registers this pair on
+     * one object in every WP-CLI process (class source sha256 9429ae47…). The
+     * filters mutate paths only for the downloadable-product request, which a
+     * Duo apply must never impersonate; the ordinary empty CLI request is
+     * safe only after both callbacks are quarantined as one closed unit.
+     *
+     * @param list<array{hook:string,priority:int,accepted_args:int,callback:callable,rule:string}> $callbacks
+     */
+    private function assert_woocommerce_download_topology(array $callbacks): void {
+        if (!in_array('woocommerce', $this->adapterManifests, true)) return;
+        $pair = [];
+        foreach ($callbacks as $row) {
+            if (in_array($row['rule'], [
+                'woocommerce-download-upload-dir',
+                'woocommerce-download-filename',
+            ], true)) {
+                $pair[$row['rule']] = $row['callback'];
+            }
+        }
+        if (array_keys($pair) !== [
+            'woocommerce-download-upload-dir',
+            'woocommerce-download-filename',
+        ]) {
+            throw new \RuntimeException(
+                'duo: native attachment metadata refuses a partial WooCommerce downloadable-upload callback topology'
+            );
+        }
+        $upload = $pair['woocommerce-download-upload-dir'];
+        $filename = $pair['woocommerce-download-filename'];
+        if (!is_array($upload)
+            || !is_object($upload[0] ?? null)
+            || !is_array($filename)
+            || ($filename[0] ?? null) !== $upload[0]) {
+            throw new \RuntimeException(
+                'duo: native attachment metadata refuses split WooCommerce downloadable-upload callback authority'
+            );
+        }
+        // Superglobals are mutable process state: read through the dynamic
+        // registry so a plugin cannot replace the request map and inherit
+        // PHP's compile-time array assumption at this safety boundary.
+        $postRegistryKey = '_POST';
+        $request = $GLOBALS[$postRegistryKey] ?? null;
+        if (!is_array($request)) {
+            throw new \RuntimeException(
+                'duo: native attachment metadata cannot audit WooCommerce downloadable-upload request state'
+            );
+        }
+        if (array_key_exists('type', $request)) {
+            throw new \RuntimeException(
+                'duo: native attachment metadata refuses an active WooCommerce downloadable-upload request topology'
+            );
+        }
     }
 
     /**

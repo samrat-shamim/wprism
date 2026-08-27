@@ -439,7 +439,7 @@ $foreignPreflightHook->callbacks[10]['foreign'] = [
     'accepted_args' => 1,
 ];
 $GLOBALS['wp_filter']['rewrite_rules_array'] = $foreignPreflightHook;
-$preflight = new ReflectionMethod(Duo\RebuildActionNegotiator::class, 'preflight_native_actions');
+$preflight = new ReflectionMethod(Duo\RebuildActionNegotiator::class, 'preflight_rewrite_actions');
 $preflightRows = $GLOBALS['wpdb']->optionRows;
 core_rewrite_refuses(
     static fn() => $preflight->invoke(null, [[
@@ -454,9 +454,63 @@ duo_check_same($preflightRows, $GLOBALS['wpdb']->optionRows, 'native batch prefl
 duo_check_same(0, $GLOBALS['core_rewrite_child_launches'], 'native batch preflight launches no rewrite child');
 $negotiatorSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionNegotiator.php');
 duo_check(
-    strpos($negotiatorSource, 'self::preflight_native_actions($selectedActions);')
+    strpos($negotiatorSource, 'self::preflight_rewrite_actions($selectedActions);')
         < strpos($negotiatorSource, 'Providers::negotiate_scoped'),
-    'ordinary negotiation invokes native topology preflight before provider negotiation returns mutation authority'
+    'ordinary negotiation invokes rewrite topology preflight before provider negotiation returns mutation authority'
+);
+unset($GLOBALS['wp_filter']['rewrite_rules_array']);
+
+$wooPolicy = Duo\Policy::load(null, ['core', 'woocommerce']);
+foreach ([
+    'option:woocommerce_brand_permalink' => 'hierarchy provider with flush_rewrite authority',
+    'option:woocommerce_permalinks' => 'product-route provider',
+] as $surface => $label) {
+    core_rewrite_reset();
+    $foreignProviderHook = new WP_Hook();
+    $foreignProviderHook->callbacks[10]['foreign'] = [
+        'function' => static fn(array $rules): array => $rules,
+        'accepted_args' => 1,
+    ];
+    $GLOBALS['wp_filter']['rewrite_rules_array'] = $foreignProviderHook;
+    $providerSelection = $wooPolicy->actions_for([$surface]);
+    duo_check_same(1, count($providerSelection), "$label selects one exact WooCommerce action");
+    duo_check_same('provider', $providerSelection[0]['kind'] ?? null, "$label is provider-owned");
+    $providerRows = $GLOBALS['wpdb']->optionRows;
+    core_rewrite_refuses(
+        static fn() => $preflight->invoke(null, $providerSelection),
+        'apply refused before target mutation',
+        "$label refuses hostile rewrite topology before the authored option transaction"
+    );
+    duo_check_same(
+        $providerRows,
+        $GLOBALS['wpdb']->optionRows,
+        "$label preflight performs no durable mutation"
+    );
+    duo_check_same(0, $GLOBALS['core_rewrite_child_launches'], "$label preflight launches no rewrite child");
+    unset($GLOBALS['wp_filter']['rewrite_rules_array']);
+}
+
+core_rewrite_reset();
+$foreignUnrelatedHook = new WP_Hook();
+$foreignUnrelatedHook->callbacks[10]['foreign'] = [
+    'function' => static fn(array $rules): array => $rules,
+    'accepted_args' => 1,
+];
+$GLOBALS['wp_filter']['rewrite_rules_array'] = $foreignUnrelatedHook;
+$preflight->invoke(null, [[
+    'kind' => 'provider',
+    'provider' => 'unrelated-provider',
+    'capability' => 'rebuild_without_rewrite',
+    'effects' => [[
+        'kind' => 'database',
+        'mode' => 'restorable',
+        'selector' => ['scope' => 'database_checkpoint', 'type' => 'option', 'value' => 'unrelated'],
+    ]],
+]]);
+duo_check_same(
+    [],
+    $GLOBALS['wpdb']->readNames,
+    'an unrelated provider action does not acquire rewrite-topology authority or perform preflight reads'
 );
 unset($GLOBALS['wp_filter']['rewrite_rules_array']);
 

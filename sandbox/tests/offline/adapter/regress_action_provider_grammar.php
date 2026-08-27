@@ -212,6 +212,23 @@ $check(
     })(),
     'effect contracts: a well-formed restorable database effect is accepted'
 );
+$check(
+    (static function (): bool {
+        ActionProviderGrammar::validate_effect_contracts(['name' => 'm', 'actions' => [[
+            'kind' => 'provider', 'provider' => 'read-only', 'capability' => 'inspect',
+            'args' => [], 'effects' => [],
+        ]]]);
+        return true;
+    })(),
+    'effect contracts: an explicit empty provider effect list is accepted as a negotiation-checked read-only claim'
+);
+$assertThrows(
+    static fn() => ActionProviderGrammar::validate_effect_contracts(['name' => 'm', 'actions' => [[
+        'kind' => 'native', 'action' => 'transient.delete', 'args' => ['name' => 'probe'], 'effects' => [],
+    ]]]),
+    'may be empty only for a provider action',
+    'effect contracts: a native action may not erase its effect obligation with an empty list'
+);
 $assertThrows(
     static fn() => ActionProviderGrammar::validate_effect_contracts([
         'name' => 'm',

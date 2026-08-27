@@ -659,6 +659,38 @@ run_version_matrix_passthrough_case() {
   pass "$label: exact-artifact matrix binds its candidate before pair startup"
 }
 
+run_parallel_compose_source_pin_case() {
+  local label=parallel_compose_source_pin
+  local identity="$ROOT/sandbox/lib/pair_identity.sh"
+  local conformance="$ROOT/sandbox/conformance/run.sh"
+  local matrix="$ROOT/sandbox/tests/certify/certify_version_matrix.sh"
+  local woo_multisite="$ROOT/sandbox/tests/live/regress_woocommerce_multisite_refusal.sh"
+  local woo_coinstall="$ROOT/sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh"
+
+  assert_file_contains "$identity" 'pair_identity_export_source_mounts()' \
+    "$label: pair identity has no caller-local mount export"
+  for harness in "$conformance" "$matrix" "$woo_multisite" "$woo_coinstall"; do
+    assert_file_contains "$harness" 'pair_identity_export_source_mounts' \
+      "$label: direct Compose harness can fall back to concurrently rewritten .env: $harness"
+  done
+
+  (
+    unset PAIR_SOURCE_ROOT DUO_AGENT_SRC DUO_MANIFESTS_SRC
+    export DUO_SOURCE_ROOT="$ROOT"
+    # shellcheck source=../../../lib/pair_identity.sh
+    source "$identity"
+    pair_identity_export_source_mounts
+    [ "$DUO_AGENT_SRC" = "$ROOT/agent" ]
+    [ "$DUO_MANIFESTS_SRC" = "$ROOT/manifests" ]
+    # Model a parallel teardown selecting canonical bytes in shared .env.
+    # Compose gives these exported values precedence, so neither may move.
+    printf 'DUO_AGENT_SRC=/stale/agent\nDUO_MANIFESTS_SRC=/stale/manifests\n' > "$TMP/stale.env"
+    [ "$DUO_AGENT_SRC" = "$ROOT/agent" ]
+    [ "$DUO_MANIFESTS_SRC" = "$ROOT/manifests" ]
+  ) || fail "$label: caller-local candidate mounts did not survive a stale shared environment record"
+  pass "$label: common adapter evidence lanes keep candidate mounts process-local across parallel pair teardown"
+}
+
 run_multisite_passthrough_case() {
   local label=multisite_passthrough multisite="$ROOT/sandbox/tests/live/regress_multisite_refusal.sh"
 
@@ -677,7 +709,7 @@ run_multisite_passthrough_case() {
 }
 
 say "bash syntax checks"
-bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_budget_lock.sh" "$ROOT/sandbox/lib/pair_force_hatch.sh" "$ROOT/sandbox/lib/pair_db.sh" "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" "$ROOT/sandbox/lib/pair_siterepo.sh" "$ROOT/sandbox/conformance/run.sh" "$ROOT/sandbox/tests/certify/certify_version_matrix.sh" "$ROOT/sandbox/tests/live/regress_multisite_refusal.sh" \
+bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_budget_lock.sh" "$ROOT/sandbox/lib/pair_force_hatch.sh" "$ROOT/sandbox/lib/pair_db.sh" "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" "$ROOT/sandbox/lib/pair_siterepo.sh" "$ROOT/sandbox/conformance/run.sh" "$ROOT/sandbox/tests/certify/certify_version_matrix.sh" "$ROOT/sandbox/tests/live/regress_multisite_refusal.sh" "$ROOT/sandbox/tests/live/regress_woocommerce_multisite_refusal.sh" "$ROOT/sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh" \
   "$ROOT/sandbox/tests/offline/guards/regress_pair_candidate_source.sh"
 command -v git >/dev/null 2>&1 || fail "git is required for the linked-worktree fixture"
 assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_identity.sh"' \
@@ -738,6 +770,9 @@ run_conformance_passthrough_case
 
 say "exact-artifact matrix plumbs VMATRIX_EXPECTED_SOURCE_SHA before pair startup"
 run_version_matrix_passthrough_case
+
+say "parallel direct-Compose callers pin candidate mounts outside shared .env"
+run_parallel_compose_source_pin_case
 
 say "multisite refusal plumbs MULTISITE_EXPECTED_SOURCE_SHA before pair mutation"
 run_multisite_passthrough_case

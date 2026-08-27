@@ -143,26 +143,31 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * its disposition experimental -> certified, and widened manifests/core.json's
  * native rewrite action to declare TEC's rewrite-listener effects. The
  * reviewed Polylang production-readiness port then rewrote its manifest,
- * interpreter/provider set, and per-subject disposition. Rule 2 makes all
- * three fleet-visible BY DESIGN.
+ * interpreter/provider set, and per-subject disposition. WooCommerce's final
+ * production-readiness review moves its manifest lint/compile declarations,
+ * interpreter, disposition reason, and the source-audited WordPress 7.1
+ * thumbnail-failure claim. The final co-install boundary also makes Yoast's
+ * permalink-reindex trigger fleet-visible. Rule 2 makes all five visible BY DESIGN.
  *
- * The 13 frozen digests above are NOT regenerated — this is an overlay, and
- * PART 1 asserts the moved set is exactly these three. A fourth adapter is a
+ * The 11 frozen digests above are NOT regenerated — this is an overlay, and
+ * PART 1 asserts the moved set is exactly these five. A sixth adapter is a
  * tripwire failure, not a re-pin. That keeps the split's
  * own invariant ("relocating the reviewed source moved no identity") measured
  * against numbers captured before the relocation, on every adapter the
- * reviewed changes did not touch. Re-freezing all 16 to absorb 3 would have
- * retired the evidence for the other 13 to fix a red run.
+ * reviewed changes did not touch. Re-freezing all 16 to absorb 4 would have
+ * retired the evidence for the other 12 to fix a red run.
  */
-const SPLIT_REVIEWED_MOVED_ADAPTERS = ['core', 'polylang', 'the-events-calendar'];
+const SPLIT_REVIEWED_MOVED_ADAPTERS = ['core', 'polylang', 'the-events-calendar', 'woocommerce', 'yoast'];
 const SPLIT_REVIEWED_MOVED_DIGESTS = [
     'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
-    'polylang' => '99d82ecc6402fda3a8d651d56ca07ae4a73836947ed5f2ecca11c0df4472e9a4',
-    'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
+    'polylang' => 'd55dab7dc1c78b0e245f6448762ceb79628b6e01b649bdfa8aa72ceb957d7c17',
+    'the-events-calendar' => '1096dc034e44b27085868cebf23efe6497f340fd8e506cd85122a696ddbbe1b1',
+    'woocommerce' => 'd0eb2e72f121649a4367a50ab59361efc5ca2a24e991c20cc43728f37e4bbfcf',
+    'yoast' => '389934c1b3638e4a93284eaaf3cee98a15eaeb76302f4f28b9f1cf1526504609',
 ];
-const SPLIT_REVIEWED_MANIFEST_HASH = 'b6cbc30ddc3c5ecf089ed0836294fb82a5b6f8f9017980c54610bd0e3c815bed';
-const SPLIT_REVIEWED_REGISTRY_SHA = 'f98de94d550375201697cd2e8c507f7b2f0941b9e92dab4bc85d77635ec10746';
-const SPLIT_REVIEWED_SNAPSHOT_SHA = '53dba29b5cb504c098146c98b757de93fb19c1afecd6c480efe814f7d8b3b005';
+const SPLIT_REVIEWED_MANIFEST_HASH = '45285420196f8c427d5c203f5ac39fba075ce9642adc0a7924d1a45ef78fb12c';
+const SPLIT_REVIEWED_REGISTRY_SHA = '49c84c27e199e198ac4452d52177fd732d7b1c33110e75a3d74a6a463be1a3f8';
+const SPLIT_REVIEWED_SNAPSHOT_SHA = 'e23f604ab0c3835de65407dc817b1abf9ae7a4a9676d8fe57b16357774b335ac';
 
 putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
 $shippedRegistry = ManifestDispositions::load($manifestDir);
@@ -183,15 +188,15 @@ foreach (SPLIT_REVIEWED_MOVED_DIGESTS as $movedName => $movedDigest) {
 }
 ksort($expectedDigests, SORT_STRING);
 duo_check_same(
-    3,
+    5,
     count(SPLIT_REVIEWED_MOVED_ADAPTERS),
-    'the reviewed overlay names exactly three post-split adapters; a fourth identity move is a new reviewed re-pin, never a fixture refresh'
+    'the reviewed overlay names exactly five post-split adapters; a sixth identity move is a new reviewed re-pin, never a fixture refresh'
 );
 duo_check_same(
     $expectedDigests,
     $observed,
-    '13 OF THE 16 SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-split tree — the invariant the flag day '
-    . 'rests on; the other three carry the reviewed #561/Polylang edits and are re-pinned above'
+    '11 OF THE 16 SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-split tree — the invariant the flag day '
+    . 'rests on; the other five carry the reviewed #561/Polylang/WooCommerce/Yoast edits and are re-pinned above'
 );
 $movedNames = [];
 foreach ($observed as $name => $digest) {
@@ -208,21 +213,21 @@ duo_check_same(
 duo_check_same(
     SPLIT_REVIEWED_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
-    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved only with the three '
-    . 'reviewed manifests: a 16-pin site recompiles for #561/Polylang, not for the split'
+    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved only with the five '
+    . 'reviewed adapters: a 16-pin site recompiles for #561/Polylang/WooCommerce/Yoast, not for the split'
 );
 duo_check(
     SPLIT_REVIEWED_MANIFEST_HASH !== SPLIT_FROZEN_MANIFEST_HASH
         && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
         && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA,
-    '...and all three re-pinned numbers really differ from their frozen originals, so the three assertions '
+    '...and all re-pinned numbers really differ from their frozen originals, so the assertions '
     . 'around them are re-pins a reviewer must read rather than restatements of the frozen constants'
 );
 duo_check_same(
     SPLIT_REVIEWED_REGISTRY_SHA,
     $shippedRegistry->sha256(),
     'and registry_sha256, the content address a host contract pins, reassembles from the per-subject documents '
-    . 'to exactly one document — carrying #561\'s TEC promotion and Polylang\'s reviewed certification, not the '
+    . 'to exactly one document — carrying #561\'s TEC promotion plus Polylang and WooCommerce review, not the '
     . 'split itself (WP-4.5 is the rider that narrows this to per-subject addressing)'
 );
 duo_check_same(

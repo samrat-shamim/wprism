@@ -38,15 +38,16 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 
 DB_LIB="$ROOT/sandbox/lib/pair_db.sh"
+IDENTITY_LIB="$ROOT/sandbox/lib/pair_identity.sh"
 COMPOSE_LIB="$ROOT/sandbox/lib/pair_compose.sh"
 PAIR_SH="$ROOT/sandbox/bin/pair.sh"
 PAIR_YML="$ROOT/sandbox/pair.yml"
 DB_MYSQL_YML="$ROOT/sandbox/db.mysql.yml"
 
-for f in "$DB_LIB" "$COMPOSE_LIB" "$PAIR_SH" "$PAIR_YML" "$DB_MYSQL_YML"; do
+for f in "$DB_LIB" "$IDENTITY_LIB" "$COMPOSE_LIB" "$PAIR_SH" "$PAIR_YML" "$DB_MYSQL_YML"; do
   [ -r "$f" ] || fail "missing file this suite is about: $f"
 done
-for f in "$DB_LIB" "$COMPOSE_LIB" "$PAIR_SH"; do
+for f in "$DB_LIB" "$IDENTITY_LIB" "$COMPOSE_LIB" "$PAIR_SH"; do
   bash -n "$f" || fail "does not parse: $f"
 done
 
@@ -226,6 +227,8 @@ say "pair_compose_configure persists DUO_DB_HOST into sandbox/.env for subproces
 # OWN `docker compose -f pair.yml` calls, which never see pair.sh's export. A
 # MySQL pair whose subprocesses re-rendered the duo-shared-db default would run
 # green against MariaDB and be recorded as MySQL evidence.
+# shellcheck source=../../../lib/pair_identity.sh
+source "$IDENTITY_LIB"
 # shellcheck source=../../../lib/pair_compose.sh
 source "$COMPOSE_LIB"
 ENV_CWD="$TMP/envcwd"

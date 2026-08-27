@@ -159,6 +159,10 @@ $fixtureManifest = [
             'kind' => 'provider', 'provider' => 'scope-contract-provider', 'capability' => 'rebuild_scope',
             'args' => [], 'triggers' => ['post:page'], 'effects' => [effect('scope-contract-provider-action')],
         ],
+        [
+            'kind' => 'provider', 'provider' => 'scope-contract-provider', 'capability' => 'rebuild_scope',
+            'args' => [], 'triggers' => ['post:page'], 'effects' => [],
+        ],
     ],
 ];
 put("$manifestDir/scope-contract-fixture.json", Canon::encode($fixtureManifest));
@@ -828,7 +832,7 @@ $effectIds = array_column($potentialEffects, 'id');
 check(in_array('scope-contract-page-action', $effectIds, true)
     && in_array('scope-contract-provider-action', $effectIds, true)
     && !in_array('scope-contract-product-action', $effectIds, true),
-    'potential effects include exact eligible action declarations and exclude unrelated trigger rows');
+    'potential effects include exact eligible effectful actions, exclude unrelated triggers, and invent no effect for an eligible read-only action');
 check(count($contract['potential_providers']) === 1
     && $contract['potential_providers'][0]['id'] === 'scope-contract-provider',
     'provider declaration is potential evidence only when an eligible trigger reaches it');

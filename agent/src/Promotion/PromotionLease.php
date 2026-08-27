@@ -218,6 +218,29 @@ class PromotionLease {
     }
 
     /**
+     * Fence a direct deploy while its locked artifact, lifecycle, mismatch,
+     * and drift gates run without replacing durable recovery evidence. A
+     * successful caller must publish the session with begin_deploy_session()
+     * immediately before plugin/theme lifecycle mutation becomes possible.
+     *
+     * @return array{owner:string,artifact_hash:string,phase:string,acquired_at:int,expires_at:int,recovered:bool}
+     */
+    public static function acquire_deploy_preflight(
+        string $owner,
+        string $artifactHash,
+        ?int $ttl = null
+    ): array {
+        return self::acquire_internal(
+            $owner,
+            $artifactHash,
+            'deploy-preflight',
+            $ttl,
+            false,
+            false
+        );
+    }
+
+    /**
      * Publish the direct-apply session only after every locked pre-mutation
      * gate has passed.  The continuously held lease/process fence proves no
      * other Duo writer can replace the boundary between preflight and this
@@ -225,6 +248,22 @@ class PromotionLease {
      * not call this entry point.
      */
     public static function begin_apply_session(string $owner, string $artifactHash): void {
+        self::begin_direct_session($owner, $artifactHash, 'apply');
+    }
+
+    /** Publish a direct-deploy session after every locked refusal gate passes. */
+    public static function begin_deploy_session(string $owner, string $artifactHash): void {
+        self::begin_direct_session($owner, $artifactHash, 'deploy');
+    }
+
+    private static function begin_direct_session(
+        string $owner,
+        string $artifactHash,
+        string $operation
+    ): void {
+        if ($operation !== 'apply' && $operation !== 'deploy') {
+            throw new \InvalidArgumentException('unsupported direct promotion session operation');
+        }
         self::assert_identity($owner, $artifactHash);
         $current = self::current();
         if (!self::process_fence_is_continuous()
@@ -236,14 +275,14 @@ class PromotionLease {
             || !hash_equals($owner, (string) ($current['owner'] ?? ''))
             || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))) {
             throw new \RuntimeException(
-                'duo: direct apply lost its preflight lease before the promotion session began'
+                "duo: direct $operation lost its preflight lease before the promotion session began"
             );
         }
         $existingSession = PromotionSessionJournal::readAny();
         if ($existingSession !== null
             && hash_equals($owner, $existingSession->owner())
             && hash_equals($artifactHash, $existingSession->artifactHash())) {
-            throw new \RuntimeException('duo: direct apply promotion session was already begun');
+            throw new \RuntimeException("duo: direct $operation promotion session was already begun");
         }
         if (LifecycleJournal::incompleteAny() !== null) {
             throw new \RuntimeException(
@@ -254,7 +293,7 @@ class PromotionLease {
         // TTL while this process continuously owns the advisory fence. Match
         // heartbeat()'s established rule: that holder may renew when control
         // returns, whereas a disconnected/changed holder may not revive it.
-        self::heartbeat($owner, $artifactHash, 'apply-session-begin');
+        self::heartbeat($owner, $artifactHash, $operation . '-session-begin');
         $now = time();
         $current = self::current();
         if (!self::process_fence_is_continuous()
@@ -267,12 +306,12 @@ class PromotionLease {
             || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))
             || (int) ($current['expires_at'] ?? 0) <= $now) {
             throw new \RuntimeException(
-                'duo: direct apply lost its preflight lease before the promotion session began'
+                "duo: direct $operation lost its preflight lease before the promotion session began"
             );
         }
-        // Direct apply reaches this boundary only after its locked gates.
-        // Give scoped authority the same unforgeable crash-recovery
-        // generation as host-begun/new acquire() sessions.
+        // A direct mutation reaches this boundary only after its locked gates.
+        // Give its recovery path the same unforgeable generation as
+        // host-begun/new acquire() sessions.
         PromotionSessionJournal::start($owner, $artifactHash, $now, 'ps-' . bin2hex(random_bytes(16)));
     }
 

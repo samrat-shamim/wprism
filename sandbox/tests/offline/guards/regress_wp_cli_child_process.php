@@ -159,6 +159,58 @@ if ($mode === 'receipt') {
     echo "{\"format\":\"bounded-receipt/v1\",\"verified\":true}\n";
     exit(0);
 }
+if ($mode === 'memory-limit') {
+    echo ini_get('memory_limit');
+    exit(0);
+}
+if ($mode === 'stdin-hash') {
+    $input = stream_get_contents(STDIN);
+    if (!is_string($input)) {
+        exit(17);
+    }
+    echo json_encode([
+        'bytes' => strlen($input),
+        'sha256' => hash('sha256', $input),
+    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    exit(0);
+}
+if ($mode === 'stdin-exit') {
+    exit(0);
+}
+if ($mode === 'stdin-stderr-first') {
+    for ($i = 0; $i < 32; $i++) {
+        fwrite(STDERR, str_repeat('i', 4096));
+    }
+    $input = stream_get_contents(STDIN);
+    if (!is_string($input)) {
+        exit(18);
+    }
+    echo json_encode([
+        'bytes' => strlen($input),
+        'sha256' => hash('sha256', $input),
+    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    exit(0);
+}
+if ($mode === 'stdin-output-over') {
+    $input = stream_get_contents(STDIN);
+    if (!is_string($input)) {
+        exit(19);
+    }
+    for ($i = 0; $i < 8192; $i++) {
+        echo $input;
+    }
+    exit(0);
+}
+if ($mode === 'stdin-term-ignore') {
+    $pidFile = (string) ($args[0] ?? '');
+    file_put_contents($pidFile, (string) getmypid());
+    $process = proc_open(
+        ['/bin/sh', '-c', 'trap "" TERM; while :; do sleep 1; done'],
+        [0 => ['file', '/dev/null', 'r'], 1 => STDOUT, 2 => STDERR],
+        $pipes
+    );
+    exit(is_resource($process) ? proc_close($process) : 20);
+}
 if ($mode === 'stderr-first') {
     for ($i = 0; $i < 96; $i++) {
         fwrite(STDERR, str_repeat('w', 8192));
@@ -317,11 +369,135 @@ PHP;
         $GLOBALS['wp_cli_child_proc_checks'],
         'the helper preserves WP-CLI process-availability preflight'
     );
+    $memoryReceipt = Duo\WpCliChildProcess::capture('memory-limit', 5, 65536, 65536);
+    duo_check_same(
+        ['return_code' => 0, 'stdout' => '512M', 'stderr' => ''],
+        $memoryReceipt,
+        'every descendant receives the explicit finite 512 MiB bootstrap ceiling instead of PHP CLI default memory'
+    );
+    $memoryLaunch = (string) end($GLOBALS['wp_cli_child_commands']);
+    $memoryInner = wp_cli_child_inner_command($memoryLaunch);
+    duo_check(
+        substr_count($memoryLaunch, 'memory_limit=512M') === 2
+            && str_contains($memoryLaunch, " -d 'memory_limit=512M' -r ")
+            && str_starts_with($memoryInner, escapeshellarg(PHP_BINARY) . " -d 'memory_limit=512M' "),
+        'both the session wrapper and owned WP-CLI command carry the same exact finite memory flag'
+    );
     duo_check(
         str_starts_with((string) ($GLOBALS['wp_cli_child_commands'][0] ?? ''), 'exec ')
             && str_contains((string) $GLOBALS['wp_cli_child_commands'][0], escapeshellarg(PHP_BINARY))
             && str_contains((string) $GLOBALS['wp_cli_child_commands'][0], escapeshellarg($child)),
         'the launch command replaces the shell with the exact reviewed PHP/script boundary'
+    );
+
+    $privateInput = "merchant-secret\0東京🚀\n" . str_repeat('bounded-input-', 32768);
+    $inputReceipt = Duo\WpCliChildProcess::capture_with_input(
+        'stdin-hash',
+        $privateInput,
+        5,
+        65536,
+        65536
+    );
+    duo_check_same(0, $inputReceipt['return_code'], 'the bounded stdin child preserves a successful exit code');
+    duo_check_same('', $inputReceipt['stderr'], 'bounded stdin preserves exact empty stderr');
+    duo_check_same(
+        ['bytes' => strlen($privateInput), 'sha256' => hash('sha256', $privateInput)],
+        json_decode($inputReceipt['stdout'], true, 4, JSON_THROW_ON_ERROR),
+        'binary and UTF-8 private input crosses the concurrent pipe byte-exactly'
+    );
+    $inputLaunch = (string) end($GLOBALS['wp_cli_child_commands']);
+    duo_check(
+        !str_contains($inputLaunch, 'merchant-secret') && !str_contains($inputLaunch, '東京'),
+        'private stdin bytes never enter the process command line'
+    );
+    unset($privateInput);
+
+    $boundaryInput = str_repeat("b\0", 4194304);
+    $boundaryReceipt = Duo\WpCliChildProcess::capture_with_input(
+        'stdin-hash',
+        $boundaryInput,
+        10,
+        65536,
+        65536
+    );
+    duo_check_same(
+        ['bytes' => 8388608, 'sha256' => hash('sha256', $boundaryInput)],
+        json_decode($boundaryReceipt['stdout'], true, 4, JSON_THROW_ON_ERROR),
+        'binary private input is admitted byte-exactly at the hard 8 MiB boundary'
+    );
+    unset($boundaryInput);
+
+    $stderrFirstInput = "concurrent-secret\0東京\n" . str_repeat('input-', 32768);
+    $stderrFirstInputReceipt = Duo\WpCliChildProcess::capture_with_input(
+        'stdin-stderr-first',
+        $stderrFirstInput,
+        5,
+        65536,
+        262144
+    );
+    duo_check_same(32 * 4096, strlen($stderrFirstInputReceipt['stderr']), 'stdin transport drains pipe-filling stderr before the child reads input');
+    duo_check_same(
+        ['bytes' => strlen($stderrFirstInput), 'sha256' => hash('sha256', $stderrFirstInput)],
+        json_decode($stderrFirstInputReceipt['stdout'], true, 4, JSON_THROW_ON_ERROR),
+        'pipe-filling stderr and private stdin are multiplexed without deadlock or byte loss'
+    );
+    unset($stderrFirstInput);
+
+    $earlyExitFailure = wp_cli_child_refuses(
+        static fn() => Duo\WpCliChildProcess::capture_with_input(
+            'stdin-exit',
+            str_repeat('e', 1048576),
+            5,
+            65536,
+            65536
+        ),
+        'input transport failed',
+        'a launched child that exits before draining a pipe-capacity input refuses instead of returning false success'
+    );
+    duo_check_same(
+        'duo: bounded WP-CLI child input transport failed',
+        $earlyExitFailure->getMessage(),
+        'early stdin closure returns one fixed value-free transport refusal'
+    );
+
+    $privateEcho = 'credential-shaped-stdin-secret';
+    $inputOutputFailure = wp_cli_child_refuses(
+        static fn() => Duo\WpCliChildProcess::capture_with_input(
+            'stdin-output-over',
+            $privateEcho,
+            5,
+            65536,
+            65536
+        ),
+        'output exceeded',
+        'a child echoing private stdin beyond its output cap is terminated and reaped'
+    );
+    duo_check(
+        !str_contains($inputOutputFailure->getMessage(), $privateEcho),
+        'an input-plus-output-cap refusal never exposes caller-owned stdin or child output'
+    );
+
+    $stdinTimeoutPidFile = $scratch . '/stdin-term-ignore.pid';
+    $stdinTimeoutFailure = wp_cli_child_refuses(
+        static fn() => Duo\WpCliChildProcess::capture_with_input(
+            'stdin-term-ignore ' . escapeshellarg($stdinTimeoutPidFile),
+            str_repeat('t', 1048576),
+            1,
+            65536,
+            65536
+        ),
+        'wall-clock limit',
+        'a TERM-ignoring child that never reads stdin reaches the fixed wall-clock refusal'
+    );
+    duo_check_same(
+        'duo: bounded WP-CLI child exceeded its wall-clock limit',
+        $stdinTimeoutFailure->getMessage(),
+        'blocked-stdin timeout preserves the original value-free refusal after group cleanup'
+    );
+    $stdinTimeoutPid = is_file($stdinTimeoutPidFile) ? (int) file_get_contents($stdinTimeoutPidFile) : 0;
+    duo_check(
+        $stdinTimeoutPid > 1 && wp_cli_child_process_is_inert($stdinTimeoutPid),
+        'the child that never read stdin cannot execute after timeout returns'
     );
 
     $GLOBALS['wp_cli_child_alias'] = 'target';
@@ -668,6 +844,22 @@ PHP;
         static fn() => Duo\WpCliChildProcess::capture('receipt', 5, 1048576, 1),
         'output limits exceed',
         'aggregate capture limits cannot exceed the hard transport budget'
+    );
+    wp_cli_child_refuses(
+        static fn() => Duo\WpCliChildProcess::capture_with_input('stdin-hash', '', 5, 1, 1),
+        'input is outside',
+        'empty private input refuses before process creation'
+    );
+    wp_cli_child_refuses(
+        static fn() => Duo\WpCliChildProcess::capture_with_input(
+            'stdin-exit',
+            str_repeat('x', 8388609),
+            5,
+            1,
+            1
+        ),
+        'input is outside',
+        'private input above the hard transport boundary refuses before process creation'
     );
     $GLOBALS['wp_cli_child_php_binary'] = str_repeat('/p', 2048);
     $GLOBALS['argv'][0] = str_repeat('/s', 2048);

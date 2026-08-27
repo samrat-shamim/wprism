@@ -1064,11 +1064,11 @@ manifests/dispositions/<name>.json     # one document per adapter, the entry ver
 manifests/dispositions/profiles.json   # the profiles map, keyed independently of the manifest glob
 ```
 
-17 documents, 1,193 lines, 50,117 bytes — the same entries, the same profile, re-indented as 17 roots
+17 documents, 1,203 lines, 52,108 bytes — the same entries, the same profile, re-indented as 17 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
-promotion of `the-events-calendar` to `certified` and Polylang's reviewed production-readiness port,
-which rewrote those subjects' reviewed entries, and the later reviewed empty-catalog lifecycle correction
-rewrote Polylang's entry without changing the split topology.)
+promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
+the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
+review, all without changing the split topology.)
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
 is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day
@@ -1573,7 +1573,7 @@ adapter, which is the case the list exists to keep loading.
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
 
-- 16 adapter names, 18 `id_kind`s, 11 provider ids = 45 identities, all of which already pass the one
+- 16 adapter names, 18 `id_kind`s, 14 provider ids = 48 identities, all of which already pass the one
   shared grammar;
 - a bare `<vendor>-<name>` refusal would break **24** of them — the 6 adapter names carrying no hyphen at
   all (`acf`, `core`, `elementor`, `polylang`, `woocommerce`, `yoast`) and all 18 `id_kind`s, every one of
@@ -1702,13 +1702,23 @@ substitutable for another:
    executable repair AFTER the declarative primitives land, and the `compatibility_shim` share of NEWLY
    authored adapters has fallen below a threshold stated in advance of the measurement. The baseline is
    today's, measured over the shipped library: 11 of the 16 adapters name manifest-shipped hook code, and
-   that code is 16 files totalling 14,222 lines under `manifests/{interpreters,providers,regenerators}`.
+   that code is 20 files totalling 27,643 lines under `manifests/{interpreters,providers,regenerators}`.
    The baseline more than doubled with #561 alone — one adapter reaching production-readiness added a TEC
    interpreter and a Category Colors provider and rewrote its regenerator. Polylang then added the sixteenth
    hook file and 1,828 lines through its reviewed production-readiness port — which is the condition arguing
    against itself, and is recorded here rather than smoothed away. The later reviewed empty-catalog
-   lifecycle correction added seven lines to that measured hook surface; this baseline is re-measured rather
-   than preserving a stale threshold.
+   lifecycle correction added seven lines to that measured hook surface. Woo's final four-plugin
+   co-install correction then added 15 lines to admit only the source-bound inert generic filters that
+   execute during Polylang's native save; this baseline is re-measured rather than preserving a stale
+   threshold. The same four-plugin witness then reached TEC's checked option writer: closing its exact
+   Woo/Yoast pre-update, update, add and sitemap-cache union without constructing missing services added
+   216 lines to the shipped TEC interpreter, so the measured baseline moves with that reviewed boundary.
+   Closing Woo's reciprocal union, including its inert-only settings tracker, TEC's five exact
+   `updated_option` observers, and the hash-bound partial-load settings authority, added 561 lines to the
+   Woo interpreter; source-bound callback identity and observer-state inspection keep that admission finite.
+   The inactive-Woo lifecycle correction added a net 194 lines for exact installed-root and native-file
+   provenance plus a bounded stdin child that validates permalink bytes without preloading Woo's bare-required
+   formatter into the activation process; the baseline moves because those executable bytes ship with the adapter.
 2. **Falsifiable effects.** Declared-effect verification is live and REFUSING, with a measured
    false-refusal rate on the shipped 16 below a stated threshold — because the compiled inventory is
    recovery's entire authority, and under-declaring `effects[]` is the cheapest way for an adapter to pass.
