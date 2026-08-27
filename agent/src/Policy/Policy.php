@@ -1922,14 +1922,13 @@ final class Policy {
             if (!preg_match('/^[a-z0-9_-]+$/', $name)) {
                 throw new \RuntimeException("duo: manifest '{$m['name']}' declares invalid interpreter name '$name'");
             }
-            $expectedFile = self::manifests_dir() . '/interpreters/' . $name . '.php';
-            if (!is_file($expectedFile)) {
+            $file = $this->adapter_runtime_path((string) $m['name'], 'interpreters', $name);
+            if (!is_file($file)) {
                 throw new \RuntimeException(
-                    "duo: manifest '{$m['name']}' wants interpreter '$name' but $expectedFile is missing — "
+                    "duo: manifest '{$m['name']}' wants interpreter '$name' but $file is missing — "
                     . 'interpreter code ships with its manifest, not the engine'
                 );
             }
-            $file = $this->adapter_runtime_path((string) $m['name'], 'interpreters', $name);
             require_once $file;
             $class = '\\Duo\\Interpreters\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
             if (!class_exists($class) || !method_exists($class, 'post_meta_rule')) {
@@ -1987,14 +1986,13 @@ final class Policy {
                         "duo: manifest '{$m['name']}' post_types.$postType declares invalid regenerator name '$name'"
                     );
                 }
-                $expectedFile = self::manifests_dir() . '/regenerators/' . $name . '.php';
-                if (!is_file($expectedFile)) {
+                $file = $this->adapter_runtime_path((string) $m['name'], 'regenerators', $name);
+                if (!is_file($file)) {
                     throw new \RuntimeException(
-                        "duo: manifest '{$m['name']}' post_types.$postType wants regenerator '$name' but $expectedFile is missing — "
+                        "duo: manifest '{$m['name']}' post_types.$postType wants regenerator '$name' but $file is missing — "
                         . 'regenerator code ships with its manifest, not the engine'
                     );
                 }
-                $file = $this->adapter_runtime_path((string) $m['name'], 'regenerators', $name);
                 require_once $file;
                 $class = '\\Duo\\Regenerators\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
                 if (!class_exists($class) || !method_exists($class, 'regenerate')) {

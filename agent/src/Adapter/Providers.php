@@ -315,14 +315,14 @@ final class Providers {
                 continue;
             }
             $manifest = (string) ($declaration['manifest'] ?? ($action['manifest'] ?? '?'));
-            $expectedFile = Policy::manifests_dir() . '/providers/' . $id . '.php';
-            if (is_file($expectedFile)) {
+            $file = $policy->adapter_runtime_path($manifest, 'providers', $id);
+            if (is_file($file)) {
                 continue;
             }
             $problems[] = self::packaging_problem(new ProviderPackagingException(
                 $id,
                 $manifest,
-                "duo: manifest '$manifest' declares provider '$id' but $expectedFile is missing — "
+                "duo: manifest '$manifest' declares provider '$id' but $file is missing — "
                     . 'provider code ships with its manifest, not the engine'
             ));
         }
@@ -2157,21 +2157,20 @@ final class Providers {
     private static function manifest_provider(Policy $policy, array $declaration): object {
         $id = (string) $declaration['id'];
         $manifest = (string) $declaration['manifest'];
-        $expectedFile = Policy::manifests_dir() . '/providers/' . $id . '.php';
+        $file = $policy->adapter_runtime_path($manifest, 'providers', $id);
         // ProviderPackagingException, not a bare RuntimeException: the message
         // and the fail-before-mutation behavior are unchanged (it IS a
         // RuntimeException), but a reporting caller can now tell "the adapter
         // is packaged wrong, and here is exactly which file" apart from
         // "somebody else's code threw during diagnosis" — see problems().
-        if (!is_file($expectedFile)) {
+        if (!is_file($file)) {
             throw new ProviderPackagingException(
                 $id,
                 $manifest,
-                "duo: manifest '$manifest' declares provider '$id' but $expectedFile is missing — "
+                "duo: manifest '$manifest' declares provider '$id' but $file is missing — "
                     . 'provider code ships with its manifest, not the engine'
             );
         }
-        $file = $policy->adapter_runtime_path($manifest, 'providers', $id);
         require_once $file;
         $class = '\\Duo\\Providers\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $id)));
         if (!class_exists($class)) {

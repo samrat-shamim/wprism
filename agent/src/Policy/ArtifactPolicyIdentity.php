@@ -83,10 +83,7 @@ final class ArtifactPolicyIdentity {
             ];
             $interpreter = $manifest['interpreter'] ?? null;
             if (is_string($interpreter) && $interpreter !== '') {
-                $expectedFile = Policy::manifests_dir() . '/interpreters/' . basename($interpreter) . '.php';
-                $file = is_file($expectedFile)
-                    ? $policy->adapter_runtime_path($name, 'interpreters', basename($interpreter))
-                    : $expectedFile;
+                $file = $policy->adapter_runtime_path($name, 'interpreters', basename($interpreter));
                 $row['interpreter'] = [
                     'name' => $interpreter,
                     'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
@@ -104,10 +101,7 @@ final class ArtifactPolicyIdentity {
                 if ($id === '') {
                     continue;
                 }
-                $expectedFile = Policy::manifests_dir() . '/providers/' . basename($id) . '.php';
-                $file = is_file($expectedFile)
-                    ? $policy->adapter_runtime_path($name, 'providers', basename($id))
-                    : $expectedFile;
+                $file = $policy->adapter_runtime_path($name, 'providers', basename($id));
                 $providerHashes[] = [
                     'id' => $id,
                     'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
@@ -130,10 +124,7 @@ final class ArtifactPolicyIdentity {
                     continue;
                 }
                 $seenRegenerators[$regenerator] = true;
-                $expectedFile = Policy::manifests_dir() . '/regenerators/' . basename($regenerator) . '.php';
-                $file = is_file($expectedFile)
-                    ? $policy->adapter_runtime_path($name, 'regenerators', basename($regenerator))
-                    : $expectedFile;
+                $file = $policy->adapter_runtime_path($name, 'regenerators', basename($regenerator));
                 $regeneratorHashes[] = [
                     'name' => $regenerator,
                     'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
