@@ -2,17 +2,26 @@
 # Regenerate with `php tools/offline-corpus.php`; `make release-gate` byte-compares it.
 #
 # This file IS the offline corpus: every suite file under
-# sandbox/tests/offline/ that no other suite runs appears below exactly once,
-# and the count both status lines carry is the length of that list. Neither is
-# hand-maintained any more, so a new suite needs its file and its Makefile leaf
-# target -- nothing else -- and a suite cannot be left out, since there is no
-# exclusion input to leave it out of (tools/offline-corpus.php states the three
+# sandbox/tests/offline/ and adapter-packages/*/tests/offline/ appears below
+# exactly once. Package suite leaf rules are generated here too, so adapter
+# authors add only the package-local file and never edit the global Makefile.
+# The count both status lines carry is the length of that list. Neither it nor
+# the prerequisite list is hand-maintained, and a suite cannot be left out:
+# there is no exclusion input (tools/offline-corpus.php states the three
 # refusals that hold that up).
 #
 # `code-half-unit` stays the first prerequisite even though all 23 offline
 # suites it groups are listed directly below: keeping it means the set of
 # targets `make regress-offline-corpus` builds did not change when the list
 # became derived.
+
+.PHONY: regress-acf-meta-interpreter regress-acf-production-readiness
+
+regress-acf-meta-interpreter:
+	php adapter-packages/acf/tests/offline/regress_acf_meta_interpreter.php
+
+regress-acf-production-readiness:
+	php adapter-packages/acf/tests/offline/regress_acf_production_readiness.php
 
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus

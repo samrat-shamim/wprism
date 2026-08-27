@@ -106,12 +106,21 @@ final class AdapterChangeScopeCommand
         return $encoded . "\n";
     }
 
-    /** @param array{gate:string,adapter:?string,reason_code:string,classification:array<string,mixed>} $decision */
+    /**
+     * @param array{
+     *     gate:string,
+     *     adapter:?string,
+     *     command:non-empty-list<string>,
+     *     reason_code:string,
+     *     classification:array<string,mixed>
+     * } $decision
+     */
     private static function human(array $decision): string
     {
         $lines = [
             'adapter-change-scope: ' . $decision['gate'],
             'adapter: ' . ($decision['adapter'] ?? '-'),
+            'command: ' . implode(' ', $decision['command']),
             'reason: ' . $decision['reason_code'],
         ];
         $owners = $decision['classification']['owners'] ?? [];

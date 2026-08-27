@@ -20,6 +20,7 @@ require_once __DIR__ . '/AdapterChangeScope.php';
  *     format:'duo-adapter-change-scope/v1',
  *     gate:'adapter'|'full',
  *     adapter:?string,
+ *     command:non-empty-list<string>,
  *     reason_code:string,
  *     classification:ScopeResult
  * }
@@ -43,10 +44,22 @@ final class AdapterChangeScopeDecision
             : null;
 
         if ($adapter !== null) {
-            return self::result(self::GATE_ADAPTER, $adapter, 'single_adapter', $classification);
+            return self::result(
+                self::GATE_ADAPTER,
+                $adapter,
+                ['php', 'tools/adapter-package-tests.php', '--adapter=' . $adapter],
+                'single_adapter',
+                $classification
+            );
         }
 
-        return self::result(self::GATE_FULL, null, self::fullReason($changes, $classification), $classification);
+        return self::result(
+            self::GATE_FULL,
+            null,
+            ['make', 'regress-offline-all'],
+            self::fullReason($changes, $classification),
+            $classification
+        );
     }
 
     /**
@@ -94,15 +107,22 @@ final class AdapterChangeScopeDecision
 
     /**
      * @param 'adapter'|'full' $gate
+     * @param non-empty-list<string> $command
      * @param ScopeResult $classification
      * @return Decision
      */
-    private static function result(string $gate, ?string $adapter, string $reason, array $classification): array
-    {
+    private static function result(
+        string $gate,
+        ?string $adapter,
+        array $command,
+        string $reason,
+        array $classification
+    ): array {
         return [
             'format' => self::FORMAT,
             'gate' => $gate,
             'adapter' => $adapter,
+            'command' => $command,
             'reason_code' => $reason,
             'classification' => $classification,
         ];

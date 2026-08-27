@@ -36,17 +36,18 @@ if (!function_exists('acf_is_local_field_group')) {
     }
 }
 
-require_once __DIR__ . '/../../lib/check.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/PlainData.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/Secrets.php';
-require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
-require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
-require_once __DIR__ . '/../../../../agent/src/Capture/EntityMetaCapture.php';
-require_once __DIR__ . '/../../../../agent/src/Capture/MediaCapture.php';
-require_once __DIR__ . '/../../../../agent/src/Capture/PostCapture.php';
-require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryPortableShapeValidator.php';
-require_once __DIR__ . '/../../../../manifests/interpreters/acf.php';
+$repoRoot = dirname(__DIR__, 4);
+require_once $repoRoot . '/sandbox/tests/lib/check.php';
+require_once $repoRoot . '/agent/src/Kernel/Canon.php';
+require_once $repoRoot . '/agent/src/Kernel/PlainData.php';
+require_once $repoRoot . '/agent/src/Kernel/Secrets.php';
+require_once $repoRoot . '/agent/src/Policy/Policy.php';
+require_once $repoRoot . '/agent/src/Grammar/Tokens.php';
+require_once $repoRoot . '/agent/src/Capture/EntityMetaCapture.php';
+require_once $repoRoot . '/agent/src/Capture/MediaCapture.php';
+require_once $repoRoot . '/agent/src/Capture/PostCapture.php';
+require_once $repoRoot . '/agent/src/Repository/RepositoryPortableShapeValidator.php';
+require_once dirname(__DIR__, 2) . '/package/runtime/interpreters/acf.php';
 
 use Duo\Canon;
 use Duo\EntityMetaCapture;
@@ -119,7 +120,7 @@ final class AcfReadinessWakeupProbe {
     }
 }
 
-$manifest = Canon::decode(Canon::read_file(dirname(__DIR__, 4) . '/manifests/acf.json'));
+$manifest = Canon::decode(Canon::read_file(dirname(__DIR__, 2) . '/package/manifest.json'));
 duo_check_same('serialized', $manifest['post_types']['acf-field']['body'] ?? null, 'ACF field schemas use the strict serialized body codec');
 duo_check_same('serialized', $manifest['post_types']['acf-field-group']['body'] ?? null, 'ACF field-group schemas use the strict serialized body codec');
 

@@ -6,7 +6,7 @@
  * "first value per key" shape — confirmed by reading Capture::term_meta_map()
  * against post_meta_map()) and option_rule() (the options_/_options_ prefix
  * convention, empirically grounded against a fresh ACF 6.8.7 free-plugin
- * install — see manifests/interpreters/acf.php's own class docblock and the
+ * install — see package/runtime/interpreters/acf.php's own class docblock and the
  * DUO-3263 PR body for the full finding, including that acf_add_options_page()
  * itself is PRO-only while the underlying update_field(...,'option') storage
  * is not).
@@ -16,46 +16,19 @@
  * post_meta_rule-is-mandatory load-time check) with FAKE interpreters — this
  * file does not re-prove that. It proves two different things: (1) the REAL
  * Acf class's new classification logic in isolation, and (2) one end-to-end
- * pass through the REAL manifests/acf.json + Policy::meta_rule_for_option()/
+ * pass through the REAL package/manifest.json + Policy::meta_rule_for_option()/
  * owned_option_rule_via_interpreter()/option_rule_details_for_option() wiring,
  * confirming the option_namespaces claim, the interpreter dispatch, and the
  * cross-manifest-ownership check compose correctly together.
  */
 
-require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
-require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
-require __DIR__ . '/../../../../agent/src/Kernel/PlainData.php';
-require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
-require __DIR__ . '/../../../../agent/src/Repository/RepositoryAuthorization.php';
-
-// Production mounts manifest code independently from the agent source tree
-// (`/duo-manifests` versus the MU-plugin directory). Load the real
-// interpreter from a deliberately isolated directory so a relative reach
-// back into ../../agent cannot reappear unnoticed.
-$splitInterpreterRoot = sys_get_temp_dir() . '/duo_acf_split_mount_' . bin2hex(random_bytes(4));
-mkdir($splitInterpreterRoot . '/interpreters', 0777, true);
-$splitInterpreter = $splitInterpreterRoot . '/interpreters/acf.php';
-if (!copy(__DIR__ . '/../../../../manifests/interpreters/acf.php', $splitInterpreter)) {
-    throw new RuntimeException('cannot stage split-mount ACF interpreter fixture');
-}
-foreach (['acf.json', 'core.json'] as $manifestName) {
-    if (!copy(
-        __DIR__ . '/../../../../manifests/' . $manifestName,
-        $splitInterpreterRoot . '/' . $manifestName
-    )) {
-        throw new RuntimeException("cannot stage split-mount $manifestName fixture");
-    }
-}
-putenv('DUO_MANIFESTS_DIR=' . $splitInterpreterRoot);
-register_shutdown_function(static function () use ($splitInterpreterRoot, $splitInterpreter): void {
-    putenv('DUO_MANIFESTS_DIR');
-    @unlink($splitInterpreter);
-    @unlink($splitInterpreterRoot . '/acf.json');
-    @unlink($splitInterpreterRoot . '/core.json');
-    @rmdir($splitInterpreterRoot . '/interpreters');
-    @rmdir($splitInterpreterRoot);
-});
-require $splitInterpreter;
+$repoRoot = dirname(__DIR__, 4);
+require $repoRoot . '/agent/src/Kernel/Canon.php';
+require $repoRoot . '/agent/src/Kernel/OptionState.php';
+require $repoRoot . '/agent/src/Kernel/PlainData.php';
+require $repoRoot . '/agent/src/Policy/Policy.php';
+require $repoRoot . '/agent/src/Repository/RepositoryAuthorization.php';
+require dirname(__DIR__, 2) . '/package/runtime/interpreters/acf.php';
 
 use Duo\Policy;
 use Duo\Interpreters\Acf;
@@ -63,7 +36,7 @@ use Duo\Interpreters\Acf;
 if (!defined('DUO_SPEC_VERSION')) {
     // DUO-3261 bumped the engine's required spec_version to 2 (the term-file
     // `meta` wire format) after this test was first written — the real
-    // manifests/acf.json this file's end-to-end section loads now declares
+    // package/manifest.json this file's end-to-end section loads now declares
     // 2, so this constant has to match or Policy::load() refuses it outright.
     define('DUO_SPEC_VERSION', 2);
 }
@@ -243,7 +216,7 @@ check(
     'ACF live field-definition reader preserves serialized scalar semantics (not an array schema)'
 );
 
-echo "\n== end-to-end: Policy dispatch through the REAL manifests/acf.json ==\n";
+echo "\n== end-to-end: Policy dispatch through the REAL ACF package ==\n";
 $policy = Policy::load(null, ['acf']);
 // Policy's OWN internal Acf instance (built lazily inside interpreters(),
 // separate from $acf/$acf2 above) must be primed the same way a real
@@ -365,7 +338,7 @@ check(
 check(
     $policy->option_namespace('options_site_tagline') !== null
         && $policy->option_namespace('options_site_tagline')['owner'] === 'acf',
-    'the real acf.json option_namespaces declaration claims the options_ prefix'
+    'the real ACF manifest option_namespaces declaration claims the options_ prefix'
 );
 check(
     ($policy->owned_option_rule_via_interpreter('options_site_tagline', $allOptions)['class'] ?? null) === 'authored',
@@ -376,16 +349,16 @@ check(
 check(
     ($policy->meta_rule_for_option('options_site_tagline', $allOptions)['autoload'] ?? null) === 'preserve',
     "an interpreter-classified options rule gets the owning manifest's own option_autoload default injected "
-        . '(acf.json declares "option_autoload": "preserve") -- caught live on the first run of the '
+        . '(the ACF manifest declares "option_autoload": "preserve") -- caught live on the first run of the '
         . 'regress_acf_term_options_fields.sh sandbox test: OptionState::assert_rule_autoload() hard-requires '
-        . "every options rule to declare autoload, and the interpreter dispatch path originally bypassed the "
+        . 'every options rule to declare autoload, and the interpreter dispatch path originally bypassed the '
         . 'static path\'s own with_option_autoload() injection entirely, so capture failed outright'
 );
 check(
     !array_key_exists('autoload', $policy->meta_rule_for_term('site_logo', ['_site_logo' => 'field_site_logo', 'site_logo' => '9']) ?? []),
-    "the autoload injection is scoped to the option_rule hook specifically -- resolving the SAME primed "
-        . "field_site_logo definition through meta_rule_for_term() instead (a real, non-null rule) must never "
-        . "carry an autoload key, even though the owning manifest (acf.json) DOES declare option_autoload; "
+    'the autoload injection is scoped to the option_rule hook specifically -- resolving the SAME primed '
+        . 'field_site_logo definition through meta_rule_for_term() instead (a real, non-null rule) must never '
+        . 'carry an autoload key, even though the owning ACF manifest DOES declare option_autoload; '
         . 'term_meta has no such concept and must not silently inherit it'
 );
 check(

@@ -157,7 +157,7 @@ final class OfflineCorpusTest extends TestCase
         self::assertGreaterThan(200, count($derived['targets']), 'the real corpus is hundreds of suites');
         self::assertSame(
             (string) file_get_contents(self::repoRoot() . '/' . OfflineCorpus::INCLUDE_PATH),
-            OfflineCorpus::render($derived['targets']),
+            OfflineCorpus::render($derived['targets'], $derived['package_targets']),
             'tools/offline-corpus.mk is stale -- run: php tools/offline-corpus.php'
         );
     }
@@ -174,7 +174,7 @@ final class OfflineCorpusTest extends TestCase
     public function testBothStatusLinesCarryTheDerivedCount(): void
     {
         $derived = OfflineCorpus::derive(self::repoRoot());
-        $rendered = OfflineCorpus::render($derived['targets']);
+        $rendered = OfflineCorpus::render($derived['targets'], $derived['package_targets']);
         $count = count($derived['targets']);
         self::assertStringContainsString(
             OfflineCorpus::GATE_TARGET . ": $count offline suites green",
@@ -224,6 +224,43 @@ final class OfflineCorpusTest extends TestCase
     {
         $derived = OfflineCorpus::derive($this->fixtureRoot());
         self::assertNotContains('regress-live-one', $derived['targets']);
+    }
+
+    public function testAdapterPackageOfflineSuitesGetGeneratedLeafRulesWithoutAMakefileEdit(): void
+    {
+        $root = $this->fixtureRoot('', [
+            'adapter-packages/acf/tests/offline/regress_acf_owned.php' => "<?php\n",
+            'adapter-packages/acf/tests/conformance/regress_acf_live.sh' => "#!/usr/bin/env bash\n",
+        ]);
+
+        $derived = OfflineCorpus::derive($root);
+
+        self::assertSame([], $derived['refusals']);
+        self::assertContains('regress-acf-owned', $derived['targets']);
+        self::assertSame([
+            'path' => 'adapter-packages/acf/tests/offline/regress_acf_owned.php',
+            'runtime' => 'php',
+        ], $derived['package_targets']['regress-acf-owned']);
+        $rendered = OfflineCorpus::render($derived['targets'], $derived['package_targets']);
+        self::assertStringContainsString(
+            "regress-acf-owned:\n\tphp adapter-packages/acf/tests/offline/regress_acf_owned.php\n",
+            $rendered
+        );
+        self::assertNotContains('regress-acf-live', $derived['targets']);
+    }
+
+    public function testAdapterPackageTargetCollisionIsRefused(): void
+    {
+        $root = $this->fixtureRoot(
+            "\nregress-acf-owned:\n\t@echo unrelated\n",
+            ['adapter-packages/acf/tests/offline/regress_acf_owned.php' => "<?php\n"]
+        );
+
+        $refusals = OfflineCorpus::derive($root)['refusals'];
+
+        self::assertCount(1, $refusals);
+        self::assertStringContainsString('R1 target collision', $refusals[0]);
+        self::assertStringContainsString('regress-acf-owned', $refusals[0]);
     }
 
     public function testIncludeFoldReadsRulesOutOfTheIncludedFragment(): void

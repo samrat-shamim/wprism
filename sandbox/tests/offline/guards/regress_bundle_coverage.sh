@@ -465,6 +465,15 @@ while IFS= read -r -d '' file; do
   mkdir -p "$DERIVE_ROOT/$(dirname "$file")"
   cp "$file" "$DERIVE_ROOT/$file"
 done < <(find sandbox/tests \( -name 'regress_*.sh' -o -name 'regress_*.php' \) -type f -print0)
+# Package-local offline suites are corpus inputs too. Copying only the legacy
+# sandbox tree leaves the generated package targets in the committed include
+# but removes their source files, making this clean-copy precondition fail for
+# the wrong reason before the exclusion mutation is planted.
+while IFS= read -r -d '' file; do
+  mkdir -p "$DERIVE_ROOT/$(dirname "$file")"
+  cp "$file" "$DERIVE_ROOT/$file"
+done < <(find adapter-packages -path '*/tests/*' \
+  \( -name 'regress_*.sh' -o -name 'regress_*.php' \) -type f -print0)
 # The copy has to derive clean first, or the refusal below proves nothing
 # about exclusion -- it would just be re-reporting an incomplete fixture.
 if ! php tools/offline-corpus.php --check --root="$DERIVE_ROOT" >"$TMP/derive-clean.log" 2>&1; then

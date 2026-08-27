@@ -57,6 +57,7 @@ final class AdapterChangeScopeCliTest extends TestCase
         self::assertSame(
             "adapter-change-scope: adapter\n"
             . "adapter: acf\n"
+            . "command: php tools/adapter-package-tests.php --adapter=acf\n"
             . "reason: single_adapter\n"
             . "owner: adapter adapter-packages/acf adapter-packages/acf/manifest.json\n",
             $result['stdout']
@@ -73,6 +74,10 @@ final class AdapterChangeScopeCliTest extends TestCase
         self::assertSame(AdapterChangeScopeDecision::FORMAT, $decision['format']);
         self::assertSame(AdapterChangeScopeDecision::GATE_ADAPTER, $decision['gate']);
         self::assertSame('woocommerce', $decision['adapter']);
+        self::assertSame(
+            ['php', 'tools/adapter-package-tests.php', '--adapter=woocommerce'],
+            $decision['command']
+        );
         self::assertSame('single_adapter', $decision['reason_code']);
         self::assertSame(['woocommerce'], $decision['classification']['adapters']);
     }
@@ -86,6 +91,7 @@ final class AdapterChangeScopeCliTest extends TestCase
 
         self::assertSame(AdapterChangeScopeDecision::GATE_FULL, $decision['gate']);
         self::assertNull($decision['adapter']);
+        self::assertSame(['make', 'regress-offline-all'], $decision['command']);
         self::assertSame('cross_adapter_change', $decision['reason_code']);
         self::assertSame(['acf', 'yoast'], $decision['classification']['adapters']);
     }

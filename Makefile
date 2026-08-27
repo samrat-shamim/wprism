@@ -665,18 +665,6 @@ regress-woocommerce-multisite-refusal:
 regress-interpreter-policy:
 	php sandbox/tests/offline/policy/regress_interpreter_policy.php
 
-# DUO-3263: real Acf interpreter term_meta_rule()/option_rule() classification
-# (term-attached fields reuse post_meta_rule()'s shadow-key machinery
-# unchanged; options-page fields use the options_/_options_ prefix
-# convention empirically confirmed against fresh ACF 6.8.7 free), plus one
-# end-to-end pass through the real manifests/acf.json + Policy dispatch/
-# ownership wiring. Pure PHP, no WordPress or docker.
-regress-acf-meta-interpreter:
-	php sandbox/tests/offline/policy/regress_acf_meta_interpreter.php
-
-regress-acf-production-readiness:
-	php sandbox/tests/offline/adapter/regress_acf_production_readiness.php
-
 regress-contact-form-7-production-readiness:
 	php sandbox/tests/offline/adapter/regress_contact_form_7_production_readiness.php
 
