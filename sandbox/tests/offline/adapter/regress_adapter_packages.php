@@ -8,6 +8,11 @@ require_once __DIR__ . '/../../../../tools/src/AdapterPackageTestRunner.php';
 
 $repo = dirname(__DIR__, 4);
 $packages = $repo . '/adapter-packages';
+$platform = $repo . '/platform/adapter-library';
+if (!is_dir($platform) || is_link($platform)) {
+    fwrite(STDERR, "regress-adapter-packages: platform library is absent or not an ordinary directory: $platform\n");
+    exit(1);
+}
 $entries = scandir($packages);
 if ($entries === false) {
     fwrite(STDERR, "regress-adapter-packages: cannot read $packages\n");

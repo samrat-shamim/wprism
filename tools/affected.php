@@ -64,7 +64,8 @@ declare(strict_types=1);
  *       leading `../` count in front of it (verified against every
  *       require_once line in sandbox/tests/*.php).
  *   (b) ANY literal repo-relative path token matching
- *       `(agent|cli|recovery|manifests|scripts|sandbox|docs|spec)/....(php|
+ *       `(agent|adapter-packages|platform|integration-scenarios|cli|recovery|
+ *       scripts|sandbox|docs|spec)/....(php|
  *       json|sh|md|yml|Dockerfile)`, `cli/duo`, or `Makefile` -- this also
  *       catches non-require references (file_get_contents+eval of cli/duo,
  *       assert_file_contains($path, ...), `source "$ROOT/sandbox/lib/x.sh"`)
@@ -76,8 +77,8 @@ declare(strict_types=1);
  *       Code's own internal require chain never spells
  *       "agent/src/Kernel/PathSafety.php" itself, so only the class token proves
  *       the dependency.
- *   (d) a rooted DIRECTORY literal (`$repo . '/manifests'`,
- *       `'manifests/providers'`) recorded as a whole-directory dependency,
+ *   (d) a rooted DIRECTORY literal (`$repo . '/adapter-packages'`,
+ *       `'platform/adapter-library'`) recorded as a whole-directory dependency,
  *       matched by prefix at selection time -- the one shape exact-path
  *       matching structurally cannot express, because a suite that does
  *       `glob($dir . '/*.json')` never spells any individual member. See
@@ -137,7 +138,18 @@ declare(strict_types=1);
  *                           [--explain] [--json] [--quiet] [--rebuild-index]
  */
 
-const AF_ROOT_DIRS = ['agent', 'cli', 'recovery', 'manifests', 'scripts', 'sandbox', 'docs', 'spec'];
+const AF_ROOT_DIRS = [
+    'agent',
+    'adapter-packages',
+    'platform',
+    'integration-scenarios',
+    'cli',
+    'recovery',
+    'scripts',
+    'sandbox',
+    'docs',
+    'spec',
+];
 const AF_ROOT_EXTS = ['php', 'json', 'sh', 'md', 'yml', 'Dockerfile'];
 const AF_SRC_DIRS = ['agent/src', 'cli/src', 'recovery'];
 
@@ -718,21 +730,18 @@ const AF_DIR_SIGNAL_EXCLUDED = [
  * Whole-DIRECTORY dependencies, the signal that exact-path matching
  * structurally cannot express.
  *
- * Several offline leaves load a tree wholesale rather than naming its
- * members -- `$dir = $repo . '/manifests'; glob($dir . '/*.json')`,
- * `glob($root . '/manifests/providers/*.php')`, `scandir(...)` loops. No individual
- * manifest is ever spelled, so no ref key can exist for it, and every one of
- * the ~87 files under manifests/ selected zero suites -- the highest-traffic
- * false negative there was, since manifests are product data edited
- * constantly.
+ * The adapter aggregate discovers package tests and payloads by scanning
+ * `adapter-packages/`, while policy suites close `platform/adapter-library/`.
+ * Neither can spell every future capsule member, so exact-path references alone
+ * would miss newly added package tests, evidence, and runtime files.
  *
  * Rather than enumerate call shapes (glob/scandir/opendir/::load/find/ls,
  * each with its own indirection through a local variable assigned on an
  * earlier line), this takes any rooted directory LITERAL and lets three
  * cheap gates do the filtering:
  *   1. the token must look like a path, not prose -- either it has more than
- *      one segment (`manifests/providers`) or it is directly preceded by a
- *      slash (`$repo . '/manifests'`), so the English word "docs" or "spec"
+ *      one segment (`adapter-packages/woocommerce`) or it is directly preceded
+ *      by a slash (`$repo . '/adapter-packages'`), so the English word "docs" or "spec"
  *      in a comment cannot register the whole tree;
  *   2. it must actually be a directory on disk (which is also what rejects
  *      `agent/src/Kernel/Canon.php`: the greedy match consumes the filename, is_dir
@@ -740,8 +749,8 @@ const AF_DIR_SIGNAL_EXCLUDED = [
  *   3. it must not be an already-precisely-covered tree (see above).
  *
  * Gate 1 is deliberately loose for a single-segment token: it must accept
- * `$repo . '/manifests'` (regress_manifest_dispositions.php:68's shape, and
- * the whole reason this signal exists), which is lexically indistinguishable
+ * `$repo . '/adapter-packages'` (regress_adapter_packages.php's discovery
+ * shape, and the whole reason this signal exists), which is lexically indistinguishable
  * from a same-shaped literal meant for somewhere else -- e.g.
  * regress_adapter_sources.php's `copy_tree(dirname($fixture) . '/docs', ...)`
  * registers a dependency on the repo's docs/ tree it does not really have.
@@ -1195,8 +1204,9 @@ function af_build_index(string $root): array
  *    logic is fingerprinted first.
  *
  *  - The rest of AF_ROOT_DIRS. Every extracted token is gated through
- *    is_file()/is_dir(), so ADDING or REMOVING a file under manifests/,
- *    docs/, scripts/, spec/, sandbox/bin/ or sandbox/conformance/ flips
+ *    is_file()/is_dir(), so ADDING or REMOVING a file under adapter-packages/,
+ *    platform/, integration-scenarios/, docs/, scripts/, spec/, sandbox/bin/
+ *    or sandbox/conformance/ flips
  *    index entries without touching anything the old walk covered.
  *
  * sandbox/tmp is skipped: it is gitignored scratch, it holds this very cache
@@ -1438,8 +1448,8 @@ function af_main(array $argv): int
             }
             // Directory dependency: the suite loads this tree wholesale
             // (glob/scandir/::load) and can therefore never name $file
-            // individually. Prefix match, so manifests/providers/x.php is
-            // caught by a suite that only ever spelled `/manifests`.
+            // individually. Prefix match, so a newly-added package test is
+            // caught by the aggregate that only ever spelled `/adapter-packages`.
             foreach ($data['dirs'] ?? [] as $dir) {
                 if (str_starts_with($file, $dir . '/')) {
                     $selectedSet[$target] = true;

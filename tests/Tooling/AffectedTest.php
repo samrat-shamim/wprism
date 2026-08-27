@@ -392,8 +392,8 @@ final class AffectedTest extends TestCase
     public function testUnknownFileIsReportedUncoveredButExitsZero(): void
     {
         // Deliberately under NO root directory: the directory signal claims
-        // whole trees (docs/, manifests/, ...) by prefix, including paths
-        // that do not exist -- a deleted manifest must still select the
+        // whole trees (docs/, adapter-packages/, ...) by prefix, including paths
+        // that do not exist -- a deleted package member must still select the
         // suites that globbed it -- so a docs/ path is no longer uncovered.
         $result = self::invoke(['--paths=README-nonexistent-xyz.md']);
         self::assertSame(0, $result['status']);
@@ -614,11 +614,14 @@ final class AffectedTest extends TestCase
     public function testRootedDirectoryLiteralsBecomeDirectoryDependencies(): void
     {
         self::loadTool();
-        $dirs = af_extract_dirs(self::repoRoot(), "\$dir = \$repo . '/manifests';\nglob(\$dir . '/*.json');");
-        self::assertContains('manifests', $dirs);
+        $dirs = af_extract_dirs(
+            self::repoRoot(),
+            "\$dir = \$repo . '/adapter-packages';\nscandir(\$dir);"
+        );
+        self::assertContains('adapter-packages', $dirs);
         self::assertContains(
-            'manifests/providers',
-            af_extract_dirs(self::repoRoot(), "glob(\$root . '/manifests/providers/*.php')")
+            'platform/adapter-library',
+            af_extract_dirs(self::repoRoot(), "scandir(\$root . '/platform/adapter-library')")
         );
     }
 
@@ -655,21 +658,21 @@ final class AffectedTest extends TestCase
         }
     }
 
-    public function testManifestChangesSelectTheSuitesThatGlobTheManifestTree(): void
+    public function testAdapterPackageAndPlatformChangesReachTheirAggregateReaders(): void
     {
-        // No suite spells an individual manifest: they all load the tree with
-        // glob()/scandir(), so only the directory signal can connect them.
-        // Both a top-level manifest and a provider under a subdirectory must
-        // reach it.
-        $core = self::targets(['--paths=manifests/core.json']);
-        self::assertGreaterThanOrEqual(20, count($core));
-        self::assertContains('regress-manifest-dispositions', $core);
-        self::assertContains('regress-adapter-sources', $core);
+        // The aggregate intentionally discovers future package members rather
+        // than enumerating them. A payload edit and a newly named package test
+        // must therefore both select it through the directory signal.
+        foreach ([
+            'adapter-packages/woocommerce/package/manifest.json',
+            'adapter-packages/woocommerce/tests/offline/regress_future_probe.php',
+        ] as $path) {
+            self::assertContains('regress-adapter-packages', self::targets(['--paths=' . $path]));
+        }
 
-        $provider = self::targets(['--paths=manifests/providers/woocommerce-cache.php']);
-        self::assertGreaterThanOrEqual(20, count($provider));
-        self::assertContains('regress-actions-providers', $provider);
-        self::assertContains('regress-adapter-sources', $provider);
+        $platform = self::targets(['--paths=platform/adapter-library/core/manifest.json']);
+        self::assertContains('regress-manifest-dispositions', $platform);
+        self::assertContains('regress-adapter-packages', $platform);
     }
 
     public function testSharedShellLibrariesSelectTheirConsumers(): void
@@ -731,7 +734,16 @@ final class AffectedTest extends TestCase
 
         // Every root dir the extractors gate through is_file()/is_dir():
         // adding or removing a file there flips index entries.
-        foreach (['manifests', 'docs', 'scripts', 'spec', 'sandbox/bin', 'sandbox/conformance'] as $dir) {
+        foreach ([
+            'adapter-packages',
+            'platform',
+            'integration-scenarios',
+            'docs',
+            'scripts',
+            'spec',
+            'sandbox/bin',
+            'sandbox/conformance',
+        ] as $dir) {
             $prefix = $root . '/' . $dir . '/';
             $covered = false;
             foreach ($inputs as $file) {
