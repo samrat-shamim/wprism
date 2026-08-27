@@ -7,7 +7,15 @@ use Duo\ProviderSdk;
 use Duo\WpCliChildProcess;
 
 if (!class_exists(WpCliChildProcess::class, false)) {
-    require_once __DIR__ . '/../../agent/src/Kernel/WpCliChildProcess.php';
+    $duoLayoutRoot = dirname(__DIR__, 5);
+    $duoAgentRoot = is_dir($duoLayoutRoot . '/agent/src')
+        ? $duoLayoutRoot . '/agent'
+        : (basename($duoLayoutRoot) === 'agent' && is_dir($duoLayoutRoot . '/src') ? $duoLayoutRoot : null);
+    if ($duoAgentRoot === null) {
+        throw new \RuntimeException('duo: Ninja Forms provider cannot resolve the explicit source or embedded agent layout');
+    }
+    require_once $duoAgentRoot . '/src/Kernel/WpCliChildProcess.php';
+    unset($duoLayoutRoot, $duoAgentRoot);
 }
 
 /**

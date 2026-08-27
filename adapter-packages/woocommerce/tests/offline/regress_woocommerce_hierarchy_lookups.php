@@ -5,7 +5,6 @@ declare(strict_types=1);
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/agent_version.php';
 duo_test_define_agent_versions();
 $root = dirname(__DIR__, 4);
-putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/wp_stubs.php';
@@ -894,7 +893,13 @@ WP_CLI::$handler = static function (string $command, array $options): object {
     return woo_hierarchy_test_native_child($flushRewrite);
 };
 
-$policy = Policy::load(null, ['woocommerce']);
+$policy = Policy::load(
+    null,
+    ['woocommerce'],
+    false,
+    null,
+    \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+);
 $provider = new \Duo\Providers\WoocommerceHierarchyLookups($policy);
 $capabilities = $provider->capabilities();
 duo_check_same([

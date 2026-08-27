@@ -11,7 +11,6 @@ require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/FakeWpdb.php';
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/LockingFakeWpdb.php';
 
 $root = dirname(__DIR__, 4);
-putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/OptionState.php';
 require_once $root . '/agent/src/Kernel/PlainData.php';
@@ -570,7 +569,13 @@ $wpdb->seedTable('wp_options', [
 ])->setPrimaryKey('wp_options', 'option_id')->setUniqueKey('wp_options', ['option_name']);
 $wpdb->addInnoDbTable('wp_options')->addIndex('wp_options', 'option_name', 'option_name', true);
 
-$policy = Policy::load(null, ['woocommerce']);
+$policy = Policy::load(
+    null,
+    ['woocommerce'],
+    false,
+    null,
+    \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+);
 $interpreter = $policy->interpreters()['woocommerce'] ?? null;
 duo_check($interpreter instanceof Woocommerce, 'the shipped digest-bound Woo interpreter drives image-option validation');
 if (!$interpreter instanceof Woocommerce) {

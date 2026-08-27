@@ -635,13 +635,17 @@ function woo_effect_remove_tree(string $path): void {
 // ======================================================================
 echo "\n== committed WooCommerce manifest inventory ==\n";
 
-putenv('DUO_MANIFESTS_DIR');
-$wooPolicy = Policy::load(null, ['woocommerce']);
+$repoRoot = dirname(__DIR__, 4);
+$wooPolicy = Policy::load(
+    null,
+    ['woocommerce'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'woocommerce')
+);
 $wooRows = array_values(array_filter(
     $wooPolicy->effects_inventory(),
     static fn(array $row): bool => ($row['manifest'] ?? null) === 'woocommerce'
 ));
-$manifestPath = dirname(__DIR__, 4) . '/adapter-packages/woocommerce/package/manifest.json';
+$manifestPath = $repoRoot . '/adapter-packages/woocommerce/package/manifest.json';
 $wooManifest = json_decode((string) file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
 // DUO-3338: the effect inventory's `source` is now each action's closed
 // identity (the native vocabulary entry, or provider/capability) rather than

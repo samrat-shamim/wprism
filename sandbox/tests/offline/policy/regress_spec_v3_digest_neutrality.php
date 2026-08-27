@@ -35,8 +35,12 @@
  * likewise rewrote `manifests/polylang.json` and its per-subject disposition;
  * WooCommerce's final review moves its manifest lint/compile declarations,
  * interpreter, and per-subject disposition reason. Under AGENTS.md rule 2
- * those four adapters' digests move BY DESIGN, and
- * they post-date the flag day, so their frozen numbers are no longer shipped.
+ * those four adapters' digests move BY DESIGN. The adapter-package flag day
+ * later preserved every executable byte during the physical move, then
+ * deliberately corrected six runtime dependency paths that could no longer
+ * resolve from either the source-package or embedded-agent layout. Those five
+ * affected adapter digests also move by design, and all of these changes
+ * post-date the flag day, so their frozen numbers are no longer shipped.
  *
  * Re-freezing the whole fixture at today's tree was the obvious repair and is
  * the wrong one: it would recompute both sides of the equality, which is the
@@ -54,7 +58,7 @@
  *     which is the flip-neutrality control a reviewed manifest edit cannot
  *     reach;
  *   - and each PART additionally asserts that the moved set is EXACTLY the
- *     reviewed one. A fifth adapter moving is a failure, not a re-pin.
+ *     reviewed one. An additional adapter moving is a failure, not a re-pin.
  *
  * For those four adapters the across-the-flip measurement is genuinely gone —
  * stated plainly rather than papered over. What still covers them is PART 1's
@@ -89,8 +93,8 @@
  *   that did nothing. This is the measurement `duo adapter doctor --migration`
  *   reports per site and the runbook's post-verify step compares.
  *
- *   PART 5 — the hand-mixed bundle. `agent` and `manifests` travel in one
- *   archive (`Adopt.php:147-150`), so a v3 agent over a v2 manifest library is
+ *   PART 5 — the hand-mixed bundle. The adapter library travels inside the
+ *   atomic `agent` archive, so a v3 agent over a v2 adapter library is
  *   unreachable through the supported path. This part builds one BY HAND and
  *   proves the shipped refusal fires, rather than adding a mechanism to
  *   survive it (AGENTS.md rule 9).
@@ -143,8 +147,10 @@ const PRE_FLAG_FIXTURE_SHA256 = '05fcb8368979c6e270ecc71cb651680be317a6921d432d6
  * The reviewed post-flag overlays that have moved shipped identities since the
  * freeze: #561's core/TEC work, the Polylang and WooCommerce production-
  * readiness ports, Yoast's Woo permalink trigger, PMPro's declarative
- * invalidation migration, and the manifest-provider runtime migration,
- * measured on this tree adapter by adapter.
+ * invalidation migration, the manifest-provider runtime migration, and the
+ * adapter-package dependency-path correction for the five adapters whose
+ * executables invoke WpCliChildProcess, measured on this tree adapter by
+ * adapter.
  *
  * Every number here is an overlay ON TOP OF the frozen fixture, never a
  * replacement for it — the fixture keeps its pre-flag bytes and its pinned
@@ -175,8 +181,8 @@ const REVIEWED_MOVES = [
         // widened to cover TEC's rewrite-listener option writes and the
         // autoload filters around them.
         'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
-        'elementor' => '5b5a1791f24a44dc49e853db84c7027ed4af6791f6cba6ad111c941cb73b2752',
-        'ninja-forms' => 'd5be1f2b39fc535762c3e7553cfde5f750c426567e5e0893001cea5238e74176',
+        'elementor' => 'c13aceb84019223e88f292168655d7f435ae2ab92e68cc84ca38602f86b94383',
+        'ninja-forms' => '8100c32a2f46e91ad4daae9c80ab61d33092b54d7810e533aedd265d4ae166c9',
         // PMPro deliberately moves to spec v3 to negotiate
         // invalidate-vocabulary/v1, retires its manifest provider, and becomes
         // a declarative adapter. This is a reviewed post-flip restamp, not a
@@ -185,14 +191,14 @@ const REVIEWED_MOVES = [
         // The reviewed Polylang production-readiness port pins its 3.8.x
         // range, expanded authored surface, interpreter, manifest provider,
         // and per-subject disposition.
-        'polylang' => 'd79be83046ea30fabb0298225e60cb104d2d445d715651b8b104ab30b1c9742d',
+        'polylang' => 'ec697d7e5baa1b2847e16e7aceeacf3942d8a3d73297313f9d50d7128b068f75',
         // manifests/the-events-calendar.json rewritten (block_attrs, widgets,
         // interpreter, option_autoload) AND dispositions/the-events-calendar
         // .json promoted experimental -> certified. Both halves are inside the
         // digest row, so one number carries both.
         'the-events-calendar' => '0a6d67877140db53304d041842f29c7707feab0248ded5cca8a5df992ef2148b',
-        'woocommerce' => 'fc23c5cf46e51afe6d8a5e19abff9cd8793aec0cb854e4cfd23be0fa7f073f9b',
-        'yoast' => '6c030625e5b8c2e8569adceca24c9e054c6bb0cf62d1ec7bcf6c22b5c84a2f80',
+        'woocommerce' => '40f089f1f19db8846074c2ac6858aad69a009c2b5eb1d5f04c68bcdd16967c39',
+        'yoast' => '3edb81748cf3e84923779a74a913f339889a8f9cd430342dabdcfa0dbd3ceae2',
         'yoast-duplicate-post' => '9c17439fc670eebbe216133abbe57dd0e9add20ccf8f1897c2f4445013c65e75',
     ],
     'manifest_bytes_sha256' => [
@@ -207,12 +213,24 @@ const REVIEWED_MOVES = [
         'yoast' => 'd9bbe421a0608aef835d849bd2af460df4c3492728e8da923ce4537ce5e280c4',
         'yoast-duplicate-post' => '33989cb589aa411e2a440ebd2778366f01e3cb3b0ff7ebfb5414b8799c008071',
     ],
+    // The physical manifests/ -> adapter-packages/ move preserved these
+    // executable bytes first. Their old ../../agent/src dependency then had
+    // no valid meaning in either supported layout, so this separate literal
+    // pins the reviewed correction instead of attributing it to relocation.
+    'runtime_bytes_sha256' => [
+        'adapter-packages/elementor/package/runtime/providers/elementor-css.php' => 'f1fa9fddc0c9cefa8088678f80b08f1a2b8b5b58c48c6d12dda49bb236e71901',
+        'adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php' => 'c863e9c32a96e4e8f0858fb3be4fb1e092c2faec1bd9b0a7163b5417ade6d09c',
+        'adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php' => '628e845f3c1f4e121a16afcdfdddff05bf95833f3a2b35ae859675b90f5c5cff',
+        'adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php' => 'f2ba92178f6fa83b0eccdd376c466c8b9a6c919859184aac33deea375f40d343',
+        'adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php' => '680d4e9b084e684b0046b7487ca320cabb7087624c5c93034e40fdeed4d5efaf',
+        'adapter-packages/yoast/package/runtime/providers/yoast-index.php' => 'ba60957827b02fe38db7655b7c3f42ddb88079541e7049b878a39107a37aada7',
+    ],
     'pin_sets' => [
-        'all-16' => '41547ea08901dd1d804850db3485a2f712be0894525285ae6fdfb1f9bb5f16a1',
-        'core+elementor+yoast+contact-form-7' => '63f95df999abc457d1a1f47af5fee04dc6d089b01153891dc5ac5468b546991a',
+        'all-16' => '8d3f7ba1afe8dc9e63a6991da2ad412d8718796b0c31278b4a8dca97fda672c4',
+        'core+elementor+yoast+contact-form-7' => 'baa5497388a9fcdd129c5fadb4bf372227002c1df3f22023a6d0723bdfeafee0',
         'core+paid-memberships-pro+code-snippets' => '722687250167adba48337eca3487adf156381086eaffc3fb3b564c2860b4ee28',
-        'core+polylang+the-events-calendar' => '4eda257ab67baac98b8c2237427f45217d3401488d3efb46c6e0be3b9b823ca0',
-        'core+woocommerce+acf' => '7c69bd2110223bc1c13a4bc37a14bcdfa3f87e3c57ba16626f69f179705b4817',
+        'core+polylang+the-events-calendar' => 'd109bdccf8d0e9d8cc14c77b860d417b54380c3c402dbe002ada36f68a3072a5',
+        'core+woocommerce+acf' => '52e65975569c68675c3aea841a059f20800502cb99e3d3b3b8e05085eb8c5d7e',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC
@@ -398,15 +416,24 @@ duo_check_same(
         . 'an edit nobody meant to make (AGENTS.md rule 2)'
 );
 // The causal link stated as its own assertion: the adapters whose digest moved
-// are exactly the adapters whose file bytes moved. If those sets ever
-// disagreed, a digest would have moved for a reason NOT visible in
-// manifests/*.json -- a changed disposition, interpreter, provider or
-// regenerator -- and PART 1 alone could not tell the reader which.
+// are exactly the adapters whose manifest bytes moved. Runtime changes within
+// that same set are pinned independently below; a runtime change for any other
+// adapter would still widen $movedNames and fail this equality.
 duo_check_same(
     $movedNames,
     $movedFiles,
-    'and the two sets coincide: every adapter whose digest moved is one whose manifest file moved, so the reviewed '
-        . 'edits explain the whole delta with no unexplained interpreter or disposition byte behind it'
+    'and the two sets coincide: every adapter whose digest moved is one whose manifest file moved; executable changes '
+        . 'inside that reviewed set are pinned separately below rather than hiding an additional adapter delta'
+);
+$runtimeHashes = [];
+foreach (REVIEWED_MOVES['runtime_bytes_sha256'] as $path => $expectedHash) {
+    $runtimeHashes[$path] = hash_file('sha256', $repo . '/' . $path);
+}
+duo_check_same(
+    REVIEWED_MOVES['runtime_bytes_sha256'],
+    $runtimeHashes,
+    'and the six package-runtime dependency corrections are individually byte-pinned — their five adapter digest moves '
+        . 'are an explicit re-pin cost, not a side effect attributed to the physical directory move'
 );
 
 // ---------------------------------------------------------------------------
@@ -443,9 +470,9 @@ duo_check_same(
 // ---------------------------------------------------------------------------
 echo "\nPART 5 — the hand-mixed bundle: a v3 agent over a v2 manifest library\n";
 // ---------------------------------------------------------------------------
-// `Adopt::install()` tars `agent manifests recovery` as ONE archive and swaps
-// it through four atomic journal surfaces, so a site can never observe half of
-// the pair. This part assembles the impossible state BY HAND and proves the
+// `Adopt::install()` embeds the adapter library under `agent` and swaps the
+// release through four atomic journal surfaces, so a site can never observe
+// half of the pair. This part assembles the impossible state BY HAND and proves the
 // shipped refusal is what an operator meets — the alternative would be a
 // compat shim for a state the product cannot produce (AGENTS.md rule 9).
 $scratch = $repo . '/sandbox/tmp/spec-v3-mixed';

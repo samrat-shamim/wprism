@@ -1367,7 +1367,6 @@ namespace {
     }
 
     $root = dirname(__DIR__, 4);
-    putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/FakeWpdb.php';
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/wp_stubs.php';
@@ -1379,7 +1378,13 @@ namespace {
     require_once $root . '/agent/src/Adapter/Providers.php';
     require_once $root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php';
 
-    $policy = Policy::load(null, ['woocommerce']);
+    $policy = Policy::load(
+        null,
+        ['woocommerce'],
+        false,
+        null,
+        \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+    );
     $manifest = json_decode(
         (string) file_get_contents($root . '/adapter-packages/woocommerce/package/manifest.json'),
         true,

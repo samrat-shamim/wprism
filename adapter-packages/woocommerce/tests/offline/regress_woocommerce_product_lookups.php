@@ -19,7 +19,6 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 3);
 }
 $root = dirname(__DIR__, 4);
-putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 
 require $root . '/agent/src/Kernel/Canon.php';
 require $root . '/agent/src/Kernel/OptionState.php';
@@ -39,7 +38,13 @@ function check(bool $condition, string $message): void {
     }
 }
 
-$policy = Policy::load(null, ['woocommerce']);
+$policy = Policy::load(
+    null,
+    ['woocommerce'],
+    false,
+    null,
+    \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+);
 check($policy->regen_dependency('product') === null
     && $policy->regen_dependency('product_variation') === null,
     'neither Woo product post type declares a regen_dependency any more — batch, verify, and effects all '

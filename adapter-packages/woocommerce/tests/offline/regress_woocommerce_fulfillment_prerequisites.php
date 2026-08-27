@@ -29,7 +29,6 @@ namespace {
     define('WP_PLUGIN_DIR', ABSPATH . 'wp-content/plugins');
 
     $root = dirname(__DIR__, 4);
-    putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/wp_stubs.php';
@@ -218,7 +217,13 @@ namespace {
         return new \Duo\Providers\WoocommerceFulfillmentPrerequisites($policy);
     }
 
-    $policy = Policy::load(null, ['woocommerce']);
+    $policy = Policy::load(
+        null,
+        ['woocommerce'],
+        false,
+        null,
+        \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+    );
     $wpdb = woo_fulfillment_ready_target();
     require_once $root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-fulfillment-prerequisites.php';
     $provider = woo_fulfillment_provider($policy);

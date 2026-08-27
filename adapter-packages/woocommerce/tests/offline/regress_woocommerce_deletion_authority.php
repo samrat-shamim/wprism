@@ -18,7 +18,6 @@ if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
 $root = dirname(__DIR__, 4);
-putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 
 require $root . '/agent/src/Kernel/Canon.php';
 require $root . '/agent/src/Kernel/OptionState.php';
@@ -339,7 +338,13 @@ function synthetic_woo_deletions(): array {
     ];
 }
 
-$shippedPolicy = Policy::load(null, ['woocommerce']);
+$shippedPolicy = Policy::load(
+    null,
+    ['woocommerce'],
+    false,
+    null,
+    \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+);
 check($shippedPolicy->deletion_capability('post:product') === null,
     'shipped Woo adapter keeps product deletion fail-closed for the open extension ecosystem');
 $fixtureManifest = $shippedPolicy->manifests[0];
