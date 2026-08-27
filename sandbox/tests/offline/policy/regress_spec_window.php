@@ -209,8 +209,10 @@ if (!defined('DUO_AGENT_VERSION')) {
 require_once $repo . '/agent/src/Kernel/Canon.php';
 require_once $repo . '/agent/src/Kernel/OptionState.php';
 require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
+require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 
 use Duo\AdapterContractGrammar;
+use Duo\AdapterLibrary;
 use Duo\Canon;
 
 /** One indented report row, indented so the diagnostics guard cannot read it as a PHP notice. */
@@ -240,6 +242,7 @@ $run = static function (array $args): array {
 };
 
 $N = DUO_SPEC_VERSION;
+$adapterLibrary = AdapterLibrary::fromSourceTree($repo);
 
 echo "\nPART 1 — the SHIPPED engine: the window is exactly {N-1, N}\n";
 
@@ -327,12 +330,8 @@ duo_check_detail('per-section refusal at the floor: ' . $floorRefusal);
 // byte moves, so no adapter digest moves. Re-measured from the library rather
 // than argued, since the window is the one change that could have refused one.
 $library = [];
-foreach (glob($repo . '/manifests/*.json') ?: [] as $file) {
-    $name = basename($file, '.json');
-    if ($name === 'dispositions') {
-        continue;
-    }
-    $library[$name] = Canon::decode(Canon::read_file($file));
+foreach ($adapterLibrary->packages() as $package) {
+    $library[$package->name()] = Canon::decode(Canon::read_file($package->manifestPath()));
 }
 ksort($library, SORT_STRING);
 $refused = [];
@@ -513,14 +512,57 @@ echo "\nPART 3 — the surfaces that publish the window\n";
 // claimed: `duo manifest-validate` loads each manifest on its own, so the
 // neighbours of an offending adapter are judged and reported in the same run.
 $scratch = sys_get_temp_dir() . '/duo_regress_spec_window_' . bin2hex(random_bytes(4));
-mkdir($scratch, 0777, true);
-register_shutdown_function(static function () use ($scratch): void {
-    foreach (glob($scratch . '/*.json') ?: [] as $file) {
-        @unlink($file);
+$scratchRemove = static function (string $dir) use (&$scratchRemove): void {
+    if (!is_dir($dir)) {
+        return;
     }
-    @rmdir($scratch);
-});
-Canon::write_file($scratch . '/acme-clean.json', Canon::encode([
+    foreach (scandir($dir) ?: [] as $entry) {
+        if ($entry === '.' || $entry === '..') {
+            continue;
+        }
+        is_dir("$dir/$entry") ? $scratchRemove("$dir/$entry") : @unlink("$dir/$entry");
+    }
+    @rmdir($dir);
+};
+register_shutdown_function(static fn() => $scratchRemove($scratch));
+mkdir($scratch . '/adapter-packages/acme-clean/package', 0777, true);
+mkdir($scratch . '/adapter-packages/acme-staged/package', 0777, true);
+mkdir($scratch . '/platform/adapter-library/capabilities', 0777, true);
+mkdir($scratch . '/platform/adapter-library/core', 0777, true);
+foreach ([
+    'capabilities/adapter-authorities.json',
+    'capabilities/platform.json',
+    'core/disposition.json',
+    'core/manifest.json',
+    'profiles.json',
+] as $relative) {
+    copy($repo . '/platform/adapter-library/' . $relative, $scratch . '/platform/adapter-library/' . $relative);
+}
+$fixtureDisposition = [
+    'capabilities' => [
+        'deletion_semantics' => ['supported' => [], 'unsupported' => ['all']],
+        'entity_sections' => [],
+        'field_sections' => [],
+        'lifecycle_phases' => [],
+        'operations' => ['test-only'],
+    ],
+    'default_authored_keyspaces' => [],
+    'reason' => 'Spec-window grammar fixture, not a product support claim.',
+    'status' => 'excluded',
+    'supported_versions' => ['fixture' => true],
+    'unsupported' => [[
+        'operation' => 'all',
+        'reason' => 'Excluded fixtures are never production-ready.',
+        'surface' => 'production',
+    ]],
+];
+foreach (['acme-clean', 'acme-staged'] as $name) {
+    Canon::write_file(
+        $scratch . "/adapter-packages/$name/package/disposition.json",
+        Canon::encode($fixtureDisposition)
+    );
+}
+Canon::write_file($scratch . '/adapter-packages/acme-clean/package/manifest.json', Canon::encode([
     'name' => 'acme-clean',
     'options' => ['acme_clean_setting' => ['class' => 'authored', 'autoload' => 'yes']],
     'spec_version' => $N,
@@ -529,7 +571,7 @@ Canon::write_file($scratch . '/acme-clean.json', Canon::encode([
 // ADMITTED (PART 1), so the offending neighbour has to be the one that is still
 // refused — a manifest sitting where the whole shipped library sits, reaching
 // for a section its own declared version does not have.
-Canon::write_file($scratch . '/acme-staged.json', Canon::encode([
+Canon::write_file($scratch . '/adapter-packages/acme-staged/package/manifest.json', Canon::encode([
     'engine_features' => [$shipped['section_feature']],
     'name' => 'acme-staged',
     'options' => ['acme_staged_setting' => ['class' => 'authored', 'autoload' => 'yes']],
@@ -604,33 +646,13 @@ $removeTree = static function (string $dir) use (&$removeTree): void {
     @rmdir($dir);
 };
 register_shutdown_function(static fn() => $removeTree($mutantRoot));
-foreach (['agent', 'cli', 'recovery'] as $tree) {
+foreach (['agent', 'adapter-packages', 'cli', 'platform', 'recovery'] as $tree) {
     $copyTree($repo . '/' . $tree, $mutantRoot . '/' . $tree);
 }
 @mkdir($mutantRoot . '/docs', 0777, true);
 @mkdir($mutantRoot . '/tools', 0777, true);
 copy($repo . '/docs/wire-surface.md', $mutantRoot . '/docs/wire-surface.md');
 copy($repo . '/tools/wire-surface.php', $mutantRoot . '/tools/wire-surface.php');
-// WP-4.8's gate 6 reads the SHIPPED authorities document under --root, so the
-// copy must carry it or every --check below refuses on that gate before the
-// window gate's verdict is even reachable for the baseline/restore cases. The
-// file, not the whole manifests tree: this suite's subject is the window, and
-// the one document gate 6 names is the one document the copy needs.
-@mkdir($mutantRoot . '/manifests/capabilities', 0777, true);
-copy(
-    $repo . '/manifests/capabilities/adapter-authorities.json',
-    $mutantRoot . '/manifests/capabilities/adapter-authorities.json'
-);
-// WP-4.10's gate 7 reads the flat adapter set under --root for the same
-// reason, and for the same cost: without it the copy looks like a library with
-// zero adapters and every --check refuses on the grandfather list's membership
-// before the window gate is reached. The flat `manifests/*.json` glob is
-// exactly what that gate enumerates — no interpreters, providers or
-// regenerators, none of which it reads.
-foreach (glob($repo . '/manifests/*.json') ?: [] as $shippedManifest) {
-    copy($shippedManifest, $mutantRoot . '/manifests/' . basename($shippedManifest));
-}
-
 $baseline = $run([PHP_BINARY, $mutantRoot . '/tools/wire-surface.php', '--check', '--root=' . $mutantRoot]);
 duo_check_same(0, $baseline['exit'], 'the untouched copy passes the same check, so any refusal below is the mutation and nothing else');
 

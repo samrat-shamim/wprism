@@ -122,6 +122,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterSources.php';
+require_once __DIR__ . '/../../../../agent/src/Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ManifestDispositions.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ManifestValidator.php';
@@ -130,6 +131,7 @@ require_once __DIR__ . '/manifest_fixtures.php';
 
 use Duo\AdapterCertification;
 use Duo\AdapterContractGrammar;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\ManifestDispositions;
@@ -137,7 +139,7 @@ use Duo\ManifestValidator;
 use Duo\Policy;
 
 $repo = dirname(__DIR__, 4);
-$manifestDir = $repo . '/manifests';
+$adapterLibrary = AdapterLibrary::fromSourceTree($repo);
 
 /** One indented report row. Indented so it can never look like a PHP diagnostic to the guard. */
 $report = static function (string $line): void {
@@ -276,12 +278,8 @@ $validatorVerdict = static function (array $manifest) use ($vocabulary): ?string
 // ---------------------------------------------------------------------------
 
 $shipped = [];
-foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
-    $name = basename($file, '.json');
-    if ($name === 'dispositions') {
-        continue;
-    }
-    $shipped[$name] = Canon::decode(Canon::read_file($file));
+foreach ($adapterLibrary->packages() as $package) {
+    $shipped[$package->name()] = Canon::decode(Canon::read_file($package->manifestPath()));
 }
 ksort($shipped, SORT_STRING);
 
@@ -949,7 +947,7 @@ echo "\nRULE V3-DISP: the dispositions monolith splits into one document per ada
 $dispositions = null;
 $dispositionsRefusal = null;
 try {
-    $dispositions = ManifestDispositions::load($manifestDir);
+    $dispositions = ManifestDispositions::load_library($adapterLibrary);
 } catch (\Throwable $e) {
     $dispositionsRefusal = $e->getMessage();
 }
@@ -1031,7 +1029,7 @@ echo "\nRULE V3-AXIS: per-adapter environment narrowing, and certificates bindin
 $platform = [];
 $platformRefusal = null;
 try {
-    $platform = ManifestDispositions::platform_boundary($manifestDir);
+    $platform = ManifestDispositions::platform_boundary_library($adapterLibrary);
 } catch (\Throwable $e) {
     $platformRefusal = $e->getMessage();
 }

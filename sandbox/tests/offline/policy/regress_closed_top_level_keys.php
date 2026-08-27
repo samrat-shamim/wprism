@@ -248,12 +248,14 @@ require_once $repo . '/agent/src/Kernel/Canon.php';
 require_once $repo . '/agent/src/Kernel/OptionState.php';
 require_once $repo . '/agent/src/Kernel/Db.php';
 require_once $repo . '/agent/src/Adapter/AdapterSources.php';
+require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 require_once $repo . '/agent/src/Policy/ManifestDispositions.php';
 require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
 require_once $repo . '/agent/src/Adapter/AdapterCertification.php';
 
 use Duo\AdapterCertification;
 use Duo\AdapterContractGrammar;
+use Duo\AdapterLibrary;
 use Duo\Canon;
 
 /** One indented report row, indented so the diagnostics guard cannot read it as a PHP notice. */
@@ -305,6 +307,7 @@ $removeTree = static function (string $dir) use (&$removeTree): void {
 };
 
 $N = DUO_SPEC_VERSION;
+$adapterLibrary = AdapterLibrary::fromSourceTree($repo);
 // WP-4.12 — THE FLIP separated two numbers this suite used to treat as one.
 // `$N` is the version the ENGINE runs at; `$open` is the last version at which
 // the top-level key set is OPEN, which is a property of the rule
@@ -355,12 +358,8 @@ duo_check_same(
 
 // Digest neutrality, measured over the library rather than argued.
 $library = [];
-foreach (glob($repo . '/manifests/*.json') ?: [] as $file) {
-    $name = basename($file, '.json');
-    if ($name === 'dispositions') {
-        continue;
-    }
-    $library[$name] = Canon::decode(Canon::read_file($file));
+foreach ($adapterLibrary->packages() as $package) {
+    $library[$package->name()] = Canon::decode(Canon::read_file($package->manifestPath()));
 }
 ksort($library, SORT_STRING);
 $refused = [];
@@ -616,7 +615,6 @@ echo "\nPART 3 — the product path, both eras, one fixture directory\n";
 // ===========================================================================
 
 $scratch = sys_get_temp_dir() . '/duo_regress_closed_keys_' . bin2hex(random_bytes(4));
-mkdir($scratch, 0777, true);
 $mutantRoot = sys_get_temp_dir() . '/duo_regress_closed_keys_v3_' . bin2hex(random_bytes(4));
 $gateRoot = sys_get_temp_dir() . '/duo_regress_closed_keys_gate_' . bin2hex(random_bytes(4));
 register_shutdown_function(static function () use ($scratch, $mutantRoot, $gateRoot, $removeTree): void {
@@ -636,14 +634,50 @@ $fixtureBody = static fn(string $name, int $spec): array => [
     'totally_made_up_section' => ['acme_thing' => ['class' => 'authored']],
     'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
 ];
+mkdir($scratch . '/platform/adapter-library/capabilities', 0777, true);
+mkdir($scratch . '/platform/adapter-library/core', 0777, true);
+foreach ([
+    'capabilities/adapter-authorities.json',
+    'capabilities/platform.json',
+    'core/disposition.json',
+    'core/manifest.json',
+    'profiles.json',
+] as $relative) {
+    copy($repo . '/platform/adapter-library/' . $relative, $scratch . '/platform/adapter-library/' . $relative);
+}
+$fixtureDisposition = [
+    'capabilities' => [
+        'deletion_semantics' => ['supported' => [], 'unsupported' => ['all']],
+        'entity_sections' => [],
+        'field_sections' => [],
+        'lifecycle_phases' => [],
+        'operations' => ['test-only'],
+    ],
+    'default_authored_keyspaces' => [],
+    'reason' => 'Closed-key grammar fixture, not a product support claim.',
+    'status' => 'excluded',
+    'supported_versions' => ['fixture' => true],
+    'unsupported' => [[
+        'operation' => 'all',
+        'reason' => 'Excluded fixtures are never production-ready.',
+        'surface' => 'production',
+    ]],
+];
+foreach (['acme-at-open', 'acme-at-closed', 'acme-above'] as $name) {
+    mkdir($scratch . "/adapter-packages/$name/package", 0777, true);
+    Canon::write_file(
+        $scratch . "/adapter-packages/$name/package/disposition.json",
+        Canon::encode($fixtureDisposition)
+    );
+}
 // WP-4.12 renamed what these two fixtures ARE. They used to be "the engine's
 // own version" and "one past it", because the gate sat above the engine. They
 // are now "the last open version" and "the gate", and the flip is what made
 // BOTH reachable in a single run of the shipped `duo manifest-validate` — the
 // end-to-end measurement this suite previously had to build a mutant tree for.
-Canon::write_file($scratch . '/acme-at-open.json', Canon::encode($fixtureBody('acme-at-open', $open)));
-Canon::write_file($scratch . '/acme-at-closed.json', Canon::encode($fixtureBody('acme-at-closed', $N)));
-Canon::write_file($scratch . '/acme-above.json', Canon::encode($fixtureBody('acme-above', $N + 1)));
+Canon::write_file($scratch . '/adapter-packages/acme-at-open/package/manifest.json', Canon::encode($fixtureBody('acme-at-open', $open)));
+Canon::write_file($scratch . '/adapter-packages/acme-at-closed/package/manifest.json', Canon::encode($fixtureBody('acme-at-closed', $N)));
+Canon::write_file($scratch . '/adapter-packages/acme-above/package/manifest.json', Canon::encode($fixtureBody('acme-above', $N + 1)));
 
 $shippedRun = $run([PHP_BINARY, $repo . '/cli/duo', 'manifest-validate', $scratch]);
 duo_check(
@@ -668,7 +702,7 @@ duo_check($shippedRun['exit'] !== 0, '...and the run fails, because a pin set ho
 // The same fixture bytes at a v3 engine. Both defines move together with
 // platform.json's restatement, AGENTS.md rule 8's atomic pair, because
 // ManifestDispositions::platform_boundary() refuses the moment they disagree.
-foreach (['agent', 'cli', 'recovery', 'manifests'] as $tree) {
+foreach (['agent', 'adapter-packages', 'cli', 'platform', 'recovery'] as $tree) {
     $copyTree($repo . '/' . $tree, $mutantRoot . '/' . $tree);
 }
 $mutantDuo = (string) file_get_contents($mutantRoot . '/agent/duo.php');
@@ -677,8 +711,9 @@ file_put_contents($mutantRoot . '/agent/duo.php', (string) preg_replace(
     "define('DUO_SPEC_VERSION', " . ($N + 1) . ')',
     $mutantDuo
 ));
-$mutantPlatform = (string) file_get_contents($mutantRoot . '/manifests/capabilities/platform.json');
-file_put_contents($mutantRoot . '/manifests/capabilities/platform.json', (string) preg_replace(
+$scratchPlatformPath = $scratch . '/platform/adapter-library/capabilities/platform.json';
+$mutantPlatform = (string) file_get_contents($scratchPlatformPath);
+file_put_contents($scratchPlatformPath, (string) preg_replace(
     '/"spec_version": ' . $N . '/',
     '"spec_version": ' . ($N + 1),
     $mutantPlatform
@@ -729,22 +764,13 @@ duo_check(
 // gate exists for: the validator would still admit the key (it reads the
 // accessor, so in fact both move together), so the copy also plants the second
 // list the rule forbids, by pinning the removed key into the validator.
-foreach (['agent', 'cli', 'recovery'] as $tree) {
+foreach (['agent', 'adapter-packages', 'cli', 'platform', 'recovery'] as $tree) {
     $copyTree($repo . '/' . $tree, $gateRoot . '/' . $tree);
 }
 @mkdir($gateRoot . '/docs', 0777, true);
 @mkdir($gateRoot . '/tools', 0777, true);
 copy($repo . '/docs/wire-surface.md', $gateRoot . '/docs/wire-surface.md');
 copy($repo . '/tools/wire-surface.php', $gateRoot . '/tools/wire-surface.php');
-// The register's gates read the SHIPPED manifest library under --root — gate 6
-// the authorities document, and WP-4.10's R-27 gate the library's own adapter
-// names against the closed grandfather list (a copy with no manifests reads as
-// an empty library, which makes every grandfathered name "stale"). Copy the
-// whole manifests tree rather than the one file a gate happens to read today:
-// a sibling rider adding a library-reading gate is exactly what broke the
-// narrower copy twice in this program.
-$copyTree($repo . '/manifests', $gateRoot . '/manifests');
-
 $baseline = $run([PHP_BINARY, $gateRoot . '/tools/wire-surface.php', '--check', '--root=' . $gateRoot]);
 duo_check_same(0, $baseline['exit'], 'the unmutated copy passes, so a refusal below is the mutation and not the copy');
 

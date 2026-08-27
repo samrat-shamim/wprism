@@ -9,7 +9,13 @@ ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 DUO_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
 <?php
 $root = getenv('DUO_ROOT');
-define('DUO_SPEC_VERSION', 2);
+$duoSource = (string) file_get_contents($root . '/agent/duo.php');
+if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $duoSource, $specMatch) !== 1
+    || preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $duoSource, $agentMatch) !== 1) {
+    throw new \RuntimeException('regress_code_compatibility: cannot resolve agent versions');
+}
+define('DUO_SPEC_VERSION', (int) $specMatch[1]);
+define('DUO_AGENT_VERSION', (string) $agentMatch[1]);
 $duoAgentClassmap = require $root . '/agent/duo-classmap.php';
 if (!is_array($duoAgentClassmap)) {
     throw new \RuntimeException('regress_code_compatibility: agent/duo-classmap.php did not return a map');
@@ -32,6 +38,7 @@ foreach ([
 }
 
 use Duo\Canon;
+use Duo\AdapterLibrary;
 use Duo\Code;
 use Duo\CodeCompatibility;
 use Duo\OptionState;
@@ -327,10 +334,21 @@ check_compat($mappingReversed === [], 'strange provider dependency closure must 
 
 // Exercise the actual offline compiler gate, including its stable structured
 // diagnostic payload, rather than only the pure helper.
-$manifestDir = "$tmp/manifests";
-mkdir($manifestDir, 0777, true);
-copy($root . '/manifests/core.json', "$manifestDir/core.json");
-put_compat("$manifestDir/compat-fixture.json", Canon::encode([
+$libraryRoot = "$tmp/adapter-library";
+foreach ([
+    'capabilities/adapter-authorities.json',
+    'capabilities/platform.json',
+    'core/disposition.json',
+    'core/manifest.json',
+    'profiles.json',
+] as $relative) {
+    put_compat(
+        "$libraryRoot/platform/adapter-library/$relative",
+        (string) file_get_contents($root . "/platform/adapter-library/$relative")
+    );
+}
+$compatPackage = "$libraryRoot/adapter-packages/compat-fixture/package";
+put_compat("$compatPackage/manifest.json", Canon::encode([
     'name' => 'compat-fixture',
     'spec_version' => 2,
     'plugin' => 'provider/provider.php',
@@ -341,7 +359,25 @@ put_compat("$manifestDir/compat-fixture.json", Canon::encode([
     'post_types' => [],
     'taxonomies' => [],
 ]));
-putenv("DUO_MANIFESTS_DIR=$manifestDir");
+put_compat("$compatPackage/disposition.json", Canon::encode([
+    'capabilities' => [
+        'deletion_semantics' => ['supported' => [], 'unsupported' => ['all']],
+        'entity_sections' => [],
+        'field_sections' => [],
+        'lifecycle_phases' => [],
+        'operations' => ['test-only'],
+    ],
+    'default_authored_keyspaces' => [],
+    'reason' => 'Code compatibility fixture, not a product support claim.',
+    'status' => 'excluded',
+    'supported_versions' => ['fixture' => true],
+    'unsupported' => [[
+        'operation' => 'all',
+        'reason' => 'Excluded fixtures are never production-ready.',
+        'surface' => 'production',
+    ]],
+]));
+$adapterLibrary = AdapterLibrary::fromSourceTree($libraryRoot);
 $repo = "$tmp/compiler-repo";
 mkdir("$repo/state/options", 0777, true);
 mkdir("$repo/media", 0777, true);
@@ -358,7 +394,7 @@ foreach (['provider/provider.php' => $provider, 'dependent/dependent.php' => str
     put_compat("$repo/code/wp-content/plugins/$relative", $bytes);
 }
 put_compat("$repo/code/wp-content/themes/compat-theme/style.css", $theme);
-$policy = Policy::load($repo);
+$policy = Policy::load($repo, null, false, null, $adapterLibrary);
 $records = [];
 foreach (array_keys($policy->authored_options()) as $name) { $records[$name] = OptionState::absent(); }
 foreach (array_keys($policy->sub_keyed_options()) as $name) { $records[$name] = OptionState::absent(); }
@@ -386,7 +422,7 @@ put_compat(
     "$repo/code/wp-content/plugins/provider/provider.php",
     str_replace('Requires PHP: 8.3', 'Requires PHP: newest', $provider)
 );
-$policy = Policy::load($repo);
+$policy = Policy::load($repo, null, false, null, $adapterLibrary);
 try {
     RepositoryCompiler::compile($repo, $policy);
     fail_compat('compiler accepted a malformed Requires PHP header');
@@ -400,7 +436,7 @@ try {
 put_compat("$repo/code/wp-content/plugins/provider/provider.php", $provider);
 
 put_compat("$repo/code/wp-content/plugins/provider/provider.php", str_replace('1.5.0', '2.0.0', $provider));
-$policy = Policy::load($repo);
+$policy = Policy::load($repo, null, false, null, $adapterLibrary);
 try {
     RepositoryCompiler::compile($repo, $policy);
     fail_compat('compiler accepted an out-of-range vendored plugin');

@@ -95,17 +95,44 @@ register_shutdown_function(static function () use ($tmp): void {
 
 try {
     mkdir($repo . '/state', 0700, true);
-    ssh_proof_copy_tree($root . '/manifests', $repo . '/manifests');
-    // Keep this fixture generic and self-contained: a tiny test manifest
-    // owns one explicit tombstone, while the shipped disposition/registry
-    // files are omitted so the fixture does not claim product certification.
-    ssh_proof_remove($repo . '/manifests/dispositions');
-    ssh_proof_remove($repo . '/manifests/capabilities');
-    ssh_proof_write($repo . '/manifests/ssh-proof.json', json_encode([
+    foreach ([
+        'capabilities/adapter-authorities.json',
+        'capabilities/platform.json',
+        'core/disposition.json',
+        'core/manifest.json',
+        'profiles.json',
+    ] as $relative) {
+        ssh_proof_write(
+            $repo . '/platform/adapter-library/' . $relative,
+            (string) file_get_contents($root . '/platform/adapter-library/' . $relative)
+        );
+    }
+    $package = $repo . '/adapter-packages/ssh-proof/package';
+    // Keep this fixture generic and self-contained: one excluded package owns
+    // one explicit tombstone and makes no product certification claim.
+    ssh_proof_write($package . '/manifest.json', json_encode([
         'deletions' => ['post:attachment' => [
             'cascades' => ['postmeta', 'post_revisions', 'term_relationships'], 'guards' => [],
         ]],
         'name' => 'ssh-proof', 'spec_version' => 2,
+    ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n");
+    ssh_proof_write($package . '/disposition.json', json_encode([
+        'capabilities' => [
+            'deletion_semantics' => ['supported' => [], 'unsupported' => ['all']],
+            'entity_sections' => [],
+            'field_sections' => [],
+            'lifecycle_phases' => [],
+            'operations' => ['test-only'],
+        ],
+        'default_authored_keyspaces' => [],
+        'reason' => 'SSH environment regression fixture, not a product support claim.',
+        'status' => 'excluded',
+        'supported_versions' => ['fixture' => true],
+        'unsupported' => [[
+            'operation' => 'all',
+            'reason' => 'Excluded fixtures are never production-ready.',
+            'surface' => 'production',
+        ]],
     ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n");
     $deletionUuid = '00000000-0000-4000-8000-000000000001';
     ssh_proof_write($repo . '/state/deletions/' . $deletionUuid . '.json', json_encode([

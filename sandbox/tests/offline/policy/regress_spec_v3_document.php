@@ -56,7 +56,6 @@ require_once __DIR__ . '/../../lib/check.php';
 
 $repo = dirname(__DIR__, 4);
 $spec = (string) file_get_contents($repo . '/spec/repo-format.md');
-$manifestDir = $repo . '/manifests';
 
 /** One indented report row (indented so the offline diagnostics guard can never read it as a PHP notice). */
 $report = static function (string $line): void {
@@ -90,6 +89,8 @@ preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $duoSource, $m);
 $specVersion = (int) ($m[1] ?? 0);
 preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $duoSource, $m);
 $agentVersion = (string) ($m[1] ?? '');
+require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
+$adapterLibrary = \Duo\AdapterLibrary::fromSourceTree($repo);
 
 // WP-4.12 — THE FLIP. This assertion was `duo_check_same(2, ...)` and it was
 // the pin that kept every rider honest: a rider that moved the define would
@@ -100,7 +101,7 @@ $agentVersion = (string) ($m[1] ?? '');
 duo_check_same(3, $specVersion, 'DUO_SPEC_VERSION is 3 — WP-4.12 flipped it, and this is the one package authorized to');
 duo_check_same('0.6.0', $agentVersion, 'and DUO_AGENT_VERSION moved with it, in the same commit (AGENTS.md rule 8)');
 
-$platform = json_decode((string) file_get_contents($manifestDir . '/capabilities/platform.json'), true);
+$platform = json_decode((string) file_get_contents($adapterLibrary->platformBoundaryPath()), true);
 $platform = is_array($platform['platform'] ?? null) ? $platform['platform'] : [];
 duo_check_same(
     [$specVersion, $agentVersion],
@@ -404,9 +405,15 @@ duo_check_same(
 // subsection whose "Enforced today:" line says "yes" about one half must not be
 // readable as a claim about the other.
 duo_check(
-    is_dir($manifestDir . '/dispositions') && !is_file($manifestDir . '/dispositions.json'),
-    'v3.4 layout ENFORCED (WP-4.4): the reviewed claim source is the per-subject directory manifests/dispositions/, '
-    . 'and the monolith is gone'
+    count($adapterLibrary->packages()) === 17
+        && !file_exists($repo . '/manifests')
+        && array_reduce(
+            $adapterLibrary->packages(),
+            static fn(bool $present, \Duo\AdapterPackage $package): bool => $present && is_file($package->dispositionPath()),
+            true
+        ),
+    'v3.4 layout ENFORCED (WP-4.4): each adapter package owns its reviewed disposition, the platform owns '
+        . 'profiles, and the retired flat manifests tree is gone'
 );
 // Measured, not read: `registry_sha256` is still ONE hash over the WHOLE
 // reassembled document, so editing any subject moves the number a contract
@@ -414,18 +421,16 @@ duo_check(
 // it to per-subject addressing.
 require_once $repo . '/agent/src/Policy/ManifestDispositions.php';
 $wholeRegistry = ['format' => \Duo\ManifestDispositions::FORMAT, 'manifests' => [], 'profiles' => []];
-foreach (glob($manifestDir . '/dispositions/*.json') ?: [] as $document) {
-    $subject = basename($document, '.json');
-    $decoded = (array) json_decode((string) file_get_contents($document), true);
-    if ($subject === 'profiles') {
-        $wholeRegistry['profiles'] = $decoded;
-        continue;
-    }
-    $wholeRegistry['manifests'][$subject] = $decoded;
+foreach ($adapterLibrary->packages() as $package) {
+    $wholeRegistry['manifests'][$package->name()] = (array) json_decode(
+        (string) file_get_contents($package->dispositionPath()),
+        true
+    );
 }
+$wholeRegistry['profiles'] = (array) json_decode((string) file_get_contents($adapterLibrary->profilesPath()), true);
 ksort($wholeRegistry['manifests'], SORT_STRING);
 duo_check(
-    \Duo\ManifestDispositions::load($manifestDir)?->sha256()
+    \Duo\ManifestDispositions::load_library($adapterLibrary)?->sha256()
         === hash('sha256', Canon::encode($wholeRegistry)),
     'v3.4 addressing NOT enforced (WP-4.5): registry_sha256 is still one hash over the WHOLE reviewed document, so '
     . 'an edit to any subject still moves what a contract pinning no adapter observes'
@@ -436,10 +441,11 @@ duo_check(
 // "not enforced": the narrowing is live for a v3 manifest, and INERT for a v2
 // one, so no shipped claim moved.
 require_once $repo . '/agent/src/Policy/ManifestDispositions.php';
-$narrowingPlatform = \Duo\ManifestDispositions::platform_boundary($manifestDir);
-$narrowingSubject = Canon::decode(Canon::read_file($manifestDir . '/classic-editor.json'));
+$narrowingPlatform = \Duo\ManifestDispositions::platform_boundary_library($adapterLibrary);
+$classicEditorPackage = $adapterLibrary->package('classic-editor');
+$narrowingSubject = Canon::decode(Canon::read_file($classicEditorPackage?->manifestPath() ?? ''));
 $narrowingEntry = (array) json_decode(
-    (string) file_get_contents($manifestDir . '/dispositions/classic-editor.json'),
+    (string) file_get_contents($classicEditorPackage?->dispositionPath() ?? ''),
     true
 );
 $narrowingEnvironment = static function (array $manifest) use ($narrowingPlatform, $narrowingEntry): array {
@@ -553,7 +559,7 @@ duo_check_same(
     . 'NAME the member and its gate, never admitted keys — so STATEMENT_KEYS is still the six R-06 closes, '
     . 'every statement already signed keeps its exact canonical bytes, and no certificate in the field moves'
 );
-$authorities = json_decode((string) file_get_contents($manifestDir . '/capabilities/adapter-authorities.json'), true);
+$authorities = json_decode((string) file_get_contents($adapterLibrary->authoritiesPath()), true);
 duo_check_same(
     ['format' => 'duo-adapter-authorities/v1', 'keys' => []],
     is_array($authorities) ? $authorities : [],
@@ -603,9 +609,11 @@ duo_check_same(
     . 'being replayed as the authority half of a certificate'
 );
 duo_check(
-    !file_exists($manifestDir . '/capabilities/adapter-revocations.json')
-        && (glob($manifestDir . '/**/delegations.json') ?: []) === []
-        && !file_exists($manifestDir . '/delegations.json'),
+    !file_exists($adapterLibrary->revocationsPath())
+        && array_values(array_filter(
+            $adapterLibrary->scanFiles(),
+            static fn(string $path): bool => basename($path) === 'delegations.json'
+        )) === [],
     'v3.8: BOTH gating documents are absent from the shipped library — the out-of-band revocation record and '
     . 'the delegation document — which is why an agent that meets neither behaves exactly as it does today'
 );
@@ -636,13 +644,9 @@ duo_check(
 // per-adapter migrations each pay their own digest change for capability gained
 // and leave unrelated manifests at the pre-flip version.
 $declaredVersions = [];
-foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
-    $name = basename($file, '.json');
-    if ($name === 'dispositions') {
-        continue;
-    }
-    $decoded = Canon::decode(Canon::read_file($file));
-    $declaredVersions[$name] = $decoded['spec_version'] ?? null;
+foreach ($adapterLibrary->packages() as $package) {
+    $decoded = Canon::decode(Canon::read_file($package->manifestPath()));
+    $declaredVersions[$package->name()] = $decoded['spec_version'] ?? null;
 }
 ksort($declaredVersions, SORT_STRING);
 duo_check_same(
@@ -816,7 +820,11 @@ duo_check(
 // in the subsection as the history they now are, and are no longer measurable
 // from the tree; what has to keep matching is the directory that replaced it.
 // ---------------------------------------------------------------------------
-$dispositionDocuments = glob($manifestDir . '/dispositions/*.json') ?: [];
+$dispositionDocuments = array_map(
+    static fn(\Duo\AdapterPackage $package): string => $package->dispositionPath(),
+    $adapterLibrary->packages()
+);
+$dispositionDocuments[] = $adapterLibrary->profilesPath();
 sort($dispositionDocuments, SORT_STRING);
 $documentCount = count($dispositionDocuments);
 $lineCount = 0;
@@ -827,7 +835,7 @@ foreach ($dispositionDocuments as $document) {
     $raw = (string) file_get_contents($document);
     $lineCount += substr_count($raw, "\n");
     $byteCount += strlen($raw);
-    if (basename($document, '.json') === 'profiles') {
+    if ($document === $adapterLibrary->profilesPath()) {
         $profileNames = array_keys((array) json_decode($raw, true));
         continue;
     }
@@ -868,13 +876,9 @@ duo_check(
 $names = [];
 $idKinds = [];
 $providerIds = [];
-foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
-    $name = basename($file, '.json');
-    if ($name === 'dispositions') {
-        continue;
-    }
-    $manifest = Canon::decode(Canon::read_file($file));
-    $names[] = $name;
+foreach ($adapterLibrary->packages() as $package) {
+    $manifest = Canon::decode(Canon::read_file($package->manifestPath()));
+    $names[] = $package->name();
     foreach ((array) ($manifest['tables'] ?? []) as $rule) {
         if (is_array($rule) && is_string($rule['id_kind'] ?? null)) {
             $idKinds[$rule['id_kind']] = true;
@@ -1135,39 +1139,21 @@ duo_check(
 // are re-measured here: manifest-shipped hook code is exactly the code an
 // executable lane would let a stranger add to.
 $hookFiles = [];
-foreach (['interpreters', 'providers', 'regenerators'] as $kind) {
-    foreach (glob($manifestDir . '/' . $kind . '/*.php') ?: [] as $file) {
-        $hookFiles[$file] = substr_count((string) file_get_contents($file), "\n");
-    }
-}
 $hookAdapters = [];
 $hookOwners = [];
-foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
-    $name = basename($file, '.json');
-    if ($name === 'dispositions') {
-        continue;
-    }
-    $manifest = Canon::decode(Canon::read_file($file));
-    $shipsCode = is_string($manifest['interpreter'] ?? null);
-    if (is_string($manifest['interpreter'] ?? null)) {
-        $hookOwners['manifests/interpreters/' . $manifest['interpreter'] . '.php'] = $name;
-    }
-    foreach ((array) ($manifest['providers'] ?? []) as $provider) {
-        $shipsCode = $shipsCode || (is_array($provider) && ($provider['source'] ?? null) === 'manifest');
-        if (is_array($provider) && ($provider['source'] ?? null) === 'manifest') {
-            $hookOwners['manifests/providers/' . (string) ($provider['id'] ?? '') . '.php'] = $name;
+foreach ($adapterLibrary->packages() as $package) {
+    $shipsCode = false;
+    foreach ($package->shippablePaths() as $file) {
+        $relative = substr($file, strlen($package->root()) + 1);
+        if (!str_starts_with($relative, 'runtime/') || pathinfo($file, PATHINFO_EXTENSION) !== 'php') {
+            continue;
         }
-    }
-    foreach ((array) ($manifest['post_types'] ?? []) as $rule) {
-        $shipsCode = $shipsCode
-            || (is_array($rule) && is_string(($rule['regen_dependency']['regenerator'] ?? null)));
-        if (is_array($rule) && is_string(($rule['regen_dependency']['regenerator'] ?? null))) {
-            $regenerator = (string) $rule['regen_dependency']['regenerator'];
-            $hookOwners['manifests/regenerators/' . $regenerator . '.php'] = $name;
-        }
+        $shipsCode = true;
+        $hookFiles[$file] = substr_count((string) file_get_contents($file), "\n");
+        $hookOwners[substr($file, strlen($repo) + 1)] = $package->name();
     }
     if ($shipsCode) {
-        $hookAdapters[] = $name;
+        $hookAdapters[] = $package->name();
     }
 }
 $hookLines = array_sum($hookFiles);
@@ -1234,13 +1220,15 @@ duo_check_same(
         'adapter_count' => count($hookAdapters),
         'file_count' => count($hookFiles),
         'physical_lines' => $hookLines,
-        'scope' => 'Every PHP file under manifests/interpreters, manifests/providers, and manifests/regenerators, measured as LF-delimited physical lines.',
+        'scope' => 'Every PHP file under adapter-packages/*/package/runtime, measured as LF-delimited physical lines.',
     ],
     $inventory['measurement'] ?? null,
     'the inventory summary is derived from the same live files as G5 condition (a)'
 );
 $pmproAbsorption = $inventory['absorbed'][0] ?? [];
-$pmproManifest = Canon::decode(Canon::read_file($manifestDir . '/paid-memberships-pro.json'));
+$pmproManifest = Canon::decode(Canon::read_file(
+    $adapterLibrary->package('paid-memberships-pro')?->manifestPath() ?? ''
+));
 duo_check(
     ($pmproAbsorption['retired_path'] ?? null) === 'manifests/providers/paid-memberships-pro-cache.php'
         && ($pmproAbsorption['physical_lines_removed'] ?? null) === 233

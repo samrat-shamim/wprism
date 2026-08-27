@@ -71,12 +71,18 @@ function check(bool $condition, string $message): void
 }
 
 $root = dirname(__DIR__, 4);
+require_once $root . '/agent/src/Policy/AdapterLibrary.php';
+$adapterLibrary = \Duo\AdapterLibrary::fromSourceTree($root);
 
 /** @var array<string,array<string,mixed>> $manifests */
 $manifests = [];
 foreach (['core', 'woocommerce', 'yoast', 'contact-form-7'] as $name) {
+    $package = $adapterLibrary->package($name);
+    if ($package === null) {
+        throw new RuntimeException("missing shipped adapter package $name");
+    }
     $manifests[$name] = json_decode(
-        (string) file_get_contents($root . "/manifests/$name.json"),
+        (string) file_get_contents($package->manifestPath()),
         true,
         flags: JSON_THROW_ON_ERROR
     );

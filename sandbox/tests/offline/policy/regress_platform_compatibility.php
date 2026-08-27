@@ -75,14 +75,17 @@ $GLOBALS['wpdb'] = new PlatformCompatibilityWpdb();
 
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/CommandRefusal.php';
+require_once $root . '/agent/src/Policy/AdapterLibrary.php';
 require_once $root . '/agent/src/Policy/ManifestDispositions.php';
 require_once $root . '/agent/src/Policy/PlatformCompatibility.php';
 
 use Duo\CommandRefusalException;
+use Duo\AdapterLibrary;
 use Duo\PlatformCompatibility;
 
+$adapterLibrary = AdapterLibrary::fromSourceTree($root);
 $platformDocument = json_decode(
-    (string) file_get_contents($root . '/manifests/capabilities/platform.json'),
+    (string) file_get_contents($adapterLibrary->platformBoundaryPath()),
     true,
     flags: JSON_THROW_ON_ERROR
 );
