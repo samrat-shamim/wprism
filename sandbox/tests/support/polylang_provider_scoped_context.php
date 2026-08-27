@@ -142,11 +142,11 @@ namespace Duo {
 namespace {
     $root = dirname(__DIR__, 3);
     require_once "$root/agent/src/Adapter/Providers.php";
-    require_once "$root/manifests/providers/polylang-nav-menus.php";
+    require_once "$root/adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php";
 
     $GLOBALS['wpdb'] = new PllScopedWpdb();
     $manifest = json_decode(
-        (string) file_get_contents("$root/manifests/polylang.json"),
+        (string) file_get_contents("$root/adapter-packages/polylang/package/manifest.json"),
         true,
         512,
         JSON_THROW_ON_ERROR

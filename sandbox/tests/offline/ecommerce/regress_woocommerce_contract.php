@@ -1540,12 +1540,7 @@ woo_ok(
 foreach ($lintFiles as $file) {
     unlink($file);
 }
-foreach ($lintDirs as $dir) {
-    rmdir($dir);
-}
-putenv($previousManifestsDir === false
-    ? 'DUO_MANIFESTS_DIR'
-    : 'DUO_MANIFESTS_DIR=' . $previousManifestsDir);
+$removeLintTree($lintState);
 $hposHarnesses = [
     $conformanceRunnerHarness,
     $wooPostdeployHarness,

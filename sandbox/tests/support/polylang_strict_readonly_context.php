@@ -5,10 +5,10 @@ namespace {
     $root = (string) ($argv[1] ?? '');
     require_once $root . '/agent/src/Kernel/PlainData.php';
     require_once $root . '/agent/src/Grammar/SubKeyGrammar.php';
-    require_once $root . '/manifests/interpreters/polylang.php';
+    require_once $root . '/adapter-packages/polylang/package/runtime/interpreters/polylang.php';
 
     $manifest = json_decode(
-        (string) file_get_contents($root . '/manifests/polylang.json'),
+        (string) file_get_contents($root . '/adapter-packages/polylang/package/manifest.json'),
         true,
         512,
         JSON_THROW_ON_ERROR

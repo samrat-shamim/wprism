@@ -23,6 +23,7 @@ require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/OptionState.php';
 require_once $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/agent/src/Policy/AdapterLibrary.php';
+require_once $root . '/sandbox/tests/lib/frozen_policy.php';
 require_once $root . '/sandbox/tests/support/wp-shortcode-stub.php';
 require_once $root . '/agent/src/Review/ShortcodeReferenceScanner.php';
 
@@ -61,9 +62,7 @@ $standaloneEntries = [
 ];
 $artifactLock = Canon::decode(Canon::read_file($root . '/sandbox/conformance/artifacts.lock.json'));
 
-$priorManifestDir = getenv('DUO_MANIFESTS_DIR');
-putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
-$policy = Policy::load(null, $names);
+$policy = Policy::load(null, $names, adapterLibrary: $sourceLibrary);
 
 duo_check_same($names, array_column($policy->manifests, 'name'), 'the real policy loader accepts exactly the five shipped adapter manifests');
 
@@ -445,13 +444,20 @@ $loadMutation = static function (array $files): Policy {
         Canon::write_file("$dir/$name.json", Canon::encode($manifest));
     }
     register_shutdown_function(static function () use ($dir): void {
-        foreach (glob($dir . '/*.json') ?: [] as $file) {
-            @unlink($file);
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($iterator as $entry) {
+            $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
         }
         @rmdir($dir);
     });
-    putenv('DUO_MANIFESTS_DIR=' . $dir);
-    return Policy::load(null, array_keys($files));
+    return Policy::load(
+        null,
+        array_keys($files),
+        adapterLibrary: \DuoTest\FrozenPolicy::adapterLibrary($dir)
+    );
 };
 
 $badRefs = $manifests['code-snippets'];
@@ -498,11 +504,5 @@ duo_check_throws(
     'the real loader refuses contradictory ownership regardless of pin order',
     'declare contradictory rules for options.code_snippets_settings'
 );
-
-if ($priorManifestDir === false) {
-    putenv('DUO_MANIFESTS_DIR');
-} else {
-    putenv('DUO_MANIFESTS_DIR=' . $priorManifestDir);
-}
 
 duo_check_summary('ecosystem adapter batch');

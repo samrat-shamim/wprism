@@ -72,7 +72,7 @@ $check(
 // the gate reads, which is exactly the bypass this check has always existed to
 // forbid. What remains is a read-only premise check on the library `duo adopt`
 // itself installed.
-$scopedSay = 'say "the adopted target carries the reviewed manifest library it will be gated on"';
+$scopedSay = 'say "the adopted target carries the reviewed embedded adapter library it will be gated on"';
 $scopedAt = strpos($harness, $scopedSay);
 $promoteLegAt = strpos($harness, 'say "exercise a real checkpointed SSH scoped promotion and its recovery boundary"');
 $check(

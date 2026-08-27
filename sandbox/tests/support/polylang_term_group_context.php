@@ -8,11 +8,9 @@ declare(strict_types=1);
  * ledger lookup and term materializer against the shared row-backed FakeWpdb.
  */
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
-
 $root = dirname(__DIR__, 3);
+require_once $root . '/sandbox/tests/lib/agent_version.php';
+duo_test_define_agent_versions();
 require_once $root . '/sandbox/tests/lib/wp_stubs.php';
 require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
 require_once $root . '/agent/src/Kernel/Canon.php';
@@ -181,15 +179,11 @@ $wpdb->setColumns('options', [
 $wpdb->seedTable('options', []);
 $wpdb->setUniqueKey('options', ['option_name']);
 
-$policy = new \Duo\Policy();
-$policy->manifests = [[
-    'name' => 'polylang-fixture',
-    'interpreter' => 'polylang',
-    'taxonomies' => [
-        'language' => ['term_group' => 'authored'],
-        'category' => [],
-    ],
-]];
+$policy = \Duo\Policy::load(
+    null,
+    ['core', 'polylang'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourceTree($root)
+);
 $tokens = new \Duo\Tokens('http://source.test', 'http://source.test/wp-content/uploads');
 $meta = new \Duo\EntityMetaCapture(
     $policy,

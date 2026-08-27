@@ -3838,8 +3838,13 @@ final class Policy {
      * deliberate, separate human act (`wp duo policy-to-manifest` only
      * prints to stdout).
      */
-    public static function export_manifest(string $repo, string $matchRegex, string $name): array {
-        $policy = self::load($repo);
+    public static function export_manifest(
+        string $repo,
+        string $matchRegex,
+        string $name,
+        ?AdapterLibrary $adapterLibrary = null
+    ): array {
+        $policy = self::load($repo, adapterLibrary: $adapterLibrary);
         $sitePolicy = $policy->site['policy'] ?? [];
 
         // DUO-3247 made spec_version mandatory at load() — sourced from the
