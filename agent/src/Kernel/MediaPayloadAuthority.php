@@ -51,6 +51,7 @@ final class MediaPayloadAuthority {
     private const ARTIFACT_SLOT_MEMORY_BYTES = 1024;
     private const MAX_IMAGE_DIMENSION = 16384;
     private const MAX_SOURCE_PIXELS = 67108864;
+    private const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
     /** @var array<string,list<string>> */
     private const RASTER_EXTENSIONS = [
@@ -305,11 +306,19 @@ final class MediaPayloadAuthority {
         if ($length === 0) {
             return 0;
         }
-        if (($length % 4) !== 0
-            || preg_match('/^(?:[A-Za-z0-9+\\/]{4})*(?:[A-Za-z0-9+\\/]{2}==|[A-Za-z0-9+\\/]{3}=)?$/D', $encoded) !== 1) {
+        if (($length % 4) !== 0) {
             throw new \RuntimeException("duo: $label is not canonical base64");
         }
         $padding = str_ends_with($encoded, '==') ? 2 : (str_ends_with($encoded, '=') ? 1 : 0);
+        $alphabetLength = $length - $padding;
+        // A 127,552-byte valid marketplace payload made the prior repeated
+        // PCRE group return PREG_JIT_STACKLIMIT_ERROR. strspn() checks the
+        // same closed alphabet without making correctness depend on PCRE's
+        // JIT or recursion limits; the separate suffix and unused-bit proofs
+        // below retain canonical padding rather than merely valid decoding.
+        if (strspn($encoded, self::BASE64_ALPHABET, 0, $alphabetLength) !== $alphabetLength) {
+            throw new \RuntimeException("duo: $label is not canonical base64");
+        }
         if ($padding === 2 && (self::base64Value($encoded[$length - 3]) & 0x0F) !== 0) {
             throw new \RuntimeException("duo: $label is not canonical base64");
         }
@@ -883,10 +892,7 @@ final class MediaPayloadAuthority {
     }
 
     private static function base64Value(string $character): int {
-        $position = strpos(
-            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',
-            $character
-        );
+        $position = strpos(self::BASE64_ALPHABET, $character);
         if (!is_int($position)) {
             throw new \LogicException('duo: canonical base64 alphabet check lost its validated character');
         }
