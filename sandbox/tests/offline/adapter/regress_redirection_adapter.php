@@ -305,17 +305,18 @@ namespace {
             && str_contains($script, 'all(. == true)'),
             "A7: $side live fixture completes and verifies Redirection's public onboarding before authoring rows");
     }
-    duo_check(str_contains($targetSeed, '.manifests = ["redirection"]')
+    duo_check(str_contains($targetSeed, '.manifests = ["core", "redirection"]')
         && str_contains($targetSeed, '.policy.post_types = []')
         && str_contains($targetSeed, '.policy.taxonomies = []')
         && str_contains($targetSeed, '.policy.scope.taxonomy.category.class = "runtime"')
+        && str_contains($targetSeed, '.policy.options.default_category.class = "runtime"')
         && str_contains($targetSeed, 'update_option("sidebars_widgets"')
         && str_contains($targetSeed, 'update_option("widget_block"')
         && str_contains($targetSeed, 'trap restore_redirection_identity_widgets EXIT')
         && str_contains($targetSeed, 'RESTORED_WIDGET_HASH')
         && str_contains($targetSeed, 'duo capture --repo=/siterepo/.tmp-redirection-identity-repo')
         && !str_contains($targetSeed, 'duo capture --repo=/siterepo --out=/siterepo/.tmp-redirection-target-identity'),
-        'A8: target-only mappings isolate the adapter and exactly restore unrelated globally-audited state');
+        'A8: target-only mappings retain core grammar but isolate core identities and exactly restore globally-audited state');
     $matrixSeed = (string) file_get_contents($root . '/sandbox/tests/certify/matrix.d/redirection.sh');
     duo_check(str_contains($matrixSeed, 'wp2 redirection database install')
         && str_contains($matrixSeed, 'Redirection 5.9.0 boundary target database readiness')

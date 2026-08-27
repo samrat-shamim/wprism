@@ -102,13 +102,17 @@ WIDGET_STATE="${CONF_REPO2:-siterepo/conf2}/.tmp-redirection-identity-widgets"
 mkdir -p "$IDENTITY_REPO"
 # The identity-minting pass must not touch core's default category/widgets:
 # first apply adopts/reconciles those against the source graph, and a locally
-# minted UUID would make that adoption correctly contradictory. Project the
-# temporary policy down to the one adapter whose target-owned rows need maps.
+# minted UUID would make that adoption correctly contradictory. Core's grammar
+# must remain pinned because capture always owns required platform options such
+# as active_plugins and refuses to guess their storage semantics. Project the
+# temporary policy down to core grammar plus the one adapter, while explicitly
+# leaving core's identity-bearing entity and reference state local.
 jq '
-  .manifests = ["redirection"] |
+  .manifests = ["core", "redirection"] |
   .policy.post_types = [] |
   .policy.taxonomies = [] |
-  .policy.scope.taxonomy.category.class = "runtime"
+  .policy.scope.taxonomy.category.class = "runtime" |
+  .policy.options.default_category.class = "runtime"
 ' "${CONF_REPO2:-siterepo/conf2}/site.duo.json" > "$IDENTITY_REPO/site.duo.json"
 
 # Capture audits global WordPress state even when the selected adapter owns no

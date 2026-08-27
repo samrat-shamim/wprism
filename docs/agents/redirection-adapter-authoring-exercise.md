@@ -92,13 +92,18 @@ isolated version copied the whole site policy and exposed another real ordering
 error: it also minted the target's default category, so first apply correctly
 refused `adopt term identity contradicts the exact physical identity row`.
 Narrowing the disposable policy to only the Redirection manifest, with empty
-post and taxonomy scope, then exposed one more global-scan premise before the
-next apply: capture still audits WordPress's default block widgets, and the
-adapter-only policy correctly refused an undeclared sidebar type. The agent
-classified the default category as runtime in the disposable policy and
-quiesced the unrelated widget options through WordPress APIs around that one
-capture, with an exit trap and a hash assertion proving exact restoration.
-That established identities only for Redirection's current rows and left core
+post and taxonomy scope, then exposed more of capture's deliberate global
+audit before the next apply. WordPress's default block widgets caused an
+undeclared-sidebar refusal, and omitting the core manifest caused the required
+`active_plugins` option to refuse rather than guess its autoload semantics.
+Keeping core's grammar then made its `default_category` reference visibly
+unresolvable while the category stayed out of scope. The agent retained core
+grammar, classified both the default category and its referencing option as
+runtime in the disposable policy, and quiesced the unrelated widget options
+through WordPress APIs around that one capture, with an exit trap and a hash
+assertion proving exact restoration. A diagnostic capture then wrote only
+Redirection group/item identity files plus disposable scalar core options.
+That established mappings only for Redirection's current rows and left core
 identities, core content and the real source branch untouched. The fixture now
 encodes the ordering and an offline regression prevents the canonical-root
 shortcut, a cross-plugin identity mint, or leaked widget mutation from

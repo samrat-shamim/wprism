@@ -875,11 +875,15 @@ plugin faithfully.
 9. When a hostile target needs local mapped identities before first apply,
    never mint them by capturing against the source repository: its canonical
    UUIDs have no target ledger yet. Use a disposable policy root narrowed to
-   the one adapter. Remember that capture still audits global WordPress state;
-   either give every unrelated live surface an explicit runtime disposition,
-   or quiesce it through native APIs and restore it exactly on both success and
-   failure. A default category or widget must not acquire an identity merely
-   because the fixture needed a target-only custom-table row.
+   the adapter plus the core manifest grammar required for platform options;
+   omitting core makes capture correctly refuse to guess `active_plugins`
+   storage semantics. Keep core entity scope empty and explicitly leave both
+   the default category and its `default_category` reference runtime. Remember
+   that capture still audits global WordPress state; either give every other
+   unrelated live surface an explicit runtime disposition, or quiesce it
+   through native APIs and restore it exactly on both success and failure. A
+   default category or widget must not acquire an identity merely because the
+   fixture needed a target-only custom-table row.
 
 ### Getting the harness those tests need
 
