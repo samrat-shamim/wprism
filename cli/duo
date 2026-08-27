@@ -324,10 +324,12 @@ Usage:
   duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
   duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
                       [--key-id=<id>] [--reason=<text>]
-                      [--ratification-file=<f>] [--pin [--adopt-scope]]
+                      [--ratification-file=<f>] [--adapter-library=<root>]
+                      [--pin [--adopt-scope]]
   duo adapter recertify <site-repo> --secret-key-file=<f> [--format=json]
                         [--adapter-library=<source-or-archive-root>]
-  duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
+  duo adapter pin <site-repo> --name=<n> [--source=site|plugin]
+                  [--adapter-library=<root>] [--adopt-scope]
   duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
   duo adapter boundary --releases=<release-list.json> --anchor=<version>
                        [--outcomes=<outcomes.json>] [--from=<v>] [--to=<v>]
