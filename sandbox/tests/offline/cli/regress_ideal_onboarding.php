@@ -18,6 +18,7 @@ use Duo\Orchestrator\DemoCommand;
 use Duo\Orchestrator\DockerTransport;
 use Duo\Orchestrator\EnvironmentDriver;
 use Duo\Orchestrator\HostProcess;
+use Duo\Orchestrator\LocalTransport;
 use Duo\Orchestrator\OnboardCommand;
 use Duo\Orchestrator\Transport;
 
@@ -31,12 +32,14 @@ final class IdealOnboardingTransport extends Transport {
         private bool $singleSite = true,
         string $repoPath = '/srv/duo',
         private bool $executeRaw = false,
-        private ?Closure $afterRaw = null
+        private ?Closure $afterRaw = null,
+        private ?string $hostBoundary = null
     ) {
         parent::__construct('production', ['repo_path' => $repoPath]);
     }
 
     public function describe(): string { return 'offline ideal-onboarding transport'; }
+    public function hostRepoBoundaryPath(): ?string { return $this->hostBoundary; }
     protected function wpCommand(array $wpArgs): string { return 'unused'; }
     protected function rawCommand(string $script): string { return 'unused'; }
 
@@ -85,14 +88,15 @@ function ideal_demo_session(string $root, string $name, int $sourcePort, int $ta
         'compose_env_file' => $sandbox . '/tmp/demo-' . $name . '.env',
         'state_file' => $sandbox . '/tmp/demo-' . $name . '.json',
         'phase' => 'starting',
+        'ownership_token' => hash('sha256', 'ideal-demo:' . $name),
         'runtime_before' => '',
         'last_applied_revision' => '',
         'pending_revision' => null,
         'owned_paths' => [
-            'source_repo' => null,
-            'target_repo' => null,
-            'origin' => null,
-            'compose_env_file' => null,
+            'source_repo' => ['state' => 'planned', 'identity' => null],
+            'target_repo' => ['state' => 'planned', 'identity' => null],
+            'origin' => ['state' => 'planned', 'identity' => null],
+            'compose_env_file' => ['state' => 'planned', 'identity' => null],
         ],
     ];
 }
@@ -109,7 +113,10 @@ function ideal_path_identity(string $path): array {
 /** @param array<string,mixed> $session @param list<string> $fields @return array<string,mixed> */
 function own_ideal_demo_paths(array $session, array $fields): array {
     foreach ($fields as $field) {
-        $session['owned_paths'][$field] = ideal_path_identity((string) $session[$field]);
+        $session['owned_paths'][$field] = [
+            'state' => 'owned',
+            'identity' => ideal_path_identity((string) $session[$field]),
+        ];
     }
     return $session;
 }
@@ -172,8 +179,7 @@ $gitRunner = static function (array $argv, ?string $cwd) use ($tmp): array {
     $stage = $argv[3] ?? '';
     duo_check_same(realpath($tmp), realpath(dirname($stage)), 'connect stages beside the requested destination');
     duo_check(str_starts_with(basename($stage), '.duo-connect-'), 'connect uses a private unpredictable staging name');
-    mkdir($stage . '/.git', 0700, true);
-    return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
+    return IdealOnboardingTransport::process($argv, $cwd);
 };
 $probeTransport = new IdealOnboardingTransport();
 $factory = static fn(string $name, array $config): EnvironmentDriver => $probeTransport;
@@ -212,7 +218,7 @@ ob_start();
 $traversalExit = ConnectCommand::run([
     'production', '--workspace=' . $sentinelRepo . '/missing/..', '--transport=local',
     '--wp-path=/var/www/html', '--repo-path=/srv/duo',
-], dirname(__DIR__, 4), $factory, $gitRunner);
+], dirname(__DIR__, 4), $factory);
 ob_end_clean();
 duo_check_same(1, $traversalExit, 'connect refuses a missing-parent traversal before staging');
 duo_check(is_dir($sentinelRepo . '/.git') && is_file($sentinelRepo . '/sentinel'), 'a refused workspace cannot clean up an existing parent repository');
@@ -234,6 +240,28 @@ foreach ($overlaps as [$overlapWorkspace, $overlapRepo, $label]) {
     duo_check_same(1, $overlapExit, "connect refuses $label local workspace/repo boundaries");
     duo_check(!file_exists($overlapWorkspace), "connect publishes no workspace for $label boundaries");
 }
+
+$caseParent = $tmp . '/case-boundaries';
+mkdir($caseParent, 0700);
+$caseWorkspace = $caseParent . '/SiteRepo';
+ob_start();
+$caseExit = ConnectCommand::run([
+    'production', '--workspace=' . $caseWorkspace, '--transport=local',
+    '--wp-path=/var/www/html', '--repo-path=' . $caseParent . '/siterepo',
+], dirname(__DIR__, 4), $factory);
+ob_end_clean();
+duo_check_same(1, $caseExit, 'connect conservatively refuses case-only prospective host boundaries');
+duo_check(!file_exists($caseWorkspace), 'case-only overlap refusal publishes no workspace');
+
+$unicodeWorkspace = $caseParent . "/Site-\u{00E9}";
+ob_start();
+$unicodeExit = ConnectCommand::run([
+    'production', '--workspace=' . $unicodeWorkspace, '--transport=local',
+    '--wp-path=/var/www/html', '--repo-path=' . $caseParent . "/Site-e\u{0301}",
+], dirname(__DIR__, 4), $factory);
+ob_end_clean();
+duo_check_same(1, $unicodeExit, 'connect conservatively refuses normalization-only prospective host boundaries');
+duo_check(!file_exists($unicodeWorkspace), 'normalization-only overlap refusal publishes no workspace');
 
 $blockedWorkspace = $tmp . '/multisite';
 ob_start();
@@ -360,6 +388,8 @@ $handoffConnectExit = ConnectCommand::run([
 ], dirname(__DIR__, 4), static fn(string $name, array $config): EnvironmentDriver => $handoffDriver);
 ob_end_clean();
 duo_check_same(0, $handoffConnectExit, 'the real Git handoff fixture starts through connect');
+mkdir($handoffWorkspace . '/.duo/contract/production', 0700, true);
+file_put_contents($handoffWorkspace . '/.duo/contract/production/proposed.json', "{\"format\":\"assessment-artifact-fixture\"}\n");
 
 $beforeHandoffCwd = getcwd();
 chdir($handoffWorkspace);
@@ -386,8 +416,103 @@ duo_check_same(trim($targetHead['stdout']), trim($workspaceHead['stdout']), 'dev
 duo_check_same('develop', trim($workspaceBranch['stdout']), 'the connected workspace preserves and tracks the target branch');
 duo_check(is_file($handoffWorkspace . '/code/plugin.php'), 'checkout materializes the initialized target payload locally');
 duo_check(is_file($handoffWorkspace . '/.duo-envs.json'), 'checkout preserves the ignored machine-local environment registry');
+duo_check_same(
+    "{\"format\":\"assessment-artifact-fixture\"}\n",
+    (string) file_get_contents($handoffWorkspace . '/.duo/contract/production/proposed.json'),
+    'handoff preserves the assessment artifact written by the preceding composed step'
+);
 duo_check(str_contains($handoffOutput, 'Published the initialized target baseline'), 'onboard reports the completed automated handoff');
 duo_check(str_contains($handoffOutput, ' assess ') && str_contains($handoffOutput, 'Capture always writes to the target repo_path'), 'onboard recommends a command whose target-worktree effect is explicit');
+
+$defaultAssessRoot = $tmp . '/default-assess-handoff';
+$defaultAssessBuild = IdealOnboardingTransport::process([
+    PHP_BINARY,
+    dirname(__DIR__, 4) . '/sandbox/tests/fixtures/assess/make-fixture.php',
+    $defaultAssessRoot,
+]);
+if ($defaultAssessBuild['exit'] !== 0) {
+    throw new RuntimeException('could not build default assess handoff fixture: ' . trim($defaultAssessBuild['stderr']));
+}
+$defaultAssessTarget = $defaultAssessRoot . '/repo';
+foreach (['code', 'state', 'media'] as $directory) {
+    mkdir($defaultAssessTarget . '/' . $directory, 0700, true);
+    file_put_contents($defaultAssessTarget . '/' . $directory . '/fixture.txt', $directory . "\n");
+}
+file_put_contents($defaultAssessTarget . '/.gitignore', Adopt::repositoryGitignoreBytes());
+$defaultAssessRemote = $defaultAssessRoot . '/remote.git';
+$defaultAssessRemoteInit = IdealOnboardingTransport::process(['git', 'init', '--bare', '--initial-branch=main', $defaultAssessRemote]);
+if ($defaultAssessRemoteInit['exit'] !== 0) {
+    throw new RuntimeException('could not create default assess remote: ' . trim($defaultAssessRemoteInit['stderr']));
+}
+$defaultAssessWorkspace = $defaultAssessRoot . '/workspace';
+$defaultCalls = $defaultAssessRoot . '/calls.txt';
+file_put_contents($defaultCalls, '');
+$savedPath = getenv('PATH');
+$savedFixtures = getenv('DUO_FIXTURES');
+$savedSiteRepo = getenv('DUO_SITE_REPO');
+$savedCalls = getenv('DUO_CALLS');
+putenv('PATH=' . $defaultAssessRoot . '/bin:' . (is_string($savedPath) ? $savedPath : ''));
+putenv('DUO_FIXTURES=' . $defaultAssessRoot . '/fixtures');
+putenv('DUO_SITE_REPO=' . $defaultAssessTarget);
+putenv('DUO_CALLS=' . $defaultCalls);
+ob_start();
+$defaultAssessConnect = ConnectCommand::run([
+    'fixture', '--workspace=' . $defaultAssessWorkspace, '--transport=local',
+    '--wp-path=' . $defaultAssessRoot . '/wordpress', '--repo-path=' . $defaultAssessTarget,
+], dirname(__DIR__, 4));
+ob_end_clean();
+duo_check_same(0, $defaultAssessConnect, 'the default-assess integration starts through a real local connect');
+$defaultAssessDriver = new LocalTransport('fixture', [
+    'transport' => 'local',
+    'wp_path' => $defaultAssessRoot . '/wordpress',
+    'repo_path' => $defaultAssessTarget,
+    'bootstrap' => ['format' => LocalTransport::BOOTSTRAP_FORMAT],
+    '_machine_local' => true,
+    '_dir' => $defaultAssessWorkspace,
+]);
+$proposalBeforeHandoff = null;
+$defaultAssessCwd = getcwd();
+chdir($defaultAssessWorkspace);
+ob_start();
+$defaultAssessExit = OnboardCommand::run(
+    $defaultAssessDriver,
+    ['--git-url=' . $defaultAssessRemote],
+    dirname(__DIR__, 4),
+    [
+        'adopt' => static fn(EnvironmentDriver $driver, array $args, string $root): int => 0,
+        'init' => static function () use ($defaultAssessWorkspace, &$proposalBeforeHandoff): int {
+            $proposalBeforeHandoff = file_get_contents(
+                $defaultAssessWorkspace . '/.duo/contract/fixture/proposed.json'
+            );
+            return is_string($proposalBeforeHandoff) ? 0 : 1;
+        },
+    ]
+);
+ob_end_clean();
+if (is_string($defaultAssessCwd)) {
+    chdir($defaultAssessCwd);
+}
+foreach ([
+    'PATH' => $savedPath,
+    'DUO_FIXTURES' => $savedFixtures,
+    'DUO_SITE_REPO' => $savedSiteRepo,
+    'DUO_CALLS' => $savedCalls,
+] as $name => $value) {
+    is_string($value) ? putenv($name . '=' . $value) : putenv($name);
+}
+duo_check_same(0, $defaultAssessExit, 'onboard completes with the real default assessment step and Git handoff');
+duo_check(is_string($proposalBeforeHandoff) && $proposalBeforeHandoff !== '', 'the default assessment writes its proposal before init and handoff');
+duo_check_same(
+    $proposalBeforeHandoff,
+    file_get_contents($defaultAssessWorkspace . '/.duo/contract/fixture/proposed.json'),
+    'the real handoff preserves the default assessment proposal byte-identically'
+);
+duo_check(is_file($defaultAssessWorkspace . '/.duo-envs.json'), 'the default-assess handoff preserves its machine-local registry');
+duo_check_same(
+    trim(IdealOnboardingTransport::process(['git', '-C', $defaultAssessTarget, 'rev-parse', 'HEAD'])['stdout']),
+    trim(IdealOnboardingTransport::process(['git', '-C', $defaultAssessWorkspace, 'rev-parse', 'HEAD'])['stdout']),
+    'the default-assess target and controller finish on the same published revision'
+);
 
 $tagFixture = ideal_handoff_fixture($tmp, 'tag-only');
 $tagSource = $tmp . '/tag-source';
@@ -424,6 +549,31 @@ if (is_string($tagCwd)) {
 }
 duo_check_same(1, $tagExit, 'onboard refuses a tag-only remote as nonempty');
 duo_check_same([], $tagMutations, 'a tag-only remote refuses before adopt, assess, or init');
+
+$unrelatedFixture = ideal_handoff_fixture($tmp, 'unrelated-local');
+file_put_contents($unrelatedFixture['workspace'] . '/notes.txt', "controller work\n");
+$unrelatedMutations = [];
+$unrelatedCwd = getcwd();
+chdir($unrelatedFixture['workspace']);
+ob_start();
+$unrelatedExit = OnboardCommand::run(
+    $unrelatedFixture['driver'],
+    ['--git-url=' . $unrelatedFixture['remote']],
+    dirname(__DIR__, 4),
+    [
+        'adopt' => static function () use (&$unrelatedMutations): int { $unrelatedMutations[] = 'adopt'; return 0; },
+        'assess' => static function () use (&$unrelatedMutations): int { $unrelatedMutations[] = 'assess'; return 0; },
+        'init' => static function () use (&$unrelatedMutations): int { $unrelatedMutations[] = 'init'; return 0; },
+    ]
+);
+ob_end_clean();
+if (is_string($unrelatedCwd)) {
+    chdir($unrelatedCwd);
+}
+duo_check_same(1, $unrelatedExit, 'normal onboarding refuses unrelated local bytes during preflight');
+duo_check_same([], $unrelatedMutations, 'unrelated local bytes refuse before adopt, assess, or init');
+duo_check(is_file($unrelatedFixture['workspace'] . '/notes.txt'), 'preflight preserves the unrelated controller file');
+duo_check(IdealOnboardingTransport::process(['git', '-C', $unrelatedFixture['target'], 'rev-parse', '--verify', 'HEAD'])['exit'] !== 0, 'preflight local-work refusal occurs before a target commit');
 
 $commitFixture = ideal_handoff_fixture($tmp, 'local-commit');
 foreach ([
@@ -553,6 +703,41 @@ duo_check_same(Adopt::repositorySeedBytes(), $raceSeed, 'receipt race refuses be
 duo_check_same('main', trim($raceBranch['stdout']), 'receipt race leaves the controller on its original unborn branch');
 duo_check_same(0, $raceRetry, 'handoff retry completes against the new exact target receipt');
 
+$localRaceWorkspace = $tmp . '/local-roundtrip-race-workspace';
+$localRaceCommit = '';
+$localRaceHook = static function (string $script, array $result) use ($localRaceWorkspace, &$localRaceCommit): void {
+    if ($localRaceCommit !== '' || !str_contains($result['stdout'], 'DUO_HANDOFF ')) {
+        return;
+    }
+    foreach ([
+        ['git', '-C', $localRaceWorkspace, 'add', 'site.duo.json', '.gitignore'],
+        ['git', '-C', $localRaceWorkspace, '-c', 'user.name=local-race', '-c', 'user.email=local@example.test', 'commit', '-m', 'local concurrent work'],
+    ] as $command) {
+        $changed = IdealOnboardingTransport::process($command);
+        if ($changed['exit'] !== 0) {
+            throw new RuntimeException('could not create local handoff race: ' . trim($changed['stderr']));
+        }
+    }
+    $localRaceCommit = trim(IdealOnboardingTransport::process(['git', '-C', $localRaceWorkspace, 'rev-parse', 'HEAD'])['stdout']);
+};
+$localRaceFixture = ideal_handoff_fixture($tmp, 'local-roundtrip-race', $localRaceHook);
+$localRaceCwd = getcwd();
+chdir($localRaceFixture['workspace']);
+ob_start();
+$localRaceExit = OnboardCommand::run(
+    $localRaceFixture['driver'],
+    ['--handoff-only', '--git-url=' . $localRaceFixture['remote']],
+    dirname(__DIR__, 4)
+);
+ob_end_clean();
+if (is_string($localRaceCwd)) {
+    chdir($localRaceCwd);
+}
+duo_check_same(1, $localRaceExit, 'handoff refuses local Git work created during the target publication round trip');
+duo_check($localRaceCommit !== '', 'the local race fixture created a real controller commit after target publication');
+duo_check_same($localRaceCommit, trim(IdealOnboardingTransport::process(['git', '-C', $localRaceWorkspace, 'rev-parse', 'HEAD'])['stdout']), 'round-trip race refusal preserves the concurrent controller commit and ref');
+duo_check_same(Adopt::repositorySeedBytes(), (string) file_get_contents($localRaceWorkspace . '/site.duo.json'), 'round-trip race refusal preserves the controller seed bytes');
+
 [$initArgs, $gitUrl, $handoffOnly] = OnboardCommand::options(['--yes', '--git-url=https://example.test/repo.git']);
 duo_check_same(['--yes'], $initArgs, 'onboard forwards init flags unchanged');
 duo_check_same('https://example.test/repo.git', $gitUrl, 'onboard extracts one handoff URL');
@@ -610,6 +795,22 @@ duo_check_same(realpath($composeFile), $dockerConfig['compose_file'] ?? null, 'c
 duo_check_same(realpath($envFile), $dockerConfig['compose_env_file'] ?? null, 'connect anchors a relative Compose environment before persistence');
 duo_check(str_contains($dockerConnectOutput, 'assess') && !str_contains($dockerConnectOutput, ' onboard '), 'Docker connect does not recommend an adoption path it cannot execute');
 
+$dockerHostRepo = $tmp . '/docker-host-repository';
+mkdir($dockerHostRepo, 0700);
+file_put_contents($dockerHostRepo . '/sentinel', "target-owned\n");
+$dockerOverlapTransport = new IdealOnboardingTransport(true, '/siterepo', false, null, $dockerHostRepo);
+$dockerOverlapWorkspace = $dockerHostRepo . '/controller';
+ob_start();
+$dockerOverlapExit = ConnectCommand::run([
+    'demo-target', '--workspace=' . $dockerOverlapWorkspace, '--transport=docker',
+    '--compose-file=' . $composeFile, '--compose-env-file=' . $envFile,
+    '--service=cli2', '--repo-path=/siterepo',
+], dirname(__DIR__, 4), static fn(string $name, array $config): EnvironmentDriver => $dockerOverlapTransport, $gitRunner);
+ob_end_clean();
+duo_check_same(1, $dockerOverlapExit, 'connect refuses a workspace inside a Docker writable host repository');
+duo_check_same([], $dockerOverlapTransport->rawCalls, 'Docker host overlap refuses before any target probe');
+duo_check(is_file($dockerHostRepo . '/sentinel') && !file_exists($dockerOverlapWorkspace), 'Docker overlap preserves target bytes and publishes no workspace');
+
 $docker = new DockerTransport('demo-source', [
     'transport' => 'docker',
     'compose_file' => '/tmp/pair.yml',
@@ -664,6 +865,34 @@ duo_check_same('', $oversizedProcess['stdout'], 'oversized child output is not r
 $timedProcess = HostProcess::run([PHP_BINARY, '-r', 'sleep(5);'], null, [], false, 100, 65536);
 duo_check_same(124, $timedProcess['exit'], 'the shared runner terminates a child that exceeds its deadline');
 duo_check(str_contains($timedProcess['stderr'], 'timed out'), 'the shared runner reports its own bounded timeout diagnostic');
+$closedPipeProcess = HostProcess::run(
+    ['sh', '-c', 'exec >/dev/null 2>&1; sleep 2'],
+    null,
+    [],
+    false,
+    100,
+    65536
+);
+duo_check_same(124, $closedPipeProcess['exit'], 'the shared runner enforces its deadline after a child closes both capture pipes');
+$passthroughTimedProcess = HostProcess::run(
+    [PHP_BINARY, '-r', 'usleep(500000);'],
+    null,
+    [],
+    true,
+    100,
+    65536
+);
+duo_check_same(124, $passthroughTimedProcess['exit'], 'the shared runner enforces an explicit passthrough deadline');
+$transferBudgetProcess = HostProcess::run(
+    [PHP_BINARY, '-r', 'usleep(50000); fwrite(STDOUT, str_repeat("t", 2000000));'],
+    null,
+    [],
+    false,
+    1000,
+    4000000
+);
+duo_check_same(0, $transferBudgetProcess['exit'], 'an explicit transfer budget admits a slower multi-megabyte operation');
+duo_check_same(2000000, strlen($transferBudgetProcess['stdout']), 'the explicit transfer budget preserves the complete bounded payload');
 
 $faultRoot = $tmp . '/fault-demo-root';
 foreach ([$faultRoot, $faultRoot . '/sandbox', $faultRoot . '/sandbox/bin', $faultRoot . '/sandbox/tmp', $faultRoot . '/sandbox/siterepo'] as $directory) {
@@ -671,7 +900,10 @@ foreach ([$faultRoot, $faultRoot . '/sandbox', $faultRoot . '/sandbox/bin', $fau
 }
 $faultPairScript = "#!/usr/bin/env bash\nset -eu\nif [ \"\$1\" = up ]; then mkdir -p "
     . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"1 "
-    . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"2; fi\nexit 0\n";
+    . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"2; "
+    . "if [ \"\$2\" = partialdemo ]; then touch "
+    . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"1/partial "
+    . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"2/partial; exit 9; fi; fi\nexit 0\n";
 file_put_contents($faultRoot . '/sandbox/bin/pair.sh', $faultPairScript);
 file_put_contents($faultRoot . '/sandbox/pair.yml', "services: {}\n");
 file_put_contents($faultRoot . '/tracked', "fixture\n");
@@ -687,6 +919,9 @@ foreach ([
 }
 $faultHookCalls = 0;
 $faultHook = static function (string $phase) use (&$faultHookCalls): void {
+    if ($phase !== 'compose_env_published') {
+        return;
+    }
     duo_check_same('compose_env_published', $phase, 'demo exposes the post-pair recoverability boundary');
     ++$faultHookCalls;
     throw new RuntimeException('injected demo setup failure');
@@ -704,6 +939,51 @@ for ($attempt = 1; $attempt <= 2; ++$attempt) {
     }
 }
 duo_check_same(2, $faultHookCalls, 'a failed demo start can be retried under the same name');
+
+$acquireFaultHook = static function (string $phase): void {
+    if ($phase === 'origin_created') {
+        throw new RuntimeException('injected origin reservation fault');
+    }
+};
+ob_start();
+$acquireFaultExit = DemoCommand::run([
+    'start', '--name=acquirefail', '--source-port=9202', '--target-port=9203',
+], $faultRoot, $acquireFaultHook);
+ob_end_clean();
+$acquireFault = ideal_demo_session($faultRoot, 'acquirefail', 9202, 9203);
+duo_check_same(1, $acquireFaultExit, 'demo reports a failure after origin creation but before its owned receipt');
+foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file', 'state_file'] as $field) {
+    duo_check(!file_exists((string) $acquireFault[$field]), "planned ownership recovery removes $field");
+}
+
+for ($partialAttempt = 1; $partialAttempt <= 2; ++$partialAttempt) {
+    ob_start();
+    $partialExit = DemoCommand::run([
+        'start', '--name=partialdemo', '--source-port=9204', '--target-port=9205',
+    ], $faultRoot);
+    ob_end_clean();
+    $partial = ideal_demo_session($faultRoot, 'partialdemo', 9204, 9205);
+    duo_check_same(1, $partialExit, "partial pair startup failure $partialAttempt is reported");
+    foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file', 'state_file'] as $field) {
+        duo_check(!file_exists((string) $partial[$field]), "partial pair startup cleanup removes $field on attempt $partialAttempt");
+    }
+}
+
+$originFaultHook = static function (string $phase): void {
+    if ($phase === 'origin_initialized') {
+        throw new RuntimeException('injected post-init origin failure');
+    }
+};
+ob_start();
+$originFaultExit = DemoCommand::run([
+    'start', '--name=originfail', '--source-port=9206', '--target-port=9207',
+], $faultRoot, $originFaultHook);
+ob_end_clean();
+$originFault = ideal_demo_session($faultRoot, 'originfail', 9206, 9207);
+duo_check_same(1, $originFaultExit, 'demo reports repository preparation failure after bare-origin initialization');
+foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file', 'state_file'] as $field) {
+    duo_check(!file_exists((string) $originFault[$field]), "post-init origin cleanup removes $field");
+}
 
 $sentinel = $tmp . '/demo-cleanup-sentinel';
 mkdir($sentinel, 0700);
@@ -732,6 +1012,59 @@ duo_check_same(0, $startingStop, 'demo stop resumes cleanup from a provisional s
 foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file', 'state_file'] as $field) {
     duo_check(!file_exists((string) $starting[$field]), "resumed demo stop removes owned $field");
 }
+
+$deleteCrash = ideal_demo_session($faultRoot, 'deletecrash', 9226, 9227);
+foreach (['source_repo', 'target_repo', 'origin'] as $field) {
+    mkdir((string) $deleteCrash[$field], 0700, true);
+}
+file_put_contents((string) $deleteCrash['compose_env_file'], "DUO_PAIR=deletecrash\n");
+$deleteCrash = own_ideal_demo_paths($deleteCrash, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
+write_ideal_demo_session($deleteCrash);
+$deleteCrashHook = static function (string $phase): void {
+    if ($phase === 'source_repo_removed') {
+        throw new RuntimeException('injected deletion journal interruption');
+    }
+};
+ob_start();
+$deleteCrashExit = DemoCommand::run(['stop', '--name=deletecrash'], $faultRoot, $deleteCrashHook);
+ob_end_clean();
+$deleteCrashState = json_decode((string) file_get_contents((string) $deleteCrash['state_file']), true);
+duo_check_same(1, $deleteCrashExit, 'demo stop reports an interruption after a claimed root was fully removed');
+duo_check_same('deleting', $deleteCrashState['owned_paths']['source_repo']['state'] ?? null, 'deletion intent remains durable across the post-remove interruption');
+duo_check(!file_exists((string) $deleteCrash['source_repo']), 'post-remove interruption leaves the canonical root absent');
+ob_start();
+$deleteCrashRetry = DemoCommand::run(['stop', '--name=deletecrash'], $faultRoot);
+ob_end_clean();
+duo_check_same(0, $deleteCrashRetry, 'demo stop resumes deleting-plus-absent progress and removes remaining resources');
+
+$claimRace = ideal_demo_session($faultRoot, 'claimrace', 9228, 9229);
+foreach (['source_repo', 'target_repo', 'origin'] as $field) {
+    mkdir((string) $claimRace[$field], 0700, true);
+}
+file_put_contents((string) $claimRace['compose_env_file'], "DUO_PAIR=claimrace\n");
+$claimRace = own_ideal_demo_paths($claimRace, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
+write_ideal_demo_session($claimRace);
+$claimRaceOwned = $claimRace['source_repo'] . '.recorded';
+$claimRaceHook = static function (string $phase) use ($claimRace, $claimRaceOwned): void {
+    if ($phase !== 'source_repo_deleting') {
+        return;
+    }
+    rename((string) $claimRace['source_repo'], $claimRaceOwned);
+    mkdir((string) $claimRace['source_repo'], 0700);
+    file_put_contents($claimRace['source_repo'] . '/foreign', "retain\n");
+};
+ob_start();
+$claimRaceExit = DemoCommand::run(['stop', '--name=claimrace'], $faultRoot, $claimRaceHook);
+ob_end_clean();
+duo_check_same(1, $claimRaceExit, 'demo cleanup refuses a replacement introduced after deletion intent');
+duo_check(is_file($claimRace['source_repo'] . '/foreign') && is_dir($claimRaceOwned), 'claim race preserves both the replacement and recorded tree');
+unlink($claimRace['source_repo'] . '/foreign');
+rmdir((string) $claimRace['source_repo']);
+rename($claimRaceOwned, (string) $claimRace['source_repo']);
+ob_start();
+$claimRaceRetry = DemoCommand::run(['stop', '--name=claimrace'], $faultRoot);
+ob_end_clean();
+duo_check_same(0, $claimRaceRetry, 'restoring the recorded inode resumes intent-before-delete cleanup');
 
 $replaced = ideal_demo_session($faultRoot, 'replacedemo', 9222, 9223);
 foreach (['source_repo', 'target_repo', 'origin'] as $field) {

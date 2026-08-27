@@ -217,6 +217,11 @@ abstract class Transport implements EnvironmentDriver {
         return null;
     }
 
+    /** The prospective writable host boundary, including when it does not exist yet. */
+    public function hostRepoBoundaryPath(): ?string {
+        return null;
+    }
+
     /** @return array{exit:int, stdout:string, stderr:string} */
     protected static function runCapturing(string $fullCommand): array {
         $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];

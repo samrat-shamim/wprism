@@ -13,6 +13,7 @@ final class DemoCommand {
     private const DEFAULT_SOURCE_PORT = 8781;
     private const DEFAULT_TARGET_PORT = 8782;
     private const WOO_VERSION = '11.0.1';
+    private const LIVE_PROCESS_TIMEOUT_MILLISECONDS = 1800000;
 
     /**
      * @param list<string> $args everything after `demo`
@@ -26,14 +27,20 @@ final class DemoCommand {
         }
         try {
             $options = self::options($action, $args);
-            return match ($action) {
-                'start' => self::start($sourceRoot, $options, $phaseHook),
-                'status' => self::status($sourceRoot, $options['name']),
-                'capture' => self::capture($sourceRoot, $options['name']),
-                'apply' => self::apply($sourceRoot, $options['name']),
-                'refusal' => self::refusal($sourceRoot, $options['name']),
-                'stop' => self::stop($sourceRoot, $options['name']),
-            };
+            $lock = self::lock($sourceRoot, $options['name']);
+            try {
+                return match ($action) {
+                    'start' => self::start($sourceRoot, $options, $phaseHook),
+                    'status' => self::status($sourceRoot, $options['name']),
+                    'capture' => self::capture($sourceRoot, $options['name']),
+                    'apply' => self::apply($sourceRoot, $options['name']),
+                    'refusal' => self::refusal($sourceRoot, $options['name']),
+                    'stop' => self::stop($sourceRoot, $options['name'], $phaseHook),
+                };
+            } finally {
+                flock($lock, LOCK_UN);
+                fclose($lock);
+            }
         } catch (\Throwable $error) {
             fwrite(STDERR, 'duo: demo: ' . $error->getMessage() . "\n");
             return 1;
@@ -87,14 +94,23 @@ final class DemoCommand {
         if (file_exists($session['state_file']) || is_link($session['state_file'])) {
             throw new \RuntimeException("demo '{$options['name']}' already has a session; run `duo demo status` or `duo demo stop`");
         }
-        foreach ([$session['source_repo'], $session['target_repo'], $session['origin']] as $path) {
+        foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file'] as $field) {
+            $path = (string) $session[$field];
             if (file_exists($path) || is_link($path)) {
                 throw new \RuntimeException("refusing to reuse existing demo path $path");
+            }
+            $claim = self::deletionClaim($session, $field);
+            if (file_exists($claim) || is_link($claim)) {
+                throw new \RuntimeException("refusing to reuse existing demo cleanup claim $claim");
             }
         }
 
         self::writeSession($session);
         try {
+            foreach (['source_repo', 'target_repo', 'origin'] as $field) {
+                self::acquireOwnedDirectory($session, $field, $phaseHook);
+            }
+            self::acquireOwnedEnvironment($session, $sourceRoot, $phaseHook);
             echo "Starting an exact, disposable WooCommerce pair. This can take a few minutes on the first image/artifact pull.\n";
             $up = self::runProcess(
                 [
@@ -106,21 +122,17 @@ final class DemoCommand {
                     'DUO_SOURCE_ROOT' => $sourceRoot,
                     'DUO_EXPECTED_SOURCE_SHA' => trim(self::mustRun(['git', 'rev-parse', 'HEAD'], $sourceRoot)['stdout']),
                 ],
-                true
+                true,
+                self::LIVE_PROCESS_TIMEOUT_MILLISECONDS
             );
             if ($up['exit'] !== 0) {
                 throw new \RuntimeException('pair startup failed');
             }
-            self::writeComposeEnv($session, $sourceRoot);
-            $session = self::recordOwnedPaths($session, ['source_repo', 'target_repo', 'compose_env_file']);
-            self::replaceSession($session);
             if ($phaseHook !== null) {
                 $phaseHook('compose_env_published');
             }
+            self::prepareSourceRepository($session, $phaseHook);
             self::installWooCommerce($session, $sourceRoot);
-            self::prepareSourceRepository($session);
-            $session = self::recordOwnedPaths($session, ['origin']);
-            self::replaceSession($session);
             self::seedSourceCatalog($session);
             self::runDuo($session, $sourceRoot, $session['source_repo'], ['capture', 'demo-source'], true);
             self::git($session['source_repo'], ['add', '-A']);
@@ -144,22 +156,10 @@ final class DemoCommand {
             self::replaceSession($session);
         } catch (\Throwable $error) {
             try {
-                self::assertOwnedSessionPaths($sourceRoot, $session);
-            } catch (\Throwable $ownership) {
-                throw new \RuntimeException(
-                    $error->getMessage() . '; cleanup ownership changed: ' . $ownership->getMessage()
-                    . '; session retained for review'
-                );
+                self::teardownSession($sourceRoot, $session, false, null);
+            } catch (\Throwable $cleanup) {
+                throw new \RuntimeException($error->getMessage() . '; cleanup paused: ' . $cleanup->getMessage());
             }
-            if (self::destroyPair($sourceRoot, $options['name'], false) !== 0) {
-                throw new \RuntimeException(
-                    $error->getMessage() . '; pair teardown failed; run `'
-                    . self::demoCli($sourceRoot) . " demo stop --name={$options['name']}` to resume cleanup"
-                );
-            }
-            $session['phase'] = 'stopping';
-            self::replaceSession($session);
-            self::cleanupOwnedSession($sourceRoot, $session);
             throw $error;
         }
 
@@ -283,16 +283,9 @@ final class DemoCommand {
         return 0;
     }
 
-    private static function stop(string $sourceRoot, string $name): int {
+    private static function stop(string $sourceRoot, string $name, ?callable $phaseHook): int {
         $session = self::readSession($sourceRoot, $name);
-        self::assertOwnedSessionPaths($sourceRoot, $session);
-        $exit = self::destroyPair($sourceRoot, $name, true);
-        if ($exit !== 0) {
-            throw new \RuntimeException('pair teardown failed; repositories were retained for diagnosis');
-        }
-        $session['phase'] = 'stopping';
-        self::replaceSession($session);
-        self::cleanupOwnedSession($sourceRoot, $session);
+        self::teardownSession($sourceRoot, $session, true, $phaseHook);
         echo "Removed demo '$name': containers, volumes, databases, and its three disposable repositories.\n";
         return 0;
     }
@@ -313,27 +306,30 @@ final class DemoCommand {
             'compose_env_file' => $sandbox . '/tmp/demo-' . $name . '.env',
             'state_file' => $sandbox . '/tmp/demo-' . $name . '.json',
             'phase' => 'starting',
+            'ownership_token' => is_string($options['ownership_token'] ?? null)
+                ? $options['ownership_token']
+                : bin2hex(random_bytes(32)),
             'runtime_before' => '',
             'last_applied_revision' => '',
             'pending_revision' => null,
             'owned_paths' => [
-                'source_repo' => null,
-                'target_repo' => null,
-                'origin' => null,
-                'compose_env_file' => null,
+                'source_repo' => ['state' => 'planned', 'identity' => null],
+                'target_repo' => ['state' => 'planned', 'identity' => null],
+                'origin' => ['state' => 'planned', 'identity' => null],
+                'compose_env_file' => ['state' => 'planned', 'identity' => null],
             ],
         ];
     }
 
     /** @param array<string,mixed> $session */
-    private static function writeComposeEnv(array $session, string $sourceRoot): void {
-        $bytes = 'DUO_PAIR=' . $session['name'] . "\n"
+    private static function composeEnvBytes(array $session, string $sourceRoot): string {
+        return '# DUO_DEMO_OWNER=' . $session['ownership_token'] . ":compose_env_file\n"
+            . 'DUO_PAIR=' . $session['name'] . "\n"
             . 'DUO_PORT1=' . $session['source_port'] . "\n"
             . 'DUO_PORT2=' . $session['target_port'] . "\n"
             . 'DUO_AGENT_SRC=' . $sourceRoot . "/agent\n"
             . 'DUO_MANIFESTS_SRC=' . $sourceRoot . "/manifests\n"
             . "DUO_DB_HOST=duo-shared-db\n";
-        self::writeNew((string) $session['compose_env_file'], $bytes, 0600);
     }
 
     /** @param array<string,mixed> $session */
@@ -344,7 +340,13 @@ final class DemoCommand {
             . 'for side in 1 2; do artifact=$(fetch_artifact woocommerce ' . self::WOO_VERSION
             . ' "cli$side" plugin); "${PAIR_COMPOSE[@]}" run --rm -T "cli$side" wp plugin install "$artifact" --force; done; '
             . '"${PAIR_COMPOSE[@]}" run --rm -T cli1 wp plugin activate woocommerce';
-        $result = self::runProcess(['bash', '-c', $script], $sourceRoot . '/sandbox', [], true);
+        $result = self::runProcess(
+            ['bash', '-c', $script],
+            $sourceRoot . '/sandbox',
+            [],
+            true,
+            self::LIVE_PROCESS_TIMEOUT_MILLISECONDS
+        );
         if ($result['exit'] !== 0) {
             throw new \RuntimeException('could not install the digest-pinned WooCommerce demo artifact');
         }
@@ -352,8 +354,11 @@ final class DemoCommand {
     }
 
     /** @param array<string,mixed> $session */
-    private static function prepareSourceRepository(array $session): void {
+    private static function prepareSourceRepository(array $session, ?callable $phaseHook): void {
         self::mustRun(['git', 'init', '--bare', '--initial-branch=main', $session['origin']], null);
+        if ($phaseHook !== null) {
+            $phaseHook('origin_initialized');
+        }
         $policy = [
             'manifests' => ['core', 'woocommerce'],
             'policy' => [
@@ -505,7 +510,13 @@ final class DemoCommand {
         bool $passthrough,
         bool $mustSucceed = true
     ): array {
-        $result = self::runProcess(array_merge([$sourceRoot . '/cli/duo'], $args), $cwd, [], $passthrough);
+        $result = self::runProcess(
+            array_merge([$sourceRoot . '/cli/duo'], $args),
+            $cwd,
+            [],
+            $passthrough,
+            $passthrough ? self::LIVE_PROCESS_TIMEOUT_MILLISECONDS : 30000
+        );
         if ($mustSucceed && $result['exit'] !== 0) {
             throw new \RuntimeException('Duo command failed: ' . implode(' ', $args));
         }
@@ -531,9 +542,10 @@ final class DemoCommand {
         array $argv,
         ?string $cwd,
         array $extraEnv = [],
-        bool $passthrough = false
+        bool $passthrough = false,
+        int $timeoutMilliseconds = 30000
     ): array {
-        return HostProcess::run($argv, $cwd, $extraEnv, $passthrough);
+        return HostProcess::run($argv, $cwd, $extraEnv, $passthrough, $timeoutMilliseconds);
     }
 
     /** @return array<string,mixed> */
@@ -555,6 +567,7 @@ final class DemoCommand {
             'name' => $name,
             'source_port' => $data['source_port'],
             'target_port' => $data['target_port'],
+            'ownership_token' => $data['ownership_token'] ?? null,
         ]);
         foreach (['source_repo', 'target_repo', 'origin', 'compose_file', 'compose_env_file', 'state_file'] as $field) {
             if (($data[$field] ?? null) !== $expected[$field]) {
@@ -562,6 +575,8 @@ final class DemoCommand {
             }
         }
         if (!in_array($data['phase'] ?? null, ['starting', 'ready', 'stopping'], true)
+            || !is_string($data['ownership_token'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', (string) $data['ownership_token']) !== 1
             || !is_string($data['runtime_before'] ?? null)
             || !is_string($data['last_applied_revision'] ?? null)
             || (($data['last_applied_revision'] ?? '') !== ''
@@ -611,9 +626,39 @@ final class DemoCommand {
         if (!is_dir(dirname($path)) && !mkdir(dirname($path), 0700, true) && !is_dir(dirname($path))) {
             throw new \RuntimeException('could not create ' . dirname($path));
         }
-        if (file_put_contents($path, $bytes, LOCK_EX) !== strlen($bytes) || !chmod($path, $mode)) {
-            throw new \RuntimeException("could not write $path");
+        $handle = @fopen($path, 'x+b');
+        if (!is_resource($handle)) {
+            throw new \RuntimeException("could not exclusively create $path");
         }
+        $written = 0;
+        try {
+            while ($written < strlen($bytes)) {
+                $count = fwrite($handle, substr($bytes, $written));
+                if (!is_int($count) || $count < 1) {
+                    throw new \RuntimeException("could not write $path");
+                }
+                $written += $count;
+            }
+            $created = fstat($handle);
+            $current = @lstat($path);
+            if (!is_array($created) || !is_array($current)
+                || $created['dev'] !== $current['dev'] || $created['ino'] !== $current['ino']
+                || !@chmod($path, $mode)
+                || !fflush($handle)
+                || (function_exists('fsync') && !fsync($handle))) {
+                throw new \RuntimeException("could not sync $path");
+            }
+        } catch (\Throwable $error) {
+            $created = fstat($handle);
+            fclose($handle);
+            $current = lstat($path);
+            if (is_array($created) && is_array($current)
+                && $created['dev'] === $current['dev'] && $created['ino'] === $current['ino']) {
+                @unlink($path);
+            }
+            throw $error;
+        }
+        fclose($handle);
     }
 
     private static function destroyPair(string $sourceRoot, string $name, bool $passthrough): int {
@@ -621,42 +666,125 @@ final class DemoCommand {
             ['bash', $sourceRoot . '/sandbox/bin/pair.sh', 'destroy', $name],
             $sourceRoot,
             [],
-            $passthrough
+            $passthrough,
+            self::LIVE_PROCESS_TIMEOUT_MILLISECONDS
         )['exit'];
     }
 
     /** @param array<string,mixed> $session */
-    private static function cleanupOwnedSession(string $sourceRoot, array $session): void {
+    private static function teardownSession(
+        string $sourceRoot,
+        array &$session,
+        bool $passthrough,
+        ?callable $phaseHook
+    ): void {
         self::assertOwnedSessionPaths($sourceRoot, $session);
-        $derived = self::sessionShape($sourceRoot, [
-            'name' => $session['name'],
-            'source_port' => $session['source_port'],
-            'target_port' => $session['target_port'],
-        ]);
-        foreach (['source_repo', 'target_repo', 'origin'] as $field) {
-            $path = (string) $derived[$field];
-            $recorded = $session['owned_paths'][$field] ?? null;
-            if ($recorded !== null && self::pathIdentity((string) $path) !== $recorded) {
-                throw new \RuntimeException("owned demo path changed before deletion: $path");
-            }
-            self::removeTree($path);
-            $session['owned_paths'][$field] = null;
+        if ($session['phase'] !== 'stopping') {
+            $session['phase'] = 'stopping';
             self::replaceSession($session);
         }
-        $env = (string) $derived['compose_env_file'];
-        $envIdentity = $session['owned_paths']['compose_env_file'] ?? null;
-        if ($envIdentity !== null && $envIdentity !== self::pathIdentity($env)) {
-            throw new \RuntimeException("owned demo environment changed before deletion: $env");
+        if ($phaseHook !== null) {
+            $phaseHook('stopping_published');
         }
-        if (is_file($env) && !is_link($env) && !unlink($env)) {
-            throw new \RuntimeException("could not remove owned demo environment file $env");
+        if (self::destroyPair($sourceRoot, (string) $session['name'], $passthrough) !== 0) {
+            throw new \RuntimeException(
+                'pair teardown failed; run `' . self::demoCli($sourceRoot)
+                . " demo stop --name={$session['name']}` to resume cleanup"
+            );
         }
-        $session['owned_paths']['compose_env_file'] = null;
-        self::replaceSession($session);
-        $state = (string) $derived['state_file'];
+        self::cleanupOwnedSession($sourceRoot, $session, $phaseHook);
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function cleanupOwnedSession(
+        string $sourceRoot,
+        array &$session,
+        ?callable $phaseHook
+    ): void {
+        self::assertOwnedSessionPaths($sourceRoot, $session);
+        foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file'] as $field) {
+            self::cleanupOwnedField($sourceRoot, $session, $field, $phaseHook);
+        }
+        $state = (string) $session['state_file'];
         if (is_file($state) && !is_link($state) && !unlink($state)) {
             throw new \RuntimeException("could not remove owned demo session $state");
         }
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function cleanupOwnedField(
+        string $sourceRoot,
+        array &$session,
+        string $field,
+        ?callable $phaseHook
+    ): void {
+        $path = (string) $session[$field];
+        $claim = self::deletionClaim($session, $field);
+        $row = $session['owned_paths'][$field];
+        if ($row['state'] === 'planned') {
+            self::adoptPlannedPath($sourceRoot, $session, $field);
+            $row = $session['owned_paths'][$field];
+        }
+        if ($row['state'] === 'deleted') {
+            if (file_exists($path) || is_link($path) || file_exists($claim) || is_link($claim)) {
+                throw new \RuntimeException("deleted demo $field path reappeared and was retained: $path");
+            }
+            return;
+        }
+        if ($row['state'] === 'owned') {
+            if (file_exists($claim) || is_link($claim)
+                || self::pathIdentity($path) !== $row['identity']) {
+                throw new \RuntimeException("owned demo path changed before deletion: $path");
+            }
+            $session['owned_paths'][$field] = [
+                'state' => 'deleting',
+                'identity' => $row['identity'],
+            ];
+            self::replaceSession($session);
+            if ($phaseHook !== null) {
+                $phaseHook($field . '_deleting');
+            }
+            $row = $session['owned_paths'][$field];
+        }
+        if ($row['state'] !== 'deleting') {
+            throw new \RuntimeException("demo $field has an unsupported cleanup state");
+        }
+
+        $pathExists = file_exists($path) || is_link($path);
+        $claimExists = file_exists($claim) || is_link($claim);
+        if ($pathExists && $claimExists) {
+            throw new \RuntimeException("demo cleanup found both the canonical path and its private claim: $path");
+        }
+        if ($pathExists) {
+            if (self::pathIdentity($path) !== $row['identity'] || !@rename($path, $claim)) {
+                throw new \RuntimeException("could not claim the recorded demo path for deletion: $path");
+            }
+            try {
+                if (self::pathIdentity($claim) !== $row['identity']) {
+                    throw new \RuntimeException("demo cleanup claim identity changed: $claim");
+                }
+            } catch (\Throwable $error) {
+                if (!file_exists($path) && !is_link($path) && (file_exists($claim) || is_link($claim))) {
+                    @rename($claim, $path);
+                }
+                throw $error;
+            }
+            $claimExists = true;
+        }
+        if ($claimExists) {
+            if (self::pathIdentity($claim) !== $row['identity']) {
+                throw new \RuntimeException("demo cleanup claim identity changed and was retained: $claim");
+            }
+            self::removeTree($claim);
+            if ($phaseHook !== null) {
+                $phaseHook($field . '_removed');
+            }
+        }
+        if (file_exists($path) || is_link($path) || file_exists($claim) || is_link($claim)) {
+            throw new \RuntimeException("demo cleanup could not prove $field absent after deletion");
+        }
+        $session['owned_paths'][$field] = ['state' => 'deleted', 'identity' => null];
+        self::replaceSession($session);
     }
 
     private static function removeTree(string $root): void {
@@ -685,43 +813,165 @@ final class DemoCommand {
         }
     }
 
-    /** @param array<string,mixed> $session @param list<string> $fields @return array<string,mixed> */
-    private static function recordOwnedPaths(array $session, array $fields): array {
-        foreach ($fields as $field) {
-            $path = (string) ($session[$field] ?? '');
-            if ($path === '' || !file_exists($path) || is_link($path)) {
-                throw new \RuntimeException("demo did not acquire an ordinary $field path");
-            }
-            $identity = self::pathIdentity($path);
-            $recorded = $session['owned_paths'][$field] ?? null;
-            if ($recorded !== null && $recorded !== $identity) {
-                throw new \RuntimeException("demo $field identity changed while setup was active");
-            }
-            $session['owned_paths'][$field] = $identity;
+    /** @param array<string,mixed> $session */
+    private static function acquireOwnedDirectory(array &$session, string $field, ?callable $phaseHook): void {
+        $path = (string) $session[$field];
+        if (($session['owned_paths'][$field]['state'] ?? null) !== 'planned'
+            || file_exists($path) || is_link($path)) {
+            throw new \RuntimeException("demo could not exclusively reserve $field path $path");
         }
-        return $session;
+        if (!mkdir($path, 0700)) {
+            throw new \RuntimeException("demo could not create $field path $path");
+        }
+        $marker = self::ownerMarker($session, $field);
+        self::writeNew($marker, $session['ownership_token'] . ':' . $field . "\n", 0600);
+        if ($phaseHook !== null) {
+            $phaseHook($field . '_created');
+        }
+        $identity = self::pathIdentity($path);
+        $session['owned_paths'][$field] = ['state' => 'owned', 'identity' => $identity];
+        self::replaceSession($session);
+        if (!unlink($marker)) {
+            throw new \RuntimeException("could not retire the $field ownership marker");
+        }
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function acquireOwnedEnvironment(
+        array &$session,
+        string $sourceRoot,
+        ?callable $phaseHook
+    ): void {
+        $field = 'compose_env_file';
+        $path = (string) $session[$field];
+        if (($session['owned_paths'][$field]['state'] ?? null) !== 'planned'
+            || file_exists($path) || is_link($path)) {
+            throw new \RuntimeException("demo could not exclusively reserve $field path $path");
+        }
+        self::writeNew($path, self::composeEnvBytes($session, $sourceRoot), 0600);
+        if ($phaseHook !== null) {
+            $phaseHook($field . '_created');
+        }
+        $session['owned_paths'][$field] = ['state' => 'owned', 'identity' => self::pathIdentity($path)];
+        self::replaceSession($session);
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function adoptPlannedPath(string $sourceRoot, array &$session, string $field): void {
+        $path = (string) $session[$field];
+        $claim = self::deletionClaim($session, $field);
+        if (file_exists($claim) || is_link($claim)) {
+            throw new \RuntimeException("planned demo $field has an unexpected cleanup claim: $claim");
+        }
+        if (!file_exists($path) && !is_link($path)) {
+            $session['owned_paths'][$field] = ['state' => 'deleted', 'identity' => null];
+            self::replaceSession($session);
+            return;
+        }
+        if ($field === 'compose_env_file') {
+            if (is_link($path) || !is_file($path)
+                || file_get_contents($path) !== self::composeEnvBytes($session, $sourceRoot)) {
+                throw new \RuntimeException("planned demo environment is not the reserved file: $path");
+            }
+        } else {
+            if (is_link($path) || !is_dir($path)) {
+                throw new \RuntimeException("planned demo $field is not an ordinary directory: $path");
+            }
+            $entries = array_values(array_diff(scandir($path) ?: [], ['.', '..']));
+            $marker = self::ownerMarker($session, $field);
+            $markerName = basename($marker);
+            $markerBytes = $session['ownership_token'] . ':' . $field . "\n";
+            if ($entries !== [] && ($entries !== [$markerName]
+                || is_link($marker) || !is_file($marker) || file_get_contents($marker) !== $markerBytes)) {
+                throw new \RuntimeException("planned demo $field contains bytes without an ownership receipt: $path");
+            }
+        }
+        $session['owned_paths'][$field] = ['state' => 'owned', 'identity' => self::pathIdentity($path)];
+        self::replaceSession($session);
+        if ($field !== 'compose_env_file') {
+            $marker = self::ownerMarker($session, $field);
+            if (is_file($marker) && !is_link($marker) && !unlink($marker)) {
+                throw new \RuntimeException("could not retire the resumed $field ownership marker");
+            }
+        }
     }
 
     /** @param array<string,mixed> $session */
     private static function assertOwnedSessionPaths(string $sourceRoot, array $session): void {
-        $derived = self::sessionShape($sourceRoot, [
-            'name' => $session['name'],
-            'source_port' => $session['source_port'],
-            'target_port' => $session['target_port'],
-        ]);
         foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file'] as $field) {
-            $path = (string) $derived[$field];
-            $recorded = $session['owned_paths'][$field] ?? null;
-            if ($recorded === null) {
-                if (file_exists($path) || is_link($path)) {
-                    throw new \RuntimeException("unrecorded demo $field path exists and was retained: $path");
+            $path = (string) $session[$field];
+            $claim = self::deletionClaim($session, $field);
+            $row = $session['owned_paths'][$field];
+            $pathExists = file_exists($path) || is_link($path);
+            $claimExists = file_exists($claim) || is_link($claim);
+            if ($row['state'] === 'planned') {
+                self::assertPlannedPath($sourceRoot, $session, $field, $pathExists, $claimExists);
+                continue;
+            }
+            if ($row['state'] === 'deleted') {
+                if ($pathExists || $claimExists) {
+                    throw new \RuntimeException("deleted demo $field path reappeared and was retained: $path");
                 }
                 continue;
             }
-            if (is_link($path) || !file_exists($path) || self::pathIdentity($path) !== $recorded) {
+            if ($pathExists && $claimExists) {
+                throw new \RuntimeException("demo $field has both its canonical path and cleanup claim");
+            }
+            if ($row['state'] === 'owned'
+                && (!$pathExists || $claimExists || self::pathIdentity($path) !== $row['identity'])) {
                 throw new \RuntimeException("demo $field identity changed and was retained: $path");
             }
+            if ($row['state'] === 'deleting') {
+                $candidate = $claimExists ? $claim : ($pathExists ? $path : null);
+                if ($candidate !== null && self::pathIdentity($candidate) !== $row['identity']) {
+                    throw new \RuntimeException("demo $field cleanup identity changed and was retained: $candidate");
+                }
+            }
         }
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function assertPlannedPath(
+        string $sourceRoot,
+        array $session,
+        string $field,
+        bool $pathExists,
+        bool $claimExists
+    ): void {
+        $path = (string) $session[$field];
+        if ($claimExists) {
+            throw new \RuntimeException("planned demo $field has an unexpected cleanup claim");
+        }
+        if (!$pathExists) {
+            return;
+        }
+        if ($field === 'compose_env_file') {
+            if (is_link($path) || !is_file($path)
+                || file_get_contents($path) !== self::composeEnvBytes($session, $sourceRoot)) {
+                throw new \RuntimeException("planned demo environment changed and was retained: $path");
+            }
+            return;
+        }
+        if (is_link($path) || !is_dir($path)) {
+            throw new \RuntimeException("planned demo $field changed and was retained: $path");
+        }
+        $entries = array_values(array_diff(scandir($path) ?: [], ['.', '..']));
+        $marker = self::ownerMarker($session, $field);
+        if ($entries !== [] && ($entries !== [basename($marker)] || is_link($marker) || !is_file($marker)
+            || file_get_contents($marker) !== $session['ownership_token'] . ':' . $field . "\n")) {
+            throw new \RuntimeException("planned demo $field contains unowned bytes and was retained: $path");
+        }
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function ownerMarker(array $session, string $field): string {
+        return (string) $session[$field] . '/.duo-demo-owner-' . $session['ownership_token'] . '-' . $field;
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function deletionClaim(array $session, string $field): string {
+        $path = (string) $session[$field];
+        return dirname($path) . '/.duo-demo-remove-' . $session['ownership_token'] . '-' . $field;
     }
 
     /** @return array{dev:string,ino:string,type:string} */
@@ -741,8 +991,16 @@ final class DemoCommand {
         if (!is_array($owned) || array_keys($owned) !== ['source_repo', 'target_repo', 'origin', 'compose_env_file']) {
             return false;
         }
-        foreach ($owned as $field => $identity) {
-            if ($identity === null) {
+        foreach ($owned as $field => $row) {
+            if (!is_array($row) || array_keys($row) !== ['state', 'identity']
+                || !in_array($row['state'] ?? null, ['planned', 'owned', 'deleting', 'deleted'], true)) {
+                return false;
+            }
+            $identity = $row['identity'] ?? null;
+            if (in_array($row['state'], ['planned', 'deleted'], true)) {
+                if ($identity !== null) {
+                    return false;
+                }
                 continue;
             }
             if (!is_array($identity) || array_keys($identity) !== ['dev', 'ino', 'type']
@@ -762,6 +1020,19 @@ final class DemoCommand {
                 throw new \RuntimeException("required command '$tool' is unavailable");
             }
         }
+    }
+
+    /** @return resource */
+    private static function lock(string $sourceRoot, string $name) {
+        $path = sys_get_temp_dir() . '/duo-demo-' . hash('sha256', $sourceRoot . "\0" . $name) . '.lock';
+        $handle = @fopen($path, 'c');
+        if (!is_resource($handle) || !flock($handle, LOCK_EX | LOCK_NB)) {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
+            throw new \RuntimeException("demo '$name' already has an active command");
+        }
+        return $handle;
     }
 
     /** @param array<string,mixed> $session */

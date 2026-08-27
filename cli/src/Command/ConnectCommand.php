@@ -28,6 +28,9 @@ final class ConnectCommand {
             $factory = $transportFactory ?? static fn(string $name, array $config): EnvironmentDriver =>
                 Transport::make($name, $config);
             $driver = $factory($request['environment'], $request['config']);
+            if ($driver instanceof Transport && ($hostRepo = $driver->hostRepoBoundaryPath()) !== null) {
+                self::assertDisjointHostBoundaries($request['workspace'], $hostRepo);
+            }
             self::probe($driver);
             self::createWorkspace($request['workspace'], $request['environment'], $request['config'], $processRunner);
         } catch (\Throwable $error) {
@@ -114,7 +117,7 @@ final class ConnectCommand {
             }
         }
         if ($transport === 'local') {
-            self::assertDisjointLocalBoundaries($workspace, (string) $config['repo_path']);
+            self::assertDisjointHostBoundaries($workspace, (string) $config['repo_path']);
             // Selecting a local target is the explicit machine-local opt-in
             // LocalTransport requires before adoption can bootstrap it.
             $config['bootstrap'] = ['format' => LocalTransport::BOOTSTRAP_FORMAT];
@@ -234,14 +237,32 @@ final class ConnectCommand {
         return $resolved;
     }
 
-    private static function assertDisjointLocalBoundaries(string $workspace, string $repoPath): void {
-        $workspaceBoundary = self::physicalBoundary($workspace);
-        $repoBoundary = self::physicalBoundary($repoPath);
+    private static function assertDisjointHostBoundaries(string $workspace, string $repoPath): void {
+        $workspaceBoundary = self::comparableBoundary(self::physicalBoundary($workspace));
+        $repoBoundary = self::comparableBoundary(self::physicalBoundary($repoPath));
         if ($workspaceBoundary === $repoBoundary
             || str_starts_with($workspaceBoundary, $repoBoundary . '/')
             || str_starts_with($repoBoundary, $workspaceBoundary . '/')) {
-            throw new \RuntimeException('local --workspace and --repo-path must be disjoint, non-nested paths');
+            throw new \RuntimeException('--workspace and the writable host repository must be disjoint, non-nested paths');
         }
+    }
+
+    private static function comparableBoundary(string $path): string {
+        if (class_exists('Normalizer')) {
+            $normalized = \Normalizer::normalize($path, \Normalizer::FORM_C);
+            if (is_string($normalized)) {
+                $path = $normalized;
+            }
+        } else {
+            $segments = explode('/', $path);
+            $path = implode('/', array_map(
+                static fn(string $segment): string => preg_match('/[^\x00-\x7f]/', $segment) === 1
+                    ? "\x01unicode-boundary"
+                    : $segment,
+                $segments
+            ));
+        }
+        return function_exists('mb_strtolower') ? mb_strtolower($path, 'UTF-8') : strtolower($path);
     }
 
     private static function physicalBoundary(string $path): string {

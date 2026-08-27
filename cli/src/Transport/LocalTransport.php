@@ -14,6 +14,10 @@ final class LocalTransport extends Transport implements AdoptionTransport, Recov
         return rtrim($this->repoPath, '/');
     }
 
+    public function hostRepoBoundaryPath(): ?string {
+        return rtrim($this->repoPath, '/');
+    }
+
     public const BOOTSTRAP_FORMAT = 'duo-local-control-plane/v1';
 
     /**

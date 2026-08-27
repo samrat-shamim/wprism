@@ -1,5 +1,5 @@
 {
-    "class_count": 402,
+    "class_count": 403,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -29041,6 +29041,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "hostRepoBoundaryPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "hostRepoPath": {
                     "abstract": false,
                     "final": false,
@@ -32066,6 +32074,14 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "hostRepoBoundaryPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
                     "static": false,
                     "visibility": "public"
                 },
@@ -39626,6 +39642,14 @@
                     "return_type": "string",
                     "static": true,
                     "visibility": "protected"
+                },
+                "hostRepoBoundaryPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
                 },
                 "hostRepoPath": {
                     "abstract": false,

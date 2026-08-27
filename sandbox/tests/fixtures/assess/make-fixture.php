@@ -510,6 +510,9 @@ case " $* " in
         exit 1
       fi
       exit 0 ;;
+  *" eval echo is_multisite() "*)
+      printf '%s\n' 'single-site'
+      exit 0 ;;
   *class_exists*DISALLOW_FILE_MODS*db_server_info*)
       # DUO-3511: Doctor::run() asks for agent presence, DISALLOW_FILE_MODS and
       # the PHP/database/WordPress facts in ONE eval, so this answers with the

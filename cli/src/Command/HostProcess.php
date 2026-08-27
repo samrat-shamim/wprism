@@ -35,8 +35,22 @@ final class HostProcess {
         if (!is_resource($process)) {
             return ['exit' => 127, 'stdout' => '', 'stderr' => 'could not start process'];
         }
+        $deadline = hrtime(true) + ($timeoutMilliseconds * 1000000);
         if ($passthrough) {
-            return ['exit' => proc_close($process), 'stdout' => '', 'stderr' => ''];
+            while (true) {
+                $status = proc_get_status($process);
+                if (!$status['running']) {
+                    $closed = proc_close($process);
+                    $exit = $closed === -1 && $status['exitcode'] >= 0 ? $status['exitcode'] : $closed;
+                    return ['exit' => $exit, 'stdout' => '', 'stderr' => ''];
+                }
+                $remaining = $deadline - hrtime(true);
+                if ($remaining <= 0) {
+                    self::terminateAndDrain($process, []);
+                    return ['exit' => 124, 'stdout' => '', 'stderr' => 'process timed out'];
+                }
+                usleep((int) min(10000, max(1, intdiv($remaining, 1000))));
+            }
         }
 
         fclose($pipes[0]);
@@ -47,12 +61,21 @@ final class HostProcess {
         stream_set_blocking($pipes[2], false);
         $buffers = [1 => '', 2 => ''];
         $open = [1 => $pipes[1], 2 => $pipes[2]];
-        $deadline = hrtime(true) + ($timeoutMilliseconds * 1000000);
-        while ($open !== []) {
+        $exitCode = null;
+        while ($open !== [] || $exitCode === null) {
             $remaining = $deadline - hrtime(true);
             if ($remaining <= 0) {
                 self::terminateAndDrain($process, $open);
                 return ['exit' => 124, 'stdout' => '', 'stderr' => 'process timed out'];
+            }
+            if ($open === []) {
+                $status = proc_get_status($process);
+                if (!$status['running']) {
+                    $exitCode = $status['exitcode'];
+                    break;
+                }
+                usleep((int) min(10000, max(1, intdiv($remaining, 1000))));
+                continue;
             }
             $read = array_values($open);
             $write = null;
@@ -81,11 +104,17 @@ final class HostProcess {
                     return ['exit' => 125, 'stdout' => '', 'stderr' => 'process output exceeded capture limit'];
                 }
             }
+            $status = proc_get_status($process);
+            if (!$status['running']) {
+                $exitCode = $status['exitcode'];
+            }
         }
         foreach ($open as $stream) {
             fclose($stream);
         }
-        return ['exit' => proc_close($process), 'stdout' => $buffers[1], 'stderr' => $buffers[2]];
+        $closed = proc_close($process);
+        $exit = $closed === -1 && is_int($exitCode) && $exitCode >= 0 ? $exitCode : $closed;
+        return ['exit' => $exit, 'stdout' => $buffers[1], 'stderr' => $buffers[2]];
     }
 
     /** @param resource $process @param array<int,resource> $pipes */

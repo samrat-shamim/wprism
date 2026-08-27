@@ -128,6 +128,11 @@ final class DockerTransport extends Transport {
      * host cannot materialize here" and refuses with the reviewed message.
      */
     public function hostRepoPath(): ?string {
+        $source = $this->hostRepoBoundaryPath();
+        return $source !== null && is_dir($source) ? $source : null;
+    }
+
+    public function hostRepoBoundaryPath(): ?string {
         $tokens = array_merge($this->baseTokens(), ['config', '--format', 'json']);
         $result = self::runCapturing(self::tokens($tokens));
         if (($result['exit'] ?? 1) !== 0) {
@@ -150,7 +155,7 @@ final class DockerTransport extends Transport {
                 return null;
             }
             $source = (string) ($volume['source'] ?? '');
-            return $source !== '' && is_dir($source) ? $source : null;
+            return $source !== '' && str_starts_with($source, '/') ? rtrim($source, '/') : null;
         }
         return null;
     }

@@ -12,6 +12,8 @@ require_once __DIR__ . '/StatusCommand.php';
 
 /** Guided composition of the existing adoption, assessment, and init gates. */
 final class OnboardCommand {
+    private const GIT_TRANSFER_TIMEOUT_MILLISECONDS = 900000;
+    private const GIT_TRANSFER_OUTPUT_LIMIT_BYTES = 8388608;
     /**
      * @param list<string> $extra everything after `<env>`
      * @param ?array{
@@ -164,8 +166,9 @@ final class OnboardCommand {
         string $gitUrl
     ): void {
         self::assertLocalBoundary($workspace);
+        self::assertPristineLocalCheckout($workspace);
         self::assertLocalOrigin($workspace, $gitUrl);
-        $local = HostProcess::run(['git', 'ls-remote', $gitUrl]);
+        $local = self::runGitTransfer(['git', 'ls-remote', $gitUrl]);
         if ($local['exit'] !== 0) {
             throw new \RuntimeException('controller cannot authenticate to the Git remote: ' . trim($local['stderr']));
         }
@@ -188,7 +191,7 @@ final class OnboardCommand {
         string $gitUrl
     ): string {
         self::assertLocalBoundary($workspace);
-        $initialBranch = self::assertPristineLocalCheckout($workspace);
+        $initialReceipt = self::assertPristineLocalCheckout($workspace);
         self::assertLocalOrigin($workspace, $gitUrl);
         $repo = $driver->repoPath();
         $q = static fn(string $value): string => escapeshellarg($value);
@@ -225,9 +228,10 @@ final class OnboardCommand {
         $branch = $published[1];
         $revision = $published[2];
 
+        self::assertPristineLocalCheckout($workspace, $initialReceipt);
         self::ensureLocalOrigin($workspace, $gitUrl);
         $remoteRef = 'refs/remotes/origin/' . $branch;
-        $fetch = HostProcess::run([
+        $fetch = self::runGitTransfer([
             'git', '-C', $workspace, 'fetch', '--no-tags', 'origin',
             '+refs/heads/' . $branch . ':' . $remoteRef,
         ]);
@@ -240,12 +244,14 @@ final class OnboardCommand {
         }
 
         self::assertLocalBoundary($workspace);
+        self::assertPristineLocalCheckout($workspace, $initialReceipt);
         $token = bin2hex(random_bytes(16));
         $backups = [
             $workspace . '/site.duo.json' => $workspace . '/.git/duo-handoff-site-' . $token,
             $workspace . '/.gitignore' => $workspace . '/.git/duo-handoff-ignore-' . $token,
         ];
         $moved = [];
+        $checkoutSucceeded = false;
         try {
             foreach ($backups as $path => $backup) {
                 if (!rename($path, $backup)) {
@@ -253,22 +259,32 @@ final class OnboardCommand {
                 }
                 $moved[$path] = $backup;
             }
-            $checkout = HostProcess::run(
+            $checkout = self::runGitTransfer(
                 ['git', '-C', $workspace, 'checkout', '-b', $branch, '--track', $remoteRef]
             );
             if ($checkout['exit'] !== 0) {
                 throw new \RuntimeException('local Git checkout failed: ' . trim($checkout['stderr']));
             }
+            $checkoutSucceeded = true;
             $head = HostProcess::run(['git', '-C', $workspace, 'rev-parse', 'HEAD']);
             if ($head['exit'] !== 0 || trim($head['stdout']) !== $revision) {
                 throw new \RuntimeException('local checkout does not match the target publication receipt');
             }
+            if ($initialReceipt['duo'] !== null
+                && self::localTreeReceipt($workspace . '/.duo') !== $initialReceipt['duo']) {
+                throw new \RuntimeException('local assessment artifacts changed during checkout');
+            }
         } catch (\Throwable $error) {
+            if ($checkoutSucceeded) {
+                throw new \RuntimeException(
+                    $error->getMessage() . '; checkout changed after publication; generated-boundary backups were retained in .git'
+                );
+            }
             try {
-                self::restorePristineCheckout($workspace, $initialBranch, $branch, $moved);
+                self::restoreGeneratedBoundary($workspace, $moved);
             } catch (\Throwable $rollback) {
                 throw new \RuntimeException(
-                    $error->getMessage() . '; local checkout rollback failed: ' . $rollback->getMessage()
+                    $error->getMessage() . '; generated-boundary restoration paused: ' . $rollback->getMessage()
                 );
             }
             throw $error;
@@ -286,15 +302,32 @@ final class OnboardCommand {
         self::assertGeneratedFile($workspace . '/.gitignore', Adopt::repositoryGitignoreBytes());
     }
 
-    private static function assertPristineLocalCheckout(string $workspace): string {
+    /**
+     * @param ?array{branch:string,paths:array<string,array<string,mixed>>,duo:?array<int,array<string,mixed>>} $expected
+     * @return array{branch:string,paths:array<string,array<string,mixed>>,duo:?array<int,array<string,mixed>>}
+     */
+    private static function assertPristineLocalCheckout(string $workspace, ?array $expected = null): array {
         if (is_link($workspace . '/.git') || !is_dir($workspace . '/.git')
             || is_link($workspace . '/.duo-envs.json') || !is_file($workspace . '/.duo-envs.json')) {
             throw new \RuntimeException('local workspace control boundary is not ordinary');
         }
         $entries = array_values(array_diff(scandir($workspace) ?: [], ['.', '..']));
         sort($entries, SORT_STRING);
-        if ($entries !== ['.duo-envs.json', '.git', '.gitignore', 'site.duo.json']) {
-            throw new \RuntimeException('local workspace changed before handoff; expected only connect-generated entries');
+        $allowed = ['.duo-envs.json', '.git', '.gitignore', 'site.duo.json'];
+        if (in_array('.duo', $entries, true)) {
+            $allowed[] = '.duo';
+            sort($allowed, SORT_STRING);
+            if (is_link($workspace . '/.duo') || !is_dir($workspace . '/.duo')) {
+                throw new \RuntimeException('local assessment artifact boundary is not an ordinary directory');
+            }
+            $duoEntries = array_values(array_diff(scandir($workspace . '/.duo') ?: [], ['.', '..']));
+            if ($duoEntries !== ['contract'] || is_link($workspace . '/.duo/contract')
+                || !is_dir($workspace . '/.duo/contract')) {
+                throw new \RuntimeException('local .duo boundary contains artifacts outside the assessment contract directory');
+            }
+        }
+        if ($entries !== $allowed) {
+            throw new \RuntimeException('local workspace changed before handoff; expected only connect and assessment artifacts');
         }
         $head = HostProcess::run(['git', '-C', $workspace, 'rev-parse', '--verify', 'HEAD']);
         $heads = HostProcess::run(['git', '-C', $workspace, 'for-each-ref', '--format=%(refname)', 'refs/heads']);
@@ -305,40 +338,80 @@ final class OnboardCommand {
             || $branch['exit'] !== 0 || trim($branch['stdout']) === '') {
             throw new \RuntimeException('local workspace Git state is no longer the empty connect boundary');
         }
-        return trim($branch['stdout']);
+        $paths = [];
+        foreach (['.duo-envs.json', '.git', '.gitignore', 'site.duo.json'] as $relative) {
+            $paths[$relative] = self::localPathIdentity($workspace . '/' . $relative);
+        }
+        $receipt = [
+            'branch' => trim($branch['stdout']),
+            'paths' => $paths,
+            'duo' => in_array('.duo', $entries, true) ? self::localTreeReceipt($workspace . '/.duo') : null,
+        ];
+        if ($expected !== null && $receipt !== $expected) {
+            throw new \RuntimeException('local workspace changed during target publication; local boundary was not moved');
+        }
+        return $receipt;
     }
 
     /** @param array<string,string> $backups */
-    private static function restorePristineCheckout(
-        string $workspace,
-        string $initialBranch,
-        string $publishedBranch,
-        array $backups
-    ): void {
-        foreach ([
-            ['git', '-C', $workspace, 'symbolic-ref', 'HEAD', 'refs/heads/' . $initialBranch],
-            ['git', '-C', $workspace, 'read-tree', '--empty'],
-            ['git', '-C', $workspace, 'clean', '-fdx', '-e', '.duo-envs.json', '-e', '.gitignore', '-e', 'site.duo.json'],
-            ['git', '-C', $workspace, 'update-ref', '-d', 'refs/heads/' . $publishedBranch],
-        ] as $command) {
-            $result = HostProcess::run($command);
-            if ($result['exit'] !== 0) {
-                throw new \RuntimeException(trim($result['stderr']) ?: 'Git could not restore the empty workspace');
-            }
-        }
+    private static function restoreGeneratedBoundary(string $workspace, array $backups): void {
         foreach ($backups as $path => $backup) {
-            if (is_link($path) || (file_exists($path) && !is_file($path))) {
-                throw new \RuntimeException("checked-out boundary is not an ordinary file: $path");
-            }
-            if (is_file($path) && !unlink($path)) {
-                throw new \RuntimeException("could not remove checked-out boundary: $path");
+            if (file_exists($path) || is_link($path)) {
+                throw new \RuntimeException("local checkout wrote $path; it and backup $backup were retained");
             }
             if (!is_file($backup) || is_link($backup) || !rename($backup, $path)) {
                 throw new \RuntimeException("could not restore generated boundary: $path");
             }
         }
         self::assertLocalBoundary($workspace);
-        self::assertPristineLocalCheckout($workspace);
+    }
+
+    /** @return array{dev:string,ino:string,type:string,size:string,sha256:?string} */
+    private static function localPathIdentity(string $path): array {
+        $stat = lstat($path);
+        if (!is_array($stat) || is_link($path) || (!is_dir($path) && !is_file($path))) {
+            throw new \RuntimeException("local retained path is not ordinary: $path");
+        }
+        return [
+            'dev' => (string) $stat['dev'],
+            'ino' => (string) $stat['ino'],
+            'type' => is_dir($path) ? 'directory' : 'file',
+            'size' => is_file($path) ? (string) $stat['size'] : '0',
+            'sha256' => is_file($path) ? hash_file('sha256', $path) : null,
+        ];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private static function localTreeReceipt(string $root): array {
+        $rows = [['path' => '.', 'identity' => self::localPathIdentity($root)]];
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+        foreach ($iterator as $entry) {
+            $path = $entry->getPathname();
+            if ($entry->isLink() || (!$entry->isDir() && !$entry->isFile())) {
+                throw new \RuntimeException("local assessment artifact is not ordinary: $path");
+            }
+            $rows[] = [
+                'path' => substr($path, strlen($root) + 1),
+                'identity' => self::localPathIdentity($path),
+            ];
+        }
+        usort($rows, static fn(array $left, array $right): int => $left['path'] <=> $right['path']);
+        return $rows;
+    }
+
+    /** @return array{exit:int,stdout:string,stderr:string} */
+    private static function runGitTransfer(array $argv): array {
+        return HostProcess::run(
+            $argv,
+            null,
+            [],
+            false,
+            self::GIT_TRANSFER_TIMEOUT_MILLISECONDS,
+            self::GIT_TRANSFER_OUTPUT_LIMIT_BYTES
+        );
     }
 
     private static function assertLocalOrigin(string $workspace, string $gitUrl): void {
