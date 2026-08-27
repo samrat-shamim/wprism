@@ -1007,10 +1007,9 @@ check(str_contains($codeSource, 'lifecycle metadata') && str_contains($codeSourc
 check(str_contains($codeSource, 'self::verify_payload($descriptor)') && str_contains($codeSource, 'self::owned_extra_files($descriptor)'), 'initial baseline verifies live bytes and rejects unrecorded managed files');
 
 $woo = json_decode((string) file_get_contents(__DIR__ . '/../../../../manifests/woocommerce.json'), true, 512, JSON_THROW_ON_ERROR);
-foreach (['product_cat', 'product_tag', 'product_shipping_class', 'product_type'] as $taxonomy) {
+foreach (['product_cat', 'product_tag', 'product_shipping_class', 'product_type', 'product_visibility', 'pos_product_visibility'] as $taxonomy) {
     check(($woo['taxonomies'][$taxonomy]['class'] ?? null) === 'authored', "Woo adapter owns authored init scope for $taxonomy");
 }
-check(($woo['taxonomies']['product_visibility']['class'] ?? null) === 'runtime', 'Woo adapter keeps mixed product visibility out of authored state');
 
 $ignoreTemplate = (string) file_get_contents(__DIR__ . '/../../../site-repo.gitignore.template');
 check(

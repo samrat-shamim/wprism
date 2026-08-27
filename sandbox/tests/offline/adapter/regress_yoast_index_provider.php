@@ -291,10 +291,11 @@ namespace {
     duo_check_same(
         [
             'option:wpseo', 'option:wpseo_llmstxt', 'option:wpseo_social', 'option:wpseo_taxonomy_meta',
-            'option:wpseo_titles', 'post:attachment', 'post:page', 'post:post', 'term:category', 'term:post_tag',
+            'option:wpseo_titles', 'option:woocommerce_permalinks', 'post:attachment', 'post:page', 'post:post',
+            'term:category', 'term:post_tag',
         ],
         $action['triggers'] ?? null,
-        'action runs only when an indexable authored input changed'
+        'action runs only when an indexable authored input or the exact Woo permalink input changed'
     );
     duo_check_same(
         ['options', 'yoast_indexable', 'yoast_indexable_hierarchy', 'yoast_primary_term', 'yoast_seo_links'],

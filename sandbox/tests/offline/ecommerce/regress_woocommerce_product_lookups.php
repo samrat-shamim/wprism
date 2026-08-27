@@ -52,13 +52,14 @@ check($policy->regen_batch('product') === null && $policy->regen_batch('product_
 $declaration = $policy->provider_declarations()['woocommerce-product-lookups'] ?? null;
 check(is_array($declaration)
     && $declaration['source'] === 'manifest'
-    && $declaration['version'] === '1.0.0'
+    && $declaration['version'] === '3.0.0'
     && $declaration['plugin'] === 'woocommerce/woocommerce.php'
     && $declaration['capabilities'] === ['rebuild_product_lookups'],
     'the lookup repair is declared as a manifest-sourced provider pinned to the same plugin the manifest claims');
 $expectedRequires = [
     'functions' => [
         'wc_get_product',
+        'wc_get_filename_from_url',
         'wc_get_container',
         'wc_get_attribute_taxonomies',
         'wc_attribute_taxonomy_name',
@@ -72,14 +73,20 @@ $expectedRequires = [
         'add_post_meta',
         'wc_maybe_schedule_product_sale_events',
         'as_unschedule_all_actions',
+        'as_get_scheduled_actions',
         'as_next_scheduled_action',
         'wp_cache_get',
         'wp_cache_delete',
+        'wp_add_object_terms',
+        'wp_remove_object_terms',
     ],
     'classes' => [
+        'Automattic\\WooCommerce\\Internal\\CostOfGoodsSold\\CostOfGoodsSoldController',
+        'Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register',
+        'Automattic\\WooCommerce\\Internal\\ProductAttributesLookup\\LookupDataStore',
+        'Automattic\\WooCommerce\\Internal\\Utilities\\URL',
+        'Automattic\\WooCommerce\\Utilities\\NumberUtil',
         'WC_Data_Store',
-        'WC_Product_Variable',
-        'WC_Product_Grouped',
         'WC_Cache_Helper',
     ],
 ];
@@ -97,7 +104,7 @@ $adapter = new \Duo\Providers\WoocommerceProductLookups($policy);
 check($adapter->identity() === [
     'id' => 'woocommerce-product-lookups',
     'plugin' => 'woocommerce/woocommerce.php',
-    'version' => '1.0.0',
+    'version' => '3.0.0',
 ], "the provider's self-reported identity matches its declaration exactly (negotiation compares these)");
 $capabilities = $adapter->capabilities();
 $capability = $capabilities['rebuild_product_lookups'] ?? null;
@@ -151,6 +158,9 @@ check(count($allCheckedReads[0] ?? []) > 0
 check(!preg_match('/\\$this\\s*->\\s*checked_get_(?:var|col|row|results)\\s*\\(/', $code)
     && !preg_match('/\\$wpdb\\s*->\\s*get_(?:var|col|row|results)\\s*\\(/', $code),
     'Woo provider has no private or direct wpdb checked-read call sites left');
+check(str_contains($code, '\\Duo\\PlainData::decode_serialized(')
+    && !str_contains($code, 'maybe_unserialize('),
+    'raw downloadable metadata crosses the shared class-disabled plain-data boundary before native product hooks');
 $needles = [
     'refresh_product_lookup_table' => 'public product meta lookup refresh API is used',
     'sync_price' => 'variable roots use Woo variable data-store price sync',
@@ -174,7 +184,7 @@ $needles = [
     'woocommerce_taxonomy_args_{$taxonomy}' => 'Woo taxonomy args remain filterable by taxonomy',
     'woocommerce_attribute_show_in_nav_menus' => 'public Woo attributes retain the nav-menu filter seam',
     "get_option('woocommerce_permalinks', [])" => 'public Woo attributes read the reviewed permalink setting without persisting defaults',
-    'wp_parse_args' => 'the option-write-free projection applies Woo 11.0.0 permalink defaults',
+    'wp_parse_args' => 'the option-write-free projection applies exact Woo 11.0.x permalink defaults',
     'untrailingslashit' => 'the attribute rewrite base mirrors Woo permalink normalization',
     'sanitize_title' => 'public Woo attribute rewrites use Woo slug sanitization',
     'trailingslashit' => 'public Woo attribute rewrites preserve Woo trailing-slash composition',
@@ -196,6 +206,7 @@ $needles = [
     "query('ROLLBACK')" => 'a throwing parent sync rolls back its partial derived-price mutation',
     'wc_maybe_schedule_product_sale_events' => 'sale actions use Woo public per-product scheduling',
     'as_unschedule_all_actions' => 'deleted sale actions use bounded public unscheduling',
+    'as_get_scheduled_actions' => 'sale action verification detects duplicate active rows with bounded public queries',
     'as_next_scheduled_action' => 'sale actions have exact Action Scheduler readback',
     'verify_sale_schedules' => 'sale schedule verification is explicit and separate from lookup verification',
     // DUO-3342: meta-lookup verification is WooCommerce's own derivation read
@@ -218,6 +229,28 @@ $needles = [
     // would be one this verification had just written. The sibling-variation
     // case below covers the separate DUO-3373 finite-set decision.
     'read_lookup_row($table, $id)' => 'the stored-row read has a single named boundary',
+    'create_data_for_product($root, false)' => 'attribute rows use Woo public synchronous scoped synthesis',
+    'get_last_create_operation_failed' => 'Woo native attribute insert failures remain loud and retryable',
+    'observe_attribute_lookup_state' => 'exact scoped attribute rows are independently read and receipt-bound',
+    'observe_cogs_state' => 'authored Cost of Goods rows and native feature/schema state are receipt-bound',
+    'feature_is_enabled' => 'COGS support is admitted only through WooCommerce native feature state',
+    'product_meta_lookup_table_cogs_value_columns_exist' => 'COGS lookup verification requires the exact native schema check',
+    "meta_key IN ('_cogs_total_value', '_cogs_value_is_additive')" => 'COGS observation is bounded to the two exact core-authored keys',
+    'assert_cogs_product_types' => 'COGS receipt observation enforces native subtype-dependent storage invariants',
+    'SELECT ID, post_type FROM {$wpdb->posts}' => 'COGS subtype evidence independently binds the exact posts-table owner type',
+    '$product = \\wc_get_product($id)' => 'COGS subtype evidence resolves every authored owner through the native WC product factory',
+    '$value !== (string) $number' => 'COGS repository bytes are restricted to exact native float-writer spellings',
+    'variation-only additive Cost of Goods metadata' => 'post-materialization additive state cannot be certified on a base product',
+    'Cost of Goods zero that native storage deletes' => 'post-materialization base zero cannot be certified by a scoped receipt',
+    "tt.taxonomy IN ('product_type', 'product_visibility', 'pos_product_visibility')" => 'visibility inventory reads the whole native type/visibility taxonomies instead of filtering unknown slugs away',
+    'native visibility-term inventory exceeds exact core cardinality' => 'the whole inventory has a strict four-type-plus-nine-visibility-plus-optional-POS bound',
+    'assert_product_type_projection' => 'every product and variation parent binds exact authored core product_type identity',
+    '$this->assert_visibility_projection($after, null, null)' => 'final verification recomputes native stock/rating/type/downloadable/POS projection from its fresh snapshot',
+    'MERCHANT_VISIBILITY_TERMS' => 'merchant featured/catalog relationships have an explicit immutable subset',
+    'DERIVED_VISIBILITY_TERMS' => 'only stock/rating relationships enter root native repair',
+    'wp_remove_object_terms' => 'derived visibility removals use the exact native incremental writer',
+    'wp_add_object_terms' => 'derived visibility additions use the exact native incremental writer',
+    'supported-root POS merchant intent changed before repair' => 'supported-root POS intent is validated rather than replaced from a stale snapshot',
 ];
 foreach ($needles as $needle => $message) {
     check(is_string($source) && str_contains($source, $needle), $message);
@@ -238,22 +271,19 @@ check($verifyStart !== false && $beforeRead !== false && $forcedRefresh !== fals
 $retired = [
     'lookup_values_equal' => 'no Duo-authored per-column tolerance table for lookup values',
     "get_option('woocommerce_schema_version'" => 'no copied global_unique_id schema-version gate',
-    'CostOfGoodsSoldController' => 'no copied Cost of Goods Sold lookup-column feature gate',
-    '_cogs_total_value' => 'no Duo-side derivation of the COGS lookup column',
     'recompute_simple_price' => 'no Duo-authored simple-price sale/date rule',
     'sync_price_preserving_authored_meta' => 'no snapshot/restore copy around Woo parent price synthesis',
     'restore_authored_price_meta' => 'no Duo-authored metadata restore loop around Woo parent price synthesis',
     'expected_attribute_rows' => 'no Duo-authored attribute lookup row synthesis',
     'append_attribute_rows' => 'no Duo-authored attribute lookup row builder',
     'term_slug_ids' => 'no Duo-authored variation term fallback map',
-    'create_data_for_product' => 'unsupported attribute lookup rows are not written by the verified provider',
-    'ProductAttributesLookup\\LookupDataStore' => 'provider claims no private/internal attribute lookup store contract',
-    'attribute_lookup_rows' => 'verified receipt does not observe or imply the unsupported attribute table',
-    'table:wc_product_attributes_lookup' => 'provider capability declares no unsupported attribute-table write',
+    'wp_set_post_terms' => 'no full-taxonomy writer can overwrite concurrent merchant visibility intent',
 ];
 foreach ($retired as $needle => $message) {
     check(is_string($source) && !str_contains($source, $needle), $message);
 }
+check(is_string($source) && !str_contains($code, 'generate_lookup_cogs_columns'),
+    'the bounded product provider never starts WooCommerce whole-catalog COGS schema migration');
 check(is_string($source) && !str_contains($source, '->on_product_changed('),
     'adapter does not enqueue Woo asynchronous on_product_changed() work');
 check(is_string($source) && !str_contains($source, 'wc_get_products(')
@@ -274,21 +304,32 @@ $sources = array_map(
 check($sources === [
     'native:transient.delete',
     'provider:woocommerce-cache/invalidate_cache_groups',
+    'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
+    'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
+    'provider:woocommerce-fulfillment-prerequisites/verify_fulfillment_prerequisites',
+    'provider:woocommerce-scheduler-settings/reconcile_analytics_import_schedule',
+    'provider:woocommerce-scheduler-settings/reconcile_stock_notification_retention',
     'provider:woocommerce-product-lookups/rebuild_product_lookups',
-], 'Woo policy declares only the bounded transient, cache, and product-lookup repairs, and no '
-    . 'whole-catalog projection');
+    'native:rewrite.flush',
+    'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes',
+], 'Woo policy declares only the bounded transient, cache, hierarchy/route, fulfillment prerequisite, scheduler-setting, '
+    . 'product-lookup, and authored product-permalink repairs, and no whole-catalog projection');
 check(array_filter($actions, static fn(array $row): bool => array_key_exists('command', $row)) === [],
     'no Woo action carries an executable command string');
 
-$lookupAction = $actions[2] ?? [];
+$lookupActions = array_values(array_filter(
+    $actions,
+    static fn(array $row): bool => ($row['provider'] ?? null) === 'woocommerce-product-lookups'
+));
+$lookupAction = $lookupActions[0] ?? [];
 check(($lookupAction['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the lookup action is narrowed to exactly the two post types the regen_dependency declarations covered');
 $effectIds = array_map(static fn(array $e): string => (string) $e['id'], (array) ($lookupAction['effects'] ?? []));
-check(count($effectIds) === 118 && count(array_unique($effectIds)) === 118,
-    'both post types\' supported effect lists remain distinct (59 + 59), including the bounded late taxonomy registration filters and permalink reads — the manifest note '
-    . 'records why product and variation ids stay separate even where they name the same resource');
-check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 59
-    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 59,
+check(count($effectIds) === 128 && count(array_unique($effectIds)) === 128,
+    'both post types\' supported effect lists remain distinct (64 + 64), including exact visibility, attribute lookup, approved-directory repair, bounded late taxonomy registration filters, and permalink reads — the manifest note '
+        . 'records why product and variation ids stay separate even where they name the same resource');
+check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 64
+    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 64,
     'and neither half was dropped or renamed on the way');
 $registrationFilterSelector = [
     'scope' => 'external',
@@ -324,7 +365,7 @@ check(array_filter($inventory, static fn(array $row): bool =>
     'the effects inventory now carries them under the rebuild phase of the declaring action, with no '
     . 'orphaned regenerator-phase rows left behind');
 check(count(array_filter($inventory, static fn(array $row): bool =>
-    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 118,
+    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 128,
     'every one of them is attributed to the exact provider capability a recovery operator would re-run');
 
 if ($failures > 0) {

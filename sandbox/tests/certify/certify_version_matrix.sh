@@ -20,7 +20,7 @@
 # Classic Editor 1.7.0; Code Snippets 3.9.5/3.9.6; CF7 6.0/6.1.7; Elementor 4.0.0/4.2.3; Ninja Forms
 # 3.4.34.2/3.14.11; PMPro 3.8.2/3.8.3 (with adjacent official-tag refusals);
 # Polylang 3.8/3.8.7; The Events Calendar 6.17.2/6.17.3;
-# WooCommerce 11.0.0 (the only stable in-range 11.x release); Yoast SEO
+# WooCommerce 11.0.0/11.0.1 (including a populated in-place upgrade); Yoast SEO
 # 28.0/28.3 — all real
 # wp.org releases except PMPro's official upstream GitHub tags, never invented): fresh state, install ONLY from
 # a digest-verified artifact (never a bare slug install that silently pulls
@@ -68,6 +68,16 @@ VMATRIX_MANIFEST="${VMATRIX_MANIFEST:-}"
 jq -e '.evidence.tests | index("exact-artifact-version-matrix") != null' \
   "../manifests/dispositions/$VMATRIX_MANIFEST.json" >/dev/null \
   || fail "manifest '$VMATRIX_MANIFEST' does not declare exact-artifact-version-matrix evidence"
+# The WooCommerce leg is production-readiness evidence over shipped
+# manifest/provider bytes. pair.sh otherwise resolves a linked worktree to
+# its canonical checkout, which can make a green boundary matrix about a
+# different commit. Require the candidate SHA and mount this script's own
+# physical checkout before reset can mutate either disposable database.
+if [ "$VMATRIX_MANIFEST" = woocommerce ]; then
+  [ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] \
+    || fail 'WooCommerce version-matrix evidence requires DUO_EXPECTED_SOURCE_SHA'
+  export DUO_SOURCE_ROOT="$(cd .. && pwd -P)"
+fi
 VMATRIX_CASES=0
 WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
 case "$WORDPRESS_OFFLINE" in
@@ -82,6 +92,12 @@ export DUO_PAIR="$PAIR"
 if [ -n "${VMATRIX_EXPECTED_SOURCE_SHA:-}" ]; then
   export DUO_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"
 fi
+# Boundary observations use fresh direct Compose processes. Keep the selected
+# mounts in this shell; shared .env can legitimately move when another pair is
+# cleaned up and therefore cannot carry this matrix's candidate identity.
+. lib/pair_identity.sh
+pair_identity_export_source_mounts \
+  || fail 'version matrix could not pin its selected source mounts in the caller environment'
 PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_UP_FLAGS=(--artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then
@@ -188,7 +204,34 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # dereferencing a null post on the next exact-version install. This is
   # disposable matrix-fixture cleanup only, not a production-state policy.
   "$cli" option delete elementor_active_kit >/dev/null 2>&1 || true
-  "$cli" site empty --yes >/dev/null
+  # WooCommerce's Review Order endpoint runs on init:4 while the prior exact
+  # artifact is still active. If its feature stays enabled through `site
+  # empty`, the very next reset command recreates the deleted host page at a
+  # low id before postdeploy raises AUTO_INCREMENT above 2^31. Disable the
+  # feature and clear its page/rewrite identities before deleting posts so a
+  # consecutive exact boundary starts from the selected artifact's own
+  # activation state rather than a page recreated by the preceding release.
+  "$cli" eval '
+    $names = [
+      "woocommerce_feature_customer_review_request_enabled",
+      "woocommerce_review_order_page_id",
+      "woocommerce_review_order_flush_rewrite_pending",
+    ];
+    foreach ($names as $name) { delete_option($name); }
+    foreach ($names as $name) {
+      if (false !== get_option($name, false)) {
+        throw new RuntimeException("version-matrix reset retained WooCommerce Review Order option " . $name);
+      }
+    }
+  ' >/dev/null
+  # The pair webroot is a named volume and survives every loop iteration.
+  # Clearing only DB rows left WooCommerce's package-owned placeholder
+  # derivatives behind after the 11.0.0 leg; the fresh 11.0.1 attachment did
+  # not own those exact paths and apply correctly refused with "generated
+  # attachment derivative collides with an existing file not owned by prior
+  # native metadata". All uploads are disposable boundary-fixture content, so
+  # use WP-CLI's bounded native cleanup instead of a plugin filename glob.
+  "$cli" site empty --yes --uploads >/dev/null
   # site empty can leave default_category pointing at a term it deleted. A
   # later plugin installer may reuse that numeric id for another taxonomy
   # (WooCommerce product_visibility exposed this), turning harmless stale
@@ -1774,13 +1817,14 @@ done
 
 fi
 
-# WooCommerce 11.0.0 is currently both the declared minimum and the newest
-# stable release below 12.0.0. Certify it once: repeating the same artifact
-# under two labels would add runtime without adding evidence.
+# WooCommerce 11.0.0 is the declared minimum and 11.0.1 is the current exact
+# release below the exclusive 11.0.2 bound. Certify both artifacts, then upgrade populated 11.0.0
+# environments in place so a fresh 11.0.1 install is not mistaken for upgrade
+# compatibility.
 if [ "$VMATRIX_MANIFEST" = woocommerce ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
-for WOO_VERSION in 11.0.0; do
-  say "boundary: woocommerce $WOO_VERSION (only stable in-range release; min == max-practical)"
+for WOO_VERSION in 11.0.0 11.0.1; do
+  say "boundary: woocommerce $WOO_VERSION"
 
   reset_env wp1
   reset_env wp2
@@ -1794,7 +1838,8 @@ for WOO_VERSION in 11.0.0; do
   wp1 plugin install "$ARTIFACT_1" --activate >/dev/null
   INSTALLED_1=$(wp1 plugin get woocommerce --field=version)
   [ "$INSTALLED_1" = "$WOO_VERSION" ] || fail "side 1 installed version mismatch: expected $WOO_VERSION, got $INSTALLED_1"
-  wp1 wc hpos enable >/dev/null
+  establish_woocommerce_hpos wp1 >/dev/null \
+    || fail "side 1 could not establish HPOS through WooCommerce's native new-shop lifecycle"
   pass "side 1: woocommerce $WOO_VERSION installed from verified artifact, active, HPOS enabled"
 
   cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
@@ -1804,7 +1849,7 @@ for WOO_VERSION in 11.0.0; do
     "options": {},
     "post_meta": {},
     "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"],
-    "taxonomies": ["category", "post_tag", "product_cat", "product_type"]
+    "taxonomies": ["category", "post_tag", "product_brand", "product_cat", "product_shipping_class", "product_tag", "product_type", "product_visibility"]
   },
   "spec_version": 2
 }
@@ -1833,19 +1878,94 @@ EOF
   [ "$INSTALLED_2" = "$WOO_VERSION" ] || fail "side 2 installed version mismatch: expected $WOO_VERSION, got $INSTALLED_2"
 
   wp2 duo deploy --repo=/siterepo
+  normalize_woocommerce_harness_placeholder_mode wp2
   postdeploy_woocommerce_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at woocommerce $WOO_VERSION"
+  WOOCOMMERCE_BOUNDARY_PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")
   pass "deploy + apply succeeded on side 2 (woocommerce $WOO_VERSION, HPOS, canary clean)"
 
+  postapply_woocommerce_content
   check_woocommerce_content
 
   wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
   DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at woocommerce $WOO_VERSION: $DIFF_OUT"
-  pass "byte-identical recapture at woocommerce $WOO_VERSION — the only currently available in-range boundary is proven without duplicate execution"
+  pass "byte-identical recapture at woocommerce $WOO_VERSION — the exact in-range release is proven through the full product path"
+
+  check_woocommerce_product_delete_refusal "$WOO_VERSION"
+
+  check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"
+
+  if [ "$WOO_VERSION" = 11.0.0 ]; then
+    say 'in-place upgrade: populated woocommerce 11.0.0 -> exact 11.0.1 on both environments'
+    UPGRADE_ARTIFACT_1=$(fetch_artifact woocommerce 11.0.1 cli1)
+    UPGRADE_ARTIFACT_2=$(fetch_artifact woocommerce 11.0.1 cli2)
+    wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
+    [ "$(wp1 plugin get woocommerce --field=version)" = 11.0.1 ] \
+      || fail 'WooCommerce source in-place upgrade did not install exact 11.0.1'
+    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp1 eval '
+      $product=wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
+      if (!$product) { throw new RuntimeException("upgrade product missing"); }
+      $product->set_purchase_note("WooCommerce 11.0.0 to 11.0.1 upgrade 東京 🚀");
+      $product->save();
+    ' >/dev/null
+    wp1 duo capture --repo=/siterepo
+    wp1 duo lint --repo=/siterepo
+    "${GIT1[@]}" add -A
+    "${GIT1[@]}" commit -qm 'capture: woocommerce 11.0.0 to 11.0.1 in-place upgrade'
+    "${GIT1[@]}" push -q origin main
+
+    wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
+    [ "$(wp2 plugin get woocommerce --field=version)" = 11.0.1 ] \
+      || fail 'WooCommerce target in-place upgrade did not install exact 11.0.1'
+    git -C "siterepo/${PAIR}2" pull -q origin main
+    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    normalize_woocommerce_harness_placeholder_mode wp2
+    UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+    woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'
+    wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
+      2>&1 | tee "$VMATRIX_APPLY_LOG"
+    grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+      || fail 'apply canary not clean after woocommerce 11.0.0 to 11.0.1 in-place upgrade'
+    UPGRADE_PROVIDER_COUNT=$(grep -Ec 'provider capability fired:' "$VMATRIX_APPLY_LOG" || true)
+    [ "$UPGRADE_PROVIDER_COUNT" -eq 1 ] \
+      && grep -Eq 'provider capability fired: woocommerce-product-lookups@3\.0\.0 rebuild_product_lookups \([0-9]+(\.[0-9]+)?s, verified\)' "$VMATRIX_APPLY_LOG" \
+      || fail 'WooCommerce 11.0.0 -> 11.0.1 product-note upgrade did not invoke exactly one verified product-lookup provider'
+    SAVED_WOO_VERSION="$WOO_VERSION"
+    WOO_VERSION=11.0.1
+    check_woocommerce_content
+    WOO_VERSION="$SAVED_WOO_VERSION"
+    UPGRADE_NOTE=$(wp2 eval '
+      $product=wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
+      echo $product ? $product->get_purchase_note("edit") : "";
+    ')
+    [ "$UPGRADE_NOTE" = 'WooCommerce 11.0.0 to 11.0.1 upgrade 東京 🚀' ] \
+      || fail "WooCommerce 11.0.1 did not preserve/apply the product authored during upgrade: $UPGRADE_NOTE"
+    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-upgrade-final
+    UPGRADE_DIFF_RC=0
+    UPGRADE_DIFF=$(diff -r "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-woo-upgrade-final" 2>&1) \
+      || UPGRADE_DIFF_RC=$?
+    [ "$UPGRADE_DIFF_RC" -le 1 ] \
+      || fail "WooCommerce 11.0.0 to 11.0.1 in-place upgrade recapture comparison errored: $UPGRADE_DIFF"
+    if [ -n "$UPGRADE_DIFF" ]; then
+      UNEXPECTED_UPGRADE_DIFF=$(grep -Ev \
+        -e '^diff -r .*/state/posts/(product|product_variation)/[^ ]+ .*/\.tmp-woo-upgrade-final/posts/(product|product_variation)/[^ ]+$' \
+        -e '^[0-9]+(,[0-9]+)?c[0-9]+(,[0-9]+)?$' \
+        -e '^---$' \
+        -e '^[<>]     "modified(_gmt)?": "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}",$' \
+        <<<"$UPGRADE_DIFF" || true)
+      [ -z "$UNEXPECTED_UPGRADE_DIFF" ] \
+        || fail "WooCommerce 11.0.0 to 11.0.1 in-place upgrade recapture diverged outside declared derived product timestamps: $UPGRADE_DIFF"
+    fi
+    rm -rf "siterepo/${PAIR}2/.tmp-woo-upgrade-final"
+    pass 'populated woocommerce 11.0.0 -> 11.0.1 upgrade preserves native catalog/API behavior, applies cleanly, and recaptures exactly modulo declared derived product timestamps'
+
+    check_woocommerce_in_range_downgrade "$ARTIFACT_1" "$ARTIFACT_2"
+  fi
 done
 fi
 
@@ -2779,7 +2899,8 @@ NEGATIVE_INSTALLED=$(wp1 plugin get woocommerce --field=version)
 require_fixture_values NEGATIVE_INSTALLED
 [ "$NEGATIVE_INSTALLED" = "11.0.0" ] \
   || fail "negative control premise did not install exact woocommerce 11.0.0 bytes"
-wp1 wc hpos enable >/dev/null
+establish_woocommerce_hpos wp1 >/dev/null \
+  || fail "negative-control source could not establish HPOS through WooCommerce's native new-shop lifecycle"
 cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {
   "manifests": ["core", "woocommerce"],
@@ -2787,7 +2908,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
     "options": {},
     "post_meta": {},
     "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"],
-    "taxonomies": ["category", "post_tag", "product_cat", "product_type"]
+    "taxonomies": ["category", "post_tag", "product_brand", "product_cat", "product_shipping_class", "product_tag", "product_type", "product_visibility"]
   },
   "spec_version": 2
 }
@@ -2822,6 +2943,84 @@ grep -q "woocommerce/woocommerce.php" <<<"$DEPLOY_OUT" || fail "refusal did not 
 grep -q "10.9.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: woocommerce 10.9.4 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
+
+say "negative control: woocommerce synthetic 11.0.2 (the exclusive upper endpoint) must be REFUSED before deploy mutates lifecycle state"
+reset_env wp1
+reset_case_repositories
+
+# wp.org does not supply a published 11.0.2 archive. Start from the exact
+# admitted 11.0.1 artifact and replace only its Version header in this
+# disposable container. That is the narrowest executable upper-bound fixture:
+# WordPress itself parses the synthetic endpoint, while every other source byte
+# and the captured Woo state remain the reviewed 11.0.1 product path.
+IN_RANGE_ARTIFACT=$(fetch_artifact woocommerce 11.0.1 cli1)
+wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
+[ "$(wp1 plugin get woocommerce --field=version)" = "11.0.1" ] \
+  || fail "upper-bound premise did not install exact WooCommerce 11.0.1 bytes"
+establish_woocommerce_hpos wp1 >/dev/null \
+  || fail "upper-bound source could not establish HPOS through WooCommerce's native new-shop lifecycle"
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "woocommerce"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"],
+    "taxonomies": ["category", "post_tag", "product_brand", "product_cat", "product_shipping_class", "product_tag", "product_type", "product_visibility"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: woocommerce exclusive-upper negative-control pin"
+"${GIT1[@]}" push -qu origin main
+seed_woocommerce_content
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: valid WooCommerce state for exclusive-upper negative control"
+"${GIT1[@]}" push -q origin main
+
+wp1 plugin deactivate woocommerce >/dev/null
+wp1 eval '
+$path = WP_PLUGIN_DIR . "/woocommerce/woocommerce.php";
+$bytes = file_get_contents($path);
+if (!is_string($bytes) || substr_count($bytes, " * Version: 11.0.1") !== 1) {
+    throw new RuntimeException("exclusive-upper fixture did not find one 11.0.1 Version header");
+}
+$next = preg_replace("/^ \\* Version: 11\\.0\\.1$/m", " * Version: 11.0.2", $bytes, 1);
+if (!is_string($next) || $next === $bytes || file_put_contents($path, $next) !== strlen($next)) {
+    throw new RuntimeException("exclusive-upper fixture could not replace the inactive plugin Version header");
+}
+' >/dev/null
+UPPER_INSTALLED=$(wp1 plugin get woocommerce --field=version)
+[ "$UPPER_INSTALLED" = "11.0.2" ] \
+  || fail "exclusive-upper fixture expected WordPress to parse WooCommerce 11.0.2, got $UPPER_INSTALLED"
+PRE_REFUSAL_ACTIVE=$(wp1 option get active_plugins --format=json | tail -1)
+PRE_REFUSAL_HEAD=$(git -C "siterepo/${PAIR}1" rev-parse HEAD)
+PRE_REFUSAL_REPO=$(git -C "siterepo/${PAIR}1" status --porcelain)
+
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse synthetic WooCommerce 11.0.2 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
+  || fail "exclusive-upper deploy refused, but not for outside_version_range (got: $DEPLOY_OUT)"
+grep -q "woocommerce/woocommerce.php" <<<"$DEPLOY_OUT" \
+  || fail "exclusive-upper refusal did not name the WooCommerce plugin (got: $DEPLOY_OUT)"
+grep -q "11.0.2" <<<"$DEPLOY_OUT" \
+  || fail "exclusive-upper refusal did not name WordPress's installed Version header (got: $DEPLOY_OUT)"
+[ "$(wp1 option get active_plugins --format=json | tail -1)" = "$PRE_REFUSAL_ACTIVE" ] \
+  || fail "exclusive-upper code mismatch changed active_plugins before refusing"
+[ "$(git -C "siterepo/${PAIR}1" rev-parse HEAD)" = "$PRE_REFUSAL_HEAD" ] \
+  || fail "exclusive-upper code mismatch changed the captured repository revision before refusing"
+[ "$(git -C "siterepo/${PAIR}1" status --porcelain)" = "$PRE_REFUSAL_REPO" ] \
+  || fail "exclusive-upper code mismatch changed the captured repository before refusing"
+printf '%s\n' "$DEPLOY_OUT"
+pass "confirmed: synthetic WooCommerce 11.0.2 is rejected at the exclusive upper bound before deploy changes lifecycle state or the captured repository"
 fi
 
 if [ "$VMATRIX_MANIFEST" = yoast ]; then

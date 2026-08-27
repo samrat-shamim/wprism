@@ -753,6 +753,61 @@ $check($negotiation['providers']['probe-cache'] instanceof \Duo\Providers\ProbeC
 $check(($negotiation['capabilities']['probe-cache']['flush']['scope'] ?? null) === 'site',
     'the negotiated capability declaration is bound for the rebuild pass');
 
+// `effects: []` is deliberately a two-sided contract: the manifest opts out
+// of recovery inventory, and the selected live provider must independently
+// prove that it writes no canonical state. Omission remains the legacy
+// irreversible fallback and an unselected action does not contact its code.
+$readOnlyManifest = $manifest;
+$readOnlyManifest['actions'][0]['effects'] = [];
+$reset();
+$readOnlyPolicy = $policyFor($readOnlyManifest);
+$notSelected = \Duo\Providers::negotiate($readOnlyPolicy, $readOnlyPolicy->actions_for([]));
+$check($notSelected === ['problems' => [], 'providers' => [], 'capabilities' => [], 'surface_observation' => []],
+    'an unselected explicit read-only action loads and negotiates no provider');
+$writeMismatch = \Duo\Providers::negotiate(
+    $readOnlyPolicy,
+    $readOnlyPolicy->actions_for(['post:probe'])
+);
+$check(count($writeMismatch['problems']) === 1
+    && ($writeMismatch['problems'][0]['code'] ?? null) === 'read_only_effect_mismatch'
+    && str_contains((string) ($writeMismatch['problems'][0]['expected'] ?? ''), 'writes: []')
+    && $writeMismatch['providers'] === [],
+    'a selected empty-effect action refuses before invocation when its capability advertises a write');
+$mixedEffectManifest = $manifest;
+$mixedEffectManifest['actions'][0]['effects'] = [];
+$mixedEffectManifest['actions'][] = [
+    'kind' => 'provider',
+    'provider' => 'probe-cache',
+    'capability' => 'flush',
+    'args' => ['groups' => ['second-selection']],
+    'effects' => [[
+        'id' => 'probe-effectful-selection',
+        'kind' => 'database',
+        'mode' => 'restorable',
+        'selector' => ['scope' => 'database_checkpoint', 'type' => 'option', 'value' => 'probe_setting'],
+    ]],
+];
+$reset();
+$mixedEffectPolicy = $policyFor($mixedEffectManifest);
+$mixedEffectNegotiation = \Duo\Providers::negotiate(
+    $mixedEffectPolicy,
+    $mixedEffectPolicy->actions_for(['post:probe'])
+);
+$check(count($mixedEffectNegotiation['problems']) === 1
+    && ($mixedEffectNegotiation['problems'][0]['code'] ?? null) === 'read_only_effect_mismatch'
+    && $mixedEffectNegotiation['providers'] === [],
+    'two selected actions sharing one capability validate independently, so an effectful sibling cannot hide an empty-effect/write mismatch');
+$reset();
+\Duo\Providers\ProbeCache::$capabilityOverrides = ['writes' => []];
+$readOnlyNegotiation = \Duo\Providers::negotiate(
+    $readOnlyPolicy,
+    $readOnlyPolicy->actions_for(['post:probe'])
+);
+$check($readOnlyNegotiation['problems'] === []
+    && ($readOnlyNegotiation['capabilities']['probe-cache']['flush']['writes'] ?? null) === [],
+    'a selected empty-effect action binds only when the exact capability advertises writes: []');
+$reset();
+
 echo "\n== negotiation: every refusal names expected, found, and a remediation ==\n";
 $problemFor = static function (array $mutate, ?callable $before = null) use ($policyFor, $manifest, $reset): array {
     $reset();
@@ -821,6 +876,20 @@ $check(($p['code'] ?? '') === 'missing_capability'
     && ($p['found'] ?? '') === 'provider did not advertise the declared capability'
     && $opaqueProviderProblem($p),
     'a missing capability is structured without exposing advertised capability names');
+
+$p = $one($problemFor([], static function (): void {
+    \Duo\Providers\ProbeCache::$capabilityMapOverride = [];
+}));
+$check(($p['code'] ?? '') === 'missing_capability'
+    && ($p['found'] ?? '') === 'provider did not advertise the declared capability',
+    'an empty advertised capability map is an honest unavailable-target refusal, not a malformed-list diagnosis');
+
+$p = $one($problemFor([], static function (): void {
+    \Duo\Providers\ProbeCache::$capabilityMapOverride = [[]];
+}));
+$check(($p['code'] ?? '') === 'contract_shape'
+    && ($p['found'] ?? '') === 'capabilities() did not return a name => declaration map',
+    'a non-empty positional capability list remains a malformed provider contract');
 
 $p = $one($problemFor([], static function (): void {
     \Duo\Providers\ProbeCache::$capabilityOverrides = ['idempotent' => false];

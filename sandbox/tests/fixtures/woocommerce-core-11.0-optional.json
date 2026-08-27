@@ -1,0 +1,103 @@
+{
+  "format": "duo-woocommerce-optional-core-inventory/v1",
+  "artifacts": {
+    "11.0.0": "ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666",
+    "11.0.1": "da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21"
+  },
+  "source_files": {
+    "includes/wc-page-functions.php": "11281d2800a401e7cf8cc167d994bfe2fe9ad436c570deff3ae997c5b32b1338",
+    "src/Admin/Features/Fulfillments/FulfillmentsController.php": "102878a616b30119fac2e93ac32b74ca267d41c2e33c67bf4311bec3f9498604",
+    "src/Admin/Features/Fulfillments/FulfillmentsSettings.php": "efb36ce2fd680e07061a3d4c8ae483ae855a6f9ee6fea2c8dc7ca948ec8e6199",
+    "src/Internal/CLI/Migrator/Core/CredentialManager.php": "294f5040b10eaca5eda88ffc006af966dea421ae5b60c66e4cc2501f66a61748",
+    "src/Internal/CLI/Migrator/Core/MigratorTracker.php": "68a2cbec38aa689e26a3e68d4199c482fd2f085854556749c97dc84f06956cd6",
+    "src/Internal/CLI/Migrator/Core/PlatformRegistry.php": "fdc5a5e95720d400d36845a48e12f10135cedaeaad68ab70abd6d8e1d7122d4d",
+    "src/Internal/CLI/Migrator/Core/ProductsController.php": "be1f6ead26021f99e6d442ea55f1ffd44c1bc0fbd098448ace1e0d2e63eae10d",
+    "src/Internal/CLI/Migrator/Lib/ImportSession.php": "6ba1e10e5f264ce603b14f4e183bf87374b98857a3902a02dc60b09fde411f91",
+    "src/Internal/DataStores/StockNotifications/StockNotificationsDataStore.php": "53ba4af84ef4f095b26071fcce823236c9839403aebffa6127e136b1db3af478",
+    "src/Internal/Email/Unsubscribes/Storage.php": "060cb5c40c3e4010f75044ce144018fd9bbc77182e132beafc2a7745a681839e",
+    "src/Internal/EmailEditor/Integration.php": "017fac02e739a7069e9ef2cb4326d1670438bc8db84171be33469f1ec60b7883",
+    "src/Internal/EmailEditor/WCTransactionalEmails/WCEmailTemplateDivergenceDetector.php": "9c5cf61a141387d272e1d6233005cbf22a0a94e40d286eb540e29168b1829ce6",
+    "src/Internal/EmailEditor/WCTransactionalEmails/WCEmailTemplateSelectiveApplier.php": "80211cbce1eb057ff0fe0d8e3df74ae7992e2efd1bc294cb142a082027d9a7d2",
+    "src/Internal/EmailEditor/WCTransactionalEmails/WCEmailTemplateSyncBackfill.php": "2dd459b91dbfa541d9f4aea9953758f7f60a28e6406f2e5192895ca8e6ff8e55",
+    "src/Internal/EmailEditor/WCTransactionalEmails/WCEmailTemplateSyncTracker.php": "faa5f915e4e74b07bd7c0880b9b4792f643f4fd5cdca286305900fe6e9396a33",
+    "src/Internal/EmailEditor/WCTransactionalEmails/WCTransactionalEmailPostsGenerator.php": "8f34b2614665dd5d7dd6394914da4906ea7c7c9de22711f3e42e72d70259049d",
+    "src/Internal/EmailEditor/WCTransactionalEmails/WCTransactionalEmailPostsManager.php": "b3126f190e4eb0a1bd033cc586b2cae38e179ecc127c5f34c2e08768bb376a99",
+    "src/Internal/PushNotifications/DataStores/NotificationPreferencesDataStore.php": "c7fe18e50d8ec830b34a388b9f7f3e8f8514abb3bc376d95c40ec9e024a0dbb8",
+    "src/Internal/PushNotifications/DataStores/PushTokensDataStore.php": "61ff6a2ddccecbe614e9c53bee8469c09f3fa8df015979cebf9af8bfdaa58f78",
+    "src/Internal/PushNotifications/Entities/PushToken.php": "75dabcc7c80e020c0e2fa9ff69dfc18050c12d2275091f5ac6ca60de391013a6",
+    "src/Internal/PushNotifications/PushNotifications.php": "1b2a7b5ccc13d4ebaf0d050b1e44e3ffbbb607ccdf34713172aab71bb5689c7d",
+    "src/Internal/PushNotifications/Services/NotificationProcessor.php": "257dd12cf55a322763d31aea16c6556c860d96887cf434bd2d7a2092264423b7",
+    "src/Internal/StockNotifications/Admin/NotificationsPage.php": "aba93820fd3748f4054888ba9f16f4ff306213790c25c7968bfb631388e6463f",
+    "src/Internal/StockNotifications/AsyncTasks/CycleStateService.php": "45e80f1de78a8dfb5004dd16f37b02532cfbd3d205df0539dfa261e1b7d6fb82",
+    "src/Internal/StockNotifications/Config.php": "403c632279efc01ab4c7fbf11463963947b64c17b0e90c84d50cf6a90a0f5dcf",
+    "src/Internal/StockNotifications/Emails/CustomerStockNotificationEmail.php": "5a073ac5040467d73d522e8c4ef86927541fa7a3c5ebebc3d356599da54e6192",
+    "src/Internal/StockNotifications/Emails/CustomerStockNotificationVerifiedEmail.php": "e5c562f4fc54b2ed62dadd631b953a7f36080f8db83e5db86e6e07eed029b6db",
+    "src/Internal/StockNotifications/Emails/CustomerStockNotificationVerifyEmail.php": "e6828bddbd43456a104bf1c1367ad980fd93183e5a3bd6aee2b43b1db32cf0bf",
+    "src/Internal/StockNotifications/Emails/EmailManager.php": "e0af8812884aafac662aaa06e8c363585af73440f57c5479ee10ddfcb710a463",
+    "src/Internal/VariationGallery/LegacyVariationGalleryCompatibility.php": "abbe086bcd140726516e5529eb46ca2562c495b98a25fcf538da9f142e14bef3",
+    "src/Internal/VariationGallery/Migration.php": "9a649a0a1137756f3104d5654d36e2a982fd3248ccb2d32df2f880b8746418a8",
+    "src/Internal/VariationGallery/Package.php": "1539fc42d294d2e6a06761569d370776bc7cde14248eae0e14011741dac2ebb8"
+  },
+  "version_specific_source_files": {
+    "includes/class-woocommerce.php": {
+      "11.0.0": "5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4",
+      "11.0.1": "2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7"
+    },
+    "src/Internal/OrderReviews/Endpoint.php": {
+      "11.0.0": "dda95b0edb8ac48434477aaf4664f267b477f858ab44da248752557f91bea9c8",
+      "11.0.1": "326511d748cc282caac2bfaeb22451e5b80f73209dcdbea81c2a4ef32570b6f3"
+    }
+  },
+  "families": {
+    "block_email_editor": {
+      "feature_options": ["woocommerce_feature_block_email_editor_enabled"],
+      "post_types": {"woo_email": "fail_closed_authored"},
+      "mapping_options": {"woocommerce_email_templates_<email-id>_post_id": "fail_closed_post_reference"},
+      "runtime_options": ["wc_email_sync_backfill_completed_tracked", "woocommerce_email_template_sync_backfill_complete"],
+      "post_meta": ["_wp_page_template", "_wc_email_backfilled", "_wc_email_last_synced_at", "_wc_email_template_last_core_render", "_wc_email_template_pre_apply_snapshot", "_wc_email_template_source_hash", "_wc_email_template_status", "_wc_email_template_version"]
+    },
+    "cli_migrator": {
+      "post_types": {"import_session": "runtime"},
+      "runtime_options": ["wc_migrator_analytics", "wc_migrator_products_count"],
+      "secret_option_patterns": ["wc_migrator_credentials_<filtered-platform>"]
+    },
+    "customer_review_requests": {
+      "feature_options": ["woocommerce_feature_customer_review_request_enabled"],
+      "authored_options": {"woocommerce_review_order_page_id": "post_reference"},
+      "runtime_options": ["woocommerce_review_order_flush_rewrite_pending"],
+      "derived_options": ["rewrite_rules"],
+      "native_action": "rewrite.flush"
+    },
+    "customer_stock_notifications": {
+      "feature_constants": ["WOOCOMMERCE_BIS_ALPHA_ENABLED"],
+      "runtime_options": ["wc_customer_stock_notifications_admin_notice", "wc_customer_stock_notifications_product_sync_notice"],
+      "runtime_option_patterns": {"wc_stock_notifications_cycle_state_<product-id>": "canonical_positive_php_integer"},
+      "email_setting_options": ["woocommerce_customer_stock_notification_settings", "woocommerce_customer_stock_notification_verified_settings", "woocommerce_customer_stock_notification_verify_settings"],
+      "filter_hooks": ["woocommerce_customer_stock_notifications_verification_expiration_time_threshold"],
+      "runtime_tables": ["wc_stock_notificationmeta", "wc_stock_notifications"]
+    },
+    "email_unsubscribes": {
+      "runtime_tables": ["wc_email_unsubscribes"]
+    },
+    "fulfillments": {
+      "feature_options": ["woocommerce_feature_fulfillments_enabled"],
+      "runtime_options": ["woocommerce_fulfillments_db_tables_created"],
+      "runtime_tables": ["wc_order_fulfillment_meta", "wc_order_fulfillments"],
+      "authored_options": ["auto_fulfill_downloadable", "auto_fulfill_virtual"],
+      "authored_taxonomies": ["wc_fulfillment_shipping_provider"],
+      "authored_term_meta": ["icon", "tracking_url_template"]
+    },
+    "push_notifications": {
+      "feature_options": ["woocommerce_feature_push_notifications_enabled"],
+      "post_types": {"wc_push_token": "runtime_secret_pii"},
+      "post_meta": ["_wc_push_notification_claimed*", "_wc_push_notification_sent*", "device_locale", "device_uuid", "metadata", "origin", "platform", "token"],
+      "user_meta": ["wc_push_notification_preferences_<current-site-prefix-suffix>"]
+    },
+    "variation_gallery": {
+      "feature_options": ["wc_feature_woocommerce_additional_variation_images_enabled"],
+      "runtime_options": ["wc_variation_gallery_migration_completed_at"],
+      "env_post_meta": ["_wc_variation_gallery_legacy_fallback_disabled"],
+      "conditional_extension_boundary": ["_wc_additional_variation_images"]
+    }
+  }
+}

@@ -5,6 +5,7 @@ namespace Duo\Interpreters;
 
 use Duo\Canon;
 use Duo\CacheInvalidationTransaction;
+use Duo\NativeRewriteEffects;
 use Duo\PlainData;
 use Duo\Policy;
 
@@ -715,8 +716,15 @@ final class Polylang {
      * The 3.8.0--3.8.7 constructor owns exactly one storage filter and one
      * shutdown writer. Native validation is unsafe if another callback can
      * alter get_option()/update_option() bytes or if the official callback was
-     * displaced. Refuse before the first setter so an existing pending native
-     * update remains untouched.
+     * displaced. The exact optional co-install union is bounded separately:
+     * TEC Harbor pre_option (PUE.php SHA-256
+     * abe0ef81332c52aff2983b8f78700169dbcfbeb663497af84e681be245629988),
+     * Woo pre-update (CustomOrdersTableController.php SHA-256
+     * b4d1a6772b064de9be6a80750074b0a9e371514f58131a1701cad6cd52ccb8bf),
+     * and Yoast's six option services (class-wpseo-option.php SHA-256
+     * 9be7b8c73ec223dc2349b5976a51c3fcf66d21d12ddd8985742c4ddaaf4057e9)
+     * all return their input unchanged for option `polylang`. Refuse before
+     * the first setter so an existing pending native update remains untouched.
      */
     private function assert_native_option_hook_topology(object $options, bool $shutdownExpected = true): void {
         foreach (['add_filter', 'remove_filter', 'add_action', 'remove_action', 'has_filter', 'has_action'] as $function) {
@@ -745,13 +753,20 @@ final class Polylang {
                 'duo: Polylang native option storage filter does not match the reviewed 3.8.x topology'
             );
         }
+        try {
+            NativeRewriteEffects::assert_inert_polylang_option_filter_topology();
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: Polylang native option materialization refuses an unaudited option filter topology',
+                0,
+                $failure
+            );
+        }
         foreach ([
             'pre_option_polylang',
-            'pre_option',
             'option_polylang',
             'default_option_polylang',
             'default_option',
-            'pre_update_option',
             'sanitize_option_polylang',
             'pre_wp_load_alloptions',
             'pre_cache_alloptions',

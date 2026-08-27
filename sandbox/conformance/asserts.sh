@@ -67,6 +67,68 @@ require_observed_nonempty() { # require_observed_nonempty <what> <captured value
     || fail "infrastructure failure: $1 returned no bytes — a load-starved docker compose run can exit 0 with empty stdout, which hashes to the empty-string digest e3b0c442… and would falsely accuse the engine of mutating the target; nothing here is measuring the engine"
 }
 
+# Exact WooCommerce 11.0.0/11.0.1 new-shop setup. Its `wc hpos enable` CLI
+# deliberately emits "Orders table does not exist. Creating..." on a fresh
+# database, which makes an otherwise successful evidence run non-green. Drive
+# Woo's public install lifecycle instead, then independently require both the
+# selected order store and the physical HPOS table before any order fixture.
+establish_woocommerce_hpos() { # <wp command/function> [arguments before eval]
+  local wp_command="$1"
+  shift
+  command -v "$wp_command" >/dev/null \
+    || fail "establish_woocommerce_hpos: unknown wp command '$wp_command'"
+  "$wp_command" "$@" eval '
+WC_Install::maybe_enable_hpos();
+WC_Install::create_tables();
+if (!\Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
+    throw new RuntimeException("WooCommerce native new-shop lifecycle did not enable HPOS");
+}
+$synchronizer = wc_get_container()->get(\Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer::class);
+if (!$synchronizer->check_orders_table_exists()) {
+    throw new RuntimeException("WooCommerce native new-shop lifecycle did not create the HPOS orders table");
+}
+'
+}
+
+# conformance/run.sh and certify_version_matrix.sh deliberately wrap wp-cli in
+# `umask 000` so uid-33 capture output remains removable from native host bind
+# mounts. Woo activation runs inside that same process and copies its exact
+# placeholder attachment as 0666; AttachmentFilesystemTransaction correctly
+# refuses that existing file as world-writable before apply. Narrow the test
+# artifact only: both reviewed 11.0.x archives carry source hash 019e9bee…, and
+# any other bytes or unsafe mode still refuse instead of being repaired.
+normalize_woocommerce_harness_placeholder_mode() { # <wp command/function> [arguments before eval]
+  local wp_command="$1"
+  shift
+  command -v "$wp_command" >/dev/null \
+    || fail "normalize_woocommerce_harness_placeholder_mode: unknown wp command '$wp_command'"
+  "$wp_command" "$@" eval '
+$uploads = wp_upload_dir();
+$path = trailingslashit((string) ($uploads["basedir"] ?? "")) . "woocommerce-placeholder.webp";
+$expected = "019e9beec61c9ee5b6009335c7846816452e1e3b420d2bb9e50327681dfade19";
+$stat = @lstat($path);
+if (!is_array($stat) || !is_file($path) || is_link($path)) {
+    throw new RuntimeException("WooCommerce harness placeholder is absent or not a regular file");
+}
+$sha = @hash_file("sha256", $path);
+if (!is_string($sha) || !hash_equals($expected, $sha)) {
+    throw new RuntimeException("WooCommerce harness placeholder differs from the exact 11.0.x artifact");
+}
+$mode = ((int) ($stat["mode"] ?? 0)) & 0777;
+if (($mode & 0002) !== 0) {
+    if ($mode !== 0666 || !@chmod($path, 0644)) {
+        throw new RuntimeException("WooCommerce harness placeholder has an unexpected unsafe mode");
+    }
+    clearstatcache(true, $path);
+    $stat = @lstat($path);
+    $mode = is_array($stat) ? (((int) ($stat["mode"] ?? 0)) & 0777) : 0;
+}
+if (($mode & 0400) === 0 || ($mode & 0002) !== 0) {
+    throw new RuntimeException("WooCommerce harness placeholder did not reach a safe publication mode");
+}
+'
+}
+
 # DUO-3391: the sibling failure domain, and the residual path DUO-3381
 # deliberately did not cover. The three helpers above assert that a hook's own
 # FIXTURE landed; this one asserts that the duo INVOCATION the hook then makes

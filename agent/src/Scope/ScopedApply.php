@@ -5,6 +5,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Apply/ApplyPlanner.php';
 require_once __DIR__ . '/../Policy/ScopeClosure.php';
+require_once __DIR__ . '/../Repository/CanonicalMapWitness.php';
 require_once __DIR__ . '/ScopedApplySession.php';
 
 /** Atomic duo_kv adapter for the generic scoped-session protocol. */
@@ -978,14 +979,18 @@ final class ScopedApply {
             if ((string) ($expected[$uuid][$kind]['entity_type'] ?? '') !== $entityType) {
                 throw CommandRefusalException::scopedIdentityRecoveryRequired();
             }
-            self::assert_selected_map_row_physical(
-                $policy,
-                $uuid,
-                $kind,
-                $row,
-                $expected[$uuid][$kind],
-                $mapByIdentityKind
-            );
+            try {
+                CanonicalMapWitness::assert_exact(
+                    $policy,
+                    $uuid,
+                    $kind,
+                    $row,
+                    $expected[$uuid][$kind],
+                    $mapByIdentityKind
+                );
+            } catch (\Throwable $failure) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
+            }
             $observed[$uuid][$kind] = true;
         }
         foreach ($observed as $kinds) {
@@ -993,119 +998,6 @@ final class ScopedApply {
                 throw CommandRefusalException::scopedIdentityRecoveryRequired();
             }
         }
-    }
-
-    /**
-     * Re-bind one selected tuple's exact local_id to the current physical row
-     * after the strict snapshot transaction has closed.
-     *
-     * @param array{uuid:string,entity_type:string,id_kind:string,local_id:int} $row
-     * @param array<string,mixed> $evidence
-     * @param array<string,array<string,array<string,mixed>>> $mapByIdentityKind
-     */
-    private static function assert_selected_map_row_physical(
-        Policy $policy,
-        string $uuid,
-        string $kind,
-        array $row,
-        array $evidence,
-        array $mapByIdentityKind
-    ): void {
-        global $wpdb;
-        $localId = (int) ($row['local_id'] ?? 0);
-        $entityType = (string) ($evidence['entity_type'] ?? '');
-        if ($localId <= 0) {
-            throw CommandRefusalException::scopedIdentityRecoveryRequired();
-        }
-        if ($entityType === 'post' || $entityType === 'menu_item') {
-            if ($entityType === 'menu_item') {
-                $owner = (string) ($evidence['owner'] ?? '');
-                $ownerTt = (int) ($mapByIdentityKind[$owner][Ledger::KIND_TT]['local_id'] ?? 0);
-                if ($ownerTt <= 0) {
-                    throw CommandRefusalException::scopedIdentityRecoveryRequired();
-                }
-                $query = $wpdb->prepare(
-                    "SELECT p.ID, p.post_type, pm.meta_value AS duo_uuid FROM {$wpdb->posts} p"
-                    . " LEFT JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = %s"
-                    . " JOIN {$wpdb->term_relationships} tr"
-                    . ' ON tr.object_id = p.ID AND tr.term_taxonomy_id = %d'
-                    . ' WHERE p.ID = %d ORDER BY pm.meta_id ASC LIMIT 1',
-                    '_duo_uuid',
-                    $ownerTt,
-                    $localId
-                );
-            } else {
-                $query = $wpdb->prepare(
-                    "SELECT p.ID, p.post_type, pm.meta_value AS duo_uuid FROM {$wpdb->posts} p"
-                    . " LEFT JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = %s"
-                    . ' WHERE p.ID = %d ORDER BY pm.meta_id ASC LIMIT 1',
-                    '_duo_uuid',
-                    $localId
-                );
-            }
-            $physical = self::checked_target_row($query);
-            if ($physical === null
-                || (int) ($physical['ID'] ?? 0) !== $localId
-                || (string) ($physical['duo_uuid'] ?? '') !== $uuid
-                || (string) ($physical['post_type'] ?? '') !== (string) ($evidence['post_type'] ?? '')) {
-                throw CommandRefusalException::scopedIdentityRecoveryRequired();
-            }
-            try {
-                Ledger::require_read_only_mapping($uuid, $entityType, $kind, $localId, 'selected post identity');
-            } catch (\Throwable $failure) {
-                throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
-            }
-            return;
-        }
-        if ($entityType === 'term' || $entityType === 'menu') {
-            $termMap = $mapByIdentityKind[$uuid][Ledger::KIND_TERM] ?? null;
-            $ttMap = $mapByIdentityKind[$uuid][Ledger::KIND_TT] ?? null;
-            $termId = (int) ($termMap['local_id'] ?? 0);
-            $ttId = (int) ($ttMap['local_id'] ?? 0);
-            if ($termId <= 0 || $ttId <= 0) {
-                throw CommandRefusalException::scopedIdentityRecoveryRequired();
-            }
-            $physical = self::checked_target_row($wpdb->prepare(
-                'SELECT t.term_id, tt.term_taxonomy_id, tt.taxonomy, tm.meta_value AS duo_uuid'
-                . " FROM {$wpdb->terms} t"
-                . " JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id"
-                . " LEFT JOIN {$wpdb->termmeta} tm ON tm.term_id = t.term_id AND tm.meta_key = %s"
-                . ' WHERE t.term_id = %d AND tt.term_taxonomy_id = %d'
-                . ' ORDER BY tm.meta_id ASC LIMIT 1',
-                '_duo_uuid',
-                $termId,
-                $ttId
-            ));
-            if ($physical === null
-                || (int) ($physical['term_id'] ?? 0) !== $termId
-                || (int) ($physical['term_taxonomy_id'] ?? 0) !== $ttId
-                || (string) ($physical['taxonomy'] ?? '') !== (string) ($evidence['taxonomy'] ?? '')
-                || (string) ($physical['duo_uuid'] ?? '') !== $uuid) {
-                throw CommandRefusalException::scopedIdentityRecoveryRequired();
-            }
-            try {
-                Ledger::require_read_only_mapping($uuid, $entityType, Ledger::KIND_TERM, $termId, 'selected term identity');
-                Ledger::require_read_only_mapping($uuid, $entityType, Ledger::KIND_TT, $ttId, 'selected taxonomy identity');
-            } catch (\Throwable $failure) {
-                throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
-            }
-            return;
-        }
-        if ($entityType === 'widget') {
-            SidebarState::assert_read_only_selected_mapping(
-                $policy,
-                $uuid,
-                (string) ($evidence['widget_type'] ?? ''),
-                $localId,
-                (string) ($evidence['owner'] ?? '')
-            );
-            return;
-        }
-        if (($evidence['table'] ?? null) === $entityType) {
-            Snapshot::assert_read_only_selected_mapping($policy, $entityType, $uuid, $kind, $localId);
-            return;
-        }
-        throw CommandRefusalException::scopedIdentityRecoveryRequired();
     }
 
     /** @return array<string,true> */

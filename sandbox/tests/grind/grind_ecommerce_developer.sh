@@ -1753,15 +1753,25 @@ assert_deletion_probe_lookup_present() {
   pass "deletion probe target id $id has Woo meta and global-attribute lookup rows"
 }
 
-# WooCommerce's product_visibility terms are intentionally derived/runtime:
-# stock/rating/catalog hooks own them, so they are not declared as canonical
-# taxonomies and must never be copied as authored state.
-assert_product_visibility_runtime() {
-  local count
-  count="$(target_wp eval 'echo count(get_terms(["taxonomy" => "product_visibility", "hide_empty" => false, "fields" => "ids"]));')"
-  [ "$count" -ge 1 ] || fail "Woo product_visibility derived/runtime terms were not present on target"
-  [ ! -e "$OTHER_SITE/state/terms/product_visibility" ] || fail "product_visibility was incorrectly materialized as canonical authored state"
-  pass "product_visibility remains target-local Woo derived/runtime taxonomy state"
+# Woo's nine core identities are authored inventory, while provider v3 mixes
+# merchant featured/catalog intent with target-native stock/rating projection.
+assert_product_visibility_projection() {
+  local slugs state_count pos_registered visibility_state
+  slugs="$(target_wp eval '
+$terms = get_terms(["taxonomy" => "product_visibility", "hide_empty" => false]);
+if (is_wp_error($terms)) { throw new RuntimeException($terms->get_error_message()); }
+$slugs = array_map(static fn($term): string => (string) $term->slug, $terms);
+sort($slugs, SORT_STRING);
+echo wp_json_encode($slugs);
+')"
+  assert_eq '["exclude-from-catalog","exclude-from-search","featured","outofstock","rated-1","rated-2","rated-3","rated-4","rated-5"]' "$slugs" "exact Woo product_visibility target inventory"
+  pos_registered="$(target_wp eval 'echo taxonomy_exists("pos_product_visibility") ? "yes" : "no";')"
+  assert_eq yes "$pos_registered" "Woo POS visibility taxonomy registration"
+  visibility_state="$OTHER_SITE/state/terms/product_visibility"
+  [ -d "$visibility_state" ] || fail "canonical product_visibility authored inventory is missing"
+  state_count="$(find "$visibility_state" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')"
+  assert_eq 9 "$state_count" "canonical product_visibility authored term count"
+  pass "product visibility keeps exact authored identities and target-native mixed projection"
 }
 
 assert_theme_and_dependency() {
@@ -2300,7 +2310,7 @@ foreach ($updates as [$variation, $sku]) {
     $variation->save();
 }
 ' >/dev/null
-assert_product_visibility_runtime
+assert_product_visibility_projection
 assert_derived_indexes 0 ""
 assert_store_api_http 1499 'v1 target runtime setup'
 RUNTIME_EVENT_LABEL='Duo Grind runtime v1 event'
@@ -2769,7 +2779,7 @@ assert_receipt "$V2_ARTIFACT" 'reviewed v2 theme upgrade promote' "$V2_REVISION"
 [ "$V2_REVISION" != "$V1_REVISION" ] || fail 'v2 did not publish a distinct code revision'
 assert_eq "$V2_SOURCE_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'exact fixed v2 managed code tree'
 assert_woo_catalog 1 5
-assert_product_visibility_runtime
+assert_product_visibility_projection
 assert_derived_indexes 7 instock
 assert_store_api_http 1499 'fixed v2 retry'
 assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock survives v2 promote'
@@ -3009,7 +3019,7 @@ assert_eq "$THEME_SAFE_REMOVE_REVISION" "$(ledger_revision)" 'code revision surv
 assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" 'env-owned secret survives unsupported Woo product deletion refusal'
 assert_target_order_unchanged 'target-only order survives unsupported Woo product deletion refusal'
 assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only cap stock survives unsupported Woo product deletion refusal'
-assert_product_visibility_runtime
+assert_product_visibility_projection
 assert_runtime_isolation 'unsupported Woo product deletion refusal' 1
 pass 'public Woo product deletion reached the source boundary, but Duo capture failed closed with no tombstone, repository mutation, or target change'
 
@@ -3533,7 +3543,7 @@ assert_woo_catalog 0 5
 assert_ecommerce_menu 'exact v1 rollback'
 assert_eq "$DELETION_PROBE_V1_TARGET_ID" "$(target_wp post list --post_type=product --name=duo-grind-delete-probe --field=ID)" 'checkpoint rollback restores the v1 probe id'
 assert_deletion_probe_lookup_present "$DELETION_PROBE_V1_TARGET_ID"
-assert_product_visibility_runtime
+assert_product_visibility_projection
 assert_derived_indexes 0 ""
 assert_store_api_http 1499 'exact v1 rollback'
 RESTORED_ARTIFACT="$(artifact_for_promote_output "$RESTORE_OUT")"

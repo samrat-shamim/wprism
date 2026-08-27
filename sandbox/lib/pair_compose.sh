@@ -31,14 +31,8 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # Exported HERE, the one place every subcommand already funnels through,
   # rather than duplicated at each call site (caught live: the first
   # version of this fix only set them in cmd_up and `stop` broke instantly).
-  local root="${PAIR_SOURCE_ROOT:-}"
-  if [ -z "$root" ]; then
-    if ! root="$(pair_identity_source_root)"; then
-      fail "could not resolve a safe source checkout via git -- DUO_SOURCE_ROOT must be an exact physical worktree of this repository"
-    fi
-    PAIR_SOURCE_ROOT="$root"
-  fi
-  export DUO_AGENT_SRC="$root/agent" DUO_MANIFESTS_SRC="$root/manifests"
+  pair_identity_export_source_mounts \
+    || fail "could not resolve a safe source checkout via git -- DUO_SOURCE_ROOT must be an exact physical worktree of this repository"
   # Which shared database server pair.yml:94 renders into WORDPRESS_DB_HOST.
   # pair.sh exports it once at load from DB_CONTAINER (pair_db_select_engine()),
   # so it is already set for EVERY subcommand by the time they funnel through
@@ -74,11 +68,11 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # run.sh's equivalent). One write here, in the single choke point every
   # subcommand already funnels through, covers every current AND future
   # caller with zero changes to any of them. Overwritten (never appended)
-  # so a stale value can never survive a worktree/checkout change; safe
-  # under concurrent pair.sh invocations against the same checkout too,
-  # Each worktree has its own sandbox/.env, so concurrent worktree writers do
-  # not share this file. Callers in one worktree always agree on its selected
-  # source root.
+  # so a stale value can never survive a worktree/checkout change. A teardown
+  # launched without an evidence lane's DUO_SOURCE_ROOT can still rewrite this
+  # worktree's file to the canonical checkout mid-run, so live callers also
+  # pin their resolved mounts via pair_identity_export_source_mounts(); shell
+  # environment variables outrank .env during Compose interpolation.
   #
   # DUO_DB_HOST rides this same channel for the same process-boundary reason,
   # with a sharper failure mode than a broken mount: a pair brought up on the

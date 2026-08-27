@@ -16,7 +16,7 @@
 | paid-memberships-pro | certified | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.2 <3.8.4 |
 | polylang | certified | `polylang/polylang.php` | >=3.8 <3.8.8 |
 | the-events-calendar | certified | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.4 |
-| woocommerce | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 |
+| woocommerce | certified | `woocommerce/woocommerce.php` | >=11.0.0 <11.0.2 |
 | wps-hide-login | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 |
 | yoast | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 |
 | yoast-duplicate-post | certified | `duplicate-post/duplicate-post.php` | >=4.7 <4.8 |

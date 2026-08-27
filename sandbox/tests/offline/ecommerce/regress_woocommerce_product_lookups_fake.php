@@ -5,23 +5,49 @@
  * This intentionally models only the public Woo APIs the shipped adapter is
  * allowed to call.  It proves stale _price repair, variable-root dedupe,
  * deletion context (including the parent id), runtime stock preservation, and
- * exact product-meta lookup verification without Docker. Attribute lookup is
- * a deliberate unsupported boundary and is characterized as untouched, while
- * the separate post-init taxonomy refresh is checked against WooCommerce's
- * public registration contract for both private and public attributes.
+ * exact product-meta and product-attribute lookup verification without
+ * Docker. Attribute rows are synthesized through Woo's public scoped writer,
+ * read back from SQL, and receipt-bound; the separate post-init taxonomy
+ * refresh is checked for both private and public attributes.
  */
+
+namespace Automattic\WooCommerce\Internal\CostOfGoodsSold {
+    final class CostOfGoodsSoldController {
+        public static ?self $instance = null;
+        public bool $enabled = false;
+        public bool $lookupColumnPresent = false;
+
+        public function feature_is_enabled(): bool {
+            return $this->enabled;
+        }
+
+        public function product_meta_lookup_table_cogs_value_columns_exist(): bool {
+            return $this->lookupColumnPresent;
+        }
+    }
+}
+
+namespace Automattic\WooCommerce\Utilities {
+    final class NumberUtil {
+        public static function round($value, int $precision = 0, int $mode = PHP_ROUND_HALF_UP): float {
+            return round((float) $value, $precision, $mode);
+        }
+    }
+}
 
 namespace Automattic\WooCommerce\Internal\ProductAttributesLookup {
     final class LookupDataStore {
         public const ACTION_DELETE = 3;
         public static ?self $instance = null;
         public bool $failed = false;
+        public int $failNextCreates = 0;
         public int $createCalls = 0;
         public int $deleteCalls = 0;
 
         public function create_data_for_product($product, $optimized = false): void {
             global $fakeProducts, $fakeAttrLookup;
             $this->createCalls++;
+            $this->failed = false;
             $rootId = (int) (is_object($product) ? $product->get_id() : $product);
             $root = is_object($product) ? $product : \wc_get_product($rootId);
             if (!$root) {
@@ -95,6 +121,11 @@ namespace Automattic\WooCommerce\Internal\ProductAttributesLookup {
                     unset($fakeAttrLookup[$key]);
                 }
             }
+            if ($this->failNextCreates > 0) {
+                $this->failNextCreates--;
+                $this->failed = true;
+                return;
+            }
             foreach ($rows as $row) {
                 $fakeAttrLookup[] = $row;
             }
@@ -133,6 +164,90 @@ namespace Automattic\WooCommerce\Internal\Caches {
     }
 }
 
+namespace Automattic\WooCommerce\Internal\Utilities {
+    final class URL {
+        public function __construct(private string $url) {}
+
+        public function get_parent_url(): string|false {
+            $withoutQuery = explode('?', $this->url, 2)[0];
+            $slash = strrpos($withoutQuery, '/');
+            return $slash === false ? false : substr($withoutQuery, 0, $slash + 1);
+        }
+    }
+}
+
+namespace Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories {
+    final class StoredUrl {
+        public function __construct(private int $id, private string $url, private bool $enabled) {}
+        public function get_id(): int { return $this->id; }
+        public function get_url(): string { return $this->url; }
+        public function is_enabled(): bool { return $this->enabled; }
+    }
+
+    final class Register {
+        public const MODE_DISABLED = 'disabled';
+        public const MODE_ENABLED = 'enabled';
+        public static ?self $instance = null;
+        /** @var array<string,array{id:int,enabled:bool}> */
+        public array $rules = [];
+        public string $mode = self::MODE_ENABLED;
+        public int $adds = 0;
+        public int $enables = 0;
+        public bool $failAdd = false;
+        public bool $failEnable = false;
+        public bool $failValidation = false;
+        private int $nextId = 1;
+
+        public function get_mode(): string { return $this->mode; }
+
+        public function get_by_url(string $url): StoredUrl|false {
+            $url = rtrim($url, '/') . '/';
+            $row = $this->rules[$url] ?? null;
+            return is_array($row) ? new StoredUrl($row['id'], $url, $row['enabled']) : false;
+        }
+
+        public function add_approved_directory(string $url, bool $enabled = true): int {
+            if ($this->failAdd) {
+                throw new \RuntimeException('simulated add failure containing api_key=do-not-leak');
+            }
+            $url = rtrim($url, '/') . '/';
+            if (isset($this->rules[$url])) {
+                return $this->rules[$url]['id'];
+            }
+            $id = $this->nextId++;
+            $this->rules[$url] = ['id' => $id, 'enabled' => $enabled];
+            $this->adds++;
+            return $id;
+        }
+
+        public function enable_by_id(int $id): bool {
+            if ($this->failEnable) {
+                return false;
+            }
+            foreach ($this->rules as $url => $row) {
+                if ($row['id'] === $id) {
+                    $this->rules[$url]['enabled'] = true;
+                    $this->enables++;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public function is_valid_path(string $file): bool {
+            if ($this->failValidation) {
+                throw new \RuntimeException('simulated validation failure containing token=do-not-leak');
+            }
+            foreach ($this->rules as $url => $row) {
+                if ($row['enabled'] && str_starts_with($file, $url)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+}
+
 namespace {
     if (!defined('DUO_SPEC_VERSION')) {
         define('DUO_SPEC_VERSION', 2);
@@ -141,10 +256,16 @@ namespace {
         define('ARRAY_A', 'ARRAY_A');
     }
 
+    final class FakeDownloadWakeupCanary {
+        public function __wakeup(): void {
+            $GLOBALS['fakeDownloadWakeups']++;
+        }
+    }
+
     final class FakeWpdb {
         /**
          * wc_product_meta_lookup's real column types, verbatim from
-         * WooCommerce 11.0.0 (class-wc-install.php:1977): every column but
+         * WooCommerce 11.0.x (class-wc-install.php:1977): every column but
          * product_id is NULLable, prices are decimal(19,4) default NULL,
          * stock_quantity is double default NULL, total_sales is bigint(20)
          * default 0, average_rating is decimal(3,2) default 0.00, the flags
@@ -172,6 +293,26 @@ namespace {
             'tax_status' => 'string',
             'tax_class' => 'string',
             'global_unique_id' => 'string',
+            'cogs_total_value' => 'decimal',
+        ];
+
+        public const LOOKUP_COLUMN_DECLARATIONS = [
+            'product_id' => 'bigint(20)',
+            'sku' => 'varchar(100)',
+            'global_unique_id' => 'varchar(100)',
+            'virtual' => 'tinyint(1)',
+            'downloadable' => 'tinyint(1)',
+            'min_price' => 'decimal(19,4)',
+            'max_price' => 'decimal(19,4)',
+            'onsale' => 'tinyint(1)',
+            'stock_quantity' => 'double',
+            'stock_status' => 'varchar(100)',
+            'rating_count' => 'bigint(20)',
+            'average_rating' => 'decimal(3,2)',
+            'total_sales' => 'bigint(20)',
+            'tax_status' => 'varchar(100)',
+            'tax_class' => 'varchar(100)',
+            'cogs_total_value' => 'decimal(19,4)',
         ];
 
         public static function coerce_lookup_column(string $column, mixed $value): mixed {
@@ -185,12 +326,33 @@ namespace {
             };
         }
 
+        public static function decimal_assignment(mixed $value, int $scale): string {
+            return number_format((float) $value, $scale, '.', '');
+        }
+
         public string $prefix = 'wp_';
         public string $postmeta = 'wp_postmeta';
         public string $posts = 'wp_posts';
+        public string $terms = 'wp_terms';
+        public string $term_taxonomy = 'wp_term_taxonomy';
+        public string $term_relationships = 'wp_term_relationships';
         public string $last_error = '';
         public ?string $failReadContaining = null;
+        public bool $failAttributeDelete = false;
         public bool $nullTransactionStateRead = false;
+        public array $lookupColumnDeclarations = self::LOOKUP_COLUMN_DECLARATIONS;
+        public array $lookupReceiptExtraRows = [];
+        public mixed $attributeCountOverride = null;
+        public bool $attributePayloadDropLast = false;
+        public mixed $afterAttributePayload = null;
+        public ?array $groupedParentOverride = null;
+        /** @var callable|null invoked at each bounded child inventory read */
+        public mixed $childScopeReadHook = null;
+        /** @var callable|null invoked at each bounded grouped reverse-owner read */
+        public mixed $groupedParentReadHook = null;
+        public mixed $afterDownloadWitness = null;
+        public ?string $downloadMetaKeyOverride = null;
+        public ?array $lookupSchemaRowsOverride = null;
         private bool $transactionActive = false;
         private array $transactionMeta = [];
         private array $transactionMetaLookup = [];
@@ -250,6 +412,24 @@ namespace {
                 $fakeMeta[$id]['_price'] = [];
                 return 1;
             }
+            if (preg_match(
+                '/DELETE FROM `wp_wc_product_attributes_lookup` WHERE product_id IN \\(([0-9, ]+)\\) OR product_or_parent_id IN \\(([0-9, ]+)\\)/',
+                $query,
+                $match
+            )) {
+                if ($this->failAttributeDelete) {
+                    $this->last_error = 'simulated secret=do-not-leak';
+                    return false;
+                }
+                $ids = array_map('intval', preg_split('/\\s*,\\s*/', trim($match[1])) ?: []);
+                $roots = array_map('intval', preg_split('/\\s*,\\s*/', trim($match[2])) ?: []);
+                $before = count($fakeAttrLookup);
+                $fakeAttrLookup = array_values(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+                    !in_array((int) $row['product_id'], $ids, true)
+                    && !in_array((int) $row['product_or_parent_id'], $roots, true)
+                ));
+                return $before - count($fakeAttrLookup);
+            }
             return 0;
         }
 
@@ -281,13 +461,47 @@ namespace {
          * validates each candidate with the public Woo product object.
          */
         public function get_col(string $query): array {
-            global $fakeGroupedChildren;
+            global $fakeGroupedChildren, $fakeProducts;
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
                 return [];
             }
+            if (preg_match(
+                '/SELECT ID FROM wp_posts\s+WHERE post_parent = (\d+)\s+AND post_type = \'product_variation\'.*?LIMIT ([0-9]+)/s',
+                $query,
+                $match
+            )) {
+                if (is_callable($this->childScopeReadHook)) {
+                    ($this->childScopeReadHook)();
+                }
+                $parentId = (int) $match[1];
+                $rows = [];
+                $parent = $fakeProducts[$parentId] ?? null;
+                foreach ((array) ($parent?->get_children() ?? []) as $id) {
+                    $id = (int) $id;
+                    $product = $fakeProducts[$id] ?? null;
+                    if ($product !== null
+                        && ($product->get_type() !== 'variation'
+                            || (int) $product->get_parent_id('edit') !== $parentId
+                            || !in_array($product->get_status(), ['publish', 'private'], true))) {
+                        continue;
+                    }
+                    if ($id > 0) {
+                        $rows[$id] = $id;
+                    }
+                }
+                ksort($rows, SORT_NUMERIC);
+                return array_slice(array_values($rows), 0, (int) $match[2]);
+            }
             if (!str_contains($query, "meta_key = '_children'")) {
                 return [];
+            }
+            if (is_array($this->groupedParentOverride)) {
+                $rows = $this->groupedParentOverride;
+                if (preg_match('/LIMIT ([0-9]+)$/', trim($query), $limit)) {
+                    $rows = array_slice($rows, 0, (int) $limit[1]);
+                }
+                return $rows;
             }
             $childId = 0;
             if (preg_match('/i:(\\d+);/', $query, $m)) {
@@ -305,21 +519,380 @@ namespace {
                 }
             }
             ksort($ids, SORT_NUMERIC);
-            return array_values($ids);
+            $rows = array_values($ids);
+            if (preg_match('/LIMIT ([0-9]+)$/', trim($query), $limit)) {
+                $rows = array_slice($rows, 0, (int) $limit[1]);
+            }
+            return $rows;
         }
 
         public function get_results(string $query, $output = null): array {
-            global $fakeAttrLookup;
+            global $fakeAttrLookup, $fakeMeta, $fakeMetaLookup, $fakeDownloadMetaRows, $fakeCogsMetaRows,
+                $fakeProducts, $fakePostTypeOverrides, $fakeVisibilityRelationships, $fakeVisibilityTerms,
+                $fakeVisibilityQueries, $fakeVisibilityChildFlood, $fakeGroupedChildren;
+            if (!str_contains($query, 'SELECT DISTINCT pm.post_id')) {
+                $fakeVisibilityQueries[] = $query;
+            }
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
                 return [];
             }
-            if (str_contains($query, 'wc_product_attributes_lookup')) {
-                preg_match('/product_or_parent_id = (\\d+) OR product_id = (\\d+)/', $query, $m);
-                $root = (int) ($m[1] ?? 0);
-                return array_values(array_filter($fakeAttrLookup, static fn(array $row): bool =>
-                    (int) $row['product_or_parent_id'] === $root || (int) $row['product_id'] === $root
+            if (str_contains($query, 'SELECT DISTINCT pm.post_id')
+                && str_contains($query, 'AS child_id')) {
+                if (is_callable($this->groupedParentReadHook)) {
+                    ($this->groupedParentReadHook)();
+                }
+                preg_match_all('/(\d+) AS child_id/', $query, $matches);
+                $candidateIds = array_values(array_unique(array_map('intval', $matches[1] ?? [])));
+                $candidateSet = array_fill_keys($candidateIds, true);
+                $seenEdges = [];
+                $rows = [];
+                foreach (($fakeGroupedChildren ?? []) as $parentId => $children) {
+                    foreach ((array) $children as $childValue) {
+                        $childId = (int) $childValue;
+                        $edgeKey = (int) $parentId . ':' . $childId;
+                        if (isset($candidateSet[$childId]) && !isset($seenEdges[$edgeKey])) {
+                            $seenEdges[$edgeKey] = true;
+                            $rows[] = [
+                                'post_id' => (string) (int) $parentId,
+                                'child_id' => (string) $childId,
+                            ];
+                        }
+                    }
+                }
+                usort($rows, static fn(array $left, array $right): int => [
+                    (int) $left['child_id'], (int) $left['post_id'],
+                ] <=> [
+                    (int) $right['child_id'], (int) $right['post_id'],
+                ]);
+                if (preg_match('/LIMIT (\d+)$/', trim($query), $limit)) {
+                    $rows = array_slice($rows, 0, (int) $limit[1]);
+                }
+                return $rows;
+            }
+            if (preg_match(
+                "/SELECT meta_id, LENGTH\\(meta_value\\) AS value_bytes FROM wp_postmeta\\s+WHERE post_id = (\\d+) AND meta_key = '_children'.*?LIMIT 2/s",
+                $query,
+                $match
+            )) {
+                if (is_callable($this->childScopeReadHook)) {
+                    ($this->childScopeReadHook)();
+                }
+                $id = (int) $match[1];
+                $children = $fakeGroupedChildren[$id]
+                    ?? (($fakeProducts[$id] ?? null)?->get_children() ?? []);
+                $serialized = serialize(array_values($children));
+                return [['meta_id' => '1', 'value_bytes' => (string) strlen($serialized)]];
+            }
+            if (preg_match(
+                "/SELECT meta_id, meta_value FROM wp_postmeta\\s+WHERE post_id = (\\d+) AND meta_key = '_children'.*?LIMIT 2/s",
+                $query,
+                $match
+            )) {
+                if (is_callable($this->childScopeReadHook)) {
+                    ($this->childScopeReadHook)();
+                }
+                $id = (int) $match[1];
+                $children = $fakeGroupedChildren[$id]
+                    ?? (($fakeProducts[$id] ?? null)?->get_children() ?? []);
+                return [['meta_id' => '1', 'meta_value' => serialize(array_values($children))]];
+            }
+            if (preg_match(
+                '/SELECT ID, post_parent, post_type FROM wp_posts WHERE ID IN \(([0-9, ]+)\) ORDER BY ID ASC/',
+                $query,
+                $match
+            )) {
+                $ids = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
+                $rows = [];
+                foreach ($ids as $id) {
+                    $product = $fakeProducts[$id] ?? null;
+                    if (!is_object($product)) {
+                        continue;
+                    }
+                    $postType = (string) ($fakePostTypeOverrides[$id]
+                        ?? ($product->get_type() === 'variation' ? 'product_variation' : 'product'));
+                    $rows[] = [
+                        'ID' => (string) $id,
+                        'post_parent' => (string) (int) $product->get_parent_id('edit'),
+                        'post_type' => $postType,
+                    ];
+                }
+                return $rows;
+            }
+            if (preg_match(
+                "/SELECT ID, post_parent, post_type FROM wp_posts WHERE post_parent IN \\(([0-9, ]+)\\) AND post_type = 'product_variation' ORDER BY ID ASC LIMIT ([0-9]+)/",
+                $query,
+                $match
+            )) {
+                $parents = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
+                if (is_array($fakeVisibilityChildFlood)
+                    && in_array((int) ($fakeVisibilityChildFlood['parent'] ?? 0), $parents, true)) {
+                    $rows = [];
+                    $excludedCount = (int) ($fakeVisibilityChildFlood['excluded_count'] ?? 0);
+                    $total = $excludedCount + 1;
+                    $returned = min((int) $match[2], $total);
+                    for ($offset = 0; $offset < $returned; $offset++) {
+                        $rows[] = [
+                            'ID' => (string) ($offset < $excludedCount
+                                ? (int) $fakeVisibilityChildFlood['first'] + $offset
+                                : (int) $fakeVisibilityChildFlood['survivor']),
+                            'post_parent' => (string) (int) $fakeVisibilityChildFlood['parent'],
+                            'post_type' => 'product_variation',
+                        ];
+                    }
+                    return $rows;
+                }
+                $rows = [];
+                foreach ($fakeProducts as $id => $product) {
+                    if ($product->get_type() !== 'variation'
+                        || !in_array((int) $product->get_parent_id('edit'), $parents, true)) {
+                        continue;
+                    }
+                    $rows[] = [
+                        'ID' => (string) $id,
+                        'post_parent' => (string) (int) $product->get_parent_id('edit'),
+                        'post_type' => 'product_variation',
+                    ];
+                }
+                usort($rows, static fn(array $left, array $right): int => (int) $left['ID'] <=> (int) $right['ID']);
+                return array_slice($rows, 0, (int) $match[2]);
+            }
+            if (str_contains($query, 'FROM wp_term_relationships tr')
+                && str_contains(
+                    $query,
+                    "tt.taxonomy IN ('product_type', 'product_visibility', 'pos_product_visibility')"
+                )) {
+                if (!preg_match('/tr.object_id IN \(([0-9, ]+)\)/', $query, $match)) {
+                    throw new \RuntimeException('fake wpdb could not parse product visibility relationship scope');
+                }
+                $ids = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
+                $rows = [];
+                foreach ($ids as $id) {
+                    foreach ((array) ($fakeVisibilityRelationships[$id] ?? []) as $taxonomy => $relationships) {
+                        foreach ((array) $relationships as $relationship) {
+                            $rows[] = [
+                                'object_id' => (string) $id,
+                                'term_taxonomy_id' => (string) ($relationship['term_taxonomy_id'] ?? ''),
+                                'term_order' => (string) ($relationship['term_order'] ?? ''),
+                                'term_id' => (string) ($relationship['term_id'] ?? ''),
+                                'taxonomy' => (string) ($relationship['taxonomy'] ?? $taxonomy),
+                                'slug' => (string) ($relationship['slug'] ?? ''),
+                                'name' => (string) ($relationship['name'] ?? ''),
+                            ];
+                        }
+                    }
+                }
+                usort($rows, static fn(array $left, array $right): int => [
+                    (int) $left['object_id'], $left['taxonomy'], $left['slug'], (int) $left['term_taxonomy_id'],
+                ] <=> [
+                    (int) $right['object_id'], $right['taxonomy'], $right['slug'],
+                    (int) $right['term_taxonomy_id'],
+                ]);
+                preg_match('/LIMIT ([0-9]+)$/', $query, $limitMatch);
+                return array_slice($rows, 0, (int) ($limitMatch[1] ?? count($rows)));
+            }
+            if (str_contains($query, 'FROM wp_terms t INNER JOIN wp_term_taxonomy tt')) {
+                $rows = [];
+                foreach ($fakeVisibilityTerms as $taxonomy => $terms) {
+                    foreach ($terms as $term) {
+                        $rows[] = [
+                            'term_id' => (string) ($term['term_id'] ?? ''),
+                            'name' => (string) ($term['name'] ?? ''),
+                            'slug' => (string) ($term['slug'] ?? ''),
+                            'term_taxonomy_id' => (string) ($term['term_taxonomy_id'] ?? ''),
+                            'taxonomy' => (string) ($term['taxonomy'] ?? $taxonomy),
+                        ];
+                    }
+                }
+                usort($rows, static fn(array $left, array $right): int => [
+                    $left['taxonomy'], $left['slug'], (int) $left['term_taxonomy_id'],
+                ] <=> [
+                    $right['taxonomy'], $right['slug'], (int) $right['term_taxonomy_id'],
+                ]);
+                return array_slice($rows, 0, 15);
+            }
+            if (str_contains($query, "meta_key IN ('_cogs_total_value', '_cogs_value_is_additive')")) {
+                if (!preg_match('/post_id IN \(([0-9, ]+)\)/', $query, $match)) {
+                    throw new \RuntimeException('fake wpdb could not parse Cost of Goods metadata scope');
+                }
+                $ids = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
+                $rows = [];
+                foreach ($ids as $id) {
+                    foreach (['_cogs_total_value', '_cogs_value_is_additive'] as $key) {
+                        $values = isset($fakeCogsMetaRows[$id]) && array_key_exists($key, (array) $fakeCogsMetaRows[$id])
+                            ? (array) $fakeCogsMetaRows[$id][$key]
+                            : (array) ($fakeMeta[$id][$key] ?? []);
+                        foreach ($values as $index => $value) {
+                            $rows[] = [
+                                'post_id' => (string) $id,
+                                'meta_id' => (string) ($id * 100 + ($key === '_cogs_total_value' ? 10 : 20) + $index),
+                                'meta_key' => $key,
+                                'meta_value' => substr((string) $value, 0, 129),
+                                'meta_value_bytes' => (string) strlen((string) $value),
+                            ];
+                        }
+                    }
+                }
+                usort($rows, static fn(array $left, array $right): int => [
+                    (int) $left['post_id'], (string) $left['meta_key'], (int) $left['meta_id'],
+                ] <=> [
+                    (int) $right['post_id'], (string) $right['meta_key'], (int) $right['meta_id'],
+                ]);
+                preg_match('/LIMIT ([0-9]+)$/', trim($query), $limit);
+                return array_slice($rows, 0, (int) ($limit[1] ?? count($rows)));
+            }
+            if (preg_match('/SELECT ID, post_type FROM wp_posts WHERE ID IN \(([0-9, ]+)\) ORDER BY ID ASC/', $query, $match)) {
+                $ids = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
+                $rows = [];
+                foreach ($ids as $id) {
+                    $product = $fakeProducts[$id] ?? null;
+                    if (!is_object($product)) {
+                        continue;
+                    }
+                    $rows[] = [
+                        'ID' => (string) $id,
+                        'post_type' => (string) ($fakePostTypeOverrides[$id]
+                            ?? ($product->get_type() === 'variation' ? 'product_variation' : 'product')),
+                    ];
+                }
+                return $rows;
+            }
+            if (str_contains($query, "meta_key = '_downloadable_files'")) {
+                if (!preg_match('/post_id IN \(([0-9, ]+)\)/', $query, $match)) {
+                    throw new \RuntimeException('fake wpdb could not parse downloadable metadata scope');
+                }
+                $ids = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
+                $payload = str_contains($query, ' AS meta_key, meta_value,');
+                $rows = [];
+                foreach ($ids as $id) {
+                    $values = array_key_exists($id, (array) $fakeDownloadMetaRows)
+                        ? (array) $fakeDownloadMetaRows[$id]
+                        : (array) ($fakeMeta[$id]['_downloadable_files'] ?? []);
+                    foreach ($values as $index => $value) {
+                        $row = [
+                            'post_id' => (string) $id,
+                            'meta_id' => (string) ($id * 10 + $index + 1),
+                            'meta_key' => $this->downloadMetaKeyOverride ?? '_downloadable_files',
+                            'meta_value_bytes' => (string) strlen((string) $value),
+                            'meta_sha256' => hash('sha256', (string) $value),
+                        ];
+                        if ($payload) {
+                            $row['meta_value'] = (string) $value;
+                            // Preserve the provider SELECT order.
+                            $row = [
+                                'post_id' => $row['post_id'],
+                                'meta_id' => $row['meta_id'],
+                                'meta_key' => $row['meta_key'],
+                                'meta_value' => $row['meta_value'],
+                                'meta_value_bytes' => $row['meta_value_bytes'],
+                                'meta_sha256' => $row['meta_sha256'],
+                            ];
+                        }
+                        $rows[] = $row;
+                    }
+                }
+                usort($rows, static fn(array $left, array $right): int => [
+                    (int) $left['post_id'], (int) $left['meta_id'],
+                ] <=> [
+                    (int) $right['post_id'], (int) $right['meta_id'],
+                ]);
+                preg_match('/LIMIT ([0-9]+)$/', trim($query), $limit);
+                $rows = array_slice($rows, 0, (int) ($limit[1] ?? count($rows)));
+                if (!$payload && is_callable($this->afterDownloadWitness)) {
+                    $callback = $this->afterDownloadWitness;
+                    $this->afterDownloadWitness = null;
+                    $callback();
+                }
+                return $rows;
+            }
+            if (preg_match('/SELECT ID, post_parent FROM wp_posts WHERE ID IN \(([0-9, ]+)\) ORDER BY ID ASC/', $query, $match)) {
+                $ids = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
+                $rows = [];
+                foreach ($ids as $id) {
+                    $product = $fakeProducts[$id] ?? null;
+                    if (!$product) {
+                        continue;
+                    }
+                    $rows[] = [
+                        'ID' => (string) $id,
+                        'post_parent' => (string) (int) $product->get_parent_id('edit'),
+                    ];
+                }
+                return $rows;
+            }
+            if (preg_match(
+                '/FROM `wp_wc_product_meta_lookup` WHERE product_id IN \\(([0-9, ]+)\\) ORDER BY product_id ASC LIMIT ([0-9]+)/',
+                $query,
+                $match
+            )) {
+                if (!preg_match('/^SELECT (.+?) FROM /', $query, $projectionMatch)
+                    || preg_match_all('/`([a-z0-9_]+)`/', $projectionMatch[1], $columnMatch) < 1) {
+                    throw new \RuntimeException('fake wpdb could not parse bounded lookup projection');
+                }
+                $columns = $columnMatch[1];
+                $ids = array_map('intval', preg_split('/\\s*,\\s*/', trim($match[1])) ?: []);
+                $rows = [];
+                foreach ($ids as $id) {
+                    if (!isset($fakeMetaLookup[$id])) {
+                        continue;
+                    }
+                    $rows[] = array_map(
+                        static fn(string $column) => array_key_exists($column, $fakeMetaLookup[$id])
+                            ? ($fakeMetaLookup[$id][$column] === null
+                                ? null
+                                : (string) $fakeMetaLookup[$id][$column])
+                            : null,
+                        $columns
+                    );
+                    $rows[array_key_last($rows)] = array_combine(
+                        $columns,
+                        $rows[array_key_last($rows)]
+                    );
+                }
+                array_push($rows, ...$this->lookupReceiptExtraRows);
+                return array_slice($rows, 0, (int) $match[2]);
+            }
+            if (str_contains($query, 'FROM information_schema.COLUMNS')
+                && str_contains($query, "BINARY TABLE_NAME = BINARY 'wp_wc_product_meta_lookup'")) {
+                $rows = $this->lookupSchemaRowsOverride ?? array_map(
+                    static fn(string $column, string $type): array => ['Field' => $column, 'Type' => $type],
+                    array_keys($this->lookupColumnDeclarations),
+                    array_values($this->lookupColumnDeclarations)
+                );
+                preg_match('/LIMIT ([0-9]+)$/', trim($query), $limit);
+                return array_slice($rows, 0, (int) ($limit[1] ?? count($rows)));
+            }
+            if (preg_match(
+                '/FROM `wp_wc_product_attributes_lookup` WHERE product_or_parent_id IN \\(([0-9, ]+)\\)/',
+                $query,
+                $match
+            )) {
+                $roots = array_map('intval', preg_split('/\\s*,\\s*/', trim($match[1])) ?: []);
+                $rows = array_values(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+                    in_array((int) $row['product_or_parent_id'], $roots, true)
                 ));
+                usort($rows, static fn(array $a, array $b): int => [
+                    (int) $a['product_or_parent_id'], (int) $a['product_id'], (string) $a['taxonomy'],
+                    (int) $a['term_id'], (int) $a['is_variation_attribute'], (int) $a['in_stock'],
+                ] <=> [
+                    (int) $b['product_or_parent_id'], (int) $b['product_id'], (string) $b['taxonomy'],
+                    (int) $b['term_id'], (int) $b['is_variation_attribute'], (int) $b['in_stock'],
+                ]);
+                if ($this->attributePayloadDropLast && $rows !== []) {
+                    array_pop($rows);
+                }
+                $result = array_map(
+                    static fn(array $row): array => array_map('strval', $row),
+                    array_slice($rows, 0, preg_match('/LIMIT ([0-9]+)$/', trim($query), $limit)
+                        ? (int) $limit[1]
+                        : count($rows))
+                );
+                if (is_callable($this->afterAttributePayload)) {
+                    $callback = $this->afterAttributePayload;
+                    $this->afterAttributePayload = null;
+                    $callback();
+                }
+                return $result;
             }
             return [];
         }
@@ -352,6 +925,13 @@ namespace {
                 }
                 return null;
             }
+            $query = (string) preg_replace_callback(
+                "/CAST\\('((?:[^'\\\\]|\\\\.)*)' AS DECIMAL\\(([1-9][0-9]?),([0-9]{1,2})\\)\\)/",
+                static fn(array $matches): string => "'"
+                    . self::decimal_assignment(stripslashes($matches[1]), (int) $matches[3])
+                    . "'",
+                $query
+            );
             // DUO-3342 value verification. The adapter asks the DATABASE
             // whether the stored row equals WooCommerce's own published
             // derivation — one NULL-safe predicate per column — so that the
@@ -411,6 +991,18 @@ namespace {
                 ));
             }
             if (preg_match(
+                '/COUNT\\(\\*\\) FROM `wp_wc_product_attributes_lookup` WHERE product_or_parent_id IN \\(([0-9, ]+)\\)/',
+                $query,
+                $m
+            )) {
+                if ($this->attributeCountOverride !== null) {
+                    return $this->attributeCountOverride;
+                }
+                $wantedParents = array_map('intval', preg_split('/\\s*,\\s*/', trim($m[1])) ?: []);
+                return count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+                    in_array((int) $row['product_or_parent_id'], $wantedParents, true)));
+            }
+            if (preg_match(
                 '/COUNT\\(\\*\\) FROM wp_wc_product_attributes_lookup WHERE product_id IN \\(([0-9, ]+)\\) OR product_or_parent_id IN \\(([0-9, ]+)\\)/',
                 $query,
                 $m
@@ -442,6 +1034,19 @@ namespace {
     final class FakeSaleDate {
         public function __construct(private int $timestamp) {}
         public function getTimestamp(): int { return $this->timestamp; }
+    }
+
+    final class FakeProductDownload {
+        public function __construct(
+            private string $id,
+            private string $name,
+            private string $file,
+            private bool $enabled
+        ) {}
+        public function get_id(): string { return $this->id; }
+        public function get_name(): string { return $this->name; }
+        public function get_file(): string { return $this->file; }
+        public function get_enabled(): bool { return $this->enabled; }
     }
 
     class FakeProduct {
@@ -500,7 +1105,48 @@ namespace {
             return $this->visibleChildren;
         }
         public function get_attributes(): array { return $this->attributes; }
+        public function get_downloads(): array {
+            global $fakeMeta, $fakeNativeDownloadOverrides;
+            if (array_key_exists($this->id, $fakeNativeDownloadOverrides)) {
+                return $fakeNativeDownloadOverrides[$this->id];
+            }
+            $raw = maybe_unserialize((string) ($fakeMeta[$this->id]['_downloadable_files'][0] ?? 'a:0:{}'));
+            if (!is_array($raw)) {
+                return [];
+            }
+            $register = \Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories\Register::$instance
+                ??= new \Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories\Register();
+            $out = [];
+            foreach ($raw as $id => $row) {
+                if (!is_array($row) || !is_string($row['file'] ?? null)) {
+                    continue;
+                }
+                $enabled = $register->mode === $register::MODE_DISABLED
+                    || $register->is_valid_path($row['file']);
+                $name = (string) ($row['name'] ?? '');
+                if ($name === '') {
+                    $name = wc_get_filename_from_url($row['file']);
+                }
+                $out[(string) $id] = new FakeProductDownload((string) $id, $name, $row['file'], $enabled);
+            }
+            return $out;
+        }
         public function is_in_stock(): bool { return $this->stock; }
+        public function get_stock_status(string $context = 'view'): string {
+            return $this->stock ? 'instock' : 'outofstock';
+        }
+        public function get_downloadable(string $context = 'view'): bool {
+            global $fakeMeta;
+            return (string) ($fakeMeta[$this->id]['_downloadable'][0] ?? 'no') === 'yes';
+        }
+        public function get_featured(string $context = 'view'): bool {
+            return in_array('featured', fake_visibility_slugs($this->id, 'product_visibility'), true);
+        }
+        public function get_average_rating(string $context = 'view'): string {
+            global $fakeMeta;
+            $value = (string) ($fakeMeta[$this->id]['_wc_average_rating'][0] ?? '');
+            return $value === '' ? '0' : $value;
+        }
         public function get_date_on_sale_from(string $context = 'view'): ?FakeSaleDate {
             return fake_sale_date($this->id, '_sale_price_dates_from');
         }
@@ -508,13 +1154,43 @@ namespace {
             return fake_sale_date($this->id, '_sale_price_dates_to');
         }
         public function get_status(): string { return $this->status; }
-        public function get_catalog_visibility(): string { return $this->catalogVisibility; }
+        public function get_catalog_visibility(string $context = 'view'): string {
+            global $fakeVisibilityRelationships;
+            if (!array_key_exists($this->id, (array) $fakeVisibilityRelationships)) {
+                return $this->catalogVisibility;
+            }
+            $slugs = fake_visibility_slugs($this->id, 'product_visibility');
+            $excludeSearch = in_array('exclude-from-search', $slugs, true);
+            $excludeCatalog = in_array('exclude-from-catalog', $slugs, true);
+            return $excludeSearch && $excludeCatalog
+                ? 'hidden'
+                : ($excludeSearch ? 'catalog' : ($excludeCatalog ? 'search' : 'visible'));
+        }
         public function set_parent(int $parent): void { $this->parent = $parent; }
         public function set_children(array $children): void { $this->children = $children; }
         public function set_attributes(array $attributes): void { $this->attributes = $attributes; }
         public function set_visible_children(array $children): void { $this->visibleChildren = $children; }
         public function set_status(string $status): void { $this->status = $status; }
-        public function set_catalog_visibility(string $visibility): void { $this->catalogVisibility = $visibility; }
+        public function set_type(string $type): void { $this->type = $type; }
+        public function set_catalog_visibility(string $visibility): void {
+            $this->catalogVisibility = $visibility;
+            global $fakeVisibilityRelationships;
+            if (!array_key_exists($this->id, (array) $fakeVisibilityRelationships)) {
+                return;
+            }
+            $slugs = array_values(array_diff(
+                fake_visibility_slugs($this->id, 'product_visibility'),
+                ['exclude-from-search', 'exclude-from-catalog']
+            ));
+            if ($visibility === 'hidden' || $visibility === 'catalog') {
+                $slugs[] = 'exclude-from-search';
+            }
+            if ($visibility === 'hidden' || $visibility === 'search') {
+                $slugs[] = 'exclude-from-catalog';
+            }
+            fake_set_visibility_relationships($this->id, 'product_visibility', $slugs);
+        }
+        public function set_stock(bool $stock): void { $this->stock = $stock; }
     }
 
     final class WC_Product_Variable extends FakeProduct {
@@ -654,7 +1330,14 @@ namespace {
          * than silently skip the check.
          */
         public function refresh_product_lookup_table(int $id): void {
-            global $fakeMeta, $fakeMetaLookup, $fakeLookupWriteFaults, $fakeLookupCacheSuppressed;
+            global $fakeMeta, $fakeMetaLookup, $fakeLookupWriteFaults, $fakeLookupCacheSuppressed,
+                $fakeVisibilityRaceOnLookupRefresh;
+            if (isset($fakeVisibilityRaceOnLookupRefresh[$id])
+                && is_callable($fakeVisibilityRaceOnLookupRefresh[$id])) {
+                $race = $fakeVisibilityRaceOnLookupRefresh[$id];
+                unset($fakeVisibilityRaceOnLookupRefresh[$id]);
+                $race();
+            }
             $prices = array_values($fakeMeta[$id]['_price'] ?? []);
             $first = $prices[0] ?? null;
             $last = $prices[count($prices) - 1] ?? null;
@@ -689,6 +1372,11 @@ namespace {
                 'tax_class' => '',
                 'global_unique_id' => '',
             ];
+            $cogsController = \Automattic\WooCommerce\Internal\CostOfGoodsSold\CostOfGoodsSoldController::$instance;
+            if ($cogsController !== null && $cogsController->enabled && $cogsController->lookupColumnPresent) {
+                $rawCogs = (string) ($fakeMeta[$id]['_cogs_total_value'][0] ?? '');
+                $derived['cogs_total_value'] = $rawCogs === '' ? null : (float) $rawCogs;
+            }
             if ($derived === wp_cache_get('lookup_table', 'object_' . $id)) {
                 return;
             }
@@ -708,10 +1396,21 @@ namespace {
                     $stored[$column] = null;
                 }
             }
-            $stored['min_price'] = $first === null ? '0.0000' : $first;
-            $stored['max_price'] = $last === null ? '0.0000' : $last;
+            $stored['min_price'] = $first === null
+                ? '0.0000'
+                : (strlen((string) strrchr((string) $first, '.')) > 5
+                    ? FakeWpdb::decimal_assignment($first, 4)
+                    : $first);
+            $stored['max_price'] = $last === null
+                ? '0.0000'
+                : (strlen((string) strrchr((string) $last, '.')) > 5
+                    ? FakeWpdb::decimal_assignment($last, 4)
+                    : $last);
             $stored['average_rating'] = $derived['average_rating'] === '' ? '0.00' : $derived['average_rating'];
             $stored['total_sales'] = $derived['total_sales'] === '' ? '0' : $derived['total_sales'];
+            if (array_key_exists('cogs_total_value', $derived) && $derived['cogs_total_value'] !== null) {
+                $stored['cogs_total_value'] = FakeWpdb::decimal_assignment($derived['cogs_total_value'], 4);
+            }
             $fakeMetaLookup[$id] = array_merge(
                 $stored,
                 (array) (($fakeLookupWriteFaults ?? [])[$id] ?? [])
@@ -788,8 +1487,17 @@ namespace {
 
     final class FakeContainer {
         public function get(string $class): object {
+            $class = '\\' . ltrim($class, '\\');
+            if ($class === '\\Automattic\\WooCommerce\\Internal\\CostOfGoodsSold\\CostOfGoodsSoldController') {
+                return \Automattic\WooCommerce\Internal\CostOfGoodsSold\CostOfGoodsSoldController::$instance
+                    ??= new \Automattic\WooCommerce\Internal\CostOfGoodsSold\CostOfGoodsSoldController();
+            }
             if ($class === '\\Automattic\\WooCommerce\\Internal\\Caches\\ProductCache') {
                 return new \Automattic\WooCommerce\Internal\Caches\ProductCache();
+            }
+            if ($class === '\\Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register') {
+                return \Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories\Register::$instance
+                    ??= new \Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories\Register();
             }
             return \Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::$instance
                 ??= new \Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore();
@@ -840,10 +1548,64 @@ namespace {
         14 => new FakeProduct(14, 'simple', 0, [], [], true),
         15 => new FakeProduct(15, 'simple', 0, [], ['pa_grind-size' => new FakeProductAttribute(7, [101], false)], true),
     ];
+    $fakeVisibilityTerms = ['product_type' => [], 'product_visibility' => [], 'pos_product_visibility' => []];
+    foreach (['simple', 'grouped', 'variable', 'external'] as $offset => $slug) {
+        $fakeVisibilityTerms['product_type'][$slug] = [
+            'term_id' => 181 + $offset,
+            'term_taxonomy_id' => 281 + $offset,
+            'taxonomy' => 'product_type',
+            'slug' => $slug,
+            'name' => $slug,
+        ];
+    }
+    foreach ([
+        'exclude-from-search', 'exclude-from-catalog', 'featured', 'outofstock',
+        'rated-1', 'rated-2', 'rated-3', 'rated-4', 'rated-5',
+    ] as $offset => $slug) {
+        $fakeVisibilityTerms['product_visibility'][$slug] = [
+            'term_id' => 201 + $offset,
+            'term_taxonomy_id' => 301 + $offset,
+            'taxonomy' => 'product_visibility',
+            'slug' => $slug,
+            'name' => $slug,
+        ];
+    }
+    $fakeVisibilityTerms['pos_product_visibility']['pos-hidden'] = [
+        'term_id' => 220,
+        'term_taxonomy_id' => 320,
+        'taxonomy' => 'pos_product_visibility',
+        'slug' => 'pos-hidden',
+        'name' => 'pos-hidden',
+    ];
+    $fakeVisibilityRelationships = [];
+    foreach ($fakeProducts as $id => $product) {
+        $fakeVisibilityRelationships[$id] = [
+            'product_type' => [],
+            'product_visibility' => [],
+            'pos_product_visibility' => [],
+        ];
+        if ($product->get_type() !== 'variation') {
+            fake_set_visibility_relationships((int) $id, 'product_type', [$product->get_type()]);
+        }
+    }
+    fake_set_visibility_relationships(30, 'product_visibility', [
+        'exclude-from-search',
+        'exclude-from-catalog',
+    ]);
+    $fakeVisibilityWrites = [];
+    $fakeVisibilityWriteFailures = [];
+    $fakeVisibilityPartialWrites = [];
+    $fakeVisibilityPostWriteMutations = [];
+    $fakeVisibilityPreWriteMutations = [];
+    $fakeVisibilityNativeEvents = [];
+    $fakeVisibilityQueries = [];
+    $fakeVisibilityChildFlood = null;
+    $fakeVisibilityRaceOnLookupRefresh = [];
     // wc_get_product() below returns a cached clone.  Mutating $fakeProducts
     // therefore leaves a deliberately stale Woo object in this cache until
     // ProductCache::remove() invalidates it, just like Woo's product factory.
     $fakeProductCache = [];
+    $fakePostTypeOverrides = [];
     $fakeCacheEvents = [];
     $fakeTransientVersions = [];
     $fakeProductTransientCalls = [];
@@ -870,7 +1632,7 @@ namespace {
         'is_variation_attribute' => 0,
         'in_stock' => 1,
     ]];
-    $unsupportedAttributeRows = $fakeAttrLookup;
+    $unrelatedAttributeRow = $fakeAttrLookup[0];
     $wpdb = new FakeWpdb();
     $fakeRegisteredTaxonomies = [];
     /** @var list<array{taxonomy:string,object_types:list<string>,args:array}> */
@@ -885,7 +1647,14 @@ namespace {
     $fakeGroupedChildren = [];
     $fakeSyncFailures = ['variable' => [], 'grouped' => []];
     $fakeMetaRestoreFailures = [];
+    $fakeDownloadMetaRows = [];
+    $fakeCogsMetaRows = [];
+    $fakeNativeDownloadOverrides = [];
     $fakeSaleSchedules = [
+        'wc_product_start_scheduled_sale' => [],
+        'wc_product_end_scheduled_sale' => [],
+    ];
+    $fakeSaleScheduleDuplicates = [
         'wc_product_start_scheduled_sale' => [],
         'wc_product_end_scheduled_sale' => [],
     ];
@@ -910,7 +1679,13 @@ namespace {
             return $fakeProductCache[$id];
         }
         if (!isset($fakeProducts[$id])) {
-            $fakeCacheEvents[] = "read:$id:missing";
+            // High-cardinality bound fixtures intentionally enumerate 50,000
+            // absent descendants; retaining one diagnostic string per miss
+            // would make the fake's log, rather than the provider witness,
+            // exceed the 128 MiB test budget.
+            if ($id < 70000 || $id > 122000) {
+                $fakeCacheEvents[] = "read:$id:missing";
+            }
             return false;
         }
         $fakeCacheEvents[] = "read:$id:fresh";
@@ -925,17 +1700,204 @@ namespace {
         }
         return $fakeProductCache[$id] = $product;
     }
+    /** @return list<string> */
+    function fake_visibility_slugs(int $id, string $taxonomy): array {
+        global $fakeVisibilityRelationships;
+        $slugs = array_map(
+            static fn(array $row): string => (string) ($row['slug'] ?? ''),
+            (array) ($fakeVisibilityRelationships[$id][$taxonomy] ?? [])
+        );
+        sort($slugs, SORT_STRING);
+        return $slugs;
+    }
+    /** @param list<string> $slugs */
+    function fake_set_visibility_relationships(int $id, string $taxonomy, array $slugs): array {
+        global $fakeVisibilityRelationships, $fakeVisibilityTerms;
+        $rows = [];
+        foreach (array_values(array_unique($slugs)) as $slug) {
+            $term = $fakeVisibilityTerms[$taxonomy][$slug] ?? null;
+            if (!is_array($term)) {
+                throw new \RuntimeException("fake visibility taxonomy $taxonomy has no term $slug");
+            }
+            $rows[] = [
+                'term_taxonomy_id' => $term['term_taxonomy_id'],
+                'term_order' => 0,
+                'term_id' => $term['term_id'],
+                'taxonomy' => $taxonomy,
+                'slug' => $slug,
+                'name' => $term['name'],
+            ];
+        }
+        usort($rows, static fn(array $left, array $right): int => [
+            $left['slug'], $left['term_taxonomy_id'],
+        ] <=> [
+            $right['slug'], $right['term_taxonomy_id'],
+        ]);
+        $fakeVisibilityRelationships[$id] ??= [
+            'product_type' => [],
+            'product_visibility' => [],
+            'pos_product_visibility' => [],
+        ];
+        $fakeVisibilityRelationships[$id][$taxonomy] = $rows;
+        return array_map(static fn(array $row): int => (int) $row['term_taxonomy_id'], $rows);
+    }
+    /** @param list<int> $children */
+    function fake_add_visibility_product(
+        int $id,
+        string $type,
+        int $parent = 0,
+        array $children = [],
+        bool $inStock = true,
+        bool $downloadable = false,
+        string $averageRating = '0'
+    ): void {
+        global $fakeProducts, $fakeMeta, $fakeMetaLookup, $fakeVisibilityRelationships;
+        $fakeProducts[$id] = new FakeProduct($id, $type, $parent, $children, [], $inStock);
+        $fakeMeta[$id] = [
+            '_price' => ['21'],
+            '_regular_price' => ['21'],
+            '_sale_price' => [''],
+            '_sale_price_dates_from' => [''],
+            '_sale_price_dates_to' => [''],
+            '_stock_status' => [$inStock ? 'instock' : 'outofstock'],
+            '_manage_stock' => ['yes'],
+            '_stock' => [$inStock ? '5' : '0'],
+            '_tax_status' => ['taxable'],
+            '_tax_class' => [''],
+            '_wc_rating_count' => [[]],
+            '_sku' => [''],
+            '_virtual' => ['no'],
+            '_downloadable' => [$downloadable ? 'yes' : 'no'],
+            'total_sales' => ['0'],
+            '_wc_average_rating' => [$averageRating],
+            '_global_unique_id' => [''],
+        ];
+        $fakeMetaLookup[$id] = [
+            'product_id' => $id,
+            'sku' => '',
+            'virtual' => 0,
+            'downloadable' => $downloadable ? 1 : 0,
+            'min_price' => '999',
+            'max_price' => '999',
+            'onsale' => 0,
+            'stock_quantity' => $inStock ? 5 : 0,
+            'stock_status' => $inStock ? 'instock' : 'outofstock',
+            'rating_count' => 0,
+            'average_rating' => $averageRating,
+            'total_sales' => '0',
+            'tax_status' => 'taxable',
+            'tax_class' => '',
+            'global_unique_id' => '',
+        ];
+        $fakeVisibilityRelationships[$id] = [
+            'product_type' => [],
+            'product_visibility' => [],
+            'pos_product_visibility' => [],
+        ];
+        if ($type !== 'variation') {
+            fake_set_visibility_relationships($id, 'product_type', [$type]);
+        }
+    }
+    function fake_visibility_pre_write(int $id, string $taxonomy, string $operation): void {
+        global $fakeVisibilityPreWriteMutations;
+        $key = "$id:$taxonomy:$operation";
+        if (isset($fakeVisibilityPreWriteMutations[$key])
+            && is_callable($fakeVisibilityPreWriteMutations[$key])) {
+            $mutation = $fakeVisibilityPreWriteMutations[$key];
+            unset($fakeVisibilityPreWriteMutations[$key]);
+            $mutation();
+        }
+    }
+    function wp_remove_object_terms(int $id, array $termIds, string $taxonomy): bool {
+        global $fakeVisibilityTerms, $fakeVisibilityWrites, $fakeVisibilityWriteFailures,
+            $fakeVisibilityNativeEvents, $fakeVisibilityRelationships;
+        $key = "$id:$taxonomy";
+        fake_visibility_pre_write($id, $taxonomy, 'remove');
+        $fakeVisibilityWrites[] = [
+            'id' => $id,
+            'taxonomy' => $taxonomy,
+            'operation' => 'remove',
+            'term_ids' => $termIds,
+        ];
+        if (($fakeVisibilityWriteFailures[$key] ?? 0) > 0) {
+            $fakeVisibilityWriteFailures[$key]--;
+            return false;
+        }
+        $remove = array_map('intval', $termIds);
+        $remaining = [];
+        foreach ((array) ($fakeVisibilityRelationships[$id][$taxonomy] ?? []) as $row) {
+            if (!in_array((int) ($row['term_id'] ?? 0), $remove, true)) {
+                $remaining[] = (string) ($row['slug'] ?? '');
+            }
+        }
+        fake_set_visibility_relationships($id, $taxonomy, $remaining);
+        $fakeVisibilityNativeEvents[] = "remove:$key";
+        return true;
+    }
+    function wp_add_object_terms(int $id, array $termIds, string $taxonomy): array|false {
+        global $fakeVisibilityTerms, $fakeVisibilityWrites, $fakeVisibilityWriteFailures,
+            $fakeVisibilityPartialWrites, $fakeVisibilityPostWriteMutations, $fakeVisibilityNativeEvents;
+        $key = "$id:$taxonomy";
+        fake_visibility_pre_write($id, $taxonomy, 'add');
+        $fakeVisibilityWrites[] = [
+            'id' => $id,
+            'taxonomy' => $taxonomy,
+            'operation' => 'add',
+            'term_ids' => $termIds,
+        ];
+        if (($fakeVisibilityWriteFailures[$key] ?? 0) > 0) {
+            $fakeVisibilityWriteFailures[$key]--;
+            return false;
+        }
+        $slugsById = [];
+        $ttById = [];
+        foreach ((array) ($fakeVisibilityTerms[$taxonomy] ?? []) as $slug => $term) {
+            $termId = (int) $term['term_id'];
+            $slugsById[$termId] = (string) $slug;
+            $ttById[$termId] = (int) $term['term_taxonomy_id'];
+        }
+        $selected = [];
+        foreach ($termIds as $termId) {
+            $termId = (int) $termId;
+            if (!isset($slugsById[$termId])) {
+                return false;
+            }
+            $selected[$termId] = $slugsById[$termId];
+        }
+        if (($fakeVisibilityPartialWrites[$key] ?? 0) > 0) {
+            $fakeVisibilityPartialWrites[$key]--;
+            $selected = array_slice($selected, 0, max(0, count($selected) - 1), true);
+        }
+        $slugs = array_values(array_unique(array_merge(
+            fake_visibility_slugs($id, $taxonomy),
+            array_values($selected)
+        )));
+        fake_set_visibility_relationships($id, $taxonomy, $slugs);
+        $fakeVisibilityNativeEvents[] = "add:$key";
+        if (isset($fakeVisibilityPostWriteMutations[$key])
+            && is_callable($fakeVisibilityPostWriteMutations[$key])) {
+            $mutation = $fakeVisibilityPostWriteMutations[$key];
+            unset($fakeVisibilityPostWriteMutations[$key]);
+            $mutation();
+        }
+        return array_values(array_map(static fn(int $termId): int => $ttById[$termId], array_keys($selected)));
+    }
+    function wc_get_filename_from_url(string $file): string {
+        $path = (string) (parse_url($file, PHP_URL_PATH) ?? '');
+        return basename($path);
+    }
     function fake_sale_date(int $id, string $key): ?FakeSaleDate {
         global $fakeMeta;
         $value = (string) ($fakeMeta[$id][$key][0] ?? '');
         return $value === '' || (int) $value <= 0 ? null : new FakeSaleDate((int) $value);
     }
     function wc_maybe_schedule_product_sale_events($id, $product = null): void {
-        global $fakeSaleSchedules, $fakeSaleScheduleCalls;
+        global $fakeSaleSchedules, $fakeSaleScheduleCalls, $fakeSaleScheduleDuplicates;
         $id = (int) $id;
         $fakeSaleScheduleCalls[] = $id;
         foreach (array_keys($fakeSaleSchedules) as $hook) {
             unset($fakeSaleSchedules[$hook][$id]);
+            unset($fakeSaleScheduleDuplicates[$hook][$id]);
         }
         if (!is_object($product)) {
             $product = wc_get_product($id);
@@ -954,12 +1916,34 @@ namespace {
         }
     }
     function as_unschedule_all_actions(string $hook, array $args = [], string $group = ''): int {
-        global $fakeSaleSchedules, $fakeSaleUnscheduleCalls;
+        global $fakeSaleSchedules, $fakeSaleUnscheduleCalls, $fakeSaleScheduleDuplicates;
         $id = (int) ($args['product_id'] ?? 0);
         $fakeSaleUnscheduleCalls[] = $id;
-        $had = isset($fakeSaleSchedules[$hook][$id]);
+        $removed = isset($fakeSaleSchedules[$hook][$id]) ? 1 : 0;
+        $removed += (int) ($fakeSaleScheduleDuplicates[$hook][$id] ?? 0);
         unset($fakeSaleSchedules[$hook][$id]);
-        return $had ? 1 : 0;
+        unset($fakeSaleScheduleDuplicates[$hook][$id]);
+        return $removed;
+    }
+    function as_get_scheduled_actions(array $query = [], string $returnFormat = 'OBJECT'): array {
+        global $fakeSaleSchedules, $fakeSaleScheduleDuplicates;
+        if ($returnFormat !== 'ids'
+            || ($query['group'] ?? '') !== 'woocommerce-sales'
+            || ($query['status'] ?? '') !== 'pending') {
+            return [];
+        }
+        $hook = (string) ($query['hook'] ?? '');
+        $id = (int) (($query['args']['product_id'] ?? 0));
+        if (!isset($fakeSaleSchedules[$hook][$id])) {
+            return [];
+        }
+        $base = $id * 1000 + ($hook === 'wc_product_start_scheduled_sale' ? 100 : 200);
+        $ids = [$base];
+        $duplicates = (int) ($fakeSaleScheduleDuplicates[$hook][$id] ?? 0);
+        for ($index = 1; $index <= $duplicates; $index++) {
+            $ids[] = $base + $index;
+        }
+        return array_slice($ids, 0, (int) ($query['per_page'] ?? 5));
     }
     function as_next_scheduled_action(string $hook, array $args = [], string $group = ''): int|false {
         global $fakeSaleSchedules, $fakeSaleVerificationFailure;
@@ -1033,6 +2017,13 @@ namespace {
         $values = $fakeMeta[$id][$key] ?? [];
         return $single ? ($values[0] ?? '') : $values;
     }
+    function maybe_unserialize($value) {
+        if (!is_string($value)) {
+            return $value;
+        }
+        $decoded = @unserialize(trim($value));
+        return $decoded === false && trim($value) !== 'b:0;' ? $value : $decoded;
+    }
     function delete_post_meta(int $id, string $key): bool {
         global $fakeMeta;
         $check = apply_filters('delete_post_metadata', null, $id, $key, null, false);
@@ -1068,6 +2059,9 @@ namespace {
         wp_cache_delete((string) $id, 'post_meta');
         wp_cache_delete('last_changed', 'terms');
         wp_cache_delete('wp_get_archives', 'general');
+        foreach (['product_type', 'product_visibility', 'pos_product_visibility'] as $taxonomy) {
+            wp_cache_delete((string) $id, $taxonomy . '_relationships');
+        }
         $product = $fakeProducts[$id] ?? null;
         if (is_object($product) && is_callable([$product, 'get_attributes'])) {
             foreach (array_keys((array) $product->get_attributes()) as $taxonomy) {
@@ -1204,6 +2198,7 @@ namespace {
     }
 
     require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
+    require dirname(__DIR__, 4) . '/agent/src/Kernel/PlainData.php';
     require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
     require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
     require dirname(__DIR__, 4) . '/agent/src/Adapter/ProviderSdk.php';
@@ -1245,10 +2240,1583 @@ namespace {
         if (!$condition) { $failures++; }
     };
 
+    // Woo's product_visibility taxonomy is a mixed projection: featured and
+    // catalog exclusions are merchant intent, while stock/rating terms must
+    // be regenerated from the target's freshly loaded product. POS visibility
+    // is merchant intent on supported roots and a strict inherited projection
+    // on every variation. Exercise the full native writer/readback boundary
+    // before the older lookup scenarios mutate their shared fixtures.
+    $variableCallsBeforeVisibility = WC_Data_Store::$variable?->calls ?? 0;
+    fake_add_visibility_product(90, 'variable', 0, [91, 92], false, false, '4.6');
+    fake_add_visibility_product(91, 'variation', 90, [], false);
+    fake_add_visibility_product(92, 'variation', 90, [], true);
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    fake_set_visibility_relationships(90, 'pos_product_visibility', ['pos-hidden']);
+    fake_set_visibility_relationships(91, 'product_visibility', ['featured', 'rated-3']);
+    fake_set_visibility_relationships(92, 'product_visibility', ['outofstock']);
+    $visibilityWriteStart = count($fakeVisibilityWrites);
+    $adapter->regenerate_batch([90], []);
+    $check(fake_visibility_slugs(90, 'product_visibility') === [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ], 'mixed product visibility preserves featured/catalog intent and repairs exact stock/rating terms');
+    $check(fake_visibility_slugs(91, 'product_visibility') === ['outofstock']
+        && fake_visibility_slugs(92, 'product_visibility') === [],
+        'variation visibility removes forbidden root terms and projects only each target stock state');
+    $check(fake_visibility_slugs(90, 'pos_product_visibility') === ['pos-hidden']
+        && fake_visibility_slugs(91, 'pos_product_visibility') === ['pos-hidden']
+        && fake_visibility_slugs(92, 'pos_product_visibility') === ['pos-hidden'],
+        'POS hidden intent is written through the native taxonomy API and inherited by every variation');
+    $visibleRoot = wc_get_product(90);
+    $check($visibleRoot instanceof FakeProduct
+        && $visibleRoot->get_featured('edit') === true
+        && $visibleRoot->get_catalog_visibility('edit') === 'catalog'
+        && $visibleRoot->get_stock_status('edit') === 'outofstock',
+        'fresh WC CRUD readback agrees with the exact raw mixed visibility projection');
+    $visibilityWritesAfterRepair = count($fakeVisibilityWrites);
+    $adapter->regenerate_batch([90], []);
+    $check(count($fakeVisibilityWrites) === $visibilityWritesAfterRepair
+        && $visibilityWritesAfterRepair > $visibilityWriteStart,
+        'replaying an exact mixed visibility projection is idempotent and performs no taxonomy write');
+
+    $visibilityScopeArgs = [
+        'entities' => [
+            'entities' => [['kind' => 'post:product', 'id' => 90]],
+            'always_on_write' => true,
+            'deletions' => [],
+            'reparents' => [],
+            'retry' => true,
+        ],
+    ];
+    $visibilityOperation = ['fixture' => 'woocommerce-visibility-recovery'];
+    $visibilityScoped = $adapter->invoke_scoped(
+        'rebuild_product_lookups',
+        $visibilityScopeArgs,
+        $visibilityOperation
+    );
+    $visibilityReceiptBytes = serialize($visibilityScoped['after']);
+    $check(($visibilityScoped['after']['visibility_products'] ?? null) === 3
+        && ($visibilityScoped['after']['visibility_relationships'] ?? null) === 9
+        && preg_match(
+            '/^[a-f0-9]{64}$/D',
+            (string) ($visibilityScoped['after']['visibility_intent_sha256'] ?? '')
+        ) === 1
+        && preg_match(
+            '/^[a-f0-9]{64}$/D',
+            (string) ($visibilityScoped['after']['visibility_scope_sha256'] ?? '')
+        ) === 1
+        && !str_contains($visibilityReceiptBytes, 'featured')
+        && !str_contains($visibilityReceiptBytes, 'pos-hidden'),
+        'scoped receipts bind exact visibility intent/raw/native state with bounded non-disclosing digests');
+    $exactRootVisibility = $fakeVisibilityRelationships[90]['product_visibility'];
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-4',
+    ]);
+    $sameCountVisibilityDrift = false;
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $visibilityScopeArgs, $visibilityOperation);
+    } catch (\Throwable $failure) {
+        $sameCountVisibilityDrift = str_contains($failure->getMessage(), 'product_visibility projection disagrees');
+    }
+    $check($sameCountVisibilityDrift,
+        'same-count rated-term drift cannot verify or retire the scoped visibility receipt');
+    $fakeVisibilityRelationships[90]['product_visibility'] = $exactRootVisibility;
+    $visibilityRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $visibilityScopeArgs,
+        $visibilityOperation
+    );
+    $check(($visibilityRecovered['after'] ?? null) === ($visibilityScoped['after'] ?? null),
+        'restoring exact raw/native visibility state deterministically recovers the scoped receipt');
+
+    $wrongIdentityRow = $fakeVisibilityRelationships[90]['product_visibility'][0];
+    $fakeVisibilityRelationships[90]['product_visibility'][0]['term_id'] = 999999;
+    $wrongIdentityFailure = false;
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $visibilityScopeArgs, $visibilityOperation);
+    } catch (\Throwable $failure) {
+        $wrongIdentityFailure = str_contains($failure->getMessage(), 'product_visibility projection disagrees');
+    }
+    $fakeVisibilityRelationships[90]['product_visibility'][0] = $wrongIdentityRow;
+    $check($wrongIdentityFailure,
+        'a no-op-path relationship with the right slug but wrong native term identity cannot verify');
+
+    $overflowIdentityRow = $fakeVisibilityRelationships[90]['product_visibility'][0];
+    $fakeVisibilityRelationships[90]['product_visibility'][0]['term_id'] = (string) PHP_INT_MAX . '0';
+    $overflowIdentityFailure = false;
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $visibilityScopeArgs, $visibilityOperation);
+    } catch (\Throwable $failure) {
+        $overflowIdentityFailure = str_contains($failure->getMessage(), 'noncanonical term ID');
+    }
+    $fakeVisibilityRelationships[90]['product_visibility'][0] = $overflowIdentityRow;
+    $check($overflowIdentityFailure,
+        'overflowing database identities refuse before PHP integer saturation can alias another term');
+
+    $fakeVisibilityTerms['product_visibility']['duplicate-featured'] = [
+        'term_id' => 999998,
+        'term_taxonomy_id' => 999997,
+        'taxonomy' => 'product_visibility',
+        'slug' => 'featured',
+        'name' => 'featured',
+    ];
+    $duplicateCoreTermFailure = false;
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $visibilityScopeArgs, $visibilityOperation);
+    } catch (\Throwable $failure) {
+        $duplicateCoreTermFailure = str_contains($failure->getMessage(), 'inventory is malformed or duplicated')
+            || str_contains($failure->getMessage(), 'exact core cardinality');
+    }
+    unset($fakeVisibilityTerms['product_visibility']['duplicate-featured']);
+    $check($duplicateCoreTermFailure,
+        'a duplicate native core term is rejected even when every relationship already looks exact');
+
+    $fakeVisibilityTerms['product_visibility']['extension-private'] = [
+        'term_id' => 999996,
+        'term_taxonomy_id' => 999995,
+        'taxonomy' => 'product_visibility',
+        'slug' => 'extension-private',
+        'name' => 'extension-private',
+    ];
+    $extraProductVisibilityFailure = false;
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $visibilityScopeArgs, $visibilityOperation);
+    } catch (\Throwable $failure) {
+        $extraProductVisibilityFailure = str_contains($failure->getMessage(), 'exact core cardinality')
+            || str_contains($failure->getMessage(), 'malformed or duplicated');
+    }
+    unset($fakeVisibilityTerms['product_visibility']['extension-private']);
+    $check($extraProductVisibilityFailure,
+        'a tenth target-wide product_visibility term cannot hide outside the nine-slug core filter');
+
+    $fakeVisibilityTerms['pos_product_visibility']['extension-private'] = [
+        'term_id' => 999994,
+        'term_taxonomy_id' => 999993,
+        'taxonomy' => 'pos_product_visibility',
+        'slug' => 'extension-private',
+        'name' => 'extension-private',
+    ];
+    $extraPosVisibilityFailure = false;
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $visibilityScopeArgs, $visibilityOperation);
+    } catch (\Throwable $failure) {
+        $extraPosVisibilityFailure = str_contains($failure->getMessage(), 'exact core cardinality')
+            || str_contains($failure->getMessage(), 'malformed or duplicated');
+    }
+    unset($fakeVisibilityTerms['pos_product_visibility']['extension-private']);
+    $check($extraPosVisibilityFailure,
+        'POS visibility inventory admits only absence or the one exact core pos-hidden identity');
+
+    $exactRootType = $fakeVisibilityRelationships[90]['product_type'];
+    fake_set_visibility_relationships(90, 'product_type', []);
+    $missingProductTypeFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $missingProductTypeFailure = str_contains($failure->getMessage(), 'exactly one native product_type');
+    }
+    $fakeVisibilityRelationships[90]['product_type'] = $exactRootType;
+    $check($missingProductTypeFailure,
+        'a product missing its authored native product_type refuses before derived mutation');
+
+    fake_set_visibility_relationships(90, 'product_type', ['variable', 'simple']);
+    $multipleProductTypeFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $multipleProductTypeFailure = str_contains($failure->getMessage(), 'exactly one native product_type');
+    }
+    $fakeVisibilityRelationships[90]['product_type'] = $exactRootType;
+    $check($multipleProductTypeFailure,
+        'multiple product_type relationships cannot select a plausible native subtype');
+
+    $wrongProductTypeIdentity = $fakeVisibilityRelationships[90]['product_type'][0];
+    $fakeVisibilityRelationships[90]['product_type'][0]['term_id'] = 999992;
+    $wrongProductTypeIdentityFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $wrongProductTypeIdentityFailure = str_contains($failure->getMessage(), 'product_type identity');
+    }
+    $fakeVisibilityRelationships[90]['product_type'][0] = $wrongProductTypeIdentity;
+    $check($wrongProductTypeIdentityFailure,
+        'the right product_type slug with a wrong native term identity cannot verify');
+
+    $savedExternalType = $fakeVisibilityTerms['product_type']['external'];
+    unset($fakeVisibilityTerms['product_type']['external']);
+    $missingTypeInventoryFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $missingTypeInventoryFailure = str_contains($failure->getMessage(), 'product_type term inventory is incomplete');
+    }
+    $fakeVisibilityTerms['product_type']['external'] = $savedExternalType;
+    $check($missingTypeInventoryFailure,
+        'the exact four-term core product_type inventory is required even on a no-op root');
+
+    fake_set_visibility_relationships(91, 'product_type', ['simple']);
+    $variationTypeFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $variationTypeFailure = str_contains($failure->getMessage(), 'impossible product_type relationship');
+    }
+    fake_set_visibility_relationships(91, 'product_type', []);
+    $check($variationTypeFailure,
+        'a variation cannot carry a product_type relationship of its own');
+
+    fake_add_visibility_product(199, 'variation', 13);
+    $nonVariableParentFailure = false;
+    try {
+        $adapter->regenerate_batch([199], []);
+    } catch (\Throwable $failure) {
+        $nonVariableParentFailure = str_contains($failure->getMessage(), 'exact variable product_type parent');
+    }
+    unset($fakeProducts[199], $fakeMeta[199], $fakeMetaLookup[199], $fakeVisibilityRelationships[199]);
+    $check($nonVariableParentFailure,
+        'a variation parent must resolve to the exact authored variable product_type');
+
+    // Removing root POS intent must remove every inherited child term. The
+    // supported simple case remains portable; downloadable and external roots
+    // are normal native exclusion cases and cannot retain a stale pos-hidden.
+    fake_set_visibility_relationships(90, 'pos_product_visibility', []);
+    $adapter->regenerate_batch([90], []);
+    $check(fake_visibility_slugs(90, 'pos_product_visibility') === []
+        && fake_visibility_slugs(91, 'pos_product_visibility') === []
+        && fake_visibility_slugs(92, 'pos_product_visibility') === [],
+        'POS visible intent removes the root term and every inherited variation term');
+    $savedPosHidden = $fakeVisibilityTerms['pos_product_visibility']['pos-hidden'];
+    unset($fakeVisibilityTerms['pos_product_visibility']['pos-hidden']);
+    $adapter->regenerate_batch([90], []);
+    $check(true, 'an unused POS taxonomy may have no term before the first native pos-hidden write');
+    $fakeVisibilityTerms['pos_product_visibility']['pos-hidden'] = $savedPosHidden;
+    fake_set_visibility_relationships(90, 'pos_product_visibility', ['pos-hidden']);
+    unset($fakeVisibilityTerms['pos_product_visibility']['pos-hidden']);
+    $missingReferencedPosTerm = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $missingReferencedPosTerm = str_contains($failure->getMessage(), 'native pos-hidden term is absent');
+    }
+    $fakeVisibilityTerms['pos_product_visibility']['pos-hidden'] = $savedPosHidden;
+    $check($missingReferencedPosTerm,
+        'a referenced pos-hidden relationship requires the one exact native POS term identity');
+    fake_set_visibility_relationships(90, 'pos_product_visibility', []);
+    fake_add_visibility_product(93, 'simple');
+    fake_set_visibility_relationships(93, 'pos_product_visibility', ['pos-hidden']);
+    $adapter->regenerate_batch([93], []);
+    $check(fake_visibility_slugs(93, 'pos_product_visibility') === ['pos-hidden'],
+        'non-downloadable simple products preserve authored POS hidden intent');
+    fake_add_visibility_product(94, 'simple', 0, [], true, true);
+    fake_set_visibility_relationships(94, 'pos_product_visibility', ['pos-hidden']);
+    $adapter->regenerate_batch([94], []);
+    $check(fake_visibility_slugs(94, 'pos_product_visibility') === [],
+        'downloadable products cannot retain a stale POS-hidden relationship');
+    fake_add_visibility_product(95, 'external');
+    fake_set_visibility_relationships(95, 'pos_product_visibility', ['pos-hidden']);
+    $adapter->regenerate_batch([95], []);
+    $check(fake_visibility_slugs(95, 'pos_product_visibility') === [],
+        'unsupported external products cannot retain a stale POS-hidden relationship');
+
+    // Missing core identities, native writer faults, partial writes, hostile
+    // post-write drift, and concurrent merchant edits all remain loud and
+    // retryable. None of the failures includes merchant data.
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    $fakeVisibilityWriteFailures['90:product_visibility'] = 1;
+    $visibilityWriteFailure = '';
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $visibilityWriteFailure = $failure->getMessage();
+    }
+    $check(str_contains($visibilityWriteFailure, 'native relationship write failed')
+        && !str_contains($visibilityWriteFailure, 'featured'),
+        'native visibility write failure is loud, redacted, and leaves deterministic retry authority');
+    $adapter->regenerate_batch([90], []);
+    $check(fake_visibility_slugs(90, 'product_visibility') === [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ], 'visibility retry converges after the injected native writer failure');
+
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    $fakeVisibilityPartialWrites['90:product_visibility'] = 1;
+    $partialVisibilityFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $partialVisibilityFailure = str_contains($failure->getMessage(), 'returned incomplete state');
+    }
+    $check($partialVisibilityFailure,
+        'partial native visibility writes refuse before a verified receipt can be returned');
+    $adapter->regenerate_batch([90], []);
+
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    $fakeVisibilityPostWriteMutations['90:product_visibility'] = static function (): void {
+        fake_set_visibility_relationships(90, 'product_visibility', [
+            'exclude-from-search', 'featured', 'outofstock', 'rated-4',
+        ]);
+    };
+    $postWriteVisibilityFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $postWriteVisibilityFailure = str_contains($failure->getMessage(), 'projection disagrees');
+    }
+    $check($postWriteVisibilityFailure,
+        'same-count competing drift after the native writer cannot be blessed by its return value');
+    $adapter->regenerate_batch([90], []);
+
+    $savedRatedFive = $fakeVisibilityTerms['product_visibility']['rated-5'];
+    unset($fakeVisibilityTerms['product_visibility']['rated-5']);
+    $missingVisibilityTerm = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $missingVisibilityTerm = str_contains($failure->getMessage(), 'term inventory is incomplete');
+    }
+    $fakeVisibilityTerms['product_visibility']['rated-5'] = $savedRatedFive;
+    $check($missingVisibilityTerm,
+        'a target missing one exact core visibility identity refuses before repair instead of creating an impostor');
+    $adapter->regenerate_batch([90], []);
+
+    $fakeVisibilityRelationships[90]['product_visibility'][] =
+        $fakeVisibilityRelationships[90]['product_visibility'][0];
+    $duplicateVisibilityFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $duplicateVisibilityFailure = str_contains($failure->getMessage(), 'duplicate state');
+    }
+    array_pop($fakeVisibilityRelationships[90]['product_visibility']);
+    $check($duplicateVisibilityFailure,
+        'duplicate raw visibility relationships refuse instead of collapsing into a plausible term set');
+
+    $fakeVisibilityRaceOnLookupRefresh[90] = static function (): void {
+        fake_set_visibility_relationships(90, 'product_visibility', [
+            'exclude-from-search', 'exclude-from-catalog', 'featured', 'outofstock', 'rated-5',
+        ]);
+    };
+    $concurrentVisibilityMessage = '';
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $concurrentVisibilityMessage = $failure->getMessage();
+    }
+    $check(str_contains($concurrentVisibilityMessage, 'visibility changed')
+        && str_contains($concurrentVisibilityMessage, 'recovery_required'),
+        'a concurrent merchant catalog-visibility edit during lookup work cannot be overwritten or blessed');
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ]);
+    $adapter->regenerate_batch([90], []);
+    $check(fake_visibility_slugs(90, 'product_visibility') === [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ], 'visibility converges after the concurrent merchant edit is explicitly resolved and retried');
+
+    // Pin the narrower lost-update window: both merchant catalog and POS
+    // intent change after reconcile_visibility() takes its current snapshot
+    // but immediately before the first native derived-term mutation. The
+    // provider may fail, but it must never replace either authored edit with
+    // the stale snapshot it captured.
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    fake_set_visibility_relationships(90, 'pos_product_visibility', ['pos-hidden']);
+    $fakeVisibilityPreWriteMutations['90:product_visibility:remove'] = static function (): void {
+        fake_set_visibility_relationships(90, 'product_visibility', [
+            'exclude-from-search', 'exclude-from-catalog', 'featured', 'rated-1',
+        ]);
+        fake_set_visibility_relationships(90, 'pos_product_visibility', []);
+    };
+    $preWriteRaceMessage = '';
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $preWriteRaceMessage = $failure->getMessage();
+    }
+    $check(str_contains($preWriteRaceMessage, 'visibility')
+        && str_contains($preWriteRaceMessage, 'recovery_required')
+        && in_array('exclude-from-catalog', fake_visibility_slugs(90, 'product_visibility'), true)
+        && fake_visibility_slugs(90, 'pos_product_visibility') === [],
+        'after-snapshot-before-write catalog/POS edits survive selective derived repair and force retry');
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ]);
+    fake_set_visibility_relationships(90, 'pos_product_visibility', ['pos-hidden']);
+    $adapter->regenerate_batch([90], []);
+
+    // Final verification must derive from its own fresh native snapshot. Each
+    // mutation lands after reconcile_visibility() observed current state but
+    // before the first exact derived-term removal, the window in which reusing
+    // the old expected array used to bless a stale projection.
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    $fakeProducts[90]->set_stock(false);
+    $fakeVisibilityPreWriteMutations['90:product_visibility:remove'] = static function (): void {
+        global $fakeProducts;
+        $fakeProducts[90]->set_stock(true);
+    };
+    $stockRaceFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $stockRaceFailure = str_contains($failure->getMessage(), 'product_visibility projection disagrees');
+    }
+    $check($stockRaceFailure,
+        'after-snapshot stock drift cannot bless the stale outofstock visibility projection');
+    $fakeProducts[90]->set_stock(false);
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ]);
+
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    $fakeMeta[90]['_wc_average_rating'] = ['4.6'];
+    $fakeVisibilityPreWriteMutations['90:product_visibility:remove'] = static function (): void {
+        global $fakeMeta;
+        $fakeMeta[90]['_wc_average_rating'] = ['3.6'];
+    };
+    $ratingRaceFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $ratingRaceFailure = str_contains($failure->getMessage(), 'product_visibility projection disagrees');
+    }
+    $check($ratingRaceFailure,
+        'after-snapshot rating drift cannot bless the stale rated-* visibility projection');
+    $fakeMeta[90]['_wc_average_rating'] = ['4.6'];
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ]);
+
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    $fakeVisibilityPreWriteMutations['90:product_visibility:remove'] = static function (): void {
+        global $fakeProducts;
+        $fakeProducts[90]->set_type('external');
+        fake_set_visibility_relationships(90, 'product_type', ['external']);
+    };
+    $typeRaceFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $typeRaceFailure = str_contains($failure->getMessage(), 'intent changed');
+    }
+    $check($typeRaceFailure,
+        'after-snapshot product subtype drift cannot retain the prior visibility/POS projection');
+    $fakeProducts[90]->set_type('variable');
+    fake_set_visibility_relationships(90, 'product_type', ['variable']);
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ]);
+
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    $fakeMeta[90]['_downloadable'] = ['no'];
+    $fakeVisibilityPreWriteMutations['90:product_visibility:remove'] = static function (): void {
+        global $fakeMeta;
+        $fakeMeta[90]['_downloadable'] = ['yes'];
+    };
+    $downloadableRaceFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $downloadableRaceFailure = str_contains($failure->getMessage(), 'intent changed');
+    }
+    $check($downloadableRaceFailure,
+        'after-snapshot downloadable drift cannot retain stale POS applicability');
+    $fakeMeta[90]['_downloadable'] = ['no'];
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ]);
+
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    $fakeVisibilityPreWriteMutations['90:product_visibility:remove'] = static function (): void {
+        global $fakeProducts;
+        $fakeProducts[91]->set_parent(93);
+    };
+    $parentRaceFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $parentRaceFailure = str_contains($failure->getMessage(), 'intent changed')
+            || str_contains($failure->getMessage(), 'scope changed');
+    }
+    $check($parentRaceFailure,
+        'after-snapshot variation-parent drift cannot bless the old variable/POS inheritance scope');
+    $fakeProducts[91]->set_parent(90);
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ]);
+    $adapter->regenerate_batch([90], []);
+
+    fake_add_visibility_product(96, 'variation', 999, [], true);
+    $orphanVisibilityFailure = false;
+    try {
+        $adapter->regenerate_batch([96], []);
+    } catch (\Throwable $failure) {
+        $orphanVisibilityFailure = str_contains($failure->getMessage(), 'orphaned variation owner');
+    }
+    $check($orphanVisibilityFailure,
+        'an orphaned variation cannot acquire an invented POS inheritance projection');
+    unset($fakeProducts[96], $fakeMeta[96], $fakeMetaLookup[96], $fakeVisibilityRelationships[96]);
+
+    fake_add_visibility_product(97, 'variable', 0, [98]);
+    fake_add_visibility_product(98, 'variation', 97);
+    fake_set_visibility_relationships(97, 'pos_product_visibility', ['pos-hidden']);
+    fake_set_visibility_relationships(98, 'pos_product_visibility', ['pos-hidden']);
+    $floodFirst = 100000;
+    $floodCount = 50001;
+    $fakeVisibilityChildFlood = [
+        'parent' => 97,
+        'first' => $floodFirst,
+        'excluded_count' => $floodCount,
+        'survivor' => 900000,
+    ];
+    $saturatedChildReadFailure = false;
+    try {
+        $adapter->regenerate_batch([97], [[
+            'kind' => 'delete',
+            'uuid' => 'visibility-excluded-child-flood',
+            'id' => 999999,
+            'post_type' => 'product_variation',
+            'parent_id' => 97,
+            'child_ids' => range($floodFirst, $floodFirst + $floodCount - 1),
+        ]]);
+    } catch (\Throwable $failure) {
+        $saturatedChildReadFailure = str_contains($failure->getMessage(), 'saturated its bounded read');
+    }
+    $check($saturatedChildReadFailure,
+        'excluded variation tombstones cannot consume a bounded child window and hide a later live child');
+    $fakeVisibilityChildFlood = null;
+    $deletedChildWriteStart = count($fakeVisibilityWrites);
+    $adapter->regenerate_batch([97], [[
+        'kind' => 'delete',
+        'uuid' => 'visibility-deleted-child',
+        'id' => 98,
+        'post_type' => 'product_variation',
+        'parent_id' => 97,
+        'child_ids' => [],
+    ]]);
+    $deletedChildWrites = array_slice($fakeVisibilityWrites, $deletedChildWriteStart);
+    $check(!array_filter(
+        $deletedChildWrites,
+        static fn(array $write): bool => (int) $write['id'] === 98
+    ), 'the engine tombstone scope excludes a lingering deleted child from native visibility writes');
+    $check((bool) array_filter(
+        $fakeVisibilityQueries,
+        static fn(string $query): bool => str_contains($query, 'LIMIT 50001')
+    ), 'variation expansion is explicitly bounded in the product-path SQL before hostile allocation');
+    if (WC_Data_Store::$variable !== null) {
+        WC_Data_Store::$variable->calls = $variableCallsBeforeVisibility;
+    }
+
+    // The provider's graph bound is one deduplicated aggregate, not one
+    // counter per array. Exercise duplicate grouped membership, a nested
+    // grouped root, and a variable child whose variations are also referenced
+    // by the nested group; every id must count once across products, roots,
+    // prices, and attributes.
+    $preflightScope = new \ReflectionMethod($adapter, 'preflight_product_scope');
+    $nestedRoot = 70000;
+    fake_add_visibility_product($nestedRoot, 'grouped', 0, [70001, 70001, 70002]);
+    fake_add_visibility_product(70001, 'variable', 0, [70003, 70004]);
+    fake_add_visibility_product(70002, 'grouped', 0, [70003, 70005]);
+    fake_add_visibility_product(70003, 'variation', 70001);
+    fake_add_visibility_product(70004, 'variation', 70001);
+    fake_add_visibility_product(70005, 'simple');
+    $fakeGroupedChildren[70000] = [70001, 70001, 70002];
+    $fakeGroupedChildren[70002] = [70003, 70005];
+    $nestedScope = $preflightScope->invoke($adapter, [$nestedRoot], []);
+    $nestedScopeIds = array_map('intval', array_keys($nestedScope['ids']));
+    sort($nestedScopeIds, SORT_NUMERIC);
+    $check($nestedScopeIds === [70000, 70001, 70002, 70003, 70004, 70005],
+        'nested and duplicate grouped/variation expansion contributes one exact deduplicated scope id per product');
+    // Keep this on the production batch path too: a read failure after the
+    // preflight proves the provider reached its normal visibility boundary,
+    // rather than passing only through a test-only graph helper.
+    $wpdb->failReadContaining = 'SELECT ID, post_parent, post_type';
+    $nestedPathFailure = '';
+    try {
+        $adapter->regenerate_batch([$nestedRoot], []);
+    } catch (\Throwable $failure) {
+        $nestedPathFailure = $failure->getMessage();
+    }
+    $wpdb->failReadContaining = null;
+    $check(str_contains($nestedPathFailure, 'checked read failed')
+        && !str_contains($nestedPathFailure, 'aggregate product count'),
+        'the production batch consumes the same nested deduplicated scope before its first cache mutation');
+    foreach ([$nestedRoot, 70001, 70002, 70003, 70004, 70005] as $id) {
+        unset($fakeProducts[$id], $fakeMeta[$id], $fakeMetaLookup[$id], $fakeVisibilityRelationships[$id], $fakeProductCache[$id]);
+    }
+    unset($fakeGroupedChildren[70000], $fakeGroupedChildren[70002]);
+
+    // Exactly MAX_SCOPED_PRODUCTS (the root plus 49,999 unique grouped
+    // children) is admitted and reaches the next read-only boundary. This
+    // keeps the boundary regression fast while proving the guard is <=, not <.
+    $boundaryRoot = 71000;
+    $boundaryChildren = range($boundaryRoot + 1, $boundaryRoot + 49999);
+    fake_add_visibility_product($boundaryRoot, 'grouped', 0, $boundaryChildren);
+    $boundaryReverseBatches = 0;
+    $wpdb->groupedParentReadHook = static function () use (&$boundaryReverseBatches): void {
+        $boundaryReverseBatches++;
+    };
+    $wpdb->failReadContaining = 'SELECT ID, post_parent, post_type';
+    $boundaryCacheStart = count($fakeCacheEvents);
+    $boundaryFailure = '';
+    try {
+        $adapter->regenerate_batch([$boundaryRoot], []);
+    } catch (\Throwable $failure) {
+        $boundaryFailure = $failure->getMessage();
+    }
+    $wpdb->failReadContaining = null;
+    $wpdb->groupedParentReadHook = null;
+    $boundaryCacheEvents = array_slice($fakeCacheEvents, $boundaryCacheStart);
+    $check(str_contains($boundaryFailure, 'checked read failed')
+        && !str_contains($boundaryFailure, 'aggregate product count')
+        && !in_array('remove:' . $boundaryRoot, $boundaryCacheEvents, true),
+        'a 50,000-id aggregate is accepted at the boundary before the first cache mutation');
+    $check($boundaryReverseBatches === 3127,
+        'the 50,000-id reverse witness uses one initial plus two 1,563-batch bounded scans, never one query per child');
+    unset($fakeProducts[$boundaryRoot], $fakeMeta[$boundaryRoot], $fakeMetaLookup[$boundaryRoot],
+        $fakeVisibilityRelationships[$boundaryRoot], $fakeProductCache[$boundaryRoot]);
+    unset($boundaryChildren);
+
+    // The reverse-owner result itself is bounded independently of the
+    // product graph. More than MAX_GROUPED_REVERSE_RESULT_ROWS owners for
+    // one child must refuse during preflight rather than truncate the witness.
+    $reverseOverflowChild = 71900;
+    $reverseOverflowParents = range(71901, 121901);
+    foreach ($reverseOverflowParents as $parentId) {
+        $fakeGroupedChildren[$parentId] = [$reverseOverflowChild];
+    }
+    fake_add_visibility_product($reverseOverflowChild, 'simple');
+    $reverseOverflowCacheStart = count($fakeCacheEvents);
+    $reverseOverflowFailure = '';
+    try {
+        $adapter->regenerate_batch([$reverseOverflowChild], []);
+    } catch (\Throwable $failure) {
+        $reverseOverflowFailure = $failure->getMessage();
+    }
+    $reverseOverflowEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $reverseOverflowCacheStart),
+        static fn(string $event): bool => str_starts_with($event, 'remove:')
+    ));
+    $check(str_contains($reverseOverflowFailure, 'grouped reverse ownership exceeds its bounded result scope')
+        && $reverseOverflowEffects === [],
+        'more than 50,000 grouped owners refuses as an explicit bounded reverse-witness overflow');
+    foreach ($reverseOverflowParents as $parentId) {
+        unset($fakeGroupedChildren[$parentId]);
+    }
+    unset($reverseOverflowParents);
+    unset($fakeProducts[$reverseOverflowChild], $fakeMeta[$reverseOverflowChild],
+        $fakeMetaLookup[$reverseOverflowChild], $fakeVisibilityRelationships[$reverseOverflowChild],
+        $fakeProductCache[$reverseOverflowChild]);
+
+    // A bounded preflight is only useful if its witness is checked again
+    // before the first effect. Widen the same 50,000-id grouped root between
+    // those two reads and prove the provider refuses with no cache, lookup,
+    // price, or scheduler work having happened.
+    $groupedRaceRoot = 71500;
+    $groupedRaceChildren = range($groupedRaceRoot + 1, $groupedRaceRoot + 49999);
+    $groupedRaceWidened = $groupedRaceChildren;
+    $groupedRaceWidened[] = $groupedRaceRoot + 50000;
+    fake_add_visibility_product($groupedRaceRoot, 'grouped', 0, $groupedRaceChildren);
+    $fakeGroupedChildren[$groupedRaceRoot] = $groupedRaceChildren;
+    $groupedRaceReads = 0;
+    $wpdb->childScopeReadHook = static function () use (
+        &$groupedRaceReads,
+        &$fakeGroupedChildren,
+        $groupedRaceRoot,
+        $groupedRaceWidened
+    ): void {
+        $groupedRaceReads++;
+        if ($groupedRaceReads === 4) {
+            $fakeGroupedChildren[$groupedRaceRoot] = $groupedRaceWidened;
+        }
+    };
+    $groupedRaceCacheStart = count($fakeCacheEvents);
+    $groupedRaceLookupStart =
+        (\Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::$instance?->createCalls ?? 0);
+    $groupedRaceVariableStart = WC_Data_Store::$variable?->calls ?? 0;
+    $groupedRaceGroupedStart = WC_Data_Store::$grouped?->calls ?? 0;
+    $groupedRaceScheduleStart = array_sum(array_map('count', $fakeSaleSchedules));
+    $groupedRaceFailure = '';
+    try {
+        $adapter->regenerate_batch([$groupedRaceRoot], []);
+    } catch (\Throwable $failure) {
+        $groupedRaceFailure = $failure->getMessage();
+    }
+    $wpdb->childScopeReadHook = null;
+    $groupedRaceEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $groupedRaceCacheStart),
+        static fn(string $event): bool => str_starts_with($event, 'remove:')
+    ));
+    $groupedRaceLookupCalls =
+        (\Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::$instance?->createCalls ?? 0)
+        - $groupedRaceLookupStart;
+    $groupedRaceScheduleCalls = array_sum(array_map('count', $fakeSaleSchedules)) - $groupedRaceScheduleStart;
+    $check(str_contains($groupedRaceFailure, 'child scope changed')
+        && $groupedRaceEffects === []
+        && $groupedRaceLookupCalls === 0
+        && (WC_Data_Store::$variable?->calls ?? 0) === $groupedRaceVariableStart
+        && (WC_Data_Store::$grouped?->calls ?? 0) === $groupedRaceGroupedStart
+        && $groupedRaceScheduleCalls === 0,
+        'a grouped child list widening from 50,000 to 50,001 after preflight refuses before every derived effect');
+    unset($fakeProducts[$groupedRaceRoot], $fakeMeta[$groupedRaceRoot], $fakeMetaLookup[$groupedRaceRoot],
+        $fakeVisibilityRelationships[$groupedRaceRoot], $fakeProductCache[$groupedRaceRoot],
+        $fakeGroupedChildren[$groupedRaceRoot]);
+    unset($groupedRaceChildren, $groupedRaceWidened);
+
+    // Reverse grouped ownership is a separate bounded witness from a root's
+    // own _children payload. Insert a new grouped owner for an already
+    // selected simple child during the post-preflight reverse probe; the
+    // provider must refuse before it can discover, invalidate, or sync that
+    // newly authorized root.
+    $reverseRaceChild = 71700;
+    $reverseRaceParent = 71701;
+    fake_add_visibility_product($reverseRaceChild, 'simple');
+    $reverseParentReads = 0;
+    $wpdb->groupedParentReadHook = static function () use (
+        &$reverseParentReads,
+        &$fakeGroupedChildren,
+        $reverseRaceChild,
+        $reverseRaceParent
+    ): void {
+        $reverseParentReads++;
+        if ($reverseParentReads === 3) {
+            fake_add_visibility_product($reverseRaceParent, 'grouped', 0, [$reverseRaceChild]);
+            $fakeGroupedChildren[$reverseRaceParent] = [$reverseRaceChild];
+        }
+    };
+    $reverseRaceCacheStart = count($fakeCacheEvents);
+    $reverseRaceFailure = '';
+    try {
+        $adapter->regenerate_batch([$reverseRaceChild], []);
+    } catch (\Throwable $failure) {
+        $reverseRaceFailure = $failure->getMessage();
+    }
+    $wpdb->groupedParentReadHook = null;
+    $reverseRaceEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $reverseRaceCacheStart),
+        static fn(string $event): bool => str_starts_with($event, 'remove:')
+    ));
+    $check(str_contains($reverseRaceFailure, 'grouped-parent scope changed')
+        && $reverseRaceEffects === []
+        && $reverseParentReads === 3,
+        'a grouped parent inserted after reverse preflight refuses before root discovery or derived effects');
+    unset($fakeProducts[$reverseRaceChild], $fakeMeta[$reverseRaceChild], $fakeMetaLookup[$reverseRaceChild],
+        $fakeVisibilityRelationships[$reverseRaceChild], $fakeProductCache[$reverseRaceChild],
+        $fakeProducts[$reverseRaceParent], $fakeMeta[$reverseRaceParent], $fakeMetaLookup[$reverseRaceParent],
+        $fakeVisibilityRelationships[$reverseRaceParent], $fakeProductCache[$reverseRaceParent],
+        $fakeGroupedChildren[$reverseRaceParent]);
+
+    // The reverse witness must include ordinary members discovered below a
+    // grouped root, not only the initially selected child. Insert a new
+    // grouped owner for a nested simple member during its post-preflight
+    // reverse probe; before the child-ID witness this owner was discovered
+    // only after effects began and the unsnapshotted root was skipped.
+    $nestedReverseRoot = 71800;
+    $nestedReverseInner = 71801;
+    $nestedReverseChild = 71802;
+    $nestedReverseParent = 71803;
+    fake_add_visibility_product($nestedReverseRoot, 'grouped', 0, [$nestedReverseInner]);
+    fake_add_visibility_product($nestedReverseInner, 'grouped', 0, [$nestedReverseChild]);
+    fake_add_visibility_product($nestedReverseChild, 'simple');
+    $fakeGroupedChildren[$nestedReverseRoot] = [$nestedReverseInner];
+    $fakeGroupedChildren[$nestedReverseInner] = [$nestedReverseChild];
+    $nestedReverseReads = 0;
+    $wpdb->groupedParentReadHook = static function () use (
+        &$nestedReverseReads,
+        &$fakeGroupedChildren,
+        $nestedReverseChild,
+        $nestedReverseParent
+    ): void {
+        $nestedReverseReads++;
+        // One bounded batch reads the selected root, one reads the complete
+        // discovered-child witness, and one revalidates that same batch;
+        // mutate immediately before the nested-child assertion returns.
+        if ($nestedReverseReads === 3) {
+            fake_add_visibility_product($nestedReverseParent, 'grouped', 0, [$nestedReverseChild]);
+            $fakeGroupedChildren[$nestedReverseParent] = [$nestedReverseChild];
+        }
+    };
+    $nestedReverseCacheStart = count($fakeCacheEvents);
+    $nestedReverseFailure = '';
+    try {
+        $adapter->regenerate_batch([$nestedReverseRoot], []);
+    } catch (\Throwable $failure) {
+        $nestedReverseFailure = $failure->getMessage();
+    }
+    $wpdb->groupedParentReadHook = null;
+    $nestedReverseEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $nestedReverseCacheStart),
+        static fn(string $event): bool => str_starts_with($event, 'remove:')
+    ));
+    $check(str_contains($nestedReverseFailure, 'grouped-parent scope changed')
+        && $nestedReverseEffects === []
+        && $nestedReverseReads === 3,
+        'a grouped parent inserted for a nested ordinary child refuses before root discovery or derived effects');
+    foreach ([$nestedReverseRoot, $nestedReverseInner, $nestedReverseChild, $nestedReverseParent] as $id) {
+        unset($fakeProducts[$id], $fakeMeta[$id], $fakeMetaLookup[$id],
+            $fakeVisibilityRelationships[$id], $fakeProductCache[$id]);
+    }
+    unset($fakeGroupedChildren[$nestedReverseRoot], $fakeGroupedChildren[$nestedReverseInner],
+        $fakeGroupedChildren[$nestedReverseParent]);
+
+    // A sealed owner can disappear or change subtype after the final scope
+    // witness but before reverse-edge projection. The provider must consume
+    // that edge once and refuse before invalidating the stale owner, rather
+    // than retrying the same generator row forever or silently skipping it.
+    $staleReverseChild = 71710;
+    $staleReverseParent = 71711;
+    fake_add_visibility_product($staleReverseChild, 'simple');
+    fake_add_visibility_product($staleReverseParent, 'grouped', 0, [$staleReverseChild]);
+    $fakeGroupedChildren[$staleReverseParent] = [$staleReverseChild];
+    $staleReverseReads = 0;
+    $wpdb->childScopeReadHook = static function () use (
+        &$staleReverseReads,
+        &$fakeProducts,
+        &$fakeProductCache,
+        $staleReverseParent
+    ): void {
+        $staleReverseReads++;
+        // Preflight and assertion each read the grouped payload twice. Make
+        // the owner non-grouped after those reads, immediately before the
+        // reverse-edge consumer loads it.
+        if ($staleReverseReads === 4) {
+            $fakeProducts[$staleReverseParent]->set_type('simple');
+            unset($fakeProductCache[$staleReverseParent]);
+        }
+    };
+    $staleReverseCacheStart = count($fakeCacheEvents);
+    $staleReverseFailure = '';
+    try {
+        $adapter->regenerate_batch([$staleReverseChild], []);
+    } catch (\Throwable $failure) {
+        $staleReverseFailure = $failure->getMessage();
+    }
+    $wpdb->childScopeReadHook = null;
+    $staleReverseEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $staleReverseCacheStart),
+        static fn(string $event): bool => $event === 'remove:' . $staleReverseParent
+    ));
+    $check(str_contains($staleReverseFailure, 'is no longer grouped')
+        && $staleReverseEffects === []
+        && $staleReverseReads === 4,
+        'a reverse owner changing subtype refuses once, without invalidating the stale owner');
+    unset($fakeProducts[$staleReverseChild], $fakeMeta[$staleReverseChild],
+        $fakeMetaLookup[$staleReverseChild], $fakeVisibilityRelationships[$staleReverseChild],
+        $fakeProductCache[$staleReverseChild], $fakeProducts[$staleReverseParent],
+        $fakeMeta[$staleReverseParent], $fakeMetaLookup[$staleReverseParent],
+        $fakeVisibilityRelationships[$staleReverseParent], $fakeProductCache[$staleReverseParent],
+        $fakeGroupedChildren[$staleReverseParent]);
+
+    // The owner can retain its grouped subtype while losing the specific
+    // witness edge. Re-read the bounded serialized child payload before any
+    // owner cache invalidation and refuse the exact membership drift.
+    $lostMembershipChild = 71720;
+    $lostMembershipParent = 71721;
+    fake_add_visibility_product($lostMembershipChild, 'simple');
+    fake_add_visibility_product($lostMembershipParent, 'grouped', 0, [$lostMembershipChild]);
+    $fakeGroupedChildren[$lostMembershipParent] = [$lostMembershipChild];
+    $lostMembershipReads = 0;
+    $wpdb->childScopeReadHook = static function () use (
+        &$lostMembershipReads,
+        &$fakeGroupedChildren,
+        $lostMembershipParent
+    ): void {
+        $lostMembershipReads++;
+        // The fifth bounded payload read is the reverse-edge consumer's
+        // fresh owner check: two preflight reads plus two assertion reads
+        // have already established the sealed scope.
+        if ($lostMembershipReads === 5) {
+            $fakeGroupedChildren[$lostMembershipParent] = [];
+        }
+    };
+    $lostMembershipCacheStart = count($fakeCacheEvents);
+    $lostMembershipFailure = '';
+    try {
+        $adapter->regenerate_batch([$lostMembershipChild], []);
+    } catch (\Throwable $failure) {
+        $lostMembershipFailure = $failure->getMessage();
+    }
+    $wpdb->childScopeReadHook = null;
+    $lostMembershipEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $lostMembershipCacheStart),
+        static fn(string $event): bool => $event === 'remove:' . $lostMembershipParent
+    ));
+    $check(str_contains($lostMembershipFailure, 'child membership changed')
+        && $lostMembershipEffects === []
+        && $lostMembershipReads === 6,
+        'a reverse owner losing its sealed child membership refuses before owner invalidation');
+    unset($fakeProducts[$lostMembershipChild], $fakeMeta[$lostMembershipChild],
+        $fakeMetaLookup[$lostMembershipChild], $fakeVisibilityRelationships[$lostMembershipChild],
+        $fakeProductCache[$lostMembershipChild], $fakeProducts[$lostMembershipParent],
+        $fakeMeta[$lostMembershipParent], $fakeMetaLookup[$lostMembershipParent],
+        $fakeVisibilityRelationships[$lostMembershipParent], $fakeProductCache[$lostMembershipParent],
+        $fakeGroupedChildren[$lostMembershipParent]);
+
+    // A reverse owner can disappear after the final bounded child read. The
+    // sealed SQL edge must not be treated as permission to invalidate a post
+    // that no longer has a public Woo product object.
+    $disappearedOwnerChild = 71730;
+    $disappearedOwnerParent = 71731;
+    fake_add_visibility_product($disappearedOwnerChild, 'simple');
+    fake_add_visibility_product($disappearedOwnerParent, 'grouped', 0, [$disappearedOwnerChild]);
+    $fakeGroupedChildren[$disappearedOwnerParent] = [$disappearedOwnerChild];
+    $disappearedOwnerReads = 0;
+    $wpdb->childScopeReadHook = static function () use (
+        &$disappearedOwnerReads,
+        &$fakeProducts,
+        &$fakeProductCache,
+        &$fakeGroupedChildren,
+        $disappearedOwnerParent
+    ): void {
+        $disappearedOwnerReads++;
+        if ($disappearedOwnerReads === 4) {
+            unset($fakeProducts[$disappearedOwnerParent], $fakeProductCache[$disappearedOwnerParent]);
+            // Keep the fixture's SQL witness row so the production edge
+            // consumer, rather than preflight, handles the stale owner.
+            $fakeGroupedChildren[$disappearedOwnerParent] = [71730];
+        }
+    };
+    $disappearedOwnerCacheStart = count($fakeCacheEvents);
+    $disappearedOwnerFailure = '';
+    try {
+        $adapter->regenerate_batch([$disappearedOwnerChild], []);
+    } catch (\Throwable $failure) {
+        $disappearedOwnerFailure = $failure->getMessage();
+    }
+    $wpdb->childScopeReadHook = null;
+    $disappearedOwnerEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $disappearedOwnerCacheStart),
+        static fn(string $event): bool => $event === 'remove:' . $disappearedOwnerParent
+    ));
+    $check(str_contains($disappearedOwnerFailure, 'disappeared before native projection')
+        && $disappearedOwnerEffects === []
+        && $disappearedOwnerReads === 4,
+        'a reverse owner disappearing after preflight refuses before stale-owner invalidation');
+    unset($fakeProducts[$disappearedOwnerChild], $fakeMeta[$disappearedOwnerChild],
+        $fakeMetaLookup[$disappearedOwnerChild], $fakeVisibilityRelationships[$disappearedOwnerChild],
+        $fakeProductCache[$disappearedOwnerChild], $fakeProducts[$disappearedOwnerParent],
+        $fakeMeta[$disappearedOwnerParent], $fakeMetaLookup[$disappearedOwnerParent],
+        $fakeVisibilityRelationships[$disappearedOwnerParent], $fakeProductCache[$disappearedOwnerParent],
+        $fakeGroupedChildren[$disappearedOwnerParent]);
+
+    // If an owner was absent while preflight walked the reverse edge, its
+    // returned scope has no child witness. Restoring the owner before the
+    // projection edge is consumed must still refuse rather than treating the
+    // missing snapshot entry as an empty child list.
+    $missingWitnessChild = 71740;
+    $missingWitnessParent = 71741;
+    fake_add_visibility_product($missingWitnessChild, 'simple');
+    fake_add_visibility_product($missingWitnessParent, 'grouped', 0, [$missingWitnessChild]);
+    $fakeGroupedChildren[$missingWitnessParent] = [$missingWitnessChild];
+    $missingWitnessProduct = $fakeProducts[$missingWitnessParent];
+    $missingWitnessReads = 0;
+    $wpdb->groupedParentReadHook = static function () use (
+        &$missingWitnessReads,
+        &$fakeProducts,
+        &$fakeProductCache,
+        $missingWitnessParent,
+        $missingWitnessProduct
+    ): void {
+        $missingWitnessReads++;
+        if ($missingWitnessReads === 1) {
+            unset($fakeProducts[$missingWitnessParent], $fakeProductCache[$missingWitnessParent]);
+        } elseif ($missingWitnessReads === 2) {
+            $fakeProducts[$missingWitnessParent] = $missingWitnessProduct;
+        }
+    };
+    $missingWitnessCacheStart = count($fakeCacheEvents);
+    $missingWitnessFailure = '';
+    try {
+        $adapter->regenerate_batch([$missingWitnessChild], []);
+    } catch (\Throwable $failure) {
+        $missingWitnessFailure = $failure->getMessage();
+    }
+    $wpdb->groupedParentReadHook = null;
+    $missingWitnessEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $missingWitnessCacheStart),
+        static fn(string $event): bool => $event === 'remove:' . $missingWitnessParent
+    ));
+    $check(str_contains($missingWitnessFailure, 'lacks its bounded child witness')
+        && $missingWitnessEffects === []
+        && $missingWitnessReads === 3,
+        'a restored reverse owner without a sealed child witness refuses before owner invalidation');
+    unset($fakeProducts[$missingWitnessChild], $fakeMeta[$missingWitnessChild],
+        $fakeMetaLookup[$missingWitnessChild], $fakeVisibilityRelationships[$missingWitnessChild],
+        $fakeProductCache[$missingWitnessChild], $fakeProducts[$missingWitnessParent],
+        $fakeMeta[$missingWitnessParent], $fakeMetaLookup[$missingWitnessParent],
+        $fakeVisibilityRelationships[$missingWitnessParent], $fakeProductCache[$missingWitnessParent],
+        $fakeGroupedChildren[$missingWitnessParent]);
+
+    // Exercise the same mutable sequence through Woo's variable-product
+    // post_parent reader. The all-child witness is fixed at 50,000 ids, then
+    // the native membership widens before the assertion read; no later
+    // consumer is allowed to observe or project that widened set.
+    $variableRaceRoot = 71600;
+    $variableRaceChildren = range($variableRaceRoot + 1, $variableRaceRoot + 49999);
+    $variableRaceWidened = $variableRaceChildren;
+    $variableRaceWidened[] = $variableRaceRoot + 50000;
+    fake_add_visibility_product($variableRaceRoot, 'variable', 0, $variableRaceChildren);
+    $variableRaceReads = 0;
+    $wpdb->childScopeReadHook = static function () use (
+        &$variableRaceReads,
+        &$fakeProducts,
+        $variableRaceRoot,
+        $variableRaceWidened
+    ): void {
+        $variableRaceReads++;
+        if ($variableRaceReads === 3) {
+            $fakeProducts[$variableRaceRoot]->set_children($variableRaceWidened);
+        }
+    };
+    $variableRaceCacheStart = count($fakeCacheEvents);
+    $variableRaceLookupStart =
+        (\Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::$instance?->createCalls ?? 0);
+    $variableRaceVariableStart = WC_Data_Store::$variable?->calls ?? 0;
+    $variableRaceGroupedStart = WC_Data_Store::$grouped?->calls ?? 0;
+    $variableRaceScheduleStart = array_sum(array_map('count', $fakeSaleSchedules));
+    $variableRaceFailure = '';
+    try {
+        $adapter->regenerate_batch([$variableRaceRoot], []);
+    } catch (\Throwable $failure) {
+        $variableRaceFailure = $failure->getMessage();
+    }
+    $wpdb->childScopeReadHook = null;
+    $variableRaceEffects = array_values(array_filter(
+        array_slice($fakeCacheEvents, $variableRaceCacheStart),
+        static fn(string $event): bool => str_starts_with($event, 'remove:')
+    ));
+    $variableRaceLookupCalls =
+        (\Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::$instance?->createCalls ?? 0)
+        - $variableRaceLookupStart;
+    $variableRaceScheduleCalls = array_sum(array_map('count', $fakeSaleSchedules)) - $variableRaceScheduleStart;
+    $check(str_contains($variableRaceFailure, 'child scope changed')
+        && $variableRaceEffects === []
+        && $variableRaceLookupCalls === 0
+        && (WC_Data_Store::$variable?->calls ?? 0) === $variableRaceVariableStart
+        && (WC_Data_Store::$grouped?->calls ?? 0) === $variableRaceGroupedStart
+        && $variableRaceScheduleCalls === 0,
+        'a variable child list widening from 50,000 to 50,001 after preflight refuses before every derived effect');
+    unset($fakeProducts[$variableRaceRoot], $fakeMeta[$variableRaceRoot], $fakeMetaLookup[$variableRaceRoot],
+        $fakeVisibilityRelationships[$variableRaceRoot], $fakeProductCache[$variableRaceRoot]);
+    unset($variableRaceChildren, $variableRaceWidened);
+
+    // MAX+1 must fail before visibility/cache work and must not partially
+    // mutate the root lookup witness.
+    $overflowRoot = 72000;
+    $overflowChildren = range($overflowRoot + 1, $overflowRoot + 50000);
+    fake_add_visibility_product($overflowRoot, 'grouped', 0, $overflowChildren);
+    $overflowLookupBefore = $fakeMetaLookup[$overflowRoot];
+    $overflowCacheStart = count($fakeCacheEvents);
+    $overflowFailure = '';
+    try {
+        $adapter->regenerate_batch([$overflowRoot], []);
+    } catch (\Throwable $failure) {
+        $overflowFailure = $failure->getMessage();
+    }
+    $overflowCacheEvents = array_slice($fakeCacheEvents, $overflowCacheStart);
+    $check(str_contains($overflowFailure, 'aggregate product count')
+        && !in_array('remove:' . $overflowRoot, $overflowCacheEvents, true)
+        && $fakeMetaLookup[$overflowRoot] === $overflowLookupBefore,
+        'a 50,001-id aggregate refuses loudly before cache/lookup effects with no partial root mutation');
+    unset($fakeProducts[$overflowRoot], $fakeMeta[$overflowRoot], $fakeMetaLookup[$overflowRoot],
+        $fakeVisibilityRelationships[$overflowRoot], $fakeProductCache[$overflowRoot]);
+
+    // The same single aggregate must reject a variable root's variation
+    // expansion; a separate per-root/child counter would otherwise permit
+    // this path while grouped roots are bounded.
+    $variationOverflowRoot = 73000;
+    $variationOverflowChildren = range($variationOverflowRoot + 1, $variationOverflowRoot + 50000);
+    fake_add_visibility_product($variationOverflowRoot, 'variable', 0, $variationOverflowChildren);
+    $variationOverflowCacheStart = count($fakeCacheEvents);
+    $variationOverflowFailure = '';
+    try {
+        $adapter->regenerate_batch([$variationOverflowRoot], []);
+    } catch (\Throwable $failure) {
+        $variationOverflowFailure = $failure->getMessage();
+    }
+    $variationOverflowCacheEvents = array_slice($fakeCacheEvents, $variationOverflowCacheStart);
+    $check(str_contains($variationOverflowFailure, 'aggregate product count')
+        && !in_array('remove:' . $variationOverflowRoot, $variationOverflowCacheEvents, true),
+        'a 50,001-id variable/variation aggregate refuses before cache effects');
+    unset($fakeProducts[$variationOverflowRoot], $fakeMeta[$variationOverflowRoot],
+        $fakeMetaLookup[$variationOverflowRoot], $fakeVisibilityRelationships[$variationOverflowRoot],
+        $fakeProductCache[$variationOverflowRoot]);
+
+    // A target-local approved-directory register is a real WooCommerce 11
+    // projection: raw postmeta can contain an enabled, correctly rebased
+    // file while WC_Product::get_downloads() disables it until the target
+    // parent is approved. Exercise that boundary through regenerate_batch(),
+    // the same provider entry point a real apply invokes.
+    $downloadId = '0123456789abcdef0123456789abcdef';
+    $downloadFile = 'https://target.example/uploads/2030/01/catalog.pdf?download=1&label=tokyo';
+    $downloadRow = static function (
+        string $file,
+        bool $enabled = true,
+        string $name = 'Portable catalog 東京.pdf',
+        array $extra = []
+    ) use ($downloadId): string {
+        return serialize([
+            $downloadId => array_merge([
+            'id' => $downloadId,
+            'name' => $name,
+            'file' => $file,
+            'enabled' => $enabled,
+            ], $extra),
+        ]);
+    };
+    $fakeMeta[17] = $fakeMeta[13];
+    $fakeMeta[17]['_downloadable'] = ['yes'];
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile)];
+    $fakeProducts[17] = new FakeProduct(17, 'simple', 0, [], [], true);
+    fake_set_visibility_relationships(17, 'product_type', ['simple']);
+    $fakeMetaLookup[17] = $fakeMetaLookup[10];
+    $fakeMetaLookup[17]['product_id'] = 17;
+    $register = \Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories\Register::$instance
+        ??= new \Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories\Register();
+    $register->rules['https://unrelated.example/private/'] = ['id' => 900, 'enabled' => true];
+    $adapter->regenerate_batch([17], []);
+    $expectedParent = 'https://target.example/uploads/2030/01/';
+    $nativeDownload = wc_get_product(17)->get_downloads()[$downloadId] ?? null;
+    $check(isset($register->rules[$expectedParent]) && $register->rules[$expectedParent]['enabled'] === true,
+        'download repair adds the exact target parent through WooCommerce\'s approved-directory API');
+    $check(isset($register->rules['https://unrelated.example/private/']),
+        'download repair preserves unrelated target-local approved-directory rules');
+    $check($nativeDownload instanceof FakeProductDownload
+        && $nativeDownload->get_id() === $downloadId
+        && $nativeDownload->get_name() === 'Portable catalog 東京.pdf'
+        && $nativeDownload->get_enabled() === true
+        && $nativeDownload->get_file() === $downloadFile,
+        'the real provider path verifies exact native download identity, name, file, and enabled state');
+    $addCount = $register->adds;
+    $adapter->regenerate_batch([17], []);
+    $check($register->adds === $addCount,
+        'replaying the same product batch is idempotent and creates no duplicate directory rule');
+
+    $register->rules[$expectedParent]['enabled'] = false;
+    $enableCount = $register->enables;
+    $adapter->regenerate_batch([17], []);
+    $check($register->rules[$expectedParent]['enabled'] === true && $register->enables === $enableCount + 1,
+        'an exact disabled target rule is re-enabled because the authored product requires that directory');
+
+    $register->rules = [
+        'https://target.example/uploads/' => ['id' => 901, 'enabled' => true],
+        'https://unrelated.example/private/' => ['id' => 900, 'enabled' => true],
+    ];
+    $addCount = $register->adds;
+    $adapter->regenerate_batch([17], []);
+    $check($register->adds === $addCount && !isset($register->rules[$expectedParent]),
+        'an existing broader approved parent satisfies the file without adding a redundant narrower rule');
+
+    $register->mode = $register::MODE_DISABLED;
+    $register->rules = ['https://unrelated.example/private/' => ['id' => 900, 'enabled' => true]];
+    $addCount = $register->adds;
+    $adapter->regenerate_batch([17], []);
+    $nativeDownload = wc_get_product(17)->get_downloads()[$downloadId] ?? null;
+    $check($register->adds === $addCount && $nativeDownload instanceof FakeProductDownload
+        && $nativeDownload->get_enabled() === true,
+        'disabled directory enforcement performs no registry mutation and native verification still succeeds');
+    $register->mode = $register::MODE_ENABLED;
+
+    $secretFile = 'https://target.example/private/catalog.pdf?api_key=do-not-leak';
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($secretFile)];
+    $register->rules = [];
+    $register->failAdd = true;
+    $failureMessage = '';
+    try {
+        $adapter->regenerate_batch([17], []);
+    } catch (\Throwable $failure) {
+        $failureMessage = $failure->getMessage();
+    }
+    $register->failAdd = false;
+    $check(str_contains($failureMessage, 'could not approve the target directory')
+        && !str_contains($failureMessage, 'api_key') && !str_contains($failureMessage, 'do-not-leak'),
+        'directory write failures are loud but redact credential-shaped URLs and plugin error detail');
+    $adapter->regenerate_batch([17], []);
+    $check(wc_get_product(17)->get_downloads()[$downloadId]->get_enabled() === true,
+        'the same batch converges on retry after a directory-provider write failure');
+
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow('[private_download id="17"]')];
+    $shortcodeFailure = false;
+    try {
+        $adapter->regenerate_batch([17], []);
+    } catch (\Throwable $failure) {
+        $shortcodeFailure = str_contains($failure->getMessage(), 'shortcode download locator');
+    }
+    $check($shortcodeFailure,
+        'extension-executed shortcode download locators fail closed before any approval API call');
+
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile, false)];
+    $disabledFailure = false;
+    try {
+        $adapter->regenerate_batch([17], []);
+    } catch (\Throwable $failure) {
+        $disabledFailure = str_contains($failure->getMessage(), 'unsupported downloadable-file row');
+    }
+    $check($disabledFailure,
+        'site-local disabled download rows cannot be silently promoted as portable authored state');
+
+    $fakeMeta[17]['_downloadable_files'] = [
+        $downloadRow($downloadFile, true, 'Portable catalog 東京.pdf', ['addon_checksum' => 'unsupported']),
+    ];
+    $unknownDownloadFieldFailure = false;
+    try {
+        $adapter->regenerate_batch([17], []);
+    } catch (\Throwable $failure) {
+        $unknownDownloadFieldFailure = str_contains($failure->getMessage(), 'unsupported downloadable-file row');
+    }
+    $check($unknownDownloadFieldFailure,
+        'addon-owned downloadable-file fields refuse at the executable provider boundary');
+
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile)];
+    $fakeDownloadMetaRows[17] = [$downloadRow($downloadFile), $downloadRow($downloadFile)];
+    $duplicateFailure = false;
+    try {
+        $adapter->regenerate_batch([17], []);
+    } catch (\Throwable $failure) {
+        $duplicateFailure = str_contains($failure->getMessage(), 'multiple _downloadable_files rows');
+    }
+    unset($fakeDownloadMetaRows[17]);
+    $check($duplicateFailure,
+        'duplicate raw download metadata rows refuse instead of selecting an arbitrary value');
+
+    $observeDownloads = new \ReflectionMethod($adapter, 'authored_downloads');
+    $oversizedDownloadMarker = 'download_secret_marker_DO_NOT_ECHO';
+    $fakeDownloadMetaRows[17] = [
+        $oversizedDownloadMarker
+            . str_repeat('x', 1048577 - strlen($oversizedDownloadMarker)),
+    ];
+    $oversizedDownloadMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, [17]);
+    } catch (\Throwable $failure) {
+        $oversizedDownloadMessage = $failure->getMessage();
+    }
+    unset($fakeDownloadMetaRows[17]);
+    $check(str_contains($oversizedDownloadMessage, 'oversized downloadable-file metadata')
+        && !str_contains($oversizedDownloadMessage, $oversizedDownloadMarker),
+        'a single LONGTEXT download value is refused from its compact byte witness without transfer or disclosure');
+
+    $aggregateDownloadIds = range(1000, 1016);
+    $aggregateDownloadValue = str_repeat('x', 1048576);
+    foreach ($aggregateDownloadIds as $aggregateDownloadId) {
+        $fakeDownloadMetaRows[$aggregateDownloadId] = [$aggregateDownloadValue];
+    }
+    $fakeVisibilityQueries = [];
+    $aggregateDownloadMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, $aggregateDownloadIds);
+    } catch (\Throwable $failure) {
+        $aggregateDownloadMessage = $failure->getMessage();
+    }
+    foreach ($aggregateDownloadIds as $aggregateDownloadId) {
+        unset($fakeDownloadMetaRows[$aggregateDownloadId]);
+    }
+    unset($aggregateDownloadValue);
+    $check(str_contains($aggregateDownloadMessage, 'aggregate byte bound')
+        && !array_filter(
+            $fakeVisibilityQueries,
+            static fn(string $query): bool => str_contains($query, ' AS meta_key, meta_value,')
+        ), 'aggregate authored download bytes refuse from compact witnesses before any LONGTEXT payload read');
+
+    $tooManyDownloads = [];
+    for ($index = 0; $index < 1001; $index++) {
+        $rowId = 'download-' . $index;
+        $tooManyDownloads[$rowId] = [
+            'id' => $rowId,
+            'name' => 'n',
+            'file' => 'https://target.example/d/' . $index,
+            'enabled' => true,
+        ];
+    }
+    $fakeDownloadMetaRows[17] = [serialize($tooManyDownloads)];
+    $tooManyDownloadsMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, [17]);
+    } catch (\Throwable $failure) {
+        $tooManyDownloadsMessage = $failure->getMessage();
+    }
+    unset($fakeDownloadMetaRows[17], $tooManyDownloads);
+    $check(str_contains($tooManyDownloadsMessage, 'malformed downloadable-file metadata'),
+        'decoded download rows are bounded per product even when the serialized payload is within its byte cap');
+
+    $aggregateDecodedRows = [];
+    for ($index = 0; $index < 910; $index++) {
+        $rowId = 'd-' . $index;
+        $aggregateDecodedRows[$rowId] = [
+            'id' => $rowId,
+            'name' => 'n',
+            'file' => 'https://target.example/d/' . $index,
+            'enabled' => true,
+        ];
+    }
+    $aggregateDecodedValue = serialize($aggregateDecodedRows);
+    $aggregateDecodedIds = range(1100, 1110);
+    foreach ($aggregateDecodedIds as $aggregateDecodedId) {
+        $fakeDownloadMetaRows[$aggregateDecodedId] = [$aggregateDecodedValue];
+    }
+    $aggregateDecodedMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, $aggregateDecodedIds);
+    } catch (\Throwable $failure) {
+        $aggregateDecodedMessage = $failure->getMessage();
+    }
+    foreach ($aggregateDecodedIds as $aggregateDecodedId) {
+        unset($fakeDownloadMetaRows[$aggregateDecodedId]);
+    }
+    unset($aggregateDecodedRows, $aggregateDecodedValue);
+    $check(str_contains($aggregateDecodedMessage, 'aggregate decoded bound'),
+        'decoded download cardinality is bounded across owners and chunks, not merely per product');
+
+    $downloadBoundCases = [
+        'identity' => [str_repeat('i', 257), 'name', 'https://target.example/file'],
+        'name' => ['bounded-id', str_repeat('n', 4097), 'https://target.example/file'],
+        'file' => ['bounded-id', 'name', 'https://target.example/' . str_repeat('f', 8193)],
+    ];
+    foreach ($downloadBoundCases as $part => [$rowId, $name, $file]) {
+        $fakeDownloadMetaRows[17] = [serialize([
+            $rowId => ['id' => $rowId, 'name' => $name, 'file' => $file, 'enabled' => true],
+        ])];
+        $downloadBoundMessage = '';
+        try {
+            $observeDownloads->invoke($adapter, [17]);
+        } catch (\Throwable $failure) {
+            $downloadBoundMessage = $failure->getMessage();
+        }
+        $check(str_contains($downloadBoundMessage, 'unsupported downloadable-file row'),
+            "decoded download $part bytes have an explicit per-row bound");
+    }
+    unset($fakeDownloadMetaRows[17]);
+
+    $fakeDownloadMetaRows[17] = [$downloadRow($downloadFile)];
+    $wpdb->downloadMetaKeyOverride = '_DOWNLOADABLE_FILES';
+    $downloadAliasMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, [17]);
+    } catch (\Throwable $failure) {
+        $downloadAliasMessage = $failure->getMessage();
+    }
+    $wpdb->downloadMetaKeyOverride = null;
+    $check(str_contains($downloadAliasMessage, 'malformed or aliased state'),
+        'case-insensitive metadata lookup cannot bless a non-binary _downloadable_files alias');
+
+    $sameLengthRacedDownload = $downloadRow(str_replace('catalog.pdf', 'catxlog.pdf', $downloadFile));
+    $wpdb->afterDownloadWitness = static function () use (&$fakeDownloadMetaRows, $sameLengthRacedDownload): void {
+        $fakeDownloadMetaRows[17] = [$sameLengthRacedDownload];
+    };
+    $downloadRaceMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, [17]);
+    } catch (\Throwable $failure) {
+        $downloadRaceMessage = $failure->getMessage();
+    }
+    $fakeDownloadMetaRows[17] = [$downloadRow($downloadFile)];
+    $check(str_contains($downloadRaceMessage, 'changed after its byte witness')
+        || str_contains($downloadRaceMessage, 'identity changed after its byte witness'),
+        'a same-length download metadata write between compact witness and payload read cannot be blessed');
+
+    $wpdb->failReadContaining = ' AS meta_key, meta_value,';
+    $downloadPayloadReadMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, [17]);
+    } catch (\Throwable $failure) {
+        $downloadPayloadReadMessage = $failure->getMessage();
+    }
+    $wpdb->failReadContaining = null;
+    $wpdb->last_error = '';
+    unset($fakeDownloadMetaRows[17]);
+    $check(str_contains($downloadPayloadReadMessage, 'checked read failed')
+        && !str_contains($downloadPayloadReadMessage, $downloadFile),
+        'download payload DB failure is loud and redacted after a valid compact witness');
+
+    $downloadScopeArgs = [
+        'entities' => [
+            'entities' => [['kind' => 'post:product', 'id' => 17]],
+            'always_on_write' => true,
+            'deletions' => [],
+            'reparents' => [],
+            'retry' => true,
+        ],
+    ];
+    $scopeOperation = ['fixture' => 'woocommerce-scoped-recovery'];
+    $fakeDownloadWakeups = 0;
+    $fakeMeta[17]['_downloadable_files'] = [serialize(new FakeDownloadWakeupCanary())];
+    $approvalAddsBeforeObject = $register->adds;
+    $objectFailure = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $downloadScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $objectFailure = $failure->getMessage();
+    }
+    $check($fakeDownloadWakeups === 0
+        && $register->adds === $approvalAddsBeforeObject
+        && str_contains($objectFailure, 'non-plain serialized data')
+        && str_contains($objectFailure, 'downloadable-file metadata'),
+        'scoped recovery rejects serialized download objects before __wakeup or approved-directory hooks execute');
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile)];
+
+    $lookupBeforeReadFailure = $fakeMetaLookup[17];
+    $wpdb->failReadContaining = "meta_key = '_downloadable_files'";
+    $readFailure = false;
+    try {
+        $adapter->regenerate_batch([17], []);
+    } catch (\Throwable $failure) {
+        $readFailure = str_contains($failure->getMessage(), 'checked read failed');
+    }
+    $wpdb->failReadContaining = null;
+    $wpdb->last_error = '';
+    $check($readFailure && $fakeMetaLookup[17] === $lookupBeforeReadFailure,
+        'a failed fresh metadata read refuses before product lookup mutation and is safe to retry');
+
+    $receipt = $adapter->invoke('rebuild_product_lookups', [
+        'entities' => [
+            'entities' => [['kind' => 'post:product', 'id' => 17]],
+            'always_on_write' => true,
+            'deletions' => [],
+            'reparents' => [],
+            'retry' => true,
+        ],
+    ]);
+    $receiptBytes = serialize($receipt);
+    $check(($receipt['after']['download_files'] ?? null) === 1
+        && ($receipt['after']['usable_download_files'] ?? null) === 1
+        && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['lookup_scope_sha256'] ?? '')) === 1
+        && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['attribute_lookup_scope_sha256'] ?? '')) === 1
+        && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['sale_schedule_scope_sha256'] ?? '')) === 1
+        && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['download_scope_sha256'] ?? '')) === 1
+        && !str_contains($receiptBytes, 'target.example') && !str_contains($receiptBytes, 'catalog.pdf'),
+        'verified receipts stay bounded and bind exact meta/attribute lookup, sale, and download state without exposing authored values');
+
+    $downloadScoped = $adapter->invoke_scoped(
+        'rebuild_product_lookups',
+        $downloadScopeArgs,
+        $scopeOperation
+    );
+    $nativeBaseline = wc_get_product(17)->get_downloads();
+    $nativeMismatchCases = [
+        'extra identity' => $nativeBaseline + [
+            'extra-download' => new FakeProductDownload(
+                'extra-download',
+                'Extra',
+                $downloadFile,
+                true
+            ),
+        ],
+        'missing identity' => [],
+        'same-count wrong name' => [
+            $downloadId => new FakeProductDownload($downloadId, 'Wrong name', $downloadFile, true),
+        ],
+        'same-count wrong file' => [
+            $downloadId => new FakeProductDownload(
+                $downloadId,
+                'Portable catalog 東京.pdf',
+                $downloadFile . '&native-drift=1',
+                true
+            ),
+        ],
+        'same-count wrong enabled state' => [
+            $downloadId => new FakeProductDownload(
+                $downloadId,
+                'Portable catalog 東京.pdf',
+                $downloadFile,
+                false
+            ),
+        ],
+        'same-count wrong object id' => [
+            $downloadId => new FakeProductDownload(
+                'different-object-id',
+                'Portable catalog 東京.pdf',
+                $downloadFile,
+                true
+            ),
+        ],
+    ];
+    foreach ($nativeMismatchCases as $case => $nativeOverride) {
+        $fakeNativeDownloadOverrides[17] = $nativeOverride;
+        $nativeMismatch = false;
+        try {
+            $adapter->reconcile_scoped('rebuild_product_lookups', $downloadScopeArgs, $scopeOperation);
+        } catch (\Throwable $failure) {
+            $nativeMismatch = str_contains($failure->getMessage(), 'native download');
+        }
+        unset($fakeNativeDownloadOverrides[17]);
+        $check($nativeMismatch, "native download verification refuses $case");
+    }
+
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile . '&revision=2')];
+    $downloadDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $downloadScopeArgs,
+        $scopeOperation
+    );
+    $check(($downloadDrift['after']['download_files'] ?? null)
+            === ($downloadScoped['after']['download_files'] ?? null)
+        && ($downloadDrift['after']['download_scope_sha256'] ?? null)
+            !== ($downloadScoped['after']['download_scope_sha256'] ?? null),
+        'same-count downloadable-file drift cannot match the saved scoped postcondition');
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile, true, 'Changed download name')];
+    $downloadNameDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $downloadScopeArgs,
+        $scopeOperation
+    );
+    $check(($downloadNameDrift['after']['download_files'] ?? null)
+            === ($downloadScoped['after']['download_files'] ?? null)
+        && ($downloadNameDrift['after']['download_scope_sha256'] ?? null)
+            !== ($downloadScoped['after']['download_scope_sha256'] ?? null),
+        'same-count downloadable-file name drift cannot match the saved scoped postcondition');
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile)];
+    $downloadRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $downloadScopeArgs,
+        $scopeOperation
+    );
+    $check(($downloadRecovered['after'] ?? null) === ($downloadScoped['after'] ?? null),
+        'restoring the exact downloadable-file state makes scoped recovery deterministic and retryable');
+
+    // Woo publishes the uncoerced PHP price in its derivation cache while
+    // MySQL assigns that value into DECIMAL(19,4). The verifier must accept
+    // the installed schema's exact rounding and must not weaken comparison of
+    // any non-DECIMAL column.
+    $fakeMeta[16] = $fakeMeta[13];
+    $fakeMeta[16]['_price'] = ['0'];
+    $fakeMeta[16]['_regular_price'] = ['123456789.123456'];
+    $fakeMeta[16]['_sale_price'] = [''];
+    $fakeProducts[16] = new FakeProduct(16, 'simple', 0, [], [], true);
+    fake_set_visibility_relationships(16, 'product_type', ['simple']);
+    $fakeMetaLookup[16] = $fakeMetaLookup[10];
+    $fakeMetaLookup[16]['product_id'] = 16;
+    $adapter->regenerate_batch([16], []);
+    $check($fakeMeta[16]['_price'] === ['123456789.123456'],
+        'six-decimal authored price remains exact in WooCommerce postmeta');
+    $check(($fakeMetaLookup[16]['min_price'] ?? null) === '123456789.1235'
+        && ($fakeMetaLookup[16]['max_price'] ?? null) === '123456789.1235',
+        'lookup verification accepts only the installed DECIMAL scale assignment');
+
     // Sale scheduling is a bounded product batch, not a catalog-wide scan.
     // Exercise a future end date, an unrelated no-date product, heartbeat
     // calls, exact Action Scheduler readback, and a verifier fault that must
     // fail closed before the retry is allowed to pass.
+    $futureSaleTimestamp = new \ReflectionMethod($adapter, 'future_sale_timestamp');
+    $clockNow = 1700000000;
+    $check($futureSaleTimestamp->invoke($adapter, new FakeSaleDate($clockNow), $clockNow) === null
+        && $futureSaleTimestamp->invoke($adapter, new FakeSaleDate($clockNow + 1), $clockNow) === $clockNow + 1,
+        'sale timestamp projection uses an explicit clock seam at the exact now boundary');
     $futureSale = time() + 3600;
     $fakeMeta[13]['_sale_price_dates_to'] = [(string) $futureSale];
     $saleCallStart = count($fakeSaleScheduleCalls);
@@ -1272,13 +3840,715 @@ namespace {
     try {
         $adapter->regenerate_batch([13], []);
     } catch (\Throwable $failure) {
-        $saleVerificationFailedClosed = str_contains($failure->getMessage(), 'sale schedule verification mismatch');
+        $saleVerificationFailedClosed = str_contains($failure->getMessage(), 'sale schedule APIs disagreed');
     }
     $fakeSaleVerificationFailure = false;
     $check($saleVerificationFailedClosed, 'sale schedule verification refuses a failed Action Scheduler readback');
     $adapter->regenerate_batch([13], []);
     $check(($fakeSaleSchedules['wc_product_end_scheduled_sale'][13] ?? null) === $futureSale,
         'sale scheduling retry restores the exact future action after a verification failure');
+
+    $productScopeArgs = [
+        'entities' => [
+            'entities' => [['kind' => 'post:product', 'id' => 13]],
+            'always_on_write' => true,
+            'deletions' => [],
+            'reparents' => [],
+            'retry' => true,
+        ],
+    ];
+    $fakeProducts[13]->set_attributes([
+        'pa_color' => new FakeProductAttribute(13, [101], false),
+    ]);
+    unset($fakeProductCache[13]);
+    $attributeStoreForRetry = wc_get_container()->get(
+        \Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::class
+    );
+    $attributeStoreForRetry->failNextCreates = 1;
+    $attributeFailure = false;
+    try {
+        $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $attributeFailure = str_contains($failure->getMessage(), 'attribute lookup regeneration failed')
+            && str_contains($failure->getMessage(), 'recovery_required');
+    }
+    $check($attributeFailure && !array_filter(
+        $fakeAttrLookup,
+        static fn(array $row): bool => (int) $row['product_or_parent_id'] === 13
+    ), 'a partial native attribute lookup failure is loud and leaves retry authority active');
+    $productScoped = $adapter->invoke_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($productScoped['after']['attribute_lookup_rows'] ?? null) === 1
+        && preg_match('/^[a-f0-9]{64}$/D', (string) ($productScoped['after']['attribute_lookup_scope_sha256'] ?? '')) === 1,
+        'attribute lookup retry writes and receipt-binds the exact native scoped row');
+    $exactLookupRow = $fakeMetaLookup[13];
+    $fakeMetaLookup[13]['min_price'] = 'same-count-drift';
+    $lookupDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($lookupDrift['after']['meta_lookup_rows'] ?? null)
+            === ($productScoped['after']['meta_lookup_rows'] ?? null)
+        && ($lookupDrift['after']['lookup_scope_sha256'] ?? null)
+            !== ($productScoped['after']['lookup_scope_sha256'] ?? null),
+        'same-count lookup-value drift cannot match the saved scoped postcondition');
+    $fakeMetaLookup[13] = $exactLookupRow;
+    $lookupRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($lookupRecovered['after'] ?? null) === ($productScoped['after'] ?? null),
+        'restoring every lookup value recovers the exact scoped postcondition');
+
+    $attributeRowKey = array_key_first(array_filter(
+        $fakeAttrLookup,
+        static fn(array $row): bool => (int) $row['product_or_parent_id'] === 13
+    ));
+    $exactAttributeRow = $attributeRowKey === null ? null : $fakeAttrLookup[$attributeRowKey];
+    if ($attributeRowKey !== null) {
+        $fakeAttrLookup[$attributeRowKey]['term_id'] = 102;
+    }
+    $attributeDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check($exactAttributeRow !== null
+        && ($attributeDrift['after']['attribute_lookup_rows'] ?? null)
+            === ($productScoped['after']['attribute_lookup_rows'] ?? null)
+        && ($attributeDrift['after']['attribute_lookup_scope_sha256'] ?? null)
+            !== ($productScoped['after']['attribute_lookup_scope_sha256'] ?? null),
+        'same-count product attribute lookup drift cannot match the saved scoped postcondition');
+    if ($attributeRowKey !== null && is_array($exactAttributeRow)) {
+        $fakeAttrLookup[$attributeRowKey] = $exactAttributeRow;
+    }
+    $attributeRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($attributeRecovered['after'] ?? null) === ($productScoped['after'] ?? null),
+        'restoring exact attribute lookup rows recovers the scoped postcondition');
+
+    $cogsController = wc_get_container()->get(
+        \Automattic\WooCommerce\Internal\CostOfGoodsSold\CostOfGoodsSoldController::class
+    );
+    $fakeMeta[13]['_cogs_total_value'] = ['7.12555'];
+    $cogsLookupBeforeRefusal = $fakeMetaLookup[13];
+    $cogsDisabledMessage = '';
+    try {
+        $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $cogsDisabledMessage = $failure->getMessage();
+    }
+    $check(str_contains($cogsDisabledMessage, 'Cost of Goods is disabled')
+        && str_contains($cogsDisabledMessage, '1 scoped authored row')
+        && !str_contains($cogsDisabledMessage, '7.12555')
+        && $fakeMetaLookup[13] === $cogsLookupBeforeRefusal,
+        'authored COGS refuses before provider mutation when the target native feature is disabled');
+
+    $cogsController->enabled = true;
+    $cogsMissingColumnMessage = '';
+    try {
+        $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $cogsMissingColumnMessage = $failure->getMessage();
+    }
+    $check(str_contains($cogsMissingColumnMessage, 'lookup column is absent')
+        && str_contains($cogsMissingColumnMessage, 'native WooCommerce COGS column tool')
+        && !str_contains($cogsMissingColumnMessage, '7.12555')
+        && $fakeMetaLookup[13] === $cogsLookupBeforeRefusal,
+        'authored COGS refuses without an exact native lookup-column boundary and names the recovery path');
+
+    $cogsController->lookupColumnPresent = true;
+    $cogsScoped = $adapter->invoke_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($fakeMetaLookup[13]['cogs_total_value'] ?? null) === '7.1256'
+        && ($cogsScoped['after']['cogs_authored_rows'] ?? null) === 1
+        && ($cogsScoped['after']['cogs_typed_products'] ?? null) === 1
+        && ($cogsScoped['after']['cogs_feature_enabled'] ?? null) === 1
+        && ($cogsScoped['after']['cogs_lookup_column_present'] ?? null) === 1
+        && preg_match('/^[a-f0-9]{64}$/D', (string) ($cogsScoped['after']['cogs_scope_sha256'] ?? '')) === 1
+        && !str_contains(serialize($cogsScoped), '7.12555'),
+        'enabled COGS delegates five-decimal rounding to Woo/MySQL and binds redacted exact scoped evidence');
+
+    $simpleProduct = $fakeProducts[13];
+    $fakeProducts[13] = new FakeProduct(13, 'external', 0, [], [], true);
+    fake_set_visibility_relationships(13, 'product_type', ['external']);
+    unset($fakeProductCache[13]);
+    $cogsTypeDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($cogsTypeDrift['after']['cogs_authored_rows'] ?? null)
+            === ($cogsScoped['after']['cogs_authored_rows'] ?? null)
+        && ($cogsTypeDrift['after']['cogs_scope_sha256'] ?? null)
+            !== ($cogsScoped['after']['cogs_scope_sha256'] ?? null),
+        'the exact native WC product subtype is part of the scoped COGS receipt even when row count and value are unchanged');
+    $fakeProducts[13] = $simpleProduct;
+    fake_set_visibility_relationships(13, 'product_type', ['simple']);
+    unset($fakeProductCache[13]);
+    $cogsTypeRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($cogsTypeRecovered['after'] ?? null) === ($cogsScoped['after'] ?? null),
+        'restoring the native WC product subtype recovers the exact scoped COGS postcondition');
+
+    $fakeMeta[13]['_cogs_value_is_additive'] = ['yes'];
+    $simpleAdditiveMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $simpleAdditiveMessage = $failure->getMessage();
+    }
+    unset($fakeMeta[13]['_cogs_value_is_additive']);
+    $check(str_contains($simpleAdditiveMessage, 'variation-only additive Cost of Goods metadata')
+        && !str_contains($simpleAdditiveMessage, '7.12555'),
+        'a hostile post-materialization additive row on a simple product cannot verify or retire recovery');
+
+    $fakeMeta[13]['_cogs_total_value'] = ['0'];
+    $simpleZeroMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $simpleZeroMessage = $failure->getMessage();
+    }
+    $fakeMeta[13]['_cogs_total_value'] = ['7.12555'];
+    $check(str_contains($simpleZeroMessage, 'base product 13 has a Cost of Goods zero that native storage deletes')
+        && !str_contains($simpleZeroMessage, '7.12555'),
+        'a hostile post-materialization base-product zero cannot verify or retire recovery');
+
+    $fakePostTypeOverrides[13] = 'product_variation';
+    $inconsistentSubtypeMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $inconsistentSubtypeMessage = $failure->getMessage();
+    }
+    unset($fakePostTypeOverrides[13]);
+    $check(str_contains($inconsistentSubtypeMessage, 'inconsistent native product subtype')
+        && !str_contains($inconsistentSubtypeMessage, '7.12555'),
+        'posts-table and native WC subtype disagreement refuses with redacted diagnostics');
+
+    $fakeMeta[13]['_cogs_total_value'] = ['8.12555'];
+    $cogsDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($cogsDrift['after']['cogs_authored_rows'] ?? null)
+            === ($cogsScoped['after']['cogs_authored_rows'] ?? null)
+        && ($cogsDrift['after']['cogs_scope_sha256'] ?? null)
+            !== ($cogsScoped['after']['cogs_scope_sha256'] ?? null),
+        'same-count COGS drift cannot match the saved scoped postcondition');
+    $fakeMeta[13]['_cogs_total_value'] = ['7.12555'];
+    $cogsRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($cogsRecovered['after'] ?? null) === ($cogsScoped['after'] ?? null),
+        'restoring exact authored COGS recovers the complete scoped postcondition');
+
+    foreach ([
+        '1.23454' => '1.2345',
+        '1.23455' => '1.2346',
+        '-1.23455' => '-1.2346',
+        '1.234565' => '1.2346',
+        '1.0E-7' => '0.0000',
+        '9.999999999999E+14' => '999999999999900.0000',
+    ] as $rawCogs => $lookupCogs) {
+        $fakeMeta[13]['_cogs_total_value'] = [$rawCogs];
+        $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+        $check(($fakeMetaLookup[13]['cogs_total_value'] ?? null) === $lookupCogs,
+            "native COGS postmeta $rawCogs reaches exact DECIMAL(19,4) lookup value $lookupCogs");
+    }
+    $fakeMeta[13]['_cogs_total_value'] = ['7.12555'];
+    $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+
+    $variationScopeArgs = [
+        'entities' => [
+            'entities' => [['kind' => 'post:product_variation', 'id' => 11]],
+            'always_on_write' => true,
+            'deletions' => [],
+            'reparents' => [],
+            'retry' => true,
+        ],
+    ];
+    $fakeMeta[11]['_cogs_total_value'] = ['0'];
+    $fakeMeta[11]['_cogs_value_is_additive'] = ['yes'];
+    $fakeMetaLookup[11]['cogs_total_value'] = '0.0000';
+    unset($fakeProductCache[11]);
+    $variationCogs = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $variationScopeArgs,
+        $scopeOperation
+    );
+    $check(($variationCogs['after']['cogs_authored_rows'] ?? null) === 2
+        && ($variationCogs['after']['cogs_typed_products'] ?? null) === 1
+        && ($fakeMetaLookup[11]['cogs_total_value'] ?? null) === '0.0000',
+        'native variation subtype preserves explicit zero and the additive marker through scoped recovery verification');
+    unset(
+        $fakeMeta[11]['_cogs_total_value'],
+        $fakeMeta[11]['_cogs_value_is_additive'],
+        $fakeMetaLookup[11]['cogs_total_value']
+    );
+
+    $fakeLookupWriteFaults[13] = ['cogs_total_value' => '9.9999'];
+    $cogsWriteFailure = '';
+    try {
+        $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $cogsWriteFailure = $failure->getMessage();
+    }
+    unset($fakeLookupWriteFaults[13]);
+    $check(str_contains($cogsWriteFailure, 'product lookup verification mismatch')
+        && !str_contains($cogsWriteFailure, '7.12555'),
+        'a failed rounded COGS lookup write refuses with bounded digests and leaves retry authority');
+    $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    $check(($fakeMetaLookup[13]['cogs_total_value'] ?? null) === '7.1256',
+        'rounded COGS lookup retry converges after the injected write failure');
+
+    $cogsController->enabled = false;
+    $cogsDisabledAgain = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $cogsDisabledAgain = $failure->getMessage();
+    }
+    $cogsController->enabled = true;
+    $cogsReenabled = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(str_contains($cogsDisabledAgain, 'Cost of Goods is disabled')
+        && ($cogsReenabled['after']['cogs_scope_sha256'] ?? null)
+            === ($cogsScoped['after']['cogs_scope_sha256'] ?? null),
+        'target feature disable is loud and re-enable recovers the exact authored COGS receipt');
+
+    $fakeCogsMetaRows[13]['_cogs_total_value'] = ['7.12555', '7.12555'];
+    $duplicateCogsMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $duplicateCogsMessage = $failure->getMessage();
+    }
+    unset($fakeCogsMetaRows[13]);
+    $check(str_contains($duplicateCogsMessage, 'multiple _cogs_total_value rows')
+        && !str_contains($duplicateCogsMessage, '7.12555'),
+        'duplicate COGS rows refuse without choosing or disclosing a value');
+
+    $cogsOversizeMarker = 'cogs_oversize_secret_DO_NOT_ECHO';
+    $fakeCogsMetaRows[13]['_cogs_total_value'] = [
+        $cogsOversizeMarker . str_repeat('9', 129 - strlen($cogsOversizeMarker)),
+    ];
+    $cogsOversizeMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $cogsOversizeMessage = $failure->getMessage();
+    }
+    unset($fakeCogsMetaRows[13]);
+    $check(str_contains($cogsOversizeMessage, 'oversized authored Cost of Goods metadata')
+        && !str_contains($cogsOversizeMessage, $cogsOversizeMarker),
+        'oversized COGS is refused from a prefix/length witness without transferring or disclosing the full value');
+
+    $fakeCogsMetaRows[13]['_cogs_total_value'] = ['7', '8', '9'];
+    $cogsSaturationMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $cogsSaturationMessage = $failure->getMessage();
+    }
+    unset($fakeCogsMetaRows[13]);
+    $check(str_contains($cogsSaturationMessage, 'saturated its bounded row read'),
+        'hostile duplicate COGS rows cannot exceed the two-keys-per-owner transfer bound');
+
+    $fakeCogsMetaRows[13]['_cogs_total_value'] = ['1.0E+15'];
+    $overflowCogsMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $overflowCogsMessage = $failure->getMessage();
+    }
+    unset($fakeCogsMetaRows[13]);
+    $check(str_contains($overflowCogsMessage, 'malformed authored Cost of Goods metadata')
+        && !str_contains($overflowCogsMessage, '1.0E+15'),
+        'a target-float value that would overflow DECIMAL(19,4) refuses without disclosure');
+
+    $fakeCogsMetaRows[13]['_cogs_total_value'] = ['cogs_secret_marker_DO_NOT_ECHO'];
+    $malformedCogsMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $malformedCogsMessage = $failure->getMessage();
+    }
+    unset($fakeCogsMetaRows[13]);
+    $check(str_contains($malformedCogsMessage, 'malformed authored Cost of Goods metadata')
+        && !str_contains($malformedCogsMessage, 'cogs_secret_marker_DO_NOT_ECHO'),
+        'malformed COGS refuses through the executable boundary with redacted diagnostics');
+
+    foreach (['1.2300', '1.0E+3', '0E+9'] as $nonWriterCogs) {
+        $fakeCogsMetaRows[13]['_cogs_total_value'] = [$nonWriterCogs];
+        $nonWriterMessage = '';
+        try {
+            $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+        } catch (\Throwable $failure) {
+            $nonWriterMessage = $failure->getMessage();
+        }
+        $check(str_contains($nonWriterMessage, 'malformed authored Cost of Goods metadata')
+            && !str_contains($nonWriterMessage, $nonWriterCogs),
+            "non-writer-equivalent COGS spelling $nonWriterCogs is refused and redacted at reconciliation");
+    }
+    unset($fakeCogsMetaRows[13]);
+
+    unset($fakeMeta[13]['_cogs_total_value'], $fakeMetaLookup[13]['cogs_total_value']);
+    $cogsController->enabled = false;
+    $cogsController->lookupColumnPresent = false;
+
+    $observeLookup = new \ReflectionMethod($adapter, 'observe_lookup_state');
+    $lookupExtra = [];
+    foreach (array_keys(FakeWpdb::LOOKUP_COLUMN_DECLARATIONS) as $column) {
+        $lookupExtra[$column] = array_key_exists($column, $fakeMetaLookup[13])
+            ? ($fakeMetaLookup[13][$column] === null ? null : (string) $fakeMetaLookup[13][$column])
+            : null;
+    }
+    $wpdb->lookupReceiptExtraRows = [$lookupExtra];
+    $lookupSaturationMessage = '';
+    try {
+        $observeLookup->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $lookupSaturationMessage = $failure->getMessage();
+    }
+    $wpdb->lookupReceiptExtraRows = [];
+    $check(str_contains($lookupSaturationMessage, 'saturated its bounded owner scope'),
+        'duplicate product lookup rows cannot exceed the one-row-per-owner receipt transfer bound');
+
+    $lookupSecret = 'lookup_secret_marker_DO_NOT_ECHO';
+    $originalSku = $fakeMetaLookup[13]['sku'];
+    $fakeMetaLookup[13]['sku'] = $lookupSecret . str_repeat('x', 1025 - strlen($lookupSecret));
+    $lookupOversizeMessage = '';
+    try {
+        $observeLookup->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $lookupOversizeMessage = $failure->getMessage();
+    }
+    $fakeMetaLookup[13]['sku'] = $originalSku;
+    $check(str_contains($lookupOversizeMessage, 'oversized scalar')
+        && !str_contains($lookupOversizeMessage, $lookupSecret),
+        'oversized lookup scalars refuse without entering receipts or diagnostics');
+
+    $schemaAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+    $schemaObserver = new \ReflectionMethod($schemaAdapter, 'observe_lookup_state');
+    $wpdb->lookupColumnDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS + [
+        'extension_secret' => 'longtext',
+    ];
+    $fakeMetaLookup[13]['extension_secret'] = 'extension_secret_marker_DO_NOT_TRANSFER';
+    $fakeVisibilityQueries = [];
+    $extensionState = $schemaObserver->invoke($schemaAdapter, [13]);
+    $extensionReceiptQueries = array_filter(
+        $fakeVisibilityQueries,
+        static fn(string $query): bool => str_contains($query, 'FROM `wp_wc_product_meta_lookup`')
+    );
+    unset($fakeMetaLookup[13]['extension_secret']);
+    $check(($extensionState['meta_lookup_rows'] ?? null) === 1
+        && !array_filter(
+            $extensionReceiptQueries,
+            static fn(string $query): bool => str_contains($query, 'extension_secret')
+        ), 'unknown extension lookup columns remain target-owned and are never selected into Duo receipt memory');
+
+    $wpdb->lookupColumnDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
+    $badTypeDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
+    $badTypeDeclarations['sku'] = 'longtext';
+    $wpdb->lookupColumnDeclarations = $badTypeDeclarations;
+    $badTypeMessage = '';
+    try {
+        $badTypeAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        (new \ReflectionMethod($badTypeAdapter, 'observe_lookup_state'))->invoke($badTypeAdapter, [13]);
+    } catch (\Throwable $failure) {
+        $badTypeMessage = $failure->getMessage();
+    }
+    $check(str_contains($badTypeMessage, "core column 'sku' has an incompatible type"),
+        'lookup receipt projection refuses an incompatible exact core column type');
+
+    $wpdb->lookupColumnDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
+    unset($wpdb->lookupColumnDeclarations['tax_class']);
+    $missingCoreMessage = '';
+    try {
+        $missingCoreAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        (new \ReflectionMethod($missingCoreAdapter, 'observe_lookup_state'))->invoke($missingCoreAdapter, [13]);
+    } catch (\Throwable $failure) {
+        $missingCoreMessage = $failure->getMessage();
+    }
+    $check(str_contains($missingCoreMessage, 'missing one or more exact core columns'),
+        'lookup receipt projection refuses a partial core schema');
+
+    $wpdb->lookupColumnDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
+    $wpdb->lookupSchemaRowsOverride = array_map(
+        static fn(string $column, string $type): array => ['Field' => $column, 'Type' => $type],
+        array_keys(FakeWpdb::LOOKUP_COLUMN_DECLARATIONS),
+        array_values(FakeWpdb::LOOKUP_COLUMN_DECLARATIONS)
+    );
+    $wpdb->lookupSchemaRowsOverride[] = ['Field' => 'product_id', 'Type' => 'bigint(20)'];
+    $duplicateSchemaMessage = '';
+    try {
+        $duplicateSchemaAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        (new \ReflectionMethod($duplicateSchemaAdapter, 'observe_lookup_state'))->invoke($duplicateSchemaAdapter, [13]);
+    } catch (\Throwable $failure) {
+        $duplicateSchemaMessage = $failure->getMessage();
+    }
+    $wpdb->lookupSchemaRowsOverride = null;
+    $check(str_contains($duplicateSchemaMessage, 'unusable column name'),
+        'duplicate schema rows cannot overwrite a prior core-column declaration');
+
+    $oversizedSchema = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
+    for ($columnIndex = count($oversizedSchema); $columnIndex < 4097; $columnIndex++) {
+        $oversizedSchema['extension_' . $columnIndex] = 'longtext';
+    }
+    $wpdb->lookupColumnDeclarations = $oversizedSchema;
+    $fakeVisibilityQueries = [];
+    $oversizedSchemaMessage = '';
+    try {
+        $oversizedSchemaAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        (new \ReflectionMethod($oversizedSchemaAdapter, 'observe_lookup_state'))->invoke($oversizedSchemaAdapter, [13]);
+    } catch (\Throwable $failure) {
+        $oversizedSchemaMessage = $failure->getMessage();
+    }
+    unset($oversizedSchema);
+    $check(str_contains($oversizedSchemaMessage, 'oversized column inventory')
+        && (bool) array_filter(
+            $fakeVisibilityQueries,
+            static fn(string $query): bool => str_contains($query, 'information_schema.COLUMNS')
+                && str_contains($query, 'LIMIT 4097')
+        ), 'hostile lookup schemas are cut off by an exact bounded information-schema projection');
+
+    $wpdb->lookupColumnDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
+    $wpdb->failReadContaining = 'information_schema.COLUMNS';
+    $schemaReadMessage = '';
+    try {
+        $schemaReadAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        (new \ReflectionMethod($schemaReadAdapter, 'observe_lookup_state'))->invoke($schemaReadAdapter, [13]);
+    } catch (\Throwable $failure) {
+        $schemaReadMessage = $failure->getMessage();
+    }
+    $wpdb->failReadContaining = null;
+    $wpdb->last_error = '';
+    $check(str_contains($schemaReadMessage, 'checked read failed')
+        && !str_contains($schemaReadMessage, 'information_schema'),
+        'lookup schema DB failure is loud while its SQL and driver detail remain redacted');
+
+    $wpdb->prefix = 'wp_bad`identifier_';
+    $badTableMessage = '';
+    try {
+        $badTableAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        (new \ReflectionMethod($badTableAdapter, 'observe_lookup_state'))->invoke($badTableAdapter, [13]);
+    } catch (\Throwable $failure) {
+        $badTableMessage = $failure->getMessage();
+    }
+    $wpdb->prefix = 'wp_';
+    $check(str_contains($badTableMessage, 'unusable WooCommerce product lookup table name'),
+        'a backtick-bearing database prefix is refused before lookup-schema interpolation');
+
+    $attributeRowKey = array_key_first(array_filter(
+        $fakeAttrLookup,
+        static fn(array $row): bool => (int) $row['product_or_parent_id'] === 13
+    ));
+    $duplicateAttributeRow = $fakeAttrLookup[$attributeRowKey] ?? null;
+    if (is_array($duplicateAttributeRow)) {
+        $fakeAttrLookup[] = $duplicateAttributeRow;
+    }
+    $duplicateAttributeRefused = false;
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $duplicateAttributeRefused = str_contains($failure->getMessage(), 'duplicate scoped rows');
+    }
+    if (is_array($duplicateAttributeRow)) {
+        array_pop($fakeAttrLookup);
+    }
+    $check($duplicateAttributeRefused,
+        'impossible duplicate native attribute rows refuse instead of collapsing into one receipt row');
+
+    // Chunk by root ownership, not by a product/root OR query. With 205 roots
+    // followed by 205 high-id children, the old query returned the first 195
+    // variation rows once by root in chunk one and again by product in chunk
+    // two, falsely diagnosing duplicate database rows.
+    $largeAttributeScope = [];
+    for ($i = 0; $i < 205; $i++) {
+        $rootId = 10000 + $i;
+        $childId = 20000 + $i;
+        $fakeProducts[$rootId] = new FakeProduct($rootId, 'variable', 0, [$childId], [], true);
+        $fakeProducts[$childId] = new FakeProduct($childId, 'variation', $rootId, [], [], true);
+        $largeAttributeScope[] = $rootId;
+        $largeAttributeScope[] = $childId;
+        $fakeAttrLookup[] = [
+            'product_id' => $childId,
+            'product_or_parent_id' => $rootId,
+            'taxonomy' => 'pa_color',
+            'term_id' => 101,
+            'is_variation_attribute' => 1,
+            'in_stock' => 1,
+        ];
+    }
+    $observeAttributes = new \ReflectionMethod($adapter, 'observe_attribute_lookup_state');
+    $largeAttributeState = $observeAttributes->invoke($adapter, $largeAttributeScope);
+    $check(($largeAttributeState['attribute_lookup_products'] ?? null) === 410
+        && ($largeAttributeState['attribute_lookup_rows'] ?? null) === 205,
+        'attribute receipt observation crosses the 200-id boundary without query-overlap duplicates');
+    $fakeAttrLookup = array_values(array_filter(
+        $fakeAttrLookup,
+        static fn(array $row): bool => (int) $row['product_or_parent_id'] < 10000
+    ));
+    foreach ($largeAttributeScope as $id) {
+        unset($fakeProducts[$id], $fakeProductCache[$id]);
+    }
+
+    $wpdb->attributeCountOverride = 200001;
+    $attributeBoundMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $attributeBoundMessage = $failure->getMessage();
+    }
+    $wpdb->attributeCountOverride = null;
+    $check(str_contains($attributeBoundMessage, 'cardinality exceeds its bounded count'),
+        'attribute lookup cardinality is refused from a compact COUNT witness before row transfer');
+
+    $wpdb->attributeCountOverride = '0001';
+    $attributeNoncanonicalCountMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $attributeNoncanonicalCountMessage = $failure->getMessage();
+    }
+    $wpdb->attributeCountOverride = null;
+    $check(str_contains($attributeNoncanonicalCountMessage, 'not a canonical database integer'),
+        'malformed attribute COUNT bytes cannot be loosely cast into a trusted transfer limit');
+
+    $wpdb->attributePayloadDropLast = true;
+    $attributeRaceMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $attributeRaceMessage = $failure->getMessage();
+    }
+    $wpdb->attributePayloadDropLast = false;
+    $check(str_contains($attributeRaceMessage, 'changed after its cardinality witness'),
+        'attribute lookup rows disappearing after the COUNT witness cannot produce a false receipt');
+
+    $attributeRaceKey = array_key_first(array_filter(
+        $fakeAttrLookup,
+        static fn(array $row): bool => (int) $row['product_or_parent_id'] === 13
+    ));
+    $originalAttributeRaceRow = $fakeAttrLookup[$attributeRaceKey];
+    $wpdb->afterAttributePayload = static function () use (&$fakeAttrLookup, $attributeRaceKey): void {
+        $fakeAttrLookup[$attributeRaceKey]['term_id'] = 102;
+    };
+    $attributeSameCountRaceMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $attributeSameCountRaceMessage = $failure->getMessage();
+    }
+    $fakeAttrLookup[$attributeRaceKey] = $originalAttributeRaceRow;
+    $check(str_contains($attributeSameCountRaceMessage, 'changed during bounded readback'),
+        'same-count attribute row replacement between cardinality/payload reads cannot be blessed');
+
+    $wpdb->failReadContaining = 'SELECT COUNT(*) FROM `wp_wc_product_attributes_lookup`';
+    $attributeCountReadMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $attributeCountReadMessage = $failure->getMessage();
+    }
+    $wpdb->failReadContaining = null;
+    $wpdb->last_error = '';
+    $check(str_contains($attributeCountReadMessage, 'checked read failed')
+        && !str_contains($attributeCountReadMessage, 'wc_product_attributes_lookup'),
+        'attribute cardinality DB failure is loud with bounded redacted diagnostics');
+
+    $wpdb->failReadContaining = 'SELECT product_id, product_or_parent_id, taxonomy';
+    $attributePayloadReadMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $attributePayloadReadMessage = $failure->getMessage();
+    }
+    $wpdb->failReadContaining = null;
+    $wpdb->last_error = '';
+    $check(str_contains($attributePayloadReadMessage, 'checked read failed')
+        && !str_contains($attributePayloadReadMessage, 'wc_product_attributes_lookup'),
+        'attribute payload DB failure cannot turn its prior cardinality witness into evidence');
+
+    $attributeOwnerBoundMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, range(1, 50001));
+    } catch (\Throwable $failure) {
+        $attributeOwnerBoundMessage = $failure->getMessage();
+    }
+    $check(str_contains($attributeOwnerBoundMessage, 'exceeds its bounded product scope'),
+        'attribute lookup owner expansion refuses an over-bound repository scope before SQL');
+
+    $fakeSaleSchedules['wc_product_end_scheduled_sale'][13] = $futureSale + 1;
+    $saleDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($saleDrift['after']['sale_schedule_actions'] ?? null)
+            === ($productScoped['after']['sale_schedule_actions'] ?? null)
+        && ($saleDrift['after']['sale_schedule_scope_sha256'] ?? null)
+            !== ($productScoped['after']['sale_schedule_scope_sha256'] ?? null),
+        'same-count scheduled-sale timestamp drift cannot match the saved scoped postcondition');
+    $fakeSaleSchedules['wc_product_end_scheduled_sale'][13] = $futureSale;
+    $saleRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($saleRecovered['after'] ?? null) === ($productScoped['after'] ?? null),
+        'restoring exact scheduled-sale timestamps recovers the saved scoped postcondition');
+
+    $fakeSaleScheduleDuplicates['wc_product_end_scheduled_sale'][13] = 1;
+    $verifySaleSchedules = new \ReflectionMethod($adapter, 'verify_sale_schedules');
+    $duplicateSaleRefused = false;
+    try {
+        $verifySaleSchedules->invoke($adapter, [13], [], [13 => wc_get_product(13)], null);
+    } catch (\Throwable $failure) {
+        $duplicateSaleRefused = str_contains($failure->getMessage(), 'cardinality or timestamp mismatch');
+    }
+    $duplicateSaleDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check($duplicateSaleRefused,
+        'exact sale verification refuses a duplicate action even when the earliest timestamp is correct');
+    $check(($duplicateSaleDrift['after']['sale_schedule_actions'] ?? null)
+            !== ($productScoped['after']['sale_schedule_actions'] ?? null)
+        && ($duplicateSaleDrift['after']['sale_schedule_scope_sha256'] ?? null)
+            !== ($productScoped['after']['sale_schedule_scope_sha256'] ?? null),
+        'duplicate active sale actions cannot match or retire the saved scoped postcondition');
+    unset($fakeSaleScheduleDuplicates['wc_product_end_scheduled_sale'][13]);
+    $duplicateSaleRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($duplicateSaleRecovered['after'] ?? null) === ($productScoped['after'] ?? null),
+        'removing the duplicate action restores the exact scoped sale postcondition');
 
     $groupedDiscovery = new \ReflectionMethod($adapter, 'find_grouped_parent_ids');
     $wpdb->failReadContaining = "meta_key = '_children'";
@@ -1296,8 +4566,36 @@ namespace {
     $check($groupedReadFailedClosed,
         'grouped-parent discovery fails closed when its database read fails');
 
+    $wpdb->groupedParentOverride = range(1, 50001);
+    $groupedBoundMessage = '';
+    try {
+        $groupedDiscovery->invoke($adapter, 11);
+    } catch (\Throwable $failure) {
+        $groupedBoundMessage = $failure->getMessage();
+    }
+    $wpdb->groupedParentOverride = null;
+    $check(str_contains($groupedBoundMessage, 'exceeds its bounded owner scope'),
+        'grouped-parent reverse discovery stops at MAX+1 instead of transferring a catalog-wide result');
+
+    $wpdb->groupedParentOverride = ['0007'];
+    $groupedMalformedMessage = '';
+    try {
+        $groupedDiscovery->invoke($adapter, 11);
+    } catch (\Throwable $failure) {
+        $groupedMalformedMessage = $failure->getMessage();
+    }
+    $wpdb->groupedParentOverride = null;
+    $check(str_contains($groupedMalformedMessage, 'not a canonical database integer'),
+        'grouped-parent IDs use canonical bounded integer parsing rather than loose casts');
+
     $verifyExactState = new \ReflectionMethod($adapter, 'verify_exact_state');
-    $verifyExactStateArgs = [WC_Data_Store::load('product'), [], [], [999 => 999], null];
+    $verifyExactStateArgs = [
+        WC_Data_Store::load('product'),
+        [],
+        [],
+        [999 => 999],
+        ['ids' => [], 'children' => [], 'visible_children' => []],
+    ];
     $wpdb->failReadContaining = 'wc_product_meta_lookup';
     $deletionReadFailedClosed = false;
     try {
@@ -1319,8 +4617,8 @@ namespace {
     $attributeStoreProbe = wc_get_container()->get(
         \Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::class
     );
-    $check($attributeStoreProbe->createCalls === 0 && $attributeStoreProbe->deleteCalls === 0,
-        'verified product repair never invokes the unsupported attribute lookup writer or delete path');
+    $check($attributeStoreProbe->createCalls > 0 && $attributeStoreProbe->deleteCalls === 0,
+        'verified product repair invokes Woo public scoped attribute synthesis, never its internal delete callback');
 
     $check($fakeMeta[11]['_price'] === ['18'], 'stale child _price is recomputed from regular/sale inputs');
     $check($fakeMeta[10]['_price'] === ['18', '21'], 'variable parent _price is synchronized from distinct child prices');
@@ -1330,9 +4628,9 @@ namespace {
     $check($fakeMetaLookup[11]['min_price'] === '18', 'existing stale wc_product_meta_lookup row is refreshed');
     $check($fakeMetaLookup[11]['onsale'] === 1, 'onsale follows Woo sale-price/effective-price equality');
     $check($fakeMeta[11]['_stock'] === ['5'], 'target-local runtime stock meta is preserved');
-    $check($fakeAttrLookup === $unsupportedAttributeRows,
-        'unsupported attribute lookup rows remain byte-for-byte outside provider authority');
-    $check($fakeTermQueries === [], 'verified provider performs no attribute lookup term derivation');
+    $check(in_array($unrelatedAttributeRow, $fakeAttrLookup, true),
+        'scoped attribute lookup repair preserves an unrelated target-only row byte-for-byte');
+    $check($fakeTermQueries !== [], 'verified provider delegates attribute term derivation to Woo native lookup synthesis');
     $remainingTermFilters = array_filter(
         $fakeFilters['get_terms_args'][1] ?? [],
         static fn(array $entry): bool => isset($entry[0])
@@ -1587,6 +4885,8 @@ namespace {
     // isolation.
     $fakeProducts[40] = new FakeProduct(40, 'grouped', 0, [41, 12], [], true);
     $fakeProducts[41] = new FakeProduct(41, 'simple', 0, [], [], true);
+    fake_set_visibility_relationships(40, 'product_type', ['grouped']);
+    fake_set_visibility_relationships(41, 'product_type', ['simple']);
     $fakeMeta[40] = $fakeMeta[10];
     $fakeMeta[40]['_price'] = ['777'];
     $fakeMeta[40]['_regular_price'] = ['74'];
@@ -1627,15 +4927,17 @@ namespace {
     $groupedEvents = array_slice($fakeCacheEvents, $groupedEventStart);
     $groupedParentRemove = array_search('remove:40', $groupedEvents, true);
     $groupedParentRead = null;
-    foreach ($groupedEvents as $eventIndex => $event) {
-        if (str_starts_with($event, 'read:40:')) {
-            $groupedParentRead = $eventIndex;
-            break;
+    if ($groupedParentRemove !== false) {
+        foreach (array_slice($groupedEvents, $groupedParentRemove + 1, null, true) as $eventIndex => $event) {
+            if (str_starts_with($event, 'read:40:')) {
+                $groupedParentRead = $eventIndex;
+                break;
+            }
         }
     }
     $check($groupedParentRemove !== false && $groupedParentRead !== null
         && $groupedParentRemove < $groupedParentRead,
-        'grouped parent discovery evicts the root before its first Woo read');
+        'grouped parent discovery evicts the root before its first post-invalidation Woo read');
 
     $adapter->regenerate_batch([41], []);
     $check($fakeMeta[40]['_price'] === ['17', '21'] && (WC_Data_Store::$grouped?->calls ?? 0) === 2,
@@ -1667,6 +4969,8 @@ namespace {
     $fakeProducts[50] = new FakeProduct(50, 'grouped', 0, [51], [], true);
     $fakeProducts[51] = new FakeProduct(51, 'variable', 0, [52], [], true);
     $fakeProducts[52] = new FakeProduct(52, 'variation', 51, [], [], true);
+    fake_set_visibility_relationships(50, 'product_type', ['grouped']);
+    fake_set_visibility_relationships(51, 'product_type', ['variable']);
     $fakeMeta[50] = $fakeMeta[40];
     $fakeMeta[50]['_price'] = ['777'];
     $fakeMeta[50]['_stock'] = ['6'];
@@ -1791,14 +5095,16 @@ namespace {
     $sameParentEvents = array_slice($fakeCacheEvents, $sameParentEventStart);
     $sameParentRemove = array_search('remove:30', $sameParentEvents, true);
     $sameParentRead = null;
-    foreach ($sameParentEvents as $eventIndex => $event) {
-        if (str_starts_with($event, 'read:30:')) {
-            $sameParentRead = $eventIndex;
-            break;
+    if ($sameParentRemove !== false) {
+        foreach (array_slice($sameParentEvents, $sameParentRemove + 1, null, true) as $eventIndex => $event) {
+            if (str_starts_with($event, 'read:30:')) {
+                $sameParentRead = $eventIndex;
+                break;
+            }
         }
     }
     $check($sameParentRemove !== false && $sameParentRead !== null && $sameParentRemove < $sameParentRead,
-        'same-parent write evicts the current parent cache before the first parent read');
+        'same-parent write evicts the current parent cache before the first post-invalidation parent read');
 
     // Reparent a live variation from variable root 20 to root 22.  The old
     // root must be refreshed as well as the new root, while the variation's
@@ -1903,14 +5209,16 @@ namespace {
     foreach ([20, 21, 22] as $cacheId) {
         $firstRemove = array_search("remove:$cacheId", $reparentEvents, true);
         $firstRead = null;
-        foreach ($reparentEvents as $eventIndex => $event) {
-            if (str_starts_with($event, "read:$cacheId:")) {
-                $firstRead = $eventIndex;
-                break;
+        if ($firstRemove !== false) {
+            foreach (array_slice($reparentEvents, $firstRemove + 1, null, true) as $eventIndex => $event) {
+                if (str_starts_with($event, "read:$cacheId:")) {
+                    $firstRead = $eventIndex;
+                    break;
+                }
             }
         }
         $check($firstRemove !== false && $firstRead !== null && $firstRemove < $firstRead,
-            "reparent evicts product-cache id $cacheId before the first read");
+            "reparent evicts product-cache id $cacheId before the first post-invalidation read");
     }
 
     // Exercise an accumulated A->B->C receipt.  Preload stale A/B/C and the
@@ -1950,14 +5258,16 @@ namespace {
     foreach ([20, 21, 22, 24] as $cacheId) {
         $firstRemove = array_search("remove:$cacheId", $chainedReparentEvents, true);
         $firstRead = null;
-        foreach ($chainedReparentEvents as $eventIndex => $event) {
-            if (str_starts_with($event, "read:$cacheId:")) {
-                $firstRead = $eventIndex;
-                break;
+        if ($firstRemove !== false) {
+            foreach (array_slice($chainedReparentEvents, $firstRemove + 1, null, true) as $eventIndex => $event) {
+                if (str_starts_with($event, "read:$cacheId:")) {
+                    $firstRead = $eventIndex;
+                    break;
+                }
             }
         }
         $check($firstRemove !== false && $firstRead !== null && $firstRemove < $firstRead,
-            "chained reparent evicts accumulated root/cache id $cacheId before the first read");
+            "chained reparent evicts accumulated root/cache id $cacheId before the first post-invalidation read");
     }
 
     // A failed A->B receipt can meet a deletion before retry. Leave the
@@ -1994,14 +5304,16 @@ namespace {
     foreach ([20, 21, 22, 24] as $cacheId) {
         $firstRemove = array_search("remove:$cacheId", $deletedReparentEvents, true);
         $firstRead = null;
-        foreach ($deletedReparentEvents as $eventIndex => $event) {
-            if (str_starts_with($event, "read:$cacheId:")) {
-                $firstRead = $eventIndex;
-                break;
+        if ($firstRemove !== false) {
+            foreach (array_slice($deletedReparentEvents, $firstRemove + 1, null, true) as $eventIndex => $event) {
+                if (str_starts_with($event, "read:$cacheId:")) {
+                    $firstRead = $eventIndex;
+                    break;
+                }
             }
         }
         $check($firstRemove !== false && ($firstRead === null || $firstRemove < $firstRead),
-            "deleted reparent retry evicts cache id $cacheId before any read");
+            "deleted reparent retry evicts cache id $cacheId before any post-invalidation read");
     }
 
     $adapter->regenerate_batch([10, 12], [[
@@ -2027,22 +5339,68 @@ namespace {
     ]]);
     $check(in_array('wc_layered_nav_counts_pa_grind-size', $fakeDeletedTransients, true),
         'deleted simple product invalidates the concrete registered layered-nav fallback key');
+    $check(!array_filter($fakeAttrLookup, static fn(array $row): bool =>
+        (int) $row['product_id'] === 15 || (int) $row['product_or_parent_id'] === 15),
+        'deleted simple product removes its exact native attribute lookup rows synchronously');
 
-    // On a fresh target the derived product_type relationship is absent, so
-    // Woo's ordinary factory reports the root as simple. Put lower-id
-    // variations before their higher-id parent to reproduce the live R3-A
-    // ordering that originally erased/omitted lookup rows. The adapter must
-    // infer a WC_Product_Variable object without persisting product_type.
+    $fakeAttrLookup[] = [
+        'product_id' => 501, 'product_or_parent_id' => 500, 'taxonomy' => 'pa_color',
+        'term_id' => 101, 'is_variation_attribute' => 1, 'in_stock' => 1,
+    ];
+    $adapter->regenerate_batch([], [[
+        'uuid' => 'variable-root-attribute-delete', 'id' => 500, 'post_type' => 'product',
+        'parent_id' => 0, 'child_ids' => [501],
+    ]]);
+    $check(!array_filter($fakeAttrLookup, static fn(array $row): bool =>
+        (int) $row['product_id'] === 500 || (int) $row['product_id'] === 501
+            || (int) $row['product_or_parent_id'] === 500),
+        'deleted variable root removes its complete bounded child attribute projection');
+
+    $fakeAttrLookup[] = [
+        'product_id' => 600, 'product_or_parent_id' => 600, 'taxonomy' => 'pa_color',
+        'term_id' => 101, 'is_variation_attribute' => 0, 'in_stock' => 1,
+    ];
+    $wpdb->failAttributeDelete = true;
+    $attributeDeleteFailure = '';
+    try {
+        $adapter->regenerate_batch([], [[
+            'uuid' => 'simple-attribute-delete-failure', 'id' => 600, 'post_type' => 'product',
+            'parent_id' => 0, 'child_ids' => [],
+        ]]);
+    } catch (\Throwable $failure) {
+        $attributeDeleteFailure = $failure->getMessage();
+    }
+    $wpdb->failAttributeDelete = false;
+    $wpdb->last_error = '';
+    $check(str_contains($attributeDeleteFailure, 'attribute lookup deletion failed')
+        && str_contains($attributeDeleteFailure, 'recovery_required')
+        && !str_contains($attributeDeleteFailure, 'do-not-leak')
+        && (bool) array_filter($fakeAttrLookup, static fn(array $row): bool =>
+            (int) $row['product_or_parent_id'] === 600),
+        'bounded attribute deletion failure is redacted, loud, and leaves exact retry work');
+    $adapter->regenerate_batch([], [[
+        'uuid' => 'simple-attribute-delete-failure', 'id' => 600, 'post_type' => 'product',
+        'parent_id' => 0, 'child_ids' => [],
+    ]]);
+    $check(!array_filter($fakeAttrLookup, static fn(array $row): bool =>
+        (int) $row['product_or_parent_id'] === 600),
+        'retry deterministically clears the failed bounded attribute tombstone');
+
+    // Apply materializes authored product_type before this provider runs. Put
+    // lower-id variations before their higher-id exact variable parent to
+    // reproduce the live R3-A ordering that originally erased/omitted lookup
+    // rows without asking this derived-state provider to invent type identity.
     $fakeProducts[68] = new FakeProduct(68, 'variation', 70, [], ['pa_color' => 'red'], true);
     $fakeProducts[69] = new FakeProduct(69, 'variation', 70, [], ['pa_color' => 'blue'], true);
     $fakeProducts[70] = new FakeProduct(
         70,
-        'simple',
+        'variable',
         0,
         [68, 69],
         ['pa_color' => new FakeProductAttribute(12, [101, 102], true)],
         true
     );
+    fake_set_visibility_relationships(70, 'product_type', ['variable']);
     $fakeMeta[68] = $fakeMeta[12];
     $fakeMeta[68]['_regular_price'] = ['18'];
     $fakeMeta[68]['_sale_price'] = [''];
@@ -2056,9 +5414,9 @@ namespace {
     }
     $adapter->regenerate_batch([68, 69, 70], []);
     $check($fakeMeta[70]['_price'] === ['18', '21'],
-        'fresh target infers variable-root price synthesis from authored child posts');
-    $check($fakeProducts[70]->get_type() === 'simple',
-        'fresh-target classification stays in memory and never persists a derived product_type');
+        'fresh target synthesizes variable-root price from the exact authored type and child posts');
+    $check($fakeProducts[70]->get_type() === 'variable',
+        'fresh-target classification is bound to the authored variable product_type identity');
 
     // DUO-3342: wc_product_meta_lookup verification no longer rebuilds Woo's
     // column rules. It brackets one forced re-derivation with two reads — the
@@ -2092,6 +5450,7 @@ namespace {
         ['pa_color' => new FakeProductAttribute(13, [101, 102], true)],
         true
     );
+    fake_set_visibility_relationships(90, 'product_type', ['variable']);
     foreach ([90, 91, 92] as $id) {
         $fakeMeta[$id] = $fakeMeta[12];
         $fakeMetaLookup[$id] = $fakeMetaLookup[12];
@@ -2127,7 +5486,12 @@ namespace {
     // The other axis: Woo's write not landing what Woo derived. Real Woo
     // permits this — update_lookup_table() ignores $wpdb->replace()'s return
     // value and caches its derivation unconditionally.
-    $fakeLookupWriteFaults[13] = ['sku' => 'NOT-WHAT-WOO-DERIVED'];
+    $skuLeakMarker = 'sku_secret_marker_DO_NOT_ECHO';
+    $globalIdLeakMarker = 'global_unique_id_secret_marker_DO_NOT_ECHO';
+    $fakeLookupWriteFaults[13] = [
+        'sku' => $skuLeakMarker,
+        'global_unique_id' => $globalIdLeakMarker,
+    ];
     $skuFaultMessage = '';
     try {
         $adapter->regenerate_batch([13], []);
@@ -2137,8 +5501,11 @@ namespace {
     $fakeLookupWriteFaults = [];
     $check(str_contains($skuFaultMessage, 'product lookup verification mismatch for product 13')
         && str_contains($skuFaultMessage, 'did not land the values WooCommerce derived')
-        && str_contains($skuFaultMessage, 'NOT-WHAT-WOO-DERIVED'),
-        'a lookup write that did not land WooCommerce derived values fails closed and names both sides');
+        && str_contains($skuFaultMessage, 'columns=')
+        && substr_count($skuFaultMessage, '_sha256=') === 2
+        && !str_contains($skuFaultMessage, $skuLeakMarker)
+        && !str_contains($skuFaultMessage, $globalIdLeakMarker),
+        'lookup mismatch diagnostics are bounded digests and never echo secret-shaped SKU/global ids');
 
     // PARITY, not a caught defect: stock_quantity is the one column Woo really
     // derives as PHP null (unmanaged stock), and SQL NULL is a different row
@@ -2162,6 +5529,7 @@ namespace {
     // A standalone product for the cache cases: ids 10-12 have been through
     // deletion and reparent fixtures by this point in the suite.
     $fakeProducts[80] = new FakeProduct(80, 'simple', 0, [], [], true);
+    fake_set_visibility_relationships(80, 'product_type', ['simple']);
     $fakeMeta[80] = [
         '_price' => ['21'], '_regular_price' => ['21'], '_sale_price' => [''],
         '_sale_price_dates_from' => [''], '_sale_price_dates_to' => [''],
@@ -2269,10 +5637,10 @@ namespace {
         && ($receipt['before']['meta_lookup_rows'] ?? null) === 2
         && ($receipt['after']['meta_lookup_rows'] ?? null) === 1,
         'the receipt observes the ids it was handed on both sides, and records the deleted row disappearing');
-    $check($fakeAttrLookup === $unsupportedAttributeRows
-        && $attributeStoreProbe->createCalls === 0
+    $check(in_array($unrelatedAttributeRow, $fakeAttrLookup, true)
+        && $attributeStoreProbe->createCalls > 0
         && $attributeStoreProbe->deleteCalls === 0,
-        'all product, reparent, deletion, retry, and invoke paths preserve the unsupported attribute table exactly');
+        'product, reparent, retry, and invoke paths repair scoped attributes while preserving unrelated rows');
     $check(!isset($fakeMetaLookup[11]),
         'and the envelope really reached the deletion path — the deleted lookup row is gone');
     $unknownCapabilityCaught = false;

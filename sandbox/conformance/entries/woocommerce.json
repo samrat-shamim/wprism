@@ -7,7 +7,7 @@
     "plugins": [
       {
         "slug": "woocommerce",
-        "version": "11.0.0"
+        "version": "11.0.1"
       }
     ],
     "post_types": [
@@ -22,8 +22,12 @@
     "taxonomies": [
       "category",
       "post_tag",
+      "product_brand",
       "product_cat",
-      "product_type"
+      "product_shipping_class",
+      "product_tag",
+      "product_type",
+      "product_visibility"
     ]
   },
   "manifest": "woocommerce"

@@ -32,29 +32,31 @@
  * and its disposition (experimental -> certified), and widened
  * `manifests/core.json`'s native rewrite action to declare TEC's rewrite
  * listener effects. The reviewed post-flag Polylang production-readiness port
- * likewise rewrote `manifests/polylang.json` and its per-subject disposition.
- * Under AGENTS.md rule 2 those three adapters' digests move BY DESIGN, and
+ * likewise rewrote `manifests/polylang.json` and its per-subject disposition;
+ * WooCommerce's final review moves its manifest lint/compile declarations,
+ * interpreter, and per-subject disposition reason. Under AGENTS.md rule 2
+ * those four adapters' digests move BY DESIGN, and
  * they post-date the flag day, so their frozen numbers are no longer shipped.
  *
  * Re-freezing the whole fixture at today's tree was the obvious repair and is
  * the wrong one: it would recompute both sides of the equality, which is the
  * tautology the paragraph above exists to forbid, and it would do it for all
- * 16 adapters to account for 3. So the moves are QUARANTINED instead, as
+ * 16 adapters to account for 4. So the moves are QUARANTINED instead, as
  * REVIEWED_MOVES below — literals, in this file, next to the fixture's own
  * pinned digest and edited under the same rule. What that buys, measured:
  *
- *   - 13 of the 16 adapter digests are still compared against untouched
+ *   - 12 of the 16 adapter digests are still compared against untouched
  *     pre-flag numbers, so the flag day's claim is still evidenced, not
  *     asserted;
- *   - the one pin set that contains none of `core`, `polylang`, or
- *     `the-events-calendar` (`duo-agency-cpt-only`) still holds its untouched
- *     frozen manifest_hash,
+ *   - the one pin set that contains none of `core`, `polylang`,
+ *     `the-events-calendar`, or `woocommerce` (`duo-agency-cpt-only`) still
+ *     holds its untouched frozen manifest_hash,
  *     which is the flip-neutrality control a reviewed manifest edit cannot
  *     reach;
  *   - and each PART additionally asserts that the moved set is EXACTLY the
- *     reviewed one. A fourth adapter moving is a failure, not a re-pin.
+ *     reviewed one. A fifth adapter moving is a failure, not a re-pin.
  *
- * For those three adapters the across-the-flip measurement is genuinely gone —
+ * For those four adapters the across-the-flip measurement is genuinely gone —
  * stated plainly rather than papered over. What still covers them is PART 1's
  * second check, which holds for all 16: every shipped manifest still declares
  * `spec_version` 2. That no-restamp rule is the MECHANISM the flip's
@@ -133,8 +135,9 @@ const PRE_FLAG_FIXTURE_SHA256 = '05fcb8368979c6e270ecc71cb651680be317a6921d432d6
 
 /**
  * The reviewed post-flag overlays that have moved shipped identities since the
- * freeze: #561's core/TEC work and the Polylang production-readiness port,
- * measured on this tree, adapter by adapter.
+ * freeze: #561's core/TEC work and the Polylang/WooCommerce production-readiness
+ * reviews plus Yoast's Woo-permalink reindex trigger, measured on this tree,
+ * adapter by adapter.
  *
  * Every number here is an overlay ON TOP OF the frozen fixture, never a
  * replacement for it — the fixture keeps its pre-flag bytes and its pinned
@@ -147,7 +150,7 @@ const PRE_FLAG_FIXTURE_SHA256 = '05fcb8368979c6e270ecc71cb651680be317a6921d432d6
  * `duo-agency-cpt-only` is deliberately absent — it is the untouched control.
  */
 const REVIEWED_MOVES = [
-    'adapters' => ['core', 'polylang', 'the-events-calendar'],
+    'adapters' => ['core', 'polylang', 'the-events-calendar', 'woocommerce', 'yoast'],
     'adapter_digests' => [
         // manifests/core.json: the native rewrite action's declared effect set
         // widened to cover TEC's rewrite-listener option writes and the
@@ -156,29 +159,40 @@ const REVIEWED_MOVES = [
         // The reviewed Polylang production-readiness port pins its 3.8.x
         // range, expanded authored surface, interpreter, manifest provider,
         // and per-subject disposition.
-        'polylang' => '99d82ecc6402fda3a8d651d56ca07ae4a73836947ed5f2ecca11c0df4472e9a4',
+        'polylang' => 'd55dab7dc1c78b0e245f6448762ceb79628b6e01b649bdfa8aa72ceb957d7c17',
         // manifests/the-events-calendar.json rewritten (block_attrs, widgets,
         // interpreter, option_autoload) AND dispositions/the-events-calendar
         // .json promoted experimental -> certified. Both halves are inside the
         // digest row, so one number carries both.
-        'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
+        'the-events-calendar' => '1096dc034e44b27085868cebf23efe6497f340fd8e506cd85122a696ddbbe1b1',
+        // WooCommerce production readiness extends reviewed evidence, closes
+        // exact attachment callback isolation and provider receipt semantics,
+        // binds the canonical mixed-option contract, and records the
+        // source-audited WordPress 7.1 thumbnail-failure behavior.
+        'woocommerce' => 'd0eb2e72f121649a4367a50ab59361efc5ca2a24e991c20cc43728f37e4bbfcf',
+        // Yoast's exact Woo permalink observer is replaced only when this
+        // manifest selects the fully checkpointed yoast-index action.
+        'yoast' => '389934c1b3638e4a93284eaaf3cee98a15eaeb76302f4f28b9f1cf1526504609',
     ],
     'manifest_bytes_sha256' => [
         'core' => 'a2f673cd4107e7b32cc6cfff6e84e7f6aca68b789234cbc8c686458fee4de5b3',
         'polylang' => 'db7130aecf89217cdca8f6591f4481391f61ae84632478f89191bdda74b488d3',
         'the-events-calendar' => '0c72e83a62ba5d461d975fd5380f49eab139d5413edaade07f7f47e396d80729',
+        'woocommerce' => '881d2116ff0ee3bfbb10612999ba19054beebf99d292cada9319b148a3f53187',
+        'yoast' => 'f0ed2a23b8224c11d777218029f347e86db9977659f845cebddcc75152de31f1',
     ],
     'pin_sets' => [
-        'all-16' => 'b6cbc30ddc3c5ecf089ed0836294fb82a5b6f8f9017980c54610bd0e3c815bed',
-        'core+elementor+yoast+contact-form-7' => '52200323db9516a2eb7b5738540534aa58e9115c04fb3ddf0b182ea4089d27f9',
+        'all-16' => '45285420196f8c427d5c203f5ac39fba075ce9642adc0a7924d1a45ef78fb12c',
+        'core+elementor+yoast+contact-form-7' => 'a6da23ffb29487eba791c26c9215c170ed1a27db42caf5ae89226db4cc5747f7',
         'core+paid-memberships-pro+code-snippets' => '9d89e59d838e145cbd64c6b172ad5634886bdae6ea027eb8f41e57bcd1b048dc',
-        'core+polylang+the-events-calendar' => '1d26c4687a24e143c8a24045ba85b370bd6d3aad11b16898b4f13966ba76e6e6',
-        'core+woocommerce+acf' => '247e7b9f084d050259130eee1d7bbb42aa1732dc9cd410df165a8c36a51f22b3',
+        'core+polylang+the-events-calendar' => 'cbc901cf349e27ade6fbc08b1e8ba7f8cb4988770b605a378bda59108be2b0ad',
+        'core+woocommerce+acf' => 'a6227757f9d5917489285f5e481e8478d587c0c1f7ff14583dffc2d266a6ebe4',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC
-    // and certifying Polylang move the whole-registry address every host pins.
-    'registry_sha256' => 'f98de94d550375201697cd2e8c507f7b2f0941b9e92dab4bc85d77635ec10746',
+    // and certifying Polylang plus WooCommerce move the whole-registry address
+    // every host pins.
+    'registry_sha256' => '49c84c27e199e198ac4452d52177fd732d7b1c33110e75a3d74a6a463be1a3f8',
 ];
 
 duo_check(is_file($fixturePath), 'the frozen pre-flag identity fixture is in the tree');
@@ -226,7 +240,7 @@ duo_check_same(
 );
 // The other half of the same claim, and the one that keeps REVIEWED_MOVES
 // honest: WHICH digests moved, not merely that the overlay reproduces them. A
-// fourth adapter drifting would satisfy nothing here — it would be a red run
+// sixth adapter drifting would satisfy nothing here — it would be a red run
 // naming itself, which is what an accidental edit under manifests/ has to be.
 $movedNames = [];
 foreach ($observed as $name => $digest) {
@@ -309,14 +323,14 @@ duo_check_same(
 echo "\nPART 3 — the reviewed registry, and the manifest file bytes upstream of every digest\n";
 // ---------------------------------------------------------------------------
 // The flip does not touch the reviewed claim source; #561 promotes TEC and
-// this post-flag port certifies Polylang. The number moved for reasons written
-// in their per-subject documents, and re-pinning it here is the reviewed act —
-// not evidence that the flag day disturbed a host contract.
+// the post-flag ports certify Polylang and WooCommerce. The number moved for
+// reasons written in their per-subject documents, and re-pinning it here is
+// the reviewed act — not evidence that the flag day disturbed a host contract.
 duo_check_same(
     REVIEWED_MOVES['registry_sha256'],
     ManifestDispositions::load($manifestDir)->sha256(),
     'registry_sha256 — the whole-document hash every host contract pins (ContractProjection) — carries #561\'s '
-        . 'experimental -> certified promotion of the-events-calendar plus Polylang\'s reviewed certification; it '
+        . 'experimental -> certified promotion of the-events-calendar plus Polylang and WooCommerce review; it '
         . 'is pinned here as a literal, so the next claim edit is a visible re-pin rather than a silent one'
 );
 duo_check(

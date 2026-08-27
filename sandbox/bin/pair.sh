@@ -632,7 +632,13 @@ cmd_up() {
   # pair.yml renders WORDPRESS_DB_HOST from it and pair_compose_configure()
   # persists it to sandbox/.env for the many subprocess callers that make their
   # OWN compose calls after `pair.sh up`.
-  pair_compose_configure "$name" "${overlays[@]}"
+  # Stock macOS Bash 3.2 treats an empty "${array[@]}" as an unbound variable
+  # under `set -u`; a plain pair legitimately has no overlays.
+  if [ "${#overlays[@]}" -gt 0 ]; then
+    pair_compose_configure "$name" "${overlays[@]}"
+  else
+    pair_compose_configure "$name"
+  fi
 
   say "shared infra: $DB_LABEL + duo-shared network"
   pair_db_ensure_up
@@ -645,14 +651,12 @@ cmd_up() {
 
   say "pair '$name': site-repo directories"
   pair_siterepo_prepare_roots "$name"
-  local force_recreate=()
   if [ -n "$codebind" ]; then
     # Bootstrap-order requirement inherited from spike G (see
     # pair.codebind.yml's header): the bind-mount SOURCE must exist,
     # host-owned, before any container that mounts it is created.
     mkdir -p "siterepo/${name}1/code/wp-content/plugins/${codebind}" \
              "siterepo/${name}2/code/wp-content/plugins/${codebind}"
-    force_recreate=(--force-recreate)
   fi
 
   say "pair '$name': web containers up"
@@ -671,7 +675,11 @@ cmd_up() {
   # Keep the codebind contract's force-recreate scoped to the web services,
   # but never create CLI services until the web containers have established
   # pair.yml's nested MU bind mountpoints inside their named volumes.
-  "${PAIR_COMPOSE[@]}" up -d "${force_recreate[@]}" wp1 wp2
+  if [ -n "$codebind" ]; then
+    "${PAIR_COMPOSE[@]}" up -d --force-recreate wp1 wp2
+  else
+    "${PAIR_COMPOSE[@]}" up -d wp1 wp2
+  fi
   pair_readiness_wait_web_mountpoints "$name"
   "${PAIR_COMPOSE[@]}" up -d cli1 cli2
   # Once both web and CLI containers exist, the pair is visible to the next

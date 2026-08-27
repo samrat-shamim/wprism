@@ -3455,7 +3455,7 @@ final class Policy {
      */
     public static function action_effects(array $action, int $index): array {
         $effects = $action['effects'] ?? null;
-        if (is_array($effects) && $effects !== []) {
+        if (is_array($effects) && ($effects !== [] || array_key_exists('effects', $action))) {
             return $effects;
         }
         $manifest = (string) ($action['manifest'] ?? '?');
