@@ -2,8 +2,9 @@
 declare(strict_types=1);
 
 namespace {
-    require_once __DIR__ . '/../../lib/check.php';
-    require_once __DIR__ . '/../../support/wp_cli_child_process_fake.php';
+    $repoRoot = dirname(__DIR__, 4);
+    require_once $repoRoot . '/sandbox/tests/lib/check.php';
+    require_once $repoRoot . '/sandbox/tests/support/wp_cli_child_process_fake.php';
 
     $scratch = sys_get_temp_dir() . '/duo_elementor_css_provider_' . bin2hex(random_bytes(8));
     if (!mkdir($scratch, 0700, true) && !is_dir($scratch)) {
@@ -183,9 +184,9 @@ namespace Duo {
 }
 
 namespace {
-    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
-    require_once dirname(__DIR__, 4) . '/agent/src/Kernel/WpCliChildProcess.php';
-    require_once dirname(__DIR__, 4) . '/adapter-packages/elementor/package/runtime/providers/elementor-css.php';
+    require_once $repoRoot . '/agent/src/Adapter/ManifestProviderRuntime.php';
+    require_once $repoRoot . '/agent/src/Kernel/WpCliChildProcess.php';
+    require_once dirname(__DIR__, 2) . '/package/runtime/providers/elementor-css.php';
 
     use Duo\Providers\ElementorCss;
 
@@ -210,7 +211,7 @@ namespace {
         $GLOBALS['ec_cache_delete_calls'] = [];
         $GLOBALS['wpdb'] = new ElementorCssWpdb();
         $manifest = json_decode(
-            (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/elementor/package/manifest.json'),
+            (string) file_get_contents(dirname(__DIR__, 2) . '/package/manifest.json'),
             true,
             512,
             JSON_THROW_ON_ERROR

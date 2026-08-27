@@ -1,8 +1,9 @@
 seed_code_snippets_content() {
   wp_conf1() { wp1 "$@"; }
-  local CONF_REPO1="siterepo/${PAIR}1"
+  local CONF_REPO1="siterepo/${PAIR}1" package_tests
   local COMPOSE="$PAIR_COMPOSE_STRING"
-  . conformance/seeds/code-snippets.sh
+  package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  . "$package_tests/conformance/seed.sh"
   unset -f wp_conf1
 }
 

@@ -7,10 +7,11 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
 }
 
-require_once __DIR__ . '/../../lib/check.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
-require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
-require_once __DIR__ . '/../../../../adapter-packages/contact-form-7/package/runtime/interpreters/contact-form-7.php';
+$repoRoot = dirname(__DIR__, 4);
+require_once $repoRoot . '/sandbox/tests/lib/check.php';
+require_once $repoRoot . '/agent/src/Kernel/Canon.php';
+require_once $repoRoot . '/agent/src/Policy/Policy.php';
+require_once dirname(__DIR__, 2) . '/package/runtime/interpreters/contact-form-7.php';
 
 use Duo\Interpreters\ContactForm7;
 use Duo\Policy;
@@ -237,7 +238,7 @@ $withoutOldId = $current;
 unset($withoutOldId['_old_cf7_unit_id']);
 duo_check_same([], cf7_readiness_diagnostics($interpreter, $withoutOldId), 'forms without a legacy alternate remain valid');
 
-$manifest = json_decode((string) file_get_contents(__DIR__ . '/../../../../adapter-packages/contact-form-7/package/manifest.json'), true);
+$manifest = json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/package/manifest.json'), true);
 duo_check_same(['min' => '6.0', 'max' => '6.2.0'], $manifest['version_range'], 'CF7 admits the official 6.0 header and only the audited 6.0.x/6.1.x release lines');
 duo_check_same(true, $manifest['post_meta']['_mail']['plain_data'], 'current mail uses recursive string-leaf rebinding');
 duo_check_same(true, $manifest['post_meta']['_mail_2']['plain_data'], 'secondary mail uses recursive string-leaf rebinding');
@@ -245,7 +246,7 @@ duo_check_same(true, $manifest['post_meta']['_messages']['plain_data'], 'message
 duo_check_same('hex-prefix', $manifest['shortcode_attrs']['contact-form-7'][0]['lookup']['codec'], 'modern CF7 shortcode declares its real hash-prefix identity');
 duo_check_same([40, 64], $manifest['shortcode_attrs']['contact-form-7'][0]['lookup']['stored_lengths'], 'modern CF7 shortcode admits exactly the native SHA-1 and SHA-256 storage widths');
 duo_check_same(true, $manifest['shortcode_attrs']['contact-form-7'][0]['required'], 'modern CF7 shortcode refuses mutable title-only fallback');
-$versionMatrix = (string) file_get_contents(__DIR__ . '/../../certify/certify_version_matrix.sh');
+$versionMatrix = (string) file_get_contents($repoRoot . '/sandbox/tests/certify/certify_version_matrix.sh');
 duo_check(
     str_contains($versionMatrix, "'wps-hide-login-target-runtime-probe',\n      'wpcf7'"),
     'exact version-matrix resets delete the CF7 activation marker before each source and target case'

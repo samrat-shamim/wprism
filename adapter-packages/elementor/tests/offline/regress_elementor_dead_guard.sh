@@ -7,12 +7,13 @@
 # require_fixture_ids (the DUO-3381 helper), which names an empty/non-numeric id
 # at the read site. Found in DUO-3381's 26-file audit. Offline static check.
 set -euo pipefail
-cd "$(dirname "$0")/../../.."   # -> sandbox/
+REPO_ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
+cd "$REPO_ROOT"
 
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
-F=conformance/checks/elementor.sh
+F=adapter-packages/elementor/tests/conformance/check.sh
 [ -f "$F" ] || fail "$F is missing"
 
 # The seeded-page id read must be a STANDALONE assignment — a line ending in `)`,
