@@ -1169,6 +1169,7 @@
           "AdapterObservation",
           "AdapterProbe",
           "AdapterRegistry",
+          "ManifestProviderRuntime",
           "DeletionFeasibility"
         ],
         "depends_on": [
@@ -1182,7 +1183,7 @@
           "Review"
         ],
         "exceptions": [],
-        "file_count": 16,
+        "file_count": 17,
         "files": [
           "ActionProviderGrammar.php",
           "AdapterCertification.php",
@@ -1194,6 +1195,7 @@
           "AdapterSources.php",
           "DeletionFeasibility.php",
           "IdentityNamespaces.php",
+          "ManifestProviderRuntime.php",
           "ProviderActionBatchBuilder.php",
           "ProviderSdk.php",
           "ProviderSurfaces.php",

@@ -266,18 +266,14 @@ if rg -q 'SOURCE_SECRET|source-recipient@example\.test|prod_SOURCE' "$CONF_REPO1
   fail 'PMPro canonical state contains an environment/payment sentinel'
 fi
 
-PROVIDER_RECEIPT="${APPLY_JSON:-}"
-if [ -z "$PROVIDER_RECEIPT" ] && [ -n "${VMATRIX_APPLY_LOG:-}" ] && [ -f "$VMATRIX_APPLY_LOG" ]; then
-  PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")
+APPLY_EVIDENCE="${APPLY_JSON:-}"
+if [ -z "$APPLY_EVIDENCE" ] && [ -n "${VMATRIX_APPLY_LOG:-}" ] && [ -f "$VMATRIX_APPLY_LOG" ]; then
+  APPLY_EVIDENCE=$(cat "$VMATRIX_APPLY_LOG")
 fi
-grep -Fq 'paid-memberships-pro-cache' <<<"$PROVIDER_RECEIPT" \
-  || fail "initial apply did not identify the PMPro cache provider: ${PROVIDER_RECEIPT:-<missing>}"
-if jq -e 'any(.actions[]?; .source == "provider:paid-memberships-pro-cache/clear_level_meta_caches" and .verified == true and .after.database_hash == .after.api_hash and .after.meta_row_count >= 3)' <<<"$PROVIDER_RECEIPT" >/dev/null 2>&1; then
-  :
-elif ! grep -Eq 'canary clean|"canary"[[:space:]]*:[[:space:]]*"clean"' <<<"$PROVIDER_RECEIPT"; then
-  fail "PMPro provider receipt was neither structured/verified nor a clean boundary log: $PROVIDER_RECEIPT"
+if grep -Fq 'paid-memberships-pro-cache' <<<"$APPLY_EVIDENCE"; then
+  fail "initial apply still invoked the retired PMPro cache provider: $APPLY_EVIDENCE"
 fi
-pass 'all PMPro table identities and references rebind at divergent ids; env/payment and runtime state remain target-owned; cache repair is verified'
+pass 'all PMPro table identities and references rebind at divergent ids; env/payment and runtime state remain target-owned; native PMPro reads observe declared cache invalidation'
 
 if [ "${PMPRO_SKIP_FRONTEND:-0}" != 1 ]; then
   RESTRICTED=$(curl -fsSL "http://localhost:${CONF2_PORT}/pmpro-restricted/") || fail 'PMPro restricted frontend did not return 200'
@@ -297,7 +293,7 @@ jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] |
   || fail "PMPro initial apply is not idempotent: $ZERO_PLAN"
 
 if [ "${PMPRO_BOUNDARY_ONLY:-0}" = 1 ]; then
-  pass "PMPro $PMPRO_EXPECTED_VERSION boundary fixture passes native APIs, identities, provider receipt, sovereignty, and idempotence"
+  pass "PMPro $PMPRO_EXPECTED_VERSION boundary fixture passes native APIs, identities, declared cache invalidation, sovereignty, and idempotence"
   return 0 2>/dev/null || exit 0
 fi
 

@@ -2,9 +2,8 @@
 /** Exact WooCommerce 11.0.x request-time thumbnail convergence product path. */
 declare(strict_types=1);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/wp_stubs.php';

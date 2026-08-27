@@ -2607,7 +2607,6 @@ final class FakeWpdb {
                 throw $this->unsupported('`*` over a LEFT JOIN; name the columns');
             }
         }
-
         if ($aggregate) {
             $out = $this->aggregate($items, $matched, $group, $ctx);
         } else {

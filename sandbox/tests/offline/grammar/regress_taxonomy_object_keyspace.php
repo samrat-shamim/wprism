@@ -16,7 +16,7 @@ if ($root === false) {
     throw new RuntimeException('FAIL: repository root is unavailable');
 }
 if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+    define('DUO_SPEC_VERSION', 3);
 }
 
 /** @var array<string,list<callable>> */

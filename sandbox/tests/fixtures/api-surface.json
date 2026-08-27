@@ -1,5 +1,5 @@
 {
-    "class_count": 398,
+    "class_count": 399,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -21104,6 +21104,146 @@
                     "parameters": [],
                     "return_type": "array",
                     "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\ManifestProviderRuntime": {
+            "abstract": true,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "manifest-provider-runtime/v1"
+                }
+            },
+            "final": false,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "__construct": {
+                    "abstract": false,
+                    "final": true,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "declaration",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "capabilities": {
+                    "abstract": false,
+                    "final": true,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "identity": {
+                    "abstract": false,
+                    "final": true,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "invoke": {
+                    "abstract": false,
+                    "final": true,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "capability",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "invoke_scoped": {
+                    "abstract": false,
+                    "final": true,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "capability",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "operation",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "reconcile_scoped": {
+                    "abstract": false,
+                    "final": true,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "capability",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "operation",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
                     "visibility": "public"
                 }
             },
@@ -46427,6 +46567,14 @@
                             "name": "wpdb",
                             "type": null,
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "failureMessage",
+                            "type": "?string",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -47238,6 +47386,56 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate_capability_declaration": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "decl",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate_scoped_capability_declaration": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "decl",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
                     "static": true,
                     "visibility": "public"
                 },

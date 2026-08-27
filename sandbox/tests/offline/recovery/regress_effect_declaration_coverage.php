@@ -41,8 +41,8 @@
  * WHAT THIS SUITE DELIBERATELY DOES NOT PIN
  * -----------------------------------------
  * That the scorer is COMPLETE. The journal sees database writes only, so of the
- * 248 effect rows the shipped library projects, 64 carry a `database_checkpoint`
- * selector and 184 select external hooks, cache namespaces and provider
+ * 381 effect rows the shipped library projects, 101 carry a `database_checkpoint`
+ * selector and 183 select external hooks, cache namespaces and provider
  * resources that no journal row can confirm or refute. Eight of the sixteen
  * adapters declare no journal-observable effect at all. That is reported as
  * `scorable => false` rather than as a clean score, and asserted below, because
@@ -55,7 +55,11 @@
  * widened rewrite action added 56 effect rows of which only 8 are
  * journal-observable. The reviewed Polylang production-readiness port then
  * added 5 effects, 2 journal-observable, and the eighth scorable adapter. The
- * clean sheet -- 0 findings -- survived both widenings unchanged, and that,
+ * PMPro engine-absorption move then retired its one provider action effect;
+ * generic row-cache invalidation is materializer behavior rather than a
+ * separately dispatched action, so the total fell by one and observability did
+ * not move. The
+ * clean sheet -- 0 findings -- survived these reviewed changes unchanged, and that,
  * not the totals, is the property this suite asserts.
  */
 declare(strict_types=1);
@@ -63,8 +67,9 @@ declare(strict_types=1);
 // From offline/recovery/: two hops to the corpus root, four to the repo root.
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
+require_once __DIR__ . '/../../lib/agent_version.php';
 
-define('DUO_SPEC_VERSION', 2);
+duo_test_define_agent_versions();
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/CommandRefusal.php';
@@ -187,8 +192,8 @@ $baseline = EffectDeclarationCoverage::from_facts($policy, ['rows' => $fixture])
 
 duo_check_same(EffectDeclarationCoverage::FORMAT, $baseline['format'], 'the report names its versioned format');
 duo_check_same(16, $baseline['totals']['adapters'], 'every pinned adapter gets a row, scorable or not');
-duo_check_same(382, $baseline['totals']['declared_effects'], 'the declared side is Policy::effects_inventory() in full');
-duo_check_same(101, $baseline['totals']['observable_effects'], '101 of the 382 declared effects carry a database_checkpoint selector');
+duo_check_same(381, $baseline['totals']['declared_effects'], 'the declared side is Policy::effects_inventory() in full');
+duo_check_same(101, $baseline['totals']['observable_effects'], '101 of the 381 declared effects carry a database_checkpoint selector');
 duo_check_same(8, $baseline['totals']['scorable_adapters'], 'only 8 of 16 adapters declare a journal-observable effect at all');
 
 // THE NUMBER THE RISK FIELD ASKS TO BE PUBLISHED. 0 findings over 2178 scored
@@ -231,7 +236,7 @@ duo_check_same(2, $polylang['observable_effects'], 'two Polylang effects are dat
 duo_check_same(2, $polylang['exercised_effects'], 'the derived fixture exercises both Polylang database effects');
 
 $woo = edc_adapter($baseline, 'woocommerce');
-duo_check_same(271, $woo['declared_effects'], 'woocommerce declares 271 of the 382 effect rows');
+duo_check_same(271, $woo['declared_effects'], 'woocommerce declares 271 of the 381 effect rows');
 duo_check_same(77, $woo['observable_effects'], '77 of them are journal-observable');
 duo_check_same(77, $woo['exercised_effects'], 'the derived fixture exercises every one of them');
 duo_check_same([], $woo['unexercised_effects'], 'nothing is left unexercised when every declared surface is written');

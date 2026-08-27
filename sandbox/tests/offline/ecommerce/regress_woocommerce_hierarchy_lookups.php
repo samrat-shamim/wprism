@@ -2,7 +2,8 @@
 /** Offline adversarial product-path regression for Woo hierarchy repair. */
 declare(strict_types=1);
 
-define('DUO_SPEC_VERSION', 2);
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 $root = dirname(__DIR__, 4);
 putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 

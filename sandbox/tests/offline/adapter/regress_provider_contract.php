@@ -727,6 +727,10 @@ $readFake = new CheckedReadFakeWpdb();
 $readFake->resultsReturn = null;
 $checkedReadThrows(fn() => \Duo\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake),
     'checked_get_results throws on a non-array return');
+$readFake = new CheckedReadFakeWpdb();
+$readFake->resultsReturn = ['aliased' => ['id' => '1']];
+$checkedReadThrows(fn() => \Duo\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake),
+    'checked_get_results throws on an associative outer result instead of silently reindexing it');
 
 echo "\n== negotiation: the supported path ==\n";
 $reset();

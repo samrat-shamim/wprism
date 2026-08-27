@@ -4,7 +4,7 @@ declare(strict_types=1);
 /** Closed offline boundary for Ninja Forms 3.x table and add-on content. */
 
 if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+    define('DUO_SPEC_VERSION', 3);
 }
 
 require_once __DIR__ . '/../../lib/check.php';

@@ -26,8 +26,10 @@
  * synthetic engine. THE FLIP MOVED THE ENGINE ONTO THE GATE. The rule is now
  * live through the product path, PART 3 measures it in one run of the real
  * `duo manifest-validate`, and what needs the window to stay reachable is the
- * OPEN era: `$open` is `CLOSED_KEY_SET_SINCE - 1`, the version the whole
- * shipped library still declares and the reason not one digest moved.
+ * OPEN era: `$open` is `CLOSED_KEY_SET_SINCE - 1`, the version the 15 legacy
+ * manifests still declare. Paid Memberships Pro now deliberately declares v3
+ * to consume a post-flag engine feature; that adapter identity change belongs
+ * to its reviewed migration, not to this digest-neutral rider.
  *
  * That symmetry expires. At N = 4 the window's floor is 3, which is the gate,
  * so nothing inside the window is below it and the open era stops existing.
@@ -309,8 +311,8 @@ $N = DUO_SPEC_VERSION;
 // (`CLOSED_KEY_SET_SINCE`) and not of the engine. Before the flip they were
 // $N and $N, because the gate sat one above the engine. Now the engine IS the
 // gate, so every "the open era is open" measurement below stamps `$open` — the
-// version the whole shipped library still declares, reachable on this engine
-// only because § v3.1's window accepts N-1.
+// version 15 of the 16 shipped manifests still declare, reachable on this
+// engine only because § v3.1's window accepts N-1.
 //
 // Worth stating because it expires: at N = 4 the window's floor is 3, which is
 // the gate, so no version inside the window is below it. THIS RELEASE IS THE
@@ -378,15 +380,16 @@ duo_check_same(
         . 'key set refuses none of the library'
 );
 duo_check_same(
-    [$open => true],
+    [$open => true, DUO_SPEC_VERSION => true],
     $declaredVersions,
-    'and every one still declares spec_version ' . $open . ' — BELOW the gate, so the rule reaches none of the '
-        . 'shipped library even though the engine has crossed (§ v3.12: no shipped manifest is re-stamped)'
+    'and the library exercises both admitted versions through deliberate per-adapter feature migrations'
 );
 
-// The union in use against the partition, in both directions. The measurement
-// WP-1.6 owed and this rider consumes: a shipped key the partition does not
-// know would be a v3 refusal on the flag day, and the answer must be none.
+// The union in use against the partition, in both directions. Feature-claimed
+// keys deliberately sit beside the partition so they are admitted only for a
+// manifest that declares their owning feature. Shipped v3 adapters exercise it:
+// `engine_features` is outside the partition but inside that manifest's
+// admitted set, and therefore is not a closed-key refusal.
 $union = [];
 foreach ($library as $manifest) {
     foreach (array_keys($manifest) as $key) {
@@ -395,11 +398,23 @@ foreach ($library as $manifest) {
 }
 $unionKeys = array_keys($union);
 sort($unionKeys, SORT_STRING);
+$outsidePartition = array_values(array_diff($unionKeys, $shipped['partition']));
+duo_check_same(
+    ['engine_features'],
+    $outsidePartition,
+    'the only shipped key outside the partition is the feature channel, classified by its disjoint roster arm'
+);
+$unadmitted = [];
+foreach ($library as $name => $manifest) {
+    $difference = array_values(array_diff(array_keys($manifest), AdapterContractGrammar::admitted_top_level_keys($manifest)));
+    if ($difference !== []) {
+        $unadmitted[$name] = $difference;
+    }
+}
 duo_check_same(
     [],
-    array_values(array_diff($unionKeys, $shipped['partition'])),
-    'no shipped manifest declares a top-level key the closed set does not know, so the flag day refuses zero '
-        . 'shipped adapters for this rule'
+    $unadmitted,
+    'every shipped key is admitted for its declaring manifest, so the closed gate refuses zero adapters'
 );
 $report('in-use union: ' . count($unionKeys) . ' keys; closed set: ' . count($shipped['partition'])
     . '; admitted but undeclared: ' . implode(', ', array_diff($shipped['partition'], $unionKeys)));

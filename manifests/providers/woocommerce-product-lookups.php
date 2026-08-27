@@ -1,7 +1,7 @@
 <?php
 namespace Duo\Providers;
 
-use Duo\Policy;
+use Duo\ManifestProviderRuntime;
 
 /**
  * WooCommerce 11.x product lookup adapter.
@@ -36,9 +36,7 @@ use Duo\Policy;
  * now, and leaving it would advertise participation in a contract this class
  * no longer has.
  */
-final class WoocommerceProductLookups {
-    private Policy $policy;
-
+final class WoocommerceProductLookups extends ManifestProviderRuntime {
     /** @var array<string,string>|null column => validated SQL cast */
     private ?array $lookupColumnCasts = null;
 
@@ -47,7 +45,6 @@ final class WoocommerceProductLookups {
 
     private const META_LOOKUP = 'wc_product_meta_lookup';
     private const ATTRIBUTE_LOOKUP = 'wc_product_attributes_lookup';
-    private const CAPABILITY = 'rebuild_product_lookups';
     private const MAX_SCOPED_PRODUCTS = 50000;
     private const MAX_VISIBILITY_PRODUCTS = 50000;
     private const MAX_ATTRIBUTE_LOOKUP_ROWS = 200000;
@@ -123,104 +120,6 @@ final class WoocommerceProductLookups {
         'rated-5',
     ];
 
-    public function __construct(Policy $policy) {
-        $this->policy = $policy;
-    }
-
-    /** @return array{id:string, plugin:string, version:string} */
-    public function identity(): array {
-        return [
-            'id' => 'woocommerce-product-lookups',
-            'plugin' => 'woocommerce/woocommerce.php',
-            'version' => '3.0.0',
-        ];
-    }
-
-    /**
-     * `reads`/`writes` are the capability-level summary in the canonical
-     * surface vocabulary; the precise restorable/irreversible inventory of one
-     * invocation is the declaring action's own `effects` list in
-     * manifests/woocommerce.json. Attribute lookup rows are now included:
-     * exact Woo 11.0.0/11.0.1 expose the public synchronous
-     * LookupDataStore::create_data_for_product() writer plus a checked raw SQL
-     * readback whose exact scoped bytes are bound into the receipt.
-     *
-     * `context` names every channel this repair actually consumes, and each
-     * one is load-bearing rather than aspirational:
-     *   - `deletions`  drives the public product-meta lookup deletion path —
-     *     the row of a removed product/variation, its captured
-     *     `child_ids`, and the still-live parent whose derived price the
-     *     removal changed;
-     *   - `reparents`  refreshes BOTH roots of a moved variation. One row per
-     *     root is how the engine normalizes a chained A->B->C move, and
-     *     invoke() regroups them per entity so the accumulated root set reaches
-     *     the batch entry point exactly as the durable receipt held it;
-     *   - `retry`      states that a previous apply committed something and
-     *     failed, which is the run on which the durable receipts above are the
-     *     only evidence left;
-     *   - `always_on_write` states the basis this fired on, mirroring the
-     *     `batch.always_on_write` flag the retired regen_dependency declared.
-     *
-     * `args` is empty deliberately: every input is engine-assembled. A
-     * capability may not declare the reserved `entities` argument at all
-     * (\Duo\Providers::validate_capability_declaration() refuses it), because
-     * the batch the engine assembled and the batch a manifest asked for must
-     * not be able to disagree.
-     *
-     * 300 seconds is the promotion lease TTL (PromotionLock::DEFAULT_TTL), and
-     * that is the honest bound rather than a guess about catalog size. The
-     * provider contract has no heartbeat parameter, so the engine renews the
-     * lease immediately before and after this call and cannot renew during it.
-     * What that does NOT mean — stated because the obvious reading is wrong —
-     * is that overrunning the TTL self-aborts: PromotionLock::heartbeat()
-     * tolerates an EXPIRED lease while the promotion's own process fence is
-     * continuous (same process, same owner, same artifact), so the renewal on
-     * the far side of a long call still succeeds unless another writer actually
-     * took the lock while this one was expired. The real exposure of a long
-     * invocation is therefore that window of acquirability, and pinning the
-     * budget to the same number keeps the two bounds from disagreeing: an
-     * overrun is reported once, as a declared-budget failure with the measured
-     * duration attached, rather than later as a lock loss whose cause nobody
-     * recorded.
-     */
-    public function capabilities(): array {
-        return [
-            self::CAPABILITY => [
-                'args' => [],
-                'reads' => [
-                    'option:wc_downloads_approved_directories_mode',
-                    'option:woocommerce_feature_cost_of_goods_sold_enabled',
-                    'post:product',
-                    'post:product_variation',
-                    'table:postmeta',
-                    'table:posts',
-                    'table:terms',
-                    'table:term_taxonomy',
-                    'table:term_relationships',
-                    'table:wc_product_attributes_lookup',
-                    'table:wc_product_download_directories',
-                ],
-                'writes' => [
-                    'table:actionscheduler_actions',
-                    'table:postmeta',
-                    'table:term_relationships',
-                    'table:term_taxonomy',
-                    'table:wc_product_attributes_lookup',
-                    'table:wc_product_download_directories',
-                    'table:wc_product_meta_lookup',
-                ],
-                'scope' => 'entity',
-                'idempotent' => true,
-                'timeout_seconds' => 300,
-                'context' => ['always_on_write', 'deletions', 'reparents', 'retry'],
-                'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
-                    'reconcile' => true,
-                ],
-            ],
-        ];
-    }
-
     /**
      * Map the engine batch envelope onto the batch entry point below, run it,
      * and return a receipt whose `verified` is true only because
@@ -238,12 +137,7 @@ final class WoocommerceProductLookups {
      * @param array<string,mixed> $args
      * @return array{before:array, after:array, verified:true}
      */
-    public function invoke(string $capability, array $args): array {
-        if ($capability !== self::CAPABILITY) {
-            throw new \RuntimeException(
-                "duo: WooCommerce product lookup provider does not implement capability '$capability'"
-            );
-        }
+    protected function invoke_rebuild_product_lookups(array $args): array {
         $envelope = $args[\Duo\Providers::ENTITIES_ARG] ?? null;
         if (!is_array($envelope) || !array_key_exists('entities', $envelope)
             || !array_key_exists('deletions', $envelope) || !array_key_exists('reparents', $envelope)) {
@@ -312,29 +206,9 @@ final class WoocommerceProductLookups {
         ];
     }
 
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function invoke_scoped(string $capability, array $args, array $operation): array {
-        $receipt = $this->invoke($capability, $args);
-        return [
-            'operation' => $operation,
-            'before' => $receipt['before'],
-            'after' => $this->scoped_postcondition($args),
-            'verified' => true,
-        ];
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function reconcile_scoped(string $capability, array $args, array $operation): array {
-        if ($capability !== self::CAPABILITY) {
-            throw new \RuntimeException(
-                "duo: WooCommerce product lookup provider does not implement capability '$capability'"
-            );
-        }
-        return [
-            'operation' => $operation,
-            'after' => $this->scoped_postcondition($args),
-            'verified' => true,
-        ];
+    /** @param array<string,mixed> $args @return array<string,mixed> */
+    protected function reconcile_rebuild_product_lookups(array $args): array {
+        return $this->scoped_postcondition($args);
     }
 
     /** @param array<string,mixed> $args @return array<string,int|string> */

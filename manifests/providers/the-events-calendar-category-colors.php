@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Providers;
 
-use Duo\Policy;
+use Duo\ManifestProviderRuntime;
+use Duo\ProviderSdk;
 
 /**
  * The Events Calendar Category Colors derived-CSS regeneration provider.
@@ -17,9 +18,7 @@ use Duo\Policy;
  * verifies every selector/value and the cache-bust postcondition against the
  * same native identities used by TEC 6.17.2/6.17.3.
  */
-final class TheEventsCalendarCategoryColors {
-    private Policy $policy;
-
+final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
     private const CSS_OPTION = 'tec_events_category_color_css';
     private const SETTINGS_OPTION = 'tribe_events_calendar_options';
     private const TAXONOMY = 'tribe_events_cat';
@@ -120,85 +119,8 @@ final class TheEventsCalendarCategoryColors {
         'wp_autoload_values_to_autoload',
     ];
 
-    public function __construct(Policy $policy) {
-        $this->policy = $policy;
-    }
-
-    /** @return array{id:string,plugin:string,version:string} */
-    public function identity(): array {
-        return [
-            'id' => 'the-events-calendar-category-colors',
-            'plugin' => 'the-events-calendar/the-events-calendar.php',
-            'version' => '1.0.0',
-        ];
-    }
-
-    /** @return array<string,array<string,mixed>> */
-    public function capabilities(): array {
-        return [
-            'regenerate_css' => [
-                'args' => [],
-                'reads' => [
-                    'term:tribe_events_cat',
-                    'option:tec_events_category_color_css',
-                    'option:tribe_events_calendar_options',
-                    'entity:tec-category-colors-dropdown-cache',
-                ],
-                'writes' => [
-                    'option:tec_events_category_color_css',
-                    'entity:tec-category-colors-dropdown-cache',
-                ],
-                'scope' => 'site',
-                'idempotent' => true,
-                // Native generation and both exact projections walk every
-                // event category; the bound must accommodate a large real
-                // taxonomy rather than only the conformance fixture.
-                'timeout_seconds' => 120,
-                'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
-                    'reconcile' => true,
-                ],
-            ],
-        ];
-    }
-
-    /** @param array<string,mixed> $args */
-    public function invoke(string $capability, array $args): array {
-        return match ($capability) {
-            'regenerate_css' => $this->regenerate_css(),
-            default => throw new \RuntimeException(
-                "duo: The Events Calendar Category Colors provider does not implement capability '$capability'"
-            ),
-        };
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function invoke_scoped(string $capability, array $args, array $operation): array {
-        $receipt = $this->invoke($capability, $args);
-        return [
-            'operation' => $operation,
-            'before' => $this->scoped_projection($receipt['before']),
-            'after' => $this->scoped_projection($receipt['after']),
-            'verified' => true,
-        ];
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function reconcile_scoped(string $capability, array $args, array $operation): array {
-        if ($capability !== 'regenerate_css') {
-            throw new \RuntimeException(
-                "duo: The Events Calendar Category Colors provider does not implement capability '$capability'"
-            );
-        }
-        return [
-            'operation' => $operation,
-            'after' => $this->scoped_projection($this->projection(self::PROJECTION_RECONCILE)),
-            'verified' => true,
-        ];
-    }
-
     /** @return array{before:array<string,mixed>,after:array<string,mixed>,verified:true} */
-    private function regenerate_css(): array {
+    protected function invoke_regenerate_css(array $args): array {
         $services = $this->assert_runtime_contract(true);
         $before = $this->projection(self::PROJECTION_BEFORE);
 
@@ -244,6 +166,11 @@ final class TheEventsCalendarCategoryColors {
             'after' => $this->projection(self::PROJECTION_AFTER_INVOKE),
             'verified' => true,
         ];
+    }
+
+    /** @return array<string,mixed> */
+    protected function reconcile_regenerate_css(array $args): array {
+        return $this->projection(self::PROJECTION_RECONCILE);
     }
 
     /** @return ?array{generator:object,dropdown:object} */
@@ -584,13 +511,15 @@ final class TheEventsCalendarCategoryColors {
         // native cache/filter view before any plugin category traversal can
         // load the same option implicitly.
         $showHidden = $this->settings_show_hidden();
-        $taxonomyRows = $this->checked_rows(
+        $taxonomyRows = ProviderSdk::checked_get_results(
             $wpdb->prepare(
                 "SELECT term_id FROM {$wpdb->term_taxonomy} WHERE taxonomy = %s ORDER BY term_id ASC LIMIT "
                     . (self::MAX_CATEGORY_COUNT + 1),
                 self::TAXONOMY
             ),
-            'taxonomy identities'
+            'taxonomy identities',
+            $wpdb,
+            'duo: The Events Calendar Category Colors taxonomy identities is unreadable'
         );
         if (count($taxonomyRows) > self::MAX_CATEGORY_COUNT) {
             throw new \RuntimeException(
@@ -619,7 +548,7 @@ final class TheEventsCalendarCategoryColors {
         $idList = array_keys($termIds);
         $idPlaceholders = implode(',', array_fill(0, count($idList), '%d'));
         $termValueLimit = self::MAX_TERM_TEXT_BYTES + 1;
-        $termRows = $this->checked_rows(
+        $termRows = ProviderSdk::checked_get_results(
             $wpdb->prepare(
                 "SELECT term_id, LENGTH(slug) AS slug_bytes, "
                     . "LEFT(BINARY slug, $termValueLimit) AS slug_prefix, "
@@ -628,7 +557,9 @@ final class TheEventsCalendarCategoryColors {
                     . 'ORDER BY term_id ASC LIMIT ' . (self::MAX_CATEGORY_COUNT + 1),
                 ...$idList
             ),
-            'term values'
+            'term values',
+            $wpdb,
+            'duo: The Events Calendar Category Colors term values is unreadable'
         );
         $categories = [];
         foreach ($termRows as $row) {
@@ -671,14 +602,16 @@ final class TheEventsCalendarCategoryColors {
             );
         }
 
-        $metaBounds = $this->checked_rows(
+        $metaBounds = ProviderSdk::checked_get_results(
             $wpdb->prepare(
                 "SELECT meta_id, term_id, meta_key, LENGTH(meta_value) AS value_bytes FROM {$wpdb->termmeta} "
                     . "WHERE term_id IN ($idPlaceholders) ORDER BY meta_id ASC LIMIT "
                     . (self::MAX_TERM_META_ROWS + 1),
                 ...$idList
             ),
-            'term metadata bounds'
+            'term metadata bounds',
+            $wpdb,
+            'duo: The Events Calendar Category Colors term metadata bounds is unreadable'
         );
         if (count($metaBounds) > self::MAX_TERM_META_ROWS) {
             throw new \RuntimeException(
@@ -715,7 +648,7 @@ final class TheEventsCalendarCategoryColors {
         $metaValueLimit = self::MAX_RELEVANT_META_VALUE_BYTES + 1;
         $uniqueRowFrontier = count($idList) * count($metaKeys) + 1;
         $relevantRowLimit = min($uniqueRowFrontier, self::MAX_NATIVE_GENERATOR_META_ROWS + 1);
-        $relevantRows = $this->checked_rows(
+        $relevantRows = ProviderSdk::checked_get_results(
             $wpdb->prepare(
                 "SELECT meta_id, term_id, meta_key, LENGTH(meta_value) AS value_bytes, "
                     . "LEFT(BINARY meta_value, $metaValueLimit) AS value_prefix FROM {$wpdb->termmeta} "
@@ -723,7 +656,9 @@ final class TheEventsCalendarCategoryColors {
                     . "ORDER BY meta_id ASC LIMIT $relevantRowLimit",
                 ...array_merge($idList, $metaKeys)
             ),
-            'category color metadata'
+            'category color metadata',
+            $wpdb,
+            'duo: The Events Calendar Category Colors category color metadata is unreadable'
         );
         if (count($relevantRows) > self::MAX_NATIVE_GENERATOR_META_ROWS) {
             throw new \RuntimeException(
@@ -871,14 +806,16 @@ final class TheEventsCalendarCategoryColors {
     private function bounded_raw_option(string $name, int $maxBytes, string $context): ?string {
         global $wpdb;
         $valueLimit = $maxBytes + 1;
-        $rows = $this->checked_rows(
+        $rows = ProviderSdk::checked_get_results(
             $wpdb->prepare(
                 "SELECT option_id, option_name, LENGTH(option_value) AS value_bytes, "
                     . "LEFT(BINARY option_value, $valueLimit) AS value_prefix FROM {$wpdb->options} "
                     . 'WHERE option_name = %s ORDER BY option_id ASC LIMIT 2',
                 $name
             ),
-            "$context value"
+            "$context value",
+            $wpdb,
+            "duo: The Events Calendar Category Colors $context value is unreadable"
         );
         if (count($rows) > 1) {
             throw new \RuntimeException(
@@ -913,19 +850,6 @@ final class TheEventsCalendarCategoryColors {
         return $row['value_prefix'];
     }
 
-    /** @return list<array<string,mixed>> */
-    private function checked_rows(string $sql, string $context): array {
-        global $wpdb;
-        $wpdb->last_error = '';
-        $rows = $wpdb->get_results($sql, ARRAY_A);
-        if (!is_array($rows) || !array_is_list($rows) || $wpdb->last_error !== '') {
-            throw new \RuntimeException(
-                "duo: The Events Calendar Category Colors $context is unreadable"
-            );
-        }
-        return $rows;
-    }
-
     private function positive_driver_int(mixed $value, string $context): int {
         $parsed = $this->nonnegative_driver_int($value, $context);
         if ($parsed < 1) {
@@ -954,7 +878,7 @@ final class TheEventsCalendarCategoryColors {
     }
 
     /** @param array<string,mixed> $projection @return array<string,mixed> */
-    private function scoped_projection(array $projection): array {
+    protected function project_regenerate_css(array $projection): array {
         // Generator::fetch_category_meta() has no SQL ORDER BY and its stable
         // priority-only usort therefore permits byte permutations inside an
         // equal-priority bucket. Selectors are disjoint, so the canonical

@@ -183,6 +183,7 @@ namespace Duo {
 }
 
 namespace {
+    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
     require_once dirname(__DIR__, 4) . '/manifests/providers/elementor-css.php';
 
     use Duo\Providers\ElementorCss;
@@ -207,7 +208,13 @@ namespace {
         $GLOBALS['ec_css_status_cache'] = [];
         $GLOBALS['ec_cache_delete_calls'] = [];
         $GLOBALS['wpdb'] = new ElementorCssWpdb();
-        return new ElementorCss(new \Duo\Policy());
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/elementor.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        return new ElementorCss($manifest['providers'][0]);
     }
 
     function ec_operation(): array {

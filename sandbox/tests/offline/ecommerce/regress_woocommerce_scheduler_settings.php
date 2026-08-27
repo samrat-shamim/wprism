@@ -206,7 +206,8 @@ namespace {
         }
     }
     define('WOOCOMMERCE_BIS_ALPHA_ENABLED', true);
-    define('DUO_SPEC_VERSION', 2);
+    require_once __DIR__ . '/../../lib/agent_version.php';
+    duo_test_define_agent_versions();
 
     final class WP_Hook {
         /** @var array<int,array<string,array{function:callable,accepted_args:int}>> */

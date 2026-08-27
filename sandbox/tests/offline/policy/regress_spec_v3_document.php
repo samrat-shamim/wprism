@@ -32,7 +32,8 @@
  *   is still 2, the validator still admits an invented section, the
  *   disposition monolith is still one file, the certification signature domain
  *   is still /v1, the statement is still five members, the platform trust root
- *   is still empty, and no shipped manifest declares v3. A rider that lands
+ *   is still empty, and reviewed shipped manifests now declare v3 only when
+ *   consuming gated generic primitives. A rider that lands
  *   enforcement without moving this suite's expectations is a rider that
  *   landed silently, which is the failure this half prevents.
  *
@@ -220,14 +221,15 @@ sort($featureReaders, SORT_STRING);
 // vocabulary and can refuse an unimplemented name.
 duo_check_same(
     [
+        'agent/src/Adapter/ActionProviderGrammar.php',
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
         'cli/src/Adapter/ManifestValidate.php',
     ],
     $featureReaders,
-    'v3.2 ENFORCED: the channel has one shipped OWNER — the grammar that holds the feature vocabulary — beside '
-        . 'two gate readers that each consume one gated declaration, and one publisher that consumes none'
+    'v3.2 ENFORCED: the channel has one shipped OWNER beside three gate readers that each consume one gated '
+        . 'declaration and one publisher that consumes none'
 );
 // WP-6.4 moved this from one name to two, and the second is the assertion
 // worth having: `spec-window/v1` claims only the channel's own key, so with it
@@ -235,20 +237,22 @@ duo_check_same(
 // admissibility. `structured-evidence/v1` claims `declaration_evidence`, a
 // section that did not exist when v3 was cut and that shipped with
 // DUO_SPEC_VERSION unmoved (§ v3.14) — so the channel is a walked path.
-// WP-6.5 makes it six, and the fifth section-claiming name is `body_refs`
+// WP-6.5 made it six; manifest-provider-runtime/v1 makes it seven while
+// claiming no new top-level section.
 // (§ v3.20) — another section that did not exist when v3 was cut, shipped with
 // DUO_SPEC_VERSION unmoved.
 duo_check_same(
     [
         'attr-id-codecs/v1',
         'invalidate-vocabulary/v1',
+        'manifest-provider-runtime/v1',
         'spec-window/v1',
         'structured-body-refs/v1',
         'structured-evidence/v1',
         'typed-column-codecs/v1',
     ],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: the vocabulary carries six IMPLEMENTED features, and four claim sections v3 did not have — '
+    'v3.2: the vocabulary carries seven IMPLEMENTED features, and four claim sections v3 did not have — '
         . '"declared and implemented admits" is a path walked four times, not an admissibility argument'
 );
 // WP-4.12: the channel OPENED. At DUO_SPEC_VERSION 2 this probe refused by
@@ -275,7 +279,7 @@ $sectionStaged = $contractVerdict([
 ]);
 duo_check(
     is_string($sectionStaged) && str_contains($sectionStaged, "the section 'engine_features'"),
-    '...while at ' . ($specVersion - 1) . ' — the version every shipped manifest declares — it still refuses '
+    '...while at ' . ($specVersion - 1) . ' — the compatibility version fifteen shipped manifests retain — it still refuses '
         . 'by SECTION name, which is why the flip changed no shipped behaviour'
 );
 
@@ -287,7 +291,7 @@ $vocabulary = (array) (new ReflectionMethod(Policy::class, 'manifest_validator_v
 // WP-4.12: stamped at N-1, the version the whole shipped library declares.
 // The rule is gated at spec_version 3 and the engine now IS 3, so the "still
 // admits" measurement has to be taken where the library actually sits — that
-// is the claim it supports (no shipped manifest changed behaviour by a byte),
+// is the claim it supports (a v2 manifest changes no behaviour by a byte),
 // and at the engine's own version the same bytes are correctly refused.
 $invented = [
     'name' => 'v3-keys-probe',
@@ -306,7 +310,7 @@ $manifestVerdict = static function (array $manifest) use ($vocabulary): ?string 
 duo_check_same(
     null,
     $manifestVerdict($invented),
-    'v3.3 INERT at v' . ($specVersion - 1) . ': the manifest validator still admits a top-level section in no arm of the partition, so no shipped manifest changed behaviour by a byte'
+    'v3.3 INERT at v' . ($specVersion - 1) . ': the manifest validator still admits a top-level section in no arm of the partition, so retained v2 manifests change no behaviour by a byte'
 );
 // WP-4.12: the v3 half IS walkable in this process now. Before the flip the
 // window refused a spec_version 3 manifest one step before the key rule, so
@@ -459,7 +463,7 @@ $v2Narrowing['spec_version'] = $specVersion - 1;
 duo_check_same(
     $wholeBoundaryBytes,
     Canon::encode($narrowingEnvironment($v2Narrowing)),
-    'v3.5 INERT at v' . ($specVersion - 1) . ': the same declaration at the version every shipped manifest declares projects the whole boundary, byte for byte'
+    'v3.5 INERT at v' . ($specVersion - 1) . ': the same declaration at the retained compatibility version projects the whole boundary, byte for byte'
 );
 duo_check(
     in_array('environment', AdapterCertification::topLevelKeyPartition()['non_surface_keys'], true),
@@ -624,7 +628,9 @@ duo_check(
     . 'is the exact failure docs/wire-surface.md is generated to prevent'
 );
 
-// The no-restamp rule, which is what makes the whole bump digest-neutral.
+// The no-BULK-restamp rule made the bump digest-neutral. Later, reviewed
+// per-adapter migrations each pay their own digest change for capability gained
+// and leave unrelated manifests at the pre-flip version.
 $declaredVersions = [];
 foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
     $name = basename($file, '.json');
@@ -635,18 +641,26 @@ foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
     $declaredVersions[$name] = $decoded['spec_version'] ?? null;
 }
 ksort($declaredVersions, SORT_STRING);
-// WP-4.12 — THE INVARIANT THE WHOLE FLAG DAY RESTS ON, and the one assertion
-// in this suite whose meaning got STRONGER when the define moved. Before the
-// flip "all 16 declare $specVersion" was nearly tautological: the library and
-// the engine were the same number, so nothing had to hold it. Now the engine
-// is 3 and the library is 2, and the gap is the no-restamp rule (§ v3.12):
-// stamping any one of these would move its digest, its `manifest_hash` and
-// every content pin naming it, fleet-wide.
 duo_check_same(
-    [$specVersion - 1],
-    array_values(array_unique(array_values($declaredVersions))),
-    'NO SHIPPED MANIFEST IS STAMPED TO v' . $specVersion . ': all ' . count($declaredVersions)
-        . ' still declare spec_version ' . ($specVersion - 1) . ', one below the engine and inside the window'
+    [
+        'code-snippets',
+        'elementor',
+        'ninja-forms',
+        'paid-memberships-pro',
+        'polylang',
+        'the-events-calendar',
+        'woocommerce',
+        'yoast',
+        'yoast-duplicate-post',
+    ],
+    array_keys(array_filter($declaredVersions, static fn($version): bool => $version === $specVersion)),
+    'only deliberately feature-migrated manifests are stamped to v' . $specVersion
+        . ' — each is a reviewed identity change, not a bulk restamp'
+);
+duo_check_same(
+    7,
+    count(array_filter($declaredVersions, static fn($version): bool => $version === $specVersion - 1)),
+    'the seven unrelated shipped manifests remain one below the engine and inside the window'
 );
 
 echo "\nPART 2 — THE DOCUMENT: every measurable claim re-measured from the tree\n";
@@ -927,15 +941,15 @@ $nsFixture = static fn(string $name, ?int $spec, array $extra = []): array => $e
 ], static fn($v): bool => $v !== null);
 // WP-4.12: the probe pair is now (N-1, N) rather than (N, 3), because the flip
 // put the engine ON the gate. Both halves still exist and both still matter —
-// the inert half is where every shipped manifest and every pre-flip
-// out-of-tree adapter sits, which is what "the rule moved no shipped byte"
-// means now that the engine has crossed.
+// the inert half is where fifteen shipped manifests and every pre-flip
+// out-of-tree adapter sit. PMPro deliberately reaches the live half only after
+// its identity-moving migration was reviewed.
 duo_check(
     $nsVerdict($nsFixture('cache', $specVersion - 1), 'cache') === null
         && is_string($nsVerdict($nsFixture('cache', $specVersion), 'cache')),
     'and the engine agrees on both halves of that line: an unprefixed out-of-tree name is inert at '
     . 'spec_version ' . ($specVersion - 1) . ' and refuses at ' . $specVersion . ', so the rule reaches only '
-    . 'documents that declare the new version — of which the shipped library has none'
+    . 'documents that deliberately declare the new version'
 );
 duo_check(
     $nsVerdict($nsFixture('acme-cache', 3, [
@@ -1122,6 +1136,7 @@ foreach (['interpreters', 'providers', 'regenerators'] as $kind) {
     }
 }
 $hookAdapters = [];
+$hookOwners = [];
 foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
     $name = basename($file, '.json');
     if ($name === 'dispositions') {
@@ -1129,18 +1144,108 @@ foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
     }
     $manifest = Canon::decode(Canon::read_file($file));
     $shipsCode = is_string($manifest['interpreter'] ?? null);
+    if (is_string($manifest['interpreter'] ?? null)) {
+        $hookOwners['manifests/interpreters/' . $manifest['interpreter'] . '.php'] = $name;
+    }
     foreach ((array) ($manifest['providers'] ?? []) as $provider) {
         $shipsCode = $shipsCode || (is_array($provider) && ($provider['source'] ?? null) === 'manifest');
+        if (is_array($provider) && ($provider['source'] ?? null) === 'manifest') {
+            $hookOwners['manifests/providers/' . (string) ($provider['id'] ?? '') . '.php'] = $name;
+        }
     }
     foreach ((array) ($manifest['post_types'] ?? []) as $rule) {
         $shipsCode = $shipsCode
             || (is_array($rule) && is_string(($rule['regen_dependency']['regenerator'] ?? null)));
+        if (is_array($rule) && is_string(($rule['regen_dependency']['regenerator'] ?? null))) {
+            $regenerator = (string) $rule['regen_dependency']['regenerator'];
+            $hookOwners['manifests/regenerators/' . $regenerator . '.php'] = $name;
+        }
     }
     if ($shipsCode) {
         $hookAdapters[] = $name;
     }
 }
 $hookLines = array_sum($hookFiles);
+
+// The executable inventory is the reviewed ownership decision behind the raw
+// G5 count. A line count alone cannot distinguish generic engine work from
+// plugin semantics that would merely be relocated into core, so every live
+// hook file must have exactly one classified row and every row must still name
+// the adapter that digest-binds it.
+$inventory = Canon::decode(Canon::read_file($repo . '/tools/adapter-executable-inventory.json'));
+$inventoryRows = (array) ($inventory['surfaces'] ?? []);
+$inventoryByPath = [];
+foreach ($inventoryRows as $row) {
+    if (is_array($row) && is_string($row['path'] ?? null)) {
+        $inventoryByPath[$row['path']] = $row;
+    }
+}
+$measuredPaths = [];
+foreach ($hookFiles as $path => $lines) {
+    $measuredPaths[substr($path, strlen($repo) + 1)] = $lines;
+}
+ksort($measuredPaths, SORT_STRING);
+ksort($inventoryByPath, SORT_STRING);
+ksort($hookOwners, SORT_STRING);
+duo_check_same(
+    'duo-adapter-executable-inventory/v1',
+    $inventory['format'] ?? null,
+    'the adapter executable inventory has the closed v1 format'
+);
+duo_check_same(
+    array_keys($measuredPaths),
+    array_keys($inventoryByPath),
+    'the adapter executable inventory classifies every current hook file exactly once and names no retired file'
+);
+$inventoryMeasurements = [];
+$inventoryOwners = [];
+foreach ($inventoryByPath as $path => $row) {
+    $inventoryMeasurements[$path] = $row['physical_lines'] ?? null;
+    $inventoryOwners[$path] = $row['adapter'] ?? null;
+    duo_check(
+        in_array(
+            $row['engine_absorption'] ?? null,
+            ['generic_constraint_candidate', 'hold_for_second_demand', 'prefer_future_plugin_provider', 'retain_adapter_code'],
+            true
+        ) && is_string($row['ownership'] ?? null)
+            && ($row['ownership'] ?? '') !== ''
+            && is_string($row['plugin_cooperation'] ?? null)
+            && ($row['plugin_cooperation'] ?? '') !== '',
+        "$path records a closed engine-absorption verdict, current ownership, and plugin-cooperation boundary"
+    );
+}
+duo_check_same(
+    $measuredPaths,
+    $inventoryMeasurements,
+    'every inventory physical-line measurement matches the shipped bytes'
+);
+duo_check_same(
+    $hookOwners,
+    $inventoryOwners,
+    'every inventory row names the manifest whose adapter digest owns that executable file'
+);
+duo_check_same(
+    [
+        'adapter_count' => count($hookAdapters),
+        'file_count' => count($hookFiles),
+        'physical_lines' => $hookLines,
+        'scope' => 'Every PHP file under manifests/interpreters, manifests/providers, and manifests/regenerators, measured as LF-delimited physical lines.',
+    ],
+    $inventory['measurement'] ?? null,
+    'the inventory summary is derived from the same live files as G5 condition (a)'
+);
+$pmproAbsorption = $inventory['absorbed'][0] ?? [];
+$pmproManifest = Canon::decode(Canon::read_file($manifestDir . '/paid-memberships-pro.json'));
+duo_check(
+    ($pmproAbsorption['retired_path'] ?? null) === 'manifests/providers/paid-memberships-pro-cache.php'
+        && ($pmproAbsorption['physical_lines_removed'] ?? null) === 233
+        && !is_file($repo . '/manifests/providers/paid-memberships-pro-cache.php')
+        && !isset($pmproManifest['providers'])
+        && !isset($pmproManifest['actions'])
+        && ($pmproManifest['tables']['pmpro_membership_levels']['invalidate'][0] ?? null)
+            === ['cache_group' => 'pmpro_membership_level_meta', 'cache_key' => '{id}'],
+    'the inventory records PMPro as an actual 233-line whole-file absorption, not a planning claim beside live code'
+);
 $report(sprintf(
     'G5 condition (a) baseline: %d of %d adapters name manifest-shipped hook code; %d files, %s lines',
     count($hookAdapters),

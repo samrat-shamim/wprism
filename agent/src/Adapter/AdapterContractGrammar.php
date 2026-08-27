@@ -11,6 +11,10 @@ require_once __DIR__ . '/../Kernel/SpecVersionWindow.php';
 // (agent/duo.php:124-128); this one is an ordinary sibling with no dependencies
 // of its own, and validate_adapter_contract() names it unconditionally.
 require_once __DIR__ . '/StructuredEvidence.php';
+// The manifest-provider runtime owns its feature name. This roster reads that
+// one definition so a manifest cannot pass the feature gate under a spelling
+// the runtime itself would never recognize.
+require_once __DIR__ . '/ManifestProviderRuntime.php';
 // WP-6.2: IMPLEMENTED_FEATURES keys one row off
 // ManifestGrammar::INVALIDATE_VOCABULARY_FEATURE. Required directly rather than
 // leaned on Policy.php's own require below, because a constant expression that
@@ -95,7 +99,7 @@ final class AdapterContractGrammar {
      * post_v1` demonstrates, which is declared by nothing across all 16 shipped
      * manifests.
      *
-     * After `spec-window/v1`, FOUR post-v3 features shipped through this
+     * After `spec-window/v1`, SIX post-v3 features shipped through this
      * channel in one wave, and together they are the proof § v3.2's claim
      * holds — each staged a grammar change with `DUO_SPEC_VERSION` left at 3,
      * asserted by each one's own suite:
@@ -116,13 +120,18 @@ final class AdapterContractGrammar {
      *     vocabulary without claiming a new top-level key, and forcing it to
      *     invent one would put a section in the manifest bytes for the sake of
      *     the record's shape.
+     *   - `structured-body-refs/v1` (WP-6.5, § v3.20): claims `body_refs` and
+     *     admits the `json` post-body mode under one feature, so neither half
+     *     can be declared as an inert promise without the other.
+     *   - `manifest-provider-runtime/v1` (§ v3.22): moves the manifest-owned
+     *     provider protocol shell into core while leaving plugin calls and
+     *     value-level postconditions in the digest-bound behavior file.
      *
-     * All are keyed at `since` 3 and declared by no shipped manifest, so no
-     * adapter digest moves (AGENTS.md rule 2). The whole cost of each was one
-     * row in this constant plus its validating collaborator — the entire claim
-     * § v3.12 makes when it says the window may one day close: the replacement
-     * for a flag day has been walked, four times, before the flag day is
-     * retired.
+     * All are keyed at `since` 3. PMPro was the first shipped consumer; eight
+     * later provider-bearing manifests deliberately pay their own identity
+     * change for `manifest-provider-runtime/v1`. The engine's whole cost for each remains one
+     * roster row plus its validating collaborator — the replacement for a
+     * flag day has been walked repeatedly before the old window is retired.
      *
      * Feature names are ENGINE-OWNED: an adapter declares one, never mints one
      * (spec/repo-format.md § v3.2). A name is also permanent, which is why
@@ -216,6 +225,17 @@ final class AdapterContractGrammar {
         // nothing to it, exactly as it contributes nothing to
         // section_min_spec().
         ManifestGrammar::INVALIDATE_VOCABULARY_FEATURE => [
+            'since' => 3,
+            'keys' => [],
+        ],
+        // This widens providers[].capabilities with the sibling `contracts`
+        // map; no top-level key is added, so the providers section keeps its
+        // existing non-surface certificate arm. The map is executable
+        // protocol metadata, not plugin behavior: identity, dispatch, scoped
+        // receipt construction, and recovery routing are supplied by
+        // ManifestProviderRuntime while the provider file retains the native
+        // mutation and value-level postcondition.
+        ManifestProviderRuntime::FEATURE => [
             'since' => 3,
             'keys' => [],
         ],

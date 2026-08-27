@@ -2,9 +2,8 @@
 /** Exact WooCommerce 11.0.0/11.0.1 optional-core storage boundary. */
 declare(strict_types=1);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 
 if (!function_exists('get_current_blog_id')) {
     function get_current_blog_id(): int {

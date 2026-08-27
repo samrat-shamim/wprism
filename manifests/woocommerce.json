@@ -2,8 +2,9 @@
   "block_attrs": {
     "woocommerce/product-collection": [{"lint_ok": true, "path": "queryId"}]
   },
-  "spec_version": 2,
+  "spec_version": 3,
   "name": "woocommerce",
+  "engine_features": ["manifest-provider-runtime/v1", "spec-window/v1"],
   "interpreter": "woocommerce",
   "option_autoload": "preserve",
   "plugin": "woocommerce/woocommerce.php",
@@ -31,7 +32,33 @@
     "tracking_url_template": {"class": "authored"}
   },
   "providers": [
-    {"id": "woocommerce-cache", "version": "1.0.0", "source": "manifest", "plugin": "woocommerce/woocommerce.php", "capabilities": ["invalidate_cache_groups"]},
+    {
+      "id": "woocommerce-cache",
+      "version": "1.0.0",
+      "source": "manifest",
+      "plugin": "woocommerce/woocommerce.php",
+      "capabilities": ["invalidate_cache_groups"],
+      "contracts": {
+        "invalidate_cache_groups": {
+          "args": {
+            "groups": {"type": "list<string>", "required": true}
+          },
+          "reads": ["entity:woocommerce-shipping-transient-version"],
+          "writes": [
+            "entity:woocommerce-cache-groups",
+            "entity:woocommerce-shipping-transient-version"
+          ],
+          "scope": "site",
+          "idempotent": true,
+          "timeout_seconds": 60,
+          "scoped": {
+            "operation_envelope": "duo-scoped-effect-operation/v1",
+            "reconcile": true,
+            "invoke_after": "reconcile"
+          }
+        }
+      }
+    },
     {
       "id": "woocommerce-hierarchy-lookups",
       "version": "2.0.0",
@@ -138,7 +165,43 @@
           "WC_Cache_Helper"
         ]
       },
-      "capabilities": ["rebuild_product_lookups"]
+      "capabilities": ["rebuild_product_lookups"],
+      "contracts": {
+        "rebuild_product_lookups": {
+          "args": {},
+          "reads": [
+            "option:wc_downloads_approved_directories_mode",
+            "option:woocommerce_feature_cost_of_goods_sold_enabled",
+            "post:product",
+            "post:product_variation",
+            "table:postmeta",
+            "table:posts",
+            "table:terms",
+            "table:term_taxonomy",
+            "table:term_relationships",
+            "table:wc_product_attributes_lookup",
+            "table:wc_product_download_directories"
+          ],
+          "writes": [
+            "table:actionscheduler_actions",
+            "table:postmeta",
+            "table:term_relationships",
+            "table:term_taxonomy",
+            "table:wc_product_attributes_lookup",
+            "table:wc_product_download_directories",
+            "table:wc_product_meta_lookup"
+          ],
+          "scope": "entity",
+          "idempotent": true,
+          "timeout_seconds": 300,
+          "context": ["always_on_write", "deletions", "reparents", "retry"],
+          "scoped": {
+            "operation_envelope": "duo-scoped-effect-operation/v1",
+            "reconcile": true,
+            "invoke_after": "reconcile"
+          }
+        }
+      }
     }
   ],
   "actions": [

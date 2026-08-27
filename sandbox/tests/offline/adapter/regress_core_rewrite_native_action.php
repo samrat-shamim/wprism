@@ -16,9 +16,10 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../lib/agent_version.php';
 require_once __DIR__ . '/../../support/wp_cli_child_process_fake.php';
 
-define('DUO_SPEC_VERSION', 2);
+duo_test_define_agent_versions();
 define('ARRAY_A', 'ARRAY_A');
 
 $GLOBALS['core_rewrite_filters'] = [];

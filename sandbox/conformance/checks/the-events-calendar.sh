@@ -1469,8 +1469,9 @@ $assert($providerPath !== '' && is_file($providerPath),
 require_once $providerPath;
 $assert(class_exists(\Duo\Providers\TheEventsCalendarCategoryColors::class, false),
     'exact Category Colors provider class did not load from the active manifest mount');
+$policy = \Duo\Policy::load('/siterepo');
 $provider = new \Duo\Providers\TheEventsCalendarCategoryColors(
-    \Duo\Policy::load('/siterepo')
+    $policy->provider_declarations()['the-events-calendar-category-colors']
 );
 $operation = [
     'format' => 'duo-provider-operation/v1',
