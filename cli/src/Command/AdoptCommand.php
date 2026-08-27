@@ -110,7 +110,7 @@ final class AdoptCommand {
         $repoAction = $result['repo_created']
             ? 'created seed site.duo.json'
             : 'retained existing site.duo.json';
-        echo "adopt: installed agent {$result['version']} + manifest library + rollback authority; $repoAction\n";
+        echo "adopt: installed agent {$result['version']} + embedded adapter library + rollback authority; $repoAction\n";
         echo "adopt phase: doctor (verified before commit)\n";
         if (!is_array($doctor)) {
             fwrite(STDERR, "duo: adopt: committed transaction has no doctor verification result\n");

@@ -424,7 +424,7 @@ say "adopt the pre-existing target through the product command"
 if OUT="$("$DUO" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
 echo "$OUT"
 [ "$CODE" -eq 0 ] || fail "first duo adopt failed with exit $CODE"
-grep -q 'adopt: installed agent 0.5.0 + manifest library + rollback authority; created seed site.duo.json' <<<"$OUT" \
+grep -q 'adopt: installed agent 0.5.0 + embedded adapter library + rollback authority; created seed site.duo.json' <<<"$OUT" \
   || fail "first adopt did not report the installed version and seed creation"
 grep -q '\[PASS\] duo agent present' <<<"$OUT" || fail "doctor did not pass agent presence"
 grep -q '\[PASS\] repo path has site.duo.json (/home/duo/site)' <<<"$OUT" \
