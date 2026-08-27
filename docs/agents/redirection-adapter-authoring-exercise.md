@@ -1,8 +1,8 @@
 # Redirection adapter authoring exercise
 
-Date: 2026-08-27  
-Candidate base: `b7df34403f63759e426dd3a5ce39fee27f35a380`  
-Subject: Redirection 5.9.0 (`redirection/redirection.php`)  
+Date: 2026-08-27
+Candidate base: `b7df34403f63759e426dd3a5ce39fee27f35a380`
+Subject: Redirection 5.9.0 (`redirection/redirection.php`)
 Exercise mode: one user prompt; coding agent performs both the product-user
 workflow and adapter implementation.
 
