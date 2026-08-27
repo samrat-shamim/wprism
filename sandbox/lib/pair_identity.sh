@@ -33,6 +33,19 @@ pair_identity_source_root() {
   printf '%s\n' "$requested_root"
 }
 
+# Direct Compose callers must retain the selected mounts in their own shell.
+# sandbox/.env is only a subprocess fallback: another pair lifecycle command
+# can rewrite that shared file while a parallel evidence lane is still active.
+pair_identity_export_source_mounts() {
+  local root="${PAIR_SOURCE_ROOT:-}"
+  if [ -z "$root" ]; then
+    root="$(pair_identity_source_root)" || return 1
+  fi
+  PAIR_SOURCE_ROOT="$root"
+  export PAIR_SOURCE_ROOT
+  export DUO_AGENT_SRC="$root/agent" DUO_MANIFESTS_SRC="$root/manifests"
+}
+
 pair_identity_validate_name() { # pair_identity_validate_name <name>
   local name="$1"
   # Used bare both as a MySQL identifier fragment (wp_<name>1/2) and as a

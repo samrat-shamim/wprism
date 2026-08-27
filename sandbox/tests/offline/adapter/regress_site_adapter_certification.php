@@ -2133,6 +2133,29 @@ PHP
     } catch (Throwable $e) {
         cert_check(false, '(g) and the re-signed adapter is certified again (' . $e->getMessage() . ')');
     }
+    $remedyInspect = cert_run([
+        PHP_BINARY,
+        dirname(__DIR__, 4) . '/cli/duo',
+        'adapter',
+        'inspect',
+        'site-demo',
+        '--repo=' . $remedySite,
+        '--format=json',
+    ]);
+    $remedyInspectReport = json_decode($remedyInspect['stdout'], true);
+    cert_check(
+        $remedyInspect['exit'] === 0
+        && is_array($remedyInspectReport)
+        && ($remedyInspectReport['status'] ?? null) === 'ok'
+        && ($remedyInspectReport['adapter']['verdict']['status'] ?? null) === 'certified'
+        && !in_array(
+            'adapter_certification_unpinned',
+            array_column($remedyInspectReport['adapter']['verdict']['reasons'] ?? [], 'code'),
+            true
+        ),
+        '(g) and `duo adapter inspect` preserves that exact repository pin instead of replacing it with a '
+        . 'name-only request and contradicting doctor (' . trim($remedyInspect['stderr']) . ')'
+    );
 
     // (d) THE LINE. Every one of these is the identical stale-platform
     // condition with one more thing wrong, and every one of them must still

@@ -597,7 +597,14 @@ final class Providers {
                 );
                 continue;
             }
-            if (!is_array($advertised) || array_is_list($advertised)) {
+            // An empty map is the provider contract's honest "no capability
+            // is available on this target" state. PHP represents both an
+            // empty list and an empty map as [], so only a NON-empty list is
+            // evidence that the provider returned the wrong outer shape.
+            // Selected actions then reach capability_problem() and receive
+            // the ordinary missing_capability refusal; an unselected provider
+            // is never loaded or queried in the first place.
+            if (!is_array($advertised) || ($advertised !== [] && array_is_list($advertised))) {
                 $problems[] = self::problem(
                     $id, $manifest, $plugin, 'contract_shape',
                     'capabilities() returning a name => declaration map',
@@ -2383,6 +2390,14 @@ final class Providers {
                 'a well-formed capability declaration',
                 'provider advertised a malformed capability declaration',
                 'upgrade the provider to the current adapter contract'
+            );
+        }
+        if (array_key_exists('effects', $action) && $action['effects'] === [] && $decl['writes'] !== []) {
+            return self::problem(
+                $id, $manifest, $plugin, 'read_only_effect_mismatch',
+                "capability '$capability' advertising writes: []",
+                'the action declares effects: [] but its capability advertises one or more writes',
+                'declare every capability effect, or make the capability genuinely read-only and advertise writes: []'
             );
         }
         if ($decl['idempotent'] !== true) {

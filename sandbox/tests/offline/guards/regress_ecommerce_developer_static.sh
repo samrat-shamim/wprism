@@ -244,7 +244,7 @@ STATIC_STRUCTURE_FILE="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-structure.XXXXXX"
 CLEANUP_HELPER_BLOCK="$(function_block cleanup | strip_static_comments)"
 ORDER_HELPER_BLOCK="$(function_block assert_target_order_unchanged | strip_static_comments)"
 ORDER_SNAPSHOT_DATA_HELPER_BLOCK="$(function_block order_snapshot | strip_static_comments)"
-VISIBILITY_HELPER_BLOCK="$(function_block assert_product_visibility_runtime | strip_static_comments)"
+VISIBILITY_HELPER_BLOCK="$(function_block assert_product_visibility_projection | strip_static_comments)"
 EQ_HELPER_BLOCK="$(function_block assert_eq | strip_static_comments)"
 RECEIPT_HELPER_BLOCK="$(function_block assert_receipt | strip_static_comments)"
 THEME_HELPER_BLOCK="$(function_block assert_theme_and_dependency | strip_static_comments)"
@@ -307,11 +307,13 @@ CLEANUP_DB_DUMP_DELETE='rm -f -- "$V1_DB_DUMP"'
 ORDER_ASSERT='assert_eq "$TARGET_ORDER_BASELINE" "$(target_order_snapshot "$TARGET_ORDER_ID")" "$label exact order snapshot"'
 block_contains order-helper "$ORDER_HELPER_BLOCK" "$ORDER_ASSERT" 'target order helper does not compare the exact baseline snapshot'
 block_contains order-helper "$ORDER_HELPER_BLOCK" 'target_order_snapshot "$TARGET_ORDER_ID"' 'target order helper does not query the target order snapshot'
-VISIBILITY_EVAL='count="$(target_wp eval '\''echo count(get_terms(["taxonomy" => "product_visibility", "hide_empty" => false, "fields" => "ids"]));'\'')"'
-VISIBILITY_STATE_ASSERT='[ ! -e "$OTHER_SITE/state/terms/product_visibility" ]'
-block_contains visibility-helper "$VISIBILITY_HELPER_BLOCK" "$VISIBILITY_EVAL" 'visibility helper does not query Woo product_visibility runtime terms'
-block_contains visibility-helper "$VISIBILITY_HELPER_BLOCK" '[ "$count" -ge 1 ]' 'visibility helper does not require runtime visibility terms'
-block_contains visibility-helper "$VISIBILITY_HELPER_BLOCK" "$VISIBILITY_STATE_ASSERT" 'visibility helper does not reject canonical product_visibility state'
+VISIBILITY_EVAL='$terms = get_terms(["taxonomy" => "product_visibility", "hide_empty" => false]);'
+VISIBILITY_STATE_ASSERT='[ -d "$visibility_state" ]'
+block_contains visibility-helper "$VISIBILITY_HELPER_BLOCK" "$VISIBILITY_EVAL" 'visibility helper does not query the full Woo product_visibility inventory'
+block_contains visibility-helper "$VISIBILITY_HELPER_BLOCK" '["exclude-from-catalog","exclude-from-search","featured","outofstock","rated-1","rated-2","rated-3","rated-4","rated-5"]' 'visibility helper does not require the exact nine core identities'
+block_contains visibility-helper "$VISIBILITY_HELPER_BLOCK" 'taxonomy_exists("pos_product_visibility")' 'visibility helper does not require the exact POS taxonomy registration'
+block_contains visibility-helper "$VISIBILITY_HELPER_BLOCK" "$VISIBILITY_STATE_ASSERT" 'visibility helper does not require canonical authored product_visibility state'
+block_contains visibility-helper "$VISIBILITY_HELPER_BLOCK" 'assert_eq 9 "$state_count"' 'visibility helper does not require all nine canonical term files'
 EQ_PREDICATE='[ "$expected" = "$actual" ] || fail "$label: expected '\''$expected'\'', got '\''$actual'\''"'
 RECEIPT_FILE_ASSERT='[ -f "$artifact" ] || fail "$label artifact missing: $artifact"'
 RECEIPT_JQ_CALL="jq -e --arg code \"\$expected_code\" '(.artifact_hash | test(\"^[0-9a-f]{64}\$\")) and (.revision_hash | test(\"^[0-9a-f]{64}\$\")) and .code.format == \"duo-code/v1\" and .code.code_revision == \$code' \"\$artifact\" >/dev/null || fail \"\$label artifact receipt malformed\""
@@ -451,7 +453,7 @@ helper_noop_rejected theme-helper "$THEME_RUNTIME_ASSERT"
 CLEANUP_HELPER_GOLDEN_HASH=6abba119a6008574c1d576d52472712f119252d182d95407918a67898a05c7a7
 ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5de3c3f0f64
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
-VISIBILITY_HELPER_GOLDEN_HASH=7cc6d2e93dc5c78c222f033c0ed941e7e41afcf421ecefbf8d6a04fd89e46357
+VISIBILITY_HELPER_GOLDEN_HASH=49bc8eb8253fe2c9a3d9a5299ddce5123afb84689a8f74bf189ada8cdb830a51
 EQ_HELPER_GOLDEN_HASH=4533ae3a46601a7646bbfc7e6258d08136783621e32487b906784be559a7d3c1
 RECEIPT_HELPER_GOLDEN_HASH=5bb3399daf5aa2fd86d9acb5d420eb4ae162a2322698be7f5cc9ba12e167a9f7
 THEME_HELPER_GOLDEN_HASH=92f7178cab9469fee55245f405839ce130c1fc9e8e113ada4ab8cfa560f5810e
@@ -484,7 +486,7 @@ FRONTEND_HELPER_GOLDEN_HASH=92273a989a026102a60f14fb5904101c2f2e50e66e5afa12372e
 REST_HELPER_GOLDEN_HASH=04e2ae5929d0f588dac14cf7fe5090bf8039e07fe2d9ea6d743635a059564b61
 REPLACEMENT_REST_HELPER_GOLDEN_HASH=b3dcfeec7d63c6a135a655ab70fd539bbc19a66d96da99596bdd681260c5682d
 STORE_API_HTTP_HELPER_GOLDEN_HASH=166220142d61874d76e56c6a18a30f09149c1ed06be33c40bdf8d560d5ef80c6
-FAIL_CLOSED_PHASE_GOLDEN_HASH=6d3636a3fee6ce92a345d25f7e28b61059f699b9a7f941b563e01937779c8c8d
+FAIL_CLOSED_PHASE_GOLDEN_HASH=17c902f33093bca291dee125caa4aff7cbc09909f0c33196315b26ab6830cf83
 FINAL_RECAPTURE_PHASE_GOLDEN_HASH=8ad39bfd59ef81c8c78ef9c6f4c1800af877f2ae5cae2a0ce40488123c10559c
 assert_block_golden_hash cleanup "$CLEANUP_HELPER_BLOCK" "$CLEANUP_HELPER_GOLDEN_HASH"
 assert_block_golden_hash order-helper "$ORDER_HELPER_BLOCK" "$ORDER_HELPER_GOLDEN_HASH"
@@ -1134,7 +1136,7 @@ block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_deletion_pro
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_derived_indexes 7 instock 16.49 9.99 16.49 1649' 'fail-closed phase does not assert target derived-index survival'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'target-only-synthetic-secret' 'fail-closed phase does not assert target-owned secret survival'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_target_order_unchanged' 'fail-closed phase does not assert target order survival'
-block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_product_visibility_runtime' 'fail-closed phase does not assert target visibility runtime survival'
+block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_product_visibility_projection' 'fail-closed phase does not assert the exact mixed visibility projection'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_runtime_isolation '\''unsupported Woo product deletion refusal'\'' 1' 'fail-closed phase does not assert runtime isolation after refusal'
 
 ordered_contract fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" \
@@ -1163,7 +1165,7 @@ ordered_contract fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" \
   'assert_derived_indexes 7 instock 16.49 9.99 16.49 1649' \
   'target-only-synthetic-secret' \
   'assert_target_order_unchanged' \
-  'assert_product_visibility_runtime' \
+  'assert_product_visibility_projection' \
   "assert_runtime_isolation 'unsupported Woo product deletion refusal' 1"
 
 FAIL_CLOSED_REQUIRED_TOKENS=(
@@ -1184,7 +1186,7 @@ FAIL_CLOSED_REQUIRED_TOKENS=(
   'assert_derived_indexes 7 instock 16.49 9.99 16.49 1649'
   'target-only-synthetic-secret'
   'assert_target_order_unchanged'
-  'assert_product_visibility_runtime'
+  'assert_product_visibility_projection'
   "assert_runtime_isolation 'unsupported Woo product deletion refusal' 1"
 )
 for required_token in "\${FAIL_CLOSED_REQUIRED_TOKENS[@]}"; do
@@ -1353,7 +1355,7 @@ grep -Fq 'Requires at least: 6.0' "$FIXTURE/v2/wp-content/themes/duo-commerce-ch
 grep -Fq 'NATIVE_ACTIVE_PLUGINS_JSON' "$SCRIPT" || fail 'native WordPress active_plugins order assertion missing'
 grep -Fq 'provider-first lifecycle planning' "$SCRIPT" || fail 'provider-first activation assertion missing'
 grep -Fq 'code_plugin_dependency_inactive' "$SCRIPT" || fail 'dependency closure assertion missing'
-grep -Fq 'assert_product_visibility_runtime' "$SCRIPT" || fail 'product_visibility runtime assertion missing'
+grep -Fq 'assert_product_visibility_projection' "$SCRIPT" || fail 'product_visibility mixed-projection assertion missing'
 grep -Fq 'wc_product_meta_lookup' "$SCRIPT" || fail 'Woo derived meta index assertion missing'
 grep -Fq 'wc_product_attributes_lookup' "$SCRIPT" || fail 'Woo derived attribute index assertion missing'
 grep -Fq 'target variation inventory setup mismatch' "$SCRIPT" || fail 'target-local runtime inventory setup is missing'

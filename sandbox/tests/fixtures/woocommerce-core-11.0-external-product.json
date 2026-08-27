@@ -1,0 +1,34 @@
+{
+  "format": "duo-woocommerce-external-product-inventory/v1",
+  "artifacts": {
+    "11.0.0": "ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666",
+    "11.0.1": "da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21"
+  },
+  "source_files": {
+    "includes/abstracts/abstract-wc-product.php": "617e32983bad26f9e78d91a02118e131250a05c25e8ada0c1c1152ca9ff33c90",
+    "includes/class-wc-product-external.php": "737c38f9013573ccaaab6add00679e6ef6c937846817a375a675986efb9e391f",
+    "includes/data-stores/class-wc-product-data-store-cpt.php": "9921637d8d2e0138ff81483256fab24e968e828adab08c2a2347118368bafb30",
+    "includes/rest-api/Controllers/Version2/class-wc-rest-products-v2-controller.php": "e917c740c15e7d52958d91f7e494d5080b9c64ae032a6f70ac9ea05e5994edb5",
+    "includes/rest-api/Controllers/Version3/class-wc-rest-products-controller.php": "7f270fad1c0613b67641ad9a1292ef294c6b467f1d6e7cf0ffa7d1264c4c104d",
+    "src/StoreApi/Schemas/V1/ProductSchema.php": "008f4b2414925a2df4cbc827b96b01a1687a1c133245d5849b98d27cc1f44e40",
+    "templates/single-product/add-to-cart/external.php": "cfc80112fd70036292a7cfa96bf750bd7032644f6549448c498bfea972269f5a"
+  },
+  "contract": {
+    "authored_post_meta": [
+      "_button_text",
+      "_product_url"
+    ],
+    "native_paths": [
+      "WC_Product_External",
+      "wc/v3 product update/read",
+      "wc/store/v1 product read",
+      "single-product external add-to-cart form"
+    ],
+    "url_semantics": "source-home-tokenized-target-home-rebound",
+    "unsupported_protocols": [
+      "credential-bearing-http",
+      "ftp",
+      "non-http"
+    ]
+  }
+}

@@ -1,0 +1,57 @@
+{
+    "combinations": [
+        {
+            "assertions": [
+                "Both active-plugin orders booted in fresh processes with Rank Math, WooCommerce, ACF, Polylang and Action Scheduler loaded; both Rank Math redirection and shared Action Scheduler tables remained present.",
+                "Source capture reported 13 posts, 25 terms, one options file, one media blob, zero pending rows and zero lint findings.",
+                "The hostile target preserved its own WooCommerce product, Rank Math title, ACF field value and pending Action Scheduler job while receiving the source products.",
+                "The target rebound rank_math_primary_product_cat to local category ids, rebuilt exact WooCommerce lookup prices, carried language-specific ACF values and restored Polylang post/term translation maps.",
+                "English and German product HTTP responses contained their own Rank Math title, description, canonical URL, OpenGraph locale and reciprocal hreflang links."
+            ],
+            "outcome": "green",
+            "plugins": [
+                {
+                    "name": "advanced-custom-fields",
+                    "sha256": "f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2",
+                    "version": "6.8.7"
+                },
+                {
+                    "name": "polylang",
+                    "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa",
+                    "version": "3.8.6"
+                },
+                {
+                    "name": "seo-by-rank-math",
+                    "sha256": "7fb596fad0b82ef4c2a5fede32aa91f0b645658027c20ac2ffa5cd5979eea616",
+                    "version": "1.0.277"
+                },
+                {
+                    "name": "woocommerce",
+                    "sha256": "da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21",
+                    "version": "11.0.1"
+                }
+            ],
+            "signature": "Exact site and shipped digest pins loaded together. After explicit posts,terms adoption, the first hostile-target apply handled 43 entities (create 9, update 5, adopt 29) with clean canary; the corrected Polylang separate-request lifecycle applied 3 updates; repeat plan reported create 0, update 0, unchanged 43, drift 0, conflict 0, collision 0 and incomplete_apply 0. Source product ids 10/11 became target ids 15/16; source primary product-category ids 23/25 became target ids 29/27 and retained en/de term translations. Woo lookup prices were 29.0000/31.0000, ACF badges were language-specific, the target-only product/SEO/ACF state survived, the source-only scheduler action was absent, and the target-only scheduler action remained. English and German HTTP rendered distinct Rank Math title/description/canonical/OpenGraph output with reciprocal hreflang links."
+        }
+    ],
+    "format": "duo-adapter-combination-outcomes/v1",
+    "limitations": [
+        "The Rank Math redirections module must be enabled through RankMath\\Helper::update_modules before capture or target planning; copying rank_math_modules alone does not create its declared tables.",
+        "Polylang product/taxonomy translation settings must be written in a fresh request after language creation; the same-request write was discarded by plugin shutdown bookkeeping and produced no source relationship to transfer.",
+        "Three WooCommerce provider capabilities were reported unavailable but unselected in this scenario. No provider failure/recovery injection was performed, so this is not evidence for combined rollback completeness.",
+        "Rank Math analytics, connected credentials, custom schema, Instant Indexing credentials, Pro/add-ons and releases other than 1.0.277 remain outside this exercise.",
+        "The record is a site-adapter exercise. It does not add a Rank Math product manifest, disposition or combined capability claim."
+    ],
+    "recorded_at": "2026-08-27",
+    "refusals": [
+        {
+            "outcome": "refused",
+            "scenario": "An ACF post_object field used the physical name rank_math_title and stored _rank_math_title=field_rmcombo_rank_title on a WooCommerce product.",
+            "signature": "Live source capture refused before publication: duo: post_meta 'rank_math_title' has multiple classification owners: 'acf' via acf (interpreter acf), 'rank-math' via static declaration; dynamic interpreter dispatch cannot resolve cross-manifest ownership. Offline coverage runs the same fact under both manifest pin orders."
+        }
+    ],
+    "subject": {
+        "name": "rank-math",
+        "version": "1.0.277"
+    }
+}

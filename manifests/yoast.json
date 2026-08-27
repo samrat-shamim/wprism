@@ -141,6 +141,7 @@
         "option:wpseo_social",
         "option:wpseo_taxonomy_meta",
         "option:wpseo_titles",
+        "option:woocommerce_permalinks",
         "post:attachment",
         "post:page",
         "post:post",

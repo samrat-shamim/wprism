@@ -27,11 +27,24 @@ final class TheEventsCalendar {
     private const LAST_SAVE_POST_OPTION = 'tribe_last_save_post';
     private const TRANSIENT_PURGE_FLAG = 'should_delete_expired_transients';
     private const WOO_CONTAINER = 'Automattic\\WooCommerce\\Container';
+    private const WOO_RUNTIME_CONTAINER =
+        'Automattic\\WooCommerce\\Internal\\DependencyManagement\\RuntimeContainer';
     private const WOO_FEATURES = 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController';
     private const WOO_SYNCHRONIZER =
         'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer';
     private const WOO_CUSTOM_ORDERS =
         'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController';
+    private const WPSEO_SITEMAPS = 'WPSEO_Sitemaps';
+    private const WPSEO_SITEMAPS_CACHE = 'WPSEO_Sitemaps_Cache';
+    /** @var array<string,string> */
+    private const WPSEO_OPTIONS = [
+        'wpseo' => 'WPSEO_Option_Wpseo',
+        'wpseo_titles' => 'WPSEO_Option_Titles',
+        'wpseo_social' => 'WPSEO_Option_Social',
+        'wpseo_taxonomy_meta' => 'WPSEO_Taxonomy_Meta',
+        'wpseo_llmstxt' => 'WPSEO_Option_Llmstxt',
+        'wpseo_tracking_only' => 'WPSEO_Option_Tracking_Only',
+    ];
     private const CUSTOMIZER_MAX_NODES = 128;
     private const CUSTOMIZER_MAX_OPTION_BYTES = 65536;
     private const CUSTOMIZER_MAX_SETTING_BYTES = 4096;
@@ -2073,13 +2086,18 @@ final class TheEventsCalendar {
 
         $updated = $this->option_hook_records('updated_option');
         $preUpdated = $this->option_hook_records('pre_update_option');
+        $update = $this->option_hook_records('update_option');
+        $add = $this->option_hook_records('add_option');
         $added = $this->option_hook_records('added_option');
         $woo = $this->resolve_woo_option_services($updated, $preUpdated, $added);
+        $wpseo = $this->resolve_wpseo_option_services($preUpdated, $update, $add, $name);
 
         foreach ($hooks as $hookName) {
             $records = match ($hookName) {
                 'updated_option' => $updated,
                 'pre_update_option' => $preUpdated,
+                'update_option' => $update,
+                'add_option' => $add,
                 'added_option' => $added,
                 default => $this->option_hook_records($hookName),
             };
@@ -2092,8 +2110,8 @@ final class TheEventsCalendar {
                 $this->assert_calendar_option_update_callbacks($records);
                 continue;
             }
-            if ($hookName === 'pre_update_option' && $woo !== null) {
-                $this->assert_woo_option_callbacks($hookName, $records, $woo);
+            if (in_array($hookName, ['pre_update_option', 'update_option', 'add_option'], true)) {
+                $this->assert_external_option_callbacks($hookName, $records, $woo, $wpseo);
                 continue;
             }
             if ($hookName === 'added_option' && $woo !== null) {
@@ -2353,7 +2371,9 @@ final class TheEventsCalendar {
      * Woo 11.0.1's exact normal option callbacks are source-proven no-ops for
      * both TEC mixed options and tribe_last_* companions. Admit them only when
      * every visible callback is bound to the canonical Woo container service
-     * (source SHA-256 2f3a95ae…, c39f44eb…, a10ff8e2…, b4d1a677…).
+     * (source SHA-256 2f3a95ae…, 05893eda…, e3e84d93…, c39f44eb…,
+     * a10ff8e2…, b4d1a677…). Container::get() constructs an unresolved
+     * service, so admission reads only RuntimeContainer::$resolved_cache.
      *
      * @param list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> $updated
      * @param list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> $preUpdated
@@ -2384,6 +2404,7 @@ final class TheEventsCalendar {
         if (!function_exists('wc_get_container')
             || !array_key_exists('wc_container', $GLOBALS)
             || !class_exists(self::WOO_CONTAINER, false)
+            || !class_exists(self::WOO_RUNTIME_CONTAINER, false)
             || !class_exists(self::WOO_FEATURES, false)
             || !class_exists(self::WOO_SYNCHRONIZER, false)
             || !class_exists(self::WOO_CUSTOM_ORDERS, false)) {
@@ -2398,9 +2419,13 @@ final class TheEventsCalendar {
                 || wc_get_container() !== $container) {
                 throw new \RuntimeException('substituted WooCommerce container');
             }
-            $features = $container->get(self::WOO_FEATURES);
-            $synchronizer = $container->get(self::WOO_SYNCHRONIZER);
-            $customOrders = $container->get(self::WOO_CUSTOM_ORDERS);
+            $runtime = (new \ReflectionProperty(self::WOO_CONTAINER, 'container'))->getValue($container);
+            $cache = is_object($runtime) && get_class($runtime) === self::WOO_RUNTIME_CONTAINER
+                ? (new \ReflectionProperty(self::WOO_RUNTIME_CONTAINER, 'resolved_cache'))->getValue($runtime)
+                : null;
+            $features = is_array($cache) ? ($cache[self::WOO_FEATURES] ?? null) : null;
+            $synchronizer = is_array($cache) ? ($cache[self::WOO_SYNCHRONIZER] ?? null) : null;
+            $customOrders = is_array($cache) ? ($cache[self::WOO_CUSTOM_ORDERS] ?? null) : null;
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
                 'duo: The Events Calendar option mutation hook topology could not resolve WooCommerce services',
@@ -2409,6 +2434,7 @@ final class TheEventsCalendar {
             );
         }
         foreach ([
+            [$runtime, self::WOO_RUNTIME_CONTAINER],
             [$features, self::WOO_FEATURES],
             [$synchronizer, self::WOO_SYNCHRONIZER],
             [$customOrders, self::WOO_CUSTOM_ORDERS],
@@ -2462,6 +2488,196 @@ final class TheEventsCalendar {
         if ($expected !== []) {
             throw new \RuntimeException(
                 "duo: The Events Calendar option mutation hook topology has incomplete WooCommerce $hookName callbacks"
+            );
+        }
+    }
+
+    /**
+     * Yoast 28.3's six normal option services run on the generic WordPress
+     * mutation hooks that the checked writer intentionally bypasses. Their
+     * source-pinned callbacks are inert for both TEC mixed rows and the two
+     * cache-listener markers, but a partial singleton set, a same-class
+     * replacement, or a sitemap registration for a marker can alter that
+     * claim. Read existing option instances only: get_instance() would create
+     * a service merely to make an unproved runtime appear complete.
+     *
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> $preUpdated
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> $update
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> $add
+     * @return ?array{options:array<string,object>,sitemaps:?object,sitemaps_cache:?object}
+     */
+    private function resolve_wpseo_option_services(array $preUpdated, array $update, array $add, string $mutatedOption): ?array {
+        $records = array_merge($preUpdated, $update, $add);
+        $visible = class_exists('WPSEO_Options', false)
+            || class_exists(self::WPSEO_SITEMAPS_CACHE, false)
+            || array_key_exists('wpseo_sitemaps', $GLOBALS);
+        foreach (self::WPSEO_OPTIONS as $class) {
+            $visible = $visible || class_exists($class, false);
+        }
+        foreach ($records as [, $record]) {
+            $callback = $record['function'] ?? null;
+            $owner = is_array($callback) ? ($callback[0] ?? null) : null;
+            $class = is_object($owner) ? get_class($owner) : $owner;
+            $visible = $visible || (is_string($class)
+                && (in_array($class, self::WPSEO_OPTIONS, true)
+                    || $class === self::WPSEO_SITEMAPS_CACHE));
+        }
+        if (!$visible) {
+            return null;
+        }
+        if (!class_exists('WPSEO_Options', false)
+            || !is_callable(['WPSEO_Options', 'get_option_instance'])) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar option mutation hook topology found incomplete Yoast SEO option singletons'
+            );
+        }
+        $options = [];
+        foreach (self::WPSEO_OPTIONS as $optionName => $class) {
+            try {
+                $service = \WPSEO_Options::get_option_instance($optionName);
+            } catch (\Throwable $failure) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar option mutation hook topology could not resolve Yoast SEO option services',
+                    0,
+                    $failure
+                );
+            }
+            if (!is_object($service) || get_class($service) !== $class) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar option mutation hook topology found incomplete Yoast SEO option singletons'
+                );
+            }
+            $options[$optionName] = $service;
+        }
+
+        $sitemapCallbacks = [];
+        foreach ($update as $tuple) {
+            $callback = $tuple[1]['function'] ?? null;
+            if (is_array($callback) && ($callback[0] ?? null) === self::WPSEO_SITEMAPS_CACHE) {
+                $sitemapCallbacks[] = $tuple;
+            }
+        }
+        $sitemapsPresent = array_key_exists('wpseo_sitemaps', $GLOBALS);
+        if (class_exists(self::WPSEO_SITEMAPS_CACHE, false)) {
+            $this->assert_wpseo_sitemap_cache_map($mutatedOption);
+        }
+        if (!$sitemapsPresent && $sitemapCallbacks === []) {
+            return ['options' => $options, 'sitemaps' => null, 'sitemaps_cache' => null];
+        }
+        if (!$sitemapsPresent
+            || count($sitemapCallbacks) !== 1
+            || $sitemapCallbacks[0][0] !== 10
+            || ($sitemapCallbacks[0][1]['accepted_args'] ?? null) !== 1
+            || ($sitemapCallbacks[0][1]['function'] ?? null)
+                !== [self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update']) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar option mutation hook topology found incomplete or substituted Yoast SEO sitemap cache topology'
+            );
+        }
+        $sitemaps = $GLOBALS['wpseo_sitemaps'];
+        $sitemapsCache = is_object($sitemaps) ? ($sitemaps->cache ?? null) : null;
+        if (!is_object($sitemaps)
+            || get_class($sitemaps) !== self::WPSEO_SITEMAPS
+            || !is_object($sitemapsCache)
+            || get_class($sitemapsCache) !== self::WPSEO_SITEMAPS_CACHE
+            || !class_exists(self::WPSEO_SITEMAPS_CACHE, false)
+            || !is_callable([self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update'])) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar option mutation hook topology found incomplete or substituted Yoast SEO sitemap cache service'
+            );
+        }
+        return ['options' => $options, 'sitemaps' => $sitemaps, 'sitemaps_cache' => $sitemapsCache];
+    }
+
+    private function assert_wpseo_sitemap_cache_map(string $mutatedOption): void {
+        try {
+            $cacheClear = (new \ReflectionProperty(self::WPSEO_SITEMAPS_CACHE, 'cache_clear'))->getValue();
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar option mutation hook topology could not inspect the Yoast SEO sitemap cache registration map',
+                0,
+                $failure
+            );
+        }
+        if (!is_array($cacheClear)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar option mutation hook topology found a malformed Yoast SEO sitemap cache registration map'
+            );
+        }
+        foreach (array_unique([
+            $mutatedOption,
+            self::LAST_UPDATED_OPTION,
+            self::LAST_SAVE_POST_OPTION,
+        ]) as $optionName) {
+            if (array_key_exists($optionName, $cacheClear)) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar option mutation hook topology found a TEC marker registered for Yoast SEO sitemap cache invalidation'
+                );
+            }
+        }
+    }
+
+    /**
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> $records
+     * @param ?array{container:object,features:object,synchronizer:object,custom_orders:object} $woo
+     * @param ?array{options:array<string,object>,sitemaps:?object,sitemaps_cache:?object} $wpseo
+     */
+    private function assert_external_option_callbacks(string $hookName, array $records, ?array $woo, ?array $wpseo): void {
+        $expected = [];
+        if ($woo !== null && $hookName === 'pre_update_option') {
+            $expected[] = [$woo['custom_orders'], 'process_pre_update_option', 999, 3];
+        }
+        if ($wpseo !== null) {
+            foreach ($wpseo['options'] as $service) {
+                $expected[] = match ($hookName) {
+                    'pre_update_option' => [$service, 'add_default_filters_if_not_changed', PHP_INT_MAX, 3],
+                    'update_option', 'add_option' => [$service, 'add_default_filters_if_same_option', 10, 1],
+                    default => throw new \LogicException('duo: unknown external option callback family'),
+                };
+            }
+            if ($hookName === 'update_option' && $wpseo['sitemaps_cache'] !== null) {
+                $expected[] = [self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update', 10, 1];
+            }
+        }
+        foreach ($records as [$priority, $record]) {
+            $matched = null;
+            foreach ($expected as $position => [$service, $method, $expectedPriority, $accepted]) {
+                if ($priority === $expectedPriority
+                    && ($record['accepted_args'] ?? null) === $accepted
+                    && ($record['function'] ?? null) === [$service, $method]) {
+                    $matched = $position;
+                    break;
+                }
+            }
+            if ($matched === null) {
+                $family = 'external';
+                $callback = $record['function'] ?? null;
+                $owner = is_array($callback) ? ($callback[0] ?? null) : null;
+                $class = is_object($owner) ? get_class($owner) : $owner;
+                if (is_string($class) && (in_array($class, self::WPSEO_OPTIONS, true)
+                    || $class === self::WPSEO_SITEMAPS_CACHE)) {
+                    $family = 'Yoast SEO';
+                } elseif ($class === self::WOO_CUSTOM_ORDERS) {
+                    $family = 'WooCommerce';
+                }
+                throw new \RuntimeException(
+                    "duo: The Events Calendar option mutation hook topology has extended/substituted $family $hookName callbacks"
+                );
+            }
+            unset($expected[$matched]);
+        }
+        if ($expected !== []) {
+            $yoastMissing = false;
+            $wooMissing = false;
+            foreach ($expected as [$service]) {
+                $yoastMissing = $yoastMissing || ($wpseo !== null
+                    && ($service === self::WPSEO_SITEMAPS_CACHE
+                        || in_array($service, $wpseo['options'], true)));
+                $wooMissing = $wooMissing || ($woo !== null && $service === $woo['custom_orders']);
+            }
+            $family = $yoastMissing ? 'Yoast SEO' : ($wooMissing ? 'WooCommerce' : 'external');
+            throw new \RuntimeException(
+                "duo: The Events Calendar option mutation hook topology has incomplete $family $hookName callbacks"
             );
         }
     }

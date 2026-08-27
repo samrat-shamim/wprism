@@ -458,7 +458,24 @@ $m['actions'][0]['effects'] = [['id' => 'probe', 'kind' => 'database', 'mode' =>
 refuse_probe($m, "actions[0].effects[0].mode='telekinesis' is not one of the engine-owned reversibility modes", 'an action effect with an unsupported mode is refused separately from kind, so an author is never left guessing which half failed');
 $m = probe_manifest();
 $m['actions'][0]['effects'] = [];
-refuse_probe($m, 'actions[0].effects must be a non-empty list', 'a present-but-empty action effects list is refused');
+refuse_probe($m, 'may be empty only for a provider action', 'a native action cannot use the explicit read-only provider effect contract');
+$m = probe_manifest();
+$m['actions'][1]['effects'] = [];
+$readOnlyPolicy = load_probe($m);
+check(
+    Policy::action_effects($readOnlyPolicy->actions()[1], 1) === [],
+    'an explicit empty provider effect list survives policy projection as an intentional read-only claim'
+);
+$readOnlyRows = array_values(array_filter(
+    $readOnlyPolicy->effects_inventory(),
+    static fn(array $row): bool => ($row['manifest'] ?? null) === 'probe'
+        && ($row['source'] ?? null) === 'provider:probe-cache-offline/flush'
+));
+check($readOnlyRows === [],
+    'effects_inventory emits no fabricated recovery obligation for an explicit read-only provider action');
+$m = probe_manifest();
+$m['actions'][1]['effects'] = null;
+refuse_probe($m, 'must be a non-empty list', 'null is not an explicit read-only provider effect list');
 $m = probe_manifest();
 $m['actions'][0]['effects'] = [probe_effect('probe-dup')];
 $m['actions'][1]['effects'] = [probe_effect('probe-dup')];
@@ -870,10 +887,16 @@ if ($woo !== null) {
         $wooSources === [
             'native:transient.delete',
             'provider:woocommerce-cache/invalidate_cache_groups',
+            'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
+            'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
+            'provider:woocommerce-fulfillment-prerequisites/verify_fulfillment_prerequisites',
+            'provider:woocommerce-scheduler-settings/reconcile_analytics_import_schedule',
+            'provider:woocommerce-scheduler-settings/reconcile_stock_notification_retention',
             'provider:woocommerce-product-lookups/rebuild_product_lookups',
+            'native:rewrite.flush',
+            'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes',
         ],
-        'WooCommerce declares exactly the migrated native action and its two migrated provider capabilities, '
-            . 'in that order'
+        'WooCommerce declares the exact transient, hierarchy/route, fulfillment, scheduler, product lookup, product-permalink, and review-route actions in order'
     );
     // DUO-3342 added the second declaration by MIGRATING a dispatch rather than
     // by adding a repair: the product lookup rebuild reached the same adapter
@@ -886,15 +909,18 @@ if ($woo !== null) {
         'and no shipped Woo post type still claims the batch regenerator channel the second capability replaced'
     );
     foreach ([
-        'woocommerce-cache' => ['invalidate_cache_groups'],
-        'woocommerce-product-lookups' => ['rebuild_product_lookups'],
-    ] as $wooProviderId => $wooCapabilities) {
+        'woocommerce-cache' => ['version' => '1.0.0', 'capabilities' => ['invalidate_cache_groups']],
+        'woocommerce-hierarchy-lookups' => ['version' => '2.0.0', 'capabilities' => ['rebuild_hierarchy_lookups', 'rebuild_product_permalink_routes']],
+        'woocommerce-fulfillment-prerequisites' => ['version' => '1.0.0', 'capabilities' => ['verify_fulfillment_prerequisites']],
+        'woocommerce-scheduler-settings' => ['version' => '1.0.0', 'capabilities' => ['reconcile_analytics_import_schedule', 'reconcile_stock_notification_retention']],
+        'woocommerce-product-lookups' => ['version' => '3.0.0', 'capabilities' => ['rebuild_product_lookups']],
+    ] as $wooProviderId => $wooContract) {
         $wooDeclaration = $woo->provider_declarations()[$wooProviderId] ?? [];
         check(
             ($wooDeclaration['source'] ?? null) === 'manifest'
                 && ($wooDeclaration['plugin'] ?? null) === 'woocommerce/woocommerce.php'
-                && ($wooDeclaration['version'] ?? null) === '1.0.0'
-                && ($wooDeclaration['capabilities'] ?? null) === $wooCapabilities,
+                && ($wooDeclaration['version'] ?? null) === $wooContract['version']
+                && ($wooDeclaration['capabilities'] ?? null) === $wooContract['capabilities'],
             "the WooCommerce '$wooProviderId' declaration is manifest-shipped code owned by the version-pinned plugin"
         );
     }
@@ -956,7 +982,12 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         }
         // Constructing offline must not reach WordPress: negotiation
         // instantiates before it knows whether the environment can answer.
-        $instance = new $class($declaration);
+        // Contract-migrated providers receive their declaration through the
+        // core runtime; legacy manifest providers retain the Policy constructor
+        // until their product semantics are migrated independently.
+        $instance = array_key_exists('contracts', $declaration)
+            ? new $class($declaration)
+            : new $class($shippedPolicy);
         $identity = $instance->identity();
         ksort($identity, SORT_STRING);
         check(
@@ -990,7 +1021,7 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         }
     }
 }
-check($providerCount === 9, "all nine residual shipped manifest-sourced providers were exercised (found $providerCount)");
+check($providerCount === 12, "all twelve residual shipped manifest-sourced providers were exercised (found $providerCount)");
 
 // ======================================================================
 echo "\n== the two identity implementations agree over the REAL shipped library ==\n";

@@ -196,6 +196,16 @@ namespace {
             throw new \RuntimeException('WooCommerce post-meta callback must be quarantined');
         }
     }
+    final class WC_Admin_Upload_Downloadable_Product {
+        public function upload_dir(mixed $uploads): never {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('WooCommerce download upload-dir callback must be quarantined');
+        }
+        public function update_filename(mixed $name, mixed $extension, mixed $directory): never {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('WooCommerce download filename callback must be quarantined');
+        }
+    }
     final class WPSEO_Meta {
         public static function remove_meta_if_default(
             mixed $check,
@@ -1200,11 +1210,14 @@ namespace {
         $elementorPageTemplate = new \Elementor\Modules\PageTemplates\Module();
         $elementorSvg = new \Elementor\Core\Files\File_Types\Svg();
         $tecTracker = new Tribe__Tracker();
+        $wooDownloadUpload = new WC_Admin_Upload_Downloadable_Product();
         $certifiedCallbacks = [
             ['update_post_metadata', [$elementorPageTemplate, 'filter_update_meta'], 10, 3],
             ['wp_update_attachment_metadata', [$elementorSvg, 'set_svg_meta_data'], 10, 2],
             ['wp_generate_attachment_metadata', ['WC_Regenerate_Images', 'add_uncropped_metadata'], 10, 1],
             ['update_post_metadata', ['WC_Post_Data', 'update_post_metadata'], 10, 5],
+            ['upload_dir', [$wooDownloadUpload, 'upload_dir'], 10, 1],
+            ['wp_unique_filename', [$wooDownloadUpload, 'update_filename'], 10, 3],
             ['update_post_metadata', ['WPSEO_Meta', 'remove_meta_if_default'], 10, 5],
             ['update_post_metadata', [$tecTracker, 'filter_watch_updated_meta'], PHP_INT_MAX - 1, 5],
             ['update_post_metadata', [new PLL_Sync_Post_Metas(), 'can_synchronize_metadata'], 1, 3],
@@ -1367,6 +1380,68 @@ namespace {
             'Polylang domain/subdomain upload rewriting is an explicit unsupported target-filesystem topology'
         );
         remove_filter('upload_dir', [$polylangDomain, 'upload_dir'], 10);
+
+        add_filter('wp_generate_attachment_metadata', ['WC_Regenerate_Images', 'add_uncropped_metadata'], 10, 1);
+        add_filter('update_post_metadata', ['WC_Post_Data', 'update_post_metadata'], 10, 5);
+        $wooDownloadRequest = new WC_Admin_Upload_Downloadable_Product();
+        add_filter('upload_dir', [$wooDownloadRequest, 'upload_dir'], 10, 1);
+        add_filter('wp_unique_filename', [$wooDownloadRequest, 'update_filename'], 10, 3);
+        $_POST['type'] = 'downloadable_product';
+        $throws(
+            static fn() => ($makeGenerator(
+                static fn(int $id): string => 'image/png',
+                ['woocommerce'],
+                $compiled
+            ))->generate(41, $standalone),
+            'active WooCommerce downloadable-upload request topology',
+            'the exact always-registered Woo download pair refuses when request state activates its path mutation'
+        );
+        unset($_POST['type']);
+        $wooPostRequest = $_POST;
+        $_POST = 'malformed-request-map';
+        $throws(
+            static fn() => ($makeGenerator(
+                static fn(int $id): string => 'image/png',
+                ['woocommerce'],
+                $compiled
+            ))->generate(41, $standalone),
+            'cannot audit WooCommerce downloadable-upload request state',
+            'a plugin-replaced Woo request superglobal cannot inherit the safe empty-request authority'
+        );
+        $_POST = $wooPostRequest;
+        remove_filter('wp_unique_filename', [$wooDownloadRequest, 'update_filename'], 10);
+        remove_filter('upload_dir', [$wooDownloadRequest, 'upload_dir'], 10);
+
+        $wooPartialUpload = new WC_Admin_Upload_Downloadable_Product();
+        add_filter('upload_dir', [$wooPartialUpload, 'upload_dir'], 10, 1);
+        $throws(
+            static fn() => ($makeGenerator(
+                static fn(int $id): string => 'image/png',
+                ['woocommerce'],
+                $compiled
+            ))->generate(41, $standalone),
+            'lacks a required certified-adapter callback topology',
+            'one missing Woo download sibling refuses before callback quarantine or native metadata work'
+        );
+        remove_filter('upload_dir', [$wooPartialUpload, 'upload_dir'], 10);
+
+        $wooSplitUpload = new WC_Admin_Upload_Downloadable_Product();
+        $wooSplitFilename = new WC_Admin_Upload_Downloadable_Product();
+        add_filter('upload_dir', [$wooSplitUpload, 'upload_dir'], 10, 1);
+        add_filter('wp_unique_filename', [$wooSplitFilename, 'update_filename'], 10, 3);
+        $throws(
+            static fn() => ($makeGenerator(
+                static fn(int $id): string => 'image/png',
+                ['woocommerce'],
+                $compiled
+            ))->generate(41, $standalone),
+            'split WooCommerce downloadable-upload callback authority',
+            'the two exact Woo download hooks must retain one native object identity'
+        );
+        remove_filter('wp_unique_filename', [$wooSplitFilename, 'update_filename'], 10);
+        remove_filter('upload_dir', [$wooSplitUpload, 'upload_dir'], 10);
+        remove_filter('update_post_metadata', ['WC_Post_Data', 'update_post_metadata'], 10);
+        remove_filter('wp_generate_attachment_metadata', ['WC_Regenerate_Images', 'add_uncropped_metadata'], 10);
 
         $tecChunker = new Tribe__Meta__Chunker();
         add_filter('update_post_metadata', [$tecChunker, 'filter_update_metadata'], -1, 4);

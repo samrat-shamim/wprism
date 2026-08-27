@@ -581,7 +581,24 @@ final class ActionProviderGrammar {
         }
         foreach ((array) ($manifest['actions'] ?? []) as $i => $action) {
             if (is_array($action) && array_key_exists('effects', $action)) {
-                $groups["actions[$i].effects"] = $action['effects'];
+                $effects = $action['effects'];
+                if ($effects === [] && ($action['kind'] ?? null) === 'provider') {
+                    // An explicit empty list is a positive read-only claim,
+                    // not the same thing as an omitted effect contract. The
+                    // target-facing negotiation gate independently requires
+                    // this exact capability to advertise `writes: []`; that
+                    // keeps a manifest from erasing a writer's recovery
+                    // obligations while allowing a pure prerequisite/readback
+                    // capability to exist without inventing an effect.
+                    continue;
+                }
+                if ($effects === [] && ($action['kind'] ?? null) === 'native') {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' actions[$i].effects may be empty only for a provider action "
+                        . 'whose negotiated capability advertises writes: []'
+                    );
+                }
+                $groups["actions[$i].effects"] = $effects;
             }
         }
         foreach ((array) ($manifest['post_types'] ?? []) as $postType => $declaration) {

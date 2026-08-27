@@ -142,10 +142,11 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * that capture: #561 rewrote manifests/the-events-calendar.json and promoted
  * its disposition experimental -> certified, and widened manifests/core.json's
  * native rewrite action to declare TEC's rewrite-listener effects. The
- * reviewed Polylang production-readiness port then rewrote its manifest,
- * interpreter/provider set, and per-subject disposition. PMPro's reviewed
- * engine-absorption move later replaced its provider with generic invalidation;
- * the manifest-provider runtime then moved eight more manifest identities.
+ * reviewed Polylang and WooCommerce production-readiness ports then rewrote
+ * their manifests and executable sets, while Yoast gained Woo's permalink
+ * reindex trigger. PMPro's reviewed engine-absorption move later replaced its
+ * provider with generic invalidation; the manifest-provider runtime then moved
+ * eight more manifest identities.
  * Rule 2 makes all ten fleet-visible BY DESIGN.
  *
  * The six unaffected frozen digests above are NOT regenerated — this is an overlay, and
@@ -174,15 +175,15 @@ const SPLIT_REVIEWED_MOVED_DIGESTS = [
     'elementor' => '5b5a1791f24a44dc49e853db84c7027ed4af6791f6cba6ad111c941cb73b2752',
     'ninja-forms' => 'd5be1f2b39fc535762c3e7553cfde5f750c426567e5e0893001cea5238e74176',
     'paid-memberships-pro' => '59e95f6f2089cb7b37787920ae62a9adbc83f6f7b4c673f611aa62fdb8fe2880',
-    'polylang' => '62e70da2a6d88cf92aa7a72e8531ed04797971df654b604459cb3430efcf69d8',
-    'the-events-calendar' => 'ffcdca69b42c7aa8cd802edcdcd4f8d30f7b5e79733cccf469f9d464ab7e5a0b',
-    'woocommerce' => '070bf18f2ac6e839d81808a6b5638467eab91e63cc342518a58e1c81bb25cab4',
-    'yoast' => '1ed4d93c1648c7bfde3b6361524df0b70cea3ebc87146e8caa9246cbe2dfbd78',
+    'polylang' => 'd79be83046ea30fabb0298225e60cb104d2d445d715651b8b104ab30b1c9742d',
+    'the-events-calendar' => '0a6d67877140db53304d041842f29c7707feab0248ded5cca8a5df992ef2148b',
+    'woocommerce' => 'fc23c5cf46e51afe6d8a5e19abff9cd8793aec0cb854e4cfd23be0fa7f073f9b',
+    'yoast' => '6c030625e5b8c2e8569adceca24c9e054c6bb0cf62d1ec7bcf6c22b5c84a2f80',
     'yoast-duplicate-post' => '9c17439fc670eebbe216133abbe57dd0e9add20ccf8f1897c2f4445013c65e75',
 ];
-const SPLIT_REVIEWED_MANIFEST_HASH = '46c68577eae89e1d0ec168b8a931f07fa7f9dbbcbf10cf30c0ae81c75f69b1aa';
-const SPLIT_REVIEWED_REGISTRY_SHA = 'f98de94d550375201697cd2e8c507f7b2f0941b9e92dab4bc85d77635ec10746';
-const SPLIT_REVIEWED_SNAPSHOT_SHA = 'e5a24c0373cf068eb26a0b00365535681e12d0bfc9e78d4eadf223e203dd3561';
+const SPLIT_REVIEWED_MANIFEST_HASH = '41547ea08901dd1d804850db3485a2f712be0894525285ae6fdfb1f9bb5f16a1';
+const SPLIT_REVIEWED_REGISTRY_SHA = '49c84c27e199e198ac4452d52177fd732d7b1c33110e75a3d74a6a463be1a3f8';
+const SPLIT_REVIEWED_SNAPSHOT_SHA = '21d8d069901e96b8d6eb00168c5d51f1d21b78f79d66f1a43bd43e38d982c19c';
 
 putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
 $shippedRegistry = ManifestDispositions::load($manifestDir);
@@ -235,14 +236,14 @@ duo_check(
     SPLIT_REVIEWED_MANIFEST_HASH !== SPLIT_FROZEN_MANIFEST_HASH
         && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
         && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA,
-    '...and all three re-pinned numbers really differ from their frozen originals, so the three assertions '
+    '...and all re-pinned numbers really differ from their frozen originals, so the assertions '
     . 'around them are re-pins a reviewer must read rather than restatements of the frozen constants'
 );
 duo_check_same(
     SPLIT_REVIEWED_REGISTRY_SHA,
     $shippedRegistry->sha256(),
     'and registry_sha256, the content address a host contract pins, reassembles from the per-subject documents '
-    . 'to exactly one document — carrying #561\'s TEC promotion and Polylang\'s reviewed certification, not the '
+    . 'to exactly one document — carrying #561\'s TEC promotion plus Polylang and WooCommerce review, not the '
     . 'split itself (WP-4.5 is the rider that narrows this to per-subject addressing)'
 );
 duo_check_same(

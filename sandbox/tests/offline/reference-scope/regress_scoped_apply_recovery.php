@@ -36,7 +36,8 @@ foreach ([
     'PersonalData', 'AdapterSources', 'ManifestDispositions', 'TargetProbe',
     'AdapterRegistry', 'NativeActions', 'ReferenceRules', 'Policy',
     'ReferenceGraph', 'CodeCompatibility', 'RepositoryCompiler',
-    'ScopeClosure', 'CanonicalSurfaces', 'Deletion', 'SidebarState', 'Snapshot',
+    'ScopeClosure', 'CanonicalSurfaces', 'CanonicalMapWitness', 'CanonicalLedgerMapGuard',
+    'Deletion', 'SidebarState', 'Snapshot',
     'RepositoryAuthorization', 'Tokens', 'ScopeContract',
     'ScopedStateOverlay', 'ScopedApplySession', 'CommandRefusal', 'ScopedApply', 'ScopedApplyCoordinator',
     'ScopedApplyWorkProjector',
@@ -51,6 +52,7 @@ foreach ([
 }
 
 use Duo\Canon;
+use Duo\CanonicalLedgerMapGuard;
 use Duo\CompiledRepository;
 use Duo\NativeActions;
 use Duo\Policy;
@@ -1281,6 +1283,105 @@ $nestedPolicy->manifests = [[
     'name' => 'scoped-recovery-fixture',
     'widgets' => ['text' => ['settings' => []]],
 ]];
+
+// Full plan/apply must inspect retained canonical maps before its historical
+// dead-map maintenance can erase the evidence. No map remains a legitimate
+// fresh target, while a partial, missing, reused, or target-only tuple has an
+// explicit deterministic verdict.
+$guardMapRows = $GLOBALS['wpdb']->mapRows;
+$guardTermRows = $GLOBALS['wpdb']->termRows;
+$guardTaxonomyRows = $GLOBALS['wpdb']->taxonomyRows;
+$guardPostRows = $GLOBALS['wpdb']->postRows;
+$guardOptionRows = $GLOBALS['wpdb']->optionRows;
+$GLOBALS['wpdb']->mapRows = [[
+    'uuid' => $selectedMenu, 'entity_type' => 'menu', 'id_kind' => 'term', 'local_id' => 20,
+], [
+    'uuid' => $selectedMenu, 'entity_type' => 'menu', 'id_kind' => 'term_taxonomy', 'local_id' => 120,
+]];
+CanonicalLedgerMapGuard::assert_pre_prune($nestedPolicy, $nestedCompiled);
+$check(true, 'full pre-prune guard accepts a complete exact canonical menu mapping');
+
+array_pop($GLOBALS['wpdb']->mapRows);
+try {
+    CanonicalLedgerMapGuard::assert_pre_prune($nestedPolicy, $nestedCompiled);
+    $check(false, 'full pre-prune guard must reject a partial term/taxonomy tuple');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'canonical_identity_recovery_required'
+            && str_contains($failure->getMessage(), 'refusing to create or rebind'),
+        'partial canonical term history has the stable full-plan recovery refusal'
+    );
+}
+
+$GLOBALS['wpdb']->mapRows = [[
+    'uuid' => $selectedMenu, 'entity_type' => 'menu', 'id_kind' => 'term', 'local_id' => 20,
+], [
+    'uuid' => $selectedMenu, 'entity_type' => 'menu', 'id_kind' => 'term_taxonomy', 'local_id' => 120,
+]];
+$GLOBALS['wpdb']->termRows = [];
+$GLOBALS['wpdb']->taxonomyRows = [];
+try {
+    CanonicalLedgerMapGuard::assert_pre_prune($nestedPolicy, $nestedCompiled);
+    $check(false, 'full pre-prune guard must reject an absent canonical backing row');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'canonical_identity_recovery_required',
+        'destructively absent canonical rows refuse before dead-map pruning'
+    );
+}
+
+$GLOBALS['wpdb']->mapRows = [];
+CanonicalLedgerMapGuard::assert_pre_prune($nestedPolicy, $nestedCompiled);
+$check(true, 'full pre-prune guard preserves the genuine fresh-target path');
+$GLOBALS['wpdb']->mapRows = [[
+    'uuid' => $targetWidget, 'entity_type' => 'widget', 'id_kind' => 'widget_text', 'local_id' => 4,
+]];
+CanonicalLedgerMapGuard::assert_pre_prune($nestedPolicy, $nestedCompiled);
+$check(true, 'full pre-prune guard ignores a target-only mapping outside canonical source identity');
+
+$GLOBALS['wpdb']->mapRows = [[
+    'uuid' => $sourceWidget, 'entity_type' => 'widget', 'id_kind' => 'widget_text', 'local_id' => 4,
+]];
+$GLOBALS['wpdb']->optionRows = [];
+try {
+    CanonicalLedgerMapGuard::assert_pre_prune($nestedPolicy, $nestedCompiled);
+    $check(false, 'full pre-prune guard must reject a missing canonical widget instance');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'canonical_identity_recovery_required',
+        'missing canonical widget backing refuses through the same recovery boundary'
+    );
+}
+
+$GLOBALS['wpdb']->mapRows = [[
+    'uuid' => $sourceMenuItem, 'entity_type' => 'menu_item', 'id_kind' => 'post', 'local_id' => 24,
+], [
+    'uuid' => $selectedMenu, 'entity_type' => 'menu', 'id_kind' => 'term', 'local_id' => 20,
+], [
+    'uuid' => $selectedMenu, 'entity_type' => 'menu', 'id_kind' => 'term_taxonomy', 'local_id' => 120,
+]];
+$GLOBALS['wpdb']->termRows = [20 => $selectedMenu];
+$GLOBALS['wpdb']->taxonomyRows = [120 => ['term_id' => 20, 'taxonomy' => 'nav_menu']];
+$GLOBALS['wpdb']->postRows = [
+    24 => [
+        'post_type' => 'nav_menu_item', 'post_status' => 'publish',
+        'uuid' => $targetMenuItem, 'term_taxonomy_ids' => [120],
+    ],
+];
+try {
+    CanonicalLedgerMapGuard::assert_pre_prune($nestedPolicy, $nestedCompiled);
+    $check(false, 'full pre-prune guard must reject local-id reuse under a different UUID');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'canonical_identity_recovery_required',
+        'local-id reuse cannot turn retained canonical identity into write-through authority'
+    );
+}
+$GLOBALS['wpdb']->mapRows = $guardMapRows;
+$GLOBALS['wpdb']->termRows = $guardTermRows;
+$GLOBALS['wpdb']->taxonomyRows = $guardTaxonomyRows;
+$GLOBALS['wpdb']->postRows = $guardPostRows;
+$GLOBALS['wpdb']->optionRows = $guardOptionRows;
 try {
     ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual);
     $check(false, 'post-author identity derivation must not admit retained hidden menu-item maps');

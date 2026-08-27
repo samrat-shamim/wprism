@@ -49,7 +49,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [paid-memberships-pro](#paid-memberships-pro) | certified | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.2 <3.8.4 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.8 <3.8.8 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [the-events-calendar](#the-events-calendar) | certified | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.4 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
-| [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <11.0.2 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [wps-hide-login](#wps-hide-login) | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [yoast](#yoast) | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [yoast-duplicate-post](#yoast-duplicate-post) | certified | `duplicate-post/duplicate-post.php` | >=4.7 <4.8 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -323,15 +323,15 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## woocommerce
 
-**Status: certified.** Certified product/catalog creation and update with bounded product-meta/price/sale repair, typed-table configuration, option-name reference, HPOS runtime-sovereignty, lifecycle, and explicit fail-closed attribute/category lookup and deletion boundaries.
+**Status: certified.** Certified for official WooCommerce 11.0.0 and 11.0.1 on single-site WordPress with HPOS: digest-bound clean and hostile target round trips; populated 11.0.0-to-11.0.1 upgrade plus exact in-range 11.0.1-to-11.0.0 drift refusal and explicit re-baseline; native simple, variable, grouped, external, coupon, review-order, download, attribute, category, brand, shipping, tax, and operational-settings behavior, including target-free local-pickup cost compilation before plugin activation; exact product lookup, hierarchy, cache, fulfillment, scheduler, COGS, visibility/POS, thumbnail, permalink/rewrite, downloadable-upload callback isolation, canonical mixed-option maps, and honest converged provider receipts; bounded malformed/unknown/secret-shaped refusal and redaction; injected failure rollback and retry; deterministic process-fence contention across lookup, hierarchy, and rewrite providers plus zero-change idempotence; default uninstall retention and operator-authorized destructive uninstall with database-matched recovery; populated exact-artifact multisite refusal with zero mutation; byte-identical recapture; and real 10.9.4 plus synthetic 11.0.2 refusal controls. Product, variation, global-attribute, shipping/tax deletion, integration credentials, block-email, orders, customers, sessions, reservations, Action Scheduler, optional extensions, and multisite remain explicit loud boundaries rather than inferred authority.
 
 - **Plugin:** `woocommerce/woocommerce.php`
-- **Version range:** >=11.0.0 <12.0.0
+- **Version range:** >=11.0.0 <11.0.2
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** retire, activate, verify
-- **Declared entities:** `post_types` (7 keys), `tables` (39 keys), `taxonomies` (5: product_cat, product_shipping_class, product_tag, product_type, product_visibility), `taxonomy_patterns` (1 rules)
-- **Declared fields:** `options` (38 keys), `option_patterns` (7 rules), `option_name_refs` (1 rules), `post_meta` (56 keys), `meta_patterns` (2 rules), `term_meta` (1: thumbnail_id), `block_attrs` (1: woocommerce/product-collection)
-- **Adapter hooks:** 2 providers, 3 structured actions
+- **Declared entities:** `post_types` (9 keys), `tables` (43 keys), `taxonomies` (8 keys), `taxonomy_patterns` (1 rules)
+- **Declared fields:** `options` (218 keys), `option_patterns` (11 rules), `option_name_refs` (1 rules), `post_meta` (72 keys), `meta_patterns` (1 rules), `term_meta` (8 keys), `block_attrs` (1: woocommerce/product-collection)
+- **Adapter hooks:** 5 providers, 10 structured actions, interpreter `woocommerce`
 - **Deletions supported:** none
 - **Deletions unsupported:** post:product, post:product_variation, table:woocommerce_attribute_taxonomies, table:woocommerce_shipping_zone_locations, table:woocommerce_shipping_zone_methods, table:woocommerce_shipping_zones, table:woocommerce_tax_rate_locations, table:woocommerce_tax_rates
 - **Exercised by:** `conformance-woocommerce`, `exact-artifact-version-matrix`
@@ -342,8 +342,10 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - `post_types.product_variation` / `delete` — Variation reverse references and parent/group relationships share the same open WooCommerce extension boundary as products.
 - `tables.woocommerce_attribute_taxonomies` / `delete` — The v1 guard/cascade grammar cannot express WooCommerce global-attribute semantic deletion.
 - `tables.woocommerce_shipping_zone_locations|woocommerce_shipping_zone_methods|woocommerce_shipping_zones|woocommerce_tax_rate_locations|woocommerce_tax_rates` / `delete` — Shipping-zone and tax-rate rows require version-pinned WooCommerce API, cache, child-row, and option-name effects that are not a closed semantic delete contract.
-- `derived.wc_category_lookup` / `apply` — WooCommerce 11.0.0 exposes only a public whole-catalog category lookup rebuild; automatic bounded repair and verification are unavailable, so operators must repair this derived table explicitly.
-- `derived.wc_product_attributes_lookup` / `apply` — WooCommerce 11.0.0 exposes no stable bounded expected-output or independent value-verification API for product-attribute lookup rows, so the verified provider does not mutate this table; operators must run and verify WooCommerce's regeneration explicitly.
+- `options.woocommerce_google_analytics_settings|woocommerce_paymob-main_settings|woocommerce_ppec_paypal_settings|woocommerce_stripe_settings|woocommerce_woocommerce_payments_settings` / `capture` — Core reads these integration-owned records but does not own their extension schemas or credentials. Populated values remain discovery-visible and fail closed with option-name-only diagnostics.
+- `options.woocommerce_table_rate_default_priority_*|woocommerce_table_rate_priorities_*` / `capture` — Legacy table-rate shipping priority records embed extension-owned instance state. The exact numeric-suffix families remain discovery-visible until their extension table and method identities have a typed contract.
+- `post_types.woo_email` / `capture` — Block Email Editor posts contain merchant-authored block content and versioned merge metadata for which no portable update/rebase contract is certified; populated rows fail closed with count-only scope evidence.
+- `options.woocommerce_email_templates_*_post_id` / `capture` — Block Email Editor mapping options embed target-local woo_email post ids and remain discovery-owned until the post/content merge contract is supported.
 - `tables.runtime` / `capture` — Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.
 
 ## wps-hide-login
