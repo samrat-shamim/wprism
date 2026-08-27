@@ -9,6 +9,7 @@ require_once __DIR__ . '/StateHandoffVerifier.php';
 // WP-2.8: run()'s blocking filter and its reporting loop both name the
 // graduated verdict by constant rather than by a second copy of the string.
 require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
+require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 
 /**
  * docs/code-half.md §3.4/§6: reconciles active_plugins/template/
@@ -97,7 +98,11 @@ final class Deploy {
      */
     public static function run(string $repo, array $opts = []): array {
         $repo = rtrim($repo, '/');
-        $policy = Policy::load($repo);
+        $adapterLibrary = $opts['adapter_library'] ?? null;
+        if ($adapterLibrary !== null && !$adapterLibrary instanceof AdapterLibrary) {
+            throw new \InvalidArgumentException('adapter_library must be a Duo\\AdapterLibrary');
+        }
+        $policy = Policy::load($repo, adapterLibrary: $adapterLibrary);
         $compiledPath = (string) ($opts['compiled'] ?? '');
         $compiled = $compiledPath !== ''
             ? RepositoryCompiler::read_artifact($compiledPath, $policy)
@@ -130,7 +135,7 @@ final class Deploy {
             PromotionLock::acquire_deploy_preflight($promotionOwner, $promotionArtifact);
         }
         try {
-            $lockedPolicy = Policy::load($repo);
+            $lockedPolicy = Policy::load($repo, adapterLibrary: $adapterLibrary);
             $lockedCompiled = $compiledPath !== ''
                 ? RepositoryCompiler::read_artifact($compiledPath, $lockedPolicy)
                 : RepositoryCompiler::compile($repo, $lockedPolicy);

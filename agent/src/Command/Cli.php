@@ -344,6 +344,20 @@ final class Cli {
     }
 
     /**
+     * In-process evidence may supply a closed library object. No WP-CLI
+     * docblock registers this key, so target operators cannot select paths.
+     */
+    private static function internal_adapter_library(array $assoc): ?AdapterLibrary {
+        if (!array_key_exists('adapter_library', $assoc)) {
+            return null;
+        }
+        if (!$assoc['adapter_library'] instanceof AdapterLibrary) {
+            throw new \InvalidArgumentException('adapter_library must be a Duo\\AdapterLibrary');
+        }
+        return $assoc['adapter_library'];
+    }
+
+    /**
      * May this Throwable's message be published verbatim in the JSON
      * refusal envelope?
      *
@@ -1109,7 +1123,8 @@ final class Cli {
                 $assoc['out'] ?? null,
                 isset($assoc['force-unresolved-refs']),
                 $scopeRequest,
-                $hostEnvironment
+                $hostEnvironment,
+                self::internal_adapter_library($assoc)
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'capture');
@@ -1297,11 +1312,9 @@ final class Cli {
             // Object-only evidence seam: this key is intentionally absent
             // from the WP-CLI docblock, so a target operator cannot redirect
             // production discovery with a command-line path.
-            if (array_key_exists('adapter_library', $assoc)) {
-                if (!$assoc['adapter_library'] instanceof AdapterLibrary) {
-                    throw new \InvalidArgumentException('adapter_library must be a Duo\\AdapterLibrary');
-                }
-                $options['adapter_library'] = $assoc['adapter_library'];
+            $adapterLibrary = self::internal_adapter_library($assoc);
+            if ($adapterLibrary !== null) {
+                $options['adapter_library'] = $adapterLibrary;
             }
             if ($viewRequest !== null
                 && (array_key_exists('scope-contract', $assoc)
@@ -1921,11 +1934,9 @@ final class Cli {
             ] + self::rebind_from_options($assoc);
             // Same object-only seam as plan(); no registered WP-CLI flag can
             // turn an arbitrary path into mutation authority.
-            if (array_key_exists('adapter_library', $assoc)) {
-                if (!$assoc['adapter_library'] instanceof AdapterLibrary) {
-                    throw new \InvalidArgumentException('adapter_library must be a Duo\\AdapterLibrary');
-                }
-                $opts['adapter_library'] = $assoc['adapter_library'];
+            $adapterLibrary = self::internal_adapter_library($assoc);
+            if ($adapterLibrary !== null) {
+                $opts['adapter_library'] = $adapterLibrary;
             }
             if ((string) ($assoc['scoped-promotion-receipt'] ?? '') !== ''
                 && !array_key_exists('scope-request-b64', $assoc)) {
@@ -2149,6 +2160,7 @@ final class Cli {
                 'state_handoff' => isset($assoc['state-handoff']),
                 'lifecycle_phase' => $assoc['lifecycle-phase'] ?? 'all',
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
+                'adapter_library' => self::internal_adapter_library($assoc),
             ]);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'deploy');
@@ -2960,7 +2972,7 @@ final class Cli {
     public function lint($args, $assoc) {
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('lint', '--repo');
-            $policy = Policy::load($repo);
+            $policy = Policy::load($repo, adapterLibrary: self::internal_adapter_library($assoc));
             $stateDir = rtrim($repo, '/') . '/state';
             $environment = Lint::live_environment(self::lint_probe($assoc['evidence'] ?? null));
             $findings = Lint::scan_tree($stateDir, $policy, $environment);

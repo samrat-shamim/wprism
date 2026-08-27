@@ -243,10 +243,17 @@ register_shutdown_function(static function () use ($tmp): void {
 $repoRoot = dirname(__DIR__, 4);
 $coordinatorSource = (string) file_get_contents($repoRoot . '/agent/src/Apply/ApplyRequestCoordinator.php');
 $cliSource = (string) file_get_contents($repoRoot . '/agent/src/Command/Cli.php');
+$captureSource = (string) file_get_contents($repoRoot . '/agent/src/Capture/CapturePublicationWorkflow.php');
+$deploySource = (string) file_get_contents($repoRoot . '/agent/src/Promotion/Deploy.php');
 duo_check(
     str_contains($coordinatorSource, '$library = $opts[\'adapter_library\'] ?? null;')
-        && str_contains($cliSource, 'array_key_exists(\'adapter_library\', $assoc)'),
-    'plan/apply retain the in-process AdapterLibrary handoff used by hermetic engine evidence'
+        && substr_count($cliSource, 'self::internal_adapter_library($assoc)') === 5,
+    'capture/plan/apply/deploy/lint retain one object-only AdapterLibrary handoff for hermetic engine evidence'
+);
+duo_check(
+    substr_count($captureSource, 'adapterLibrary: $adapterLibrary') === 4
+        && substr_count($deploySource, 'adapterLibrary: $adapterLibrary') === 2,
+    'capture and deploy reuse the injected library for every pre-lock and locked policy proof'
 );
 duo_check(
     preg_match('/^\s*\* \[--adapter[-_]library/m', $cliSource) !== 1,

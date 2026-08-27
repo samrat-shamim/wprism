@@ -802,10 +802,10 @@ echo "\n== the shipped adapters: every committed manifest loads clean and declar
 // operations, and unsupported surfaces per manifest, and its coverage check is
 // one-for-one; loading through it here would make this file fail for a review
 // decision it does not test. regress_manifest_dispositions.php owns that.
-// Keeping manifests/providers beside agent/src is load-bearing: provider hook
-// files require their dependency-free WpCliChildProcess through the same
-// ../../agent path Adopt ships, so this fixture proves the production include
-// topology instead of flattening files into a directory where they cannot run.
+// Runtime files are copied below only so the legacy-shaped grammar fixture can
+// close one explicit library. Their self-owned dependency resolution is
+// separately proved from the committed source-package topology: arbitrary
+// copied directories are not a supported adapter runtime layout.
 $shippedRoot = sys_get_temp_dir() . '/duo_regress_actions_providers_shipped_' . bin2hex(random_bytes(4));
 $shipped = $shippedRoot . '/manifests';
 mkdir($shipped . '/providers', 0777, true);
@@ -829,11 +829,11 @@ foreach ($sourceLibrary->packages() as $package) {
     }
 }
 $wpCliProviderFiles = [
-    'elementor-css.php' => '\\Duo\\Providers\\ElementorCss',
-    'ninja-forms-form-cache.php' => '\\Duo\\Providers\\NinjaFormsFormCache',
-    'yoast-index.php' => '\\Duo\\Providers\\YoastIndex',
+    'elementor' => ['elementor-css.php', '\\Duo\\Providers\\ElementorCss'],
+    'ninja-forms' => ['ninja-forms-form-cache.php', '\\Duo\\Providers\\NinjaFormsFormCache'],
+    'yoast' => ['yoast-index.php', '\\Duo\\Providers\\YoastIndex'],
 ];
-foreach ($wpCliProviderFiles as $providerFile => $providerClass) {
+foreach ($wpCliProviderFiles as $packageName => [$providerFile, $providerClass]) {
     $descriptors = [
         0 => ['pipe', 'r'],
         1 => ['pipe', 'w'],
@@ -848,7 +848,7 @@ foreach ($wpCliProviderFiles as $providerFile => $providerClass) {
             '-r',
             'require $argv[1]; require $argv[2]; if (!class_exists("Duo\\\\WpCliChildProcess", false) || !class_exists($argv[3], false)) { exit(1); }',
             $root . '/agent/src/Adapter/ManifestProviderRuntime.php',
-            $shipped . '/providers/' . $providerFile,
+            $root . '/adapter-packages/' . $packageName . '/package/runtime/providers/' . $providerFile,
             $providerClass,
         ],
         $descriptors,
