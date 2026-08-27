@@ -63,6 +63,7 @@ require_once $root . '/agent/src/Repository/SidebarState.php';
 require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
 require_once $root . '/agent/src/Repository/RepositorySchemaValidator.php';
 require_once $root . '/agent/src/Apply/Apply.php';
+require_once __DIR__ . '/../policy/manifest_fixtures.php';
 
 use Duo\Apply;
 use Duo\Canon;
@@ -135,7 +136,11 @@ function tok_has_code(array $diagnostics, string $code): bool {
 
 $manifestDir = $tmp . '/manifests';
 mkdir($manifestDir, 0777, true);
-putenv("DUO_MANIFESTS_DIR=$manifestDir");
+$loadPolicy = static fn(array $names): Policy => Policy::load(
+    null,
+    $names,
+    adapterLibrary: manifest_fixture_adapter_library($manifestDir)
+);
 
 $fixture = [
     'name' => 'fixture',
@@ -166,7 +171,7 @@ tok_check(
 );
 
 echo "\n== policy declaration resolution and legacy compatibility ==\n";
-$policy = Policy::load(null, ['fixture']);
+$policy = $loadPolicy(['fixture']);
 tok_check($policy->taxonomy_object_keyspace('duo_keyspace_post_links', ['duo_keyspace_post']) === 'post', 'exact post object_keyspace resolves');
 tok_check($policy->taxonomy_object_keyspace('duo_keyspace_term_links', ['duo_fixture_term_object']) === 'term', 'exact opaque term object_keyspace resolves');
 tok_check($policy->taxonomy_object_keyspace('duo_keyspace_dynamic_term_links', ['duo_fixture_dynamic_term_object']) === 'term', 'matching taxonomy pattern object_keyspace resolves');
@@ -209,7 +214,7 @@ $badValue['name'] = 'bad_value';
 $badValue['taxonomies'] = ['bad' => ['object_keyspace' => 'comment']];
 unset($badValue['taxonomy_patterns']);
 tok_write_manifest($manifestDir, 'bad_value', $badValue);
-tok_expect_failure(fn() => Policy::load(null, ['bad_value']), 'taxonomies.bad.object_keyspace', 'unsupported exact value');
+tok_expect_failure(fn() => $loadPolicy(['bad_value']), 'taxonomies.bad.object_keyspace', 'unsupported exact value');
 
 $badShape = $fixture;
 $badShape['name'] = 'bad_shape';
@@ -218,14 +223,14 @@ $badShape['taxonomy_patterns'] = [[
 ]];
 unset($badShape['taxonomies']);
 tok_write_manifest($manifestDir, 'bad_shape', $badShape);
-tok_expect_failure(fn() => Policy::load(null, ['bad_shape']), 'taxonomy_patterns[0].object_keyspace', 'non-string pattern value');
+tok_expect_failure(fn() => $loadPolicy(['bad_shape']), 'taxonomy_patterns[0].object_keyspace', 'non-string pattern value');
 
 $conflictPost = ['name' => 'conflict_post', 'spec_version' => DUO_SPEC_VERSION, 'taxonomies' => ['shared' => ['object_keyspace' => 'post']]];
 $conflictTerm = ['name' => 'conflict_term', 'spec_version' => DUO_SPEC_VERSION, 'taxonomies' => ['shared' => ['object_keyspace' => 'term']]];
 tok_write_manifest($manifestDir, 'conflict_post', $conflictPost);
 tok_write_manifest($manifestDir, 'conflict_term', $conflictTerm);
 tok_expect_failure(
-    fn() => Policy::load(null, ['conflict_post', 'conflict_term']),
+    fn() => $loadPolicy(['conflict_post', 'conflict_term']),
     'both declare taxonomies.shared',
     'contradictory exact declarations use the stronger one-owner refusal'
 );
@@ -238,7 +243,7 @@ $samePatternTerm = ['name' => 'same_pattern_term', 'spec_version' => DUO_SPEC_VE
 ]]];
 tok_write_manifest($manifestDir, 'same_pattern_post', $samePatternPost);
 tok_write_manifest($manifestDir, 'same_pattern_term', $samePatternTerm);
-tok_expect_failure(fn() => Policy::load(null, ['same_pattern_post', 'same_pattern_term']), 'conflicting object_keyspace declarations', 'contradictory identical pattern declarations');
+tok_expect_failure(fn() => $loadPolicy(['same_pattern_post', 'same_pattern_term']), 'conflicting object_keyspace declarations', 'contradictory identical pattern declarations');
 
 $legacyPatternPost = ['name' => 'legacy_pattern_post', 'spec_version' => DUO_SPEC_VERSION, 'taxonomy_patterns' => [[
     'match' => '^legacy_shared$', 'object_type' => ['duo_keyspace_post'],
@@ -249,7 +254,7 @@ $explicitPatternTerm = ['name' => 'explicit_pattern_term', 'spec_version' => DUO
 tok_write_manifest($manifestDir, 'legacy_pattern_post', $legacyPatternPost);
 tok_write_manifest($manifestDir, 'explicit_pattern_term', $explicitPatternTerm);
 tok_expect_failure(
-    fn() => Policy::load(null, ['legacy_pattern_post', 'explicit_pattern_term']),
+    fn() => $loadPolicy(['legacy_pattern_post', 'explicit_pattern_term']),
     'conflicting object_keyspace declarations',
     'omitted legacy pattern keyspace conflicts with explicit term at manifest load'
 );
@@ -263,7 +268,7 @@ $matchingPatternTerm = ['name' => 'matching_pattern_term', 'spec_version' => DUO
 tok_write_manifest($manifestDir, 'legacy_exact_post', $legacyExactPost);
 tok_write_manifest($manifestDir, 'matching_pattern_term', $matchingPatternTerm);
 tok_expect_failure(
-    fn() => Policy::load(null, ['legacy_exact_post', 'matching_pattern_term']),
+    fn() => $loadPolicy(['legacy_exact_post', 'matching_pattern_term']),
     'exact and matching pattern declarations must agree',
     'omitted exact keyspace conflicts eagerly with an explicit matching term pattern'
 );
@@ -276,7 +281,7 @@ $patternContractB = ['name' => 'pattern_contract_b', 'spec_version' => DUO_SPEC_
 ]]];
 tok_write_manifest($manifestDir, 'pattern_contract_a', $patternContractA);
 tok_write_manifest($manifestDir, 'pattern_contract_b', $patternContractB);
-$ambiguousPatternPolicy = Policy::load(null, ['pattern_contract_a', 'pattern_contract_b']);
+$ambiguousPatternPolicy = $loadPolicy(['pattern_contract_a', 'pattern_contract_b']);
 tok_expect_failure(
     fn() => $ambiguousPatternPolicy->pattern_object_type('contract_shared'),
     'ambiguous taxonomy_patterns contracts',
@@ -287,7 +292,7 @@ $overlap = ['name' => 'overlap', 'spec_version' => DUO_SPEC_VERSION, 'taxonomy_p
     'match' => '^duo_keyspace_dynamic_.*_links$', 'object_type' => ['duo_keyspace_post'], 'object_keyspace' => 'post',
 ]]];
 tok_write_manifest($manifestDir, 'overlap', $overlap);
-$overlappingPolicy = Policy::load(null, ['fixture', 'overlap']);
+$overlappingPolicy = $loadPolicy(['fixture', 'overlap']);
 tok_expect_failure(
     fn() => $overlappingPolicy->taxonomy_object_keyspace('duo_keyspace_dynamic_term_links', ['duo_fixture_dynamic_term_object']),
     'ambiguous object_keyspace declarations',
@@ -479,8 +484,11 @@ tok_expect_failure(
 );
 
 echo "\n== shipped Polylang migration ==\n";
-putenv('DUO_MANIFESTS_DIR');
-$polylang = Policy::load(null, ['polylang']);
+$polylang = Policy::load(
+    null,
+    ['polylang'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourceTree($root)
+);
 tok_check($polylang->taxonomy_object_keyspace('language') === 'post', 'Polylang language declares post keyspace');
 tok_check($polylang->taxonomy_object_keyspace('post_translations') === 'post', 'Polylang post_translations declares post keyspace');
 tok_check($polylang->taxonomy_object_keyspace('term_language') === 'term', 'Polylang term_language declares term keyspace');

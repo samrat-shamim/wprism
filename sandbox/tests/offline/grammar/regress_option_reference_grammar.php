@@ -165,7 +165,11 @@ $assertThrows(
 
 /** Build the smallest frozen envelope accepted by the real loader. */
 $frozenSnapshot = static function (array $manifests): array {
-    return FrozenPolicy::envelope($manifests, FrozenPolicy::site($manifests, DUO_SPEC_VERSION));
+    return FrozenPolicy::envelope(
+        $manifests,
+        FrozenPolicy::site($manifests, DUO_SPEC_VERSION),
+        FrozenPolicy::library()
+    );
 };
 
 $validManifests = [
@@ -173,11 +177,11 @@ $validManifests = [
     manifest_b(['option_name_refs' => [$rule()]]),
 ];
 $assertAccepted(
-    static fn() => Policy::from_snapshot($frozenSnapshot($validManifests)),
+    static fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot($validManifests)),
     'a valid option-name-ref declaration loads through Policy::from_snapshot()'
 );
 $assertThrows(
-    static fn() => Policy::from_snapshot($frozenSnapshot([
+    static fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot([
         manifest_a(),
         manifest_b(['option_name_refs' => [$rule(['match' => '^[a-z]+$'])]]),
     ])),
@@ -185,7 +189,7 @@ $assertThrows(
     'Policy::from_snapshot() invokes the extracted option-name-ref grammar'
 );
 $assertThrows(
-    static fn() => Policy::from_snapshot($frozenSnapshot([
+    static fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot([
         manifest_a(['option_name_refs' => [$rule(['id_kind' => 'acme_room'])]]),
         manifest_b(['option_name_refs' => [$rule()]]),
     ])),
@@ -204,17 +208,16 @@ Canon::write_file($loadRoot . '/site.duo.json', Canon::encode([
 manifest_fixture_code($loadManifests);
 Canon::write_file($loadManifests . '/a.json', Canon::encode(manifest_a()));
 Canon::write_file($loadManifests . '/b.json', Canon::encode($validManifests[1]));
-$previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
-putenv("DUO_MANIFESTS_DIR=$loadManifests");
+$loadLibrary = manifest_fixture_adapter_library($loadManifests);
 $assertAccepted(
-    static fn() => Policy::load($loadRoot),
+    static fn() => Policy::load($loadRoot, adapterLibrary: $loadLibrary),
     'a valid option-name-ref declaration loads through Policy::load()'
 );
 Canon::write_file($loadManifests . '/b.json', Canon::encode(
     manifest_b(['option_name_refs' => [$rule(['malformed_match' => '['])]])
 ));
 $assertThrows(
-    static fn() => Policy::load($loadRoot),
+    static fn() => Policy::load($loadRoot, adapterLibrary: $loadLibrary),
     'malformed_match must be a non-empty valid regex',
     'Policy::load() invokes the extracted option-name-ref grammar'
 );
@@ -223,23 +226,12 @@ Canon::write_file($loadManifests . '/a.json', Canon::encode(
 ));
 Canon::write_file($loadManifests . '/b.json', Canon::encode($validManifests[1]));
 $assertThrows(
-    static fn() => Policy::load($loadRoot),
+    static fn() => Policy::load($loadRoot, adapterLibrary: $loadLibrary),
     "'a[0]' and 'b[0]' have identical overlapping match regexes",
     'Policy::load() invokes the extracted cross-manifest duplicate-pattern guard'
 );
 
-if ($previousManifestsDir === false) {
-    putenv('DUO_MANIFESTS_DIR');
-} else {
-    putenv("DUO_MANIFESTS_DIR=$previousManifestsDir");
-}
-foreach (glob($loadManifests . '/*') ?: [] as $file) {
-    @unlink($file);
-}
-manifest_fixture_code_cleanup($loadManifests);
-@rmdir($loadManifests);
-@unlink($loadRoot . '/site.duo.json');
-@rmdir($loadRoot);
+manifest_fixture_remove_tree($loadRoot);
 
 $policySource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/Policy.php');
 $finalizerSource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/PolicyLoadFinalizer.php');

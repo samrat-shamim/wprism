@@ -2,8 +2,8 @@
 /**
  * Offline harness for DUO-3344 — scope resolution over declared edges.
  *
- * Runs on real fixture repositories under sys_get_temp_dir() with a scratch
- * DUO_MANIFESTS_DIR, driving the REAL, unmodified
+ * Runs on real fixture repositories under sys_get_temp_dir() with an explicit
+ * scratch adapter library, driving the REAL, unmodified
  * agent/src/{Policy,ReferenceGraph,RepositoryCompiler,ScopeClosure}.php. No
  * docker, no sandbox pair, no WordPress bootstrap — the compiler's own
  * docblock is explicit that the IR exists before Tokens, Ledger, or Capture
@@ -19,6 +19,7 @@ $duoAgentClassmap = require $root . '/agent/duo-classmap.php';
 if (!is_array($duoAgentClassmap)) {
     throw new \RuntimeException('regress_scope_closure: agent/duo-classmap.php did not return a map');
 }
+require_once __DIR__ . '/../policy/manifest_fixtures.php';
 $duoAgentFiles = [];
 foreach ($duoAgentClassmap as $duoAgentPath) {
     $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
@@ -41,6 +42,7 @@ foreach ([
 function get_option($name) { throw new RuntimeException("TARGET CONTACT: get_option($name)"); }
 function wp_upload_dir(...$args) { throw new RuntimeException('TARGET CONTACT: wp_upload_dir'); }
 
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\OptionState;
 use Duo\Policy;
@@ -114,7 +116,12 @@ function option_records(array $overrides): string {
 // declaration.
 $manifestDir = "$tmp/manifests";
 mkdir($manifestDir, 0777, true);
-copy("$root/manifests/core.json", "$manifestDir/core.json");
+$sourceLibrary = AdapterLibrary::fromSourceTree($root);
+$corePackage = $sourceLibrary->package('core');
+if ($corePackage === null) {
+    throw new RuntimeException('regress_scope_closure: source adapter library has no core package');
+}
+copy($corePackage->manifestPath(), "$manifestDir/core.json");
 // Both fixture adapters carry the name their file already carries: DUO-3371
 // refuses a manifest whose declared name is not its file basename, and a
 // nameless manifest is that refusal's degenerate case.
@@ -137,7 +144,7 @@ put("$manifestDir/duo-scope-taxonomy.json", Canon::encode([
     ],
     'spec_version' => 2,
 ]));
-putenv("DUO_MANIFESTS_DIR=$manifestDir");
+$adapterLibrary = manifest_fixture_adapter_library($manifestDir);
 
 $ids = [
     'topics' => uuid(1), 'news' => uuid(2), 'about' => uuid(3), 'photo' => uuid(4),
@@ -235,7 +242,7 @@ put("$repo/state/options/core.json", option_records([
     'show_on_front' => OptionState::present('page', 'yes'),
 ]));
 
-$policy = Policy::load($repo);
+$policy = Policy::load($repo, adapterLibrary: $adapterLibrary);
 $compiled = RepositoryCompiler::compile($repo, $policy);
 
 // ---------------------------------------------------------------- closure
@@ -343,7 +350,7 @@ put("$repo/site.duo.json", Canon::encode([
     ],
     'spec_version' => 2,
 ]));
-$unpinnedPolicy = Policy::load($repo);
+$unpinnedPolicy = Policy::load($repo, adapterLibrary: $adapterLibrary);
 $unpinned = ScopeClosure::resolve(
     RepositoryCompiler::compile($repo, $unpinnedPolicy),
     $unpinnedPolicy,
@@ -487,7 +494,7 @@ try {
 $ambiguousRepo = "$tmp/ambiguous-option-names";
 $ambiguousManifestDir = "$ambiguousRepo/manifests";
 mkdir($ambiguousManifestDir, 0777, true);
-copy("$root/manifests/core.json", "$ambiguousManifestDir/core.json");
+copy($corePackage->manifestPath(), "$ambiguousManifestDir/core.json");
 put("$ambiguousManifestDir/duo-ambiguous-fixture.json", Canon::encode([
     'name' => 'duo-ambiguous-fixture',
     'options' => [
@@ -497,7 +504,7 @@ put("$ambiguousManifestDir/duo-ambiguous-fixture.json", Canon::encode([
     ],
     'spec_version' => 2,
 ]));
-putenv("DUO_MANIFESTS_DIR=$ambiguousManifestDir");
+$ambiguousLibrary = manifest_fixture_adapter_library($ambiguousManifestDir);
 put("$ambiguousRepo/site.duo.json", Canon::encode([
     'manifests' => ['core', 'duo-ambiguous-fixture'],
     'policy' => [
@@ -516,9 +523,8 @@ put("$ambiguousRepo/state/options/core.json", option_records([
     'n.value' => OptionState::present('{{term:' . $decoy . '}}', 'yes'),
     'unrelated_option' => OptionState::present('plain string, no reference', 'yes'),
 ]));
-$ambiguousPolicy = Policy::load($ambiguousRepo);
+$ambiguousPolicy = Policy::load($ambiguousRepo, adapterLibrary: $ambiguousLibrary);
 $ambiguousCompiled = RepositoryCompiler::compile($ambiguousRepo, $ambiguousPolicy);
-putenv("DUO_MANIFESTS_DIR=$manifestDir");
 try {
     ScopeClosure::resolve($ambiguousCompiled, $ambiguousPolicy, ['option:n']);
     check(false, 'a locator matching two authored option names at once is refused rather than guessed');
@@ -618,7 +624,10 @@ foreach (['plain', 'categorized'] as $variant) {
     $cycleRepo = "$tmp/cycle-$variant";
     cycle_repo($cycleRepo, $variant === 'categorized');
     try {
-        RepositoryCompiler::compile($cycleRepo, Policy::load($cycleRepo));
+        RepositoryCompiler::compile(
+            $cycleRepo,
+            Policy::load($cycleRepo, adapterLibrary: $adapterLibrary)
+        );
         $cycleCodes[$variant] = [];
     } catch (RepositoryCompilationException $e) {
         $cycleCodes[$variant] = array_values(array_unique(array_column($e->payload()['diagnostics'], 'code')));
@@ -672,7 +681,10 @@ $invalidAbout = $about;
 $invalidAbout['meta']['_scope_links'][1] = '{{post:' . uuid(999) . '}}';
 put("$repo/state/posts/page/{$ids['about']}--about.md", Canon::post_file($invalidAbout, $aboutBody));
 try {
-    RepositoryCompiler::compile($repo, Policy::load($repo));
+    RepositoryCompiler::compile(
+        $repo,
+        Policy::load($repo, adapterLibrary: $adapterLibrary)
+    );
     $missingRepeatedDiagnostics = [];
 } catch (RepositoryCompilationException $e) {
     $missingRepeatedDiagnostics = array_values(array_filter(
