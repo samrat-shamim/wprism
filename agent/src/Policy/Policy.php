@@ -496,14 +496,16 @@ final class Policy {
         ?string $repo,
         ?array $manifestNames = null,
         bool $allowUnsupportedSiteForReadOnlyCapabilities = false,
-        ?string $adapterRepo = null
+        ?string $adapterRepo = null,
+        ?AdapterLibrary $adapterLibrary = null
     ): self {
         return self::load_with(
             null,
             $repo,
             $manifestNames,
             $allowUnsupportedSiteForReadOnlyCapabilities,
-            $adapterRepo
+            $adapterRepo,
+            $adapterLibrary
         );
     }
 
@@ -570,7 +572,7 @@ final class Policy {
      * @param list<string>|list<array<string,mixed>> $manifestNames
      */
     public static function load_from_scan(array $library, ?string $repo, array $manifestNames): self {
-        return self::load_with($library, $repo, $manifestNames, false, null);
+        return self::load_with($library, $repo, $manifestNames, false, null, null);
     }
 
     /**
@@ -586,7 +588,8 @@ final class Policy {
         ?string $repo,
         ?array $manifestNames,
         bool $allowUnsupportedSiteForReadOnlyCapabilities,
-        ?string $adapterRepo
+        ?string $adapterRepo,
+        ?AdapterLibrary $adapterLibrary
     ): self {
         // A supplied library has already been through resolve_library(), which
         // runs both asserts FIRST, before it reads anything; running them
@@ -594,11 +597,12 @@ final class Policy {
         // surveyed adapter to re-answer a question about the process.
         if ($library === null && !$allowUnsupportedSiteForReadOnlyCapabilities) {
             self::assert_single_site();
-            self::assert_supported_platform();
+            self::assert_supported_platform($adapterLibrary);
         }
         $p = new self();
         $p->adapterLibrary = $library === null
-            ? (self::has_manifest_directory_override() ? null : self::shipped_adapter_library())
+            ? ($adapterLibrary
+                ?? (self::has_manifest_directory_override() ? null : self::shipped_adapter_library()))
             : ($library['adapter_library'] ?? null);
         if ($repo !== null) {
             $siteFile = rtrim($repo, '/') . '/site.duo.json';
@@ -616,7 +620,7 @@ final class Policy {
         $manifestValidatorVocabulary = self::manifest_validator_vocabulary();
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $pins = PinResolver::normalize_manifest_pins($rawPins);
-        $dir = self::manifests_dir();
+        $dir = $p->adapterLibrary === null ? self::manifests_dir() : $p->adapterLibrary->root();
         // A supplied library was resolved against the directory this process
         // saw then; a `DUO_MANIFESTS_DIR` that moved since would silently
         // resolve pins against one library and report them against another.
@@ -669,7 +673,9 @@ final class Policy {
             // normalize_manifest_pins() has already proved this exact identity
             // path-free and canonical; never rewrite it into a different key.
             $key = $name;
-            $manifest = Canon::decode(Canon::read_file($p->adapterSources->file($key, $dir)));
+            $manifest = Canon::decode(Canon::read_file(
+                $p->adapterSources->file($key, $p->adapterLibrary ?? $dir)
+            ));
             // DUO-3371: the earliest point on the live load path where a
             // manifest's FILE name and its DECLARED name are both in hand, and
             // therefore the only place one identity can be enforced for both

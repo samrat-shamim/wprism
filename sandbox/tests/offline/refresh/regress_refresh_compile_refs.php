@@ -137,7 +137,7 @@ function provider_source(string $version, string $ref): string {
     return "<?php\n"
         . "namespace Duo\\Regenerators;\n"
         . "final class Probe {\n"
-        . "    public const VERSION = " . var_export($version, true) . ";\n"
+        . '    public const VERSION = ' . var_export($version, true) . ";\n"
         . "    public function __construct(\$policy) {}\n"
         . "    public function regenerate(int \$localId): void {}\n"
         . "    public static function rule(): array {\n"
@@ -185,6 +185,52 @@ function manifest_source(): string {
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
 }
 
+function core_manifest_source(): string {
+    return json_encode([
+        'name' => 'core',
+        'spec_version' => 2,
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+}
+
+function excluded_disposition_source(): string {
+    return json_encode([
+        'capabilities' => [
+            'deletion_semantics' => ['supported' => [], 'unsupported' => ['all']],
+            'entity_sections' => [],
+            'field_sections' => [],
+            'lifecycle_phases' => [],
+            'operations' => ['test-only'],
+        ],
+        'default_authored_keyspaces' => [],
+        'reason' => 'Refresh Git-ref compiler regression fixture; no product support claim.',
+        'status' => 'excluded',
+        'supported_versions' => ['fixture' => true],
+        'unsupported' => [[
+            'operation' => 'promote',
+            'reason' => 'Excluded fixture manifests are never production-ready.',
+            'surface' => 'production',
+        ]],
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+}
+
+function platform_source(): string {
+    return json_encode([
+        'format' => 'duo-platform-boundary/v1',
+        'platform' => [
+            'agent_version' => '0.6.0',
+            'compatibility' => new stdClass(),
+            'spec_version' => 3,
+        ],
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+}
+
+function authorities_source(): string {
+    return json_encode([
+        'format' => 'duo-adapter-authorities/v1',
+        'keys' => new stdClass(),
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+}
+
 function site_source(): string {
     return json_encode([
         'manifests' => ['probe'],
@@ -207,7 +253,12 @@ function options_source(): string {
 }
 
 $fixture = sys_get_temp_dir() . '/duo_refresh_compile_refs_' . bin2hex(random_bytes(6));
-$trees = [$fixture . '/tree-base', $fixture . '/tree-branch', $fixture . '/tree-production-code'];
+$trees = [
+    $fixture . '/tree-base',
+    $fixture . '/tree-branch',
+    $fixture . '/tree-production-code',
+    $fixture . '/tree-logical-packages',
+];
 mkdir($fixture, 0777, true);
 
 register_shutdown_function(static function () use ($fixture, $trees): void {
@@ -256,7 +307,44 @@ try {
     git_fixture($fixture, ['commit', '-qm', 'probe implementation C']);
     $productionCommit = trim(git_fixture($fixture, ['rev-parse', 'HEAD']));
 
-    foreach ([[$trees[0], $baseCommit], [$trees[1], $branchCommit], [$trees[2], $productionCommit]] as [$tree, $commit]) {
+    // The next ref models the package-layout flag day while retaining the
+    // old sparse fixture tree beside it. The worker must select the logical
+    // library explicitly and never let a process override redirect it back to
+    // those legacy bytes.
+    fixture_write($fixture . '/adapter-packages/probe/package/manifest.json', manifest_source());
+    fixture_write(
+        $fixture . '/adapter-packages/probe/package/disposition.json',
+        excluded_disposition_source()
+    );
+    fixture_write(
+        $fixture . '/adapter-packages/probe/package/runtime/interpreters/probe.php',
+        interpreter_source('C')
+    );
+    fixture_write(
+        $fixture . '/adapter-packages/probe/package/runtime/regenerators/probe.php',
+        provider_source('C', 'post')
+    );
+    fixture_write($fixture . '/platform/adapter-library/core/manifest.json', core_manifest_source());
+    fixture_write(
+        $fixture . '/platform/adapter-library/core/disposition.json',
+        excluded_disposition_source()
+    );
+    fixture_write($fixture . '/platform/adapter-library/profiles.json', "{}\n");
+    fixture_write($fixture . '/platform/adapter-library/capabilities/platform.json', platform_source());
+    fixture_write(
+        $fixture . '/platform/adapter-library/capabilities/adapter-authorities.json',
+        authorities_source()
+    );
+    git_fixture($fixture, ['add', '.']);
+    git_fixture($fixture, ['commit', '-qm', 'logical adapter package layout']);
+    $logicalCommit = trim(git_fixture($fixture, ['rev-parse', 'HEAD']));
+
+    foreach ([
+        [$trees[0], $baseCommit],
+        [$trees[1], $branchCommit],
+        [$trees[2], $productionCommit],
+        [$trees[3], $logicalCommit],
+    ] as [$tree, $commit]) {
         git_fixture($fixture, ['worktree', 'add', '--detach', $tree, $commit]);
     }
 
@@ -275,6 +363,17 @@ try {
         null,
         true
     );
+    $hostileManifests = $fixture . '/hostile-manifests';
+    mkdir($hostileManifests, 0777, true);
+    $previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
+    putenv('DUO_MANIFESTS_DIR=' . $hostileManifests);
+    try {
+        $logicalPackages = RefreshPlan::compileGitWorktree($trees[3], $logicalCommit, 'branch');
+    } finally {
+        $previousManifestsDir === false
+            ? putenv('DUO_MANIFESTS_DIR')
+            : putenv('DUO_MANIFESTS_DIR=' . $previousManifestsDir);
+    }
 
     foreach ([['base', $base, $baseCommit], ['branch', $branch, $branchCommit], ['production-code', $productionCode, $productionCommit]] as [$label, $artifact, $commit]) {
         check_compile(is_array($artifact), "$label worker returned an artifact");
@@ -288,6 +387,11 @@ try {
         $productionCode['policy']['manifest_hash'] ?? null,
     ];
     check_compile(count(array_unique($manifestHashes)) === 3, 'same-named interpreter/provider implementations are evaluated per Git ref');
+    check_compile(
+        ($logicalPackages['commit'] ?? null) === $logicalCommit
+            && ($logicalPackages['policy']['resolved_adapters'][0]['name'] ?? null) === 'probe',
+        'package-layout ref compiles through its explicit AdapterLibrary despite a hostile process override'
+    );
     check_compile(
         count(array_unique([
             $base['repository']['artifact_hash'] ?? null,
