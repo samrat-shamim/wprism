@@ -91,6 +91,7 @@ final class DemoCommand {
     private static function start(string $sourceRoot, array $options, ?callable $phaseHook): int {
         self::requireTools(['docker', 'git', 'jq']);
         $session = self::sessionShape($sourceRoot, $options);
+        self::restoreClaimedSession((string) $session['state_file'], (string) $options['name']);
         if (file_exists($session['state_file']) || is_link($session['state_file'])) {
             throw new \RuntimeException("demo '{$options['name']}' already has a session; run `duo demo status` or `duo demo stop`");
         }
@@ -103,9 +104,18 @@ final class DemoCommand {
             if (file_exists($claim) || is_link($claim)) {
                 throw new \RuntimeException("refusing to reuse existing demo cleanup claim $claim");
             }
+            if ($field !== 'compose_env_file') {
+                $acquisition = self::acquisitionStage($session, $field);
+                if (file_exists($acquisition) || is_link($acquisition)) {
+                    throw new \RuntimeException("refusing to reuse existing demo acquisition stage $acquisition");
+                }
+            }
         }
 
         self::writeSession($session);
+        if ($phaseHook !== null) {
+            $phaseHook('session_published');
+        }
         try {
             foreach (['source_repo', 'target_repo', 'origin'] as $field) {
                 self::acquireOwnedDirectory($session, $field, $phaseHook);
@@ -551,10 +561,19 @@ final class DemoCommand {
     /** @return array<string,mixed> */
     private static function readSession(string $sourceRoot, string $name): array {
         $stateFile = $sourceRoot . '/sandbox/tmp/demo-' . $name . '.json';
-        $data = !is_link($stateFile) && is_file($stateFile)
-            ? json_decode((string) file_get_contents($stateFile), true)
-            : null;
+        self::restoreClaimedSession($stateFile, $name);
+        $handle = !is_link($stateFile) && is_file($stateFile) ? @fopen($stateFile, 'rb') : false;
+        $opened = is_resource($handle) ? fstat($handle) : false;
+        $bytes = is_resource($handle) ? stream_get_contents($handle) : false;
+        $named = @lstat($stateFile);
+        if (is_resource($handle)) {
+            fclose($handle);
+        }
+        $data = is_string($bytes) ? json_decode($bytes, true) : null;
         if (!is_array($data)
+            || !is_array($opened) || !is_array($named)
+            || $opened['dev'] !== $named['dev'] || $opened['ino'] !== $named['ino']
+            || is_link($stateFile) || !is_file($stateFile)
             || ($data['format'] ?? null) !== self::FORMAT
             || ($data['name'] ?? null) !== $name
             || !is_int($data['source_port'] ?? null)
@@ -587,39 +606,81 @@ final class DemoCommand {
             || !self::validOwnedPaths($data['owned_paths'] ?? null)) {
             throw new \RuntimeException("demo '$name' session lifecycle state is malformed");
         }
+        $data['_state_identity'] = self::pathIdentity($stateFile);
         return $data;
     }
 
-    /** @param array<string,mixed> $session */
-    private static function writeSession(array $session): void {
-        $bytes = json_encode($session, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        if (!is_string($bytes)) {
-            throw new \RuntimeException('could not encode demo session');
+    private static function restoreClaimedSession(string $stateFile, string $name): void {
+        $claims = glob($stateFile . '.remove-*', GLOB_NOSORT);
+        if (!is_array($claims) || $claims === []) {
+            return;
         }
-        self::writeNew((string) $session['state_file'], $bytes . "\n", 0600);
+        if (file_exists($stateFile) || is_link($stateFile) || count($claims) !== 1) {
+            throw new \RuntimeException("demo '$name' has an ambiguous interrupted session cleanup");
+        }
+        $claim = $claims[0];
+        $bytes = !is_link($claim) && is_file($claim) ? file_get_contents($claim) : false;
+        $session = is_string($bytes) ? json_decode($bytes, true) : null;
+        $token = is_array($session) ? ($session['ownership_token'] ?? null) : null;
+        $owned = is_array($session) ? ($session['owned_paths'] ?? null) : null;
+        if (!is_string($token)
+            || preg_match('/^[a-f0-9]{64}$/D', $token) !== 1
+            || $claim !== $stateFile . '.remove-' . $token
+            || ($session['format'] ?? null) !== self::FORMAT
+            || ($session['name'] ?? null) !== $name
+            || ($session['state_file'] ?? null) !== $stateFile
+            || ($session['phase'] ?? null) !== 'stopping'
+            || !self::validOwnedPaths($owned)
+            || array_filter(
+                $owned,
+                static fn(array $row): bool => $row['state'] !== 'deleted' || $row['identity'] !== null
+            ) !== []) {
+            throw new \RuntimeException("demo '$name' interrupted session claim is not owned cleanup state");
+        }
+        $identity = self::pathIdentity($claim);
+        if (file_exists($stateFile) || is_link($stateFile) || !@rename($claim, $stateFile)
+            || self::pathIdentity($stateFile) !== $identity) {
+            throw new \RuntimeException("demo '$name' could not resume its interrupted session cleanup");
+        }
     }
 
     /** @param array<string,mixed> $session */
-    private static function replaceSession(array $session): void {
+    private static function writeSession(array &$session): void {
+        $bytes = json_encode(self::persistedSession($session), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if (!is_string($bytes)) {
+            throw new \RuntimeException('could not encode demo session');
+        }
+        $session['_state_identity'] = self::writeNew((string) $session['state_file'], $bytes . "\n", 0600);
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function replaceSession(array &$session): void {
         $path = (string) $session['state_file'];
-        if (is_link($path) || !is_file($path)) {
+        $expected = $session['_state_identity'] ?? null;
+        if (!is_array($expected) || self::pathIdentity($path) !== $expected) {
             throw new \RuntimeException('demo session boundary changed before update');
         }
-        $bytes = json_encode($session, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        $bytes = json_encode(self::persistedSession($session), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         if (!is_string($bytes)) {
             throw new \RuntimeException('could not encode demo session');
         }
         $stage = $path . '.next-' . bin2hex(random_bytes(16));
-        self::writeNew($stage, $bytes . "\n", 0600);
-        if (is_link($path) || !is_file($path) || !rename($stage, $path)) {
-            if (is_file($stage) && !is_link($stage)) {
-                unlink($stage);
+        $stageIdentity = self::writeNew($stage, $bytes . "\n", 0600);
+        if (self::pathIdentity($path) !== $expected || !@rename($stage, $path)) {
+            if ((file_exists($stage) || is_link($stage))
+                && self::pathIdentity($stage) === $stageIdentity) {
+                @unlink($stage);
             }
             throw new \RuntimeException('could not atomically update the demo session');
         }
+        if (self::pathIdentity($path) !== $stageIdentity) {
+            throw new \RuntimeException('demo session publication identity changed');
+        }
+        $session['_state_identity'] = $stageIdentity;
     }
 
-    private static function writeNew(string $path, string $bytes, int $mode): void {
+    /** @return array{dev:string,ino:string,type:string} */
+    private static function writeNew(string $path, string $bytes, int $mode): array {
         if (file_exists($path) || is_link($path)) {
             throw new \RuntimeException("refusing to overwrite $path");
         }
@@ -659,6 +720,13 @@ final class DemoCommand {
             throw $error;
         }
         fclose($handle);
+        return self::pathIdentity($path);
+    }
+
+    /** @param array<string,mixed> $session @return array<string,mixed> */
+    private static function persistedSession(array $session): array {
+        unset($session['_state_identity']);
+        return $session;
     }
 
     private static function destroyPair(string $sourceRoot, string $name, bool $passthrough): int {
@@ -706,7 +774,30 @@ final class DemoCommand {
             self::cleanupOwnedField($sourceRoot, $session, $field, $phaseHook);
         }
         $state = (string) $session['state_file'];
-        if (is_file($state) && !is_link($state) && !unlink($state)) {
+        if ($phaseHook !== null) {
+            $phaseHook('state_file_removing');
+        }
+        $identity = $session['_state_identity'] ?? null;
+        if (!is_array($identity) || self::pathIdentity($state) !== $identity) {
+            throw new \RuntimeException("demo session identity changed and was retained: $state");
+        }
+        $claim = $state . '.remove-' . $session['ownership_token'];
+        if (file_exists($claim) || is_link($claim) || !@rename($state, $claim)) {
+            throw new \RuntimeException("could not remove owned demo session $state");
+        }
+        if (self::pathIdentity($claim) !== $identity) {
+            if (!file_exists($state) && !is_link($state)) {
+                @rename($claim, $state);
+            }
+            throw new \RuntimeException("demo session identity changed and was retained: $state");
+        }
+        if ($phaseHook !== null) {
+            $phaseHook('state_file_claimed');
+        }
+        if (!@unlink($claim)) {
+            if (!file_exists($state) && !is_link($state)) {
+                @rename($claim, $state);
+            }
             throw new \RuntimeException("could not remove owned demo session $state");
         }
     }
@@ -770,6 +861,9 @@ final class DemoCommand {
                 throw $error;
             }
             $claimExists = true;
+            if ($phaseHook !== null) {
+                $phaseHook($field . '_claimed');
+            }
         }
         if ($claimExists) {
             if (self::pathIdentity($claim) !== $row['identity']) {
@@ -816,15 +910,23 @@ final class DemoCommand {
     /** @param array<string,mixed> $session */
     private static function acquireOwnedDirectory(array &$session, string $field, ?callable $phaseHook): void {
         $path = (string) $session[$field];
+        $stage = self::acquisitionStage($session, $field);
         if (($session['owned_paths'][$field]['state'] ?? null) !== 'planned'
-            || file_exists($path) || is_link($path)) {
+            || file_exists($path) || is_link($path) || file_exists($stage) || is_link($stage)) {
             throw new \RuntimeException("demo could not exclusively reserve $field path $path");
         }
-        if (!mkdir($path, 0700)) {
+        if (!mkdir($stage, 0700)) {
             throw new \RuntimeException("demo could not create $field path $path");
         }
-        $marker = self::ownerMarker($session, $field);
+        $marker = self::ownerMarker($session, $field, $stage);
         self::writeNew($marker, $session['ownership_token'] . ':' . $field . "\n", 0600);
+        if ($phaseHook !== null) {
+            $phaseHook($field . '_staged');
+        }
+        if (file_exists($path) || is_link($path) || !@rename($stage, $path)) {
+            throw new \RuntimeException("demo could not publish the reserved $field path $path");
+        }
+        $marker = self::ownerMarker($session, $field);
         if ($phaseHook !== null) {
             $phaseHook($field . '_created');
         }
@@ -864,6 +966,17 @@ final class DemoCommand {
             throw new \RuntimeException("planned demo $field has an unexpected cleanup claim: $claim");
         }
         if (!file_exists($path) && !is_link($path)) {
+            if ($field !== 'compose_env_file') {
+                $stage = self::acquisitionStage($session, $field);
+                if (file_exists($stage) || is_link($stage)) {
+                    self::assertOwnershipMarker($session, $field, $stage);
+                    if (!@rename($stage, $path)) {
+                        throw new \RuntimeException("could not resume the planned $field acquisition: $path");
+                    }
+                }
+            }
+        }
+        if (!file_exists($path) && !is_link($path)) {
             $session['owned_paths'][$field] = ['state' => 'deleted', 'identity' => null];
             self::replaceSession($session);
             return;
@@ -877,14 +990,7 @@ final class DemoCommand {
             if (is_link($path) || !is_dir($path)) {
                 throw new \RuntimeException("planned demo $field is not an ordinary directory: $path");
             }
-            $entries = array_values(array_diff(scandir($path) ?: [], ['.', '..']));
-            $marker = self::ownerMarker($session, $field);
-            $markerName = basename($marker);
-            $markerBytes = $session['ownership_token'] . ':' . $field . "\n";
-            if ($entries !== [] && ($entries !== [$markerName]
-                || is_link($marker) || !is_file($marker) || file_get_contents($marker) !== $markerBytes)) {
-                throw new \RuntimeException("planned demo $field contains bytes without an ownership receipt: $path");
-            }
+            self::assertOwnershipMarker($session, $field, $path);
         }
         $session['owned_paths'][$field] = ['state' => 'owned', 'identity' => self::pathIdentity($path)];
         self::replaceSession($session);
@@ -907,6 +1013,12 @@ final class DemoCommand {
             if ($row['state'] === 'planned') {
                 self::assertPlannedPath($sourceRoot, $session, $field, $pathExists, $claimExists);
                 continue;
+            }
+            if ($field !== 'compose_env_file') {
+                $acquisition = self::acquisitionStage($session, $field);
+                if (file_exists($acquisition) || is_link($acquisition)) {
+                    throw new \RuntimeException("demo $field retained an unexpected acquisition stage");
+                }
             }
             if ($row['state'] === 'deleted') {
                 if ($pathExists || $claimExists) {
@@ -942,6 +1054,18 @@ final class DemoCommand {
         if ($claimExists) {
             throw new \RuntimeException("planned demo $field has an unexpected cleanup claim");
         }
+        $stageExists = false;
+        if ($field !== 'compose_env_file') {
+            $stage = self::acquisitionStage($session, $field);
+            $stageExists = file_exists($stage) || is_link($stage);
+            if ($pathExists && $stageExists) {
+                throw new \RuntimeException("planned demo $field has both canonical and acquisition paths");
+            }
+            if ($stageExists) {
+                self::assertOwnershipMarker($session, $field, $stage);
+                return;
+            }
+        }
         if (!$pathExists) {
             return;
         }
@@ -955,17 +1079,32 @@ final class DemoCommand {
         if (is_link($path) || !is_dir($path)) {
             throw new \RuntimeException("planned demo $field changed and was retained: $path");
         }
-        $entries = array_values(array_diff(scandir($path) ?: [], ['.', '..']));
-        $marker = self::ownerMarker($session, $field);
-        if ($entries !== [] && ($entries !== [basename($marker)] || is_link($marker) || !is_file($marker)
-            || file_get_contents($marker) !== $session['ownership_token'] . ':' . $field . "\n")) {
-            throw new \RuntimeException("planned demo $field contains unowned bytes and was retained: $path");
-        }
+        self::assertOwnershipMarker($session, $field, $path);
     }
 
     /** @param array<string,mixed> $session */
-    private static function ownerMarker(array $session, string $field): string {
-        return (string) $session[$field] . '/.duo-demo-owner-' . $session['ownership_token'] . '-' . $field;
+    private static function ownerMarker(array $session, string $field, ?string $root = null): string {
+        return ($root ?? (string) $session[$field])
+            . '/.duo-demo-owner-' . $session['ownership_token'] . '-' . $field;
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function acquisitionStage(array $session, string $field): string {
+        $path = (string) $session[$field];
+        return dirname($path) . '/.duo-demo-acquire-' . $session['ownership_token'] . '-' . $field;
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function assertOwnershipMarker(array $session, string $field, string $root): void {
+        if (is_link($root) || !is_dir($root)) {
+            throw new \RuntimeException("planned demo $field is not an ordinary directory: $root");
+        }
+        $entries = array_values(array_diff(scandir($root) ?: [], ['.', '..']));
+        $marker = self::ownerMarker($session, $field, $root);
+        if ($entries !== [basename($marker)] || is_link($marker) || !is_file($marker)
+            || file_get_contents($marker) !== $session['ownership_token'] . ':' . $field . "\n") {
+            throw new \RuntimeException("planned demo $field contains bytes without an ownership receipt: $root");
+        }
     }
 
     /** @param array<string,mixed> $session */

@@ -16,6 +16,8 @@ cli/duo demo start --scenario=woocommerce
 The command starts two disposable WordPress sites, installs the exact
 digest-pinned WooCommerce 11.0.1 artifact the shipped adapter certifies, creates
 an ordinary Git repository, and publishes the URLs and `admin / admin` login.
+Both HTTP ports bind to `127.0.0.1` only; the disposable weak credentials are
+never published on every host interface.
 It also creates one target-only order and decrements live stock; those are the
 runtime facts the later apply must preserve.
 

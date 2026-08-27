@@ -52,7 +52,7 @@ abstract class Transport implements EnvironmentDriver {
     private const TERMINATION_GRACE_NS = 250000000;
     private const DRAIN_DEADLINE_NS = 2000000000;
     private const PIPE_POLL_MICROSECONDS = 200000;
-    private const MAX_CAPTURE_TIMEOUT_NS = 600000000000;
+    private const MAX_CAPTURE_TIMEOUT_NS = 900000000000;
     // Refresh's 1.5 GiB envelope and 8 MiB diagnostic frontiers are process
     // boundaries, not caller tuning knobs; larger positive values are unsafe.
     private const MAX_CAPTURE_STDOUT_BYTES = 1610612736;
@@ -203,6 +203,36 @@ abstract class Transport implements EnvironmentDriver {
         return self::runCapturing($this->rawCommand($script));
     }
 
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    public function captureRawBounded(
+        string $script,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        return self::runCapturingBounded(
+            $this->rawCommand($script),
+            $timeoutMilliseconds,
+            $maxStdoutBytes,
+            $maxStderrBytes
+        );
+    }
+
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    public function captureWpBounded(
+        array $wpArgs,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        return self::runCapturingBounded(
+            $this->wpCommand($wpArgs),
+            $timeoutMilliseconds,
+            $maxStdoutBytes,
+            $maxStderrBytes
+        );
+    }
+
     /**
      * The HOST directory this environment's repository is on, or null when the
      * host cannot write it (DUO-3526).
@@ -267,6 +297,100 @@ abstract class Transport implements EnvironmentDriver {
             fclose($stream);
         }
         $exit = proc_close($proc);
+        return ['exit' => $exit, 'stdout' => $buffers[1], 'stderr' => $buffers[2]];
+    }
+
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    private static function runCapturingBounded(
+        string $fullCommand,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        if ($timeoutMilliseconds < 1
+            || $timeoutMilliseconds * 1000000 > self::MAX_CAPTURE_TIMEOUT_NS
+            || $maxStdoutBytes < 1 || $maxStdoutBytes > self::MAX_CAPTURE_STDOUT_BYTES
+            || $maxStderrBytes < 1 || $maxStderrBytes > self::MAX_CAPTURE_STDERR_BYTES) {
+            throw new \InvalidArgumentException('bounded transport capture limits are outside the reviewed envelope');
+        }
+        $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        $proc = @proc_open($fullCommand, $descriptors, $pipes);
+        if (!is_resource($proc)) {
+            return ['exit' => 255, 'stdout' => '', 'stderr' => 'failed to start process'];
+        }
+        fclose($pipes[0]);
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+        $buffers = [1 => '', 2 => ''];
+        $open = [1 => $pipes[1], 2 => $pipes[2]];
+        $deadline = hrtime(true) + ($timeoutMilliseconds * 1000000);
+        $exitCode = null;
+        while ($open !== [] || $exitCode === null) {
+            $remaining = $deadline - hrtime(true);
+            if ($remaining <= 0) {
+                @proc_terminate($proc);
+                self::drainTerminatedPipes($proc, $open);
+                proc_close($proc);
+                return ['exit' => 124, 'stdout' => '', 'stderr' => 'transport command timed out'];
+            }
+            if ($open === []) {
+                $status = proc_get_status($proc);
+                if (!$status['running']) {
+                    $exitCode = $status['exitcode'];
+                    break;
+                }
+                usleep((int) min(self::PIPE_POLL_MICROSECONDS, max(1, intdiv($remaining, 1000))));
+                continue;
+            }
+            $read = array_values($open);
+            $write = null;
+            $except = null;
+            $selected = @stream_select(
+                $read,
+                $write,
+                $except,
+                intdiv($remaining, self::NANOS_PER_SECOND),
+                intdiv($remaining % self::NANOS_PER_SECOND, 1000)
+            );
+            if ($selected === false) {
+                @proc_terminate($proc, 9);
+                self::drainTerminatedPipes($proc, $open);
+                proc_close($proc);
+                return ['exit' => 125, 'stdout' => '', 'stderr' => 'could not read transport command output'];
+            }
+            if ($selected === 0) {
+                continue;
+            }
+            foreach ($read as $stream) {
+                $fd = $stream === $pipes[1] ? 1 : 2;
+                $chunk = @fread($stream, 65536);
+                if ($chunk === false || ($chunk === '' && feof($stream))) {
+                    fclose($stream);
+                    unset($open[$fd]);
+                    continue;
+                }
+                if ($chunk === '') {
+                    continue;
+                }
+                $limit = $fd === 1 ? $maxStdoutBytes : $maxStderrBytes;
+                if (strlen($buffers[$fd]) + strlen($chunk) > $limit) {
+                    @proc_terminate($proc);
+                    self::drainTerminatedPipes($proc, $open);
+                    proc_close($proc);
+                    return ['exit' => 125, 'stdout' => '', 'stderr' => 'transport command output exceeded capture limit'];
+                }
+                $buffers[$fd] .= $chunk;
+            }
+            $status = proc_get_status($proc);
+            if (!$status['running']) {
+                $exitCode = $status['exitcode'];
+            }
+        }
+        foreach ($open as $stream) {
+            fclose($stream);
+        }
+        $closed = proc_close($proc);
+        $exit = $closed === -1 && is_int($exitCode) && $exitCode >= 0 ? $exitCode : $closed;
         return ['exit' => $exit, 'stdout' => $buffers[1], 'stderr' => $buffers[2]];
     }
 
@@ -477,10 +601,18 @@ abstract class Transport implements EnvironmentDriver {
         $killed = false;
         $killDeadline = hrtime(true) + self::TERMINATION_GRACE_NS;
         $drainDeadline = hrtime(true) + self::DRAIN_DEADLINE_NS;
-        while ($open !== [] && hrtime(true) < $drainDeadline) {
+        while (hrtime(true) < $drainDeadline) {
+            $status = proc_get_status($proc);
+            if (!$status['running'] && $open === []) {
+                break;
+            }
             if (!$killed && hrtime(true) >= $killDeadline) {
                 @proc_terminate($proc, 9);
                 $killed = true;
+            }
+            if ($open === []) {
+                usleep(self::PIPE_POLL_MICROSECONDS);
+                continue;
             }
             $read = array_values($open);
             $write = null;
@@ -500,6 +632,10 @@ abstract class Transport implements EnvironmentDriver {
                     unset($open[$fd]);
                 }
             }
+        }
+        $status = proc_get_status($proc);
+        if ($status['running']) {
+            @proc_terminate($proc, 9);
         }
         foreach ($open as $stream) {
             fclose($stream);

@@ -10,6 +10,13 @@ It assumes the site has an accepted application contract. If it does not,
 `duo release` refuses immediately with the gap action `declare in contract`,
 and [assess.md](assess.md) is the fifteen minutes that fixes it.
 
+The quickstart keeps an absolute `$DUO_CLI` for a source checkout. An installed
+CLI needs no special path; initialize the same command variable once:
+
+```sh
+DUO_CLI="${DUO_CLI:-duo}"
+```
+
 `duo release` **composes** `duo promote` rather than replacing it.
 Deploy-before-apply ordering, the promotion lease and the target fence are
 promote's, byte for byte, and so are the rollback-profile selection and the
@@ -61,15 +68,17 @@ TTL capabilities. Check both configurations without mutation before creating
 anything:
 
 ```sh
-duo env provider-check production
-duo env provider-check preview
+"$DUO_CLI" env provider-check production --role=source
+"$DUO_CLI" env provider-check preview --role=target
 ```
 
 The exact capability sets and refusal contract are in the
 [branch-environment provider protocol](../branch-environment-provider.md).
 
 ```sh
-duo preview create preview --from production --branch feature/pricing-page --create --ttl 86400
+BRANCH=$(git branch --show-current)
+test -n "$BRANCH"
+"$DUO_CLI" preview create preview --from production --branch "$BRANCH" --create --ttl 86400
 ```
 
 `duo preview create` is the first-contact spelling of `duo rehearse`, which is
@@ -85,16 +94,6 @@ metadata and authorizes no deletion.
 After convergence it prints what a release would touch: the plan's own
 value-free category counts, and the assessed surface rows restricted to that
 scope, each saying why it is in scope.
-
-Clean up explicitly, always:
-
-```sh
-duo preview remove preview
-```
-
-That is `duo env reap` with the same compare-and-reap. Created targets are
-destroyed, attached targets are detached, a repeated reap is idempotent, and a
-stale identity refuses.
 
 ### Reusing one physical preview slot
 
@@ -154,7 +153,7 @@ Author the change on the preview environment, in WordPress, the way it is
 meant to be authored. Then:
 
 ```sh
-duo capture preview
+"$DUO_CLI" capture preview
 ```
 
 Capture is the only command that mints identity and publishes canonical state.
@@ -163,10 +162,21 @@ Review the result as an ordinary diff, merge it as an ordinary merge —
 when production moved underneath you. Duo adds no branching model; git stays
 git.
 
+After the captured revision is committed and pushed or merged somewhere you
+intend to keep it, clean up the disposable preview explicitly:
+
+```sh
+"$DUO_CLI" preview remove preview
+```
+
+That is `duo env reap` with the same compare-and-reap. Created targets are
+destroyed, attached targets are detached, a repeated reap is idempotent, and a
+stale identity refuses.
+
 ## Read the plan before you authorize it
 
 ```sh
-duo release production --from=main --plan-only
+"$DUO_CLI" release production --from=main --plan-only
 ```
 
 `--plan-only` prints the frozen-shape authorization plan and exits 0 having
@@ -264,7 +274,7 @@ operation ids stay in `--format=json`.
 ## `--from` is a binding assertion, not a git transport
 
 ```sh
-duo release production --from=main
+"$DUO_CLI" release production --from=main
 ```
 
 Release resolves that ref in your local site repository with `git rev-parse`,
@@ -290,7 +300,7 @@ than the target proves is a named human authority: it needs
 claim it weakens, and still ends in the plan's own typed confirmation.
 
 ```sh
-duo release production --from=main --profile=operator-directed --accept-weaker-recovery
+"$DUO_CLI" release production --from=main --profile=operator-directed --accept-weaker-recovery
 ```
 
 Whatever you select, the claim in the plan changes to match it. Under
@@ -301,7 +311,7 @@ remedy stated on the row. Under `none`, so does the database.
 ## Authorize
 
 ```sh
-duo release production --from=main --yes
+"$DUO_CLI" release production --from=main --yes
 ```
 
 Answering `yes` to the question (or passing `--yes`, which confirms the plan
@@ -359,7 +369,7 @@ you see at recovery" checkable rather than aspirational.
 ## Verify
 
 ```sh
-duo verify production --plan=sha256:7b1c…
+"$DUO_CLI" verify production --plan=sha256:7b1c…
 ```
 
 Two independent parts, both required for a pass.
