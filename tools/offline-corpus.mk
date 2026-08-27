@@ -3,8 +3,9 @@
 #
 # This file IS the offline corpus: every suite file under
 # sandbox/tests/offline/ and adapter-packages/*/tests/offline/ appears below
-# exactly once. Package suite leaf rules are generated here too, so adapter
-# authors add only the package-local file and never edit the global Makefile.
+# exactly once. Leaf rules for every package execution class are generated
+# here too, so adapter authors add only package-local suite files and never
+# edit the global Makefile.
 # The count both status lines carry is the length of that list. Neither it nor
 # the prerequisite list is hand-maintained, and a suite cannot be left out:
 # there is no exclusion input (tools/offline-corpus.php states the three
@@ -15,13 +16,19 @@
 # targets `make regress-offline-corpus` builds did not change when the list
 # became derived.
 
-.PHONY: regress-acf-meta-interpreter regress-acf-production-readiness
+.PHONY: regress-acf-meta-interpreter regress-acf-production-readiness regress-acf-term-options-fields spike-e-acf
 
 regress-acf-meta-interpreter:
 	php adapter-packages/acf/tests/offline/regress_acf_meta_interpreter.php
 
 regress-acf-production-readiness:
 	php adapter-packages/acf/tests/offline/regress_acf_production_readiness.php
+
+regress-acf-term-options-fields:
+	bash adapter-packages/acf/tests/live/regress_acf_term_options_fields.sh
+
+spike-e-acf:
+	bash adapter-packages/acf/tests/spike/spike_e_acf.sh
 
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus

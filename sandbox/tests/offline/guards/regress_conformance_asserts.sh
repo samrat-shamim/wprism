@@ -18,7 +18,7 @@ FRAGMENT=conformance/asserts.sh
 
 # Every require_* invoked anywhere in the hooks both harnesses source...
 # (require_once is PHP inside the hooks' heredocs, not a bash helper.)
-CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ conformance/postapply/ conformance/checks/ conformance/capture-checks/ | grep -v '^require_once$' | sort -u)
+CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ conformance/postapply/ conformance/checks/ conformance/capture-checks/ ../adapter-packages/*/tests/conformance/ | grep -v '^require_once$' | sort -u)
 [ -n "$CALLED" ] || fail "no require_* calls found under conformance/seeds/ + postdeploy/ + checks/ + capture-checks/ — the grep itself regressed"
 
 # ...must be defined in the fragment (definition = `name() {`).
@@ -36,12 +36,12 @@ for harness in conformance/run.sh tests/certify/certify_version_matrix.sh; do
 done
 pass "both hook-sourcing harnesses source the fragment"
 
-grep -q 'POSTAPPLY="conformance/postapply/\$MANIFEST.sh"' conformance/run.sh \
-  || fail 'conformance/run.sh does not invoke the convention-named post-apply hook'
+grep -q 'POSTAPPLY=$(conformance_hook postapply.sh "conformance/postapply/\$MANIFEST.sh")' conformance/run.sh \
+  || fail 'conformance/run.sh does not resolve the package-first post-apply hook'
 APPLY_LINE=$(grep -n 'pass "apply succeeded, side-effect canary clean"' conformance/run.sh | cut -d: -f1)
-POSTAPPLY_LINE=$(grep -n '^POSTAPPLY="conformance/postapply/\$MANIFEST.sh"' conformance/run.sh | cut -d: -f1)
+POSTAPPLY_LINE=$(grep -n '^POSTAPPLY=$(conformance_hook postapply.sh ' conformance/run.sh | cut -d: -f1)
 RECAPTURE_LINE=$(grep -n '^say "acceptance: canonical(conf2) == canonical(conf1), byte for byte"' conformance/run.sh | cut -d: -f1)
-CHECK_LINE=$(grep -n '^CHECK="conformance/checks/\$MANIFEST.sh"' conformance/run.sh | cut -d: -f1)
+CHECK_LINE=$(grep -n '^CHECK=$(conformance_hook check.sh ' conformance/run.sh | cut -d: -f1)
 [ "$APPLY_LINE" -lt "$POSTAPPLY_LINE" ] \
   && [ "$POSTAPPLY_LINE" -lt "$RECAPTURE_LINE" ] \
   && [ "$RECAPTURE_LINE" -lt "$CHECK_LINE" ] \
@@ -50,7 +50,7 @@ pass 'post-apply target-local witness hooks have one convention path and an exac
 
 # And the fragment must not silently grow a second definition home: the
 # helpers may be defined nowhere else.
-DUPES=$(grep -rlE '^require_[a-z_]+\(\) \{' conformance/ tests/ | grep -v "^$FRAGMENT\$" | grep -v '^tests/offline/guards/regress_conformance_asserts.sh$' || true)
+DUPES=$(grep -rlE '^require_[a-z_]+\(\) \{' conformance/ tests/ ../adapter-packages/*/tests/conformance/ | grep -v "^$FRAGMENT\$" | grep -v '^tests/offline/guards/regress_conformance_asserts.sh$' || true)
 [ -z "$DUPES" ] || fail "helper definitions exist outside the fragment (one owner per grammar):$DUPES"
 pass "the fragment is the single definition home"
 
@@ -58,7 +58,7 @@ pass "the fragment is the single definition home"
 # curl directly into grep -q lets grep close early after a match; curl then
 # reports EPIPE (exit 23) and the live check falsely fails a working route.
 # Buffering the body also keeps transport success separate from body content.
-EARLY_CLOSE_CURL=$(grep -En '^[^#]*curl[^#|]*\|[^#]*grep[^#]*-[[:alpha:]]*q' conformance/checks/*.sh || true)
+EARLY_CLOSE_CURL=$(grep -En '^[^#]*curl[^#|]*\|[^#]*grep[^#]*-[[:alpha:]]*q' conformance/checks/*.sh ../adapter-packages/*/tests/conformance/check.sh || true)
 [ -z "$EARLY_CLOSE_CURL" ] \
   || fail "conformance check streams curl into early-closing grep -q under pipefail; capture the body first: $EARLY_CLOSE_CURL"
 pass "conformance checks separate HTTP transport success from body matching (no curl | grep -q EPIPE false negatives)"
@@ -69,11 +69,33 @@ pass "conformance checks separate HTTP transport success from body matching (no 
 # source-side hook timing, and the early stop before clone/deploy/apply.
 grep -q 'roundtrip|capture-plan' conformance/run.sh \
   || fail "conformance/run.sh has no closed capture-plan mode vocabulary"
-grep -q 'CAPTURE_CHECK="conformance/capture-checks/\$MANIFEST.sh"' conformance/run.sh \
-  || fail "conformance/run.sh does not invoke the convention-named source-side capture check"
+grep -q 'CAPTURE_CHECK=$(conformance_hook capture-check.sh "conformance/capture-checks/\$MANIFEST.sh")' conformance/run.sh \
+  || fail "conformance/run.sh does not resolve the package-first source-side capture check"
 grep -q 'CONFORMANCE PASSED (%s; capture-plan)' conformance/run.sh \
   || fail "conformance/run.sh has no explicit successful early terminal before target apply"
 pass "capture-plan mode is closed, convention-hooked, and terminates explicitly before target apply"
+
+# ACF is the first closed package migration: its entry and hooks must be owned
+# only by that package, and run.sh must select them without an aggregate row.
+[ -f ../adapter-packages/acf/tests/conformance/entry.json ] \
+  && [ -f ../adapter-packages/acf/tests/conformance/seed.sh ] \
+  && [ -f ../adapter-packages/acf/tests/conformance/check.sh ] \
+  && [ -f ../adapter-packages/acf/tests/conformance/postdeploy.sh ] \
+  || fail 'the ACF package does not own its complete conformance fixture set'
+jq -e 'has("acf") | not' conformance/manifests.json >/dev/null \
+  || fail 'the shared conformance registry still registers ACF'
+grep -q 'PACKAGE_ENTRY="$PACKAGE_CONFORMANCE/entry.json"' conformance/run.sh \
+  || fail 'conformance/run.sh does not discover a package-owned entry'
+pass 'ACF conformance entry and hooks are package-owned and package-first discovered'
+
+[ -f ../adapter-packages/acf/tests/certify/version-matrix.sh ] \
+  && [ ! -e tests/certify/matrix.d/acf.sh ] \
+  || fail 'the ACF version-matrix hook has duplicate or missing ownership'
+grep -q 'adapter-packages/\*/tests/certify/version-matrix.sh' tests/certify/certify_version_matrix.sh \
+  || fail 'the shared certify matrix does not discover package-owned hooks'
+grep -q 'adapter-packages/${MANIFEST}/tests/certify/version-matrix.sh' bin/adapter-boundary.sh \
+  || fail 'the boundary runner does not prefer a package-owned certify hook'
+pass 'ACF exact-version and boundary helpers are package-owned and generically discovered'
 
 # DUO-3391: wiring is necessary but not sufficient for require_duo_answered.
 # Its whole safety argument is that the "answered" marker is BROAD — a narrow

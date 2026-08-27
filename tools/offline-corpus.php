@@ -444,9 +444,6 @@ final class OfflineCorpus
             $package = self::adapterPackageOf($token);
             if ($package !== null) {
                 $suites++;
-                if (self::classOf($token) !== self::CORPUS_CLASS) {
-                    continue;
-                }
                 $target = self::targetFor($token);
                 if (isset($packageTargets[$target])) {
                     $refusals[] = "R1 ambiguous: $token and {$packageTargets[$target]['path']}"
@@ -481,7 +478,9 @@ final class OfflineCorpus
                         continue;
                     }
                 }
-                $targets[$target] = true;
+                if (self::classOf($token) === self::CORPUS_CLASS) {
+                    $targets[$target] = true;
+                }
                 $packageTargets[$target] = [
                     'path' => $token,
                     'runtime' => str_ends_with($token, '.php') ? 'php' : 'bash',
@@ -578,8 +577,9 @@ final class OfflineCorpus
             '#',
             '# This file IS the offline corpus: every suite file under',
             '# sandbox/tests/offline/ and adapter-packages/*/tests/offline/ appears below',
-            '# exactly once. Package suite leaf rules are generated here too, so adapter',
-            '# authors add only the package-local file and never edit the global Makefile.',
+            '# exactly once. Leaf rules for every package execution class are generated',
+            '# here too, so adapter authors add only package-local suite files and never',
+            '# edit the global Makefile.',
             '# The count both status lines carry is the length of that list. Neither it nor',
             '# the prerequisite list is hand-maintained, and a suite cannot be left out:',
             '# there is no exclusion input (tools/offline-corpus.php states the three',

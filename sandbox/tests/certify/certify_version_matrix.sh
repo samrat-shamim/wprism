@@ -166,16 +166,16 @@ pass "pair up"
 # Per-plugin seed/check/postdeploy fixtures (WP-2.3 split of what was 33
 # inline function blocks appended straight into this driver — see the
 # git history of this file up to the split commit for the prior shape).
-# Extracted one file per plugin under matrix.d/, named after the plugin's
-# manifest slug exactly like conformance/{seeds,checks,postdeploy}/<name>.sh
-# already does, so it is one convention rather than two. This driver, unlike
-# conformance/run.sh, needs every plugin's functions defined up front (one
-# invocation still only ever ENTERS the one $VMATRIX_MANIFEST case below), so
-# each file is sourced by its own name here rather than looked up by
-# manifest at the point of use. MECHANICAL split only (WP-2.3): no function
-# body, name, or call site changed — a new plugin case is now a new file plus
-# one line here instead of an append to this monolith.
-. tests/certify/matrix.d/acf.sh
+# Extracted one file per plugin under matrix.d/, or package-owned as
+# adapter-packages/<slug>/tests/certify/version-matrix.sh. This driver needs
+# every plugin's functions defined up front (one invocation still only ENTERS
+# the one $VMATRIX_MANIFEST case below), so package hooks are discovered as a
+# set while the legacy hooks stay explicit until their packages migrate.
+for package_matrix in ../adapter-packages/*/tests/certify/version-matrix.sh; do
+  [ -f "$package_matrix" ] || continue
+  # shellcheck source=/dev/null
+  . "$package_matrix"
+done
 . tests/certify/matrix.d/contact-form-7.sh
 . tests/certify/matrix.d/elementor.sh
 . tests/certify/matrix.d/ninja-forms.sh

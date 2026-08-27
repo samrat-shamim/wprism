@@ -622,10 +622,10 @@ duo_check(
 
 // ------------------- 9b. the committed recorded inputs cannot drift from the lock
 
-// The release list `sandbox/bin/adapter-boundary.sh` actually runs against is
-// committed, so it is checked here rather than trusted: it must still resolve
-// to the same block the lock records, through the real command.
-$committedReleases = $repoRoot . '/sandbox/conformance/boundary/advanced-custom-fields.releases.json';
+// The package-owned release list `sandbox/bin/adapter-boundary.sh` actually
+// runs against is committed, so it is checked here rather than trusted: it
+// must still resolve to the same block the lock records, through the real command.
+$committedReleases = $repoRoot . '/adapter-packages/acf/fixtures/boundary/releases.json';
 $committedRun = boundary_cli($repoRoot, [
     '--releases=' . $committedReleases,
     '--outcomes=' . $outcomePath,
@@ -643,7 +643,7 @@ duo_check_json_equal(
 // The probe's site policy is a reviewed input, and the claim it stands behind
 // is "the same round-trip the certify matrix already certifies". That is only
 // true while the two files agree byte for byte.
-$committedPolicy = (string) file_get_contents($repoRoot . '/sandbox/conformance/boundary/acf.site.duo.json');
+$committedPolicy = (string) file_get_contents($repoRoot . '/adapter-packages/acf/fixtures/boundary/site.duo.json');
 $certifySource = (string) file_get_contents($repoRoot . '/sandbox/tests/certify/certify_version_matrix.sh');
 duo_check(
     str_contains($certifySource, $committedPolicy),

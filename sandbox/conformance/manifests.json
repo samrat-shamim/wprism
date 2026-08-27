@@ -1,10 +1,4 @@
 {
-  "acf": {
-    "pin": ["core", "acf"],
-    "plugins": [{"slug": "advanced-custom-fields", "version": "6.8.7"}],
-    "post_types": ["post", "page", "attachment", "acf-field-group", "acf-field"],
-    "taxonomies": ["category", "post_tag"]
-  },
   "advanced-editor-tools": {
     "pin": ["core", "advanced-editor-tools"],
     "plugins": [{"slug": "tinymce-advanced", "version": "5.9.2"}],

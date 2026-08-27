@@ -231,6 +231,8 @@ final class OfflineCorpusTest extends TestCase
         $root = $this->fixtureRoot('', [
             'adapter-packages/acf/tests/offline/regress_acf_owned.php' => "<?php\n",
             'adapter-packages/acf/tests/conformance/regress_acf_live.sh' => "#!/usr/bin/env bash\n",
+            'adapter-packages/acf/tests/live/regress_acf_pair.sh' => "#!/usr/bin/env bash\n",
+            'adapter-packages/acf/tests/spike/spike_acf_probe.sh' => "#!/usr/bin/env bash\n",
         ]);
 
         $derived = OfflineCorpus::derive($root);
@@ -247,6 +249,16 @@ final class OfflineCorpusTest extends TestCase
             $rendered
         );
         self::assertNotContains('regress-acf-live', $derived['targets']);
+        self::assertNotContains('regress-acf-pair', $derived['targets']);
+        self::assertNotContains('spike-acf-probe', $derived['targets']);
+        self::assertStringContainsString(
+            "regress-acf-pair:\n\tbash adapter-packages/acf/tests/live/regress_acf_pair.sh\n",
+            $rendered
+        );
+        self::assertStringContainsString(
+            "spike-acf-probe:\n\tbash adapter-packages/acf/tests/spike/spike_acf_probe.sh\n",
+            $rendered
+        );
     }
 
     public function testAdapterPackageTargetCollisionIsRefused(): void

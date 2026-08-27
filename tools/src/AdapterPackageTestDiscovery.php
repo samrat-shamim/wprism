@@ -18,7 +18,7 @@ use RuntimeException;
  *     repository:string,
  *     package:string,
  *     adapter:string,
- *     class:'offline'|'live'|'certify'|'conformance',
+ *     class:'offline'|'live'|'certify'|'conformance'|'spike',
  *     tests:list<TestRow>
  * }
  */
@@ -28,8 +28,8 @@ final class AdapterPackageTestDiscovery
     private const FILE_MODE = 0100000;
     private const TYPE_MODE = 0170000;
 
-    /** @var list<'offline'|'live'|'certify'|'conformance'> */
-    private const CLASSES = ['offline', 'live', 'certify', 'conformance'];
+    /** @var list<'offline'|'live'|'certify'|'conformance'|'spike'> */
+    private const CLASSES = ['offline', 'live', 'certify', 'conformance', 'spike'];
 
     /**
      * @return Discovery
@@ -66,7 +66,7 @@ final class AdapterPackageTestDiscovery
             $classRoot = $testsRoot . '/' . $entry;
             self::ordinaryDirectory($classRoot, $testsRoot, "tests/$entry for adapter '$slug'");
             $rows = [];
-            self::walk($rows, $repository, $classRoot, $slug, $entry);
+            self::walk($rows, $repository, $classRoot, $classRoot, $slug, $entry);
             if ($entry === $class) {
                 $requested = $rows;
             }
@@ -76,7 +76,7 @@ final class AdapterPackageTestDiscovery
             throw new RuntimeException("Adapter package '$slug' has no tests/$class directory");
         }
         if ($requested === []) {
-            throw new RuntimeException("Adapter package '$slug' has no regress_*.php/.sh tests in tests/$class");
+            throw new RuntimeException("Adapter package '$slug' has no class-named *.php/.sh suites in tests/$class");
         }
         usort($requested, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
 
@@ -96,6 +96,7 @@ final class AdapterPackageTestDiscovery
         array &$rows,
         string $repository,
         string $directory,
+        string $classRoot,
         string $slug,
         string $class
     ): void {
@@ -114,15 +115,18 @@ final class AdapterPackageTestDiscovery
                     throw new RuntimeException("Adapter test directory name is not canonical: $path");
                 }
                 self::assertContained($path, $directory, 'adapter test directory');
-                self::walk($rows, $repository, $path, $slug, $class);
+                self::walk($rows, $repository, $path, $classRoot, $slug, $class);
                 continue;
             }
             if ($type !== self::FILE_MODE) {
                 throw new RuntimeException("Adapter test entry is not an ordinary file or directory: $path");
             }
-            if (!self::isTestFile($entry)) {
+            if ($directory === $classRoot && self::isClassAsset($entry, $class)) {
+                continue;
+            }
+            if (!self::isTestFile($entry, $class)) {
                 throw new RuntimeException(
-                    "Unknown adapter test file for '$slug' in tests/$class: $path; expected regress_*.php or regress_*.sh"
+                    "Unknown adapter test file for '$slug' in tests/$class: $path; expected a class-named *.php or *.sh suite"
                 );
             }
             if (!is_readable($path)) {
@@ -191,9 +195,33 @@ final class AdapterPackageTestDiscovery
         return $entries;
     }
 
-    private static function isTestFile(string $entry): bool
+    private static function isTestFile(string $entry, string $class): bool
     {
-        return preg_match('/^regress_[a-z0-9][a-z0-9._-]*\.(?:php|sh)$/D', $entry) === 1;
+        $prefixes = match ($class) {
+            'certify' => ['certify', 'regress'],
+            'spike' => ['spike'],
+            default => ['regress'],
+        };
+        foreach ($prefixes as $prefix) {
+            if (preg_match('/^' . $prefix . '_[a-z0-9][a-z0-9._-]*\.(?:php|sh)$/D', $entry) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function isClassAsset(string $entry, string $class): bool
+    {
+        return match ($class) {
+            'certify' => $entry === 'version-matrix.sh',
+            'conformance' => in_array(
+                $entry,
+                ['entry.json', 'seed.sh', 'capture-check.sh', 'postdeploy.sh', 'postapply.sh', 'check.sh'],
+                true
+            ),
+            default => false,
+        };
     }
 
     private static function isTreeSegment(string $entry): bool

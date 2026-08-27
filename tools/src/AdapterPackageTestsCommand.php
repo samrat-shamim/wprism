@@ -14,7 +14,7 @@ final class AdapterPackageTestsCommand
 {
     public const PLAN_FORMAT = 'duo-adapter-package-test-plan/v1';
     public const USAGE = 'usage: php tools/adapter-package-tests.php --adapter=SLUG [--repo=PATH] '
-        . '[--class=offline|live|certify|conformance] [--list|--json]';
+        . '[--class=offline|live|certify|conformance|spike] [--list|--json]';
 
     /**
      * @param list<string> $arguments

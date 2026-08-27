@@ -8,7 +8,8 @@
 #   script boots, installs, and seeds them itself — it never touches envs
 #   a/b/c or their site repos.
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+REPO_ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
+cd "$REPO_ROOT/sandbox"
 COMPOSE="docker compose -f docker-compose.yml --profile spikee"
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }

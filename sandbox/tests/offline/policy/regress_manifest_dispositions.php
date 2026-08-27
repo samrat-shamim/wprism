@@ -253,7 +253,8 @@ foreach ($data['manifests'] as $name => $entry) {
 echo "\n== evidence references and policy readiness ==\n";
 function subject_test_is_discoverable(string $repo, string $test, string $name): bool {
     if ($test === "conformance-$name") {
-        return is_file("$repo/sandbox/conformance/entries/$name.json");
+        return is_file("$repo/adapter-packages/$name/tests/conformance/entry.json")
+            || is_file("$repo/sandbox/conformance/entries/$name.json");
     }
     if ($test === 'exact-artifact-version-matrix' || ($test === 'multisite-refusal' && $name === 'core')) {
         return true;

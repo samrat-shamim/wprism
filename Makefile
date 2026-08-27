@@ -42,7 +42,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
 	regress-woocommerce-product-lookups regress-woocommerce-product-lookups-fake regress-woocommerce-hierarchy-lookups regress-woocommerce-fulfillment-prerequisites regress-woocommerce-scheduler-settings regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-action-scope regress-provider-contract regress-actions-providers regress-ninja-forms-form-cache-provider regress-yoast-index-provider regress-core-rewrite-native-action regress-provider-contract-live regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
-	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-acf-production-readiness regress-contact-form-7-production-readiness regress-paid-memberships-pro-production-readiness regress-ninja-forms-production-readiness regress-the-events-calendar-production-readiness regress-woocommerce-production-readiness regress-woocommerce-optional-core regress-collision \
+	regress-term-meta regress-url-query-refs regress-acf-production-readiness regress-contact-form-7-production-readiness regress-paid-memberships-pro-production-readiness regress-ninja-forms-production-readiness regress-the-events-calendar-production-readiness regress-woocommerce-production-readiness regress-woocommerce-optional-core regress-collision \
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
 	regress-snapshot-meta regress-generic-reference-shapes regress-ssh-adopt regress-tec-regen regress-user-meta \
@@ -95,8 +95,7 @@ spike-c:
 spike-d:
 	bash sandbox/tests/spike/spike_d_woo.sh
 
-spike-e:
-	bash sandbox/tests/spike/spike_e_acf.sh
+spike-e: spike-e-acf
 
 spikes: spike-a spike-b spike-c spike-d spike-e
 
@@ -2613,9 +2612,6 @@ regress-refresh-export-unit:
 	php sandbox/tests/offline/refresh/regress_refresh_export_unit.php
 
 # --- live (docker/pair.sh-dependent), now in regress-live-list ---
-regress-acf-term-options-fields:
-	bash sandbox/tests/live/regress_acf_term_options_fields.sh
-
 regress-collision:
 	bash sandbox/tests/live/regress_collision.sh
 

@@ -41,7 +41,7 @@ guard() {
 # Non-empty observation streams.  These are all read from a live target and
 # then parsed/compared in an accusation below them.
 OBSERVATIONS=(
-  'conformance/checks/acf.sh|require_observed_nonempty "conf2 ACF runtime observation"'
+  '../adapter-packages/acf/tests/conformance/check.sh|require_observed_nonempty "conf2 ACF runtime observation"'
   'conformance/checks/contact-form-7.sh|require_observed_nonempty "$side Contact Form 7 native observation"'
   'conformance/checks/contact-form-7.sh|require_observed_nonempty "conf2 Contact Form 7 rendered response"'
   'conformance/checks/contact-form-7.sh|require_observed_nonempty "conf1 post-count before CF7 submission"'
@@ -98,7 +98,7 @@ OBSERVATIONS=(
   'conformance/checks/yoast.sh|require_observed_nonempty "conf2 Yoast rendered response"'
   'conformance/postdeploy/ninja-forms.sh|require_observed_nonempty "conf2 Ninja Forms activation cleanup observation"'
   'conformance/postdeploy/code-snippets.sh|require_observed_nonempty "Code Snippets hostile target seed"'
-  'conformance/seeds/acf.sh|require_observed_nonempty "conf1 ACF seed output"'
+  '../adapter-packages/acf/tests/conformance/seed.sh|require_observed_nonempty "conf1 ACF seed output"'
   'conformance/seeds/contact-form-7.sh|require_observed_nonempty "conf1 Contact Form 7 seed output"'
   'conformance/seeds/code-snippets.sh|require_observed_nonempty "Code Snippets source seed"'
   'conformance/seeds/ninja-forms.sh|require_observed_nonempty "conf1 Ninja Forms activation cleanup observation"'

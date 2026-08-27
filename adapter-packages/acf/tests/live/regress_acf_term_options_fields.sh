@@ -55,7 +55,7 @@
 # PAIR and explicit ports so this regression never resets another actor's
 # sandbox.
 set -euo pipefail
-REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 cd "$REPO_ROOT"
 
 PAIR="${PAIR:-asub3263}"

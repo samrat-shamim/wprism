@@ -14,8 +14,8 @@
 # tests/certify/certify_version_matrix.sh's per-boundary loop with the version
 # list replaced by the planner's answer: reset both environments, install ONLY
 # from a digest-verified artifact, seed real plugin content through that
-# plugin's own API using the SAME matrix.d/<slug>.sh hook the certify matrix
-# uses, capture, round-trip deploy/apply, and require a byte-identical
+# plugin's own API using the SAME package certification hook the certify
+# matrix uses, capture, round-trip deploy/apply, and require a byte-identical
 # recapture. The seed hooks are shared rather than copied precisely so a
 # bisection and a certification cannot disagree about what "green" means.
 #
@@ -46,7 +46,8 @@
 # ran end to end against a real pair on `advanced-custom-fields`: release-list
 # pin resolved and digest-verified for a version the artifact lock does not
 # carry, exact 6.0.0 installed and asserted, seeded through
-# matrix.d/acf.sh's own seed_acf_content, captured, deployed, applied,
+# adapter-packages/acf/tests/certify/version-matrix.sh's own seed_acf_content,
+# captured, deployed, applied,
 # classified, recorded, replanned. The probe returned `round-trip-diverges` and
 # the planner refused `anchor_not_green` rather than proposing anything — which
 # is correct, because `VMATRIX_MANIFEST=acf bash
@@ -127,9 +128,16 @@ done
 [ -f "$SITE_POLICY" ] || fail "site policy '$SITE_POLICY' does not exist"
 [[ "$MAX_PROBES" =~ ^[1-9][0-9]*$ ]] || fail "--max-probes must be a positive integer"
 
-# Default to the certify matrix's own hook, by the convention that file already
-# follows: one file per plugin under matrix.d/, named after the manifest slug.
-[ -n "$SEED_FILE" ] || SEED_FILE="tests/certify/matrix.d/${MANIFEST}.sh"
+# Prefer the package-owned certify hook, with the legacy matrix.d convention as
+# the migration fallback for adapters whose evidence has not moved yet.
+if [ -z "$SEED_FILE" ]; then
+  PACKAGE_SEED="../adapter-packages/${MANIFEST}/tests/certify/version-matrix.sh"
+  if [ -f "$PACKAGE_SEED" ]; then
+    SEED_FILE="$PACKAGE_SEED"
+  else
+    SEED_FILE="tests/certify/matrix.d/${MANIFEST}.sh"
+  fi
+fi
 [ -f "$SEED_FILE" ] || fail "seed hook '$SEED_FILE' does not exist — pass --seed-file=<path>"
 
 export DUO_PAIR="$PAIR"

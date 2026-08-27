@@ -40,6 +40,9 @@ final class AdapterPackageTestsTest extends TestCase
         self::write($package . '/tests/offline/regress_b.php', '<?php');
         self::write($package . '/tests/offline/alpha/regress_a.sh', "#!/usr/bin/env bash\n");
         self::write($package . '/tests/live/regress_live.php', '<?php');
+        self::write($package . '/tests/certify/version-matrix.sh', "seed_acf_content() { :; }\n");
+        self::write($package . '/tests/conformance/entry.json', "{}\n");
+        self::write($package . '/tests/conformance/seed.sh', "seed_acf_content\n");
         self::write($package . '/fixtures/regress_fixture.php', '<?php throw new Exception;');
         self::write($package . '/evidence/regress_evidence.sh', 'exit 99');
         self::write($package . '/package/regress_payload.php', '<?php exit(99);');
@@ -95,7 +98,7 @@ final class AdapterPackageTestsTest extends TestCase
         $this->package('acf');
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('has no regress_*.php/.sh tests');
+        $this->expectExceptionMessage('has no class-named *.php/.sh suites');
         AdapterPackageTestDiscovery::discover($this->root, 'acf');
     }
 
@@ -284,6 +287,24 @@ final class AdapterPackageTestsTest extends TestCase
         ]);
         self::assertSame(2, $run['status']);
         self::assertStringContainsString('execution is available only for --class=offline', $run['stderr']);
+    }
+
+    public function testSpikeUsesItsClassPrefixAndCanBeListed(): void
+    {
+        $package = $this->package('acf');
+        self::write($package . '/tests/offline/regress_offline.php', '<?php');
+        self::write($package . '/tests/spike/spike_acf_probe.sh', "exit 0\n");
+
+        $listed = self::invoke([
+            '--repo=' . $this->root,
+            '--adapter=acf',
+            '--class=spike',
+            '--list',
+        ]);
+
+        self::assertSame(0, $listed['status'], $listed['stderr']);
+        self::assertStringContainsString('acf spike (1)', $listed['stdout']);
+        self::assertStringContainsString('bash adapter-packages/acf/tests/spike/spike_acf_probe.sh', $listed['stdout']);
     }
 
     public function testDiscoveryFailureIsNeverRenderedAsAnEmptyGreenList(): void

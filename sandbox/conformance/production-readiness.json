@@ -18,17 +18,17 @@
     "acf": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/acf.json", "manifests/interpreters/acf.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_acf_production_readiness.php"],
-        "clean-target": ["sandbox/conformance/entries/acf.json", "sandbox/conformance/seeds/acf.sh", "sandbox/conformance/checks/acf.sh"],
-        "dirty-target": ["sandbox/conformance/postdeploy/acf.sh", "sandbox/conformance/checks/acf.sh"],
-        "identity-references": ["sandbox/conformance/seeds/acf.sh", "sandbox/conformance/checks/acf.sh"],
-        "native-behavior": ["sandbox/conformance/seeds/acf.sh", "sandbox/conformance/checks/acf.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "deletion": ["sandbox/conformance/checks/acf.sh", "sandbox/tests/offline/adapter/regress_acf_production_readiness.php"],
-        "failure-recovery": ["sandbox/conformance/checks/acf.sh", "sandbox/tests/offline/adapter/regress_acf_production_readiness.php", "sandbox/tests/offline/apply/regress_fatal_mutations.php"],
-        "concurrency-idempotence": ["sandbox/conformance/checks/acf.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
-        "lifecycle": ["sandbox/conformance/checks/acf.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "data-boundary": ["agent/src/Kernel/PlainData.php", "manifests/interpreters/acf.php", "sandbox/conformance/seeds/acf.sh", "sandbox/conformance/checks/acf.sh", "sandbox/tests/offline/adapter/regress_acf_production_readiness.php"],
-        "scope-platform": ["manifests/interpreters/acf.php", "sandbox/conformance/checks/acf.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
+        "contract-dependency": ["adapter-packages/acf/package/manifest.json", "adapter-packages/acf/package/runtime/interpreters/acf.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "adapter-packages/acf/tests/offline/regress_acf_production_readiness.php"],
+        "clean-target": ["adapter-packages/acf/tests/conformance/entry.json", "adapter-packages/acf/tests/conformance/seed.sh", "adapter-packages/acf/tests/conformance/check.sh"],
+        "dirty-target": ["adapter-packages/acf/tests/conformance/postdeploy.sh", "adapter-packages/acf/tests/conformance/check.sh"],
+        "identity-references": ["adapter-packages/acf/tests/conformance/seed.sh", "adapter-packages/acf/tests/conformance/check.sh"],
+        "native-behavior": ["adapter-packages/acf/tests/conformance/seed.sh", "adapter-packages/acf/tests/conformance/check.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "deletion": ["adapter-packages/acf/tests/conformance/check.sh", "adapter-packages/acf/tests/offline/regress_acf_production_readiness.php"],
+        "failure-recovery": ["adapter-packages/acf/tests/conformance/check.sh", "adapter-packages/acf/tests/offline/regress_acf_production_readiness.php", "sandbox/tests/offline/apply/regress_fatal_mutations.php"],
+        "concurrency-idempotence": ["adapter-packages/acf/tests/conformance/check.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
+        "lifecycle": ["adapter-packages/acf/tests/conformance/check.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "data-boundary": ["agent/src/Kernel/PlainData.php", "adapter-packages/acf/package/runtime/interpreters/acf.php", "adapter-packages/acf/tests/conformance/seed.sh", "adapter-packages/acf/tests/conformance/check.sh", "adapter-packages/acf/tests/offline/regress_acf_production_readiness.php"],
+        "scope-platform": ["adapter-packages/acf/package/runtime/interpreters/acf.php", "adapter-packages/acf/tests/conformance/check.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
       "gaps": {},
       "blocked": {},
