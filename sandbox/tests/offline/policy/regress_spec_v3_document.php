@@ -1230,9 +1230,10 @@ $pmproManifest = Canon::decode(Canon::read_file(
     $adapterLibrary->package('paid-memberships-pro')?->manifestPath() ?? ''
 ));
 duo_check(
-    ($pmproAbsorption['retired_path'] ?? null) === 'manifests/providers/paid-memberships-pro-cache.php'
+    ($pmproAbsorption['retired_path'] ?? null)
+        === 'adapter-packages/paid-memberships-pro/package/runtime/providers/paid-memberships-pro-cache.php'
         && ($pmproAbsorption['physical_lines_removed'] ?? null) === 233
-        && !is_file($repo . '/manifests/providers/paid-memberships-pro-cache.php')
+        && !is_file($repo . '/adapter-packages/paid-memberships-pro/package/runtime/providers/paid-memberships-pro-cache.php')
         && !isset($pmproManifest['providers'])
         && !isset($pmproManifest['actions'])
         && ($pmproManifest['tables']['pmpro_membership_levels']['invalidate'][0] ?? null)

@@ -4,12 +4,12 @@
     "adapter_count": 11,
     "file_count": 20,
     "physical_lines": 26958,
-    "scope": "Every PHP file under manifests/interpreters, manifests/providers, and manifests/regenerators, measured as LF-delimited physical lines."
+    "scope": "Every PHP file under adapter-packages/*/package/runtime, measured as LF-delimited physical lines."
   },
   "absorbed": [
     {
       "adapter": "paid-memberships-pro",
-      "retired_path": "manifests/providers/paid-memberships-pro-cache.php",
+      "retired_path": "adapter-packages/paid-memberships-pro/package/runtime/providers/paid-memberships-pro-cache.php",
       "physical_lines_removed": 233,
       "engine_primitive": "tables.<t>.invalidate[] {cache_group,cache_key}",
       "proof": "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php",
@@ -27,15 +27,15 @@
         "yoast-duplicate-post"
       ],
       "reduced_paths": {
-        "manifests/providers/code-snippets-state.php": {"before": 414, "after": 352},
-        "manifests/providers/elementor-css.php": {"before": 466, "after": 397},
-        "manifests/providers/ninja-forms-form-cache.php": {"before": 634, "after": 560},
-        "manifests/providers/polylang-nav-menus.php": {"before": 505, "after": 436},
-        "manifests/providers/the-events-calendar-category-colors.php": {"before": 1239, "after": 1163},
-        "manifests/providers/woocommerce-cache.php": {"before": 205, "after": 128},
-        "manifests/providers/woocommerce-product-lookups.php": {"before": 5059, "after": 4933},
-        "manifests/providers/yoast-duplicate-post-role-capabilities.php": {"before": 241, "after": 178},
-        "manifests/providers/yoast-index.php": {"before": 407, "after": 326}
+        "adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php": {"before": 414, "after": 352},
+        "adapter-packages/elementor/package/runtime/providers/elementor-css.php": {"before": 466, "after": 397},
+        "adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php": {"before": 634, "after": 560},
+        "adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php": {"before": 505, "after": 436},
+        "adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php": {"before": 1239, "after": 1163},
+        "adapter-packages/woocommerce/package/runtime/providers/woocommerce-cache.php": {"before": 205, "after": 128},
+        "adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php": {"before": 5059, "after": 4933},
+        "adapter-packages/yoast-duplicate-post/package/runtime/providers/yoast-duplicate-post-role-capabilities.php": {"before": 241, "after": 178},
+        "adapter-packages/yoast/package/runtime/providers/yoast-index.php": {"before": 407, "after": 326}
       },
       "physical_lines_removed": 697,
       "engine_primitive": "providers[].contracts + ManifestProviderRuntime + ProviderSdk checked list reads",
@@ -47,7 +47,7 @@
     {
       "adapter": "acf",
       "kind": "interpreter",
-      "path": "manifests/interpreters/acf.php",
+      "path": "adapter-packages/acf/package/runtime/interpreters/acf.php",
       "physical_lines": 560,
       "responsibility": "Derive reference kinds and storage codecs from repository-authored ACF field definitions, then validate schema/value agreement.",
       "ownership": "plugin_storage_semantics",
@@ -57,7 +57,7 @@
     {
       "adapter": "contact-form-7",
       "kind": "interpreter",
-      "path": "manifests/interpreters/contact-form-7.php",
+      "path": "adapter-packages/contact-form-7/package/runtime/interpreters/contact-form-7.php",
       "physical_lines": 252,
       "responsibility": "Classify legacy/current CF7 property aliases and validate the closed form, mail, locale, and hash shapes consumed by CF7 6.x.",
       "ownership": "mixed_plugin_schema_and_generic_constraints",
@@ -67,7 +67,7 @@
     {
       "adapter": "ninja-forms",
       "kind": "interpreter",
-      "path": "manifests/interpreters/ninja-forms.php",
+      "path": "adapter-packages/ninja-forms/package/runtime/interpreters/ninja-forms.php",
       "physical_lines": 234,
       "responsibility": "Restrict field/action types to the reviewed plugin vocabulary and reject unsafe or noncanonical serialized settings.",
       "ownership": "mixed_plugin_registry_and_generic_constraints",
@@ -77,7 +77,7 @@
     {
       "adapter": "polylang",
       "kind": "interpreter",
-      "path": "manifests/interpreters/polylang.php",
+      "path": "adapter-packages/polylang/package/runtime/interpreters/polylang.php",
       "physical_lines": 1577,
       "responsibility": "Normalize Polylang option sub-keys, materialize language/menu mappings, and verify plugin hook/runtime topology.",
       "ownership": "plugin_storage_and_lifecycle_semantics",
@@ -87,7 +87,7 @@
     {
       "adapter": "the-events-calendar",
       "kind": "interpreter",
-      "path": "manifests/interpreters/the-events-calendar.php",
+      "path": "adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php",
       "physical_lines": 3095,
       "responsibility": "Normalize TEC customizer/widget storage, structured block references, computed options, and exact hook topology.",
       "ownership": "plugin_storage_and_lifecycle_semantics",
@@ -97,7 +97,7 @@
     {
       "adapter": "woocommerce",
       "kind": "interpreter",
-      "path": "manifests/interpreters/woocommerce.php",
+      "path": "adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php",
       "physical_lines": 3559,
       "responsibility": "Normalize WooCommerce catalog, option, taxonomy, attachment, and co-installed callback topology before the engine applies canonical state.",
       "ownership": "plugin_storage_and_lifecycle_semantics",
@@ -107,7 +107,7 @@
     {
       "adapter": "code-snippets",
       "kind": "provider",
-      "path": "manifests/providers/code-snippets-state.php",
+      "path": "adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php",
       "physical_lines": 352,
       "responsibility": "Implement and verify Code Snippets cache/flat-file semantics behind the engine-owned manifest-provider protocol.",
       "ownership": "plugin_derived_state_semantics_after_engine_protocol_absorption",
@@ -117,7 +117,7 @@
     {
       "adapter": "elementor",
       "kind": "provider",
-      "path": "manifests/providers/elementor-css.php",
+      "path": "adapter-packages/elementor/package/runtime/providers/elementor-css.php",
       "physical_lines": 397,
       "responsibility": "Implement and verify Elementor CSS/render-cache semantics behind the engine-owned manifest-provider protocol.",
       "ownership": "plugin_derived_state_semantics_after_engine_protocol_absorption",
@@ -127,7 +127,7 @@
     {
       "adapter": "ninja-forms",
       "kind": "provider",
-      "path": "manifests/providers/ninja-forms-form-cache.php",
+      "path": "adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php",
       "physical_lines": 560,
       "responsibility": "Run and verify Ninja Forms' cache builder behind the engine-owned manifest-provider protocol.",
       "ownership": "plugin_derived_state_semantics_after_engine_protocol_absorption",
@@ -137,7 +137,7 @@
     {
       "adapter": "polylang",
       "kind": "provider",
-      "path": "manifests/providers/polylang-nav-menus.php",
+      "path": "adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php",
       "physical_lines": 436,
       "responsibility": "Implement and verify Polylang lifecycle synchronization behind the engine-owned manifest-provider protocol.",
       "ownership": "plugin_lifecycle_semantics_after_engine_protocol_absorption",
@@ -147,7 +147,7 @@
     {
       "adapter": "redirection",
       "kind": "provider",
-      "path": "manifests/providers/redirection-state.php",
+      "path": "adapter-packages/redirection/package/runtime/providers/redirection-state.php",
       "physical_lines": 245,
       "responsibility": "Implement and verify Redirection WordPress-module rule visibility and cache-generation semantics behind the engine-owned manifest-provider protocol.",
       "ownership": "plugin_derived_state_and_server_module_semantics_after_engine_protocol_absorption",
@@ -157,7 +157,7 @@
     {
       "adapter": "the-events-calendar",
       "kind": "provider",
-      "path": "manifests/providers/the-events-calendar-category-colors.php",
+      "path": "adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php",
       "physical_lines": 1163,
       "responsibility": "Implement and verify TEC Category Colors projections behind the engine-owned manifest-provider protocol.",
       "ownership": "plugin_and_extension_semantics_after_engine_protocol_absorption",
@@ -167,7 +167,7 @@
     {
       "adapter": "woocommerce",
       "kind": "provider",
-      "path": "manifests/providers/woocommerce-cache.php",
+      "path": "adapter-packages/woocommerce/package/runtime/providers/woocommerce-cache.php",
       "physical_lines": 128,
       "responsibility": "Invoke and verify WooCommerce cache-group APIs behind the engine-owned manifest-provider protocol.",
       "ownership": "plugin_api_and_verification_after_engine_protocol_absorption",
@@ -177,7 +177,7 @@
     {
       "adapter": "woocommerce",
       "kind": "provider",
-      "path": "manifests/providers/woocommerce-fulfillment-prerequisites.php",
+      "path": "adapter-packages/woocommerce/package/runtime/providers/woocommerce-fulfillment-prerequisites.php",
       "physical_lines": 575,
       "responsibility": "Verify the exact WooCommerce feature, taxonomy, and database prerequisites required before fulfillment state can be trusted.",
       "ownership": "plugin_runtime_prerequisite_semantics",
@@ -187,7 +187,7 @@
     {
       "adapter": "woocommerce",
       "kind": "provider",
-      "path": "manifests/providers/woocommerce-hierarchy-lookups.php",
+      "path": "adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php",
       "physical_lines": 1339,
       "responsibility": "Regenerate and verify WooCommerce category, brand, term-hierarchy, and product-permalink projections through native APIs.",
       "ownership": "plugin_derived_state_and_routing_semantics",
@@ -197,7 +197,7 @@
     {
       "adapter": "woocommerce",
       "kind": "provider",
-      "path": "manifests/providers/woocommerce-product-lookups.php",
+      "path": "adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php",
       "physical_lines": 4933,
       "responsibility": "Implement and verify WooCommerce lookup/scheduling semantics behind the engine-owned manifest-provider protocol.",
       "ownership": "plugin_derived_state_and_transaction_semantics_after_engine_protocol_absorption",
@@ -207,7 +207,7 @@
     {
       "adapter": "woocommerce",
       "kind": "provider",
-      "path": "manifests/providers/woocommerce-scheduler-settings.php",
+      "path": "adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php",
       "physical_lines": 4402,
       "responsibility": "Reconcile and verify WooCommerce analytics and stock-notification schedules against Action Scheduler and WordPress cron state.",
       "ownership": "plugin_scheduler_and_lifecycle_semantics",
@@ -217,7 +217,7 @@
     {
       "adapter": "yoast-duplicate-post",
       "kind": "provider",
-      "path": "manifests/providers/yoast-duplicate-post-role-capabilities.php",
+      "path": "adapter-packages/yoast-duplicate-post/package/runtime/providers/yoast-duplicate-post-role-capabilities.php",
       "physical_lines": 178,
       "responsibility": "Implement and verify Yoast Duplicate Post's role-capability projection behind the engine-owned manifest-provider protocol.",
       "ownership": "mixed_wordpress_projection_and_plugin_registry_after_engine_protocol_absorption",
@@ -227,7 +227,7 @@
     {
       "adapter": "yoast",
       "kind": "provider",
-      "path": "manifests/providers/yoast-index.php",
+      "path": "adapter-packages/yoast/package/runtime/providers/yoast-index.php",
       "physical_lines": 326,
       "responsibility": "Implement and verify Yoast indexation semantics behind the engine-owned manifest-provider protocol.",
       "ownership": "plugin_derived_state_semantics_after_engine_protocol_absorption",
@@ -237,7 +237,7 @@
     {
       "adapter": "the-events-calendar",
       "kind": "regenerator",
-      "path": "manifests/regenerators/the-events-calendar.php",
+      "path": "adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php",
       "physical_lines": 2647,
       "responsibility": "Regenerate TEC event/occurrence derived rows under checked schema, lock, transaction, hook, cache, and ambiguous-commit boundaries.",
       "ownership": "plugin_derived_state_and_transaction_semantics",
