@@ -335,9 +335,9 @@ Usage:
   duo adapter proposals [--ledger=<dir>] [--manifests=<dir>] [--format=json]
   duo adapter discover --index=<index.json> [--repo=<site-repo>] [--format=json]
   duo adapter install <site-repo> --index=<index.json> --name=<n>
-                      [--version=<v>] [--format=json]
+                      [--version=<v>] [--adapter-library=<root>] [--format=json]
   duo adapter update <site-repo> --index=<index.json> --name=<n> --to=<v>
-                     [--format=json]
+                     [--adapter-library=<root>] [--format=json]
   duo adapter-observe <env> [--out=<local-file>|--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]

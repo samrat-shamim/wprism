@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Policy;
 use Duo\WithdrawnAuthoritySiteAdapterCertificate;
@@ -322,8 +323,8 @@ final class AdapterDistribution {
     private static function install(array $args, bool $isUpdate): int {
         $verb = $isUpdate ? 'update' : 'install';
         $valued = $isUpdate
-            ? ['index', 'name', 'to', 'format']
-            : ['index', 'name', 'version', 'format'];
+            ? ['index', 'name', 'to', 'format', 'adapter-library']
+            : ['index', 'name', 'version', 'format', 'adapter-library'];
         $flags = self::flags($args, $valued, []);
         $json = self::jsonRequested($flags);
         if (is_int($json)) {
@@ -353,6 +354,7 @@ final class AdapterDistribution {
         }
 
         self::boot();
+        $adapterLibrary = self::adapterLibrary($flags['adapter-library'] ?? null);
         $indexPath = self::indexPath((string) ($flags['index'] ?? ''));
         $index = self::readIndex($indexPath);
 
@@ -437,7 +439,7 @@ final class AdapterDistribution {
         // refusal at any rung leaves the repository exactly as it was found
         // (`AdapterCertify::certify()`'s stated posture, and it was a real
         // defect there before it was a rule).
-        $verified = self::resolveVerified($name, $entry, $repo, $indexPath);
+        $verified = self::resolveVerified($name, $entry, $repo, $indexPath, $adapterLibrary);
         $published = self::publish($repo, $name, $verified);
 
         $report = self::resultReport(
@@ -556,7 +558,13 @@ final class AdapterDistribution {
      * @param array<string,mixed> $entry
      * @return array{adapter:string,certificate:string,claim:array<string,mixed>}
      */
-    private static function resolveVerified(string $name, array $entry, string $repo, string $indexPath): array {
+    private static function resolveVerified(
+        string $name,
+        array $entry,
+        string $repo,
+        string $indexPath,
+        AdapterLibrary $adapterLibrary
+    ): array {
         if (!self::insideWindow(DUO_AGENT_VERSION, $entry['agent_versions'])) {
             throw new \RuntimeException(
                 "[package_out_of_window] '$name' version {$entry['version']} is offered for agent ["
@@ -603,7 +611,7 @@ final class AdapterDistribution {
         $staging = self::staging($repo, $name, $adapterRaw, $certificateRaw);
         try {
             $verified = AdapterCertification::verifyFile(
-                Policy::adapter_library_context(),
+                $adapterLibrary,
                 $staging['root'],
                 $name,
                 $manifest,
@@ -957,6 +965,24 @@ final class AdapterDistribution {
             throw new \RuntimeException("[package_unreachable] $label at $url could not be read");
         }
         return $raw;
+    }
+
+    /** Resolve only the installed library or one explicitly selected authoring/archive input. */
+    private static function adapterLibrary(mixed $path): AdapterLibrary {
+        if ($path === null) {
+            return Policy::adapter_library_context();
+        }
+        $root = realpath((string) $path);
+        if ($root === false || !is_dir($root)) {
+            throw new \RuntimeException("adapter library '$path' is not a directory");
+        }
+        if (is_dir($root . '/adapter-packages') || is_dir($root . '/platform/adapter-library')) {
+            return AdapterLibrary::fromSourceTree($root);
+        }
+        if (is_dir($root . '/adapters') && is_dir($root . '/platform')) {
+            return AdapterLibrary::fromEmbeddedDirectory($root);
+        }
+        return AdapterLibrary::fromLegacyFlatDirectory($root);
     }
 
     // -----------------------------------------------------------------

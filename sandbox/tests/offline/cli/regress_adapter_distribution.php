@@ -100,25 +100,22 @@ $library = duo_cert_hermetic_library($duoRoot, $root . '/agent');
 /**
  * Run the real `duo adapter ...` and capture both streams.
  *
- * DUO_MANIFESTS_DIR is how `Policy::manifests_dir()` is pointed at the
- * hermetic library (Policy.php:276-280); it is passed explicitly rather than
- * exported so that no case can accidentally inherit a previous one's library.
+ * `--adapter-library` hands the command the exact hermetic archive explicitly;
+ * production discovery remains bound to the installed embedded library.
  *
  * @param list<string> $args
  * @return array{exit:int,out:string,err:string}
  */
 function dist_run(array $args, ?string $library = null): array {
     global $duoRoot;
-    $env = getenv();
-    if ($library !== null) {
-        $env['DUO_MANIFESTS_DIR'] = $library;
+    if ($library !== null && in_array($args[0] ?? '', ['install', 'update', 'list', 'inspect', 'doctor'], true)) {
+        $args[] = '--adapter-library=' . $library;
     }
     $process = proc_open(
         array_merge([PHP_BINARY, $duoRoot . '/cli/duo', 'adapter'], $args),
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes,
-        null,
-        $env
+        null
     );
     if (!is_resource($process)) {
         return ['exit' => -1, 'out' => '', 'err' => 'cannot start duo'];
@@ -870,11 +867,9 @@ Canon::write_file(
     (string) file_get_contents($published['adapter'])
 );
 
-// `sign_site()` refuses a library that is not the one THIS process resolves
-// (AdapterCertification.php:1318-1323) — a certificate signed against a
-// library nobody loads would bind a platform boundary nobody runs. Point this
-// process at the hermetic copy the subprocesses already use.
-putenv('DUO_MANIFESTS_DIR=' . $library);
+// The signing API receives the same explicit archive the subprocesses use, so
+// the certificate and the command bind one platform boundary without a
+// process-global selector.
 $clock = new ReflectionProperty(AdapterCertification::class, 'testAuthorityClock');
 $clock->setValue(null, static fn(): int => (int) strtotime('2020-06-01T00:00:00Z'));
 $expiredCertificate = AdapterCertification::sign_site(
