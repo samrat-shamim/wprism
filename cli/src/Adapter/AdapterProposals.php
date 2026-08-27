@@ -4,8 +4,10 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Policy/AdapterLibrary.php';
 require_once __DIR__ . '/AdapterBoundary.php';
 
+use Duo\AdapterLibrary;
 use Duo\Canon;
 
 /**
@@ -32,8 +34,8 @@ use Duo\Canon;
  *
  * ## Why a PROPOSAL and never an edit — and why that is structural here
  *
- * A range lives in two files. `manifests/<name>.json` declares
- * `version_range`, and `manifests/dispositions.json` restates it as
+ * A range lives in two files inside one capsule. `adapter-packages/<name>/package/manifest.json`
+ * declares `version_range`, and the sibling `disposition.json` restates it as
  * `supported_versions.range`; `ManifestDispositions.php:632-637` refuses the
  * pair the instant they disagree —
  * "certified manifest disposition '<name>' versions disagree with its manifest
@@ -43,7 +45,7 @@ use Duo\Canon;
  * So this verb emits BOTH edits, and derives both from ONE `$range` value
  * (`proposedEdits()` below), which is what makes the byte-equality a property
  * of the emitter rather than of the operator's copy-paste. It still stops
- * there, and the reason is AGENTS.md rule 2: a byte under `manifests/` is
+ * there, and the reason is AGENTS.md rule 2: a byte in the package payload is
  * adapter identity — `ArtifactPolicyIdentity::manifest_rows()` folds each
  * manifest's JSON and its disposition into the digest every deployed site pins
  * against, so a job that widened a range on a cron schedule would brick every
@@ -52,7 +54,7 @@ use Duo\Canon;
  * edit. This document is the review packet for it.
  *
  * `has_write_path` is asserted in the corpus by hashing every file under
- * `manifests/` before and after the suite, exactly as the bisector's own suite
+ * the source adapter library before and after the suite, exactly as the bisector's own suite
  * does: this file opens no path for writing at all.
  *
  * ## What is refused rather than proposed
@@ -102,13 +104,13 @@ use Duo\Canon;
  *
  * ## The freshness fact, and where it is allowed to live
  *
- * `manifests/capabilities/platform.json` already carries per-axis
+ * `platform/adapter-library/capabilities/platform.json` already carries per-axis
  * `last_verified` — a VERSION, not a date ("7.1", "the newest exercised core").
  * This verb derives the same shape per adapter: the newest release that probed
  * green, how many recorded releases are newer than it, and how many of those
  * nobody has probed at all.
  *
- * It lives OUTSIDE `manifests/` and it is DERIVED, and those two are the same
+ * It lives outside adapter payloads and it is DERIVED, and those two are the same
  * decision. A `last_verified` field stored beside a manifest would be a rule-2
  * identity input: re-verifying an adapter would move its `adapter_digest` and
  * every `site.duo.json` content pin in the fleet, turning a health signal into
@@ -378,9 +380,12 @@ final class AdapterProposals {
 
     private const REVIEW_REQUIRED = [
         'manifest_edit' => 'not-performed',
-        'files' => ['manifests/<name>.json', 'manifests/dispositions/<name>.json'],
+        'files' => [
+            'adapter-packages/<name>/package/manifest.json',
+            'adapter-packages/<name>/package/disposition.json',
+        ],
         'why' => 'Both edits above are PROPOSED. Applying them is a reviewed human act because AGENTS.md rule 2 '
-            . 'makes a byte under manifests/ adapter identity: ArtifactPolicyIdentity::manifest_rows() folds each '
+            . 'makes the package payload adapter identity: ArtifactPolicyIdentity::manifest_rows() folds each '
             . 'manifest and its disposition into the digest every deployed site pins against, so a job that '
             . 'committed a widening would refuse every site holding a compiled artifact with '
             . 'compiled_artifact_manifest_mismatch until it was recompiled and re-pinned.',
@@ -427,13 +432,13 @@ final class AdapterProposals {
 
         $edits = [
             [
-                'file' => 'manifests/' . $adapter['name'] . '.json',
+                'file' => 'adapter-packages/' . $adapter['name'] . '/package/manifest.json',
                 'pointer' => '/version_range',
                 'current' => $adapter['range'],
                 'proposed' => $range,
             ],
             [
-                'file' => 'manifests/dispositions/' . $adapter['name'] . '.json',
+                'file' => 'adapter-packages/' . $adapter['name'] . '/package/disposition.json',
                 'pointer' => '/supported_versions',
                 'current' => $adapter['supported_versions'],
                 'proposed' => $proposedSupported,
@@ -596,7 +601,7 @@ final class AdapterProposals {
         return [
             'adapter' => $adapter['name'],
             'reason' => 'declared_pair_disagrees',
-            'detail' => "manifests/{$adapter['name']}.json and its dispositions entry already disagree on the "
+            'detail' => "adapter package {$adapter['name']} manifest and disposition already disagree on the "
                 . 'supported versions, which is the pair ManifestDispositions.php:632-637 refuses ("versions '
                 . 'disagree with its manifest contract"). That library does not load, so proposing a third state '
                 . 'for it would be an edit onto a broken base',
@@ -607,7 +612,7 @@ final class AdapterProposals {
     /**
      * One adapter's derived freshness.
      *
-     * Shaped after `manifests/capabilities/platform.json`'s per-axis
+     * Shaped after `platform/adapter-library/capabilities/platform.json`'s per-axis
      * `last_verified`, which is a VERSION and not a date ("7.1", the newest
      * exercised core). A date would answer "when did someone run this", which
      * nothing here can know from a probe record; a version answers "how far
@@ -707,29 +712,29 @@ final class AdapterProposals {
         if (!is_dir($dir)) {
             throw new \RuntimeException("the manifest library directory '$dir' does not exist");
         }
-        // One document per subject since WP-4.4 (spec/repo-format.md § v3.4).
-        // Read here rather than through ManifestDispositions::load() for the
-        // reason this whole class is separate from the agent: it proposes
-        // edits to a library it must be able to read even when that library
-        // would not LOAD, so it takes the entries it finds and validates
-        // nothing the agent owns.
-        $dispositions = [];
-        $subjects = $dir . '/dispositions';
-        foreach (is_dir($subjects) ? (glob($subjects . '/*.json') ?: []) : [] as $file) {
-            $subject = basename($file, '.json');
-            if ($subject === 'profiles') {
-                continue;
+        $documents = [];
+        if (is_dir($dir . '/adapter-packages') || is_dir($dir . '/platform/adapter-library')) {
+            foreach (AdapterLibrary::fromSourceTree($dir)->packages() as $package) {
+                $documents[$package->name()] = [
+                    'manifest' => $package->manifestPath(),
+                    'disposition' => $package->dispositionPath(),
+                ];
             }
-            $entry = Canon::decode(self::readFile($file));
-            if (!is_array($entry)) {
-                throw new \RuntimeException("disposition document '$file' is not an object");
+        } else {
+            // An explicitly named archived flat library remains a bounded
+            // read-only input. The production default always enters above.
+            foreach (glob($dir . '/*.json') ?: [] as $path) {
+                $name = basename($path, '.json');
+                $documents[$name] = [
+                    'manifest' => $path,
+                    'disposition' => $dir . '/dispositions/' . $name . '.json',
+                ];
             }
-            $dispositions[$subject] = $entry;
         }
 
         $library = [];
-        foreach (glob($dir . '/*.json') ?: [] as $path) {
-            $name = basename($path, '.json');
+        foreach ($documents as $name => $paths) {
+            $path = $paths['manifest'];
             $manifest = Canon::decode(self::readFile($path));
             if (!is_array($manifest)) {
                 continue;
@@ -743,7 +748,12 @@ final class AdapterProposals {
                 || !is_array($range) || !is_string($range['min'] ?? null) || !is_string($range['max'] ?? null)) {
                 continue;
             }
-            $entry = $dispositions[$name] ?? null;
+            $entry = is_file($paths['disposition'])
+                ? Canon::decode(self::readFile($paths['disposition']))
+                : null;
+            if ($entry !== null && !is_array($entry)) {
+                throw new \RuntimeException("disposition document '{$paths['disposition']}' is not an object");
+            }
             $library[] = [
                 'name' => $name,
                 'plugin' => $plugin,
@@ -778,25 +788,81 @@ final class AdapterProposals {
                 . 'reaches the network, so an absent ledger is an absent answer, not a reason to scrape one'
             );
         }
+
+        /** @var list<array{path:string,outcomes:string,expected:string,source:string,outcome_source:string}> $candidates */
+        $candidates = [];
+        if (is_dir($dir . '/adapter-packages') || is_dir($dir . '/platform/adapter-library')) {
+            $shared = $dir . '/sandbox/conformance/boundary';
+            foreach (glob($shared . '/*' . self::RELEASES_SUFFIX) ?: [] as $path) {
+                $slug = basename($path, self::RELEASES_SUFFIX);
+                $candidates[] = [
+                    'path' => $path,
+                    'outcomes' => $shared . '/' . $slug . self::OUTCOMES_SUFFIX,
+                    'expected' => $slug,
+                    'source' => substr($path, strlen($dir) + 1),
+                    'outcome_source' => substr($shared . '/' . $slug . self::OUTCOMES_SUFFIX, strlen($dir) + 1),
+                ];
+            }
+            foreach (AdapterLibrary::fromSourceTree($dir)->packages() as $package) {
+                $capsule = dirname($package->root());
+                $path = $capsule . '/fixtures/boundary/releases.json';
+                if (!is_file($path)) {
+                    continue;
+                }
+                $manifest = Canon::decode(self::readFile($package->manifestPath()));
+                $plugin = is_array($manifest) ? ($manifest['plugin'] ?? null) : null;
+                if (!is_string($plugin) || $plugin === '') {
+                    throw new \RuntimeException(
+                        "adapter package '{$package->name()}' carries boundary releases but declares no plugin"
+                    );
+                }
+                $outcomes = $capsule . '/fixtures/boundary/outcomes.json';
+                $candidates[] = [
+                    'path' => $path,
+                    'outcomes' => $outcomes,
+                    'expected' => self::slugOf($plugin),
+                    'source' => substr($path, strlen($dir) + 1),
+                    'outcome_source' => substr($outcomes, strlen($dir) + 1),
+                ];
+            }
+        } else {
+            foreach (glob($dir . '/*' . self::RELEASES_SUFFIX) ?: [] as $path) {
+                $slug = basename($path, self::RELEASES_SUFFIX);
+                $candidates[] = [
+                    'path' => $path,
+                    'outcomes' => $dir . '/' . $slug . self::OUTCOMES_SUFFIX,
+                    'expected' => $slug,
+                    'source' => basename($path),
+                    'outcome_source' => $slug . self::OUTCOMES_SUFFIX,
+                ];
+            }
+        }
+
         $ledger = [];
-        foreach (glob($dir . '/*' . self::RELEASES_SUFFIX) ?: [] as $path) {
-            $slug = basename($path, self::RELEASES_SUFFIX);
+        foreach ($candidates as $candidate) {
+            $path = $candidate['path'];
+            $expected = $candidate['expected'];
             self::assertNotHandAsserted($path);
             $releases = AdapterBoundary::readReleaseList($path);
-            if ($releases['slug'] !== $slug) {
+            $slug = (string) $releases['slug'];
+            if ($slug !== $expected) {
                 throw new \RuntimeException(
-                    "ledger file '$path' is named for slug '$slug' but the document inside declares "
-                    . "'{$releases['slug']}'. The filename is how this job joins a ledger entry to a manifest, so a "
-                    . 'renamed file would fold one plugin\'s releases into another plugin\'s claim'
+                    "ledger file '$path' is owned by slug '$expected' but the document inside declares "
+                    . "'{$releases['slug']}'. Package ownership or the legacy filename is how this job joins a "
+                    . 'ledger entry to a manifest, so a moved document cannot fold one plugin\'s releases into '
+                    . 'another plugin\'s claim'
                 );
             }
+            if (isset($ledger[$slug])) {
+                throw new \RuntimeException("adapter boundary ledger for '$slug' is declared more than once");
+            }
             $outcomes = [];
-            $sources = ['releases' => basename($path)];
-            $outcomePath = $dir . '/' . $slug . self::OUTCOMES_SUFFIX;
+            $sources = ['releases' => $candidate['source']];
+            $outcomePath = $candidate['outcomes'];
             if (is_file($outcomePath)) {
                 self::assertNotHandAsserted($outcomePath);
                 $outcomes = AdapterBoundary::readOutcomeTable($outcomePath, $slug);
-                $sources['outcomes'] = basename($outcomePath);
+                $sources['outcomes'] = $candidate['outcome_source'];
             }
             $ledger[$slug] = ['releases' => $releases, 'outcomes' => $outcomes, 'sources' => $sources];
         }
@@ -861,10 +927,10 @@ final class AdapterProposals {
         $values = [
             // The recorded-input directory this checkout already ships
             // (sandbox/conformance/boundary/README.md). It is outside
-            // manifests/ by construction, which is the rule-2 property the
+            // adapter package payloads by construction, which is the identity property the
             // freshness fact depends on.
-            '--ledger' => $repo . '/sandbox/conformance/boundary',
-            '--manifests' => $repo . '/manifests',
+            '--ledger' => $repo,
+            '--manifests' => $repo,
             '--format' => 'human',
         ];
         $seen = [];

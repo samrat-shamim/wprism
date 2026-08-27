@@ -16,7 +16,7 @@
  *
  * A supported range lives in TWO files, and
  * `ManifestDispositions.php:632-637` refuses the pair the moment they
- * disagree: it compares `Canon::encode()` of `manifests/<name>.json`'s
+ * disagree: it compares `Canon::encode()` of the package manifest's
  * `version_range` against `Canon::encode()` of the disposition's
  * `supported_versions.range`, so the agreement is on canonical BYTES.
  *
@@ -52,7 +52,7 @@
  * ## Freshness is derived or it is nothing
  *
  * `last_verified` is the newest release that probed green — the shape
- * `manifests/capabilities/platform.json` already uses per axis, a VERSION and
+ * `platform/adapter-library/capabilities/platform.json` already uses per axis, a VERSION and
  * not a date. This suite recomputes it independently from the outcome table
  * and compares, exercises all four classes (`unrecorded`, `unverified`,
  * `behind`, `current`), and asserts a ledger document carrying its own
@@ -61,8 +61,8 @@
  *
  * ## And the two negative properties
  *
- * No manifest byte moves — every file under `manifests/` is hashed before and
- * after, across the in-process projections AND the real subprocess runs,
+ * No shipped library byte moves — every package/platform file is hashed
+ * before and after, across the in-process projections AND the real subprocess runs,
  * including the run that reads the shipped library. The proposals source is
  * also grepped for a write primitive, because "it never writes" is cheaper to
  * keep true than to re-derive from a digest comparison every time.
@@ -79,26 +79,23 @@ require_once __DIR__ . '/../../lib/check.php';
 
 $repoRoot = dirname(__DIR__, 4);
 require_once $repoRoot . '/agent/src/Kernel/Canon.php';
+require_once $repoRoot . '/agent/src/Policy/AdapterLibrary.php';
 require_once $repoRoot . '/agent/src/Policy/ManifestDispositions.php';
 require_once $repoRoot . '/cli/src/Command/CommandOutput.php';
 require_once $repoRoot . '/cli/src/Adapter/AdapterBoundary.php';
 require_once $repoRoot . '/cli/src/Adapter/AdapterProposals.php';
 
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\ManifestDispositions;
 use Duo\Orchestrator\AdapterBoundary;
 use Duo\Orchestrator\AdapterProposals;
 
-/** @return array<string,string> path => sha256 for every file under manifests/ */
+/** @return array<string,string> path => sha256 for every shipped adapter-library file */
 function bp_manifest_digests(string $root): array {
     $digests = [];
-    $walk = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($root . '/manifests', FilesystemIterator::SKIP_DOTS)
-    );
-    foreach ($walk as $file) {
-        if ($file->isFile()) {
-            $digests[$file->getPathname()] = (string) hash_file('sha256', $file->getPathname());
-        }
+    foreach (AdapterLibrary::fromSourceTree($root)->scanFiles() as $file) {
+        $digests[$file] = (string) hash_file('sha256', $file);
     }
     ksort($digests);
     return $digests;
@@ -257,15 +254,13 @@ function bp_adapter(string $name, array $range, ?array $supported = null): array
 
 // ================================================== 1. the shipped library
 
-// The job over this checkout's own manifests and its own committed ledger,
+// The job over this checkout's own packages and its own committed ledger,
 // through the real executable. The counts are DERIVED here rather than
 // hard-coded: the subject is the invariants, and a suite that pinned "14
 // adapters" would fail on the next adapter rather than on a defect.
 $pinned = 0;
-foreach (glob($repoRoot . '/manifests/*.json') ?: [] as $path) {
-    // No `dispositions.json` skip: WP-4.4 moved the reviewed claim source into
-    // manifests/dispositions/, which this glob does not match.
-    $manifest = Canon::decode((string) file_get_contents($path));
+foreach (AdapterLibrary::fromSourceTree($repoRoot)->packages() as $package) {
+    $manifest = Canon::decode((string) file_get_contents($package->manifestPath()));
     if (is_array($manifest) && is_string($manifest['plugin'] ?? null)
         && is_array($manifest['version_range'] ?? null)) {
         $pinned++;
@@ -355,17 +350,21 @@ duo_check_same(
 
 // The two edits, in the two files, at the two pointers.
 duo_check_same(2, count($proposal['edits']), 'a range bump is TWO edits, because the range lives in two files');
-duo_check_same('manifests/fixture-forms.json', $proposal['edits'][0]['file'], 'the manifest edit names the manifest');
+duo_check_same(
+    'adapter-packages/fixture-forms/package/manifest.json',
+    $proposal['edits'][0]['file'],
+    'the manifest edit names the package manifest'
+);
 duo_check_same('/version_range', $proposal['edits'][0]['pointer'], 'at /version_range');
 duo_check_same(
-    'manifests/dispositions/fixture-forms.json',
+    'adapter-packages/fixture-forms/package/disposition.json',
     $proposal['edits'][1]['file'],
     'the second edit names the reviewed restatement — that adapter\'s OWN document since WP-4.4'
 );
 duo_check_same(
     '/supported_versions',
     $proposal['edits'][1]['pointer'],
-    'at a pointer into the entry itself, no longer through a whole-library `/manifests/<name>` prefix'
+    'at a pointer into the package disposition itself, with no whole-library subject prefix'
 );
 duo_check_json_equal(
     Canon::encode($proposal['edits'][0]['proposed']),
@@ -688,7 +687,10 @@ bp_write($library . '/dispositions/fixture-gallery.json', (static function (): a
 if (!is_dir($library . '/capabilities') && !mkdir($library . '/capabilities', 0777, true)) {
     throw new RuntimeException('could not create the fixture platform directory');
 }
-copy($repoRoot . '/manifests/capabilities/platform.json', $library . '/capabilities/platform.json');
+copy(
+    $repoRoot . '/platform/adapter-library/capabilities/platform.json',
+    $library . '/capabilities/platform.json'
+);
 
 // A ledger where the pinned adapter is behind and the unpinned one is current,
 // so the exposure rank has something to order.
@@ -853,8 +855,8 @@ foreach (['file_put_contents', 'fopen', 'fwrite($', 'unlink', 'rename(', 'mkdir'
 duo_check_same(
     $manifestsBefore,
     bp_manifest_digests($repoRoot),
-    'and no byte under manifests/ moved across the whole suite — including the runs that read the shipped '
-    . 'library — because a byte there is adapter identity and a job that moved one would re-pin the fleet'
+    'and no adapter-package or platform-library byte moved across the whole suite — including the runs that read '
+    . 'the shipped library — because those bytes are identity and a job that moved one would re-pin the fleet'
 );
 
 duo_check_summary('adapter boundary proposals');
