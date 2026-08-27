@@ -1294,6 +1294,15 @@ final class Cli {
             if ($viewRequest !== null) {
                 $options['plan_view'] = $viewRequest;
             }
+            // Object-only evidence seam: this key is intentionally absent
+            // from the WP-CLI docblock, so a target operator cannot redirect
+            // production discovery with a command-line path.
+            if (array_key_exists('adapter_library', $assoc)) {
+                if (!$assoc['adapter_library'] instanceof AdapterLibrary) {
+                    throw new \InvalidArgumentException('adapter_library must be a Duo\\AdapterLibrary');
+                }
+                $options['adapter_library'] = $assoc['adapter_library'];
+            }
             if ($viewRequest !== null
                 && (array_key_exists('scope-contract', $assoc)
                     || array_key_exists('scope-request-b64', $assoc))) {
@@ -1910,6 +1919,14 @@ final class Cli {
                 'artifact_hash' => $assoc['artifact-hash'] ?? '',
                 'scoped_promotion_receipt' => $assoc['scoped-promotion-receipt'] ?? '',
             ] + self::rebind_from_options($assoc);
+            // Same object-only seam as plan(); no registered WP-CLI flag can
+            // turn an arbitrary path into mutation authority.
+            if (array_key_exists('adapter_library', $assoc)) {
+                if (!$assoc['adapter_library'] instanceof AdapterLibrary) {
+                    throw new \InvalidArgumentException('adapter_library must be a Duo\\AdapterLibrary');
+                }
+                $opts['adapter_library'] = $assoc['adapter_library'];
+            }
             if ((string) ($assoc['scoped-promotion-receipt'] ?? '') !== ''
                 && !array_key_exists('scope-request-b64', $assoc)) {
                 throw CommandRefusalException::applyRefused(

@@ -241,7 +241,17 @@ register_shutdown_function(static function () use ($tmp): void {
 });
 
 $repoRoot = dirname(__DIR__, 4);
-putenv('DUO_MANIFESTS_DIR=' . $repoRoot . '/manifests');
+$coordinatorSource = (string) file_get_contents($repoRoot . '/agent/src/Apply/ApplyRequestCoordinator.php');
+$cliSource = (string) file_get_contents($repoRoot . '/agent/src/Command/Cli.php');
+duo_check(
+    str_contains($coordinatorSource, '$library = $opts[\'adapter_library\'] ?? null;')
+        && str_contains($cliSource, 'array_key_exists(\'adapter_library\', $assoc)'),
+    'plan/apply retain the in-process AdapterLibrary handoff used by hermetic engine evidence'
+);
+duo_check(
+    preg_match('/^\s*\* \[--adapter[-_]library/m', $cliSource) !== 1,
+    'the in-process AdapterLibrary handoff is not a registered target-operator path flag'
+);
 
 $uuid = '11111111-1111-4111-8111-111111111111';
 $bytes = "full-apply recovery bytes\n";
@@ -267,7 +277,11 @@ file_put_contents(
     Canon::post_file($post, '')
 );
 
-$policy = Policy::load($repo);
+$adapterLibrary = \Duo\AdapterLibrary::fromSourceTree($repoRoot);
+$policy = Policy::load(
+    $repo,
+    adapterLibrary: $adapterLibrary
+);
 $compiled = RepositoryCompiler::compile($repo, $policy);
 $artifact = $tmp . '/compiled.json';
 $compiled->write($artifact);
@@ -336,7 +350,10 @@ $wpdb->onQuery(static function (string $sql, string $method) use (&$failedHeartb
 
 $firstFailure = null;
 try {
-    ApplyRequestCoordinator::apply($repo, ['compiled' => $artifact]);
+    ApplyRequestCoordinator::apply($repo, [
+        'compiled' => $artifact,
+        'adapter_library' => $adapterLibrary,
+    ]);
 } catch (Throwable $failure) {
     $firstFailure = $failure;
 }
@@ -382,7 +399,10 @@ duo_check($authoredMetaKeys === ['_duo_uuid', '_wp_attached_file', '_wp_attachme
 duo_check(Ledger::kv_get('applied_revision') === null, 'first apply did not advance the applied revision before native rebuild');
 $secondFailure = null;
 try {
-    ApplyRequestCoordinator::apply($repo, ['compiled' => $artifact]);
+    ApplyRequestCoordinator::apply($repo, [
+        'compiled' => $artifact,
+        'adapter_library' => $adapterLibrary,
+    ]);
 } catch (Throwable $failure) {
     $secondFailure = $failure;
 }

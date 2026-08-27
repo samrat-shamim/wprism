@@ -5,6 +5,7 @@ require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Adapter/Providers.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
 require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/ApplyPlanBuilder.php';
@@ -190,10 +191,22 @@ final class ApplyRequestCoordinator {
             : RepositoryCompiler::compile($repo, $policy);
     }
 
+    /**
+     * Object-only test/evidence injection. WP-CLI registers no corresponding
+     * flag, so production discovery remains the immutable embedded library.
+     */
+    private static function policy(string $repo, array $opts): Policy {
+        $library = $opts['adapter_library'] ?? null;
+        if ($library !== null && !$library instanceof AdapterLibrary) {
+            throw new \InvalidArgumentException('adapter_library must be a Duo\\AdapterLibrary');
+        }
+        return Policy::load($repo, adapterLibrary: $library);
+    }
+
     // ------------------------------------------------------------------ plan
 
     public static function plan(string $repo, array $opts = []): array {
-        $policy = Policy::load($repo);
+        $policy = self::policy($repo, $opts);
         // Compile before constructing Tokens (which reads target options),
         // suppressing cron, or ensuring a ledger. A bad revision is a pure
         // offline result and is identical for fresh and mapped targets.
@@ -438,7 +451,7 @@ final class ApplyRequestCoordinator {
      */
     public static function explain(string $repo, string $selector, array $opts = []): array {
         PlanExplanation::parse($selector);
-        $policy = Policy::load($repo);
+        $policy = self::policy($repo, $opts);
         $compiled = self::compiled($repo, $policy, $opts);
         Canary::suppress_cron_spawn();
         $apply = new self($repo, $policy, $compiled);
@@ -596,7 +609,7 @@ final class ApplyRequestCoordinator {
     // ----------------------------------------------------------------- apply
 
     public static function apply(string $repo, array $opts = []): array {
-        $policy = Policy::load($repo);
+        $policy = self::policy($repo, $opts);
         $compiled = self::compiled($repo, $policy, $opts);
         Canary::suppress_cron_spawn();
         $scopeRequest = $opts['scope_request'] ?? null;
@@ -832,7 +845,7 @@ final class ApplyRequestCoordinator {
             // that association under the lease so a concurrent checkout or
             // manifest/site-policy edit cannot alter the meaning between
             // preflight and mutation.
-            $lockedPolicy = Policy::load($repo);
+            $lockedPolicy = self::policy($repo, $opts);
             $lockedCompiled = self::compiled($repo, $lockedPolicy, $opts);
             if (!hash_equals($promotionArtifact, $lockedCompiled->artifact_hash())) {
                 throw new \RuntimeException('duo: compiled artifact changed before locked apply');

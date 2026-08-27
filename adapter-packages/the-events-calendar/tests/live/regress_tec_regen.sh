@@ -59,11 +59,12 @@
 #
 # Self-contained: own scratch pair (created and destroyed by this script).
 # The positive path uses the shipped, registry-bound TEC manifest. Fault-
-# injection paths copy core+TEC into a private DUO_MANIFESTS_DIR, then point
-# that copy at a nullable verifier column that remains NULL. A private copy is
-# required now that the capability registry correctly refuses tampering with
-# evidence-bound shipped adapter bytes before target contact. This still
-# exercises the real TEC adapter while leaving product evidence untouched.
+# injection paths copy core+TEC into a private source-layout AdapterLibrary,
+# then inject that object through plan/apply's unregistered in-process evidence
+# seam and point the copy at a nullable verifier column that remains NULL. The
+# ordinary WP-CLI grammar exposes no path selector, so target operators cannot
+# redirect production discovery; the fixture still exercises the real TEC
+# adapter while leaving shipped evidence untouched.
 set -euo pipefail
 cd "$(dirname "$0")/../../../../sandbox"
 
@@ -94,6 +95,12 @@ for title in "Fall Open House" "Community Meetup" "Annual Gala"; do
   grep -qF "$title" <<<"$SYNTHETIC_HTML" || fail "producer-safe title check missed '$title'"
 done
 pass "DUO-3301 render-check contract: complete response, producer-safe title checks, hard aggregate failure"
+SELF="../adapter-packages/the-events-calendar/tests/live/regress_tec_regen.sh"
+! grep -Fq 'DUO_''MANIFESTS_DIR' "$SELF" \
+  || fail 'TEC fault fixture reintroduced process-global manifest selection'
+grep -Fq 'AdapterLibrary::fromSourceTree' "$SELF" \
+  || fail 'TEC fault fixture no longer constructs an explicit source-layout library'
+pass "TEC fault injection selects its package library explicitly"
 # The owning issue can run its focused, docker-free contract independently
 # from DUO-3234's older live regen scenarios below.
 [ "${TEC_REGEN_PREFLIGHT_ONLY:-0}" = "1" ] && exit 0
@@ -105,12 +112,40 @@ export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" DUO_CODEBIND_PLUGI
 
 wp1() { docker compose -p "duo-$PAIR" -f pair.yml run --rm -T cli1 wp "$@"; }
 wp2() { docker compose -p "duo-$PAIR" -f pair.yml run --rm -T cli2 wp "$@"; }
-wp2_fault() { docker compose -p "duo-$PAIR" -f pair.yml run --rm -T -e DUO_MANIFESTS_DIR=/siterepo/.tmp-tec-manifests cli2 wp "$@"; }
+wp2_fault() {
+  [ "${1:-}" = duo ] || fail 'fault runner accepts only wp duo commands'
+  local subcommand="${2:-}" assoc='{}' arg key value assoc_b64
+  [ "$subcommand" = plan ] || [ "$subcommand" = apply ] \
+    || fail 'fault runner accepts only plan/apply'
+  shift 2
+  for arg in "$@"; do
+    case "$arg" in
+      --*=*)
+        key="${arg%%=*}"; key="${key#--}"; value="${arg#*=}"
+        assoc=$(jq -cn --argjson obj "$assoc" --arg key "$key" --arg value "$value" '$obj + {($key): $value}')
+        ;;
+      --*)
+        key="${arg#--}"
+        assoc=$(jq -cn --argjson obj "$assoc" --arg key "$key" '$obj + {($key): true}')
+        ;;
+      *) fail "fault runner refuses positional argument: $arg" ;;
+    esac
+  done
+  assoc_b64=$(printf '%s' "$assoc" | base64 | tr -d '\n')
+  docker compose -p "duo-$PAIR" -f pair.yml run --rm -T \
+    -e DUO_TEST_ADAPTER_LIBRARY=/siterepo/.tmp-tec-library \
+    -e DUO_TEST_ASSOC_B64="$assoc_b64" -e DUO_TEST_SUBCOMMAND="$subcommand" cli2 wp eval '
+      $subcommand = (string) getenv("DUO_TEST_SUBCOMMAND");
+      $assoc = json_decode(base64_decode((string) getenv("DUO_TEST_ASSOC_B64"), true), true, 512, JSON_THROW_ON_ERROR);
+      $assoc["adapter_library"] = \Duo\AdapterLibrary::fromSourceTree((string) getenv("DUO_TEST_ADAPTER_LIBRARY"));
+      (new \Duo\Cli())->{$subcommand}([], $assoc);
+    '
+}
 GIT_1="git -C siterepo/${PAIR}1 -c user.name=duo-$PAIR -c user.email=$PAIR@example.test"
 
 SHIPPED_MANIFEST="../adapter-packages/the-events-calendar/package/manifest.json"
-TEST_MANIFEST_DIR="siterepo/${PAIR}2/.tmp-tec-manifests"
-MANIFEST="$TEST_MANIFEST_DIR/the-events-calendar.json"
+TEST_LIBRARY_ROOT="siterepo/${PAIR}2/.tmp-tec-library"
+MANIFEST="$TEST_LIBRARY_ROOT/adapter-packages/the-events-calendar/package/manifest.json"
 
 # cli/duo status <env> needs a repo-root .duo-envs.json naming this pair's
 # side-2 (cli2) docker service — same pattern cli_status_truth.sh (DUO-3221)
@@ -123,7 +158,7 @@ ENVS_FILE="$(pwd)/../.duo-envs.json"
 ENV_NAME="${PAIR}2"
 
 cleanup() {
-  rm -rf "$TEST_MANIFEST_DIR"
+  rm -rf "$TEST_LIBRARY_ROOT"
   rm -f "$ENVS_FILE"
   bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
 }
@@ -233,20 +268,23 @@ OCC_2=$(wp2 db query "SELECT COUNT(*) FROM wp_tec_occurrences WHERE post_id=$EVE
 [ "$OCC_2" = "1" ] || fail "expected exactly 1 tec_occurrences row on side 2 (got $OCC_2) — regen_dependencies() should have created it automatically"
 pass "tec_occurrences row confirmed present on side 2, created automatically by Apply::regen_dependencies()"
 
-# A private manifest directory isolates the verifier fault while retaining the
-# shipped platform boundary and every manifest-bound hook file that policy
-# resolves before any adapter regenerator may run.
-mkdir -p "$TEST_MANIFEST_DIR/capabilities" "$TEST_MANIFEST_DIR/dispositions" "$TEST_MANIFEST_DIR/interpreters" "$TEST_MANIFEST_DIR/providers" "$TEST_MANIFEST_DIR/regenerators"
-cp ../platform/adapter-library/core/manifest.json "$TEST_MANIFEST_DIR/core.json"
-cp ../platform/adapter-library/core/disposition.json "$TEST_MANIFEST_DIR/dispositions/core.json"
-cp ../platform/adapter-library/profiles.json "$TEST_MANIFEST_DIR/dispositions/profiles.json"
-cp ../platform/adapter-library/capabilities/platform.json "$TEST_MANIFEST_DIR/capabilities/platform.json"
-cp ../platform/adapter-library/capabilities/adapter-authorities.json "$TEST_MANIFEST_DIR/capabilities/adapter-authorities.json"
+# A private source-layout library isolates the verifier fault while retaining
+# the shipped platform boundary and every package-bound hook file policy may
+# resolve before the adapter regenerator runs.
+mkdir -p "$TEST_LIBRARY_ROOT/adapter-packages/the-events-calendar/package/runtime/interpreters" \
+  "$TEST_LIBRARY_ROOT/adapter-packages/the-events-calendar/package/runtime/providers" \
+  "$TEST_LIBRARY_ROOT/adapter-packages/the-events-calendar/package/runtime/regenerators" \
+  "$TEST_LIBRARY_ROOT/platform"
+cp -R ../platform/adapter-library "$TEST_LIBRARY_ROOT/platform/adapter-library"
 cp "$SHIPPED_MANIFEST" "$MANIFEST"
-cp ../adapter-packages/the-events-calendar/package/disposition.json "$TEST_MANIFEST_DIR/dispositions/the-events-calendar.json"
-cp ../adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php "$TEST_MANIFEST_DIR/interpreters/the-events-calendar.php"
-cp ../adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php "$TEST_MANIFEST_DIR/providers/the-events-calendar-category-colors.php"
-cp ../adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php "$TEST_MANIFEST_DIR/regenerators/the-events-calendar.php"
+cp ../adapter-packages/the-events-calendar/package/disposition.json \
+  "$TEST_LIBRARY_ROOT/adapter-packages/the-events-calendar/package/disposition.json"
+cp ../adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php \
+  "$TEST_LIBRARY_ROOT/adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php"
+cp ../adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php \
+  "$TEST_LIBRARY_ROOT/adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php"
+cp ../adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php \
+  "$TEST_LIBRARY_ROOT/adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php"
 
 say "(4) byte-identical recapture on side 2"
 wp2 duo capture --repo=/siterepo
