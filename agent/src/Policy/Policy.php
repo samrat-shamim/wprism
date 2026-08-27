@@ -242,7 +242,7 @@ final class Policy {
     public array $site = [];
     /** @var array<int, array> */
     public array $manifests = [];
-    /** External review state; null for legacy/custom manifest directories without a registry. */
+    /** External review state; null only for explicit legacy/custom flat libraries without reviewed data. */
     private ?ManifestDispositions $manifestDispositions = null;
     /** Which source installed each pinned adapter, and what that origin may do (DUO-3314). */
     private ?AdapterSources $adapterSources = null;
@@ -550,7 +550,7 @@ final class Policy {
             : $library['adapter_library'];
         // A supplied library has already been through resolve_library(), which
         // runs both asserts FIRST, before it reads anything; running them
-        // again per pin would re-read capabilities/platform.json once per
+        // again per pin would re-read the resolved platform boundary once per
         // surveyed adapter to re-answer a question about the process.
         if ($library === null && !$allowUnsupportedSiteForReadOnlyCapabilities) {
             self::assert_single_site();
@@ -1070,7 +1070,7 @@ final class Policy {
      * answered the second question with the first question's enumerators, so
      * a name an adapter declares env/runtime/derived was reported "invisible
      * to every installed adapter" — 10 of the 19 option names
-     * manifests/core.json itself declares, measured on a site holding
+     * `platform/adapter-library/core/manifest.json` itself declares, measured on a site holding
      * nothing else. Same ExactOptionResolver as the filtered views, so the
      * pin winner is identical to the per-name capture/apply path.
      *
@@ -1107,7 +1107,8 @@ final class Policy {
      * `polylang`/Yoast's `wpseo` are both 'env': excluded whole, except the
      * named sub-keys carved out below them).
      *
-     * This is the engine capability manifests/polylang.json's own notes
+     * This is the engine capability recorded in
+     * `adapter-packages/polylang/package/manifest.json`'s own notes,
      * long flagged as missing: "v0's options model classifies a whole
      * option name at once ... there is no way to keep force_lang/
      * default_lang/etc authored while excluding first_activation/version
@@ -1133,7 +1134,8 @@ final class Policy {
      * level dynamic-name resolution primitive... one new primitive, reusable
      * for any future active-theme-bound option, instead of a second bespoke
      * path beside nav_menu_locations." theme_mods_<stylesheet> is the proven
-     * case (see manifests/core.json's own declaration + note) but this
+     * case (see `platform/adapter-library/core/manifest.json`'s own
+     * declaration + note) but this
      * section is deliberately not theme_mods-specific: any manifest may
      * declare an entry under any key.
      *
@@ -1158,8 +1160,8 @@ final class Policy {
      *
      * First-declaring-manifest wins per declaration key, matching this
      * class's own established enumeration precedence elsewhere (no shipped
-     * manifest is expected to collide on a key here — only core.json is
-     * expected to ever declare theme_mods — but the tie-break is defined
+     * manifest is expected to collide on a key here — only the platform-owned
+     * core manifest is expected to ever declare theme_mods — but the tie-break is defined
      * for the same reason it is everywhere else in this file: consistency,
      * not because a real collision is anticipated).
      *
@@ -1194,8 +1196,9 @@ final class Policy {
      * used to be active, kept by WordPress itself so nothing is lost if the
      * site switches back (confirmed empirically, DUO-3264: this is the same
      * shape of residue as the nested sidebars_widgets/wp_classic_sidebars
-     * theme-switch bookkeeping already excluded in manifests/core.json's own
-     * note). $resolvedValues maps resolver name => this environment's own
+     * theme-switch bookkeeping already excluded in
+     * `platform/adapter-library/core/manifest.json`'s own note).
+     * $resolvedValues maps resolver name => this environment's own
      * live value (e.g. `['active_stylesheet' => get_option('stylesheet')]`)
      * — plural because a future second resolver is anticipated by the
      * ruling's own "reusable for any future active-theme-bound option"
@@ -2070,7 +2073,8 @@ final class Policy {
      * claims but whose per-name classification can't be a static exact/
      * pattern rule (ACF options-page fields: arbitrary field names, ref kind
      * determined by a shadow-key-pointed schema, exactly like post/term meta
-     * — see manifests/interpreters/acf.php's option_rule()). $allOptions is
+     * — see `adapter-packages/acf/package/runtime/interpreters/acf.php`'s
+     * option_rule()). $allOptions is
      * the full option-name classification context (mirroring $allMeta's
      * "owning scope, shadow keys and all" shape) — options have no single
      * owning entity to scope the map to. Live capture passes raw wp_options
@@ -2079,7 +2083,9 @@ final class Policy {
      *
      * Routes through option_rule_details_for_option() rather than the plain
      * meta_rule_for_interpreter_hook() every other meta_rule_for_*() uses —
-     * caught live (regress_acf_term_options_fields.sh's first run):
+     * caught live
+     * (`adapter-packages/acf/tests/live/regress_acf_term_options_fields.sh`'s
+     * first run):
      * OptionState::assert_rule_autoload() requires every options rule to
      * declare 'autoload' (or 'preserve'), and the static options path
      * always gets that via with_option_autoload()'s manifest-level
@@ -2570,7 +2576,8 @@ final class Policy {
      * every options rule to declare 'autoload' (or 'preserve') before a row
      * can be captured. An interpreter-returned options rule needs the exact
      * same treatment or it can never pass that check (caught live:
-     * regress_acf_term_options_fields.sh's first run failed capture outright
+     * `adapter-packages/acf/tests/live/regress_acf_term_options_fields.sh`'s
+     * first run failed capture outright
      * with "option '...' has autoload 'off' but policy declares NULL").
      * term_meta/user_meta rules have no such concept, so this is scoped to
      * the one hook name that does, not a general behavior change.
@@ -3069,7 +3076,8 @@ final class Policy {
      * declaration exists to yield to, since every shipped user is a PLUGIN
      * manifest asserting a fact about its own post type). menu_fields
      * needs the full DUO-3249 core-yields-to-plugin precedence instead:
-     * core.json declares 'locations' authored as its v0 baseline (every
+     * `platform/adapter-library/core/manifest.json` declares 'locations'
+     * authored as its v0 baseline (every
      * ordinary, non-Polylang site), and a pinned plugin manifest may
      * reclassify it — see menu_field_rule_details() below, which reuses
      * rule_details('menu_fields', $field) directly rather than
@@ -3101,8 +3109,9 @@ final class Policy {
      * flake.
      *
      * Owner ruling (issue comment 8e0edde6): the raw slot is a PROJECTION
-     * of state Duo already carries losslessly elsewhere — polylang.json's
-     * own sub_keys mechanism (DUO-3233/task #121) already propagates both
+     * of state Duo already carries losslessly elsewhere —
+     * `adapter-packages/polylang/package/manifest.json`'s own sub_keys
+     * mechanism (DUO-3233/task #121) already propagates both
      * `nav_menus` (which menu belongs at which location, PER LANGUAGE) and
      * `default_lang` inside the `polylang` option itself. So classifying
      * `locations` 'derived' under Polylang does not drop authored
@@ -3110,8 +3119,9 @@ final class Policy {
      * Polylang's own machinery treats as its mutable cache and rewrites at
      * will, which is exactly what made the flake possible. Default
      * 'authored' if nothing declares a rule at all (defensive fallback
-     * only — core.json's own menu_fields.locations declaration means this
-     * branch is not expected to be reached in practice).
+     * only — the platform core manifest's own menu_fields.locations
+     * declaration means this branch is not expected to be reached in
+     * practice).
      */
     public function menu_field_class(string $field): string {
         return $this->menu_field_rule($field)['class'] ?? 'authored';

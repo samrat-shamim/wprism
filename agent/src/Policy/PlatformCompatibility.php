@@ -12,8 +12,10 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
  * docs/compatibility-baseline.json, but a direct `wp duo` mutation bypasses
  * that host command. Policy load is the first common product boundary before
  * repository reads, identity allocation, locks, or authored-state mutation,
- * so the agent independently checks the identical declaration from
- * manifests/capabilities/platform.json here.
+ * so the agent independently checks the same declaration through the resolved
+ * AdapterLibrary. Its authoring source is
+ * `platform/adapter-library/capabilities/platform.json`, installed as
+ * `agent/adapter-library/platform/capabilities/platform.json`.
  *
  * WordPress and PHP are both bounded ranges narrowed to their exercised
  * series rather than fabricated open ranges: acceptance is inside [min, max)
@@ -43,8 +45,9 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
  * `last_verified`: each engine entry is already one measured runtime per
  * declared line, and the engines map already forces an engine-by-engine
  * decision, so a third series map would prevent no failure. That asymmetry is
- * deliberate, and the axis note in manifests/capabilities/platform.json says
- * so where a reviewer will see it.
+ * deliberate, and the axis note in
+ * `platform/adapter-library/capabilities/platform.json` says so where a
+ * reviewer will see it.
  *
  * The filesystem axis is a filesystem-capability profile, not an OS-name proxy
  * for a particular mount. It admits only the Linux and Darwin families that

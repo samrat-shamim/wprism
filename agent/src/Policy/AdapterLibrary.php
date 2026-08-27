@@ -191,7 +191,7 @@ final class AdapterLibrary
         return self::fromLegacyFlatDirectory($directory);
     }
 
-    /** Temporary explicit reader for callers that still receive manifests/. */
+    /** Explicit legacy reader for callers that deliberately receive the retired flat manifests/ layout. */
     public static function fromLegacyFlatDirectory(string $directory): self
     {
         $root = self::canonicalRoot($directory);

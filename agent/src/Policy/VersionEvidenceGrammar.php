@@ -54,10 +54,11 @@ namespace Duo;
  *
  * ## What this document can never do
  *
- * It cannot widen a range. `manifests/<name>.json` and its Canon-byte-equal
- * restatement in `manifests/dispositions/<name>.json` remain one reviewed human edit
- * (`ManifestDispositions.php:632-637`), and a byte under `manifests/` is
- * fleet-visible (rule 2). This key lives in the site's own policy envelope,
+ * It cannot widen a range. An adapter capsule's `package/manifest.json` and
+ * Canon-byte-equal `package/disposition.json` restatement remain one reviewed
+ * human edit (`ManifestDispositions.php:1110-1112`), and a byte in the
+ * capsule's shipped `package/` is fleet-visible (rule 2). This key lives in
+ * the site's own policy envelope,
  * which is exactly the scope of the claim it supports: THIS site has recorded
  * probes for THESE releases. It is bound into `site_hash()` and therefore into
  * the compiled artifact — adding evidence is a policy change an artifact must
