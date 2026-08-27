@@ -331,6 +331,30 @@ check(
     AdapterSources::scan_anchors_library($adapterLibrary, null)['anchors'] === $adapterLibrary->scanAnchors(),
     'the cheap object memo witness uses AdapterLibrary scan anchors directly'
 );
+$legacySurvey = AdapterSources::survey(null);
+$librarySurvey = AdapterSources::survey_library($adapterLibrary, null);
+$legacyComparable = $legacySurvey;
+foreach ($legacyComparable['adapters'] as &$row) {
+    $row['path'] = realpath((string) $row['path']) ?: $row['path'];
+}
+unset($row);
+foreach ($legacyComparable['sources'] as &$row) {
+    if (is_string($row['path'] ?? null)) {
+        $row['path'] = realpath($row['path']) ?: $row['path'];
+    }
+}
+unset($row);
+check(
+    $librarySurvey === $legacyComparable
+    && array_column($librarySurvey['adapters'], 'path', 'name') === $packageManifestPaths,
+    'the explicit-library whole survey preserves every legacy verdict and inventory fact while every shipped row '
+    . 'path comes from its AdapterPackage object (canonical physical spelling replaces a symlinked temp spelling)'
+);
+check(
+    $librarySources->file('core', $adapterLibrary) === $adapterLibrary->package('core')?->manifestPath(),
+    'object discovery resolves a requested manifest through its recorded package path without rebuilding a flat '
+    . 'manifest filename'
+);
 
 // ======================================================================
 echo "\n== the motivating refusal: a site adapter no longer takes down the shipped library ==\n";
@@ -686,7 +710,7 @@ expect_throw(
 expect_throw(
     fn() => Policy::load(fresh_site(['core'], ['acme-widget' => site_adapter('woocommerce')])),
     'ambiguous identity',
-    "a site adapter whose declared name disagrees with its file name is refused as ambiguous identity"
+    'a site adapter whose declared name disagrees with its file name is refused as ambiguous identity'
 );
 expect_throw(
     fn() => Policy::load(fresh_site(['core'], ['woocommerce' => site_adapter('woocommerce')])),
@@ -722,7 +746,7 @@ $collisionMsg = message_of(fn() => Policy::load(
 check(
     str_contains($collisionMsg, "already declared by the shipped manifest 'renamed-file'")
         && str_contains($collisionMsg, "claims the name 'acme-widget'"),
-    "the cross-source collision refusal names the SPECIFIC shipped file it collides with, "
+    'the cross-source collision refusal names the SPECIFIC shipped file it collides with, '
     . "derived from the shipped declared-name index, not a hardcoded origin ($collisionMsg)"
 );
 putenv("DUO_MANIFESTS_DIR=$shippedDir");
@@ -912,7 +936,7 @@ $brokenPolicyRepo = fresh_site(
     [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
     ['woocommerce' => site_adapter('woocommerce')]
 );
-file_put_contents($brokenPolicyRepo . '/site.duo.json', "{ not json");
+file_put_contents($brokenPolicyRepo . '/site.duo.json', '{ not json');
 expect_throw(
     fn() => Policy::load($brokenPolicyRepo),
     'invalid JSON',
@@ -1329,7 +1353,7 @@ foreach (['../core', 'foo/../core', 'foo\\core', '.', '..', '.core', 'core.', 'C
 }
 expect_throw(
     fn() => Policy::load(fresh_site(['no-such-adapter'], ['acme-widget' => site_adapter('acme-widget')])),
-    "not found in",
+    'not found in',
     'an unresolvable pin names every source that was searched'
 );
 
@@ -1954,7 +1978,8 @@ check(
 // resolved sources are cloned per load rather than handed out.
 $handleDir = library_variant(function (string $dir): void {});
 putenv("DUO_MANIFESTS_DIR=$handleDir");
-$handle = \Duo\AdapterScan::open(null);
+$handleLibrary = AdapterLibrary::fromLegacyFlatDirectory($handleDir);
+$handle = \Duo\AdapterScan::open_library($handleLibrary, null);
 $firstLoad = $handle->load('core');
 $secondLoad = $handle->load('classic-editor');
 check(
@@ -1997,7 +2022,8 @@ check(
 // read one library, and settle() is where that is refused.
 $settleDir = library_variant(function (string $dir): void {});
 putenv("DUO_MANIFESTS_DIR=$settleDir");
-$settleHandle = \Duo\AdapterScan::open(null);
+$settleLibrary = AdapterLibrary::fromLegacyFlatDirectory($settleDir);
+$settleHandle = \Duo\AdapterScan::open_library($settleLibrary, null);
 $settleHandle->load('core');
 $rewritten = "$settleDir/classic-editor.json";
 $rewrittenBefore = (string) file_get_contents($rewritten);

@@ -3,6 +3,10 @@ namespace Duo;
 
 require_once __DIR__ . '/AdapterSources.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/SiteTopology.php';
+require_once __DIR__ . '/../Policy/AdapterLibrary.php';
+require_once __DIR__ . '/../Policy/ManifestDispositions.php';
+require_once __DIR__ . '/../Policy/PlatformCompatibility.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 
 /**
@@ -102,9 +106,11 @@ final class AdapterScan {
     public const REFUSAL_MOVED = 'adapter_library_moved';
 
     private ?string $repo;
+    /** Null only for the explicit legacy string entry point. */
+    private ?AdapterLibrary $adapterLibrary;
     /** The library this handle resolved against, as Policy resolved it. */
     private string $manifestDir = '';
-    /** @var ?array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources} */
+    /** @var ?array{dir:string, adapter_library?:?AdapterLibrary, dispositions:?ManifestDispositions, sources:AdapterSources} */
     private ?array $library = null;
     /**
      * A resolution that REFUSED, replayed per row instead of re-attempted.
@@ -123,8 +129,9 @@ final class AdapterScan {
     /** @var array<string,string> content digests, re-derived once at settle() */
     private array $content = [];
 
-    private function __construct(?string $repo) {
+    private function __construct(?string $repo, ?AdapterLibrary $adapterLibrary) {
         $this->repo = $repo;
+        $this->adapterLibrary = $adapterLibrary;
     }
 
     /**
@@ -137,7 +144,12 @@ final class AdapterScan {
      * also what keeps this constructor safe to call unconditionally.
      */
     public static function open(?string $repo): self {
-        return new self($repo);
+        return new self($repo, null);
+    }
+
+    /** Open a survey handle over exactly this closed library inventory. */
+    public static function open_library(AdapterLibrary $library, ?string $repo): self {
+        return new self($repo, $library);
     }
 
     /**
@@ -182,7 +194,7 @@ final class AdapterScan {
             return;
         }
         $this->assert_unmoved();
-        $dependencies = AdapterSources::scan_dependencies($this->manifestDir, $this->repo);
+        $dependencies = $this->dependencies();
         $content = self::content_witness($dependencies['files']);
         if ($content !== $this->content) {
             throw self::moved($this->content, $content, 'file content');
@@ -201,12 +213,39 @@ final class AdapterScan {
             return;
         }
         $this->resolved = true;
-        $this->manifestDir = Policy::manifests_dir();
-        $dependencies = AdapterSources::scan_dependencies($this->manifestDir, $this->repo);
-        $this->shape = self::shape_witness($dependencies);
+        $this->manifestDir = $this->adapterLibrary === null
+            ? Policy::manifests_dir()
+            : $this->adapterLibrary->root();
+        $dependencies = $this->dependencies();
+        $this->shape = self::shape_witness($dependencies, $this->adapterLibrary);
         $this->content = self::content_witness($dependencies['files']);
         try {
-            $this->library = Policy::resolve_library($this->repo);
+            if ($this->adapterLibrary === null) {
+                $this->library = Policy::resolve_library($this->repo);
+                return;
+            }
+            SiteTopology::assert_single_site();
+            self::assert_supported_platform($this->adapterLibrary);
+            $sources = AdapterSources::discover_library($this->adapterLibrary, $this->repo);
+            $dispositions = class_exists(ManifestDispositions::class)
+                ? ManifestDispositions::load_library($this->adapterLibrary)
+                : null;
+            // Policy still guards a resolved scan with the legacy directory
+            // spelling until its own flag-day change. Prove that spelling is
+            // this exact physical library; never search or fall back to it.
+            $policyDirectory = Policy::manifests_dir();
+            if (realpath($policyDirectory) !== $this->adapterLibrary->root()) {
+                throw new \RuntimeException(
+                    'duo: the explicit adapter library does not match the manifest directory this policy runtime '
+                    . 'still requires'
+                );
+            }
+            $this->library = [
+                'dir' => $policyDirectory,
+                'adapter_library' => $this->adapterLibrary,
+                'dispositions' => $dispositions,
+                'sources' => $sources,
+            ];
         } catch (\Throwable $t) {
             $this->failure = $t;
         }
@@ -214,7 +253,8 @@ final class AdapterScan {
 
     private function assert_unmoved(): void {
         $shape = self::shape_witness(
-            AdapterSources::scan_anchors($this->manifestDir, $this->repo)
+            $this->anchors(),
+            $this->adapterLibrary
         );
         if ($shape !== $this->shape) {
             throw self::moved($this->shape, $shape, 'directory or activation');
@@ -240,16 +280,37 @@ final class AdapterScan {
      *        dependency set is a superset of this and is accepted as one
      * @return array<string,string>
      */
-    private static function shape_witness(array $anchored): array {
+    private static function shape_witness(array $anchored, ?AdapterLibrary $adapterLibrary = null): array {
         clearstatcache(true);
         $witness = [
-            'library' => Policy::manifests_dir(),
+            'library' => $adapterLibrary === null ? Policy::manifests_dir() : $adapterLibrary->root(),
             'plugins' => implode(',', $anchored['plugins']),
         ];
         foreach ($anchored['anchors'] as $anchor) {
             $witness[$anchor] = self::stamp($anchor);
         }
         return $witness;
+    }
+
+    /** @return array{anchors:list<string>, files:list<string>, plugins:list<string>} */
+    private function dependencies(): array {
+        return $this->adapterLibrary === null
+            ? AdapterSources::scan_dependencies($this->manifestDir, $this->repo)
+            : AdapterSources::scan_dependencies_library($this->adapterLibrary, $this->repo);
+    }
+
+    /** @return array{anchors:list<string>, plugins:list<string>} */
+    private function anchors(): array {
+        return $this->adapterLibrary === null
+            ? AdapterSources::scan_anchors($this->manifestDir, $this->repo)
+            : AdapterSources::scan_anchors_library($this->adapterLibrary, $this->repo);
+    }
+
+    private static function assert_supported_platform(AdapterLibrary $library): void {
+        if (!defined('ABSPATH') || !defined('WPINC') || !function_exists('get_bloginfo')) {
+            return;
+        }
+        PlatformCompatibility::assert_supported(ManifestDispositions::platform_boundary_library($library));
     }
 
     /**

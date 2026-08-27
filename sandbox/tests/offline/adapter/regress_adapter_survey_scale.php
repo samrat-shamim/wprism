@@ -592,6 +592,11 @@ namespace {
         $callers('AdapterScan::open(', 'agent/src/Adapter/AdapterScan.php'),
         'and a handle is opened only by AdapterSources::survey(), the read-only inventory'
     );
+    duo_check_same(
+        ['agent/src/Adapter/AdapterSources.php'],
+        $callers('AdapterScan::open_library(', 'agent/src/Adapter/AdapterScan.php'),
+        'and the explicit-library handle is likewise opened only by the read-only inventory'
+    );
 
     if (duo_check_failed() === 0) {
         exec('rm -rf ' . escapeshellarg($scaleRoot));

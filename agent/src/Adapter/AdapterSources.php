@@ -2569,6 +2569,18 @@ final class AdapterSources {
      * @return array{adapters:list<array<string,mixed>>, not_installed:list<array<string,mixed>>, refusals:list<array<string,mixed>>, sources:list<array<string,mixed>>}
      */
     public static function survey(?string $repo): array {
+        return self::survey_from(null, $repo);
+    }
+
+    /** Survey exactly the supplied closed shipped library inventory. */
+    public static function survey_library(AdapterLibrary $library, ?string $repo): array {
+        return self::survey_from($library, $repo);
+    }
+
+    /**
+     * @return array{adapters:list<array<string,mixed>>, not_installed:list<array<string,mixed>>, refusals:list<array<string,mixed>>, sources:list<array<string,mixed>>}
+     */
+    private static function survey_from(?AdapterLibrary $adapterLibrary, ?string $repo): array {
         // Lazily, at the one entry that needs them, for the reason the
         // AdapterCertification requires below give: this file is on the pure
         // loader path Policy::load() walks, and AdapterScan requires Policy,
@@ -2578,9 +2590,9 @@ final class AdapterSources {
         // CommandRefusalException to let the one typed refusal through.
         require_once __DIR__ . '/AdapterScan.php';
         require_once __DIR__ . '/../Kernel/CommandRefusal.php';
-        $manifestDir = Policy::manifests_dir();
+        $manifestDir = $adapterLibrary === null ? Policy::manifests_dir() : $adapterLibrary->root();
         $refusals = [];
-        $scan = self::scan($manifestDir, $repo, true, $refusals);
+        $scan = self::scan($manifestDir, $repo, true, $refusals, $adapterLibrary);
 
         // The site's OWN policy file, checked once, here rather than in scan()
         // — discover() never reads it (Policy::load() opens it first and
@@ -2633,10 +2645,13 @@ final class AdapterSources {
         // Loaded lazily for the reason the scan's own require gives: this file
         // is on the pure loader path, and AdapterCertification depends on it.
         require_once __DIR__ . '/AdapterCertification.php';
-        $revocations = rtrim($manifestDir, '/') . '/capabilities/adapter-revocations.json';
+        $shippedLibrary = $adapterLibrary ?? $manifestDir;
+        $revocations = $adapterLibrary === null
+            ? rtrim($manifestDir, '/') . '/capabilities/adapter-revocations.json'
+            : $adapterLibrary->revocationsPath();
         if (file_exists($revocations) || is_link($revocations)) {
             try {
-                $inert = AdapterCertification::revocation_channel($manifestDir);
+                $inert = AdapterCertification::revocation_channel($shippedLibrary);
                 if ($inert !== null) {
                     $refusals[] = [
                         'code' => self::REFUSAL_REVOCATION_INERT,
@@ -2673,7 +2688,9 @@ final class AdapterSources {
         $dispositions = null;
         if (class_exists(ManifestDispositions::class)) {
             try {
-                $dispositions = ManifestDispositions::load($manifestDir);
+                $dispositions = $adapterLibrary === null
+                    ? ManifestDispositions::load($manifestDir)
+                    : ManifestDispositions::load_library($adapterLibrary);
             } catch (\Throwable $t) {
                 $dispositions = null;
             }
@@ -2692,7 +2709,9 @@ final class AdapterSources {
             $scan['origins'],
             $scan['provenance'],
             $scan['certificates'],
-            $scan['claims']
+            $scan['claims'],
+            [],
+            $adapterLibrary
         );
         $bound->bind_explicit_pins(self::surveyed_pins($repo));
         // Whether this library HAS a reviewed certification story at all. A
@@ -2744,7 +2763,9 @@ final class AdapterSources {
         // reads nothing (AdapterScan::open()); the first row that actually
         // loads is what pays for the one scan, so a survey whose rows are all
         // answered without a load still costs none.
-        $library = AdapterScan::open($blocking === [] ? $repo : null);
+        $library = $adapterLibrary === null
+            ? AdapterScan::open($blocking === [] ? $repo : null)
+            : AdapterScan::open_library($adapterLibrary, $blocking === [] ? $repo : null);
 
         $adapters = [];
         foreach ($scan['origins'] as $name => $origin) {
@@ -4063,7 +4084,7 @@ final class AdapterSources {
      * missing file while a named, remediable refusal sat against the one on
      * disk. So the pin gets the refusal's own message and its remediation.
      */
-    public function file(string $name, string $manifestDir): string {
+    public function file(string $name, string|AdapterLibrary $manifestDir): string {
         $origin = $this->origins[$name] ?? null;
         if ($origin === null) {
             $refused = $this->scanReport['refused_names'][$name] ?? null;
@@ -4085,9 +4106,10 @@ final class AdapterSources {
     }
 
     /** The prose half of file()'s not-found message. */
-    private function searched_sources(string $manifestDir): string {
+    private function searched_sources(string|AdapterLibrary $manifestDir): string {
         if ($this->scanReport['sources'] === []) {
-            $sources = "$manifestDir (shipped)";
+            $root = $manifestDir instanceof AdapterLibrary ? $manifestDir->root() : $manifestDir;
+            $sources = "$root (shipped)";
             if ($this->provenance !== []) {
                 $sources .= " or the site repository's " . self::SITE_DIR . '/ directory';
             }
