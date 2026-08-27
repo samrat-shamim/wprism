@@ -176,10 +176,10 @@ fi
 # ---------------------------------------------------------- repository anchor
 
 # Cheapest proof that $REPO_ROOT is duo-wp and not some parent directory the
-# script was copied into: the adapter dispositions the engine loads at
-# Policy::load() time. Every check below reads paths relative to it.
-if [ ! -d manifests/dispositions ]; then
-    fail "manifests/dispositions/ is missing -- this is not a duo-wp checkout"
+# script was copied into: both roots of the source adapter library the engine
+# resolves at Policy::load() time. Every check below reads paths relative to it.
+if [ ! -d adapter-packages ] || [ ! -d platform/adapter-library ]; then
+    fail "adapter-packages/ or platform/adapter-library/ is missing -- this is not a duo-wp checkout"
     remedy "re-clone the repository"
 fi
 
@@ -195,7 +195,7 @@ if have php; then
     else
         fail "make release-gate (exit $gate_rc)"
         printf '%s\n' "$gate_out" | sed 's/^/      /'
-        remedy "read the message above; the generated capability prose no longer matches manifests/dispositions/"
+        remedy "read the message above; the generated capability prose no longer matches the adapter packages or platform library"
     fi
 else
     fail "php is not on PATH -- release-gate and every offline suite need it"
