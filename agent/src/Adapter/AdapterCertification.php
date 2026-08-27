@@ -1398,7 +1398,7 @@ final class AdapterCertification {
     private static function siteGrammarVerdict(string|AdapterLibrary $manifestDir, string $repo, string $name): string {
         require_once __DIR__ . '/../Policy/Policy.php';
         $resolvedDeclared = realpath(self::manifestRoot($manifestDir));
-        $resolvedLoaded = realpath(Policy::manifests_dir());
+        $resolvedLoaded = realpath(self::manifestRoot(Policy::adapter_library_context()));
         if ($resolvedDeclared === false || $resolvedLoaded === false
             || !hash_equals($resolvedLoaded, $resolvedDeclared)) {
             throw new \RuntimeException(
