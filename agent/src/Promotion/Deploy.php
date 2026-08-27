@@ -121,7 +121,14 @@ final class Deploy {
                     || !hash_equals($expectedArtifact, $promotionArtifact)))) {
             throw new \RuntimeException('duo: deploy artifact does not match the host-compiled artifact hash');
         }
-        PromotionLock::acquire($promotionOwner, $promotionArtifact, 'deploy', null, $continuation);
+        if ($continuation) {
+            PromotionLock::acquire($promotionOwner, $promotionArtifact, 'deploy', null, true);
+        } else {
+            // A direct deploy needs a lock while re-proving the artifact and
+            // lifecycle gates, but a refusal is not a promotion generation.
+            // Publish its durable session only after mismatch/drift pass.
+            PromotionLock::acquire_deploy_preflight($promotionOwner, $promotionArtifact);
+        }
         try {
             $lockedPolicy = Policy::load($repo);
             $lockedCompiled = $compiledPath !== ''
@@ -130,17 +137,19 @@ final class Deploy {
             if (!hash_equals($promotionArtifact, $lockedCompiled->artifact_hash())) {
                 throw new \RuntimeException('duo: compiled artifact changed before locked deploy');
             }
-            PromotionLock::assert_no_lifecycle_attempt(
-                $promotionOwner,
-                $promotionArtifact,
-                'lifecycle'
-            );
-            if ($lifecyclePhase !== 'all') {
-                PromotionLock::assert_lifecycle_phase_start(
+            if ($continuation) {
+                PromotionLock::assert_no_lifecycle_attempt(
                     $promotionOwner,
                     $promotionArtifact,
-                    $lifecyclePhase
+                    'lifecycle'
                 );
+                if ($lifecyclePhase !== 'all') {
+                    PromotionLock::assert_lifecycle_phase_start(
+                        $promotionOwner,
+                        $promotionArtifact,
+                        $lifecyclePhase
+                    );
+                }
             }
             // The promotion lock and locked-artifact revalidation are the
             // boundary at which a staged code payload may authorize this
@@ -368,6 +377,13 @@ final class Deploy {
                 );
             }
             if ($phaseWillMutate) {
+                // Continuations already carry the host-begun recovery
+                // session. A direct deploy publishes its generation only
+                // after snapshot/reference checks pass and immediately before
+                // the lifecycle-attempt receipt opens the mutation window.
+                if (!$continuation) {
+                    PromotionLock::begin_deploy_session($promotionOwner, $promotionArtifact);
+                }
                 PromotionLock::begin_lifecycle_attempt(
                     $promotionOwner,
                     $promotionArtifact,

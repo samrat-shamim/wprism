@@ -157,6 +157,64 @@ $throws(
 );
 PromotionLock::release('direct-preflight-owner', $artifact);
 
+// Direct deploy uses the same non-publishing boundary. In particular, a
+// code_drift/code_mismatch refusal must not replace the last truthful session;
+// only the point immediately before lifecycle mutation publishes a new one.
+Ledger::$rows = ['promotion_session' => $priorSession];
+PromotionLock::acquire_deploy_preflight('direct-deploy-owner', $artifact);
+$check(
+    Ledger::$rows['promotion_session'] === $priorSession,
+    'direct deploy preflight changed the previous promotion session'
+);
+PromotionLock::release('direct-deploy-owner', $artifact);
+$check(
+    Ledger::$rows['promotion_session'] === $priorSession,
+    'refused direct deploy cleanup changed the previous promotion session'
+);
+
+unset(Ledger::$rows['promotion_session']);
+PromotionLock::acquire_deploy_preflight('direct-deploy-owner', $artifact);
+$check(
+    !isset(Ledger::$rows['promotion_session']),
+    'direct deploy preflight without a prior session published recovery evidence'
+);
+PromotionLock::begin_deploy_session('direct-deploy-owner', $artifact);
+$directDeploySession = json_decode(Ledger::$rows['promotion_session'], true, 512, JSON_THROW_ON_ERROR);
+$directDeployLease = json_decode(Ledger::$rows['promotion_lock'], true, 512, JSON_THROW_ON_ERROR);
+$check(
+    ($directDeploySession['owner'] ?? null) === 'direct-deploy-owner'
+        && ($directDeploySession['artifact_hash'] ?? null) === $artifact
+        && preg_match('/^ps-[a-f0-9]{32}$/D', (string) ($directDeploySession['session_id'] ?? '')) === 1,
+    'successful direct deploy preflight did not publish its exact random-generation session'
+);
+$check(
+    ($directDeployLease['phase'] ?? null) === 'deploy-session-begin',
+    'direct deploy did not publish its session at the lifecycle mutation boundary'
+);
+PromotionLock::release('direct-deploy-owner', $artifact);
+
+$deploySource = (string) file_get_contents(dirname(__DIR__, 4) . '/agent/src/Promotion/Deploy.php');
+$deployPreflightAt = strpos($deploySource, 'PromotionLock::acquire_deploy_preflight(');
+$deployDriftAt = strpos($deploySource, '$drift = self::code_drift(');
+$deployReplacementRefusalAt = strpos($deploySource, "if (\$lifecyclePhase === 'all' && \$toActivate && \$toDeactivate)");
+$deploySnapshotAt = strpos($deploySource, '$lifecycleBeforeSnapshot = self::options_snapshot(');
+$deploySessionAt = strpos($deploySource, 'PromotionLock::begin_deploy_session(');
+$deployAttemptAt = strpos($deploySource, 'PromotionLock::begin_lifecycle_attempt(');
+$check(
+    $deployPreflightAt !== false
+        && $deployDriftAt !== false
+        && $deployReplacementRefusalAt !== false
+        && $deploySnapshotAt !== false
+        && $deploySessionAt !== false
+        && $deployAttemptAt !== false
+        && $deployPreflightAt < $deployDriftAt
+        && $deployDriftAt < $deployReplacementRefusalAt
+        && $deployReplacementRefusalAt < $deploySnapshotAt
+        && $deploySnapshotAt < $deploySessionAt
+        && $deploySessionAt < $deployAttemptAt,
+    'Deploy keeps drift, replacement, and snapshot refusals non-publishing and begins its session at the lifecycle mutation boundary'
+);
+
 // A reconnect must invalidate the old process-local lease witness. Otherwise
 // the first heartbeat on the replacement connection renews normally while the
 // row is unexpired, then a later heartbeat can revive that same row after TTL
