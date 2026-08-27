@@ -1347,6 +1347,17 @@ check(
     RepositoryCompiler::resolved_adapters($frozen) === RepositoryCompiler::resolved_adapters($overlay),
     'a frozen policy reconstructs identical adapter identity, source, and digests'
 );
+$frozenLibrarySources = AdapterSources::from_snapshot(
+    $snapshot['adapter_sources'],
+    $snapshot['manifests'],
+    $adapterLibrary
+);
+check(
+    $frozenLibrarySources->export() === $snapshot['adapter_sources']
+        && $frozenLibrarySources->path('core') === $adapterLibrary->package('core')?->manifestPath(),
+    'frozen reconstruction proves shipped authority through the explicit package library without reopening a '
+    . 'global manifest directory'
+);
 
 $numericFrozenPin = $snapshot;
 $numericFrozenPin['site']['manifests'][1] = '123';

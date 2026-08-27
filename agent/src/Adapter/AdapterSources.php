@@ -4556,7 +4556,15 @@ final class AdapterSources {
      * disagreement, the superseded wire version included, is still a refusal;
      * the single catch below says why.
      */
-    public static function from_snapshot(array $data, array $manifests): self {
+    public static function from_snapshot(
+        array $data,
+        array $manifests,
+        string|AdapterLibrary|null $manifestLibrary = null
+    ): self {
+        $manifestLibrary ??= Policy::manifests_dir();
+        $manifestDir = $manifestLibrary instanceof AdapterLibrary
+            ? $manifestLibrary->root()
+            : rtrim($manifestLibrary, '/');
         $keys = array_keys($data);
         sort($keys, SORT_STRING);
         $format = $data['format'] ?? null;
@@ -4591,7 +4599,12 @@ final class AdapterSources {
                 // assigning shipped authority; otherwise deleting one frozen
                 // provenance row could launder arbitrary site bytes into the
                 // executable shipped source.
-                $file = rtrim(Policy::manifests_dir(), '/') . '/' . $name . '.json';
+                $package = $manifestLibrary instanceof AdapterLibrary
+                    ? $manifestLibrary->package($name)
+                    : null;
+                $file = $package === null
+                    ? $manifestDir . '/' . $name . '.json'
+                    : $package->manifestPath();
                 if (!is_file($file)) {
                     throw new \RuntimeException(
                         "duo: frozen adapter '$name' is absent from out_of_tree but no shipped manifest exists at "
@@ -4637,7 +4650,7 @@ final class AdapterSources {
                 $withdrawn = null;
                 try {
                     $verified = AdapterCertification::verifyFrozen(
-                        Policy::manifests_dir(),
+                        $manifestLibrary,
                         $name,
                         $manifest,
                         $certificate
@@ -4741,7 +4754,7 @@ final class AdapterSources {
                 $path,
                 self::source_label($origin),
                 false,
-                $origin === self::SITE ? self::shipped_executable_grants(Policy::manifests_dir(), $name) : null
+                $origin === self::SITE ? self::shipped_executable_grants($manifestLibrary, $name) : null
             );
             // Tautological in the withdrawn branch above and deliberately left
             // that way: $record was re-minted by provenance_record(), whose
@@ -4788,7 +4801,15 @@ final class AdapterSources {
         // shipped row's bytes against (above, and in verifyFrozen()) — a frozen
         // instance reopens no MUTABLE source, and the agent's own manifest
         // directory is neither mutable from a site nor optional here.
-        return new self(Policy::manifests_dir(), $origins, $provenance, $certificates, $claims);
+        return new self(
+            $manifestDir,
+            $origins,
+            $provenance,
+            $certificates,
+            $claims,
+            [],
+            $manifestLibrary instanceof AdapterLibrary ? $manifestLibrary : null
+        );
     }
 
     /**
