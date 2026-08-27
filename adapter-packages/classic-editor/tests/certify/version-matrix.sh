@@ -2,7 +2,7 @@ seed_classic_editor_content() {
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
   local COMPOSE="$PAIR_COMPOSE_STRING"
-  . conformance/seeds/classic-editor.sh
+  . ../adapter-packages/classic-editor/tests/conformance/seed.sh
   unset -f wp_conf1
 }
 

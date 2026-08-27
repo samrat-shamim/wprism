@@ -2,7 +2,7 @@ seed_advanced_editor_tools_content() {
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
   local COMPOSE="$PAIR_COMPOSE_STRING"
-  . conformance/seeds/advanced-editor-tools.sh
+  . ../adapter-packages/advanced-editor-tools/tests/conformance/seed.sh
   unset -f wp_conf1
 }
 
