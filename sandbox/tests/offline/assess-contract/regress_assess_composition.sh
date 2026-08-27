@@ -257,7 +257,7 @@ if ($dispKeys !== ["agree","host_registry_sha256","meaning","target_registry_sha
 if ($disp["target_registry_sha256"] !== $d["evidence"]["registry_sha256"]) {
     $fail("the block restates a target hash the evidence pins do not");
 }
-// The fixture computes the target hash from THIS checkout manifests/dispositions/,
+// The fixture computes the target hash from THIS checkout package dispositions,
 // exactly as ManifestDispositions::sha256() would on an adopted site, so the
 // agreeing case is the real number and not a fixture convention.
 if ($disp["agree"] !== true) { $fail("an unskewed fixture must report the two libraries agreeing"); }
@@ -265,13 +265,16 @@ if ($disp["host_registry_sha256"] !== $disp["target_registry_sha256"]) {
     $fail("agree is true beside two different hashes");
 }
 require_once $argv[2] . "/agent/src/Kernel/Canon.php";
+require_once $argv[2] . "/agent/src/Policy/AdapterLibrary.php";
+$library = \Duo\AdapterLibrary::fromSourceTree($argv[2]);
 $registry = ["format" => "duo-manifest-dispositions/v1", "manifests" => [], "profiles" => []];
-foreach (glob($argv[2] . "/manifests/dispositions/*.json") ?: [] as $document) {
-    $subject = basename($document, ".json");
-    $decoded = json_decode((string) file_get_contents($document), true);
-    if ($subject === "profiles") { $registry["profiles"] = $decoded; continue; }
-    $registry["manifests"][$subject] = $decoded;
+foreach ($library->packages() as $package) {
+    $registry["manifests"][$package->name()] = json_decode(
+        (string) file_get_contents($package->dispositionPath()),
+        true
+    );
 }
+$registry["profiles"] = json_decode((string) file_get_contents($library->profilesPath()), true);
 ksort($registry["manifests"], SORT_STRING);
 $onDisk = hash("sha256", \Duo\Canon::encode($registry));
 if ($disp["host_registry_sha256"] !== $onDisk) {
@@ -545,10 +548,11 @@ say 'engine-adapter boundary'
 # adapter joins it automatically and this gate cannot rot into a hand list.
 TOKENS=$(php -r '
 $out = [];
-foreach (glob($argv[1] . "/manifests/*.json") ?: [] as $file) {
-    $name = basename($file, ".json");
-    if (in_array($name, ["dispositions", "core"], true)) { continue; }
-    $manifest = json_decode((string) file_get_contents($file), true);
+require_once $argv[1] . "/agent/src/Policy/AdapterLibrary.php";
+foreach (\Duo\AdapterLibrary::fromSourceTree($argv[1])->packages() as $package) {
+    $name = $package->name();
+    if ($name === "core") { continue; }
+    $manifest = json_decode((string) file_get_contents($package->manifestPath()), true);
     if (!is_array($manifest)) { continue; }
     $out[] = $name;
     foreach (["plugin", "theme"] as $key) {
