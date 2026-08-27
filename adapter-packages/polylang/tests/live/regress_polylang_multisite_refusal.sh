@@ -4,7 +4,8 @@
 # network.  Every adapter-facing command must refuse before repository,
 # authored-state, or plugin bytes can change.
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+cd "$PACKAGE_ROOT/../../sandbox"
 
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 . conformance/asserts.sh
@@ -62,7 +63,7 @@ CONF1_PORT="$PORT1"
 COMPOSE="${PAIR_COMPOSE[*]}"
 export CONF_REPO1 CONF1_PORT COMPOSE
 wp_conf1() { wp1 "$@"; }
-. conformance/seeds/polylang.sh
+. "$PACKAGE_ROOT/tests/conformance/seed.sh"
 unset -f wp_conf1
 jq -n '{manifests:["core","polylang"],policy:{options:{},post_meta:{},post_types:["post","page","attachment","wp_block","nav_menu_item"],taxonomies:["category","post_tag","language","term_language","post_translations","term_translations","nav_menu"]},spec_version:2}' > "$REPO/site.duo.json"
 cp site-repo.gitignore.template "$REPO/.gitignore"

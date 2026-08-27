@@ -5,10 +5,11 @@ use Duo\TypedTableMaterializer;
 use DuoTest\FakeWpdb;
 use DuoTest\WpStore;
 
-require_once __DIR__ . '/../../lib/check.php';
-require_once __DIR__ . '/../../lib/wp_stubs.php';
-require_once __DIR__ . '/../../lib/FakeWpdb.php';
-require_once __DIR__ . '/../../../../agent/src/Apply/TypedTableMaterializer.php';
+$repoRoot = dirname(__DIR__, 4);
+require_once $repoRoot . '/sandbox/tests/lib/check.php';
+require_once $repoRoot . '/sandbox/tests/lib/wp_stubs.php';
+require_once $repoRoot . '/sandbox/tests/lib/FakeWpdb.php';
+require_once $repoRoot . '/agent/src/Apply/TypedTableMaterializer.php';
 
 /**
  * Persistent-cache failure seam backed by the shared WpStore. A false return
@@ -109,10 +110,10 @@ function pmpro_fixture(): array {
     return [$db, $materializer, $run];
 }
 
-$manifestPath = __DIR__ . '/../../../../adapter-packages/paid-memberships-pro/package/manifest.json';
+$manifestPath = dirname(__DIR__, 2) . '/package/manifest.json';
 $manifest = json_decode((string) file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
 $disposition = json_decode(
-    (string) file_get_contents(__DIR__ . '/../../../../adapter-packages/paid-memberships-pro/package/disposition.json'),
+    (string) file_get_contents(dirname(__DIR__, 2) . '/package/disposition.json'),
     true,
     512,
     JSON_THROW_ON_ERROR
@@ -131,7 +132,7 @@ duo_check(
 );
 
 $readiness = json_decode(
-    (string) file_get_contents(__DIR__ . '/../../../conformance/production-readiness.json'),
+    (string) file_get_contents($repoRoot . '/sandbox/conformance/production-readiness.json'),
     true,
     512,
     JSON_THROW_ON_ERROR
@@ -145,12 +146,12 @@ duo_check(
     'the readiness ledger closes all twelve scenario families without hiding a gap'
 );
 
-$matrix = (string) file_get_contents(__DIR__ . '/../../certify/certify_version_matrix.sh');
+$matrix = (string) file_get_contents($repoRoot . '/sandbox/tests/certify/certify_version_matrix.sh');
 duo_check(
     str_contains($matrix, 'wp_delete_user((int) $user_id, (int) $admin->ID)'),
     'the exact matrix removes retained conformance users before each PMPro boundary'
 );
-$pmproMatrixFile = (string) file_get_contents(__DIR__ . '/../../certify/matrix.d/paid-memberships-pro.sh');
+$pmproMatrixFile = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
 duo_check(
     preg_match('/check_pmpro_content\(\) \{.*?wp_conf1\(\).*?wp_conf2\(\)/s', $pmproMatrixFile) === 1,
     'the exact matrix binds both PMPro conformance environments to its dedicated pair'

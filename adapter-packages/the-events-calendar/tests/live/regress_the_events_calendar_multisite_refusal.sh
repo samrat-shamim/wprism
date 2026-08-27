@@ -3,7 +3,8 @@
 # while single-site, convert that same database to a real network, then prove
 # every adapter-facing command refuses before it can mutate the populated graph.
 set -euo pipefail
-cd "$(dirname "$0")/../.."   # -> sandbox/
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+cd "$PACKAGE_ROOT/../../sandbox"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -109,8 +110,8 @@ tec_storage_fingerprint() {
 seed_adjacent_adapter_surfaces() {
   # The shared exact-artifact seed uses native repositories, registered meta,
   # settings APIs, status controllers, Custom Tables v1, and Category Colors.
-  # shellcheck source=../../conformance/seeds/the-events-calendar.sh
-  . conformance/seeds/the-events-calendar.sh
+  # shellcheck source=../conformance/seed.sh
+  . "$PACKAGE_ROOT/tests/conformance/seed.sh"
   rm -f "$CONF_REPO1/.tmp-tec-source-ids.json"
   wp1 eval '
     $canonical = [

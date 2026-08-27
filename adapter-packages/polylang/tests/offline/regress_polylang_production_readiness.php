@@ -2,8 +2,9 @@
 declare(strict_types=1);
 
 namespace {
-    require_once __DIR__ . '/../../lib/check.php';
-    require_once dirname(__DIR__, 4) . '/agent/src/Kernel/PlainData.php';
+    $repoRoot = dirname(__DIR__, 4);
+    require_once $repoRoot . '/sandbox/tests/lib/check.php';
+    require_once $repoRoot . '/agent/src/Kernel/PlainData.php';
 
     $GLOBALS['pll_options'] = [];
     $GLOBALS['pll_menus'] = [];
@@ -449,17 +450,17 @@ namespace Duo {
 }
 
 namespace {
-    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
-    require_once dirname(__DIR__, 4) . '/agent/src/Rebuild/NativeRewriteEffects.php';
-    require_once dirname(__DIR__, 4) . '/adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php';
-    require_once dirname(__DIR__, 4) . '/adapter-packages/polylang/package/runtime/interpreters/polylang.php';
+    require_once $repoRoot . '/agent/src/Adapter/ManifestProviderRuntime.php';
+    require_once $repoRoot . '/agent/src/Rebuild/NativeRewriteEffects.php';
+    require_once dirname(__DIR__, 2) . '/package/runtime/providers/polylang-nav-menus.php';
+    require_once dirname(__DIR__, 2) . '/package/runtime/interpreters/polylang.php';
 
     use Duo\Interpreters\Polylang;
     use Duo\Providers\PolylangNavMenus;
 
-    $strictReadOnlyFixture = dirname(__DIR__, 2) . '/support/polylang_strict_readonly_context.php';
+    $strictReadOnlyFixture = dirname(__DIR__, 2) . '/fixtures/polylang_strict_readonly_context.php';
     $strictReadOnlyProcess = proc_open(
-        [PHP_BINARY, $strictReadOnlyFixture, dirname(__DIR__, 4)],
+        [PHP_BINARY, $strictReadOnlyFixture, $repoRoot],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $strictReadOnlyPipes
     );
@@ -484,7 +485,7 @@ namespace {
     duo_check_same(false, $strictReadOnly['media_support'] ?? null, 'inactive lifecycle preserves exact boolean false');
     duo_check_same(false, $strictReadOnly['rewrite'] ?? null, 'inactive lifecycle preserves exact rewrite mode');
 
-    $contextFixture = dirname(__DIR__, 2) . '/support/polylang_media_support_context.php';
+    $contextFixture = dirname(__DIR__, 2) . '/fixtures/polylang_media_support_context.php';
     $contextProcess = proc_open(
         [PHP_BINARY, $contextFixture],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
@@ -521,7 +522,7 @@ namespace {
         'false and stringly malformed media gates never gain attachment mutation authority'
     );
 
-    $sidebarFixture = dirname(__DIR__, 2) . '/support/polylang_sidebar_uninstall_context.php';
+    $sidebarFixture = dirname(__DIR__, 2) . '/fixtures/polylang_sidebar_uninstall_context.php';
     $sidebarProcess = proc_open(
         [PHP_BINARY, $sidebarFixture],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
@@ -561,7 +562,7 @@ namespace {
             && str_contains((string) ($sidebar['unowned_refusal'] ?? ''), 'polylang-1 is absent'),
         'ordinary capture and forged or unowned sidebar recovery remain loudly blocked'
     );
-    $sidebarSource = (string) file_get_contents(dirname(__DIR__, 4) . '/agent/src/Repository/SidebarState.php');
+    $sidebarSource = (string) file_get_contents($repoRoot . '/agent/src/Repository/SidebarState.php');
     $sidebarFixtureSource = (string) file_get_contents($sidebarFixture);
     duo_check(
         !str_contains($sidebarSource, 'array_is_list($portableWidgetReferences)')
@@ -581,7 +582,7 @@ namespace {
         'two attached replacement terms with one UUID still refuse as a real live collision'
     );
 
-    $termGroupFixture = dirname(__DIR__, 2) . '/support/polylang_term_group_context.php';
+    $termGroupFixture = dirname(__DIR__, 2) . '/fixtures/polylang_term_group_context.php';
     $termGroupProcess = proc_open(
         [PHP_BINARY, $termGroupFixture],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
@@ -694,7 +695,7 @@ namespace {
         $GLOBALS['pll_cleaned_terms'] = [];
         $GLOBALS['pll_runtime'] = (object) ['model' => new PllNativeModel()];
         $manifest = json_decode(
-            (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/polylang/package/manifest.json'),
+            (string) file_get_contents(dirname(__DIR__, 2) . '/package/manifest.json'),
             true,
             512,
             JSON_THROW_ON_ERROR
@@ -878,7 +879,7 @@ namespace {
         'direct recovery reconciliation reruns the same phase-independent value projection'
     );
 
-    $scopedFixture = dirname(__DIR__, 2) . '/support/polylang_provider_scoped_context.php';
+    $scopedFixture = dirname(__DIR__, 2) . '/fixtures/polylang_provider_scoped_context.php';
     $scopedProcess = proc_open(
         [PHP_BINARY, $scopedFixture],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
@@ -936,14 +937,14 @@ namespace {
         'raw nav_menu_locations does not match'
     );
 
-    $providerSource = (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php');
+    $providerSource = (string) file_get_contents(dirname(__DIR__, 2) . '/package/runtime/providers/polylang-nav-menus.php');
     duo_check(
         !str_contains($providerSource, "runcommand('rewrite flush'")
             && !str_contains($providerSource, 'NativeActions::'),
         'Polylang provider models plugin projections without invoking the native rewrite action'
     );
     $polylangManifest = json_decode(
-        (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/polylang/package/manifest.json'),
+        (string) file_get_contents(dirname(__DIR__, 2) . '/package/manifest.json'),
         true,
         512,
         JSON_THROW_ON_ERROR
@@ -981,7 +982,7 @@ namespace {
 
     $interpreter = new Polylang(new \Duo\Policy());
     $manifest = json_decode(
-        (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/polylang/package/manifest.json'),
+        (string) file_get_contents(dirname(__DIR__, 2) . '/package/manifest.json'),
         true,
         512,
         JSON_THROW_ON_ERROR
@@ -1021,7 +1022,7 @@ namespace {
         'contains an unreviewed row'
     );
     $artifactLock = json_decode(
-        (string) file_get_contents(dirname(__DIR__, 3) . '/conformance/artifacts.lock.json'),
+        (string) file_get_contents($repoRoot . '/sandbox/conformance/artifacts.lock.json'),
         true,
         512,
         JSON_THROW_ON_ERROR
@@ -1058,7 +1059,7 @@ namespace {
         $artifactLock['plugins']['polylang']['3.8.7'] ?? null,
         'official Polylang 3.8.7 archive is digest-pinned as the admitted upper boundary'
     );
-    $versionMatrix = (string) file_get_contents(dirname(__DIR__, 2) . '/certify/certify_version_matrix.sh');
+    $versionMatrix = (string) file_get_contents($repoRoot . '/sandbox/tests/certify/certify_version_matrix.sh');
     duo_check(
         str_contains($versionMatrix, 'for POLYLANG_VERSION in 3.8 3.8.7; do')
             && str_contains($versionMatrix, 'fetch_artifact polylang "$POLYLANG_VERSION" cli1')
@@ -1081,50 +1082,36 @@ namespace {
             && str_contains($versionMatrix, 'did not restore exact 3.8.7 artifact bytes'),
         'version matrix creates only the real header-parser 3.8.8 control, proves refusal/no ref mutation, and restores the exact artifact'
     );
-    $conformanceRoot = dirname(__DIR__, 3) . '/conformance';
-    $seedScript = (string) file_get_contents($conformanceRoot . '/seeds/polylang.sh');
-    $hostileScript = (string) file_get_contents($conformanceRoot . '/postdeploy/polylang.sh');
-    $checksScript = (string) file_get_contents($conformanceRoot . '/checks/polylang.sh');
+    $conformanceRoot = dirname(__DIR__) . '/conformance';
+    $seedScript = (string) file_get_contents($conformanceRoot . '/seed.sh');
+    $hostileScript = (string) file_get_contents($conformanceRoot . '/postdeploy.sh');
+    $checksScript = (string) file_get_contents($conformanceRoot . '/check.sh');
     $entry = json_decode(
-        (string) file_get_contents($conformanceRoot . '/entries/polylang.json'),
-        true,
-        512,
-        JSON_THROW_ON_ERROR
-    );
-    $registry = json_decode(
-        (string) file_get_contents($conformanceRoot . '/manifests.json'),
+        (string) file_get_contents($conformanceRoot . '/entry.json'),
         true,
         512,
         JSON_THROW_ON_ERROR
     );
     duo_check_same(
-        duo_check_canonical_json($entry['entry'] ?? []),
-        duo_check_canonical_json($registry['polylang'] ?? []),
-        'ordinary Polylang conformance uses the exact standalone fixture, including synced patterns'
+        'polylang',
+        $entry['manifest'] ?? null,
+        'the capsule conformance entry selects the Polylang adapter'
     );
+    $conformanceEntry = $entry['entry'] ?? [];
     duo_check_same(
         [['slug' => 'polylang', 'version' => '3.8.6']],
-        $registry['polylang']['plugins'] ?? null,
+        $conformanceEntry['plugins'] ?? null,
         'ordinary Polylang conformance is pinned to the exact standalone 3.8.6 artifact'
     );
     duo_check_same(
         ['post', 'page', 'wp_block', 'attachment'],
-        $registry['polylang']['post_types'] ?? null,
+        $conformanceEntry['post_types'] ?? null,
         'ordinary Polylang conformance scopes posts, pages, synced patterns and attachments explicitly'
     );
-    $readiness = json_decode(
-        (string) file_get_contents($conformanceRoot . '/production-readiness.json'),
-        true,
-        512,
-        JSON_THROW_ON_ERROR
-    );
-    duo_check(
-        in_array(
-            'sandbox/conformance/manifests.json',
-            $readiness['adapters']['polylang']['covered']['clean-target'] ?? [],
-            true
-        ),
-        'the Polylang readiness ledger names the default standalone conformance registry'
+    duo_check_same(
+        ['core', 'polylang'],
+        $conformanceEntry['pin'] ?? null,
+        'the capsule conformance entry pins core and Polylang without a central registry'
     );
     duo_check(
         str_contains($seedScript, '$pageFixtures = [')

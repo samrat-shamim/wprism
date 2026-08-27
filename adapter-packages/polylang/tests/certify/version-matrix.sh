@@ -5,7 +5,9 @@ seed_polylang_content() {
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
   local COMPOSE="$PAIR_COMPOSE_STRING"
-  . conformance/seeds/polylang.sh
+  local package_tests
+  package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+  . "$package_tests/conformance/seed.sh"
   unset -f wp_conf1
 }
 
@@ -22,6 +24,8 @@ check_polylang_content() {
   local POLYLANG_BOUNDARY_ONLY=1
   local POLYLANG_EXPECTED_VERSION="$POLYLANG_VERSION"
   local APPLY_JSON="${POLYLANG_BOUNDARY_PROVIDER_RECEIPT:-}"
-  . conformance/checks/polylang.sh
+  local package_tests
+  package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+  . "$package_tests/conformance/check.sh"
   unset -f wp_conf1 wp_conf2
 }

@@ -12,7 +12,7 @@
 # in isolation, no docker).
 #
 # Proves, against the REAL The Events Calendar 6.17.2 and the SHIPPED
-# manifests/the-events-calendar.json (not a synthetic declaration):
+# adapter-packages/the-events-calendar/package/manifest.json (not a synthetic declaration):
 #   0. DUO-3301's R3-B render checker keeps its complete-response and
 #      producer-safe aggregate assertion contract. This source-wiring
 #      preflight prevents `echo "$LIST_HTML" | grep -q` from returning as
@@ -65,7 +65,7 @@
 # evidence-bound shipped adapter bytes before target contact. This still
 # exercises the real TEC adapter while leaving product evidence untouched.
 set -euo pipefail
-cd "$(dirname "$0")/../.."   # -> sandbox/
+cd "$(dirname "$0")/../../../../sandbox"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -108,7 +108,7 @@ wp2() { docker compose -p "duo-$PAIR" -f pair.yml run --rm -T cli2 wp "$@"; }
 wp2_fault() { docker compose -p "duo-$PAIR" -f pair.yml run --rm -T -e DUO_MANIFESTS_DIR=/siterepo/.tmp-tec-manifests cli2 wp "$@"; }
 GIT_1="git -C siterepo/${PAIR}1 -c user.name=duo-$PAIR -c user.email=$PAIR@example.test"
 
-SHIPPED_MANIFEST="../manifests/the-events-calendar.json"
+SHIPPED_MANIFEST="../adapter-packages/the-events-calendar/package/manifest.json"
 TEST_MANIFEST_DIR="siterepo/${PAIR}2/.tmp-tec-manifests"
 MANIFEST="$TEST_MANIFEST_DIR/the-events-calendar.json"
 
@@ -236,13 +236,17 @@ pass "tec_occurrences row confirmed present on side 2, created automatically by 
 # A private manifest directory isolates the verifier fault while retaining the
 # shipped platform boundary and every manifest-bound hook file that policy
 # resolves before any adapter regenerator may run.
-mkdir -p "$TEST_MANIFEST_DIR/capabilities" "$TEST_MANIFEST_DIR/interpreters" "$TEST_MANIFEST_DIR/providers" "$TEST_MANIFEST_DIR/regenerators"
-cp ../manifests/core.json "$TEST_MANIFEST_DIR/core.json"
-cp ../manifests/capabilities/platform.json "$TEST_MANIFEST_DIR/capabilities/platform.json"
+mkdir -p "$TEST_MANIFEST_DIR/capabilities" "$TEST_MANIFEST_DIR/dispositions" "$TEST_MANIFEST_DIR/interpreters" "$TEST_MANIFEST_DIR/providers" "$TEST_MANIFEST_DIR/regenerators"
+cp ../platform/adapter-library/core/manifest.json "$TEST_MANIFEST_DIR/core.json"
+cp ../platform/adapter-library/core/disposition.json "$TEST_MANIFEST_DIR/dispositions/core.json"
+cp ../platform/adapter-library/profiles.json "$TEST_MANIFEST_DIR/dispositions/profiles.json"
+cp ../platform/adapter-library/capabilities/platform.json "$TEST_MANIFEST_DIR/capabilities/platform.json"
+cp ../platform/adapter-library/capabilities/adapter-authorities.json "$TEST_MANIFEST_DIR/capabilities/adapter-authorities.json"
 cp "$SHIPPED_MANIFEST" "$MANIFEST"
-cp ../manifests/interpreters/the-events-calendar.php "$TEST_MANIFEST_DIR/interpreters/the-events-calendar.php"
-cp ../manifests/providers/the-events-calendar-category-colors.php "$TEST_MANIFEST_DIR/providers/the-events-calendar-category-colors.php"
-cp ../manifests/regenerators/the-events-calendar.php "$TEST_MANIFEST_DIR/regenerators/the-events-calendar.php"
+cp ../adapter-packages/the-events-calendar/package/disposition.json "$TEST_MANIFEST_DIR/dispositions/the-events-calendar.json"
+cp ../adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php "$TEST_MANIFEST_DIR/interpreters/the-events-calendar.php"
+cp ../adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php "$TEST_MANIFEST_DIR/providers/the-events-calendar-category-colors.php"
+cp ../adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php "$TEST_MANIFEST_DIR/regenerators/the-events-calendar.php"
 
 say "(4) byte-identical recapture on side 2"
 wp2 duo capture --repo=/siterepo

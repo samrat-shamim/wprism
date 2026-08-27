@@ -1,7 +1,7 @@
 {
   "format": "duo-tec-wordpress-option-topology/v1",
-  "reproduce": "php sandbox/tests/support/verify-tec-wordpress-option-hooks.php --wordpress-root=/usr/src/wordpress --version=<version>",
-  "reproduce_tec": "php sandbox/tests/support/verify-tec-wordpress-option-hooks.php --wordpress-root=/usr/src/wordpress --version=<wp-version> --tec-root=/path/to/the-events-calendar --tec-version=<tec-version>",
+  "reproduce": "php adapter-packages/the-events-calendar/fixtures/verify-tec-wordpress-option-hooks.php --wordpress-root=/usr/src/wordpress --version=<version>",
+  "reproduce_tec": "php adapter-packages/the-events-calendar/fixtures/verify-tec-wordpress-option-hooks.php --wordpress-root=/usr/src/wordpress --version=<wp-version> --tec-root=/path/to/the-events-calendar --tec-version=<tec-version>",
   "source_files": {
     "6.9.2": {
       "option_php_sha256": "cde15dc93f943de5884c87b26f0786011c6e43b93440cde1792428029ced9e37",

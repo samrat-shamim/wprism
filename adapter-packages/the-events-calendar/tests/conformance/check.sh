@@ -1460,16 +1460,17 @@ foreach ([
     $assert(is_file($path) && hash_file('sha256', $path) === $expectedSha256,
         "exact Category Colors service source disagrees: $relative");
 }
-$manifestDir = getenv('DUO_MANIFESTS_DIR');
-$providerPath = is_string($manifestDir)
-    ? rtrim($manifestDir, '/') . '/providers/the-events-calendar-category-colors.php'
-    : '';
-$assert($providerPath !== '' && is_file($providerPath),
-    'exact Category Colors provider source is absent from the active manifest mount');
+$policy = \Duo\Policy::load('/siterepo');
+$providerPath = $policy->adapter_runtime_path(
+    'the-events-calendar',
+    'providers',
+    'the-events-calendar-category-colors'
+);
+$assert(is_file($providerPath),
+    'exact Category Colors provider source is absent from the selected adapter package');
 require_once $providerPath;
 $assert(class_exists(\Duo\Providers\TheEventsCalendarCategoryColors::class, false),
-    'exact Category Colors provider class did not load from the active manifest mount');
-$policy = \Duo\Policy::load('/siterepo');
+    'exact Category Colors provider class did not load from the selected adapter package');
 $provider = new \Duo\Providers\TheEventsCalendarCategoryColors(
     $policy->provider_declarations()['the-events-calendar-category-colors']
 );

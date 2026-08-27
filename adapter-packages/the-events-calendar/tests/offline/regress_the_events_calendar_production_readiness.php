@@ -234,7 +234,7 @@ class WP_Object_Cache {}
 final class TecReadinessForeignObjectCache extends WP_Object_Cache {}
 
 if (!defined('WP_CONTENT_DIR')) {
-    define('WP_CONTENT_DIR', dirname(__DIR__, 3) . '/tmp/tec-readiness-wp-content');
+    define('WP_CONTENT_DIR', dirname(__DIR__, 4) . '/sandbox/tmp/tec-readiness-wp-content');
 }
 
 final class WP_Hook {
@@ -791,29 +791,30 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 3);
 }
 
-require_once __DIR__ . '/../../lib/check.php';
-require_once __DIR__ . '/../../lib/wp_stubs.php';
-require_once __DIR__ . '/../../lib/FakeWpdb.php';
-require_once __DIR__ . '/../../lib/LockingFakeWpdb.php';
-require_once __DIR__ . '/../../support/wp-block-parser-stub.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
-require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
-require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
-require_once __DIR__ . '/../../../../agent/src/Grammar/Blocks.php';
-require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
-require_once __DIR__ . '/../../../../agent/src/Repository/Snapshot.php';
-require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
-require_once __DIR__ . '/../../../../agent/src/Promotion/Deploy.php';
-require_once __DIR__ . '/../../../../agent/src/Adapter/Providers.php';
-require_once __DIR__ . '/../../../../agent/src/Capture/EntityMetaCapture.php';
-require_once __DIR__ . '/../../../../agent/src/Capture/OptionsCapture.php';
-require_once __DIR__ . '/../../../../agent/src/Capture/CaptureCandidateBuilder.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
-require_once __DIR__ . '/../../../../agent/src/Apply/OptionsMaterializer.php';
-require_once __DIR__ . '/../../../../adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php';
-require_once __DIR__ . '/../../../../adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php';
-require_once __DIR__ . '/../../../../adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php';
+$root = dirname(__DIR__, 4);
+require_once $root . '/sandbox/tests/lib/check.php';
+require_once $root . '/sandbox/tests/lib/wp_stubs.php';
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
+require_once $root . '/sandbox/tests/lib/LockingFakeWpdb.php';
+require_once $root . '/sandbox/tests/support/wp-block-parser-stub.php';
+require_once $root . '/agent/src/Kernel/Canon.php';
+require_once $root . '/agent/src/Repository/Ledger.php';
+require_once $root . '/agent/src/Grammar/Tokens.php';
+require_once $root . '/agent/src/Grammar/Blocks.php';
+require_once $root . '/agent/src/Policy/Policy.php';
+require_once $root . '/agent/src/Repository/Snapshot.php';
+require_once $root . '/agent/src/Repository/SidebarState.php';
+require_once $root . '/agent/src/Promotion/Deploy.php';
+require_once $root . '/agent/src/Adapter/Providers.php';
+require_once $root . '/agent/src/Capture/EntityMetaCapture.php';
+require_once $root . '/agent/src/Capture/OptionsCapture.php';
+require_once $root . '/agent/src/Capture/CaptureCandidateBuilder.php';
+require_once $root . '/agent/src/Kernel/TransientDbException.php';
+require_once $root . '/agent/src/Kernel/Db.php';
+require_once $root . '/agent/src/Apply/OptionsMaterializer.php';
+require_once dirname(__DIR__, 2) . '/package/runtime/interpreters/the-events-calendar.php';
+require_once dirname(__DIR__, 2) . '/package/runtime/providers/the-events-calendar-category-colors.php';
+require_once dirname(__DIR__, 2) . '/package/runtime/regenerators/the-events-calendar.php';
 
 use Duo\Interpreters\TheEventsCalendar;
 use Duo\Blocks;
@@ -1827,9 +1828,8 @@ function tec_readiness_refuses(TheEventsCalendar $interpreter, array $tree, stri
     );
 }
 
-$root = dirname(__DIR__, 4);
 $manifest = json_decode(
-    (string) file_get_contents($root . '/adapter-packages/the-events-calendar/package/manifest.json'),
+    (string) file_get_contents(dirname(__DIR__, 2) . '/package/manifest.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
@@ -1845,7 +1845,7 @@ $artifacts = json_decode(
 // monolith held under ['manifests']['the-events-calendar'], so every member
 // read below is unchanged.
 $disposition = json_decode(
-    (string) file_get_contents($root . '/adapter-packages/the-events-calendar/package/disposition.json'),
+    (string) file_get_contents(dirname(__DIR__, 2) . '/package/disposition.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
@@ -3269,7 +3269,7 @@ $expectedTopLevelOptionClasses = [
         'tribe_skip_welcome',
     ],
 ];
-$manifest = json_decode((string) file_get_contents($root . '/adapter-packages/the-events-calendar/package/manifest.json'), true, 512, JSON_THROW_ON_ERROR);
+$manifest = json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/package/manifest.json'), true, 512, JSON_THROW_ON_ERROR);
 $actualTopLevelOptionClasses = [];
 foreach ((array) ($manifest['options'] ?? []) as $key => $rule) {
     $actualTopLevelOptionClasses[(string) ($rule['class'] ?? '')][] = (string) $key;
@@ -3460,7 +3460,7 @@ duo_check_same(
     'provider negotiation refuses before mutation when the exact 6.17.x native CSS path disappears'
 );
 $colorProviderSource = (string) file_get_contents(
-    $root . '/adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php'
+    dirname(__DIR__, 2) . '/package/runtime/providers/the-events-calendar-category-colors.php'
 );
 $nativeGenerateOffset = strpos($colorProviderSource, '$generator->generate_and_save_css();');
 $nativeBustOffset = strpos($colorProviderSource, '$dropdown->bust_dropdown_categories_cache();');
@@ -4716,7 +4716,7 @@ duo_check_same(
 );
 duo_check_same(1, $GLOBALS['tec_readiness_cache_busts'], 'the provider invokes TEC native controller semantics including cache busting');
 $optionHookFixture = json_decode(
-    (string) file_get_contents($root . '/sandbox/tests/fixtures/the-events-calendar-wordpress-option-hooks.json'),
+    (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/the-events-calendar-wordpress-option-hooks.json'),
     true,
     512,
     JSON_THROW_ON_ERROR
@@ -5029,20 +5029,20 @@ duo_check_same(
     'the reviewed WordPress source fixture closes the native marker default-autoload callback'
 );
 duo_check_same(
-    'php sandbox/tests/support/verify-tec-wordpress-option-hooks.php '
+    'php adapter-packages/the-events-calendar/fixtures/verify-tec-wordpress-option-hooks.php '
         . '--wordpress-root=/usr/src/wordpress --version=<version>',
     $optionHookFixture['reproduce'] ?? null,
     'the reviewed WordPress option topology carries its deterministic exact-source verifier command'
 );
 duo_check_same(
-    'php sandbox/tests/support/verify-tec-wordpress-option-hooks.php '
+    'php adapter-packages/the-events-calendar/fixtures/verify-tec-wordpress-option-hooks.php '
         . '--wordpress-root=/usr/src/wordpress --version=<wp-version> '
         . '--tec-root=/path/to/the-events-calendar --tec-version=<tec-version>',
     $optionHookFixture['reproduce_tec'] ?? null,
     'the native derived-state services carry one deterministic exact-source verifier command'
 );
 $optionHookVerifier = (string) file_get_contents(
-    $root . '/sandbox/tests/support/verify-tec-wordpress-option-hooks.php'
+    dirname(__DIR__, 2) . '/fixtures/verify-tec-wordpress-option-hooks.php'
 );
 foreach (['get_option', 'wp_load_alloptions', 'update_option', 'add_option', 'sanitize_option'] as $function) {
     duo_check(
@@ -5822,7 +5822,7 @@ duo_check_throws(
     'Customizer'
 );
 $tecRegeneratorSource = (string) file_get_contents(
-    $root . '/adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php'
+    dirname(__DIR__, 2) . '/package/runtime/regenerators/the-events-calendar.php'
 );
 $lastSaveHookTopology = [];
 foreach (($optionHookFixture['last_save_paths'] ?? []) as $pathHooks) {
@@ -8352,10 +8352,10 @@ foreach (['post:tribe_events', 'post:tribe_venue', 'post:tribe_organizer', 'term
         "$selector has no inferred deletion authority before its native cascades and reverse references are closed"
     );
 }
-$deletionSeed = (string) file_get_contents($root . '/sandbox/conformance/seeds/the-events-calendar.sh');
-$deletionPostdeploy = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/the-events-calendar.sh');
-$sentinelPostapply = (string) file_get_contents($root . '/sandbox/conformance/postapply/the-events-calendar.sh');
-$deletionCheck = (string) file_get_contents($root . '/sandbox/conformance/checks/the-events-calendar.sh');
+$deletionSeed = (string) file_get_contents(dirname(__DIR__) . '/conformance/seed.sh');
+$deletionPostdeploy = (string) file_get_contents(dirname(__DIR__) . '/conformance/postdeploy.sh');
+$sentinelPostapply = (string) file_get_contents(dirname(__DIR__) . '/conformance/postapply.sh');
+$deletionCheck = (string) file_get_contents(dirname(__DIR__) . '/conformance/check.sh');
 $schemaProbeAt = strpos($deletionCheck, 'SCHEMA_BACKUP=');
 duo_check(
     $schemaProbeAt !== false
@@ -8673,10 +8673,10 @@ duo_check(
     'both exact TEC boundary artifacts execute Category Colors equal-priority/cache/pagination evidence'
 );
 duo_check(
-    str_contains($deletionCheck, "getenv('DUO_MANIFESTS_DIR')")
+    str_contains($deletionCheck, '$policy->adapter_runtime_path(')
         && str_contains(
             $deletionCheck,
-            "'/providers/the-events-calendar-category-colors.php'"
+            "'the-events-calendar-category-colors'"
         )
         && str_contains(
             $deletionCheck,
@@ -8684,7 +8684,7 @@ duo_check(
         )
         && strpos($deletionCheck, 'require_once $providerPath;')
             < strpos($deletionCheck, '$provider = new \\Duo\\Providers\\TheEventsCalendarCategoryColors('),
-    'the raw exact Category Colors boundary loads the shipped provider from the active manifest mount before construction'
+    'the raw exact Category Colors boundary loads the shipped provider from the selected adapter package before construction'
 );
 $tecBoundaryReturnAt = strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]');
 $widgetScopedCaptureAt = strpos($deletionCheck, 'TEC_WIDGET_SCOPE_HOST=');
@@ -8876,8 +8876,8 @@ duo_check_same(
 );
 
 // The matrix source is TWO files here, not one. This branch extracted every
-// per-plugin content helper into tests/certify/matrix.d/<plugin>.sh, sourced
-// back by certify_version_matrix.sh:146-159; #561 authored the checks below
+// per-plugin content helper into each adapter capsule's tests/certify/version-matrix.sh,
+// sourced back by the central matrix driver; #561 authored the checks below
 // against the monolith, where the helper DEFINITIONS and the case body shared
 // a file. The driver still owns the `if [ "$VMATRIX_MANIFEST" = ... ]` case,
 // TEC's four content helpers live in its own matrix.d document, and the
@@ -8887,17 +8887,17 @@ $versionMatrixDriver = (string) file_get_contents(
     $root . '/sandbox/tests/certify/certify_version_matrix.sh'
 );
 $tecMatrixHelpers = (string) file_get_contents(
-    $root . '/sandbox/tests/certify/matrix.d/the-events-calendar.sh'
+    dirname(__DIR__) . '/certify/version-matrix.sh'
 );
 $versionMatrix = $versionMatrixDriver . $tecMatrixHelpers;
 $tecRegenLive = (string) file_get_contents(
-    $root . '/sandbox/tests/live/regress_tec_regen.sh'
+    dirname(__DIR__) . '/live/regress_tec_regen.sh'
 );
 foreach ([
-    'cp ../manifests/capabilities/platform.json "$TEST_MANIFEST_DIR/capabilities/platform.json"' => 'the mandatory platform boundary',
-    'cp ../manifests/interpreters/the-events-calendar.php "$TEST_MANIFEST_DIR/interpreters/the-events-calendar.php"' => 'the manifest-bound interpreter',
-    'cp ../manifests/providers/the-events-calendar-category-colors.php "$TEST_MANIFEST_DIR/providers/the-events-calendar-category-colors.php"' => 'the manifest-bound provider',
-    'cp ../manifests/regenerators/the-events-calendar.php "$TEST_MANIFEST_DIR/regenerators/the-events-calendar.php"' => 'the manifest-bound regenerator',
+    'cp ../platform/adapter-library/capabilities/platform.json "$TEST_MANIFEST_DIR/capabilities/platform.json"' => 'the mandatory platform boundary',
+    'cp ../adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php "$TEST_MANIFEST_DIR/interpreters/the-events-calendar.php"' => 'the manifest-bound interpreter',
+    'cp ../adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php "$TEST_MANIFEST_DIR/providers/the-events-calendar-category-colors.php"' => 'the manifest-bound provider',
+    'cp ../adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php "$TEST_MANIFEST_DIR/regenerators/the-events-calendar.php"' => 'the manifest-bound regenerator',
 ] as $regenFixtureEvidence => $regenFixtureLabel) {
     duo_check(
         str_contains($tecRegenLive, $regenFixtureEvidence),
@@ -8972,7 +8972,7 @@ foreach ([
     'local TEC_BOUNDARY_ONLY=0',
     'local TEC_POST_UPGRADE_ONLY="${TEC_POST_UPGRADE_ONLY:-0}"',
     'if [ "$TEC_EXPECTED_VERSION" != 6.17.2 ]; then',
-    '. conformance/postapply/the-events-calendar.sh',
+    '. "$package_tests/conformance/postapply.sh"',
     '"taxonomies": ["category", "post_tag", "tribe_events_cat"]',
     'TEC_UPGRADE_DEPLOY_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1)',
     'wp2 duo deploy --repo=/siterepo --force-code-drift',
@@ -9149,7 +9149,7 @@ duo_check(
     'TEC binds the platform-wide pre-policy network refusal instead of inventing adapter-local multisite behavior'
 );
 $tecMultisiteRefusal = (string) file_get_contents(
-    $root . '/sandbox/tests/live/regress_the_events_calendar_multisite_refusal.sh'
+    dirname(__DIR__) . '/live/regress_the_events_calendar_multisite_refusal.sh'
 );
 duo_check_same(
     1,
@@ -9158,7 +9158,7 @@ duo_check_same(
 );
 foreach ([
     'DUO_EXPECTED_SOURCE_SHA must bind the exact lowercase 40-character candidate SHA',
-    '. conformance/seeds/the-events-calendar.sh',
+    '. "$PACKAGE_ROOT/tests/conformance/seed.sh"',
     'wp1 core multisite-convert',
     'tec_storage_fingerprint',
     'tribe_events_calendar_options',
@@ -9638,7 +9638,7 @@ duo_check_same($flushesBeforeTrigger, $GLOBALS['wp_rewrite']->flushCalls, 'trigg
 // Load Woo only at this product boundary: PHP cannot unload functions/classes,
 // and the earlier TEC-only cells intentionally prove the supported absent-
 // integration topology before this exact normal 11.0.1 co-install is visible.
-require_once __DIR__ . '/../../support/tec-woo-option-callbacks.php';
+require_once $root . '/sandbox/tests/support/tec-woo-option-callbacks.php';
 $wooServices = tec_readiness_install_woo_option_callbacks();
 $GLOBALS['tec_readiness_woo_calls'] = [];
 $yoastOptionClasses = [

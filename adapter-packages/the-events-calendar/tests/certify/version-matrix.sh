@@ -5,7 +5,9 @@ seed_the_events_calendar_content() {
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
   local COMPOSE="$PAIR_COMPOSE_STRING"
-  . conformance/seeds/the-events-calendar.sh
+  local package_tests
+  package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+  . "$package_tests/conformance/seed.sh"
   unset -f wp_conf1
 }
 
@@ -13,7 +15,9 @@ postdeploy_the_events_calendar_content() {
   wp_conf2() { wp2 "$@"; }
   local CONF_REPO2="siterepo/${PAIR}2"
   local COMPOSE="$PAIR_COMPOSE_STRING"
-  . conformance/postdeploy/the-events-calendar.sh
+  local package_tests
+  package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+  . "$package_tests/conformance/postdeploy.sh"
   unset -f wp_conf2
 }
 
@@ -40,13 +44,17 @@ check_the_events_calendar_boundary_content() {
   if [ "$TEC_EXPECTED_VERSION" != 6.17.2 ]; then
     TEC_BOUNDARY_ONLY=1
   fi
-  . conformance/checks/the-events-calendar.sh
+  local package_tests
+  package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+  . "$package_tests/conformance/check.sh"
   unset -f wp_conf1 wp_conf2 wp_env
 }
 
 postapply_the_events_calendar_content() {
   wp_conf2() { wp2 "$@"; }
   local CONF_REPO2="siterepo/${PAIR}2"
-  . conformance/postapply/the-events-calendar.sh
+  local package_tests
+  package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+  . "$package_tests/conformance/postapply.sh"
   unset -f wp_conf2
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression — DUO-3235: LIVE, docker-based round-trip proof for BOTH halves
 # of the typed-snapshot grammar extension, against the SHIPPED
-# manifests/paid-memberships-pro.json (not a synthetic declaration —
+# adapter-packages/paid-memberships-pro/package/manifest.json (not a synthetic declaration —
 # proving the actual deliverable):
 #
 #   - task #125 (composite primary keys): pmpro_memberships_pages
@@ -41,7 +41,7 @@
 # for this dispatch; 8930/8931 were this session's own exploratory pair,
 # already destroyed before authoring this script).
 set -euo pipefail
-cd "$(dirname "$0")/../.."   # -> sandbox/
+cd "$(dirname "$0")/../../../../sandbox"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -67,8 +67,8 @@ say "bring up scratch pair '$PAIR' ($PORT1/$PORT2)"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2"
 pass "pair '$PAIR' ready"
 
-# PMPro was permanently removed from wp.org on 2024-10-17 (see manifests/
-# paid-memberships-pro.json's own notes) — install the official GitHub
+# PMPro was permanently removed from wp.org on 2024-10-17 (see the package
+# manifest's own notes) — install the official GitHub
 # release tag, exactly matching this manifest's own pinned evidence version.
 say "install + activate Paid Memberships Pro 3.8.3 (official GitHub tag) on both sides"
 wp1 plugin install https://github.com/strangerstudios/paid-memberships-pro/archive/refs/tags/3.8.3.zip --activate >/dev/null
@@ -197,7 +197,7 @@ git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
 # silently out of policy scope. Reconfirmed live against a much-advanced
 # main (through DUO-3216/#22) that this is still required, not a stale
 # assumption. Same mitigation already applied to
-# sandbox/tests/live/regress_tec_regen.sh for the identical reason.
+# adapter-packages/the-events-calendar/tests/live/regress_tec_regen.sh for the identical reason.
 cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {
   "manifests": ["core", "paid-memberships-pro"],
