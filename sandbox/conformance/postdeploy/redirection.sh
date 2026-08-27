@@ -98,6 +98,7 @@ NEGATIVE_CODE=$(curl --max-time 20 -sS -o /dev/null -w '%{http_code}' "http://lo
 # lost identity sidecar. The disposable state is never published; only the
 # database-matched duo_map evidence survives.
 IDENTITY_REPO="${CONF_REPO2:-siterepo/conf2}/.tmp-redirection-identity-repo"
+WIDGET_STATE="${CONF_REPO2:-siterepo/conf2}/.tmp-redirection-identity-widgets"
 mkdir -p "$IDENTITY_REPO"
 # The identity-minting pass must not touch core's default category/widgets:
 # first apply adopts/reconciles those against the source graph, and a locally
@@ -106,10 +107,56 @@ mkdir -p "$IDENTITY_REPO"
 jq '
   .manifests = ["redirection"] |
   .policy.post_types = [] |
-  .policy.taxonomies = []
+  .policy.taxonomies = [] |
+  .policy.scope.taxonomy.category.class = "runtime"
 ' "${CONF_REPO2:-siterepo/conf2}/site.duo.json" > "$IDENTITY_REPO/site.duo.json"
+
+# Capture audits global WordPress state even when the selected adapter owns no
+# core surfaces. Fresh WordPress installs carry block-widget instances, and a
+# redirection-only manifest correctly cannot classify their sidebar grammar.
+# Quiesce those unrelated options through WordPress APIs only for this
+# disposable identity pass, then restore and hash-check their exact decoded
+# values on success or failure. The real repository and its policy stay
+# untouched throughout.
+restore_redirection_identity_widgets() {
+  [ -f "$WIDGET_STATE" ] || return 0
+  wp_conf2 eval '
+    $path="/siterepo/.tmp-redirection-identity-widgets";
+    $state=unserialize((string)file_get_contents($path),["allowed_classes"=>false]);
+    if (!is_array($state) || !array_key_exists("sidebars_widgets",$state) || !array_key_exists("widget_block",$state)) {
+      throw new RuntimeException("Redirection identity widget backup is malformed");
+    }
+    update_option("sidebars_widgets",$state["sidebars_widgets"]);
+    update_option("widget_block",$state["widget_block"]);
+    echo hash("sha256",serialize([
+      "sidebars_widgets"=>get_option("sidebars_widgets"),
+      "widget_block"=>get_option("widget_block"),
+    ]));
+  '
+  rm -f "$WIDGET_STATE"
+}
+trap restore_redirection_identity_widgets EXIT
+WIDGET_HASH=$(wp_conf2 eval '
+  $path="/siterepo/.tmp-redirection-identity-widgets";
+  $state=[
+    "sidebars_widgets"=>get_option("sidebars_widgets"),
+    "widget_block"=>get_option("widget_block"),
+  ];
+  if (file_put_contents($path,serialize($state),LOCK_EX) === false) {
+    throw new RuntimeException("could not preserve unrelated WordPress widgets");
+  }
+  update_option("sidebars_widgets",["wp_inactive_widgets"=>[],"array_version"=>3]);
+  update_option("widget_block",["_multiwidget"=>1]);
+  echo hash("sha256",serialize($state));
+')
+require_observed_nonempty "Redirection identity widget backup" "$WIDGET_HASH"
 TARGET_IDENTITY_CAPTURE=$(wp_conf2 duo capture --repo=/siterepo/.tmp-redirection-identity-repo 2>&1)
 require_duo_answered "Redirection target-only identity capture" human "$TARGET_IDENTITY_CAPTURE"
+RESTORED_WIDGET_HASH=$(restore_redirection_identity_widgets)
+require_observed_nonempty "Redirection identity widget restore" "$RESTORED_WIDGET_HASH"
+[ "$RESTORED_WIDGET_HASH" = "$WIDGET_HASH" ] \
+  || fail "Redirection identity pass did not exactly restore unrelated WordPress widgets"
+trap - EXIT
 rm -rf "$IDENTITY_REPO"
 RUNTIME=$(wp_conf2 eval '
   global $wpdb;

@@ -7,6 +7,28 @@ seed_redirection_content() {
 }
 
 prepare_redirection_boundary_target() {
+  # Activation does not run Redirection's onboarding installer. The exact
+  # boundary target must enter the same native ready state as conformance
+  # before this helper can reset tables or exercise provider readback.
+  local database
+  wp2 redirection database install >/dev/null
+  database=$(wp2 eval '
+    global $wpdb;
+    $tables=[];
+    foreach (["redirection_items","redirection_groups","redirection_logs","redirection_404"] as $suffix) {
+      $name=$wpdb->prefix.$suffix;
+      $tables[$suffix]=$wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s",$name))===$name;
+    }
+    echo wp_json_encode([
+      "database"=>(string)(Red_Options::get()["database"] ?? ""),
+      "groups"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}redirection_groups"),
+      "tables"=>$tables,
+    ]);
+  ')
+  require_observed_nonempty 'Redirection 5.9.0 boundary target database readiness' "$database"
+  database=$(printf '%s\n' "$database" | awk 'NF { line=$0 } END { print line }')
+  jq -e '.database != "" and .groups >= 2 and (.tables | all(. == true))' <<<"$database" >/dev/null \
+    || fail "Redirection 5.9.0 boundary target native database install did not converge: $database"
   wp2 eval '
     global $wpdb;
     foreach (["redirection_items","redirection_groups","redirection_logs","redirection_404"] as $suffix) {

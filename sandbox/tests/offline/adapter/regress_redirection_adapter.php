@@ -308,9 +308,21 @@ namespace {
     duo_check(str_contains($targetSeed, '.manifests = ["redirection"]')
         && str_contains($targetSeed, '.policy.post_types = []')
         && str_contains($targetSeed, '.policy.taxonomies = []')
+        && str_contains($targetSeed, '.policy.scope.taxonomy.category.class = "runtime"')
+        && str_contains($targetSeed, 'update_option("sidebars_widgets"')
+        && str_contains($targetSeed, 'update_option("widget_block"')
+        && str_contains($targetSeed, 'trap restore_redirection_identity_widgets EXIT')
+        && str_contains($targetSeed, 'RESTORED_WIDGET_HASH')
         && str_contains($targetSeed, 'duo capture --repo=/siterepo/.tmp-redirection-identity-repo')
         && !str_contains($targetSeed, 'duo capture --repo=/siterepo --out=/siterepo/.tmp-redirection-target-identity'),
-        'A8: target-only mappings use an adapter-only isolated policy, never the source graph or core identities');
+        'A8: target-only mappings isolate the adapter and exactly restore unrelated globally-audited state');
+    $matrixSeed = (string) file_get_contents($root . '/sandbox/tests/certify/matrix.d/redirection.sh');
+    duo_check(str_contains($matrixSeed, 'wp2 redirection database install')
+        && str_contains($matrixSeed, 'Redirection 5.9.0 boundary target database readiness')
+        && str_contains($matrixSeed, 'SHOW TABLES LIKE %s')
+        && str_contains($matrixSeed, '.groups >= 2')
+        && str_contains($matrixSeed, 'all(. == true)'),
+        'A9: exact-version target completes and verifies the same native onboarding before table reset');
 
     $provider = new RedirectionState(new Policy());
     duo_check_same(

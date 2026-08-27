@@ -92,10 +92,19 @@ isolated version copied the whole site policy and exposed another real ordering
 error: it also minted the target's default category, so first apply correctly
 refused `adopt term identity contradicts the exact physical identity row`.
 Narrowing the disposable policy to only the Redirection manifest, with empty
-post and taxonomy scope, established identities only for Redirection's current
-rows and left both core identities and the real source branch untouched. The
-fixture now encodes that ordering and an offline regression prevents either
-the canonical-root shortcut or a cross-plugin identity mint from returning.
+post and taxonomy scope, then exposed one more global-scan premise before the
+next apply: capture still audits WordPress's default block widgets, and the
+adapter-only policy correctly refused an undeclared sidebar type. The agent
+classified the default category as runtime in the disposable policy and
+quiesced the unrelated widget options through WordPress APIs around that one
+capture, with an exit trap and a hash assertion proving exact restoration.
+That established identities only for Redirection's current rows and left core
+identities, core content and the real source branch untouched. The fixture now
+encodes the ordering and an offline regression prevents the canonical-root
+shortcut, a cross-plugin identity mint, or leaked widget mutation from
+returning. The same activation finding was propagated to the exact-version
+matrix target before running it: that target now completes and verifies the
+public database install before it truncates any boundary fixture tables.
 
 After that public onboarding step, the agent used Redirection's `Red_Group`,
 `Red_Item` and `Red_Options` APIs to create a realistic summer marketplace
