@@ -39,7 +39,7 @@
     "advanced-editor-tools": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/advanced-editor-tools.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "contract-dependency": ["adapter-packages/advanced-editor-tools/package/manifest.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
         "clean-target": ["sandbox/conformance/entries/advanced-editor-tools.json", "sandbox/conformance/seeds/advanced-editor-tools.sh", "sandbox/conformance/checks/advanced-editor-tools.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/advanced-editor-tools.sh", "sandbox/conformance/checks/advanced-editor-tools.sh"],
         "native-behavior": ["sandbox/conformance/seeds/advanced-editor-tools.sh", "sandbox/conformance/checks/advanced-editor-tools.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
@@ -60,7 +60,7 @@
     "classic-editor": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/classic-editor.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "contract-dependency": ["adapter-packages/classic-editor/package/manifest.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
         "clean-target": ["sandbox/conformance/entries/classic-editor.json", "sandbox/conformance/seeds/classic-editor.sh", "sandbox/conformance/checks/classic-editor.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/classic-editor.sh", "sandbox/conformance/checks/classic-editor.sh"],
         "native-behavior": ["sandbox/conformance/seeds/classic-editor.sh", "sandbox/conformance/checks/classic-editor.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
@@ -81,12 +81,12 @@
     "code-snippets": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/code-snippets.json", "manifests/providers/code-snippets-state.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "contract-dependency": ["adapter-packages/code-snippets/package/manifest.json", "adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
         "clean-target": ["sandbox/conformance/entries/code-snippets.json", "sandbox/conformance/seeds/code-snippets.sh", "sandbox/conformance/checks/code-snippets.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/code-snippets.sh", "sandbox/conformance/checks/code-snippets.sh"],
         "identity-references": ["sandbox/conformance/seeds/code-snippets.sh", "sandbox/conformance/checks/code-snippets.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
         "native-behavior": ["sandbox/conformance/seeds/code-snippets.sh", "sandbox/conformance/checks/code-snippets.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "derived-state": ["manifests/providers/code-snippets-state.php", "sandbox/tests/offline/adapter/regress_code_snippets_state_provider.php", "sandbox/conformance/checks/code-snippets.sh"],
+        "derived-state": ["adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php", "sandbox/tests/offline/adapter/regress_code_snippets_state_provider.php", "sandbox/conformance/checks/code-snippets.sh"],
         "deletion": ["sandbox/conformance/checks/code-snippets.sh", "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"],
         "failure-recovery": ["sandbox/conformance/checks/code-snippets.sh", "sandbox/tests/offline/adapter/regress_code_snippets_state_provider.php", "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"],
         "concurrency-idempotence": ["sandbox/conformance/checks/code-snippets.sh", "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"],
@@ -101,17 +101,17 @@
     "contact-form-7": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/contact-form-7.json", "manifests/interpreters/contact-form-7.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_contact_form_7_production_readiness.php"],
+        "contract-dependency": ["adapter-packages/contact-form-7/package/manifest.json", "adapter-packages/contact-form-7/package/runtime/interpreters/contact-form-7.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_contact_form_7_production_readiness.php"],
         "clean-target": ["sandbox/conformance/entries/contact-form-7.json", "sandbox/conformance/seeds/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh"],
-        "identity-references": ["manifests/interpreters/contact-form-7.php", "sandbox/conformance/seeds/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "identity-references": ["adapter-packages/contact-form-7/package/runtime/interpreters/contact-form-7.php", "sandbox/conformance/seeds/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
         "native-behavior": ["sandbox/conformance/seeds/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
         "deletion": ["sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/offline/adapter/regress_contact_form_7_production_readiness.php"],
         "failure-recovery": ["sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/offline/adapter/regress_contact_form_7_production_readiness.php", "sandbox/tests/offline/apply/regress_fatal_mutations.php"],
         "concurrency-idempotence": ["sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
         "lifecycle": ["sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "data-boundary": ["agent/src/Kernel/PlainData.php", "manifests/interpreters/contact-form-7.php", "sandbox/conformance/seeds/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/offline/adapter/regress_contact_form_7_production_readiness.php"],
-        "scope-platform": ["manifests/contact-form-7.json", "sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
+        "data-boundary": ["agent/src/Kernel/PlainData.php", "adapter-packages/contact-form-7/package/runtime/interpreters/contact-form-7.php", "sandbox/conformance/seeds/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/offline/adapter/regress_contact_form_7_production_readiness.php"],
+        "scope-platform": ["adapter-packages/contact-form-7/package/manifest.json", "sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
       "gaps": {},
       "blocked": {},
@@ -122,18 +122,18 @@
     "core": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/core.json", "manifests/capabilities/platform.json", "sandbox/tests/live/regress_multisite_refusal.sh"],
+        "contract-dependency": ["platform/adapter-library/core/manifest.json", "platform/adapter-library/capabilities/platform.json", "sandbox/tests/live/regress_multisite_refusal.sh"],
         "clean-target": ["sandbox/conformance/entries/core.json", "sandbox/conformance/seeds/core.sh", "sandbox/conformance/checks/core.sh"],
         "dirty-target": ["agent/src/Apply/MenuMaterializer.php", "sandbox/tests/offline/apply/regress_menu_materializer.php", "sandbox/conformance/postdeploy/core.sh", "sandbox/conformance/checks/core.sh"],
         "identity-references": ["sandbox/conformance/checks/core.sh"],
         "native-behavior": ["sandbox/conformance/checks/core.sh"],
         "deletion": ["sandbox/conformance/checks/core.sh"],
         "failure-recovery": ["sandbox/conformance/checks/core.sh", "sandbox/tests/offline/adapter/regress_core_rewrite_native_action.php"],
-        "derived-state": ["manifests/core.json", "sandbox/tests/offline/adapter/regress_core_rewrite_native_action.php", "sandbox/conformance/checks/core.sh"],
+        "derived-state": ["platform/adapter-library/core/manifest.json", "sandbox/tests/offline/adapter/regress_core_rewrite_native_action.php", "sandbox/conformance/checks/core.sh"],
         "concurrency-idempotence": ["sandbox/tests/offline/capture/regress_capture_atomicity.php", "sandbox/tests/live/regress_capture_concurrency.sh"],
-        "lifecycle": ["manifests/core.json", "sandbox/conformance/run.sh", "sandbox/tests/live/regress_core_lifecycle.sh"],
-        "data-boundary": ["agent/src/Grammar/Blocks.php", "agent/src/Kernel/TableSchema.php", "agent/src/Repository/RepositoryPortableShapeValidator.php", "manifests/core.json", "sandbox/tests/offline/capture/regress_options_capture.php", "sandbox/tests/offline/reference-scope/regress_block_refs.php", "sandbox/tests/offline/repository/regress_repository_portable_shape_validator.php", "sandbox/tests/offline/repository/regress_table_schema.php", "sandbox/tests/live/regress_core_data_boundary.sh"],
-        "scope-platform": ["agent/src/Policy/PlatformCompatibility.php", "manifests/capabilities/platform.json", "sandbox/tests/offline/policy/regress_platform_compatibility.php", "sandbox/tests/live/regress_core_scope_platform.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
+        "lifecycle": ["platform/adapter-library/core/manifest.json", "sandbox/conformance/run.sh", "sandbox/tests/live/regress_core_lifecycle.sh"],
+        "data-boundary": ["agent/src/Grammar/Blocks.php", "agent/src/Kernel/TableSchema.php", "agent/src/Repository/RepositoryPortableShapeValidator.php", "platform/adapter-library/core/manifest.json", "sandbox/tests/offline/capture/regress_options_capture.php", "sandbox/tests/offline/reference-scope/regress_block_refs.php", "sandbox/tests/offline/repository/regress_repository_portable_shape_validator.php", "sandbox/tests/offline/repository/regress_table_schema.php", "sandbox/tests/live/regress_core_data_boundary.sh"],
+        "scope-platform": ["agent/src/Policy/PlatformCompatibility.php", "platform/adapter-library/capabilities/platform.json", "sandbox/tests/offline/policy/regress_platform_compatibility.php", "sandbox/tests/live/regress_core_scope_platform.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
       "gaps": {},
       "blocked": {},
@@ -142,18 +142,18 @@
     "elementor": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/elementor.json", "manifests/providers/elementor-css.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_elementor_css_provider.php"],
+        "contract-dependency": ["adapter-packages/elementor/package/manifest.json", "adapter-packages/elementor/package/runtime/providers/elementor-css.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_elementor_css_provider.php"],
         "clean-target": ["sandbox/conformance/entries/elementor.json", "sandbox/conformance/seeds/elementor.sh", "sandbox/conformance/checks/elementor.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/elementor.sh", "sandbox/conformance/checks/elementor.sh"],
         "identity-references": ["sandbox/conformance/seeds/elementor.sh", "sandbox/conformance/postdeploy/elementor.sh", "sandbox/conformance/checks/elementor.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
         "native-behavior": ["sandbox/conformance/seeds/elementor.sh", "sandbox/conformance/checks/elementor.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "derived-state": ["manifests/providers/elementor-css.php", "sandbox/tests/offline/adapter/regress_elementor_css_provider.php", "sandbox/conformance/checks/elementor.sh"],
+        "derived-state": ["adapter-packages/elementor/package/runtime/providers/elementor-css.php", "sandbox/tests/offline/adapter/regress_elementor_css_provider.php", "sandbox/conformance/checks/elementor.sh"],
         "deletion": ["sandbox/conformance/checks/elementor.sh", "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"],
         "failure-recovery": ["sandbox/tests/offline/adapter/regress_elementor_css_provider.php", "sandbox/conformance/checks/elementor.sh", "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"],
         "concurrency-idempotence": ["sandbox/conformance/checks/elementor.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
         "lifecycle": ["sandbox/conformance/checks/elementor.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "data-boundary": ["manifests/elementor.json", "sandbox/conformance/seeds/elementor.sh", "sandbox/conformance/checks/elementor.sh", "sandbox/tests/offline/adapter/regress_elementor_css_provider.php"],
-        "scope-platform": ["manifests/elementor.json", "sandbox/tests/offline/adapter/regress_elementor_css_provider.php", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
+        "data-boundary": ["adapter-packages/elementor/package/manifest.json", "sandbox/conformance/seeds/elementor.sh", "sandbox/conformance/checks/elementor.sh", "sandbox/tests/offline/adapter/regress_elementor_css_provider.php"],
+        "scope-platform": ["adapter-packages/elementor/package/manifest.json", "sandbox/tests/offline/adapter/regress_elementor_css_provider.php", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
       "gaps": {},
       "blocked": {},
@@ -162,18 +162,18 @@
     "ninja-forms": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/ninja-forms.json", "manifests/interpreters/ninja-forms.php", "manifests/providers/ninja-forms-form-cache.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_ninja_forms_form_cache_provider.php", "sandbox/tests/offline/adapter/regress_ninja_forms_production_readiness.php"],
+        "contract-dependency": ["adapter-packages/ninja-forms/package/manifest.json", "adapter-packages/ninja-forms/package/runtime/interpreters/ninja-forms.php", "adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_ninja_forms_form_cache_provider.php", "sandbox/tests/offline/adapter/regress_ninja_forms_production_readiness.php"],
         "clean-target": ["sandbox/conformance/entries/ninja-forms.json", "sandbox/conformance/seeds/ninja-forms.sh", "sandbox/conformance/checks/ninja-forms.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/ninja-forms.sh", "sandbox/conformance/checks/ninja-forms.sh"],
         "identity-references": ["sandbox/conformance/seeds/ninja-forms.sh", "sandbox/conformance/postdeploy/ninja-forms.sh", "sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
         "native-behavior": ["sandbox/conformance/seeds/ninja-forms.sh", "sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "derived-state": ["manifests/providers/ninja-forms-form-cache.php", "sandbox/tests/offline/adapter/regress_ninja_forms_form_cache_provider.php", "sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "derived-state": ["adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php", "sandbox/tests/offline/adapter/regress_ninja_forms_form_cache_provider.php", "sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
         "deletion": ["sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php", "sandbox/tests/offline/adapter/regress_ninja_forms_production_readiness.php"],
         "failure-recovery": ["sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/offline/adapter/regress_ninja_forms_form_cache_provider.php", "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"],
         "concurrency-idempotence": ["sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
         "lifecycle": ["sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "data-boundary": ["manifests/ninja-forms.json", "manifests/interpreters/ninja-forms.php", "sandbox/conformance/seeds/ninja-forms.sh", "sandbox/conformance/postdeploy/ninja-forms.sh", "sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/offline/adapter/regress_ninja_forms_form_cache_provider.php", "sandbox/tests/offline/adapter/regress_ninja_forms_production_readiness.php"],
-        "scope-platform": ["manifests/ninja-forms.json", "manifests/interpreters/ninja-forms.php", "manifests/providers/ninja-forms-form-cache.php", "sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
+        "data-boundary": ["adapter-packages/ninja-forms/package/manifest.json", "adapter-packages/ninja-forms/package/runtime/interpreters/ninja-forms.php", "sandbox/conformance/seeds/ninja-forms.sh", "sandbox/conformance/postdeploy/ninja-forms.sh", "sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/offline/adapter/regress_ninja_forms_form_cache_provider.php", "sandbox/tests/offline/adapter/regress_ninja_forms_production_readiness.php"],
+        "scope-platform": ["adapter-packages/ninja-forms/package/manifest.json", "adapter-packages/ninja-forms/package/runtime/interpreters/ninja-forms.php", "adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php", "sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
       "gaps": {},
       "blocked": {},
@@ -182,18 +182,18 @@
     "paid-memberships-pro": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/paid-memberships-pro.json", "agent/src/Policy/ManifestGrammar.php", "agent/src/Apply/TypedTableMaterializer.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php"],
+        "contract-dependency": ["adapter-packages/paid-memberships-pro/package/manifest.json", "agent/src/Policy/ManifestGrammar.php", "agent/src/Apply/TypedTableMaterializer.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php"],
         "clean-target": ["sandbox/conformance/entries/paid-memberships-pro.json", "sandbox/conformance/seeds/paid-memberships-pro.sh", "sandbox/conformance/postdeploy/paid-memberships-pro.sh", "sandbox/conformance/checks/paid-memberships-pro.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/paid-memberships-pro.sh", "sandbox/conformance/checks/paid-memberships-pro.sh"],
-        "identity-references": ["manifests/paid-memberships-pro.json", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/offline/repository/regress_composite_ref.php"],
+        "identity-references": ["adapter-packages/paid-memberships-pro/package/manifest.json", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/offline/repository/regress_composite_ref.php"],
         "native-behavior": ["sandbox/conformance/seeds/paid-memberships-pro.sh", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "derived-state": ["manifests/paid-memberships-pro.json", "agent/src/Apply/TypedTableMaterializer.php", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php", "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php"],
-        "deletion": ["manifests/paid-memberships-pro.json", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php"],
+        "derived-state": ["adapter-packages/paid-memberships-pro/package/manifest.json", "agent/src/Apply/TypedTableMaterializer.php", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php", "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php"],
+        "deletion": ["adapter-packages/paid-memberships-pro/package/manifest.json", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php"],
         "failure-recovery": ["sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/offline/repository/regress_snapshot_pruner.php", "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php"],
         "concurrency-idempotence": ["sandbox/conformance/checks/paid-memberships-pro.sh"],
         "lifecycle": ["sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/repository/regress_snapshot_pruner.php"],
         "data-boundary": ["sandbox/conformance/seeds/paid-memberships-pro.sh", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php"],
-        "scope-platform": ["manifests/paid-memberships-pro.json", "agent/src/Policy/ManifestGrammar.php", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
+        "scope-platform": ["adapter-packages/paid-memberships-pro/package/manifest.json", "agent/src/Policy/ManifestGrammar.php", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
       "gaps": {},
       "blocked": {},
@@ -203,9 +203,9 @@
       "readiness": "ready",
       "covered": {
         "contract-dependency": [
-          "manifests/polylang.json",
-          "manifests/interpreters/polylang.php",
-          "manifests/providers/polylang-nav-menus.php",
+          "adapter-packages/polylang/package/manifest.json",
+          "adapter-packages/polylang/package/runtime/interpreters/polylang.php",
+          "adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php",
           "sandbox/conformance/artifacts.lock.json",
           "sandbox/tests/certify/certify_version_matrix.sh",
           "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php",
@@ -238,7 +238,7 @@
           "sandbox/tests/certify/certify_version_matrix.sh"
         ],
         "derived-state": [
-          "manifests/providers/polylang-nav-menus.php",
+          "adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php",
           "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php",
           "sandbox/conformance/checks/polylang.sh",
           "sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
@@ -262,14 +262,14 @@
           "sandbox/tests/certify/certify_version_matrix.sh"
         ],
         "data-boundary": [
-          "manifests/interpreters/polylang.php",
+          "adapter-packages/polylang/package/runtime/interpreters/polylang.php",
           "sandbox/conformance/seeds/polylang.sh",
           "sandbox/conformance/checks/polylang.sh",
           "sandbox/tests/offline/adapter/regress_polylang_production_readiness.php",
           "sandbox/tests/offline/reference-scope/regress_scope_discovery.php"
         ],
         "scope-platform": [
-          "manifests/interpreters/polylang.php",
+          "adapter-packages/polylang/package/runtime/interpreters/polylang.php",
           "sandbox/conformance/checks/polylang.sh",
           "sandbox/tests/live/regress_multisite_refusal.sh",
           "sandbox/tests/live/regress_polylang_multisite_refusal.sh",
@@ -283,18 +283,18 @@
     "redirection": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/redirection.json", "manifests/providers/redirection-state.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/offline/adapter/regress_redirection_adapter.php", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "contract-dependency": ["adapter-packages/redirection/package/manifest.json", "adapter-packages/redirection/package/runtime/providers/redirection-state.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/offline/adapter/regress_redirection_adapter.php", "sandbox/tests/certify/certify_version_matrix.sh"],
         "clean-target": ["sandbox/conformance/entries/redirection.json", "sandbox/conformance/seeds/redirection.sh", "sandbox/conformance/checks/redirection.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/redirection.sh", "sandbox/conformance/postapply/redirection.sh", "sandbox/conformance/checks/redirection.sh"],
-        "identity-references": ["manifests/redirection.json", "sandbox/conformance/seeds/redirection.sh", "sandbox/conformance/postdeploy/redirection.sh", "sandbox/conformance/checks/redirection.sh"],
+        "identity-references": ["adapter-packages/redirection/package/manifest.json", "sandbox/conformance/seeds/redirection.sh", "sandbox/conformance/postdeploy/redirection.sh", "sandbox/conformance/checks/redirection.sh"],
         "native-behavior": ["sandbox/conformance/seeds/redirection.sh", "sandbox/conformance/checks/redirection.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "derived-state": ["manifests/providers/redirection-state.php", "sandbox/tests/offline/adapter/regress_redirection_adapter.php", "sandbox/conformance/checks/redirection.sh"],
-        "deletion": ["manifests/dispositions/redirection.json", "sandbox/tests/offline/adapter/regress_redirection_adapter.php"],
-        "failure-recovery": ["manifests/providers/redirection-state.php", "sandbox/tests/offline/adapter/regress_redirection_adapter.php", "sandbox/conformance/checks/redirection.sh", "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"],
+        "derived-state": ["adapter-packages/redirection/package/runtime/providers/redirection-state.php", "sandbox/tests/offline/adapter/regress_redirection_adapter.php", "sandbox/conformance/checks/redirection.sh"],
+        "deletion": ["adapter-packages/redirection/package/disposition.json", "sandbox/tests/offline/adapter/regress_redirection_adapter.php"],
+        "failure-recovery": ["adapter-packages/redirection/package/runtime/providers/redirection-state.php", "sandbox/tests/offline/adapter/regress_redirection_adapter.php", "sandbox/conformance/checks/redirection.sh", "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"],
         "concurrency-idempotence": ["sandbox/conformance/checks/redirection.sh", "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"],
         "lifecycle": ["sandbox/conformance/checks/redirection.sh", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "data-boundary": ["agent/src/Grammar/ColumnCodecGrammar.php", "manifests/redirection.json", "sandbox/conformance/seeds/redirection.sh", "sandbox/conformance/checks/redirection.sh", "sandbox/tests/offline/grammar/regress_column_codec_grammar.php"],
-        "scope-platform": ["manifests/redirection.json", "manifests/providers/redirection-state.php", "sandbox/conformance/checks/redirection.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
+        "data-boundary": ["agent/src/Grammar/ColumnCodecGrammar.php", "adapter-packages/redirection/package/manifest.json", "sandbox/conformance/seeds/redirection.sh", "sandbox/conformance/checks/redirection.sh", "sandbox/tests/offline/grammar/regress_column_codec_grammar.php"],
+        "scope-platform": ["adapter-packages/redirection/package/manifest.json", "adapter-packages/redirection/package/runtime/providers/redirection-state.php", "sandbox/conformance/checks/redirection.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
       "gaps": {},
       "blocked": {},
@@ -303,18 +303,18 @@
     "the-events-calendar": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/the-events-calendar.json", "manifests/interpreters/the-events-calendar.php", "manifests/providers/the-events-calendar-category-colors.php", "manifests/regenerators/the-events-calendar.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
+        "contract-dependency": ["adapter-packages/the-events-calendar/package/manifest.json", "adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php", "adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php", "adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
         "clean-target": ["sandbox/conformance/entries/the-events-calendar.json", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh"],
-        "identity-references": ["manifests/the-events-calendar.json", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/postdeploy/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "identity-references": ["adapter-packages/the-events-calendar/package/manifest.json", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/postdeploy/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
         "native-behavior": ["sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "derived-state": ["manifests/providers/the-events-calendar-category-colors.php", "manifests/regenerators/the-events-calendar.php", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
+        "derived-state": ["adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php", "adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
         "deletion": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
         "failure-recovery": ["agent/src/Apply/ApplyPreparationCoordinator.php", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php", "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"],
         "concurrency-idempotence": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
         "lifecycle": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "data-boundary": ["manifests/interpreters/the-events-calendar.php", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
-        "scope-platform": ["manifests/the-events-calendar.json", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_the_events_calendar_multisite_refusal.sh"]
+        "data-boundary": ["adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
+        "scope-platform": ["adapter-packages/the-events-calendar/package/manifest.json", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_the_events_calendar_multisite_refusal.sh"]
       },
       "gaps": {},
       "blocked": {},
@@ -323,18 +323,18 @@
     "woocommerce": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/woocommerce.json", "manifests/interpreters/woocommerce.php", "manifests/providers/woocommerce-cache.php", "manifests/providers/woocommerce-hierarchy-lookups.php", "manifests/providers/woocommerce-fulfillment-prerequisites.php", "manifests/providers/woocommerce-scheduler-settings.php", "manifests/providers/woocommerce-product-lookups.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php"],
+        "contract-dependency": ["adapter-packages/woocommerce/package/manifest.json", "adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php", "adapter-packages/woocommerce/package/runtime/providers/woocommerce-cache.php", "adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php", "adapter-packages/woocommerce/package/runtime/providers/woocommerce-fulfillment-prerequisites.php", "adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php", "adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php"],
         "clean-target": ["sandbox/conformance/entries/woocommerce.json", "sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_hierarchy_lookups.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php"],
-        "identity-references": ["manifests/woocommerce.json", "manifests/interpreters/woocommerce.php", "sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/postdeploy/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php"],
+        "identity-references": ["adapter-packages/woocommerce/package/manifest.json", "adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php", "sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/postdeploy/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php"],
         "native-behavior": ["sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php"],
-        "derived-state": ["manifests/providers/woocommerce-cache.php", "manifests/providers/woocommerce-hierarchy-lookups.php", "manifests/providers/woocommerce-scheduler-settings.php", "manifests/providers/woocommerce-product-lookups.php", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_hierarchy_lookups.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_scheduler_settings.php"],
-        "deletion": ["manifests/dispositions/woocommerce.json", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_deletion_authority.php", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php"],
+        "derived-state": ["adapter-packages/woocommerce/package/runtime/providers/woocommerce-cache.php", "adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php", "adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php", "adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_hierarchy_lookups.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_scheduler_settings.php"],
+        "deletion": ["adapter-packages/woocommerce/package/disposition.json", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_deletion_authority.php", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php"],
         "failure-recovery": ["sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_fulfillment_prerequisites.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_hierarchy_lookups.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_scheduler_settings.php", "sandbox/tests/offline/apply/regress_fatal_mutations.php"],
         "concurrency-idempotence": ["sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/live/regress_capture_concurrency.sh", "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_hierarchy_lookups.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php"],
         "lifecycle": ["sandbox/conformance/checks/woocommerce.sh", "sandbox/conformance/checks/woocommerce-destructive-lifecycle.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "data-boundary": ["manifests/woocommerce.json", "manifests/interpreters/woocommerce.php", "sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php"],
-        "scope-platform": ["manifests/woocommerce.json", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh", "sandbox/tests/live/regress_woocommerce_multisite_refusal.sh"]
+        "data-boundary": ["adapter-packages/woocommerce/package/manifest.json", "adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php", "sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php"],
+        "scope-platform": ["adapter-packages/woocommerce/package/manifest.json", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh", "sandbox/tests/live/regress_woocommerce_multisite_refusal.sh"]
       },
       "gaps": {},
       "blocked": {},
@@ -343,7 +343,7 @@
     "wps-hide-login": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/wps-hide-login.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "contract-dependency": ["adapter-packages/wps-hide-login/package/manifest.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
         "clean-target": ["sandbox/conformance/entries/wps-hide-login.json", "sandbox/conformance/seeds/wps-hide-login.sh", "sandbox/conformance/checks/wps-hide-login.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/wps-hide-login.sh", "sandbox/conformance/checks/wps-hide-login.sh"],
         "native-behavior": ["sandbox/conformance/seeds/wps-hide-login.sh", "sandbox/conformance/checks/wps-hide-login.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
@@ -364,18 +364,18 @@
     "yoast": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/yoast.json", "manifests/providers/yoast-index.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_yoast_index_provider.php"],
+        "contract-dependency": ["adapter-packages/yoast/package/manifest.json", "adapter-packages/yoast/package/runtime/providers/yoast-index.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_yoast_index_provider.php"],
         "clean-target": ["sandbox/conformance/entries/yoast.json", "sandbox/conformance/seeds/yoast.sh", "sandbox/conformance/checks/yoast.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/yoast.sh", "sandbox/conformance/checks/yoast.sh"],
         "identity-references": ["sandbox/conformance/seeds/yoast.sh", "sandbox/conformance/postdeploy/yoast.sh", "sandbox/conformance/checks/yoast.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
         "native-behavior": ["sandbox/conformance/seeds/yoast.sh", "sandbox/conformance/checks/yoast.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "derived-state": ["manifests/providers/yoast-index.php", "sandbox/tests/offline/adapter/regress_yoast_index_provider.php", "sandbox/conformance/checks/yoast.sh"],
+        "derived-state": ["adapter-packages/yoast/package/runtime/providers/yoast-index.php", "sandbox/tests/offline/adapter/regress_yoast_index_provider.php", "sandbox/conformance/checks/yoast.sh"],
         "deletion": ["sandbox/conformance/checks/yoast.sh", "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"],
         "failure-recovery": ["sandbox/tests/offline/adapter/regress_yoast_index_provider.php", "sandbox/conformance/checks/yoast.sh", "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"],
         "concurrency-idempotence": ["sandbox/conformance/checks/yoast.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
         "lifecycle": ["sandbox/conformance/checks/yoast.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "data-boundary": ["manifests/yoast.json", "sandbox/conformance/seeds/yoast.sh", "sandbox/conformance/checks/yoast.sh", "sandbox/tests/offline/adapter/regress_yoast_index_provider.php"],
-        "scope-platform": ["manifests/yoast.json", "sandbox/tests/offline/adapter/regress_yoast_index_provider.php", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
+        "data-boundary": ["adapter-packages/yoast/package/manifest.json", "sandbox/conformance/seeds/yoast.sh", "sandbox/conformance/checks/yoast.sh", "sandbox/tests/offline/adapter/regress_yoast_index_provider.php"],
+        "scope-platform": ["adapter-packages/yoast/package/manifest.json", "sandbox/tests/offline/adapter/regress_yoast_index_provider.php", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
       "gaps": {},
       "blocked": {},
@@ -384,12 +384,12 @@
     "yoast-duplicate-post": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/yoast-duplicate-post.json", "sandbox/conformance/entries/yoast-duplicate-post.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "contract-dependency": ["adapter-packages/yoast-duplicate-post/package/manifest.json", "sandbox/conformance/entries/yoast-duplicate-post.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
         "clean-target": ["sandbox/conformance/seeds/yoast-duplicate-post.sh", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/yoast-duplicate-post.sh", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
         "identity-references": ["sandbox/conformance/seeds/yoast-duplicate-post.sh", "sandbox/conformance/postdeploy/yoast-duplicate-post.sh", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
         "native-behavior": ["sandbox/conformance/seeds/yoast-duplicate-post.sh", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
-        "derived-state": ["manifests/providers/yoast-duplicate-post-role-capabilities.php", "sandbox/tests/offline/adapter/regress_yoast_duplicate_post_role_provider.php", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
+        "derived-state": ["adapter-packages/yoast-duplicate-post/package/runtime/providers/yoast-duplicate-post-role-capabilities.php", "sandbox/tests/offline/adapter/regress_yoast_duplicate_post_role_provider.php", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
         "deletion": ["sandbox/conformance/checks/yoast-duplicate-post.sh"],
         "failure-recovery": ["sandbox/tests/offline/adapter/regress_yoast_duplicate_post_role_provider.php", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
         "concurrency-idempotence": ["sandbox/conformance/checks/yoast-duplicate-post.sh"],
