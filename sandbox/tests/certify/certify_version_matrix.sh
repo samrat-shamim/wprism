@@ -176,20 +176,6 @@ for package_matrix in ../adapter-packages/*/tests/certify/version-matrix.sh; do
   # shellcheck source=/dev/null
   . "$package_matrix"
 done
-. tests/certify/matrix.d/contact-form-7.sh
-. tests/certify/matrix.d/elementor.sh
-. tests/certify/matrix.d/ninja-forms.sh
-. tests/certify/matrix.d/polylang.sh
-. tests/certify/matrix.d/woocommerce.sh
-. tests/certify/matrix.d/yoast.sh
-. tests/certify/matrix.d/paid-memberships-pro.sh
-. tests/certify/matrix.d/advanced-editor-tools.sh
-. tests/certify/matrix.d/classic-editor.sh
-. tests/certify/matrix.d/code-snippets.sh
-. tests/certify/matrix.d/wps-hide-login.sh
-. tests/certify/matrix.d/yoast-duplicate-post.sh
-. tests/certify/matrix.d/the-events-calendar.sh
-. tests/certify/matrix.d/redirection.sh
 
 reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # core/theme installed and the site "installed" (unlike `pair.sh reset`,

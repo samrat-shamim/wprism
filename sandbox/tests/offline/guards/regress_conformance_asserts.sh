@@ -75,18 +75,21 @@ grep -q 'CONFORMANCE PASSED (%s; capture-plan)' conformance/run.sh \
   || fail "conformance/run.sh has no explicit successful early terminal before target apply"
 pass "capture-plan mode is closed, convention-hooked, and terminates explicitly before target apply"
 
-# ACF is the first closed package migration: its entry and hooks must be owned
-# only by that package, and run.sh must select them without an aggregate row.
-[ -f ../adapter-packages/acf/tests/conformance/entry.json ] \
-  && [ -f ../adapter-packages/acf/tests/conformance/seed.sh ] \
-  && [ -f ../adapter-packages/acf/tests/conformance/check.sh ] \
-  && [ -f ../adapter-packages/acf/tests/conformance/postdeploy.sh ] \
-  || fail 'the ACF package does not own its complete conformance fixture set'
-jq -e 'has("acf") | not' conformance/manifests.json >/dev/null \
-  || fail 'the shared conformance registry still registers ACF'
+# Every shipped adapter owns its entry and hooks; the shared aggregate was
+# retired so adding an adapter never edits conformance infrastructure.
+for manifest in ../adapter-packages/*; do
+  name=${manifest##*/}
+  [ "$name" = duo-agency-cpt ] && continue
+  [ -f "$manifest/tests/conformance/entry.json" ] \
+    && [ -f "$manifest/tests/conformance/seed.sh" ] \
+    && [ -f "$manifest/tests/conformance/check.sh" ] \
+    || fail "adapter package $name does not own its conformance entry, seed, and check"
+done
+[ ! -e conformance/manifests.json ] \
+  || fail 'the retired shared conformance registry still exists'
 grep -q 'PACKAGE_ENTRY="$PACKAGE_CONFORMANCE/entry.json"' conformance/run.sh \
   || fail 'conformance/run.sh does not discover a package-owned entry'
-pass 'ACF conformance entry and hooks are package-owned and package-first discovered'
+pass 'adapter conformance entries and hooks are package-owned and package-first discovered'
 
 [ -f ../adapter-packages/acf/tests/certify/version-matrix.sh ] \
   && [ ! -e tests/certify/matrix.d/acf.sh ] \

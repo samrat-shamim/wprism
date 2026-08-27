@@ -87,11 +87,11 @@ if guard < recapture:
 if guard >= boundary_end:
     raise SystemExit("Elementor warning guard escaped the Elementor boundary block")
 
-aggregate = json.loads(Path("conformance/manifests.json").read_text(encoding="utf-8"))["elementor"]
-entry = json.loads(Path("conformance/entries/elementor.json").read_text(encoding="utf-8"))["entry"]
-for label, declaration in (("aggregate", aggregate), ("entry", entry)):
-    if "elementor_library_type" not in declaration.get("taxonomies", []):
-        raise SystemExit(f"Elementor {label} fixture omits its native library taxonomy")
+entry = json.loads(
+    Path("../adapter-packages/elementor/tests/conformance/entry.json").read_text(encoding="utf-8")
+)["entry"]
+if "elementor_library_type" not in entry.get("taxonomies", []):
+    raise SystemExit("Elementor package fixture omits its native library taxonomy")
 PY
 
 pass "Elementor fixtures pin native taxonomy scope, machine-readable receipts, reset order, and boundary stderr"

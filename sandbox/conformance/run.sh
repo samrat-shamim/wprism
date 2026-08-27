@@ -3,7 +3,7 @@
 # manifest-treadmill answer): a generalized capture -> apply -> re-capture
 # round-trip harness, run per manifest against a FRESH, disposable env pair.
 # This is what CI runs; it knows nothing manifest-specific beyond what's
-# declared in conformance/manifests.json and three optional per-manifest
+# declared by each package's tests/conformance/entry.json and optional
 # hook files, each invoked at a fixed point in the flow below IF PRESENT —
 # this file never inspects what any of them actually do. Adapter packages own
 # the same hook names under adapter-packages/<name>/tests/conformance/; the legacy
@@ -80,8 +80,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."   # -> sandbox/
 MANIFEST="${1:-}"
-REG=conformance/manifests.json
-[ -n "$MANIFEST" ] || { echo "usage: run.sh <manifest-name> (see $REG for known names)" >&2; exit 1; }
+[ -n "$MANIFEST" ] || { echo "usage: run.sh <manifest-name>" >&2; exit 1; }
 
 CONF_PAIR="${CONF_PAIR:-conf}"
 [[ "$CONF_PAIR" =~ ^[a-z][a-z0-9]*$ ]] \
@@ -132,6 +131,7 @@ conformance_hook() { # conformance_hook <package-basename> <legacy-path>
 # singular is what lets an unrelated adapter-fixture edit stay out of one
 # adapter's conservative evidence closure.
 PACKAGE_ENTRY="$PACKAGE_CONFORMANCE/entry.json"
+PLATFORM_ENTRY="conformance/entries/$MANIFEST.json"
 if [ -n "${CONFORMANCE_ENTRY_FILE:-}" ]; then
   [ -f "$CONFORMANCE_ENTRY_FILE" ] \
     || fail "CONFORMANCE_ENTRY_FILE is not a regular fixture entry: $CONFORMANCE_ENTRY_FILE"
@@ -146,9 +146,14 @@ elif [ -f "$PACKAGE_ENTRY" ]; then
     then .entry else error("entry must name the requested manifest") end
   ' "$PACKAGE_ENTRY") \
     || fail "package conformance entry must contain one exact named fixture entry for '$MANIFEST': $PACKAGE_ENTRY"
+elif [ -f "$PLATFORM_ENTRY" ]; then
+  ENTRY=$(jq -ce --arg manifest "$MANIFEST" '
+    if (keys | sort) == ["entry", "manifest"] and .manifest == $manifest and (.entry | type) == "object"
+    then .entry else error("entry must name the requested manifest") end
+  ' "$PLATFORM_ENTRY") \
+    || fail "platform conformance entry must contain one exact named fixture entry for '$MANIFEST': $PLATFORM_ENTRY"
 else
-  ENTRY=$(jq -e --arg m "$MANIFEST" '.[$m]' "$REG") \
-    || fail "unknown manifest '$MANIFEST' (see $REG)"
+  fail "unknown manifest '$MANIFEST': no package or platform conformance entry"
 fi
 jq -e '
   (.plugins | type == "array") and

@@ -465,15 +465,6 @@ while IFS= read -r -d '' file; do
   mkdir -p "$DERIVE_ROOT/$(dirname "$file")"
   cp "$file" "$DERIVE_ROOT/$file"
 done < <(find sandbox/tests \( -name 'regress_*.sh' -o -name 'regress_*.php' \) -type f -print0)
-# Package-local suites from every execution class generate leaf rules in the
-# include, even though only `tests/offline/` joins the offline corpus. Copy the
-# whole package test estate: filtering to regress_* would silently omit a
-# spike_*/certify_*/grind_* leaf and make the clean-copy precondition fail for
-# the wrong reason before the exclusion mutation is planted.
-while IFS= read -r -d '' file; do
-  mkdir -p "$DERIVE_ROOT/$(dirname "$file")"
-  cp "$file" "$DERIVE_ROOT/$file"
-done < <(find adapter-packages -path '*/tests/*' -type f -print0)
 # The copy has to derive clean first, or the refusal below proves nothing
 # about exclusion -- it would just be re-reporting an incomplete fixture.
 if ! php tools/offline-corpus.php --check --root="$DERIVE_ROOT" >"$TMP/derive-clean.log" 2>&1; then

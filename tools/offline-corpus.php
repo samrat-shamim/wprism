@@ -46,11 +46,11 @@ namespace Duo\Tooling;
  * A generator that quietly skipped an input would be worse than the hand list
  * it replaces, because nobody re-reads a generated file. So:
  *
- *   R1 no target: a legacy suite file exists under a sandbox class directory
- *      and no Makefile target runs it, or the target that carries its name
- *      runs a different file. Adapter-package offline suites are the planned
- *      exception: this generator emits their leaf rules from the package tree,
- *      so adding one does not edit the global Makefile.
+ *   R1 no target: a suite file exists under a sandbox class directory and no
+ *      Makefile target runs it, or the target that carries its name runs a
+ *      different file. Adapter-package suites are deliberately outside this
+ *      inventory: one fixed sandbox suite discovers and runs every package,
+ *      so adapter authors never regenerate this global include.
  *   R2 missing file: a target's recipe names a test path that is not on disk.
  *      `make` would only discover this when that suite's turn came, minutes
  *      into the gate.
@@ -227,8 +227,9 @@ final class OfflineCorpus
     }
 
     /**
-     * Every file under the legacy sandbox class directories and every adapter
-     * package tests/<class> directory, as a repo-relative token.
+     * Every file under the sandbox class directories, as a repo-relative
+     * token. Package-local tests are owned by the fixed
+     * regress-adapter-packages suite and never become global corpus rows.
      *
      * @return list<string>
      */
@@ -247,28 +248,6 @@ final class OfflineCorpus
                 if ($entry instanceof \SplFileInfo && $entry->isFile() && !$entry->isLink()) {
                     $out[] = 'sandbox/tests/' . $class
                         . substr(str_replace('\\', '/', $entry->getPathname()), strlen($base));
-                }
-            }
-        }
-        $packages = $root . '/adapter-packages';
-        foreach (is_dir($packages) ? (scandir($packages) ?: []) : [] as $slug) {
-            if ($slug === '.' || $slug === '..'
-                || preg_match('/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/D', $slug) !== 1) {
-                continue;
-            }
-            foreach (self::CLASS_DIRS as $class) {
-                $base = $packages . '/' . $slug . '/tests/' . $class;
-                if (!is_dir($base) || is_link($base)) {
-                    continue;
-                }
-                $walk = new \RecursiveIteratorIterator(
-                    new \RecursiveDirectoryIterator($base, \FilesystemIterator::SKIP_DOTS)
-                );
-                foreach ($walk as $entry) {
-                    if ($entry instanceof \SplFileInfo && $entry->isFile() && !$entry->isLink()) {
-                        $out[] = 'adapter-packages/' . $slug . '/tests/' . $class
-                            . substr(str_replace('\\', '/', $entry->getPathname()), strlen($base));
-                    }
                 }
             }
         }
@@ -401,7 +380,6 @@ final class OfflineCorpus
      *
      * @return array{
      *     targets:list<string>,
-     *     package_targets:array<string,array{path:string,runtime:'php'|'bash'}>,
      *     refusals:list<string>,
      *     helpers:int,
      *     suites:int
@@ -436,57 +414,10 @@ final class OfflineCorpus
         }
 
         $targets = [];
-        $packageTargets = [];
         $refusals = [];
         $helpers = 0;
         $suites = 0;
         foreach ($claimants as $token => $basename) {
-            $package = self::adapterPackageOf($token);
-            if ($package !== null) {
-                $suites++;
-                $target = self::targetFor($token);
-                if (isset($packageTargets[$target])) {
-                    $refusals[] = "R1 ambiguous: $token and {$packageTargets[$target]['path']}"
-                        . " claim generated package target '$target'";
-                    continue;
-                }
-                $owners = array_keys($namedBy[$token] ?? []);
-                if ($owners !== [] && $owners !== [$target]) {
-                    $refusals[] = "R1 ambiguous: package suite $token is run by " . implode(' and ', $owners)
-                        . " instead of its generated target '$target'";
-                    continue;
-                }
-                if (isset($recipes[$target]) && $owners === []) {
-                    $refusals[] = "R1 target collision: package suite $token claims '$target',"
-                        . ' but that existing target does not run it';
-                    continue;
-                }
-                if (isset($recipes[$target])) {
-                    $targetPaths = [];
-                    foreach ($recipes[$target] as $recipe) {
-                        foreach (self::recipePaths($recipe) as $path) {
-                            $targetPaths[$path] = true;
-                            if (!is_file($root . '/' . $path)) {
-                                $refusals[] = "R2 missing file: corpus target '$target' names $path,"
-                                    . ' which is not on disk';
-                            }
-                        }
-                    }
-                    if (array_keys($targetPaths) !== [$token]) {
-                        $refusals[] = "R1 target collision: generated package target '$target'"
-                            . " must run only $token";
-                        continue;
-                    }
-                }
-                if (self::classOf($token) === self::CORPUS_CLASS) {
-                    $targets[$target] = true;
-                }
-                $packageTargets[$target] = [
-                    'path' => $token,
-                    'runtime' => str_ends_with($token, '.php') ? 'php' : 'bash',
-                ];
-                continue;
-            }
             if (isset($invoked[$basename])) {
                 $helpers++;
                 continue;
@@ -523,38 +454,24 @@ final class OfflineCorpus
         }
         $targets = array_keys($targets);
         sort($targets, SORT_STRING);
-        ksort($packageTargets, SORT_STRING);
         $refusals = array_values(array_unique($refusals));
         sort($refusals, SORT_STRING);
 
         return [
             'targets' => $targets,
-            'package_targets' => $packageTargets,
             'refusals' => $refusals,
             'helpers' => $helpers,
             'suites' => $suites,
         ];
     }
 
-    /** The execution class encoded by a legacy or package-local test token. */
+    /** The execution class encoded by a sandbox test token. */
     public static function classOf(string $token): string
     {
-        if (preg_match('#^adapter-packages/[^/]+/tests/([^/]+)/#D', $token, $m) === 1) {
-            return $m[1];
-        }
         $relative = substr($token, strlen('sandbox/tests/'));
         $slash = strpos($relative, '/');
 
         return $slash === false ? '' : substr($relative, 0, $slash);
-    }
-
-    private static function adapterPackageOf(string $token): ?string
-    {
-        return preg_match(
-            '#^adapter-packages/([a-z][a-z0-9]*(?:-[a-z0-9]+)*)/tests/[^/]+/#D',
-            $token,
-            $match
-        ) === 1 ? $match[1] : null;
     }
 
     /**
@@ -566,20 +483,18 @@ final class OfflineCorpus
      * conflict on one 273-token line.
      *
      * @param list<string> $targets
-     * @param array<string,array{path:string,runtime:'php'|'bash'}> $packageTargets
      */
-    public static function render(array $targets, array $packageTargets = []): string
+    public static function render(array $targets): string
     {
         $count = count($targets);
         $lines = [
             '# GENERATED by tools/offline-corpus.php -- do not edit by hand.',
             '# Regenerate with `php tools/offline-corpus.php`; `make release-gate` byte-compares it.',
             '#',
-            '# This file IS the offline corpus: every suite file under',
-            '# sandbox/tests/offline/ and adapter-packages/*/tests/offline/ appears below',
-            '# exactly once. Leaf rules for every package execution class are generated',
-            '# here too, so adapter authors add only package-local suite files and never',
-            '# edit the global Makefile.',
+            '# This file IS the global offline corpus: every suite file under',
+            '# sandbox/tests/offline/ appears below exactly once. Package-local suites',
+            '# are discovered by the fixed regress-adapter-packages row, so adding one',
+            '# changes only its capsule and never this generated include or Makefile.',
             '# The count both status lines carry is the length of that list. Neither it nor',
             '# the prerequisite list is hand-maintained, and a suite cannot be left out:',
             '# there is no exclusion input (tools/offline-corpus.php states the three',
@@ -591,15 +506,6 @@ final class OfflineCorpus
             '# became derived.',
             '',
         ];
-        if ($packageTargets !== []) {
-            $lines[] = '.PHONY: ' . implode(' ', array_keys($packageTargets));
-            $lines[] = '';
-            foreach ($packageTargets as $target => $test) {
-                $lines[] = $target . ':';
-                $lines[] = "\t" . $test['runtime'] . ' ' . $test['path'];
-                $lines[] = '';
-            }
-        }
         $lines = [
             ...$lines,
             self::GATE_TARGET . ':',
@@ -706,7 +612,7 @@ function oc_main(array $argv): int
 
         return 1;
     }
-    $generated = OfflineCorpus::render($derived['targets'], $derived['package_targets']);
+    $generated = OfflineCorpus::render($derived['targets']);
     $path = $root . '/' . OfflineCorpus::INCLUDE_PATH;
 
     if ($mode === 'print') {

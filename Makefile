@@ -193,13 +193,13 @@ grind-r3a:
 # 8854/8855) — each suite's own header carries the live acceptance narrative
 # it guards on an ongoing basis.
 regress-pa-attributes:
-	bash sandbox/tests/live/regress_pa_attributes.sh
+	bash adapter-packages/woocommerce/tests/live/regress_pa_attributes.sh
 
 regress-woo-attribute-deletion:
-	bash sandbox/tests/live/regress_woo_attribute_deletion.sh
+	bash adapter-packages/woocommerce/tests/live/regress_woo_attribute_deletion.sh
 
 regress-shipping-zones:
-	bash sandbox/tests/live/regress_shipping_zones.sh
+	bash adapter-packages/woocommerce/tests/live/regress_shipping_zones.sh
 
 regress-natural-key-rename:
 	php sandbox/tests/offline/repository/regress_natural_key_rename.php
@@ -356,6 +356,12 @@ regress-fatal-mutations-live:
 # leg below.
 regress-adapter-contract:
 	php sandbox/tests/offline/adapter/regress_adapter_contract.php
+
+# One stable corpus row discovers every capsule and runs its complete offline
+# gate. Package test additions therefore change only adapter-packages/<slug>/;
+# this target, the Makefile and tools/offline-corpus.mk stay byte-identical.
+regress-adapter-packages:
+	php sandbox/tests/offline/adapter/regress_adapter_packages.php
 
 # DUO-3223/recertification: pinned artifact downloads retry transient curl
 # failures at most three times, while digest mismatches and exhausted
@@ -639,25 +645,25 @@ regress-multisite-refusal:
 # candidate-bound fixture; the generic multisite gate does not prove the
 # plugin's own graph and exact artifact remain untouched.
 regress-polylang-multisite-refusal:
-	bash sandbox/tests/live/regress_polylang_multisite_refusal.sh
+	bash adapter-packages/polylang/tests/live/regress_polylang_multisite_refusal.sh
 
 # Bounded Polylang + TEC co-install rewrite topology, including the shared
 # fresh-process native action and provider-before-effect retry proof.
 regress-polylang-tec-rewrite-coinstall:
-	bash sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh
+	bash integration-scenarios/polylang-tec-rewrite-coinstall/tests/live/regress_polylang_tec_rewrite_coinstall.sh
 
 # Exact TEC scope boundary: native-populated 6.17.2 and 6.17.3 sites are
 # converted to real networks before capture/plan/deploy/apply. Candidate SHA,
 # exact artifacts, adapter storage, repository absence, and activation state
 # are re-proved around every typed refusal.
 regress-the-events-calendar-multisite-refusal:
-	bash sandbox/tests/live/regress_the_events_calendar_multisite_refusal.sh
+	bash adapter-packages/the-events-calendar/tests/live/regress_the_events_calendar_multisite_refusal.sh
 
 # Exact WooCommerce 11.0.1 HPOS populated-network refusal. Candidate SHA,
 # artifact/tree identity, Woo authored/runtime fingerprint, repository Git
 # state, and typed capture/plan/deploy/apply refusals are re-proved per command.
 regress-woocommerce-multisite-refusal:
-	bash sandbox/tests/live/regress_woocommerce_multisite_refusal.sh
+	bash adapter-packages/woocommerce/tests/live/regress_woocommerce_multisite_refusal.sh
 
 # DUO-3262: optional term/user interpreter hooks plus static-policy fallback;
 # pure PHP fixture manifests/interpreters, no WordPress or docker.
@@ -665,22 +671,22 @@ regress-interpreter-policy:
 	php sandbox/tests/offline/policy/regress_interpreter_policy.php
 
 regress-contact-form-7-production-readiness:
-	php sandbox/tests/offline/adapter/regress_contact_form_7_production_readiness.php
+	php adapter-packages/contact-form-7/tests/offline/regress_contact_form_7_production_readiness.php
 
 regress-paid-memberships-pro-production-readiness:
-	php sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php
+	php adapter-packages/paid-memberships-pro/tests/offline/regress_paid_memberships_pro_production_readiness.php
 
 regress-ninja-forms-production-readiness:
-	php sandbox/tests/offline/adapter/regress_ninja_forms_production_readiness.php
+	php adapter-packages/ninja-forms/tests/offline/regress_ninja_forms_production_readiness.php
 
 regress-the-events-calendar-production-readiness:
-	php sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php
+	php adapter-packages/the-events-calendar/tests/offline/regress_the_events_calendar_production_readiness.php
 
 regress-polylang-production-readiness:
-	php sandbox/tests/offline/adapter/regress_polylang_production_readiness.php
+	php adapter-packages/polylang/tests/offline/regress_polylang_production_readiness.php
 
 regress-woocommerce-production-readiness:
-	php sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php
+	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_production_readiness.php
 
 # DUO-3222's one genuinely live leg: Deploy::code_mismatch()'s new THEME
 # version_range check, called directly against a real bundled WordPress
@@ -1011,7 +1017,7 @@ regress-target-observation-premises:
 # the exported `fail` helper (the FAIL: line the sweep keys on), not a bare
 # echo+exit. Static, offline.
 regress-polylang-fail-helper:
-	bash sandbox/tests/offline/guards/regress_polylang_fail_helper.sh
+	bash adapter-packages/polylang/tests/offline/regress_polylang_fail_helper.sh
 
 regress-polylang-live-fixtures:
 	bash sandbox/tests/offline/guards/regress_polylang_live_fixtures.sh
@@ -1020,7 +1026,7 @@ regress-polylang-live-fixtures:
 # require_fixture_ids, not a dead `$(wp post list) || fail` (empty-at-exit-0
 # never fires). Static, offline.
 regress-elementor-dead-guard:
-	bash sandbox/tests/offline/guards/regress_elementor_dead_guard.sh
+	bash adapter-packages/elementor/tests/offline/regress_elementor_dead_guard.sh
 
 # DUO-3366: certify_version_matrix.sh must delete Elementor's active-kit
 # reference before site empty removes its post, and must fail on the exact
@@ -1059,31 +1065,31 @@ regress-ecosystem-adapter-batch:
 # public DB/cache/flat-file APIs: stale code, recovery cache, disabled mode,
 # schema failure, symlink containment, network residue, and secret-safe receipt.
 regress-code-snippets-state-provider:
-	php sandbox/tests/offline/adapter/regress_code_snippets_state_provider.php
+	php adapter-packages/code-snippets/tests/offline/regress_code_snippets_state_provider.php
 
 # Yoast Duplicate Post 4.7's settings-save role projection against a faithful
 # fake of the plugin/core APIs: hostile role drift, malformed policy, missing
 # target roles, dropped writes, recovery verification, and multisite refusal.
 regress-yoast-duplicate-post-role-provider:
-	php sandbox/tests/offline/adapter/regress_yoast_duplicate_post_role_provider.php
+	php adapter-packages/yoast-duplicate-post/tests/offline/regress_yoast_duplicate_post_role_provider.php
 
 # Yoast SEO 28.x's exact index command against a faithful four-table fake:
 # schema-before-truncate, strict process receipts, plugin-owned disabled mode,
 # relational postconditions, idempotent retry, and scoped reconciliation.
 regress-yoast-index-provider:
-	php sandbox/tests/offline/adapter/regress_yoast_index_provider.php
+	php adapter-packages/yoast/tests/offline/regress_yoast_index_provider.php
 
 # Elementor 4.0/4.2's exact generated-CSS command against a faithful
 # posts/postmeta/filesystem fake: schema-first refusal, strict native receipts,
 # missing/orphan CSS, render-cache invalidation, races, idempotency and recovery.
 regress-elementor-css-provider:
-	php sandbox/tests/offline/adapter/regress_elementor_css_provider.php
+	php adapter-packages/elementor/tests/offline/regress_elementor_css_provider.php
 
 # Ninja Forms' exact 3.x table/cache boundary against the shared row-backed
 # wpdb fake: stale/orphan caches, schema and graph drift, fresh-process/native
 # receipts, large identities and payloads, races, redaction, retry and recovery.
 regress-ninja-forms-form-cache-provider:
-	php sandbox/tests/offline/adapter/regress_ninja_forms_form_cache_provider.php
+	php adapter-packages/ninja-forms/tests/offline/regress_ninja_forms_form_cache_provider.php
 
 # The hand-reviewed production-readiness work ledger: exact shipped-adapter
 # coverage, all twelve hostile scenario families, grounded evidence paths, and
@@ -2196,7 +2202,7 @@ regress-rank-math-adapter:
 # closed option subkeys, WordPress-module refusal boundary, and verified native
 # API/cache convergence through the provider.
 regress-redirection-adapter:
-	php sandbox/tests/offline/adapter/regress_redirection_adapter.php
+	php adapter-packages/redirection/tests/offline/regress_redirection_adapter.php
 
 # The `taxonomy_delete_scope_exercise` primitive, run rather than asserted: the
 # adversarial matrix tools/engine-gaps.json demands before a post-type adapter
@@ -2429,28 +2435,28 @@ regress-regen-dependency-policy:
 	php sandbox/tests/offline/policy/regress_regen_dependency_policy.php
 
 regress-woocommerce-product-lookups:
-	php sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups.php
+	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups.php
 
 regress-woocommerce-product-lookups-fake:
-	php sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php
+	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups_fake.php
 
 regress-woocommerce-hierarchy-lookups:
-	php sandbox/tests/offline/ecommerce/regress_woocommerce_hierarchy_lookups.php
+	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_hierarchy_lookups.php
 
 regress-woocommerce-fulfillment-prerequisites:
-	php sandbox/tests/offline/ecommerce/regress_woocommerce_fulfillment_prerequisites.php
+	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_fulfillment_prerequisites.php
 
 regress-woocommerce-scheduler-settings:
-	php sandbox/tests/offline/ecommerce/regress_woocommerce_scheduler_settings.php
+	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_scheduler_settings.php
 
 regress-woocommerce-thumbnail-images:
-	php sandbox/tests/offline/ecommerce/regress_woocommerce_thumbnail_images.php
+	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_thumbnail_images.php
 
 regress-woocommerce-optional-core:
-	php sandbox/tests/offline/adapter/regress_woocommerce_optional_core.php
+	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_optional_core.php
 
 regress-woocommerce-deletion-authority:
-	php sandbox/tests/offline/ecommerce/regress_woocommerce_deletion_authority.php
+	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_deletion_authority.php
 
 regress-woocommerce-regen-engine:
 	php sandbox/tests/offline/ecommerce/regress_woocommerce_regen_engine.php
@@ -2549,7 +2555,7 @@ regress-effect-declaration-coverage:
 	php sandbox/tests/offline/recovery/regress_effect_declaration_coverage.php
 
 regress-woocommerce-effect-contract:
-	php sandbox/tests/offline/ecommerce/regress_woocommerce_effect_contract.php
+	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_effect_contract.php
 
 regress-ssh-rollback-certification:
 	php sandbox/tests/offline/recovery/regress_ssh_rollback_certification.php
@@ -2602,7 +2608,7 @@ regress-pair-candidate-source:
 	bash sandbox/tests/offline/guards/regress_pair_candidate_source.sh
 
 regress-woocommerce-contract:
-	php sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php
+	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_contract.php
 
 # DUO-3343: a production refresh is an observation boundary, not a capture
 # variant. This focused no-WordPress harness proves the exporter's
@@ -2616,7 +2622,7 @@ regress-collision:
 	bash sandbox/tests/live/regress_collision.sh
 
 regress-entity-type-width:
-	bash sandbox/tests/live/regress_entity_type_width.sh
+	bash adapter-packages/woocommerce/tests/live/regress_entity_type_width.sh
 
 regress-env-set:
 	bash sandbox/tests/live/regress_env_set.sh
@@ -2625,14 +2631,14 @@ regress-option-ref-scope:
 	bash sandbox/tests/live/regress_option_ref_scope.sh
 
 regress-pmpro-composite-ref:
-	bash sandbox/tests/live/regress_pmpro_composite_ref.sh
+	bash adapter-packages/paid-memberships-pro/tests/live/regress_pmpro_composite_ref.sh
 
 # Candidate-bound production leg for WooCommerce product permalink rebuilds
 # under the exact supported Yoast, Polylang, and TEC co-install topology.
 # Docker/pair.sh-dependent, so it is discoverable in regress-live-list rather
 # than folded into the offline corpus.
 regress-woocommerce-rewrite-coinstall:
-	bash sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh
+	bash integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh
 
 regress-repository-authorization:
 	bash sandbox/tests/live/regress_repository_authorization.sh
@@ -2761,7 +2767,7 @@ certify-ssh-rollback:
 	bash sandbox/tests/certify/certify_ssh_rollback.sh
 
 regress-tec-regen:
-	bash sandbox/tests/live/regress_tec_regen.sh
+	bash adapter-packages/the-events-calendar/tests/live/regress_tec_regen.sh
 
 regress-user-meta:
 	bash sandbox/tests/live/regress_user_meta.sh
