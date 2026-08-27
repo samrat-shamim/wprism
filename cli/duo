@@ -320,7 +320,8 @@ Usage:
   duo adapter doctor [--repo=<site-repo>] [--adapter-library=<root>] [--format=json]
   duo adapter doctor --migration --repo=<site-repo> [--artifact=<artifact.json>]
                      [--scope-contract=<scope-contract.json>]
-                     [--snapshot=<snapshot.json>] [--format=json]
+                     [--snapshot=<snapshot.json>] [--adapter-library=<root>]
+                     [--format=json]
   duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
   duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
                       [--key-id=<id>] [--reason=<text>]

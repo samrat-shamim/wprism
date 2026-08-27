@@ -97,8 +97,8 @@ use Duo\SupersededWireSiteAdapterCertificate;
  * platform document disagrees with the loaded agent ("agent capability platform
  * boundary disagrees with the loaded agent", "platform version disagrees with
  * the loaded agent"), so a mixed bundle could not reach a single certificate
- * gate. `DUO_MANIFESTS_DIR` already selects the library for a process that IS
- * the matching agent, which is the only combination any gate here accepts.
+ * gate. `--adapter-library` selects the library for a process that IS the
+ * matching agent, which is the only combination any gate here accepts.
  *
  * WHAT THE SITE MUST HAND OVER, AND WHAT IS SAID WHEN IT DOES NOT
  * --------------------------------------------------------------
@@ -180,6 +180,7 @@ final class MigrationPreflight {
     public static function run(array $args): int {
         $verb = null;
         $repoArg = null;
+        $libraryArg = null;
         $held = ['artifact' => null, 'scope-contract' => null, 'snapshot' => null];
         $json = false;
 
@@ -205,6 +206,13 @@ final class MigrationPreflight {
             }
             if (str_starts_with($arg, '--repo=')) {
                 $repoArg = trim(substr($arg, strlen('--repo=')));
+                continue;
+            }
+            if (str_starts_with($arg, '--adapter-library=')) {
+                $libraryArg = trim(substr($arg, strlen('--adapter-library=')));
+                if ($libraryArg === '') {
+                    return self::fail('--adapter-library needs a non-empty directory path');
+                }
                 continue;
             }
             $matched = false;
@@ -272,13 +280,9 @@ final class MigrationPreflight {
 
         try {
             self::boot();
-            $manifestDir = Policy::adapter_library_context();
+            $manifestDir = self::adapterLibrary($libraryArg);
         } catch (\Throwable $t) {
             return self::fail($t->getMessage());
-        }
-
-        if (is_string($manifestDir) && !is_dir($manifestDir)) {
-            return self::fail("the agent manifest library '$manifestDir' is not a directory");
         }
 
         try {
@@ -297,6 +301,24 @@ final class MigrationPreflight {
             self::render($report);
         }
         return $report['status'] === 'ok' ? 0 : 1;
+    }
+
+    /** Resolve only the installed library or one explicitly selected state/archive input. */
+    private static function adapterLibrary(?string $path): AdapterLibrary {
+        if ($path === null) {
+            return Policy::adapter_library_context();
+        }
+        $root = realpath($path);
+        if ($root === false || !is_dir($root)) {
+            throw new \RuntimeException("adapter library '$path' is not a directory");
+        }
+        if (is_dir($root . '/adapter-packages') || is_dir($root . '/platform/adapter-library')) {
+            return AdapterLibrary::fromSourceTree($root);
+        }
+        if (is_dir($root . '/adapters') && is_dir($root . '/platform')) {
+            return AdapterLibrary::fromEmbeddedDirectory($root);
+        }
+        return AdapterLibrary::fromLegacyFlatDirectory($root);
     }
 
     /**
@@ -328,6 +350,9 @@ final class MigrationPreflight {
      * @return array<string,mixed>
      */
     private static function report(string $repo, string|AdapterLibrary $manifestDir, array $held): array {
+        $adapterLibrary = $manifestDir instanceof AdapterLibrary
+            ? $manifestDir
+            : AdapterLibrary::fromLegacyFlatDirectory($manifestDir);
         $state = [
             'movements' => [],
             'unclassified' => [],
@@ -346,11 +371,9 @@ final class MigrationPreflight {
             'target' => [
                 'agent_version' => DUO_AGENT_VERSION,
                 'spec_version' => DUO_SPEC_VERSION,
-                'manifests_dir' => $manifestDir instanceof AdapterLibrary ? $manifestDir->root() : $manifestDir,
-                'platform_sha256' => ContractAttestation::currentPlatformDigest($manifestDir),
-                'registry_sha256' => ($manifestDir instanceof AdapterLibrary
-                    ? ManifestDispositions::load_library($manifestDir)
-                    : ManifestDispositions::load($manifestDir))->sha256(),
+                'manifests_dir' => $adapterLibrary->root(),
+                'platform_sha256' => ContractAttestation::currentPlatformDigest($adapterLibrary),
+                'registry_sha256' => ManifestDispositions::load_library($adapterLibrary)->sha256(),
             ],
         ];
 
@@ -374,7 +397,7 @@ final class MigrationPreflight {
         $policy = null;
         $compiled = null;
         try {
-            $policy = Policy::load($repo);
+            $policy = Policy::load($repo, adapterLibrary: $adapterLibrary);
             $report['site'] = ['load' => 'ok', 'refusal' => null];
         } catch (\Throwable $t) {
             $report['site'] = ['load' => 'refused', 'refusal' => $t->getMessage()];
@@ -410,10 +433,15 @@ final class MigrationPreflight {
         }
 
         $site = basename($repo);
-        $certificates = self::certificates($repo, $manifestDir, $policy, $site, $state);
+        $certificates = self::certificates($repo, $adapterLibrary, $policy, $site, $state);
         $adapters = self::adapters($resolved, $targetClaimAgent);
         $identity = self::identity($site, $compiled, $held['artifact'], $policy, $adapters, $state);
-        $contracts = self::contracts($repo, $manifestDir, (string) $report['target']['registry_sha256'], $state);
+        $contracts = self::contracts(
+            $repo,
+            $adapterLibrary,
+            (string) $report['target']['registry_sha256'],
+            $state
+        );
 
         $report['certificates'] = $certificates;
         $report['pins'] = self::pins($pins, $targetDigests, $policy !== null, $state);
@@ -421,7 +449,7 @@ final class MigrationPreflight {
         $report['identity'] = $identity['values'];
         $report['held_artifact'] = $identity['held_artifact'];
         $report['scope_contracts'] = self::scopeContracts($held['scope-contract'], $compiled, $policy, $state);
-        $report['snapshot'] = self::snapshot($held['snapshot'], $state);
+        $report['snapshot'] = self::snapshot($held['snapshot'], $adapterLibrary, $state);
         $report['contracts'] = $contracts;
 
         // Finding (a), on the weaker bases, once every source that can carry it
@@ -936,13 +964,13 @@ final class MigrationPreflight {
      * @param array<string,mixed> $state
      * @return ?array<string,mixed>
      */
-    private static function snapshot(?string $path, array &$state): ?array {
+    private static function snapshot(?string $path, AdapterLibrary $adapterLibrary, array &$state): ?array {
         if ($path === null) {
             return null;
         }
         $out = ['path' => $path, 'verdict' => 'unobserved', 'adapters' => [], 'reason' => null];
         try {
-            $frozen = Policy::from_snapshot(Canon::decode(Canon::read_file($path)));
+            $frozen = Policy::from_snapshot(Canon::decode(Canon::read_file($path)), $adapterLibrary);
         } catch (\Throwable $t) {
             $out['verdict'] = 'refuses';
             $out['reason'] = $t->getMessage();
