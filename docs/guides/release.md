@@ -21,8 +21,14 @@ authorization in front and verification behind.
 
 ## Create a preview
 
+First configure an `environment_provider` in the machine-local
+`.duo-envs.json` and verify it with `duo env provider-check <env>`. Duo
+orchestrates that provider; it does not supply preview hosting. The exact
+registry shape and capability contract are in the
+[branch-environment provider protocol](../branch-environment-provider.md).
+
 ```sh
-duo preview create preview --from production --branch feature/pricing-page --ttl 86400
+duo preview create preview --from production --branch feature/pricing-page --create --ttl 86400
 ```
 
 `duo preview create` is the first-contact spelling of `duo rehearse`, which is

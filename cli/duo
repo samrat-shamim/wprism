@@ -342,7 +342,8 @@ Usage:
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
   duo connect <env> --workspace=<path> --transport=ssh --host=<ssh-host>
               --wp-path=<path> --repo-path=<path> [--ssh-config=<path>]
-  duo onboard <env> [--git-url=<url>] [init flags...]
+  duo onboard <env> [--git-url=<empty-url>] [init flags...]
+  duo onboard <env> --handoff-only --git-url=<url>
   duo adopt  <env>
   duo init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
   duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]

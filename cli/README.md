@@ -37,7 +37,8 @@ duo adapter-observe <env> [--out=<local-file>|--format=json]
 duo doctor <env>
 duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
 duo connect <env> --workspace=<path> --transport=ssh --host=<host> --wp-path=<path> --repo-path=<path>
-duo onboard <env> [--git-url=<url>] [init flags...]
+duo onboard <env> [--git-url=<empty-url>] [init flags...]
+duo onboard <env> --handoff-only --git-url=<url>
 duo adopt  <env>
 duo init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
 duo code-classify <env> [--dry-run] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
@@ -92,9 +93,11 @@ repositories.
 WordPress, and single-site topology before creating a dedicated local Git
 root containing the shared adoption seed and a mode-`0600`, ignored
 `.duo-envs.json`. `duo onboard` then composes the existing `adopt`, `assess`,
-and `init` gates in that order. `--git-url` additionally publishes the target's
-initialized `main` branch and replaces only connect's byte-verified local seed
-with that exact checkout.
+and `init` gates in that order. `--git-url` must be empty and accessible with
+Git credentials from both controller and target; Duo preflights both before
+target mutation, publishes the target's current branch, and replaces only
+connect's byte-verified local seed with that exact checkout. If init completed
+without a URL, `--handoff-only --git-url=<url>` resumes just that handoff.
 
 `duo preview create|remove` is the first-contact spelling of the established
 `duo rehearse <env> ...|--reap` contract. It is a strict argument translation,

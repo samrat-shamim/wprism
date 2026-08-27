@@ -1527,7 +1527,7 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 34,
+        "file_count": 35,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
@@ -1549,6 +1549,7 @@
           "EnvironmentCommandPreflight.php",
           "EnvironmentListCommand.php",
           "EnvironmentProviderCheckCommand.php",
+          "HostProcess.php",
           "InitCommand.php",
           "MergeCheckCommand.php",
           "OnboardCommand.php",

@@ -39,8 +39,8 @@ WordPress state is classified along three axes — *who authors it*, *env-portab
 ## Getting started
 
 From a source checkout, the shortest honest evaluation is a disposable,
-digest-pinned WooCommerce pair (Docker required; no package installation is
-performed):
+digest-pinned WooCommerce pair. It requires PHP 8+, Docker with Compose, Git,
+and `jq`; no package installation is performed:
 
 ```sh
 cli/duo demo start --scenario=woocommerce
@@ -67,6 +67,10 @@ DUO_CLI="$PWD/cli/duo"
 cd ../my-site
 "$DUO_CLI" onboard production --git-url=git@github.com:you/my-site.git
 ```
+
+The Git remote must be empty and reachable with configured credentials from
+both this controller and the WordPress target. Duo verifies that before
+adoption or initialization changes the site.
 
 The [quickstart](docs/guides/quickstart.md) explains both paths. Continue with
 [assess](docs/guides/assess.md) → [daily-workflow](docs/guides/daily-workflow.md)

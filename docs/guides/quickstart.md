@@ -6,7 +6,8 @@ registry by hand.
 
 ## Try Duo without connecting a site
 
-From a source checkout with Docker available:
+From a source checkout with PHP 8+, Docker with Compose, Git, and `jq`
+available:
 
 ```sh
 cli/duo demo start --scenario=woocommerce
@@ -69,11 +70,21 @@ cd ../my-site
 **adopt (deliver the agent) → assess (decide) → init (commit to a baseline).**
 
 Each existing gate remains visible and fail-closed. The assessment is printed
-before init asks for confirmation. If `--git-url` is supplied, the initialized
-target baseline is committed and pushed, then checked out into the connected
-workspace while the untracked local registry stays in place. Without it,
-onboarding stops after a successful init and asks you to publish the target
-repository; it never guesses a remote or credential.
+before init asks for confirmation. `--git-url` must name an empty repository
+that both the controller and WordPress target can reach with their own Git
+credentials and SSH known-host configuration. Duo verifies both paths and the
+empty remote before adopt/init changes the target. It then commits and pushes
+the initialized target baseline on the target's current branch and checks out
+that exact branch into the connected workspace while the untracked local
+registry stays in place. Without `--git-url`, onboarding stops after a
+successful init and prints the resumable command:
+
+```sh
+"$DUO_CLI" onboard production --handoff-only --git-url=<empty-remote-url>
+```
+
+That continuation performs only the repository handoff; it does not repeat
+adopt, assess, or init.
 
 On a Docker or local target whose control plane already carries the agent,
 `duo assess` is the very first Duo command you run. [assess.md](assess.md) is
@@ -308,9 +319,9 @@ acceptance test.
 ### 6. Measure, then review
 
 ```sh
-cli/duo coverage production --format=json > production-coverage.json
-cli/duo pending production
-cli/duo classify production --export-batch=production-review.json
+"$DUO_CLI" coverage production --format=json > production-coverage.json
+"$DUO_CLI" pending production
+"$DUO_CLI" classify production --export-batch=production-review.json
 ```
 
 `coverage` is a survey, not a green gate: it never blocks anything and never
@@ -365,8 +376,8 @@ neither is ever guessed — the same posture as `pending`'s proposals.
 ### 7. Apply the batch — then look again
 
 ```sh
-cli/duo classify production --apply-batch=production-review.json
-cli/duo pending production
+"$DUO_CLI" classify production --apply-batch=production-review.json
+"$DUO_CLI" pending production
 ```
 
 The artifact is bound to the environment and to the exact pending evidence by
@@ -383,7 +394,7 @@ decisions routinely exposes another, so keep looping until `duo pending` prints
 ### 8. Capture, then check the checksums again
 
 ```sh
-cli/duo capture production
+"$DUO_CLI" capture production
 ```
 
 Then re-run the runtime checksums from step 5. **Any changed runtime checksum
@@ -466,8 +477,8 @@ Then assess before you initialize — nothing here writes to the target, and a
 site full of blocked surfaces is still a successful assessment:
 
 ```sh
-cli/duo assess dev
-cli/duo init dev
+"$DUO_CLI" assess dev
+"$DUO_CLI" init dev
 ```
 
 The target itself needs WordPress, WP-CLI, Git, and a standard supported
@@ -587,9 +598,9 @@ plugin and theme code on an independent target, adopt it, transfer only the
 site repo, and converge it:
 
 ```sh
-cli/duo plan target --adopt-by-slug=posts,terms,menus --default-author=admin
-cli/duo apply target --adopt-by-slug=posts,terms,menus --default-author=admin
-cli/duo capture target
+"$DUO_CLI" plan target --adopt-by-slug=posts,terms,menus --default-author=admin
+"$DUO_CLI" apply target --adopt-by-slug=posts,terms,menus --default-author=admin
+"$DUO_CLI" capture target
 ```
 
 The acceptance result is four facts together, not any one of them: apply's

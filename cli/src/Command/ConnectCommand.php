@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Transport/Transport.php';
 require_once __DIR__ . '/../Transport/LocalTransport.php';
 require_once __DIR__ . '/../Transport/DockerTransport.php';
 require_once __DIR__ . '/../Transport/SshTransport.php';
+require_once __DIR__ . '/HostProcess.php';
 
 /** Create the local half of a Duo relationship after native read-only probes. */
 final class ConnectCommand {
@@ -39,8 +40,13 @@ final class ConnectCommand {
         echo "Workspace: {$request['workspace']}\n";
         echo "Next:\n";
         echo '  cd ' . escapeshellarg($request['workspace']) . "\n";
-        echo '  ' . escapeshellarg($cli) . ' onboard ' . escapeshellarg($request['environment']) . "\n";
-        echo "Add --git-url=<url> to onboard to publish the initialized baseline and check it out here automatically.\n";
+        if (($request['config']['transport'] ?? null) === 'docker') {
+            echo "  # Docker cannot deliver the agent. Mount/install it through the container control plane first.\n";
+            echo '  ' . escapeshellarg($cli) . ' assess ' . escapeshellarg($request['environment']) . "\n";
+        } else {
+            echo '  ' . escapeshellarg($cli) . ' onboard ' . escapeshellarg($request['environment']) . "\n";
+            echo "Add --git-url=<empty-remote-url> to preflight and automate the initialized repository handoff.\n";
+        }
         return 0;
     }
 
@@ -95,10 +101,15 @@ final class ConnectCommand {
         }
 
         $workspace = self::absolutePath($cwd, (string) $values['workspace']);
-        $config = ['transport' => $transport, '_dir' => dirname($workspace), '_machine_local' => true];
+        $config = ['transport' => $transport, '_dir' => $workspace, '_machine_local' => true];
         foreach (array_diff($allowed, ['workspace', 'transport']) as $key) {
             if (isset($values[$key])) {
                 $config[$key] = $values[$key];
+            }
+        }
+        foreach (['ssh_config', 'compose_file', 'compose_env_file'] as $pathKey) {
+            if (is_string($config[$pathKey] ?? null)) {
+                $config[$pathKey] = self::existingFile($cwd, (string) $config[$pathKey], '--' . str_replace('_', '-', $pathKey));
             }
         }
         if ($transport === 'local') {
@@ -132,16 +143,8 @@ final class ConnectCommand {
         array $config,
         ?callable $processRunner
     ): void {
-        if (is_link($workspace) || (file_exists($workspace) && !is_dir($workspace))) {
-            throw new \RuntimeException("workspace is not an ordinary directory: $workspace");
-        }
-        if (is_dir($workspace)) {
-            $entries = array_values(array_diff(scandir($workspace) ?: [], ['.', '..']));
-            if ($entries !== []) {
-                throw new \RuntimeException("workspace is not empty: $workspace");
-            }
-        } elseif (!mkdir($workspace, 0700, true) && !is_dir($workspace)) {
-            throw new \RuntimeException("could not create workspace: $workspace");
+        if (file_exists($workspace) || is_link($workspace)) {
+            throw new \RuntimeException("workspace must not already exist: $workspace");
         }
 
         $overlayConfig = $config;
@@ -154,17 +157,24 @@ final class ConnectCommand {
             throw new \RuntimeException('could not encode the machine-local environment registry');
         }
 
+        $stage = dirname($workspace) . '/.duo-connect-' . bin2hex(random_bytes(16));
+        if (!mkdir($stage, 0700) || is_link($stage)) {
+            throw new \RuntimeException('could not reserve a private workspace staging directory');
+        }
         try {
-            self::writeNew($workspace . '/site.duo.json', Adopt::repositorySeedBytes(), 0644);
-            self::writeNew($workspace . '/.gitignore', Adopt::repositoryGitignoreBytes(), 0644);
-            self::writeNew($workspace . '/.duo-envs.json', $overlay . "\n", 0600);
-            $run = $processRunner ?? self::runProcess(...);
-            $git = $run(['git', 'init', '--initial-branch=main', $workspace], null);
-            if ($git['exit'] !== 0 || !is_dir($workspace . '/.git')) {
+            self::writeNew($stage . '/site.duo.json', Adopt::repositorySeedBytes(), 0644);
+            self::writeNew($stage . '/.gitignore', Adopt::repositoryGitignoreBytes(), 0644);
+            self::writeNew($stage . '/.duo-envs.json', $overlay . "\n", 0600);
+            $run = $processRunner ?? HostProcess::run(...);
+            $git = $run(['git', 'init', '--initial-branch=main', $stage], null);
+            if ($git['exit'] !== 0 || !is_dir($stage . '/.git')) {
                 throw new \RuntimeException('could not initialize the workspace Git boundary: ' . trim($git['stderr']));
             }
+            if (file_exists($workspace) || is_link($workspace) || !rename($stage, $workspace)) {
+                throw new \RuntimeException('workspace destination appeared before atomic publication');
+            }
         } catch (\Throwable $error) {
-            self::removeOwnedWorkspace($workspace);
+            self::removeTree($stage);
             throw $error;
         }
     }
@@ -178,21 +188,14 @@ final class ConnectCommand {
         }
     }
 
-    private static function removeOwnedWorkspace(string $workspace): void {
-        foreach (['site.duo.json', '.gitignore', '.duo-envs.json'] as $name) {
-            $path = $workspace . '/' . $name;
-            if (is_file($path) && !is_link($path)) {
-                unlink($path);
-            }
-        }
-        $git = $workspace . '/.git';
-        if (is_dir($git) && !is_link($git)) {
-            self::removeTree($git);
-        }
-        @rmdir($workspace);
-    }
-
     private static function removeTree(string $root): void {
+        if (!file_exists($root) && !is_link($root)) {
+            return;
+        }
+        if (is_link($root) || is_file($root)) {
+            unlink($root);
+            return;
+        }
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::CHILD_FIRST
@@ -205,43 +208,27 @@ final class ConnectCommand {
     }
 
     private static function absolutePath(string $cwd, string $path): string {
-        if ($path === '' || str_contains($path, "\0")) {
-            throw new \RuntimeException('--workspace must name a non-empty path');
+        if ($path === '' || preg_match('/[\x00-\x1f\x7f]/', $path) === 1) {
+            throw new \RuntimeException('--workspace must name a non-empty path without control bytes');
         }
         $absolute = str_starts_with($path, '/') ? $path : rtrim($cwd, '/') . '/' . $path;
         $parent = realpath(dirname($absolute));
-        if ($parent === false) {
-            $grandparent = realpath(dirname(dirname($absolute)));
-            if ($grandparent === false) {
-                throw new \RuntimeException('workspace parent must be inside an existing directory');
-            }
-            $parent = $grandparent . '/' . basename(dirname($absolute));
+        $basename = basename($absolute);
+        if ($parent === false || !is_dir($parent) || $basename === '.' || $basename === '..') {
+            throw new \RuntimeException('workspace must be a new direct child of an existing directory');
         }
-        return rtrim($parent, '/') . '/' . basename($absolute);
+        return rtrim($parent, '/') . '/' . $basename;
     }
 
-    /** @return array{exit:int,stdout:string,stderr:string} */
-    private static function runProcess(array $argv, ?string $cwd): array {
-        $process = @proc_open(
-            $argv,
-            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-            $cwd,
-            null,
-            ['bypass_shell' => true]
-        );
-        if (!is_resource($process)) {
-            return ['exit' => 127, 'stdout' => '', 'stderr' => 'could not start process'];
+    private static function existingFile(string $cwd, string $path, string $flag): string {
+        if ($path === '' || preg_match('/[\x00-\x1f\x7f]/', $path) === 1) {
+            throw new \RuntimeException("$flag must name a readable local file without control bytes");
         }
-        fclose($pipes[0]);
-        $stdout = stream_get_contents($pipes[1]);
-        $stderr = stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        return [
-            'exit' => proc_close($process),
-            'stdout' => is_string($stdout) ? $stdout : '',
-            'stderr' => is_string($stderr) ? $stderr : '',
-        ];
+        $candidate = str_starts_with($path, '/') ? $path : rtrim($cwd, '/') . '/' . $path;
+        $resolved = realpath($candidate);
+        if ($resolved === false || !is_file($resolved) || !is_readable($resolved)) {
+            throw new \RuntimeException("$flag file not found or unreadable: $path");
+        }
+        return $resolved;
     }
 }

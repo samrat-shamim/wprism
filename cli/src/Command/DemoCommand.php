@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/../Onboarding/Adopt.php';
+require_once __DIR__ . '/HostProcess.php';
 
 /** Source-checkout, disposable two-site journey over the real Duo commands. */
 final class DemoCommand {
@@ -13,8 +14,11 @@ final class DemoCommand {
     private const DEFAULT_TARGET_PORT = 8782;
     private const WOO_VERSION = '11.0.1';
 
-    /** @param list<string> $args everything after `demo` */
-    public static function run(array $args, string $sourceRoot): int {
+    /**
+     * @param list<string> $args everything after `demo`
+     * @param ?callable(string):void $phaseHook offline fault-injection seam
+     */
+    public static function run(array $args, string $sourceRoot, ?callable $phaseHook = null): int {
         $action = array_shift($args);
         if (!is_string($action) || !in_array($action, ['start', 'status', 'capture', 'apply', 'refusal', 'stop'], true)) {
             fwrite(STDERR, "duo: demo: expected start, status, capture, apply, refusal, or stop\n");
@@ -23,7 +27,7 @@ final class DemoCommand {
         try {
             $options = self::options($action, $args);
             return match ($action) {
-                'start' => self::start($sourceRoot, $options),
+                'start' => self::start($sourceRoot, $options, $phaseHook),
                 'status' => self::status($sourceRoot, $options['name']),
                 'capture' => self::capture($sourceRoot, $options['name']),
                 'apply' => self::apply($sourceRoot, $options['name']),
@@ -77,10 +81,10 @@ final class DemoCommand {
     }
 
     /** @param array{name:string,source_port:int,target_port:int,scenario:string} $options */
-    private static function start(string $sourceRoot, array $options): int {
+    private static function start(string $sourceRoot, array $options, ?callable $phaseHook): int {
         self::requireTools(['docker', 'git', 'jq']);
         $session = self::sessionShape($sourceRoot, $options);
-        if (is_file($session['state_file'])) {
+        if (file_exists($session['state_file']) || is_link($session['state_file'])) {
             throw new \RuntimeException("demo '{$options['name']}' already has a session; run `duo demo status` or `duo demo stop`");
         }
         foreach ([$session['source_repo'], $session['target_repo'], $session['origin']] as $path) {
@@ -89,25 +93,28 @@ final class DemoCommand {
             }
         }
 
-        echo "Starting an exact, disposable WooCommerce pair. This can take a few minutes on the first image/artifact pull.\n";
-        $up = self::runProcess(
-            [
-                'bash', $sourceRoot . '/sandbox/bin/pair.sh', 'up', $options['name'],
-                (string) $options['source_port'], (string) $options['target_port'], '--http', '--artifacts',
-            ],
-            $sourceRoot,
-            [
-                'DUO_SOURCE_ROOT' => $sourceRoot,
-                'DUO_EXPECTED_SOURCE_SHA' => trim(self::mustRun(['git', 'rev-parse', 'HEAD'], $sourceRoot)['stdout']),
-            ],
-            true
-        );
-        if ($up['exit'] !== 0) {
-            throw new \RuntimeException('pair startup failed');
-        }
-
+        self::writeSession($session);
         try {
+            echo "Starting an exact, disposable WooCommerce pair. This can take a few minutes on the first image/artifact pull.\n";
+            $up = self::runProcess(
+                [
+                    'bash', $sourceRoot . '/sandbox/bin/pair.sh', 'up', $options['name'],
+                    (string) $options['source_port'], (string) $options['target_port'], '--http', '--artifacts',
+                ],
+                $sourceRoot,
+                [
+                    'DUO_SOURCE_ROOT' => $sourceRoot,
+                    'DUO_EXPECTED_SOURCE_SHA' => trim(self::mustRun(['git', 'rev-parse', 'HEAD'], $sourceRoot)['stdout']),
+                ],
+                true
+            );
+            if ($up['exit'] !== 0) {
+                throw new \RuntimeException('pair startup failed');
+            }
             self::writeComposeEnv($session, $sourceRoot);
+            if ($phaseHook !== null) {
+                $phaseHook('compose_env_published');
+            }
             self::installWooCommerce($session, $sourceRoot);
             self::prepareSourceRepository($session);
             self::seedSourceCatalog($session);
@@ -128,9 +135,17 @@ final class DemoCommand {
                 true
             );
             $session['runtime_before'] = self::seedTargetRuntime($session);
-            self::writeSession($session);
+            $session['last_applied_revision'] = $revision;
+            $session['phase'] = 'ready';
+            self::replaceSession($session);
         } catch (\Throwable $error) {
-            self::destroyPair($sourceRoot, $options['name'], false);
+            if (self::destroyPair($sourceRoot, $options['name'], false) !== 0) {
+                throw new \RuntimeException(
+                    $error->getMessage() . '; pair teardown failed; run `'
+                    . self::demoCli($sourceRoot) . " demo stop --name={$options['name']}` to resume cleanup"
+                );
+            }
+            self::cleanupOwnedSession($sourceRoot, $session);
             throw $error;
         }
 
@@ -140,23 +155,24 @@ final class DemoCommand {
         echo "  Login:  admin / admin\n";
         echo "  Repo:   {$session['source_repo']}\n\n";
         echo "Edit 'Duo Demo Mug' on the SOURCE site, then run:\n";
-        echo '  ' . escapeshellarg($sourceRoot . '/cli/duo') . ' demo capture --name=' . $options['name'] . "\n";
-        echo "Inspect the Git diff, then run `duo demo apply --name={$options['name']}`.\n";
-        echo "Afterward, `duo demo refusal` proves a caller cannot override the trusted target binding, and `duo demo stop` removes the pair.\n";
+        echo '  ' . escapeshellarg(self::demoCli($sourceRoot)) . ' demo capture --name=' . $options['name'] . "\n";
         return 0;
     }
 
     private static function status(string $sourceRoot, string $name): int {
         $session = self::readSession($sourceRoot, $name);
-        echo "Demo '$name' is active.\n";
+        echo "Demo '$name' phase: {$session['phase']}.\n";
         echo "  source: http://localhost:{$session['source_port']} ({$session['source_repo']})\n";
         echo "  target: http://localhost:{$session['target_port']} ({$session['target_repo']})\n";
-        echo "  runtime proof: {$session['runtime_before']}\n";
+        if ($session['runtime_before'] !== '') {
+            echo "  runtime proof: {$session['runtime_before']}\n";
+        }
         return 0;
     }
 
     private static function capture(string $sourceRoot, string $name): int {
         $session = self::readSession($sourceRoot, $name);
+        self::assertReady($session);
         self::runDuo($session, $sourceRoot, $session['source_repo'], ['capture', 'demo-source'], true);
         $diff = self::git($session['source_repo'], ['status', '--short']);
         if (trim($diff['stdout']) === '') {
@@ -165,24 +181,46 @@ final class DemoCommand {
         }
         echo "\nCaptured changes (review with `git -C " . escapeshellarg($session['source_repo']) . " diff`):\n";
         echo $diff['stdout'];
+        echo "Next:\n  " . escapeshellarg(self::demoCli($sourceRoot)) . " demo apply --name=$name\n";
         return 0;
     }
 
     private static function apply(string $sourceRoot, string $name): int {
         $session = self::readSession($sourceRoot, $name);
+        self::assertReady($session);
         $status = trim(self::git($session['source_repo'], ['status', '--short'])['stdout']);
-        if ($status === '') {
-            throw new \RuntimeException('there is no captured Git diff; edit the source and run `duo demo capture` first');
+        $pending = $session['pending_revision'];
+        if ($status !== '' && $pending !== null) {
+            throw new \RuntimeException('a prior revision is still pending; revert the new source edit, retry apply, then capture it separately');
         }
-        self::git($session['source_repo'], ['add', '-A']);
-        self::git($session['source_repo'], [
-            '-c', 'user.name=duo-demo', '-c', 'user.email=demo@example.test',
-            'commit', '-m', 'demo: capture authored source change',
-        ]);
-        self::git($session['source_repo'], ['push', 'origin', 'main']);
+        if ($status !== '') {
+            self::git($session['source_repo'], ['add', '-A']);
+            self::git($session['source_repo'], [
+                '-c', 'user.name=duo-demo', '-c', 'user.email=demo@example.test',
+                'commit', '-m', 'demo: capture authored source change',
+            ]);
+            $revision = trim(self::git($session['source_repo'], ['rev-parse', 'HEAD'])['stdout']);
+            $session['pending_revision'] = $revision;
+            self::replaceSession($session);
+        } else {
+            $revision = is_string($pending)
+                ? $pending
+                : trim(self::git($session['source_repo'], ['rev-parse', 'HEAD'])['stdout']);
+            if ($revision === (string) $session['last_applied_revision']) {
+                throw new \RuntimeException('there is no captured Git diff; edit the source and run demo capture first');
+            }
+            if ($pending === null) {
+                $session['pending_revision'] = $revision;
+                self::replaceSession($session);
+            }
+        }
+        self::git($session['source_repo'], ['push', 'origin', $revision . ':refs/heads/main']);
         self::git($session['target_repo'], ['pull', '--ff-only', 'origin', 'main']);
         self::runDuo($session, $sourceRoot, $session['target_repo'], ['deploy', 'demo-target'], true);
-        $revision = trim(self::git($session['target_repo'], ['rev-parse', 'HEAD'])['stdout']);
+        $targetRevision = trim(self::git($session['target_repo'], ['rev-parse', 'HEAD'])['stdout']);
+        if ($targetRevision !== $revision) {
+            throw new \RuntimeException('target checkout does not match the pending source revision');
+        }
         self::runDuo(
             $session,
             $sourceRoot,
@@ -194,12 +232,17 @@ final class DemoCommand {
         if (!hash_equals((string) $session['runtime_before'], $after)) {
             throw new \RuntimeException("target runtime changed across apply\n  before: {$session['runtime_before']}\n  after:  $after");
         }
+        $session['last_applied_revision'] = $revision;
+        $session['pending_revision'] = null;
+        self::replaceSession($session);
         echo "Applied the reviewed Git revision to the target. Its order identity/status/total and live stock stayed byte-identical.\n";
+        echo "Next:\n  " . escapeshellarg(self::demoCli($sourceRoot)) . " demo refusal --name=$name\n";
         return 0;
     }
 
     private static function refusal(string $sourceRoot, string $name): int {
         $session = self::readSession($sourceRoot, $name);
+        self::assertReady($session);
         $before = self::targetRuntimeSnapshot($session);
         $result = self::runDuo(
             $session,
@@ -222,6 +265,7 @@ final class DemoCommand {
         }
         echo trim($detail) . "\n";
         echo "PASS: Duo refused a caller-supplied target binding and the target order/stock proof stayed unchanged.\n";
+        echo "Next:\n  " . escapeshellarg(self::demoCli($sourceRoot)) . " demo stop --name=$name\n";
         return 0;
     }
 
@@ -231,14 +275,7 @@ final class DemoCommand {
         if ($exit !== 0) {
             throw new \RuntimeException('pair teardown failed; repositories were retained for diagnosis');
         }
-        foreach ([$session['source_repo'], $session['target_repo'], $session['origin']] as $path) {
-            self::removeTree($path);
-        }
-        foreach ([$session['compose_env_file'], $session['state_file']] as $path) {
-            if (is_file($path) && !is_link($path)) {
-                unlink($path);
-            }
-        }
+        self::cleanupOwnedSession($sourceRoot, $session);
         echo "Removed demo '$name': containers, volumes, databases, and its three disposable repositories.\n";
         return 0;
     }
@@ -258,7 +295,10 @@ final class DemoCommand {
             'compose_file' => $sandbox . '/pair.yml',
             'compose_env_file' => $sandbox . '/tmp/demo-' . $name . '.env',
             'state_file' => $sandbox . '/tmp/demo-' . $name . '.json',
+            'phase' => 'starting',
             'runtime_before' => '',
+            'last_applied_revision' => '',
+            'pending_revision' => null,
         ];
     }
 
@@ -470,38 +510,43 @@ final class DemoCommand {
         array $extraEnv = [],
         bool $passthrough = false
     ): array {
-        $descriptors = $passthrough
-            ? [0 => STDIN, 1 => STDOUT, 2 => STDERR]
-            : [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $hostEnvironment = getenv();
-        $environment = $extraEnv === []
-            ? null
-            : array_replace(is_array($hostEnvironment) ? $hostEnvironment : [], $extraEnv);
-        $process = @proc_open($argv, $descriptors, $pipes, $cwd, $environment, ['bypass_shell' => true]);
-        if (!is_resource($process)) {
-            return ['exit' => 127, 'stdout' => '', 'stderr' => 'could not start process'];
-        }
-        if ($passthrough) {
-            return ['exit' => proc_close($process), 'stdout' => '', 'stderr' => ''];
-        }
-        fclose($pipes[0]);
-        $stdout = stream_get_contents($pipes[1]);
-        $stderr = stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        return [
-            'exit' => proc_close($process),
-            'stdout' => is_string($stdout) ? $stdout : '',
-            'stderr' => is_string($stderr) ? $stderr : '',
-        ];
+        return HostProcess::run($argv, $cwd, $extraEnv, $passthrough);
     }
 
     /** @return array<string,mixed> */
     private static function readSession(string $sourceRoot, string $name): array {
         $stateFile = $sourceRoot . '/sandbox/tmp/demo-' . $name . '.json';
-        $data = is_file($stateFile) ? json_decode((string) file_get_contents($stateFile), true) : null;
-        if (!is_array($data) || ($data['format'] ?? null) !== self::FORMAT || ($data['name'] ?? null) !== $name) {
+        $data = !is_link($stateFile) && is_file($stateFile)
+            ? json_decode((string) file_get_contents($stateFile), true)
+            : null;
+        if (!is_array($data)
+            || ($data['format'] ?? null) !== self::FORMAT
+            || ($data['name'] ?? null) !== $name
+            || !is_int($data['source_port'] ?? null)
+            || !is_int($data['target_port'] ?? null)) {
             throw new \RuntimeException("demo '$name' is not active; run `duo demo start --name=$name`");
+        }
+        self::port((string) $data['source_port'], 'stored source port');
+        self::port((string) $data['target_port'], 'stored target port');
+        $expected = self::sessionShape($sourceRoot, [
+            'name' => $name,
+            'source_port' => $data['source_port'],
+            'target_port' => $data['target_port'],
+        ]);
+        foreach (['source_repo', 'target_repo', 'origin', 'compose_file', 'compose_env_file', 'state_file'] as $field) {
+            if (($data[$field] ?? null) !== $expected[$field]) {
+                throw new \RuntimeException("demo '$name' session does not authorize its $field path");
+            }
+        }
+        if (!in_array($data['phase'] ?? null, ['starting', 'ready'], true)
+            || !is_string($data['runtime_before'] ?? null)
+            || !is_string($data['last_applied_revision'] ?? null)
+            || (($data['last_applied_revision'] ?? '') !== ''
+                && preg_match('/^[a-f0-9]{40}$/D', (string) $data['last_applied_revision']) !== 1)
+            || (!is_null($data['pending_revision'] ?? null)
+                && (!is_string($data['pending_revision'])
+                    || preg_match('/^[a-f0-9]{40}$/D', $data['pending_revision']) !== 1))) {
+            throw new \RuntimeException("demo '$name' session lifecycle state is malformed");
         }
         return $data;
     }
@@ -513,6 +558,26 @@ final class DemoCommand {
             throw new \RuntimeException('could not encode demo session');
         }
         self::writeNew((string) $session['state_file'], $bytes . "\n", 0600);
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function replaceSession(array $session): void {
+        $path = (string) $session['state_file'];
+        if (is_link($path) || !is_file($path)) {
+            throw new \RuntimeException('demo session boundary changed before update');
+        }
+        $bytes = json_encode($session, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if (!is_string($bytes)) {
+            throw new \RuntimeException('could not encode demo session');
+        }
+        $stage = $path . '.next-' . bin2hex(random_bytes(16));
+        self::writeNew($stage, $bytes . "\n", 0600);
+        if (is_link($path) || !is_file($path) || !rename($stage, $path)) {
+            if (is_file($stage) && !is_link($stage)) {
+                unlink($stage);
+            }
+            throw new \RuntimeException('could not atomically update the demo session');
+        }
     }
 
     private static function writeNew(string $path, string $bytes, int $mode): void {
@@ -534,6 +599,26 @@ final class DemoCommand {
             [],
             $passthrough
         )['exit'];
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function cleanupOwnedSession(string $sourceRoot, array $session): void {
+        $derived = self::sessionShape($sourceRoot, [
+            'name' => $session['name'],
+            'source_port' => $session['source_port'],
+            'target_port' => $session['target_port'],
+        ]);
+        foreach ([$derived['source_repo'], $derived['target_repo'], $derived['origin']] as $path) {
+            self::removeTree((string) $path);
+        }
+        $env = (string) $derived['compose_env_file'];
+        if (is_file($env) && !is_link($env) && !unlink($env)) {
+            throw new \RuntimeException("could not remove owned demo environment file $env");
+        }
+        $state = (string) $derived['state_file'];
+        if (is_file($state) && !is_link($state) && !unlink($state)) {
+            throw new \RuntimeException("could not remove owned demo session $state");
+        }
     }
 
     private static function removeTree(string $root): void {
@@ -562,6 +647,17 @@ final class DemoCommand {
                 throw new \RuntimeException("required command '$tool' is unavailable");
             }
         }
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function assertReady(array $session): void {
+        if (($session['phase'] ?? null) !== 'ready') {
+            throw new \RuntimeException('demo setup is incomplete; run demo stop, then start it again');
+        }
+    }
+
+    private static function demoCli(string $sourceRoot): string {
+        return realpath($sourceRoot . '/cli/duo') ?: $sourceRoot . '/cli/duo';
     }
 
     private static function port(string $value, string $flag): int {

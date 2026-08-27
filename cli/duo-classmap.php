@@ -72,6 +72,7 @@ return [
     'Duo\\Orchestrator\\FleetCensus' => 'src/Assess/FleetCensus.php',
     'Duo\\Orchestrator\\FleetCensusRefusal' => 'src/Assess/FleetCensus.php',
     'Duo\\Orchestrator\\GapActions' => 'src/Assess/GapActions.php',
+    'Duo\\Orchestrator\\HostProcess' => 'src/Command/HostProcess.php',
     'Duo\\Orchestrator\\HumanViewLimit' => 'src/Plan/HumanViewLimit.php',
     'Duo\\Orchestrator\\ImportedArchives' => 'src/Code/ImportedArchives.php',
     'Duo\\Orchestrator\\Init' => 'src/Onboarding/Init.php',
