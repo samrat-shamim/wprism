@@ -338,7 +338,8 @@ final class DemoCommand {
             . 'DUO_PORT1=' . $session['source_port'] . "\n"
             . 'DUO_PORT2=' . $session['target_port'] . "\n"
             . 'DUO_AGENT_SRC=' . $sourceRoot . "/agent\n"
-            . 'DUO_MANIFESTS_SRC=' . $sourceRoot . "/manifests\n"
+            . 'DUO_ADAPTER_PACKAGES_SRC=' . $sourceRoot . "/adapter-packages\n"
+            . 'DUO_PLATFORM_SRC=' . $sourceRoot . "/platform\n"
             . "DUO_DB_HOST=duo-shared-db\n";
     }
 

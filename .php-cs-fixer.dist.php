@@ -10,13 +10,13 @@ declare(strict_types=1);
  *   - Review hygiene. A whole-tree reformat buries the change actually under
  *     review inside hundreds of files nobody opened the diff for, and a
  *     reviewer who cannot see the change cannot review it.
- *   - Shipped bytes. cli/src/Onboarding/Adopt.php:121 tars exactly
- *     `agent manifests recovery` onto every managed site, and cli/ is the
- *     orchestrator operators run against it; a drive-by reformat under any of
- *     them is a fleet-visible change nobody reviewed as one.
- *     manifests/ is the sharp case, and it sits outside this config
- *     entirely — neither the Finder below nor the `cs`/`cs:fix` path
- *     selection includes it — because
+ *   - Shipped bytes. Adoption embeds each package payload inside the staged
+ *     agent archived with recovery, and cli/ is the orchestrator operators
+ *     run against it; a drive-by reformat under any of them is a fleet-visible
+ *     change nobody reviewed as one. Adapter package payloads are the sharp
+ *     case, and all adapter packages sit outside this config entirely —
+ *     neither the Finder below nor the `cs`/`cs:fix` path selection includes
+ *     them — because
  *     ArtifactPolicyIdentity::manifest_rows() folds
  *     `hash_file('sha256', …)` of every provider/interpreter/regenerator into
  *     that adapter's content row (ArtifactPolicyIdentity.php:74, :92, :115).
