@@ -8,6 +8,7 @@ function is_multisite(): bool { return false; }
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Kernel/Db.php';
+require __DIR__ . '/../../../../agent/src/Policy/AdapterLibrary.php';
 require __DIR__ . '/../../../../agent/src/Policy/ManifestDispositions.php';
 require __DIR__ . '/../../../../agent/src/Adapter/AdapterRegistry.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
@@ -18,6 +19,7 @@ require __DIR__ . '/../../../../cli/src/Plan/PlanSummary.php';
 require __DIR__ . '/../../../../cli/src/Transport/CodeDeploy.php';
 
 use Duo\AdapterRegistry;
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\ManifestDispositions;
 use Duo\Policy;
@@ -84,9 +86,34 @@ function write_registry(string $manifestDir, array $registry): void {
     foreach ($registry['manifests'] as $name => $entry) {
         Canon::write_file($dir . '/' . $name . '.json', Canon::encode($entry));
     }
-    if (($registry['profiles'] ?? []) !== []) {
-        Canon::write_file($dir . '/profiles.json', Canon::encode($registry['profiles']));
+    Canon::write_file($dir . '/profiles.json', Canon::encode($registry['profiles'] ?? []));
+}
+
+/** Close a mutable historical-layout fixture into one explicitly selected library. */
+function fixture_library(string $directory, AdapterLibrary $sourceLibrary): AdapterLibrary {
+    foreach (['capabilities', 'dispositions', 'interpreters', 'providers', 'regenerators'] as $relative) {
+        $path = $directory . '/' . $relative;
+        if (!is_dir($path) && !mkdir($path, 0777, true) && !is_dir($path)) {
+            throw new RuntimeException("cannot create $path");
+        }
     }
+    copy($sourceLibrary->platformBoundaryPath(), $directory . '/capabilities/platform.json');
+    copy($sourceLibrary->authoritiesPath(), $directory . '/capabilities/adapter-authorities.json');
+    foreach (glob($directory . '/*.json') ?: [] as $manifestPath) {
+        $manifest = Canon::decode(Canon::read_file($manifestPath));
+        $name = is_array($manifest) ? ($manifest['name'] ?? null) : null;
+        $package = is_string($name) ? $sourceLibrary->package($name) : null;
+        if ($package === null) {
+            continue;
+        }
+        foreach ($package->shippablePaths() as $source) {
+            if (preg_match('~/runtime/(interpreters|providers|regenerators)/([^/]+\.php)$~D', $source, $matches) !== 1) {
+                continue;
+            }
+            copy($source, $directory . '/' . $matches[1] . '/' . $matches[2]);
+        }
+    }
+    return AdapterLibrary::fromLegacyFlatDirectory($directory);
 }
 
 function remove_fixture_tree(string $path): void {
@@ -102,13 +129,13 @@ function remove_fixture_tree(string $path): void {
 }
 
 $repo = realpath(__DIR__ . '/../../../..');
-$manifestDir = $repo . '/manifests';
-putenv("DUO_MANIFESTS_DIR=$manifestDir");
-$registry = ManifestDispositions::load($manifestDir);
+$sourceLibrary = AdapterLibrary::fromSourceTree($repo);
+$registry = ManifestDispositions::load_library($sourceLibrary);
 $data = $registry->data();
-// No `dispositions.json` filter: WP-4.4 moved the reviewed claim source into
-// manifests/dispositions/, which this glob does not match.
-$manifestFiles = array_values(glob($manifestDir . '/*.json') ?: []);
+$manifestFiles = array_map(
+    static fn(\Duo\AdapterPackage $package): string => $package->manifestPath(),
+    $sourceLibrary->packages()
+);
 $manifests = array_map(fn(string $path): array => Canon::decode(Canon::read_file($path)), $manifestFiles);
 $manifestsByName = [];
 foreach ($manifests as $manifest) {
@@ -126,13 +153,13 @@ echo "\n== the reviewed dispositions are the WHOLE authored claim source ==\n";
 // turns on it.
 check(
     $registry instanceof ManifestDispositions
-    && !is_file($manifestDir . '/capabilities/registry.json')
-    && !is_file($manifestDir . '/capabilities/evidence.json')
-    && !is_dir($manifestDir . '/capabilities/scoped'),
+    && !is_file(dirname($sourceLibrary->platformBoundaryPath()) . '/registry.json')
+    && !is_file(dirname($sourceLibrary->platformBoundaryPath()) . '/evidence.json')
+    && !is_dir(dirname($sourceLibrary->platformBoundaryPath()) . '/scoped'),
     'the shipped library loads its dispositions with no generated registry, attestation, or bundle tree present'
 );
 check(
-    count(Policy::load(null, ['core'])->manifests) === 1,
+    count(Policy::load(null, ['core'], adapterLibrary: $sourceLibrary)->manifests) === 1,
     'and Policy::load() accepts that library — dispositions ALONE are a complete, valid state'
 );
 check(
@@ -323,7 +350,7 @@ expect_throw(
     'lacks current bundle evidence',
     'certification test IDs reject path traversal at disposition load time'
 );
-$corePolicy = Policy::load(null, ['core']);
+$corePolicy = Policy::load(null, ['core'], adapterLibrary: $sourceLibrary);
 $coreBlockers = $corePolicy->adapter_readiness_blockers();
 // Unconditional now, and that is the repair. This assertion used to BRANCH on
 // whether the generated attestation happened to read `current` on this branch,
@@ -374,11 +401,11 @@ check(
     'while every code that reports a REVIEWED or live-target fact survives — the deletions above are the evidence '
     . 'apparatus, not a relaxation of the gate'
 );
-$pmproPolicy = Policy::load(null, ['paid-memberships-pro']);
+$pmproPolicy = Policy::load(null, ['paid-memberships-pro'], adapterLibrary: $sourceLibrary);
 $pmproBlockers = $pmproPolicy->adapter_readiness_blockers();
 check($pmproBlockers === [], 'the certified PMPro pin contributes no readiness blocker');
 check($pmproPolicy->capability_report()['ready'] === true, 'certified PMPro capability output reports ready');
-$tecPolicy = Policy::load(null, ['the-events-calendar']);
+$tecPolicy = Policy::load(null, ['the-events-calendar'], adapterLibrary: $sourceLibrary);
 $tecBlockers = $tecPolicy->adapter_readiness_blockers();
 check($tecBlockers === [], 'the certified TEC pin contributes no readiness blocker');
 check($tecPolicy->capability_report()['ready'] === true, 'certified TEC capability output reports ready');
@@ -408,7 +435,11 @@ foreach (['nf3_action_meta', 'nf3_field_meta', 'nf3_form_meta'] as $table) {
 $ninjaDeletes = $data['manifests']['ninja-forms']['capabilities']['deletion_semantics'];
 check($ninjaDeletes['supported'] === ['table:nf3_actions', 'table:nf3_fields'], 'Ninja Forms certifies only independently safe child-row deletion');
 check(in_array('table:nf3_forms', $ninjaDeletes['unsupported'], true), 'Ninja Forms parent deletion is explicitly unsupported');
-check(Policy::load(null, ['ninja-forms'])->deletion_capability('table:nf3_forms') === null, 'Ninja Forms manifest cannot authorize parent deletion');
+check(
+    Policy::load(null, ['ninja-forms'], adapterLibrary: $sourceLibrary)
+        ->deletion_capability('table:nf3_forms') === null,
+    'Ninja Forms manifest cannot authorize parent deletion'
+);
 check(
     ($data['manifests']['paid-memberships-pro']['default_authored_keyspaces'] ?? null) === []
         && ($pmproManifest['tables']['pmpro_membership_levelmeta']['default_class'] ?? null) === 'runtime',
@@ -416,7 +447,7 @@ check(
 );
 
 echo "\n== disposition bytes are frozen and content-addressed ==\n";
-$snapshotPolicy = Policy::from_snapshot($corePolicy->export_snapshot());
+$snapshotPolicy = Policy::from_snapshot($corePolicy->export_snapshot(), $sourceLibrary);
 check(
     RepositoryCompiler::resolved_adapters($snapshotPolicy)[0]['disposition']['status'] === 'certified',
     'frozen policy snapshots retain the external disposition'
@@ -425,10 +456,10 @@ $fixture = sys_get_temp_dir() . '/duo_dispositions_' . bin2hex(random_bytes(5));
 mkdir($fixture, 0777, true);
 mkdir($fixture . '/capabilities', 0777, true);
 register_shutdown_function(fn() => remove_fixture_tree($fixture));
-copy($manifestDir . '/core.json', $fixture . '/core.json');
+copy($sourceLibrary->package('core')->manifestPath(), $fixture . '/core.json');
 // The shipped platform boundary verbatim; a claim cannot be projected without
 // one, and re-authoring it here would describe a runtime nobody is running.
-copy($manifestDir . '/capabilities/platform.json', $fixture . '/capabilities/platform.json');
+copy($sourceLibrary->platformBoundaryPath(), $fixture . '/capabilities/platform.json');
 $coreRegistry = $data;
 $coreRegistry['manifests'] = ['core' => $data['manifests']['core']];
 $coreRegistry['profiles'] = [];
@@ -436,8 +467,8 @@ $experimentalRegistry = $coreRegistry;
 $experimentalRegistry['manifests']['core']['status'] = 'experimental';
 $experimentalRegistry['manifests']['core']['reason'] = 'Synthetic experimental disposition for blocker-path evidence.';
 write_registry($fixture, $experimentalRegistry);
-putenv("DUO_MANIFESTS_DIR=$fixture");
-$experimentalPolicy = Policy::load(null, ['core']);
+$fixtureLibrary = fixture_library($fixture, $sourceLibrary);
+$experimentalPolicy = Policy::load(null, ['core'], adapterLibrary: $fixtureLibrary);
 $experimentalBlockers = $experimentalPolicy->adapter_readiness_blockers();
 // Selected by CODE rather than by position (#561's half of this): the
 // assertion is about which blocker the experimental status raises, and reading
@@ -457,48 +488,46 @@ check(
     'synthetic experimental capability output can never report ready'
 );
 write_registry($fixture, $coreRegistry);
-$before = RepositoryCompiler::resolved_adapters(Policy::load(null, ['core']))[0]['digest'];
-$beforeSha = ManifestDispositions::load($fixture)->sha256();
+$before = RepositoryCompiler::resolved_adapters(
+    Policy::load(null, ['core'], adapterLibrary: $fixtureLibrary)
+)[0]['digest'];
+$beforeSha = ManifestDispositions::load_library($fixtureLibrary)->sha256();
 // One document to edit now. The former version of this check had to rewrite
 // the generated registry's `dispositions_sha256` and re-derive its
 // `adapter_digest` alongside the edit, or the load refused before the digest
 // could be compared — that bookkeeping was the mirror this refactor removed.
 $coreRegistry['manifests']['core']['reason'] .= ' Reviewed wording change.';
 write_registry($fixture, $coreRegistry);
-$after = RepositoryCompiler::resolved_adapters(Policy::load(null, ['core']))[0]['digest'];
+$after = RepositoryCompiler::resolved_adapters(
+    Policy::load(null, ['core'], adapterLibrary: $fixtureLibrary)
+)[0]['digest'];
 check($before !== $after, 'changing only disposition bytes moves the per-adapter digest');
 check(
-    $beforeSha !== ManifestDispositions::load($fixture)->sha256(),
+    $beforeSha !== ManifestDispositions::load_library($fixtureLibrary)->sha256(),
     'and moves the content address a host contract pins, so the change is visible to a consumer that never opens '
     . 'the file'
 );
 // The one thing the frozen path may not lose: manifest_hash() is what an
 // artifact binds, and the v6 snapshot round trip drops the `capabilities`
 // record — so the hash must survive it unchanged.
-$roundTripped = Policy::from_snapshot(Policy::load(null, ['core'])->export_snapshot());
+$roundTripped = Policy::from_snapshot(
+    Policy::load(null, ['core'], adapterLibrary: $fixtureLibrary)->export_snapshot(),
+    $fixtureLibrary
+);
 check(
     \Duo\ArtifactPolicyIdentity::manifest_hash($roundTripped)
-        === \Duo\ArtifactPolicyIdentity::manifest_hash(Policy::load(null, ['core'])),
+        === \Duo\ArtifactPolicyIdentity::manifest_hash(
+            Policy::load(null, ['core'], adapterLibrary: $fixtureLibrary)
+        ),
     'manifest_hash survives the v6 snapshot round trip byte for byte — dropping the frozen generated registry moved '
     . 'no artifact identity'
 );
 
-echo "\n== WP-1.2: the coverage rule fires on the PIN; directory exactness is an authoring gate ==\n";
-// The doctrine this file states in its own header — "a manifest cannot certify
-// itself merely by existing beside the agent" — is a rule about a PINNED
-// manifest, and this group is where the distinction is pinned down. Before
-// WP-1.2 `load()` globbed and decoded every `*.json` beside the dispositions
-// and refused on a two-way set difference, so ONE unreviewed file refused every
-// unrelated pin along with itself (18 decodes for a one-pin load of the shipped
-// 16-manifest library, and a refusal about a manifest nobody asked for). The
-// rule split rather than relaxed:
-//   runtime   — you may not USE an unreviewed adapter: assert_covers() over the
-//               pinned shipped subset, same refusal class, same sentence;
-//   authoring — the shipped library is exactly reviewed, both directions:
-//               `make release-gate` (tools/capability-doc.php's
-//               capdoc_cross_check(), asserted by tests/Tooling/
-//               CapabilityDocCoverageTest.php) plus the whole-library check
-//               below, which runs in the merge gate on every change.
+echo "\n== the closed library inventory rejects unreviewed package bytes ==\n";
+// AdapterLibrary validates the physical inventory once, before any Policy or
+// reporting consumer can select a package. A stale object remains a closed
+// view of the bytes it admitted; constructing a fresh view after an unreviewed
+// manifest appears refuses the two-way coverage mismatch.
 write_registry($fixture, $coreRegistry);
 $registryShaBeforeUncovered = hash('sha256', Canon::encode($coreRegistry));
 Canon::write_file(
@@ -510,120 +539,25 @@ Canon::write_file(
         'options' => ['uncovered_adapter_layout' => ['class' => 'authored']],
     ])
 );
-putenv("DUO_MANIFESTS_DIR=$fixture");
 check(
-    count(Policy::load(null, ['core'])->manifests) === 1,
-    'an uncovered manifest merely SITTING in the library no longer refuses an unrelated pin'
+    count(Policy::load(null, ['core'], adapterLibrary: $fixtureLibrary)->manifests) === 1,
+    'the already-validated library remains a closed one-package view after an unrelated file appears'
 );
 check(
-    ManifestDispositions::load($fixture)?->sha256() === $registryShaBeforeUncovered,
-    'and it moves no reviewed byte: the registry a host contract pins is the same content address it was'
+    ManifestDispositions::load_library($fixtureLibrary)->sha256() === $registryShaBeforeUncovered,
+    'the stray file moves no reviewed byte or content address in that closed view'
 );
-// Byte-identical, asserted with === on the whole sentence rather than a needle:
-// this is the refusal an operator meets, docs/guides/adapter-authoring.md
-// quotes it verbatim, and AGENTS.md rule 8 says a refusal that is not the
-// subject of the change does not move. `extra=[]` is part of those bytes; the
-// reviewed-entry-with-no-manifest direction it used to carry is now the repo
-// gate's, and no runtime caller can populate it.
 check(
-    message_of(fn() => Policy::load(null, ['uncovered-adapter']))
-        === 'duo: manifest disposition coverage mismatch; missing=[uncovered-adapter], extra=[]',
-    'PINNING it still refuses, in the same words — the doctrine is about a pinned manifest and it did not move'
-);
-$authoringSentence = (string) file_get_contents("$repo/docs/guides/adapter-authoring.md");
-check(
-    str_contains($authoringSentence, 'duo: manifest disposition coverage mismatch; missing=['),
-    'and the authoring guide still quotes that sentence, so the operator-facing text and the engine agree'
-);
-// The library-wide REPORT is where the uncovered manifest surfaces instead:
-// `wp duo capabilities --all` used to die on load()'s coverage check before it
-// could describe anything, so DUO-3372's synthesized row was unreachable except
-// by direct call (the group at the bottom of this file). It is the narrower
-// loud answer that replaced the wider refusal — a row, and a report that is not
-// ready — never a silent omission.
-WP_CLI::$lines = [];
-$uncoveredReport = null;
-try {
-    (new Duo\Cli())->capabilities([], ['all' => true, 'format' => 'json']);
-    $uncoveredReport = json_decode(WP_CLI::$lines[0] ?? '', true);
-} catch (Throwable $e) {
-    $uncoveredReport = ['refused' => $e->getMessage()];
-}
-$uncoveredRow = null;
-foreach (($uncoveredReport['manifests'] ?? []) as $row) {
-    if (($row['name'] ?? null) === 'uncovered-adapter') {
-        $uncoveredRow = $row;
-    }
-}
-check(
-    ($uncoveredReport['ready'] ?? null) === false
-        && count($uncoveredReport['manifests'] ?? []) === 2
-        && ($uncoveredRow['status'] ?? null) === 'unsupported'
-        && ($uncoveredRow['verdict']['status'] ?? null) === 'blocked'
-        && in_array(
-            'missing_disposition_entry',
-            array_column($uncoveredRow['verdict']['reasons'] ?? [], 'code'),
-            true
-        ),
-    'a library-wide capability report answers the uncovered manifest with an unsupported row and '
-    . '`missing_disposition_entry` rather than refusing the whole command over it'
-);
-// WP-1.2 review F7: the same library moved a SURVEY word, and this pins it
-// deliberately rather than leaving it as an unremarked side effect.
-// AdapterSources::has_reviewed_registry() answers "did the registry load at
-// all", and before WP-1.2 an uncovered file made load() throw, so
-// `duo adapter list` over this directory reported every shipped row with
-// certification `null` — "no reviewed status known" — on account of a file
-// that has nothing to do with any of them. The registry loads now, so the word
-// is `registry` for both rows, INCLUDING the uncovered one: the survey's
-// question is about the library's document, not about this adapter's entry.
-// The judgement on the uncovered adapter is not lost, it is where it belongs —
-// the capability verdict asserted immediately above, `blocked` with
-// `missing_disposition_entry`. Two rows, two different questions, and the row
-// that reads `registry` here is the row that reads `blocked` there.
-$uncoveredSurvey = [];
-foreach (\Duo\AdapterSources::survey(null)['adapters'] as $row) {
-    $uncoveredSurvey[(string) $row['name']] = $row;
-}
-check(
-    count($uncoveredSurvey) === 2
-        && ($uncoveredSurvey['core']['certification'] ?? null) === 'registry'
-        && ($uncoveredSurvey['uncovered-adapter']['certification'] ?? null) === 'registry'
-        // array_key_exists, not `?? …`: the value under test IS null, and the
-        // null-coalescing operator fires on exactly that.
-        && array_key_exists('disposition_status', $uncoveredSurvey['uncovered-adapter'])
-        && $uncoveredSurvey['uncovered-adapter']['disposition_status'] === null
-        && ($uncoveredSurvey['core']['disposition_status'] ?? null) === 'certified',
-    'the survey reports `registry` for both rows — the registry DID load — while the uncovered row carries no '
-    . 'disposition status, so the reviewed verdict is read from the capability report and never from this word'
-);
-// The other direction: a reviewed entry whose manifest is gone. $fixture holds
-// core.json and the uncovered probe; $data reviews all 16 shipped names.
-//
-// No LOAD refuses it — assert_covers() validates what it was handed, so a
-// dangling entry is invisible to the pinned path by construction. What bounds
-// it is `make release-gate` (capdoc_cross_check(), watched by tests/Tooling/
-// CapabilityDocCoverageTest.php), and that is an IN-REPO authoring bound over
-// the shipped library, not a runtime one: on a site running a library this
-// repository did not author, a dangling entry survives. The one consumer that
-// would act on it is `profiles` — validate_profiles() resolves each profile's
-// `manifest` against the registry's own declared names, never against the
-// directory — and that is guarded where the profile is consumed rather than at
-// load, since the pinned subset is the wrong set to resolve against (a site
-// pinning only woocommerce leaves `fse` -> `core` unpinned and correct). The
-// guard is asserted below.
-write_registry($fixture, $data);
-check(
-    count(Policy::load(null, ['core'])->manifests) === 1,
-    'a reviewed entry that outlived its manifest is no longer a runtime refusal either — it is release-gate work'
+    message_of(fn() => AdapterLibrary::fromLegacyFlatDirectory($fixture))
+        === 'duo: adapter disposition coverage disagrees with manifests; missing=[uncovered-adapter], orphaned=[]',
+    'a fresh library view refuses the unreviewed package before Policy or reporting can consume it'
 );
 unlink($fixture . '/uncovered-adapter.json');
-putenv("DUO_MANIFESTS_DIR=$manifestDir");
 // The authoring half, over the REAL shipped library, through the REAL loader.
 // This is the merge gate's copy of the exactness rule that left the runtime:
 // every shipped manifest is reviewed (assert_covers, which is also the nine
 // per-entry rules), and every reviewed entry has a shipped manifest.
-$shippedNames = array_map(fn(string $path): string => basename($path, '.json'), $manifestFiles);
+$shippedNames = array_column($manifests, 'name');
 $reviewedNames = array_keys($data['manifests']);
 sort($shippedNames, SORT_STRING);
 sort($reviewedNames, SORT_STRING);
@@ -668,12 +602,11 @@ check(
 // The nine per-entry rules are unmoved: they still run, and they still run on
 // the PRODUCT path — Policy::load() on a pinned adapter — for every rule the
 // core manifest can express. Each variant edits only the reviewed entry.
-$coreEntryVariant = function (callable $edit) use ($fixture, $coreRegistry): string {
+$coreEntryVariant = function (callable $edit) use ($fixture, $fixtureLibrary, $coreRegistry): string {
     $variant = $coreRegistry;
     $variant['manifests']['core'] = $edit($variant['manifests']['core']);
     write_registry($fixture, $variant);
-    putenv("DUO_MANIFESTS_DIR=$fixture");
-    return message_of(fn() => Policy::load(null, ['core']));
+    return message_of(fn() => Policy::load(null, ['core'], adapterLibrary: $fixtureLibrary));
 };
 foreach ([
     'a reviewed entry that is not an object at all' => [
@@ -777,8 +710,8 @@ echo "\n== a reviewed entry is validated where it is PROJECTED, not only where i
 $tamperFixture = sys_get_temp_dir() . '/duo_dispositions_tamper_' . bin2hex(random_bytes(5));
 mkdir($tamperFixture . '/capabilities', 0777, true);
 register_shutdown_function(fn() => remove_fixture_tree($tamperFixture));
-copy($manifestDir . '/woocommerce.json', $tamperFixture . '/woocommerce.json');
-copy($manifestDir . '/capabilities/platform.json', $tamperFixture . '/capabilities/platform.json');
+copy($sourceLibrary->package('woocommerce')->manifestPath(), $tamperFixture . '/woocommerce.json');
+copy($sourceLibrary->platformBoundaryPath(), $tamperFixture . '/capabilities/platform.json');
 $wooManifest = $manifestsByName['woocommerce'];
 $wooRegistry = [
     'format' => ManifestDispositions::FORMAT,
@@ -789,19 +722,24 @@ $writeTamper = function (callable $edit) use ($tamperFixture, $wooRegistry): voi
     $registry = $wooRegistry;
     $registry['manifests']['woocommerce'] = $edit($registry['manifests']['woocommerce']);
     write_registry($tamperFixture, $registry);
-    putenv("DUO_MANIFESTS_DIR=$tamperFixture");
 };
+$writeTamper(fn(array $entry): array => $entry);
+$tamperLibrary = fixture_library($tamperFixture, $sourceLibrary);
 /**
  * The library view through the PRODUCT path, exactly the idiom the group above
  * uses. A refusal here is the envelope `wp duo capabilities --all` prints and
  * halts on; anything else is a report, and a report is the defect.
  */
-$tamperedAll = function (callable $edit) use ($writeTamper): array {
+$tamperedAll = function (callable $edit) use ($writeTamper, $tamperLibrary): array {
     $writeTamper($edit);
     WP_CLI::$lines = [];
     $threw = false;
     try {
-        (new Duo\Cli())->capabilities([], ['all' => true, 'format' => 'json']);
+        (new Duo\Cli())->capabilities([], [
+            'adapter_library' => $tamperLibrary,
+            'all' => true,
+            'format' => 'json',
+        ]);
     } catch (Throwable $e) {
         $threw = true;
     }
@@ -812,10 +750,10 @@ $tamperedAll = function (callable $edit) use ($writeTamper): array {
     ];
 };
 /** The same tamper, one frame in, where the refusal SENTENCE is readable. */
-$tamperedSentence = function (callable $edit) use ($writeTamper, $tamperFixture, $wooManifest): string {
+$tamperedSentence = function (callable $edit) use ($writeTamper, $tamperLibrary, $wooManifest): string {
     $writeTamper($edit);
     return message_of(fn() => AdapterRegistry::report(
-        ManifestDispositions::load($tamperFixture),
+        ManifestDispositions::load_library($tamperLibrary),
         [$wooManifest],
         ['operation' => 'promote']
     ));
@@ -874,12 +812,12 @@ foreach ([
 // crashed.
 $writeTamper(function (array $entry): array { unset($entry['capabilities']); return $entry; });
 check(
-    message_of(fn() => ManifestDispositions::load($tamperFixture)->report([$wooManifest]))
+    message_of(fn() => ManifestDispositions::load_library($tamperLibrary)->report([$wooManifest]))
         === "duo: manifest disposition 'woocommerce' has a malformed required field",
     'report() refuses that entry in the validator\'s words rather than dying inside resolve_sections()'
 );
 check(
-    message_of(fn() => ManifestDispositions::load($tamperFixture)->blockers([$wooManifest]))
+    message_of(fn() => ManifestDispositions::load_library($tamperLibrary)->blockers([$wooManifest]))
         === "duo: manifest disposition 'woocommerce' has a malformed required field",
     'and blockers() refuses it too, so `ready` can never be computed from an entry nothing validated'
 );
@@ -891,16 +829,17 @@ check(
 // front of the per-entry validator, which says what is actually wrong with it.
 $writeTamper(fn(array $entry): ?array => null);
 check(
-    message_of(fn() => Policy::load(null, ['woocommerce']))
+    message_of(fn() => Policy::load(null, ['woocommerce'], adapterLibrary: $tamperLibrary))
         === "duo: manifest disposition 'woocommerce' must be an object",
     'a null reviewed entry is refused as malformed, not reported as missing'
 );
-putenv("DUO_MANIFESTS_DIR=$manifestDir");
-
 echo "\n== omissions fail loud; CLI/status/promotion consume the same result ==\n";
-putenv("DUO_MANIFESTS_DIR=$manifestDir");
 WP_CLI::$lines = [];
-(new Duo\Cli())->capabilities([], ['all' => true, 'format' => 'json']);
+(new Duo\Cli())->capabilities([], [
+    'adapter_library' => $sourceLibrary,
+    'all' => true,
+    'format' => 'json',
+]);
 $cliReport = json_decode(WP_CLI::$lines[0] ?? '', true);
 // Derived from the same on-disk glob line 110 counts against, not a literal:
 // a literal here silently becomes a weaker assertion every time the shipped
