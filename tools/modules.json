@@ -155,6 +155,8 @@
         "purpose": "Loads, validates and pins the manifest and site policy that decides which WordPress state Duo owns, and answers every ownership question the engine asks.",
         "status": "populated",
         "entry_points": [
+          "AdapterLibrary",
+          "AdapterPackage",
           "Policy",
           "ScopeContract",
           "ManifestDispositions",
@@ -253,9 +255,11 @@
             ]
           }
         ],
-        "file_count": 22,
+        "file_count": 24,
         "files": [
           "AdapterClaimResolutions.php",
+          "AdapterLibrary.php",
+          "AdapterPackage.php",
           "ArtifactPolicyIdentity.php",
           "CodeConfigGrammar.php",
           "CrossManifestGuards.php",

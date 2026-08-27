@@ -11,6 +11,11 @@ require_once __DIR__ . '/../Rebuild/NativeActions.php';
 // any manifest reaches a policy consumer, so it is required here for the same
 // reason NativeActions is.
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
+// Shipped executable paths belong to the adapter package that declares them.
+// Required here because this file is also loaded directly by offline policy
+// validators that never pass through agent/duo.php.
+require_once __DIR__ . '/AdapterLibrary.php';
+require_once __DIR__ . '/AdapterPackage.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
 // DUO-3348 first extraction slice: the pure table/widget declaration grammar,
@@ -241,6 +246,8 @@ final class Policy {
     private ?ManifestDispositions $manifestDispositions = null;
     /** Which source installed each pinned adapter, and what that origin may do (DUO-3314). */
     private ?AdapterSources $adapterSources = null;
+    /** The shipped library whose package paths this policy executes and hashes. */
+    private ?AdapterLibrary $adapterLibrary = null;
     /** @var array<string, object>|null lazily-built interpreter instances */
     private ?array $interpreterInstances = null;
     /** @var array<string, object>|null lazily-built regenerator instances (DUO-3234) */
@@ -285,6 +292,56 @@ final class Policy {
             return $local;
         }
         return '/duo-manifests';
+    }
+
+    /**
+     * Resolve the shipped physical library once per policy instance.
+     *
+     * This preparatory reader still opens the current flat tree. Keeping the
+     * object on the policy is the important boundary: runtime execution and
+     * identity now share one package/path answer instead of independently
+     * appending interpreter, provider, and regenerator directories. The
+     * package-layout flag day replaces AdapterLibrary's physical reader and
+     * removes manifests_dir(); callers below do not change again.
+     */
+    public function adapter_library(): AdapterLibrary {
+        return $this->adapterLibrary ??= AdapterLibrary::fromDirectory(self::manifests_dir());
+    }
+
+    /** The shipped package that owns one manifest name. */
+    public function adapter_package(string $name): AdapterPackage {
+        $package = $this->adapter_library()->package($name);
+        if ($package === null) {
+            throw new \RuntimeException(
+                "duo: shipped adapter package '$name' is absent from " . $this->adapter_library()->root()
+            );
+        }
+        return $package;
+    }
+
+    /**
+     * Resolve manifest-owned runtime through its shipped package.
+     *
+     * A registry-free custom manifest directory is an existing public input to
+     * the offline validator, not a shipped library. It retains the historical
+     * flat runtime contract until the explicit-library authoring API replaces
+     * DUO_MANIFESTS_DIR; only that recognizable custom shape bypasses package
+     * ownership. A shipped tree with a dispositions directory is always read
+     * through AdapterLibrary and therefore fails closed on package defects.
+     */
+    public function adapter_runtime_path(string $manifest, string $kind, string $id): string {
+        $dir = self::manifests_dir();
+        if (!is_dir($dir . '/dispositions')) {
+            return $dir . '/' . $kind . '/' . $id . '.php';
+        }
+        $package = $this->adapter_package($manifest);
+        return match ($kind) {
+            'interpreters' => $package->interpreterPath()
+                ?? $dir . '/interpreters/' . $id . '.php',
+            'providers' => $package->providerPath($id),
+            'regenerators' => $package->regeneratorPath($id),
+            default => throw new \RuntimeException("duo: unknown adapter runtime kind '$kind'"),
+        };
     }
 
     /**
@@ -1865,13 +1922,14 @@ final class Policy {
             if (!preg_match('/^[a-z0-9_-]+$/', $name)) {
                 throw new \RuntimeException("duo: manifest '{$m['name']}' declares invalid interpreter name '$name'");
             }
-            $file = self::manifests_dir() . '/interpreters/' . $name . '.php';
-            if (!is_file($file)) {
+            $expectedFile = self::manifests_dir() . '/interpreters/' . $name . '.php';
+            if (!is_file($expectedFile)) {
                 throw new \RuntimeException(
-                    "duo: manifest '{$m['name']}' wants interpreter '$name' but $file is missing — "
+                    "duo: manifest '{$m['name']}' wants interpreter '$name' but $expectedFile is missing — "
                     . 'interpreter code ships with its manifest, not the engine'
                 );
             }
+            $file = $this->adapter_runtime_path((string) $m['name'], 'interpreters', $name);
             require_once $file;
             $class = '\\Duo\\Interpreters\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
             if (!class_exists($class) || !method_exists($class, 'post_meta_rule')) {
@@ -1929,13 +1987,14 @@ final class Policy {
                         "duo: manifest '{$m['name']}' post_types.$postType declares invalid regenerator name '$name'"
                     );
                 }
-                $file = self::manifests_dir() . '/regenerators/' . $name . '.php';
-                if (!is_file($file)) {
+                $expectedFile = self::manifests_dir() . '/regenerators/' . $name . '.php';
+                if (!is_file($expectedFile)) {
                     throw new \RuntimeException(
-                        "duo: manifest '{$m['name']}' post_types.$postType wants regenerator '$name' but $file is missing — "
+                        "duo: manifest '{$m['name']}' post_types.$postType wants regenerator '$name' but $expectedFile is missing — "
                         . 'regenerator code ships with its manifest, not the engine'
                     );
                 }
+                $file = $this->adapter_runtime_path((string) $m['name'], 'regenerators', $name);
                 require_once $file;
                 $class = '\\Duo\\Regenerators\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
                 if (!class_exists($class) || !method_exists($class, 'regenerate')) {
