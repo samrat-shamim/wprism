@@ -1,0 +1,58 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "classic-editor",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/classic-editor/package/manifest.json",
+      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/classic-editor/tests/certify/version-matrix.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/classic-editor/tests/conformance/entry.json",
+      "adapter-packages/classic-editor/tests/conformance/seed.sh",
+      "adapter-packages/classic-editor/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/classic-editor/tests/conformance/postdeploy.sh",
+      "adapter-packages/classic-editor/tests/conformance/check.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/classic-editor/tests/conformance/seed.sh",
+      "adapter-packages/classic-editor/tests/conformance/check.sh",
+      "adapter-packages/classic-editor/tests/certify/version-matrix.sh"
+    ],
+    "deletion": [
+      "adapter-packages/classic-editor/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/classic-editor/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_fatal_mutations.php",
+      "sandbox/tests/offline/apply/regress_options_materializer.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/classic-editor/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/classic-editor/tests/conformance/check.sh",
+      "adapter-packages/classic-editor/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/classic-editor/tests/conformance/seed.sh",
+      "adapter-packages/classic-editor/tests/conformance/postdeploy.sh",
+      "adapter-packages/classic-editor/tests/conformance/check.sh"
+    ],
+    "scope-platform": [
+      "adapter-packages/classic-editor/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {
+    "identity-references": "The adapter declares two enum-like options and no local identity reference.",
+    "derived-state": "Classic Editor reads these options through filters and declares no derived-state store."
+  }
+}

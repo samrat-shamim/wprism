@@ -1,0 +1,77 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "the-events-calendar",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/the-events-calendar/package/manifest.json",
+      "adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php",
+      "adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php",
+      "adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php",
+      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/the-events-calendar/tests/certify/version-matrix.sh",
+      "adapter-packages/the-events-calendar/tests/offline/regress_the_events_calendar_production_readiness.php"
+    ],
+    "clean-target": [
+      "adapter-packages/the-events-calendar/tests/conformance/entry.json",
+      "adapter-packages/the-events-calendar/tests/conformance/seed.sh",
+      "adapter-packages/the-events-calendar/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/the-events-calendar/tests/conformance/postdeploy.sh",
+      "adapter-packages/the-events-calendar/tests/conformance/check.sh"
+    ],
+    "identity-references": [
+      "adapter-packages/the-events-calendar/package/manifest.json",
+      "adapter-packages/the-events-calendar/tests/conformance/seed.sh",
+      "adapter-packages/the-events-calendar/tests/conformance/postdeploy.sh",
+      "adapter-packages/the-events-calendar/tests/conformance/check.sh",
+      "adapter-packages/the-events-calendar/tests/certify/version-matrix.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/the-events-calendar/tests/conformance/seed.sh",
+      "adapter-packages/the-events-calendar/tests/conformance/check.sh",
+      "adapter-packages/the-events-calendar/tests/certify/version-matrix.sh"
+    ],
+    "derived-state": [
+      "adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php",
+      "adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php",
+      "adapter-packages/the-events-calendar/tests/conformance/check.sh",
+      "adapter-packages/the-events-calendar/tests/live/regress_tec_regen.sh",
+      "adapter-packages/the-events-calendar/tests/offline/regress_the_events_calendar_production_readiness.php"
+    ],
+    "deletion": [
+      "adapter-packages/the-events-calendar/tests/conformance/check.sh",
+      "adapter-packages/the-events-calendar/tests/offline/regress_the_events_calendar_production_readiness.php"
+    ],
+    "failure-recovery": [
+      "agent/src/Apply/ApplyPreparationCoordinator.php",
+      "adapter-packages/the-events-calendar/tests/conformance/check.sh",
+      "adapter-packages/the-events-calendar/tests/live/regress_tec_regen.sh",
+      "adapter-packages/the-events-calendar/tests/offline/regress_the_events_calendar_production_readiness.php",
+      "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/the-events-calendar/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_capture_concurrency.sh"
+    ],
+    "lifecycle": [
+      "adapter-packages/the-events-calendar/tests/conformance/check.sh",
+      "adapter-packages/the-events-calendar/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php",
+      "adapter-packages/the-events-calendar/tests/conformance/seed.sh",
+      "adapter-packages/the-events-calendar/tests/conformance/check.sh",
+      "adapter-packages/the-events-calendar/tests/offline/regress_the_events_calendar_production_readiness.php"
+    ],
+    "scope-platform": [
+      "adapter-packages/the-events-calendar/package/manifest.json",
+      "adapter-packages/the-events-calendar/tests/conformance/check.sh",
+      "adapter-packages/the-events-calendar/tests/live/regress_the_events_calendar_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {}
+}

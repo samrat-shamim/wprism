@@ -11,11 +11,8 @@ require_once __DIR__ . '/../../lib/check.php';
 
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Policy/AdapterLibrary.php';
-$matrix = json_decode(
-    (string) file_get_contents($root . '/sandbox/conformance/production-readiness.json'),
-    true,
-    flags: JSON_THROW_ON_ERROR
-);
+require_once $root . '/tools/src/AdapterProductionReadiness.php';
+$matrix = \Duo\Tooling\AdapterProductionReadiness::load($root);
 // The roster source. WP-4.4 made it a directory of one document per subject
 // (spec/repo-format.md § v3.4), so the reviewed set IS the file set — read as
 // a listing rather than as one document's `manifests` keys, which is what
@@ -37,20 +34,7 @@ duo_check_same(
     'the work ledger has one explicit schema'
 );
 
-$families = [
-    'contract-dependency',
-    'clean-target',
-    'dirty-target',
-    'identity-references',
-    'native-behavior',
-    'derived-state',
-    'deletion',
-    'failure-recovery',
-    'concurrency-idempotence',
-    'lifecycle',
-    'data-boundary',
-    'scope-platform',
-];
+$families = \Duo\Tooling\AdapterProductionReadiness::SCENARIO_FAMILIES;
 duo_check_same($families, $matrix['scenario_families'] ?? null, 'the ledger carries the complete reviewed scenario taxonomy in review order');
 
 $productAdapters = [];

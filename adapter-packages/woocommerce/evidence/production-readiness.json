@@ -1,0 +1,101 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "woocommerce",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/woocommerce/package/manifest.json",
+      "adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php",
+      "adapter-packages/woocommerce/package/runtime/providers/woocommerce-cache.php",
+      "adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php",
+      "adapter-packages/woocommerce/package/runtime/providers/woocommerce-fulfillment-prerequisites.php",
+      "adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php",
+      "adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php",
+      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/woocommerce/tests/certify/version-matrix.sh",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_contract.php",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_production_readiness.php"
+    ],
+    "clean-target": [
+      "adapter-packages/woocommerce/tests/conformance/entry.json",
+      "adapter-packages/woocommerce/tests/conformance/seed.sh",
+      "adapter-packages/woocommerce/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/woocommerce/tests/conformance/postdeploy.sh",
+      "adapter-packages/woocommerce/tests/conformance/check.sh",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_hierarchy_lookups.php",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups_fake.php"
+    ],
+    "identity-references": [
+      "adapter-packages/woocommerce/package/manifest.json",
+      "adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php",
+      "adapter-packages/woocommerce/tests/conformance/seed.sh",
+      "adapter-packages/woocommerce/tests/conformance/postdeploy.sh",
+      "adapter-packages/woocommerce/tests/conformance/check.sh",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_production_readiness.php"
+    ],
+    "native-behavior": [
+      "adapter-packages/woocommerce/tests/conformance/seed.sh",
+      "adapter-packages/woocommerce/tests/conformance/check.sh",
+      "adapter-packages/woocommerce/tests/certify/version-matrix.sh",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_production_readiness.php"
+    ],
+    "derived-state": [
+      "adapter-packages/woocommerce/package/runtime/providers/woocommerce-cache.php",
+      "adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php",
+      "adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php",
+      "adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php",
+      "adapter-packages/woocommerce/tests/conformance/check.sh",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_hierarchy_lookups.php",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups.php",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups_fake.php",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_scheduler_settings.php"
+    ],
+    "deletion": [
+      "adapter-packages/woocommerce/package/disposition.json",
+      "adapter-packages/woocommerce/tests/conformance/check.sh",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_deletion_authority.php",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_production_readiness.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/woocommerce/tests/conformance/check.sh",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_fulfillment_prerequisites.php",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_hierarchy_lookups.php",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups_fake.php",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_scheduler_settings.php",
+      "sandbox/tests/offline/apply/regress_fatal_mutations.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/woocommerce/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_capture_concurrency.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_hierarchy_lookups.php",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups_fake.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/woocommerce/tests/conformance/check.sh",
+      "adapter-packages/woocommerce/fixtures/woocommerce-destructive-lifecycle.sh",
+      "adapter-packages/woocommerce/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/woocommerce/package/manifest.json",
+      "adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php",
+      "adapter-packages/woocommerce/tests/conformance/seed.sh",
+      "adapter-packages/woocommerce/tests/conformance/check.sh",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_contract.php",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_production_readiness.php",
+      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups_fake.php"
+    ],
+    "scope-platform": [
+      "adapter-packages/woocommerce/package/manifest.json",
+      "adapter-packages/woocommerce/tests/conformance/check.sh",
+      "adapter-packages/woocommerce/tests/certify/version-matrix.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh",
+      "adapter-packages/woocommerce/tests/live/regress_woocommerce_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {}
+}

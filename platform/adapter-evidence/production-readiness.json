@@ -1,0 +1,71 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "core",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "platform/adapter-library/core/manifest.json",
+      "platform/adapter-library/capabilities/platform.json",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ],
+    "clean-target": [
+      "sandbox/conformance/entries/core.json",
+      "sandbox/conformance/seeds/core.sh",
+      "sandbox/conformance/checks/core.sh"
+    ],
+    "dirty-target": [
+      "agent/src/Apply/MenuMaterializer.php",
+      "sandbox/tests/offline/apply/regress_menu_materializer.php",
+      "sandbox/conformance/postdeploy/core.sh",
+      "sandbox/conformance/checks/core.sh"
+    ],
+    "identity-references": [
+      "sandbox/conformance/checks/core.sh"
+    ],
+    "native-behavior": [
+      "sandbox/conformance/checks/core.sh"
+    ],
+    "deletion": [
+      "sandbox/conformance/checks/core.sh"
+    ],
+    "failure-recovery": [
+      "sandbox/conformance/checks/core.sh",
+      "sandbox/tests/offline/adapter/regress_core_rewrite_native_action.php"
+    ],
+    "derived-state": [
+      "platform/adapter-library/core/manifest.json",
+      "sandbox/tests/offline/adapter/regress_core_rewrite_native_action.php",
+      "sandbox/conformance/checks/core.sh"
+    ],
+    "concurrency-idempotence": [
+      "sandbox/tests/offline/capture/regress_capture_atomicity.php",
+      "sandbox/tests/live/regress_capture_concurrency.sh"
+    ],
+    "lifecycle": [
+      "platform/adapter-library/core/manifest.json",
+      "sandbox/conformance/run.sh",
+      "sandbox/tests/live/regress_core_lifecycle.sh"
+    ],
+    "data-boundary": [
+      "agent/src/Grammar/Blocks.php",
+      "agent/src/Kernel/TableSchema.php",
+      "agent/src/Repository/RepositoryPortableShapeValidator.php",
+      "platform/adapter-library/core/manifest.json",
+      "sandbox/tests/offline/capture/regress_options_capture.php",
+      "sandbox/tests/offline/reference-scope/regress_block_refs.php",
+      "sandbox/tests/offline/repository/regress_repository_portable_shape_validator.php",
+      "sandbox/tests/offline/repository/regress_table_schema.php",
+      "sandbox/tests/live/regress_core_data_boundary.sh"
+    ],
+    "scope-platform": [
+      "agent/src/Policy/PlatformCompatibility.php",
+      "platform/adapter-library/capabilities/platform.json",
+      "sandbox/tests/offline/policy/regress_platform_compatibility.php",
+      "sandbox/tests/live/regress_core_scope_platform.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {}
+}

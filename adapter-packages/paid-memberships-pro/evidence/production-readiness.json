@@ -1,0 +1,74 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "paid-memberships-pro",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/paid-memberships-pro/package/manifest.json",
+      "agent/src/Policy/ManifestGrammar.php",
+      "agent/src/Apply/TypedTableMaterializer.php",
+      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/paid-memberships-pro/tests/certify/version-matrix.sh",
+      "adapter-packages/paid-memberships-pro/tests/offline/regress_paid_memberships_pro_production_readiness.php"
+    ],
+    "clean-target": [
+      "adapter-packages/paid-memberships-pro/tests/conformance/entry.json",
+      "adapter-packages/paid-memberships-pro/tests/conformance/seed.sh",
+      "adapter-packages/paid-memberships-pro/tests/conformance/postdeploy.sh",
+      "adapter-packages/paid-memberships-pro/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/paid-memberships-pro/tests/conformance/postdeploy.sh",
+      "adapter-packages/paid-memberships-pro/tests/conformance/check.sh"
+    ],
+    "identity-references": [
+      "adapter-packages/paid-memberships-pro/package/manifest.json",
+      "adapter-packages/paid-memberships-pro/tests/conformance/check.sh",
+      "sandbox/tests/offline/repository/regress_composite_ref.php"
+    ],
+    "native-behavior": [
+      "adapter-packages/paid-memberships-pro/tests/conformance/seed.sh",
+      "adapter-packages/paid-memberships-pro/tests/conformance/check.sh",
+      "adapter-packages/paid-memberships-pro/tests/certify/version-matrix.sh"
+    ],
+    "derived-state": [
+      "adapter-packages/paid-memberships-pro/package/manifest.json",
+      "agent/src/Apply/TypedTableMaterializer.php",
+      "adapter-packages/paid-memberships-pro/tests/conformance/check.sh",
+      "sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php",
+      "adapter-packages/paid-memberships-pro/tests/offline/regress_paid_memberships_pro_production_readiness.php"
+    ],
+    "deletion": [
+      "adapter-packages/paid-memberships-pro/package/manifest.json",
+      "adapter-packages/paid-memberships-pro/tests/conformance/check.sh",
+      "adapter-packages/paid-memberships-pro/tests/offline/regress_paid_memberships_pro_production_readiness.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/paid-memberships-pro/tests/conformance/check.sh",
+      "sandbox/tests/offline/repository/regress_snapshot_pruner.php",
+      "adapter-packages/paid-memberships-pro/tests/offline/regress_paid_memberships_pro_production_readiness.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/paid-memberships-pro/tests/conformance/check.sh"
+    ],
+    "lifecycle": [
+      "adapter-packages/paid-memberships-pro/tests/conformance/check.sh",
+      "adapter-packages/paid-memberships-pro/tests/certify/version-matrix.sh",
+      "sandbox/tests/offline/repository/regress_snapshot_pruner.php"
+    ],
+    "data-boundary": [
+      "adapter-packages/paid-memberships-pro/tests/conformance/seed.sh",
+      "adapter-packages/paid-memberships-pro/tests/conformance/check.sh",
+      "adapter-packages/paid-memberships-pro/tests/offline/regress_paid_memberships_pro_production_readiness.php"
+    ],
+    "scope-platform": [
+      "adapter-packages/paid-memberships-pro/package/manifest.json",
+      "agent/src/Policy/ManifestGrammar.php",
+      "adapter-packages/paid-memberships-pro/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {}
+}

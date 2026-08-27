@@ -1,0 +1,71 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "yoast",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/yoast/package/manifest.json",
+      "adapter-packages/yoast/package/runtime/providers/yoast-index.php",
+      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/yoast/tests/certify/version-matrix.sh",
+      "adapter-packages/yoast/tests/offline/regress_yoast_index_provider.php"
+    ],
+    "clean-target": [
+      "adapter-packages/yoast/tests/conformance/entry.json",
+      "adapter-packages/yoast/tests/conformance/seed.sh",
+      "adapter-packages/yoast/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/yoast/tests/conformance/postdeploy.sh",
+      "adapter-packages/yoast/tests/conformance/check.sh"
+    ],
+    "identity-references": [
+      "adapter-packages/yoast/tests/conformance/seed.sh",
+      "adapter-packages/yoast/tests/conformance/postdeploy.sh",
+      "adapter-packages/yoast/tests/conformance/check.sh",
+      "adapter-packages/yoast/tests/certify/version-matrix.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/yoast/tests/conformance/seed.sh",
+      "adapter-packages/yoast/tests/conformance/check.sh",
+      "adapter-packages/yoast/tests/certify/version-matrix.sh"
+    ],
+    "derived-state": [
+      "adapter-packages/yoast/package/runtime/providers/yoast-index.php",
+      "adapter-packages/yoast/tests/offline/regress_yoast_index_provider.php",
+      "adapter-packages/yoast/tests/conformance/check.sh"
+    ],
+    "deletion": [
+      "adapter-packages/yoast/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/yoast/tests/offline/regress_yoast_index_provider.php",
+      "adapter-packages/yoast/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/yoast/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_capture_concurrency.sh"
+    ],
+    "lifecycle": [
+      "adapter-packages/yoast/tests/conformance/check.sh",
+      "adapter-packages/yoast/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/yoast/package/manifest.json",
+      "adapter-packages/yoast/tests/conformance/seed.sh",
+      "adapter-packages/yoast/tests/conformance/check.sh",
+      "adapter-packages/yoast/tests/offline/regress_yoast_index_provider.php"
+    ],
+    "scope-platform": [
+      "adapter-packages/yoast/package/manifest.json",
+      "adapter-packages/yoast/tests/offline/regress_yoast_index_provider.php",
+      "adapter-packages/yoast/tests/certify/version-matrix.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {}
+}

@@ -132,12 +132,11 @@ duo_check(
 );
 
 $readiness = json_decode(
-    (string) file_get_contents($repoRoot . '/sandbox/conformance/production-readiness.json'),
+    (string) file_get_contents(dirname(__DIR__, 2) . '/evidence/production-readiness.json'),
     true,
     512,
     JSON_THROW_ON_ERROR
 );
-$readiness = $readiness['adapters']['paid-memberships-pro'] ?? [];
 duo_check(
     ($readiness['readiness'] ?? null) === 'ready'
         && ($readiness['gaps'] ?? null) === []

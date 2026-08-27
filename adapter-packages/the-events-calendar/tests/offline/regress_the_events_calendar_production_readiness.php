@@ -1850,10 +1850,10 @@ $disposition = json_decode(
     flags: JSON_THROW_ON_ERROR
 );
 $readiness = json_decode(
-    (string) file_get_contents($root . '/sandbox/conformance/production-readiness.json'),
+    (string) file_get_contents(dirname(__DIR__, 2) . '/evidence/production-readiness.json'),
     true,
     flags: JSON_THROW_ON_ERROR
-)['adapters']['the-events-calendar'];
+);
 
 duo_check_same(
     ['min' => '6.17.2', 'max' => '6.17.4'],
@@ -4723,7 +4723,8 @@ $optionHookFixture = json_decode(
 );
 $wooRewriteTopology = json_decode(
     (string) file_get_contents(
-        $root . '/sandbox/tests/fixtures/woocommerce-rewrite-coinstall-topology.json'
+        $root . '/integration-scenarios/woocommerce-rewrite-coinstall/fixtures/'
+        . 'woocommerce-rewrite-coinstall-topology.json'
     ),
     true,
     512,

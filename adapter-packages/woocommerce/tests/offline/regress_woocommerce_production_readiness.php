@@ -1724,12 +1724,11 @@ duo_check_same(
 );
 
 $root = dirname(__DIR__, 4);
-$readiness = json_decode(
-    (string) file_get_contents($root . '/sandbox/conformance/production-readiness.json'),
+$woocommerceReadiness = json_decode(
+    (string) file_get_contents(dirname(__DIR__, 2) . '/evidence/production-readiness.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
-$woocommerceReadiness = $readiness['adapters']['woocommerce'] ?? [];
 $scopeEvidence = $woocommerceReadiness['covered']['scope-platform'] ?? [];
 duo_check(
     in_array('adapter-packages/woocommerce/tests/live/regress_woocommerce_multisite_refusal.sh', $scopeEvidence, true),

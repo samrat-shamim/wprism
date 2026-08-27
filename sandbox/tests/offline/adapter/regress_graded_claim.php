@@ -74,6 +74,7 @@ ob_end_clean();
 
 use Duo\AdapterLibrary;
 use Duo\ManifestDispositions;
+use Duo\Tooling\AdapterProductionReadiness;
 
 /** @return array<string,mixed> */
 $readJson = static function (string $path): array {
@@ -87,7 +88,7 @@ $readJson = static function (string $path): array {
 $adapterLibrary = AdapterLibrary::fromSourceTree($duoRoot);
 $platformDocument = $readJson($adapterLibrary->platformBoundaryPath());
 $boundary = $platformDocument['platform'];
-$shippedLedger = $readJson($duoRoot . '/sandbox/conformance/production-readiness.json');
+$shippedLedger = AdapterProductionReadiness::load($duoRoot);
 $families = array_map('strval', $shippedLedger['scenario_families']);
 $gradesDoc = (string) file_get_contents($duoRoot . '/docs/adapter-grades.md');
 
@@ -194,7 +195,10 @@ duo_check_throws(
 // number whose provenance is not printed beside it is indistinguishable from
 // one somebody typed.
 foreach ([
-    'coverage_breadth' => ['record' => $breadth, 'token' => 'sandbox/conformance/production-readiness.json'],
+    'coverage_breadth' => [
+        'record' => $breadth,
+        'token' => 'adapter-packages/acme/evidence/production-readiness.json',
+    ],
     'exercise_depth' => ['record' => $depth, 'token' => 'provenance.proof.bundle.exercised'],
     'platform_reach' => [
         'record' => $reachWide,
@@ -484,17 +488,17 @@ $place = static function (string $relative) use ($duoRoot, $gateRoot): void {
 };
 
 // Everything the tool opens, and nothing else: the agent readers and their
-// dependencies, the manifest library and its dispositions, the readiness
-// ledger, the tool and the document it byte-compares.
+// dependencies, the manifest library and package-owned readiness records, the
+// tool and the document it byte-compares.
 $copyTree($duoRoot . '/adapter-packages', $gateRoot . '/adapter-packages');
 $copyTree($duoRoot . '/platform', $gateRoot . '/platform');
 $place('agent/src/Kernel/Canon.php');
 $place('agent/src/Policy/AdapterLibrary.php');
 $place('agent/src/Policy/AdapterPackage.php');
 $place('agent/src/Policy/ManifestDispositions.php');
-$place('sandbox/conformance/production-readiness.json');
 $place('docs/adapter-grades.md');
 $place('tools/adapter-grade.php');
+$place('tools/src/AdapterProductionReadiness.php');
 
 $gate = [PHP_BINARY, $gateRoot . '/tools/adapter-grade.php', '--check'];
 $baseline = $run($gate);
@@ -518,11 +522,11 @@ duo_check(
 // The other direction, and the one that makes the grade a derivation: move the
 // EVIDENCE and leave the prose alone.
 file_put_contents($docPath, $docBytes);
-$ledgerPath = $gateRoot . '/sandbox/conformance/production-readiness.json';
+$ledgerPath = $gateRoot . '/adapter-packages/acf/evidence/production-readiness.json';
 $ledgerBytes = (string) file_get_contents($ledgerPath);
 $mutatedLedger = json_decode($ledgerBytes, true, 512, JSON_THROW_ON_ERROR);
-unset($mutatedLedger['adapters']['acf']['covered']['deletion']);
-$mutatedLedger['adapters']['acf']['gaps']['deletion'] = 'evidence withdrawn';
+unset($mutatedLedger['covered']['deletion']);
+$mutatedLedger['gaps']['deletion'] = 'evidence withdrawn';
 file_put_contents($ledgerPath, json_encode($mutatedLedger, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 $movedEvidence = $run($gate);
 duo_check($movedEvidence['exit'] !== 0, 'THE GATE BITES ON MOVED EVIDENCE: withdrawing one adapter\'s deletion evidence makes the committed prose stale');
@@ -546,14 +550,14 @@ duo_check(
 );
 
 file_put_contents($acfDispositionPath, $acfDispositionBytes);
-$strayLedger = json_decode($ledgerBytes, true, 512, JSON_THROW_ON_ERROR);
-$strayLedger['adapters']['acme-not-reviewed'] = $strayLedger['adapters']['acf'];
-file_put_contents($ledgerPath, json_encode($strayLedger, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-$strayRun = $run($gate);
-duo_check($strayRun['exit'] !== 0, 'and a ledger reviewing a subject no disposition names is refused: a grade for an adapter this library does not claim would be a number about nothing');
+$misboundRecord = json_decode($ledgerBytes, true, 512, JSON_THROW_ON_ERROR);
+$misboundRecord['adapter'] = 'acme-not-reviewed';
+file_put_contents($ledgerPath, json_encode($misboundRecord, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+$misboundRun = $run($gate);
+duo_check($misboundRun['exit'] !== 0, 'and a package readiness record bound to another subject is refused: one capsule cannot author a grade row for another');
 duo_check(
-    str_contains($strayRun['stderr'], "the readiness ledger reviews 'acme-not-reviewed'"),
-    '...naming the subject'
+    str_contains($misboundRun['stderr'], "identity does not match 'acf'"),
+    '...naming the capsule whose record identity disagrees'
 );
 
 $rmTree = static function (string $dir) use (&$rmTree): void {
