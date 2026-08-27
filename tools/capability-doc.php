@@ -21,13 +21,13 @@ declare(strict_types=1);
  * gone. The single source is now exactly four logical inputs, whose physical
  * paths come from AdapterLibrary:
  *
- *   manifests/*.json                      what each adapter DECLARES it covers
- *   manifests/dispositions/<name>.json    the reviewed status/reason per manifest
- *   manifests/capabilities/platform.json  the one platform/environment boundary
- *   agent/duo.php                         DUO_AGENT_VERSION / DUO_SPEC_VERSION
+ *   adapter-packages/<name>/package/manifest.json     what each adapter DECLARES it covers
+ *   adapter-packages/<name>/package/disposition.json  the reviewed status/reason per adapter
+ *   platform/adapter-library/capabilities/platform.json the platform/environment boundary
+ *   agent/duo.php                                      DUO_AGENT_VERSION / DUO_SPEC_VERSION
  *
  * So a status in the generated document now means: declared by the manifest,
- * reviewed into manifests/dispositions/ by a human who wrote down why, and
+ * reviewed in its package disposition by a human who wrote down why, and
  * exercised by the named conformance suites against a live pair. It does NOT mean a
  * bundle digest binds that claim to a closure, an artifact set, or a specific
  * run. No sentence emitted here may imply otherwise -- capdoc_preamble() and
@@ -86,7 +86,6 @@ const CAPDOC_DOC_FILE = '/docs/capabilities.md';
 const CAPDOC_README_FILE = '/README.md';
 const CAPDOC_README_BEGIN = '<!-- BEGIN GENERATED CAPABILITY SUMMARY -->';
 const CAPDOC_README_END = '<!-- END GENERATED CAPABILITY SUMMARY -->';
-const CAPDOC_LEGACY_LIBRARY_DIR = '/manifests';
 const CAPDOC_BASELINE_FILE = '/docs/compatibility-baseline.json';
 const CAPDOC_DISPOSITIONS_FORMAT = 'duo-manifest-dispositions/v1';
 const CAPDOC_PLATFORM_FORMAT = 'duo-platform-boundary/v1';
@@ -110,32 +109,8 @@ function capdoc_read_json(string $path): array {
     return $decoded;
 }
 
-/**
- * Resolve the one physical source inventory all projections below consume.
- *
- * The fallback is intentionally explicit and temporary: remove the legacy
- * branch with manifests/ at the package-layout flag day.
- */
 function capdoc_library(string $repo): AdapterLibrary {
-    if (is_dir($repo . '/adapter-packages') && is_dir($repo . '/platform/adapter-library')) {
-        return AdapterLibrary::fromSourceTree($repo);
-    }
-    try {
-        return AdapterLibrary::fromLegacyFlatDirectory($repo . CAPDOC_LEGACY_LIBRARY_DIR);
-    } catch (RuntimeException $failure) {
-        if (preg_match(
-            '/^duo: adapter disposition coverage disagrees with manifests; missing=\[([^]]*)\], orphaned=\[([^]]*)\]$/D',
-            $failure->getMessage(),
-            $coverage
-        ) === 1) {
-            // Preserve the release gate's established wording while the
-            // temporary flat reader rejects the same mismatch first.
-            throw new RuntimeException(
-                'manifest disposition coverage mismatch; missing=[' . $coverage[1] . '], extra=[' . $coverage[2] . ']'
-            );
-        }
-        throw $failure;
-    }
+    return AdapterLibrary::fromSourceTree($repo);
 }
 
 /** @return array{agent_version:string,spec_version:int} */
@@ -202,7 +177,8 @@ function capdoc_platform(string $repo, AdapterLibrary $library): array {
     if (($data['format'] ?? null) !== CAPDOC_PLATFORM_FORMAT
         || !is_array($data['platform'] ?? null) || array_is_list($data['platform'])) {
         throw new RuntimeException(
-            'manifests/capabilities/platform.json must be a ' . CAPDOC_PLATFORM_FORMAT . ' object'
+            'platform/adapter-library/capabilities/platform.json must be a '
+            . CAPDOC_PLATFORM_FORMAT . ' object'
         );
     }
     $platform = $data['platform'];
@@ -497,8 +473,9 @@ function capdoc_section_summary(string $section, mixed $value): string {
 function capdoc_preamble(array $platform): string {
     return 'Duo agent **' . $platform['agent_version'] . '** / repo spec **' . $platform['spec_version']
         . "**. This document is the whole of what Duo claims; nothing outside it is supported.\n\n"
-        . '**How to read a claim.** Each adapter below is *manifest-declared* — its own `manifests/<name>.json` '
-        . 'states the exact surfaces it covers — *disposition-reviewed* — `manifests/dispositions/` records a '
+        . '**How to read a claim.** Each adapter below is *manifest-declared* — its own '
+        . '`adapter-packages/<name>/package/manifest.json` states the exact surfaces it covers — '
+        . '*disposition-reviewed* — the sibling `package/disposition.json` records a '
         . 'status and the written reason a reviewer gave it — and *conformance-tested*, by the named suites running '
         . 'against a live WordPress pair in the sandbox. A status is that review plus those runs. It is **not** an '
         . 'attestation: no digest binds a claim here to a particular closure, artifact set, or test run, so treat '
@@ -691,8 +668,9 @@ function capdoc_profiles_section(array $profiles, array $platform): string {
 /** @param array<string,array> $manifests */
 function capdoc_doc(array $manifests, array $dispositions, array $platform): string {
     $out = "# Duo capability boundary\n\n";
-    $out .= '<!-- Generated by tools/capability-doc.php from manifests/*.json + manifests/dispositions/*.json; '
-        . "do not hand-edit. Run `php tools/capability-doc.php generate` after changing either. -->\n\n";
+    $out .= '<!-- Generated by tools/capability-doc.php from adapter-packages/*/package/{manifest,disposition}.json '
+        . '+ platform/adapter-library; do not hand-edit. Run `php tools/capability-doc.php generate` after '
+        . "changing those sources. -->\n\n";
     $out .= capdoc_preamble($platform) . "\n";
     $out .= capdoc_platform_section($platform) . "\n";
     $out .= capdoc_index_table($manifests, $dispositions, $platform) . "\n";
@@ -729,7 +707,7 @@ function capdoc_readme_block(array $manifests, array $dispositions, array $platf
         . "<!-- Generated by tools/capability-doc.php; do not hand-edit. -->\n\n"
         . "| Manifest | Status | Plugin | Version range |\n|---|---|---|---|\n" . $rows . "\n"
         . "Every claim above is declared by the adapter's own manifest, reviewed into "
-        . '`manifests/dispositions/` with a written reason, and exercised by named conformance suites against a '
+        . 'its sibling `package/disposition.json` with a written reason, and exercised by named conformance suites against a '
         . 'live WordPress pair — a reviewed, tested declaration rather than an attestation sealed to a '
         . 'content-addressed evidence bundle. Outside a declared surface, version range, or operation Duo refuses '
         . 'by default instead of guessing; the exact surfaces, operations, and explicit unsupported boundaries are '

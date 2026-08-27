@@ -5,7 +5,7 @@
  *
  * WHAT WAS MEASURED, AND WHY IT NEEDED A RIDER
  * --------------------------------------------
- * `manifests/dispositions/<name>.json` carries a three-value status and every
+ * `adapter-packages/<name>/package/disposition.json` carries a three-value status and every
  * read surface projects it BINARY. Measured on the shipped library through the
  * product path in PART 6 below: 14 of the 16 reviewed subjects print the same
  * word, `certified`. Their evidence is not the same. `acf` carries 11 of its
@@ -72,6 +72,7 @@ ob_start();
 require_once $duoRoot . '/tools/adapter-grade.php';
 ob_end_clean();
 
+use Duo\AdapterLibrary;
 use Duo\ManifestDispositions;
 
 /** @return array<string,mixed> */
@@ -83,7 +84,8 @@ $readJson = static function (string $path): array {
     return $decoded;
 };
 
-$platformDocument = $readJson($duoRoot . '/manifests/capabilities/platform.json');
+$adapterLibrary = AdapterLibrary::fromSourceTree($duoRoot);
+$platformDocument = $readJson($adapterLibrary->platformBoundaryPath());
 $boundary = $platformDocument['platform'];
 $shippedLedger = $readJson($duoRoot . '/sandbox/conformance/production-readiness.json');
 $families = array_map('strval', $shippedLedger['scenario_families']);
@@ -194,7 +196,10 @@ duo_check_throws(
 foreach ([
     'coverage_breadth' => ['record' => $breadth, 'token' => 'sandbox/conformance/production-readiness.json'],
     'exercise_depth' => ['record' => $depth, 'token' => 'provenance.proof.bundle.exercised'],
-    'platform_reach' => ['record' => $reachWide, 'token' => 'manifests/capabilities/platform.json'],
+    'platform_reach' => [
+        'record' => $reachWide,
+        'token' => 'platform/adapter-library/capabilities/platform.json',
+    ],
 ] as $axis => $case) {
     duo_check(
         str_contains($case['record']['basis'], $case['token']),
@@ -319,10 +324,10 @@ duo_check(
 echo "\nPART 6 — `certified` is untouched: the shipped word, byte for byte\n";
 
 $manifests = [];
-foreach (glob($duoRoot . '/manifests/*.json') ?: [] as $file) {
-    $manifests[] = $readJson($file);
+foreach ($adapterLibrary->packages() as $package) {
+    $manifests[] = $readJson($package->manifestPath());
 }
-$dispositions = ManifestDispositions::load($duoRoot . '/manifests');
+$dispositions = ManifestDispositions::load_library($adapterLibrary);
 duo_check(is_object($dispositions), 'the shipped disposition library still loads through the product path');
 $report = $dispositions->report($manifests);
 
@@ -371,9 +376,9 @@ duo_check(!$findGrade($report), 'and no `grade` member appears anywhere in the r
 // The whole model reaches no shipped byte. This is the strongest form of "the
 // certification word is unchanged": there is nothing under the drop-in, the
 // orchestrator, the recovery runtime or the adapter library that could have
-// changed it (AGENTS.md rule 2 — a manifests/ byte is adapter identity).
+// changed it (AGENTS.md rule 2 — package payload bytes are adapter identity).
 $shippedMentions = [];
-foreach (['agent', 'cli', 'recovery', 'manifests'] as $tree) {
+foreach (['agent', 'cli', 'recovery', 'adapter-packages', 'platform'] as $tree) {
     $walk = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($duoRoot . '/' . $tree, FilesystemIterator::SKIP_DOTS));
     foreach ($walk as $file) {
         if (!$file->isFile()) {
@@ -393,12 +398,8 @@ duo_check_same([], $shippedMentions, 'no shipped file names the grade model at a
 // verbatim. A projection that re-spelled the reviewed word would be replacing
 // it, which is the one thing this rider may not do.
 $dispositionStatuses = [];
-foreach (glob($duoRoot . '/manifests/dispositions/*.json') ?: [] as $file) {
-    $name = basename($file, '.json');
-    if ($name === 'profiles') {
-        continue;
-    }
-    $dispositionStatuses[$name] = (string) ($readJson($file)['status'] ?? '');
+foreach ($adapterLibrary->packages() as $package) {
+    $dispositionStatuses[$package->name()] = (string) ($readJson($package->dispositionPath())['status'] ?? '');
 }
 $rowMismatches = [];
 foreach ($dispositionStatuses as $name => $status) {
@@ -485,7 +486,8 @@ $place = static function (string $relative) use ($duoRoot, $gateRoot): void {
 // Everything the tool opens, and nothing else: the agent readers and their
 // dependencies, the manifest library and its dispositions, the readiness
 // ledger, the tool and the document it byte-compares.
-$copyTree($duoRoot . '/manifests', $gateRoot . '/manifests');
+$copyTree($duoRoot . '/adapter-packages', $gateRoot . '/adapter-packages');
+$copyTree($duoRoot . '/platform', $gateRoot . '/platform');
 $place('agent/src/Kernel/Canon.php');
 $place('agent/src/Policy/AdapterLibrary.php');
 $place('agent/src/Policy/AdapterPackage.php');
@@ -530,7 +532,7 @@ duo_check(
 );
 
 file_put_contents($ledgerPath, $ledgerBytes);
-$acfDispositionPath = $gateRoot . '/manifests/dispositions/acf.json';
+$acfDispositionPath = $gateRoot . '/adapter-packages/acf/package/disposition.json';
 $acfDispositionBytes = (string) file_get_contents($acfDispositionPath);
 $authoredDisposition = json_decode($acfDispositionBytes, true, 512, JSON_THROW_ON_ERROR);
 $authoredDisposition['grade'] = 'complete';

@@ -283,12 +283,6 @@ parameters:
 			path: agent/src/Command/Cli.php
 
 		-
-			message: '#^Variable \$survey might not be defined\.$#'
-			identifier: variable.undefined
-			count: 1
-			path: agent/src/Command/Cli.php
-
-		-
 			message: '#^Variable \$table might not be defined\.$#'
 			identifier: variable.undefined
 			count: 2

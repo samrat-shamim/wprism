@@ -100,7 +100,6 @@ require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 
 const GAP_LEDGER_FILE = '/tools/engine-gaps.json';
 const GAP_DOC_FILE = '/docs/guides/adapter-authoring-limitations.md';
-const GAP_LEGACY_LIBRARY_DIR = '/manifests';
 const GAP_LEDGER_FORMAT = 'duo-engine-gaps/v1';
 
 /** The three lifecycle states a candidate row can be in; nothing else is a disposition. */
@@ -123,15 +122,8 @@ function gap_load(string $path): array {
     return $decoded;
 }
 
-/**
- * Resolve the closed authoring inventory once for this projection.
- * Remove the legacy branch with manifests/ at the package-layout flag day.
- */
 function gap_library(string $repo): AdapterLibrary {
-    if (is_dir($repo . '/adapter-packages') && is_dir($repo . '/platform/adapter-library')) {
-        return AdapterLibrary::fromSourceTree($repo);
-    }
-    return AdapterLibrary::fromLegacyFlatDirectory($repo . GAP_LEGACY_LIBRARY_DIR);
+    return AdapterLibrary::fromSourceTree($repo);
 }
 
 /**
@@ -473,7 +465,7 @@ function gap_preamble(array $ledger): string {
         . 'An entry is a platform boundary, not a plugin-specific branch request: the remedy must be a reusable '
         . "primitive with adversarial coverage before any affected adapter is promoted.\n\n"
         . 'The source probes below used official WordPress.org artifacts on ' . array_key_first($dates) . '. '
-        . 'They are deliberately separate from `manifests/dispositions/`: a rejected candidate is not shipped '
+        . 'They are deliberately separate from adapter package dispositions: a rejected candidate is not shipped '
         . "adapter identity and makes no capability claim.\n\n"
         . 'Every coordinate names its `primitive_required` from a closed vocabulary in the ledger, so two '
         . 'candidates blocked on the same missing thing are ONE countable primitive rather than two lookalike '
@@ -529,7 +521,7 @@ function gap_candidate_section(array $row): string {
 /**
  * The shipped-but-not-promoted rows share one section because they share one
  * fact: the adapter is in the library, and the withheld operation is named in
- * `manifests/dispositions/` rather than hidden in a caveat here.
+ * its package disposition rather than hidden in a caveat here.
  */
 function gap_promotion_blocked_section(array $ledger): string {
     $rows = gap_rows($ledger, 'promotion_blocked');
@@ -546,7 +538,7 @@ function gap_promotion_blocked_section(array $ledger): string {
         }
     }
 
-    return $out . "\nThese are explicit promotion blockers in `manifests/dispositions/`, not silent caveats. "
+    return $out . "\nThese are explicit promotion blockers in adapter package dispositions, not silent caveats. "
         . '`conformance-ecosystem-adapter-batch` exercises their exact artifacts through capture, compile, plan, '
         . 'deterministic recapture, and live plugin readback only. Its `capture-plan` mode stops before target '
         . "mutation, so none of these entries claims apply.\n\n";

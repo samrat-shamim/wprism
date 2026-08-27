@@ -14,7 +14,7 @@ declare(strict_types=1);
  *
  * WHAT PROBLEM THIS SOLVES
  * ------------------------
- * `manifests/dispositions/<name>.json` carries a three-value status
+ * `adapter-packages/<name>/package/disposition.json` carries a three-value status
  * (`certified`, `experimental`, `excluded`) and every read surface projects it
  * BINARY: `AdapterRegistry::report():427-429` raises
  * `authored_state_not_certified` for anything that is not the exact string
@@ -37,7 +37,7 @@ declare(strict_types=1);
  *                     proves every cited test is a named PASSING bundle test,
  *                     and derivedDisposition() carries the map into
  *                     `provenance.proof.bundle`)
- *   platform reach    manifests/capabilities/platform.json's per-axis
+ *   platform reach    platform/adapter-library/capabilities/platform.json's per-axis
  *                     `verified` series, against the cells the claim states
  *                     after § v3.5 narrowing — the same cells a certificate
  *                     binds as exercised since § v3.6/WP-4.7
@@ -80,7 +80,7 @@ declare(strict_types=1);
  * WHY THE MODEL LIVES IN tools/ AND NOT IN agent/src
  * --------------------------------------------------
  * Two of the three inputs are not shipped — `cli/src/Onboarding/Adopt.php`
- * tars exactly `agent manifests recovery`, so the readiness ledger under
+ * embeds the projected adapter library inside `agent/`, so the readiness ledger under
  * sandbox/ reaches no site — and the grade has exactly one reader today: `make
  * release-gate` running this file. That is the same argument
  * tools/capability-doc.php makes for keeping its directory-wide coverage check
@@ -121,7 +121,6 @@ require_once $repo . '/agent/src/Policy/ManifestDispositions.php';
 
 const GRADE_DOC_FILE = '/docs/adapter-grades.md';
 const GRADE_LEDGER_FILE = '/sandbox/conformance/production-readiness.json';
-const GRADE_LEGACY_LIBRARY_DIR = '/manifests';
 const GRADE_LEDGER_FORMAT = 'duo-adapter-production-readiness/v1';
 const GRADE_PLATFORM_FORMAT = 'duo-platform-boundary/v1';
 
@@ -159,15 +158,8 @@ function grade_read_json(string $path): array {
     return $decoded;
 }
 
-/**
- * Resolve the closed authoring inventory once for this projection.
- * Remove the legacy branch with manifests/ at the package-layout flag day.
- */
 function grade_library(string $repo): AdapterLibrary {
-    if (is_dir($repo . '/adapter-packages') && is_dir($repo . '/platform/adapter-library')) {
-        return AdapterLibrary::fromSourceTree($repo);
-    }
-    return AdapterLibrary::fromLegacyFlatDirectory($repo . GRADE_LEGACY_LIBRARY_DIR);
+    return AdapterLibrary::fromSourceTree($repo);
 }
 
 /**
@@ -370,7 +362,7 @@ function grade_exercise_depth(?array $bundleProof, string $name): ?array {
  * The unit is one cell of one compatibility axis that publishes a `verified`
  * series, because that series IS the machine-readable witness: each key is a
  * feature-release line and its value the exact patch a full live proof ran on
- * (manifests/capabilities/platform.json's own notes). An axis without one is
+ * (platform/adapter-library/capabilities/platform.json's own notes). An axis without one is
  * EXCLUDED and named, never counted as a gap — the database axis says in the
  * document itself that it deliberately publishes no series because "each entry
  * already names exactly one measured line", and scoring that as unwitnessed
@@ -442,7 +434,7 @@ function grade_platform_reach(?array $stated, array $boundary): ?array {
         $exercised,
         $outstanding,
         $excluded,
-        'manifests/capabilities/platform.json → compatibility.*.verified: the exercised-series cells this claim '
+        'platform/adapter-library/capabilities/platform.json → compatibility.*.verified: the exercised-series cells this claim '
         . 'states after § v3.5 narrowing (ManifestDispositions::narrowed_environment(), the same projection a '
         . 'certificate binds as its exercised cells under § v3.6); an axis publishing no `verified` series carries '
         . 'no per-cell witness and is excluded rather than counted against the claim'
@@ -461,8 +453,8 @@ function grade_platform_reach(?array $stated, array $boundary): ?array {
  * THERE IS NO `format` MEMBER, deliberately. A `duo-adapter-grade/vN` string
  * would name a wire generation that does not exist: this record is never
  * serialised, never signed and never written to disk — the only thing that
- * leaves this process is the rendered prose. `manifests/capabilities/
- * platform.json`'s own note states the rule being followed ("an invariant with
+ * leaves this process is the rendered prose. `platform/adapter-library/capabilities/platform.json`'s own note
+ * states the rule being followed ("an invariant with
  * no reader is decoration"), and a format identifier with no document to
  * identify is the same defect with a heavier cost, since the next reader would
  * reasonably take it for a contract.
@@ -638,12 +630,12 @@ function grade_subjects(string $repo, ?AdapterLibrary $library = null): array {
 function grade_render(array $subjects, string $repo, ?AdapterLibrary $library = null): string {
     $out = "# Adapter evidence grades\n\n";
     $out .= '<!-- Generated by tools/adapter-grade.php from sandbox/conformance/production-readiness.json + '
-        . 'manifests/dispositions/*.json + manifests/capabilities/platform.json; do not hand-edit. '
+        . 'adapter-packages/*/package/disposition.json + platform/adapter-library/capabilities/platform.json; do not hand-edit. '
         . "Run `php tools/adapter-grade.php generate` after changing any of them. -->\n\n";
     $out .= '**A grade is computed; a status is reviewed. They are different claims and neither replaces the '
         . 'other.** [docs/capabilities.md](capabilities.md) carries the reviewed word — `certified`, '
         . '`experimental`, `excluded` — which means exactly what it meant before this document existed: declared '
-        . 'by the manifest, reviewed into `manifests/dispositions/` by a human who wrote down why, and exercised '
+        . 'by the manifest, reviewed in its sibling `package/disposition.json` by a human who wrote down why, and exercised '
         . 'by the named conformance suites. The grade beside it is arithmetic over evidence records that already '
         . 'existed, re-derived on every run of `tools/adapter-grade.php` and stored nowhere. Nothing here widens, '
         . 'narrows or qualifies a status, and no grade is an endorsement: a `complete` grade says every unit the '
@@ -656,7 +648,7 @@ function grade_render(array $subjects, string $repo, ?AdapterLibrary $library = 
     $out .= '| Exercise depth | one named test recorded passing | the certification bundle\'s per-test pass map, '
         . 'reaching a claim as `provenance.proof.bundle.exercised` + `.tests`; a hand-authored disposition cites '
         . "reviewed suites and carries no per-test verdict record, so this axis is silent for every row below |\n";
-    $out .= '| Platform reach | one exercised-series cell | `manifests/capabilities/platform.json` — the '
+    $out .= '| Platform reach | one exercised-series cell | `platform/adapter-library/capabilities/platform.json` — the '
         . '`verified` cells the claim states after § v3.5 narrowing, which is the same set a certificate binds as '
         . "exercised under § v3.6; an axis publishing no series carries no per-cell witness and is excluded |\n\n";
     $out .= 'An axis with no evidence document for a subject is **silent** and leaves the arithmetic; an axis '
