@@ -4,7 +4,9 @@
 # `--uploads`, WooCommerce's 11.0.0 placeholder derivatives survived into the
 # standalone 11.0.1 leg and correctly tripped the unowned-file collision gate.
 # DUO-3366 also requires Elementor's active-kit option to be removed before
-# `site empty` deletes its target post. This guard pins both reset contracts.
+# `site empty` deletes its target post. Woo's active Review Order endpoint must
+# likewise be disabled before that deletion or init:4 recreates its page during
+# the next reset command. This guard pins all three reset contracts.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."   # -> sandbox/
 
@@ -33,6 +35,18 @@ if empty not in reset:
     raise SystemExit("reset_env no longer clears persistent uploads at the site-empty boundary")
 if reset.index(delete) >= reset.index(empty):
     raise SystemExit("Elementor active-kit cleanup happens after site empty; the null-post warning can return")
+woo_review_options = (
+    'woocommerce_feature_customer_review_request_enabled',
+    'woocommerce_review_order_page_id',
+    'woocommerce_review_order_flush_rewrite_pending',
+)
+for option in woo_review_options:
+    if option not in reset:
+        raise SystemExit(f"reset_env no longer clears WooCommerce Review Order option {option}")
+    if reset.index(option) >= reset.index(empty):
+        raise SystemExit(f"WooCommerce Review Order option {option} is cleared after site empty; init can recreate its host page")
+if 'version-matrix reset retained WooCommerce Review Order option' not in reset:
+    raise SystemExit("reset_env no longer verifies WooCommerce Review Order option deletion")
 if 'woocommerce-placeholder' in reset or 'conf-woo-category' in reset:
     raise SystemExit("reset_env substituted a Woo filename cleanup for complete upload-volume isolation")
 

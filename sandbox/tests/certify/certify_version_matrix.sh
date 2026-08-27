@@ -204,6 +204,26 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # dereferencing a null post on the next exact-version install. This is
   # disposable matrix-fixture cleanup only, not a production-state policy.
   "$cli" option delete elementor_active_kit >/dev/null 2>&1 || true
+  # WooCommerce's Review Order endpoint runs on init:4 while the prior exact
+  # artifact is still active. If its feature stays enabled through `site
+  # empty`, the very next reset command recreates the deleted host page at a
+  # low id before postdeploy raises AUTO_INCREMENT above 2^31. Disable the
+  # feature and clear its page/rewrite identities before deleting posts so a
+  # consecutive exact boundary starts from the selected artifact's own
+  # activation state rather than a page recreated by the preceding release.
+  "$cli" eval '
+    $names = [
+      "woocommerce_feature_customer_review_request_enabled",
+      "woocommerce_review_order_page_id",
+      "woocommerce_review_order_flush_rewrite_pending",
+    ];
+    foreach ($names as $name) { delete_option($name); }
+    foreach ($names as $name) {
+      if (false !== get_option($name, false)) {
+        throw new RuntimeException("version-matrix reset retained WooCommerce Review Order option " . $name);
+      }
+    }
+  ' >/dev/null
   # The pair webroot is a named volume and survives every loop iteration.
   # Clearing only DB rows left WooCommerce's package-owned placeholder
   # derivatives behind after the 11.0.0 leg; the fresh 11.0.1 attachment did
