@@ -294,6 +294,31 @@ final class Policy {
         return '/duo-manifests';
     }
 
+    /** The checked-in or embedded shipped library, never an environment override. */
+    public static function shipped_adapter_library(): AdapterLibrary {
+        $agentRoot = dirname(__DIR__, 2);
+        $embedded = $agentRoot . '/adapter-library';
+        if (is_dir($embedded)) {
+            return AdapterLibrary::fromEmbeddedDirectory($embedded);
+        }
+
+        $sourceRoot = dirname($agentRoot);
+        if (is_dir($sourceRoot . '/adapter-packages')
+            && is_dir($sourceRoot . '/platform/adapter-library')) {
+            return AdapterLibrary::fromSourceTree($sourceRoot);
+        }
+
+        // Transitional only: removed in the package-layout flag-day commit.
+        // Keeping it here while consumers move means each preparatory commit
+        // remains executable against main's still-flat shipped bytes.
+        return AdapterLibrary::fromLegacyFlatDirectory($sourceRoot . '/manifests');
+    }
+
+    private static function has_manifest_directory_override(): bool {
+        $env = getenv('DUO_MANIFESTS_DIR');
+        return is_string($env) && $env !== '' && is_dir($env);
+    }
+
     /**
      * Resolve the shipped physical library once per policy instance.
      *
@@ -305,7 +330,12 @@ final class Policy {
      * removes manifests_dir(); callers below do not change again.
      */
     public function adapter_library(): AdapterLibrary {
-        return $this->adapterLibrary ??= AdapterLibrary::fromDirectory(self::manifests_dir());
+        if ($this->adapterLibrary !== null) {
+            return $this->adapterLibrary;
+        }
+        return $this->adapterLibrary = self::has_manifest_directory_override()
+            ? AdapterLibrary::fromLegacyFlatDirectory(self::manifests_dir())
+            : self::shipped_adapter_library();
     }
 
     /** The platform boundary belonging to this policy's resolved library. */
@@ -338,7 +368,7 @@ final class Policy {
      */
     public function adapter_runtime_path(string $manifest, string $kind, string $id): string {
         $dir = self::manifests_dir();
-        if (!is_dir($dir . '/dispositions')) {
+        if ($this->adapterLibrary === null) {
             return $dir . '/' . $kind . '/' . $id . '.php';
         }
         $package = $this->adapter_package($manifest);
@@ -486,17 +516,27 @@ final class Policy {
      * against a different library than the one it was taken from is precisely
      * the staleness the witness exists to refuse.
      *
-     * @return array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources}
+     * @return array{dir:string, adapter_library:?AdapterLibrary, dispositions:?ManifestDispositions, sources:AdapterSources}
      */
     public static function resolve_library(?string $repo): array {
         self::assert_single_site();
         self::assert_supported_platform();
         $dir = self::manifests_dir();
-        $sources = AdapterSources::discover($dir, $repo);
-        $dispositions = class_exists(ManifestDispositions::class)
-            ? ManifestDispositions::load($dir)
-            : null;
-        return ['dir' => $dir, 'dispositions' => $dispositions, 'sources' => $sources];
+        $adapterLibrary = self::has_manifest_directory_override() ? null : self::shipped_adapter_library();
+        $sources = $adapterLibrary === null
+            ? AdapterSources::discover($dir, $repo)
+            : AdapterSources::discover_library($adapterLibrary, $repo);
+        $dispositions = !class_exists(ManifestDispositions::class)
+            ? null
+            : ($adapterLibrary === null
+                ? ManifestDispositions::load($dir)
+                : ManifestDispositions::load_library($adapterLibrary));
+        return [
+            'dir' => $dir,
+            'adapter_library' => $adapterLibrary,
+            'dispositions' => $dispositions,
+            'sources' => $sources,
+        ];
     }
 
     /**
@@ -512,7 +552,7 @@ final class Policy {
      * `sandbox/tests/offline/adapter/regress_adapter_survey_scale.php` asserts
      * that call-site set against the tree.
      *
-     * @param array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources} $library
+     * @param array{dir:string, adapter_library?:?AdapterLibrary, dispositions:?ManifestDispositions, sources:AdapterSources} $library
      * @param list<string>|list<array<string,mixed>> $manifestNames
      */
     public static function load_from_scan(array $library, ?string $repo, array $manifestNames): self {
@@ -525,7 +565,7 @@ final class Policy {
      * substitutes those pieces and changes nothing else, including the order
      * every other refusal fires in.
      *
-     * @param ?array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources} $library
+     * @param ?array{dir:string, adapter_library?:?AdapterLibrary, dispositions:?ManifestDispositions, sources:AdapterSources} $library
      */
     private static function load_with(
         ?array $library,
@@ -543,6 +583,9 @@ final class Policy {
             self::assert_supported_platform();
         }
         $p = new self();
+        $p->adapterLibrary = $library === null
+            ? (self::has_manifest_directory_override() ? null : self::shipped_adapter_library())
+            : ($library['adapter_library'] ?? null);
         if ($repo !== null) {
             $siteFile = rtrim($repo, '/') . '/site.duo.json';
             if (!is_file($siteFile)) {
@@ -585,7 +628,9 @@ final class Policy {
         // certification elevation. Every property of AdapterSources is a
         // string or an array, so the shallow copy is a value copy.
         $p->adapterSources = $library === null
-            ? AdapterSources::discover($dir, $adapterRepo ?? $repo)
+            ? ($p->adapterLibrary === null
+                ? AdapterSources::discover($dir, $adapterRepo ?? $repo)
+                : AdapterSources::discover_library($p->adapterLibrary, $adapterRepo ?? $repo))
             : clone $library['sources'];
         PinResolver::validate_manifest_sources($pins, $p->adapterSources);
         // The registry DOCUMENT is read here — or carried in by a resolved
@@ -599,7 +644,11 @@ final class Policy {
         // shipped subset after the loop, where the manifests are already in
         // hand (ManifestDispositions::assert_covers()).
         $p->manifestDispositions = $library === null
-            ? (class_exists(ManifestDispositions::class) ? ManifestDispositions::load($dir) : null)
+            ? (!class_exists(ManifestDispositions::class)
+                ? null
+                : ($p->adapterLibrary === null
+                    ? ManifestDispositions::load($dir)
+                    : ManifestDispositions::load_library($p->adapterLibrary)))
             : $library['dispositions'];
         foreach ($pins as $pin) {
             $name = $pin['name'];
@@ -781,7 +830,12 @@ final class Policy {
      * so nothing is out-of-tree and nothing is laundered).
      */
     public function adapter_sources(): AdapterSources {
-        return $this->adapterSources ??= AdapterSources::discover(self::manifests_dir(), null);
+        if ($this->adapterSources !== null) {
+            return $this->adapterSources;
+        }
+        return $this->adapterSources = $this->adapterLibrary === null
+            ? AdapterSources::discover(self::manifests_dir(), null)
+            : AdapterSources::discover_library($this->adapterLibrary, null);
     }
 
     /**
