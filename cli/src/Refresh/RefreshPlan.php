@@ -321,17 +321,19 @@ final class RefreshPlan {
             );
         }
 
-        // Transitional only: old Git refs and deliberately sparse regression
-        // repositories expose the pre-package authoring input. Keep their
-        // override bounded to this one load; package-layout refs never enter
-        // this process-global branch and cannot fall back to flat bytes.
-        $old = getenv('DUO_MANIFESTS_DIR');
-        putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
-        try {
-            return $operation(\Duo\Policy::load($root));
-        } finally {
-            $old === false ? putenv('DUO_MANIFESTS_DIR') : putenv('DUO_MANIFESTS_DIR=' . $old);
-        }
+        // Historical Git refs still carry the pre-package layout. Reading an
+        // explicitly named ref is the one bounded compatibility use for the
+        // strict legacy reader; it never changes the active runtime library or
+        // consults process state.
+        return $operation(
+            \Duo\Policy::load(
+                $root,
+                null,
+                false,
+                null,
+                \Duo\AdapterLibrary::fromLegacyFlatDirectory($root . '/manifests')
+            )
+        );
     }
 
     /** @return array<string,mixed> */

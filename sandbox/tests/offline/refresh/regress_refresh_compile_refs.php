@@ -278,6 +278,10 @@ try {
 
     fixture_write($fixture . '/site.duo.json', site_source());
     fixture_write($fixture . '/manifests/probe.json', manifest_source());
+    fixture_write($fixture . '/manifests/dispositions/probe.json', excluded_disposition_source());
+    fixture_write($fixture . '/manifests/dispositions/profiles.json', "{}\n");
+    fixture_write($fixture . '/manifests/capabilities/platform.json', platform_source());
+    fixture_write($fixture . '/manifests/capabilities/adapter-authorities.json', authorities_source());
     fixture_write($fixture . '/manifests/interpreters/probe.php', interpreter_source('A'));
     fixture_write($fixture . '/state/posts/post/00000000-0000-4000-8000-000000000001--probe.md', post_source('{{post:00000000-0000-4000-8000-000000000001}}'));
     $orderedPost = order_preserving_post_source();
@@ -346,6 +350,13 @@ try {
         [$trees[3], $logicalCommit],
     ] as [$tree, $commit]) {
         git_fixture($fixture, ['worktree', 'add', '--detach', $tree, $commit]);
+    }
+    // Git has no empty-directory object. Real pre-package releases carry a
+    // providers directory, while this minimal historical fixture declares no
+    // provider; materialize that semantically empty inventory in its three
+    // legacy worktrees before the strict compatibility reader scans them.
+    foreach (array_slice($trees, 0, 3) as $legacyTree) {
+        mkdir($legacyTree . '/manifests/providers', 0777, true);
     }
 
     // These three calls intentionally share this PHP caller.  The public
