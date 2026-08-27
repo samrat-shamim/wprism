@@ -1279,6 +1279,7 @@
         "entry_points": [
           "EnvironmentDriver",
           "Transport",
+          "ProcessGroup",
           "CodeDeploy",
           "SshTransport",
           "LocalTransport",
@@ -1289,13 +1290,14 @@
           "Transport"
         ],
         "exceptions": [],
-        "file_count": 9,
+        "file_count": 10,
         "files": [
           "CodeDeploy.php",
           "CodePushTransport.php",
           "DockerTransport.php",
           "EnvironmentDriver.php",
           "LocalTransport.php",
+          "ProcessGroup.php",
           "RecoveryConfig.php",
           "RecoveryTransport.php",
           "SshTransport.php",

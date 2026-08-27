@@ -1539,8 +1539,19 @@ function main(array $argv): int {
     if ($verb === 'preview') {
         $action = array_shift($rest);
         if ($action === 'create') {
+            if (in_array('--reap', $rest, true)) {
+                fwrite(STDERR, "duo: preview create does not accept --reap\n");
+                return 1;
+            }
             $verb = 'rehearse';
         } elseif ($action === 'remove') {
+            $flags = array_slice($rest, 1);
+            if ($rest === []
+                || count(array_filter($flags, static fn(string $arg): bool => $arg === '--format=json')) > 1
+                || array_filter($flags, static fn(string $arg): bool => $arg !== '--format=json') !== []) {
+                fwrite(STDERR, "duo: preview remove accepts only <env> and optional --format=json\n");
+                return 1;
+            }
             $verb = 'rehearse';
             $rest[] = '--reap';
         } else {

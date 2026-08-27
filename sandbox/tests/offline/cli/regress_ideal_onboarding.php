@@ -15,6 +15,8 @@ require_once __DIR__ . '/../../../../cli/src/Command/DemoCommand.php';
 use Duo\Orchestrator\Adopt;
 use Duo\Orchestrator\ConnectCommand;
 use Duo\Orchestrator\DemoCommand;
+use Duo\Orchestrator\DriverCapability;
+use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\DockerTransport;
 use Duo\Orchestrator\EnvironmentDriver;
 use Duo\Orchestrator\HostProcess;
@@ -113,6 +115,29 @@ final class BoundedOnboardingTransport extends Transport {
     public function describe(): string { return 'bounded transport regression'; }
     protected function wpCommand(array $wpArgs): string { return implode(' ', $wpArgs); }
     protected function rawCommand(string $script): string { return $script; }
+}
+
+final class UnboundedOnboardingDriver implements EnvironmentDriver {
+    public int $rawCalls = 0;
+    public int $wpCalls = 0;
+
+    public function name(): string { return 'unbounded'; }
+    public function driverId(): string { return 'unbounded-fixture'; }
+    public function repoPath(): string { return '/tmp/unbounded'; }
+    public function describe(): string { return 'unbounded regression fixture'; }
+    public function captureRaw(string $script): array { ++$this->rawCalls; return ['exit' => 0, 'stdout' => '', 'stderr' => '']; }
+    public function captureWp(array $wpArgs): array { ++$this->wpCalls; return ['exit' => 0, 'stdout' => '', 'stderr' => '']; }
+    public function streamWp(array $wpArgs): int { return 0; }
+    public function wpInstruction(array $wpArgs): string { return 'unused'; }
+    public function capabilityReport(string $operation): DriverCapabilityReport {
+        return DriverCapabilityReport::forDriver('unbounded', $this->driverId(), $operation, [
+            DriverCapability::ATTACH => true,
+            DriverCapability::BOOTSTRAP => true,
+            DriverCapability::CODE_TRANSFER => true,
+            DriverCapability::RAW_CONTROL => true,
+            DriverCapability::WP_CONTROL => true,
+        ]);
+    }
 }
 
 /** @return array<string,mixed> */
@@ -396,6 +421,25 @@ ob_end_clean();
 duo_check_same(1, $blockedExit, 'connect refuses unsupported topology');
 duo_check(!file_exists($blockedWorkspace), 'a failed inspection probe creates no workspace');
 
+$unboundedDriver = new UnboundedOnboardingDriver();
+$unboundedWorkspace = $tmp . '/unbounded-workspace';
+ob_start();
+$unboundedConnectExit = ConnectCommand::run([
+    'unbounded', '--workspace=' . $unboundedWorkspace, '--transport=local',
+    '--wp-path=/var/www/html', '--repo-path=/srv/duo',
+], dirname(__DIR__, 4), static fn(): EnvironmentDriver => $unboundedDriver, $gitRunner);
+ob_end_clean();
+duo_check_same(1, $unboundedConnectExit, 'connect refuses a driver without the explicit bounded-control protocol');
+duo_check_same(0, $unboundedDriver->rawCalls + $unboundedDriver->wpCalls, 'an unbounded driver is refused before target contact');
+duo_check(!file_exists($unboundedWorkspace), 'an unbounded driver cannot publish a connected workspace');
+$unboundedReport = $unboundedDriver->capabilityReport('onboard');
+duo_check(!$unboundedReport->ready(), 'onboard capability negotiation refuses a driver without bounded control');
+duo_check_same(
+    DriverCapability::BOUNDED_CONTROL,
+    $unboundedReport->blockers()[0]['capability'] ?? null,
+    'bounded target control is a declared capability requirement rather than a concrete-class assumption'
+);
+
 $originalCwd = getcwd();
 chdir($workspace);
 $steps = [];
@@ -460,6 +504,45 @@ if (is_string($noUrlCwd)) {
 }
 duo_check_same(0, $noUrlExit, 'onboard may stop cleanly after initialization without a remote');
 duo_check(str_contains($noUrlOutput, '--handoff-only --git-url=<empty-remote-url>'), 'the no-URL handoff prints an exact resumable command');
+
+$handoffFailureSteps = [];
+$handoffFailureCwd = getcwd();
+chdir($workspace);
+ob_start();
+$handoffFailureExit = OnboardCommand::run(
+    new IdealOnboardingTransport(),
+    ['--git-url=https://operator:secret@example.test/repository.git'],
+    dirname(__DIR__, 4),
+    [
+        'handoff_preflight' => static function () use (&$handoffFailureSteps): void { $handoffFailureSteps[] = 'preflight'; },
+        'adopt' => static function () use (&$handoffFailureSteps): int { $handoffFailureSteps[] = 'adopt'; return 0; },
+        'assess' => static function () use (&$handoffFailureSteps): int { $handoffFailureSteps[] = 'assess'; return 0; },
+        'init' => static function () use (&$handoffFailureSteps): int { $handoffFailureSteps[] = 'init'; return 0; },
+        'handoff' => static function () use (&$handoffFailureSteps): string {
+            $handoffFailureSteps[] = 'handoff';
+            throw new RuntimeException('injected post-init target timeout');
+        },
+        'handoff_resume' => static function () use (&$handoffFailureSteps): void { $handoffFailureSteps[] = 'resume'; },
+    ]
+);
+ob_end_clean();
+if (is_string($handoffFailureCwd)) {
+    chdir($handoffFailureCwd);
+}
+duo_check_same(1, $handoffFailureExit, 'ordinary onboarding reports a bounded target handoff failure after init');
+duo_check_same(
+    ['preflight', 'adopt', 'assess', 'init', 'handoff', 'resume'],
+    $handoffFailureSteps,
+    'a post-init handoff failure renders the resume-only continuation'
+);
+$resumeMessageMethod = new ReflectionMethod(OnboardCommand::class, 'handoffResumeMessage');
+$resumeMessage = (string) $resumeMessageMethod->invoke(
+    null,
+    dirname(__DIR__, 4),
+    new IdealOnboardingTransport()
+);
+duo_check(str_contains($resumeMessage, 'onboard \'production\' --handoff-only --git-url=<same-remote-url>'), 'handoff recovery prints one exact resume-only command');
+duo_check(!str_contains($resumeMessage, 'operator:secret'), 'handoff recovery never echoes URL credentials');
 
 $preflightMutations = [];
 $preflightCwd = getcwd();
@@ -902,6 +985,9 @@ $badUrlExit = OnboardCommand::run(
 );
 ob_end_clean();
 $targetRemotesAfterBadUrl = IdealOnboardingTransport::process(['git', '-C', $corrected['target'], 'remote']);
+$targetRefsAfterBadUrl = IdealOnboardingTransport::process([
+    'git', '-C', $corrected['target'], 'for-each-ref', '--format=%(refname)',
+]);
 ob_start();
 $correctedExit = OnboardCommand::run(
     $corrected['driver'],
@@ -914,6 +1000,7 @@ if (is_string($correctedCwd)) {
 }
 duo_check_same(1, $badUrlExit, 'handoff-only reports an unreachable first URL');
 duo_check_same('', trim($targetRemotesAfterBadUrl['stdout']), 'an unreachable URL is not persisted as target origin');
+duo_check_same('', trim($targetRefsAfterBadUrl['stdout']), 'controller-only authentication failure leaves target publication refs untouched');
 duo_check_same(0, $correctedExit, 'handoff-only accepts a corrected reachable URL without repeating initialization');
 duo_check_same('main', trim(IdealOnboardingTransport::process(['git', '-C', $corrected['workspace'], 'branch', '--show-current'])['stdout']), 'handoff supports the connect-default branch without force-resetting an existing ref');
 
@@ -1120,6 +1207,7 @@ $resumeExit = OnboardCommand::run(
         'adopt' => static function () use (&$resumeSteps): int { $resumeSteps[] = 'adopt'; return 0; },
         'assess' => static function () use (&$resumeSteps): int { $resumeSteps[] = 'assess'; return 0; },
         'init' => static function () use (&$resumeSteps): int { $resumeSteps[] = 'init'; return 0; },
+        'controller_preflight' => static fn(): array => ['exit' => 0, 'stdout' => '', 'stderr' => ''],
         'handoff_preflight' => static function () use (&$resumeSteps): void { $resumeSteps[] = 'preflight'; },
         'handoff' => static function () use (&$resumeSteps): string { $resumeSteps[] = 'handoff'; return 'main'; },
     ]
@@ -1171,6 +1259,124 @@ ob_end_clean();
 duo_check_same(1, $dockerOverlapExit, 'connect refuses a workspace inside a Docker writable host repository');
 duo_check_same([], $dockerOverlapTransport->rawCalls, 'Docker host overlap refuses before any target probe');
 duo_check(is_file($dockerHostRepo . '/sentinel') && !file_exists($dockerOverlapWorkspace), 'Docker overlap preserves target bytes and publishes no workspace');
+
+$fakeDockerBin = $tmp . '/fake-docker-bin';
+mkdir($fakeDockerBin, 0700);
+$fakeDockerLog = $tmp . '/fake-docker.log';
+file_put_contents($fakeDockerBin . '/docker', <<<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$DUO_FAKE_DOCKER_LOG"
+for last do :; done
+case " $* " in
+  *" bash -c "*) exec /bin/bash -c "$last" ;;
+  *" wp core is-installed "*) exit 0 ;;
+  *" wp eval "*) printf 'single-site\n'; exit 0 ;;
+esac
+exit 9
+SH
+);
+chmod($fakeDockerBin . '/docker', 0700);
+$priorPath = getenv('PATH');
+putenv('PATH=' . $fakeDockerBin . ':' . (is_string($priorPath) ? $priorPath : ''));
+putenv('DUO_FAKE_DOCKER_LOG=' . $fakeDockerLog);
+$boundedControl = new BoundedOnboardingTransport();
+$sleepingConfig = $boundedControl->captureRawBounded('sleep 1', 50, 4096, 4096);
+$noisyConfig = $boundedControl->captureRawBounded('printf %05000d 0', 1000, 4096, 4096);
+$configFailures = [
+    'sleeping' => $sleepingConfig,
+    'noisy' => $noisyConfig,
+    'nonzero' => ['exit' => 9, 'stdout' => '', 'stderr' => 'compose config refused'],
+    'malformed' => ['exit' => 0, 'stdout' => '{', 'stderr' => ''],
+    'unknown-service' => ['exit' => 0, 'stdout' => '{"services":{"other":{"volumes":[]}}}', 'stderr' => ''],
+    'ambiguous-mount' => [
+        'exit' => 0,
+        'stdout' => '{"services":{"cli2":{"volumes":['
+            . '{"type":"bind","source":"/tmp/a","target":"/siterepo","read_only":false},'
+            . '{"type":"bind","source":"/tmp/b","target":"/siterepo","read_only":false}'
+            . ']}}}',
+        'stderr' => '',
+    ],
+];
+foreach ($configFailures as $label => $controlResult) {
+    @unlink($fakeDockerLog);
+    $controlCalls = [];
+    $failedWorkspace = $tmp . '/docker-config-' . $label;
+    $controlCapture = static function (
+        string $command,
+        int $timeout,
+        int $stdoutLimit,
+        int $stderrLimit
+    ) use (&$controlCalls, $controlResult): array {
+        $controlCalls[] = compact('command', 'timeout', 'stdoutLimit', 'stderrLimit');
+        return $controlResult;
+    };
+    ob_start();
+    $configExit = ConnectCommand::run([
+        'demo-target', '--workspace=' . $failedWorkspace, '--transport=docker',
+        '--compose-file=' . $composeFile, '--compose-env-file=' . $envFile,
+        '--service=cli2', '--repo-path=/siterepo',
+    ], dirname(__DIR__, 4), static fn(string $name, array $config): EnvironmentDriver =>
+        new DockerTransport($name, $config, null, $controlCapture), $gitRunner);
+    ob_end_clean();
+    duo_check_same(1, $configExit, "connect fails closed on $label Docker config inspection");
+    duo_check(!file_exists($failedWorkspace), "$label Docker config inspection publishes no workspace");
+    duo_check_same(1, count($controlCalls), "$label Docker config inspection uses one bounded control-plane capture");
+    duo_check_same(30000, $controlCalls[0]['timeout'] ?? null, "$label Docker config inspection has a finite deadline");
+    duo_check(!file_exists($fakeDockerLog), "$label Docker config refusal occurs before otherwise-successful target probes");
+}
+
+$mountConfig = static fn(array $volumes): string => json_encode([
+    'services' => ['cli2' => ['volumes' => $volumes]],
+], JSON_THROW_ON_ERROR);
+$namedDocker = new DockerTransport('named', [
+    'transport' => 'docker', 'compose_file' => $composeFile, 'service' => 'cli2', 'repo_path' => '/siterepo',
+], null, static fn(): array => ['exit' => 0, 'stdout' => $mountConfig([
+    ['type' => 'volume', 'source' => 'repo-data', 'target' => '/siterepo', 'read_only' => false],
+]), 'stderr' => '']);
+$readOnlyDocker = new DockerTransport('read-only', [
+    'transport' => 'docker', 'compose_file' => $composeFile, 'service' => 'cli2', 'repo_path' => '/siterepo',
+], null, static fn(): array => ['exit' => 0, 'stdout' => $mountConfig([
+    ['type' => 'bind', 'source' => '/tmp/read-only-repo', 'target' => '/siterepo', 'read_only' => true],
+]), 'stderr' => '']);
+$writableDocker = new DockerTransport('writable', [
+    'transport' => 'docker', 'compose_file' => $composeFile, 'service' => 'cli2', 'repo_path' => '/siterepo',
+], null, static fn(): array => ['exit' => 0, 'stdout' => $mountConfig([
+    ['type' => 'bind', 'source' => '/tmp/writable-repo', 'target' => '/siterepo', 'read_only' => false],
+]), 'stderr' => '']);
+duo_check_same(null, $namedDocker->hostRepoBoundaryPath(), 'a proven named volume has no writable host repository boundary');
+duo_check_same(null, $readOnlyDocker->hostRepoBoundaryPath(), 'a proven read-only bind has no writable host repository boundary');
+duo_check_same('/tmp/writable-repo', $writableDocker->hostRepoBoundaryPath(), 'a proven writable bind returns its exact host boundary');
+
+$execControlCalls = [];
+$execDocker = new DockerTransport('exec-bounded', [
+    'transport' => 'docker', 'compose_file' => $composeFile, 'service' => 'cli2',
+    'repo_path' => '/siterepo', 'mode' => 'exec',
+], null, static function (string $command) use (&$execControlCalls, $boundedControl): array {
+    $execControlCalls[] = $command;
+    return $boundedControl->captureRawBounded('sleep 1', 50, 4096, 4096);
+});
+$execProbe = $execDocker->captureRawBounded('echo should-not-run', 1000, 4096, 4096);
+duo_check_same(1, $execProbe['exit'], 'exec mode converts a bounded service-probe timeout into its reviewed precondition refusal');
+duo_check(count($execControlCalls) === 1 && str_contains($execControlCalls[0], "'ps' '--status=running' '--services'"), 'exec mode bounds the Docker ps probe before command construction');
+$fakeProbeDocker = new DockerTransport('fake-probe', [
+    'transport' => 'docker', 'compose_file' => $composeFile, 'service' => 'cli2', 'repo_path' => '/siterepo',
+]);
+// The first process-group launch can absorb host scheduler pressure from the
+// preceding corpus; five seconds still proves a finite bound without making
+// this reachability-control fixture a one-second performance assertion.
+$fakeReachable = $fakeProbeDocker->captureRawBounded('echo duo-connect-ready', 5000, 4096, 4096);
+$fakeInstalled = $fakeProbeDocker->captureWpBounded(['core', 'is-installed'], 5000, 4096, 4096);
+$fakeTopology = $fakeProbeDocker->captureWpBounded(
+    ['eval', 'echo is_multisite() ? "multisite" : "single-site";'],
+    5000,
+    4096,
+    4096
+);
+duo_check_same('duo-connect-ready', trim($fakeReachable['stdout']), 'the Docker config fail-closed fixtures would otherwise pass raw reachability');
+duo_check_same(0, $fakeInstalled['exit'], 'the Docker config fail-closed fixtures would otherwise pass WordPress reachability');
+duo_check_same('single-site', trim($fakeTopology['stdout']), 'the Docker config fail-closed fixtures would otherwise pass topology inspection');
+putenv('DUO_FAKE_DOCKER_LOG');
+is_string($priorPath) ? putenv('PATH=' . $priorPath) : putenv('PATH');
 
 $docker = new DockerTransport('demo-source', [
     'transport' => 'docker',
@@ -1235,6 +1441,13 @@ $closedPipeProcess = HostProcess::run(
     65536
 );
 duo_check_same(124, $closedPipeProcess['exit'], 'the shared runner enforces its deadline after a child closes both capture pipes');
+$hostTimeoutMarker = $tmp . '/host-timeout-descendant';
+$hostDescendant = HostProcess::run([
+    'sh', '-c', '(sleep 0.3; printf mutation > ' . escapeshellarg($hostTimeoutMarker) . ') & wait',
+], null, [], false, 50, 4096);
+usleep(500000);
+duo_check_same(124, $hostDescendant['exit'], 'the shared runner times out the owned process group');
+duo_check(!file_exists($hostTimeoutMarker), 'a host descendant cannot mutate after the timeout returns');
 $passthroughTimedProcess = HostProcess::run(
     [PHP_BINARY, '-r', 'usleep(500000);'],
     null,
@@ -1272,6 +1485,28 @@ $noisyTarget = $boundedTransport->captureRawBounded(
 );
 duo_check_same(125, $noisyTarget['exit'], 'bounded target capture terminates stdout beyond its reviewed budget');
 duo_check_same('', $noisyTarget['stdout'], 'over-limit target output is not returned to the onboarding boundary');
+$targetTimeoutMarker = $tmp . '/target-timeout-descendant';
+$targetDescendant = $boundedTransport->captureRawBounded(
+    '(sleep 0.3; printf mutation > ' . escapeshellarg($targetTimeoutMarker) . ') & wait',
+    50,
+    4096,
+    4096
+);
+usleep(500000);
+duo_check_same(124, $targetDescendant['exit'], 'bounded target capture times out the owned process group');
+duo_check(!file_exists($targetTimeoutMarker), 'a target descendant cannot mutate after the timeout returns');
+$targetOutputMarker = $tmp . '/target-output-descendant';
+$targetOutputDescendant = $boundedTransport->captureRawBounded(
+    '(sleep 1; printf mutation > ' . escapeshellarg($targetOutputMarker) . ') & '
+        . escapeshellarg(PHP_BINARY) . ' -r '
+        . escapeshellarg('fwrite(STDOUT, str_repeat("x", 20000));') . '; wait',
+    1000,
+    4096,
+    4096
+);
+usleep(500000);
+duo_check_same(125, $targetOutputDescendant['exit'], 'bounded target capture cancels the owned process group on output refusal');
+duo_check(!file_exists($targetOutputMarker), 'a target descendant cannot mutate after output refusal returns');
 
 $faultRoot = $tmp . '/fault-demo-root';
 foreach ([$faultRoot, $faultRoot . '/sandbox', $faultRoot . '/sandbox/bin', $faultRoot . '/sandbox/tmp', $faultRoot . '/sandbox/siterepo'] as $directory) {
@@ -1342,6 +1577,98 @@ ob_start();
 $sessionRaceRetry = DemoCommand::run(['stop', '--name=sessionrace'], $faultRoot);
 ob_end_clean();
 duo_check_same(0, $sessionRaceRetry, 'restoring the owned session inode makes setup cleanup resumable');
+
+$readRace = ideal_demo_session($faultRoot, 'readrace', 9240, 9241);
+foreach (['source_repo', 'target_repo', 'origin'] as $field) {
+    mkdir((string) $readRace[$field], 0700, true);
+}
+file_put_contents((string) $readRace['compose_env_file'], "DUO_PAIR=readrace\n");
+$readRace = own_ideal_demo_paths($readRace, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
+write_ideal_demo_session($readRace);
+$readRaceRecorded = $readRace['state_file'] . '.recorded';
+$readRaceBytes = (string) file_get_contents((string) $readRace['state_file']);
+$readRaceHook = static function (string $phase) use ($readRace, $readRaceRecorded, $readRaceBytes): void {
+    if ($phase !== 'state_file_read') {
+        return;
+    }
+    rename((string) $readRace['state_file'], $readRaceRecorded);
+    file_put_contents((string) $readRace['state_file'], $readRaceBytes);
+};
+ob_start();
+$readRaceExit = DemoCommand::run(['stop', '--name=readrace'], $faultRoot, $readRaceHook);
+ob_end_clean();
+duo_check_same(1, $readRaceExit, 'demo refuses a valid-looking session replacement after reading the owned handle');
+duo_check(is_file((string) $readRace['state_file']) && is_file($readRaceRecorded), 'session read refusal retains both named and opened journal inodes');
+unlink((string) $readRace['state_file']);
+rename($readRaceRecorded, (string) $readRace['state_file']);
+ob_start();
+$readRaceRetry = DemoCommand::run(['stop', '--name=readrace'], $faultRoot);
+ob_end_clean();
+duo_check_same(0, $readRaceRetry, 'restoring the opened journal inode makes cleanup resumable');
+
+$stageSwap = ideal_demo_session($faultRoot, 'stageswap', 9242, 9243);
+$stageSwapPath = null;
+$stageSwapRecorded = null;
+$stageSwapMarker = null;
+$stageSwapHook = static function (string $phase) use (
+    &$stageSwapPath,
+    &$stageSwapRecorded,
+    &$stageSwapMarker,
+    $stageSwap
+): void {
+    if ($phase !== 'source_repo_staged') {
+        return;
+    }
+    $published = json_decode((string) file_get_contents((string) $stageSwap['state_file']), true);
+    $token = (string) ($published['ownership_token'] ?? '');
+    $stageSwapPath = dirname((string) $stageSwap['source_repo'])
+        . '/.duo-demo-acquire-' . $token . '-source_repo';
+    $stageSwapRecorded = $stageSwapPath . '.recorded';
+    $stageSwapMarker = $stageSwapPath . '/.duo-demo-owner-' . $token . '-source_repo';
+    rename($stageSwapPath, $stageSwapRecorded);
+    mkdir($stageSwapPath, 0700);
+    file_put_contents($stageSwapMarker, $token . ":source_repo\n");
+};
+ob_start();
+$stageSwapExit = DemoCommand::run([
+    'start', '--name=stageswap', '--source-port=9242', '--target-port=9243',
+], $faultRoot, $stageSwapHook);
+ob_end_clean();
+duo_check_same(1, $stageSwapExit, 'demo refuses an acquisition-stage replacement carrying a copied marker');
+duo_check(is_string($stageSwapMarker) && is_file($stageSwapMarker) && is_string($stageSwapRecorded) && is_dir($stageSwapRecorded), 'acquisition-stage refusal retains both foreign and receipt-bound directories');
+unlink((string) $stageSwapMarker);
+rmdir((string) $stageSwapPath);
+rename((string) $stageSwapRecorded, (string) $stageSwapPath);
+ob_start();
+$stageSwapRetry = DemoCommand::run(['stop', '--name=stageswap'], $faultRoot);
+ob_end_clean();
+duo_check_same(0, $stageSwapRetry, 'restoring the receipt-bound acquisition directory makes cleanup resumable');
+
+$environmentSwap = ideal_demo_session($faultRoot, 'envswap', 9244, 9245);
+$environmentSwapRecorded = $environmentSwap['compose_env_file'] . '.recorded';
+$environmentSwapHook = static function (string $phase) use ($environmentSwap, $environmentSwapRecorded): void {
+    if ($phase !== 'compose_env_file_created') {
+        return;
+    }
+    rename((string) $environmentSwap['compose_env_file'], $environmentSwapRecorded);
+    file_put_contents(
+        (string) $environmentSwap['compose_env_file'],
+        (string) file_get_contents($environmentSwapRecorded)
+    );
+};
+ob_start();
+$environmentSwapExit = DemoCommand::run([
+    'start', '--name=envswap', '--source-port=9244', '--target-port=9245',
+], $faultRoot, $environmentSwapHook);
+ob_end_clean();
+duo_check_same(1, $environmentSwapExit, 'demo refuses a byte-identical compose-environment replacement before ownership publication');
+duo_check(is_file((string) $environmentSwap['compose_env_file']) && is_file($environmentSwapRecorded), 'environment acquisition refusal retains both foreign and receipt-bound files');
+unlink((string) $environmentSwap['compose_env_file']);
+rename($environmentSwapRecorded, (string) $environmentSwap['compose_env_file']);
+ob_start();
+$environmentSwapRetry = DemoCommand::run(['stop', '--name=envswap'], $faultRoot);
+ob_end_clean();
+duo_check_same(0, $environmentSwapRetry, 'restoring the receipt-bound environment file makes cleanup resumable');
 
 $acquireFaultHook = static function (string $phase): void {
     if ($phase === 'origin_created') {
@@ -1728,6 +2055,27 @@ if (is_resource($preview)) {
     $previewExit = proc_close($preview);
     duo_check_same(1, $previewExit, 'preview create without an environment is a normal argument refusal');
     duo_check(str_contains($previewError . $previewOut, "'rehearse' requires an <env> argument"), 'preview create maps to the proven rehearsal command before preflight');
+}
+$missingRegistry = $tmp . '/preview-missing-envs.json';
+$createReap = HostProcess::run([
+    $cli, '--envs-file=' . $missingRegistry, 'preview', 'create', 'victim', '--reap',
+], $tmp);
+duo_check_same(1, $createReap['exit'], 'preview create rejects the destructive reap flag');
+duo_check(
+    str_contains($createReap['stderr'], 'preview create does not accept --reap')
+        && !str_contains($createReap['stderr'], 'environment registry'),
+    'preview create refuses reap before environment resolution or removal'
+);
+foreach (['--reap', '--from=production', '--create', '--ttl=60', '--branch=feature'] as $removeFlag) {
+    $invalidRemove = HostProcess::run([
+        $cli, '--envs-file=' . $missingRegistry, 'preview', 'remove', 'victim', $removeFlag,
+    ], $tmp);
+    duo_check_same(1, $invalidRemove['exit'], "preview remove rejects caller flag $removeFlag");
+    duo_check(
+        str_contains($invalidRemove['stderr'], 'preview remove accepts only <env> and optional --format=json')
+            && !str_contains($invalidRemove['stderr'], 'environment registry'),
+        "preview remove rejects $removeFlag before environment resolution"
+    );
 }
 
 duo_check_summary('ideal source-checkout onboarding');

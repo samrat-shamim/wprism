@@ -23,8 +23,10 @@ final class OnboardCommand {
      *   assess?:callable(EnvironmentDriver,array,string):int,
      *   init?:callable(EnvironmentDriver,array):int,
      *   status?:callable(EnvironmentDriver):int,
-     *   handoff_preflight?:callable(EnvironmentDriver,string,string):void,
-     *   handoff?:callable(EnvironmentDriver,string,string):string
+     *   controller_preflight?:callable(string,string):array{exit:int,stdout:string,stderr:string},
+     *   handoff_preflight?:callable(BoundedControlDriver,string,string):void,
+     *   handoff?:callable(BoundedControlDriver,string,string):string,
+     *   handoff_resume?:callable(string,EnvironmentDriver):void
      * } $steps
      */
     public static function run(
@@ -36,6 +38,9 @@ final class OnboardCommand {
         try {
             [$initArgs, $gitUrl, $handoffOnly] = self::options($extra);
             $workspace = AssessCommand::siteRepo(getcwd() ?: '.');
+            if (!$driver instanceof BoundedControlDriver) {
+                throw new \RuntimeException('selected driver does not implement bounded target control');
+            }
             if ($handoffOnly && $gitUrl === null) {
                 throw new \RuntimeException('--handoff-only requires --git-url=<url>');
             }
@@ -73,10 +78,13 @@ final class OnboardCommand {
                 false
             );
         $handoffPreflight = $steps['handoff_preflight'] ?? self::preflightHandoff(...);
+        $controllerPreflight = $steps['controller_preflight'] ?? self::preflightControllerHandoff(...);
         $handoff = $steps['handoff'] ?? self::publishAndCheckout(...);
+        $handoffResume = $steps['handoff_resume'] ?? self::renderHandoffResume(...);
 
         if ($handoffOnly) {
             try {
+                $controllerPreflight($workspace, (string) $gitUrl);
                 $branch = isset($steps['handoff'])
                     ? $handoff($driver, $workspace, (string) $gitUrl)
                     : self::publishAndCheckout($driver, $workspace, (string) $gitUrl);
@@ -130,6 +138,7 @@ final class OnboardCommand {
                 self::assertPristineLocalCheckout($workspace, $handoffReceipt);
             } catch (\Throwable $error) {
                 fwrite(STDERR, 'duo: onboard handoff: ' . $error->getMessage() . "\n");
+                $handoffResume($sourceRoot, $driver);
                 return 1;
             }
         }
@@ -141,6 +150,7 @@ final class OnboardCommand {
                     : self::publishAndCheckout($driver, $workspace, $gitUrl, $handoffReceipt);
             } catch (\Throwable $error) {
                 fwrite(STDERR, 'duo: onboard handoff: ' . $error->getMessage() . "\n");
+                $handoffResume($sourceRoot, $driver);
                 return 1;
             }
             self::renderHandoffSuccess($sourceRoot, $driver, $branch);
@@ -186,16 +196,11 @@ final class OnboardCommand {
     }
 
     private static function preflightHandoff(
-        EnvironmentDriver $driver,
+        BoundedControlDriver $driver,
         string $workspace,
         string $gitUrl
     ): void {
-        self::assertLocalBoundary($workspace);
-        self::assertLocalOrigin($workspace, $gitUrl);
-        $local = self::runGitTransfer(['git', 'ls-remote', '--refs', $gitUrl]);
-        if ($local['exit'] !== 0) {
-            throw new \RuntimeException('controller cannot authenticate to the Git remote: ' . trim($local['stderr']));
-        }
+        $local = self::preflightControllerHandoff($workspace, $gitUrl);
         if (trim($local['stdout']) !== '') {
             throw new \RuntimeException('Git remote is not empty; use a new empty remote for initial publication');
         }
@@ -214,8 +219,19 @@ final class OnboardCommand {
         }
     }
 
+    /** @return array{exit:int,stdout:string,stderr:string} */
+    private static function preflightControllerHandoff(string $workspace, string $gitUrl): array {
+        self::assertLocalBoundary($workspace);
+        self::assertLocalOrigin($workspace, $gitUrl);
+        $local = self::runGitTransfer(['git', 'ls-remote', '--refs', $gitUrl]);
+        if ($local['exit'] !== 0) {
+            throw new \RuntimeException('controller cannot authenticate to the Git remote: ' . trim($local['stderr']));
+        }
+        return $local;
+    }
+
     private static function publishAndCheckout(
-        EnvironmentDriver $driver,
+        BoundedControlDriver $driver,
         string $workspace,
         string $gitUrl,
         ?array $expectedReceipt = null
@@ -494,14 +510,11 @@ final class OnboardCommand {
 
     /** @return array{exit:int,stdout:string,stderr:string} */
     private static function captureTargetRaw(
-        EnvironmentDriver $driver,
+        BoundedControlDriver $driver,
         string $script,
         int $timeoutMilliseconds,
         int $outputLimitBytes
     ): array {
-        if (!$driver instanceof Transport) {
-            throw new \RuntimeException('onboard requires a transport with bounded target control');
-        }
         return $driver->captureRawBounded(
             $script,
             $timeoutMilliseconds,
@@ -563,6 +576,17 @@ final class OnboardCommand {
         echo "Capture always writes to the target repo_path ({$driver->repoPath()}), not this local checkout.\n";
         echo "Before feature-branch capture, point or materialize the target to that branch; see docs/guides/daily-workflow.md.\n";
         echo "Disposable preview creation additionally requires two configured environments and providers; see docs/guides/release.md.\n";
+    }
+
+    private static function renderHandoffResume(string $sourceRoot, EnvironmentDriver $driver): void {
+        fwrite(STDERR, self::handoffResumeMessage($sourceRoot, $driver));
+    }
+
+    private static function handoffResumeMessage(string $sourceRoot, EnvironmentDriver $driver): string {
+        $cli = realpath($sourceRoot . '/cli/duo') ?: $sourceRoot . '/cli/duo';
+        return "Duo installation and initialization completed. Resume only Git publication after correcting the failure:\n"
+            . '  ' . escapeshellarg($cli) . ' onboard ' . escapeshellarg($driver->name())
+            . " --handoff-only --git-url=<same-remote-url>\n";
     }
 
     private static function assertGeneratedFile(string $path, string $expected): void {

@@ -294,7 +294,7 @@ final class DemoCommand {
     }
 
     private static function stop(string $sourceRoot, string $name, ?callable $phaseHook): int {
-        $session = self::readSession($sourceRoot, $name);
+        $session = self::readSession($sourceRoot, $name, $phaseHook);
         self::teardownSession($sourceRoot, $session, true, $phaseHook);
         echo "Removed demo '$name': containers, volumes, databases, and its three disposable repositories.\n";
         return 0;
@@ -559,7 +559,7 @@ final class DemoCommand {
     }
 
     /** @return array<string,mixed> */
-    private static function readSession(string $sourceRoot, string $name): array {
+    private static function readSession(string $sourceRoot, string $name, ?callable $phaseHook = null): array {
         $stateFile = $sourceRoot . '/sandbox/tmp/demo-' . $name . '.json';
         self::restoreClaimedSession($stateFile, $name);
         $handle = !is_link($stateFile) && is_file($stateFile) ? @fopen($stateFile, 'rb') : false;
@@ -606,7 +606,14 @@ final class DemoCommand {
             || !self::validOwnedPaths($data['owned_paths'] ?? null)) {
             throw new \RuntimeException("demo '$name' session lifecycle state is malformed");
         }
-        $data['_state_identity'] = self::pathIdentity($stateFile);
+        $identity = self::identityFromStat($opened, 'file');
+        if ($phaseHook !== null) {
+            $phaseHook('state_file_read');
+        }
+        if (self::pathIdentity($stateFile) !== $identity) {
+            throw new \RuntimeException("demo '$name' session identity changed while it was read");
+        }
+        $data['_state_identity'] = $identity;
         return $data;
     }
 
@@ -692,6 +699,7 @@ final class DemoCommand {
             throw new \RuntimeException("could not exclusively create $path");
         }
         $written = 0;
+        $identity = null;
         try {
             while ($written < strlen($bytes)) {
                 $count = fwrite($handle, substr($bytes, $written));
@@ -709,6 +717,7 @@ final class DemoCommand {
                 || (function_exists('fsync') && !fsync($handle))) {
                 throw new \RuntimeException("could not sync $path");
             }
+            $identity = self::identityFromStat($created, 'file');
         } catch (\Throwable $error) {
             $created = fstat($handle);
             fclose($handle);
@@ -720,7 +729,10 @@ final class DemoCommand {
             throw $error;
         }
         fclose($handle);
-        return self::pathIdentity($path);
+        if (!is_array($identity) || self::pathIdentity($path) !== $identity) {
+            throw new \RuntimeException("created file identity changed before receipt: $path");
+        }
+        return $identity;
     }
 
     /** @param array<string,mixed> $session @return array<string,mixed> */
@@ -814,6 +826,10 @@ final class DemoCommand {
         $row = $session['owned_paths'][$field];
         if ($row['state'] === 'planned') {
             self::adoptPlannedPath($sourceRoot, $session, $field);
+            $row = $session['owned_paths'][$field];
+        }
+        if ($row['state'] === 'acquiring') {
+            self::adoptAcquiringPath($session, $field);
             $row = $session['owned_paths'][$field];
         }
         if ($row['state'] === 'deleted') {
@@ -918,22 +934,36 @@ final class DemoCommand {
         if (!mkdir($stage, 0700)) {
             throw new \RuntimeException("demo could not create $field path $path");
         }
+        $identity = self::pathIdentity($stage);
         $marker = self::ownerMarker($session, $field, $stage);
         self::writeNew($marker, $session['ownership_token'] . ':' . $field . "\n", 0600);
+        if (self::pathIdentity($stage) !== $identity) {
+            throw new \RuntimeException("demo $field acquisition identity changed before its durable receipt");
+        }
+        $session['owned_paths'][$field] = ['state' => 'acquiring', 'identity' => $identity];
+        self::replaceSession($session);
         if ($phaseHook !== null) {
             $phaseHook($field . '_staged');
         }
+        if (self::pathIdentity($stage) !== $identity) {
+            throw new \RuntimeException("demo $field acquisition stage identity changed and was retained");
+        }
         if (file_exists($path) || is_link($path) || !@rename($stage, $path)) {
             throw new \RuntimeException("demo could not publish the reserved $field path $path");
+        }
+        if (self::pathIdentity($path) !== $identity) {
+            throw new \RuntimeException("demo $field acquisition identity changed during publication");
         }
         $marker = self::ownerMarker($session, $field);
         if ($phaseHook !== null) {
             $phaseHook($field . '_created');
         }
-        $identity = self::pathIdentity($path);
+        if (self::pathIdentity($path) !== $identity) {
+            throw new \RuntimeException("demo $field acquisition identity changed before ownership publication");
+        }
         $session['owned_paths'][$field] = ['state' => 'owned', 'identity' => $identity];
         self::replaceSession($session);
-        if (!unlink($marker)) {
+        if (self::pathIdentity($path) !== $identity || !unlink($marker)) {
             throw new \RuntimeException("could not retire the $field ownership marker");
         }
     }
@@ -950,12 +980,56 @@ final class DemoCommand {
             || file_exists($path) || is_link($path)) {
             throw new \RuntimeException("demo could not exclusively reserve $field path $path");
         }
-        self::writeNew($path, self::composeEnvBytes($session, $sourceRoot), 0600);
+        $identity = self::writeNew($path, self::composeEnvBytes($session, $sourceRoot), 0600);
+        $session['owned_paths'][$field] = ['state' => 'acquiring', 'identity' => $identity];
+        self::replaceSession($session);
         if ($phaseHook !== null) {
             $phaseHook($field . '_created');
         }
-        $session['owned_paths'][$field] = ['state' => 'owned', 'identity' => self::pathIdentity($path)];
+        if (self::pathIdentity($path) !== $identity) {
+            throw new \RuntimeException("demo $field acquisition identity changed before ownership publication");
+        }
+        $session['owned_paths'][$field] = ['state' => 'owned', 'identity' => $identity];
         self::replaceSession($session);
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function adoptAcquiringPath(array &$session, string $field): void {
+        $path = (string) $session[$field];
+        $stage = $field === 'compose_env_file' ? null : self::acquisitionStage($session, $field);
+        $identity = $session['owned_paths'][$field]['identity'] ?? null;
+        if (!is_array($identity)) {
+            throw new \RuntimeException("demo $field acquisition has no identity receipt");
+        }
+        $pathExists = file_exists($path) || is_link($path);
+        $stageExists = $stage !== null && (file_exists($stage) || is_link($stage));
+        if ($pathExists && $stageExists) {
+            throw new \RuntimeException("demo $field acquisition has both canonical and staging paths");
+        }
+        if (!$pathExists && !$stageExists) {
+            $session['owned_paths'][$field] = ['state' => 'deleted', 'identity' => null];
+            self::replaceSession($session);
+            return;
+        }
+        $candidate = $pathExists ? $path : (string) $stage;
+        if (self::pathIdentity($candidate) !== $identity) {
+            throw new \RuntimeException("demo $field acquisition identity changed and was retained: $candidate");
+        }
+        if (!$pathExists) {
+            if ((file_exists($path) || is_link($path)) || !@rename($candidate, $path)
+                || self::pathIdentity($path) !== $identity) {
+                throw new \RuntimeException("could not resume the recorded $field acquisition: $path");
+            }
+        }
+        $session['owned_paths'][$field] = ['state' => 'owned', 'identity' => $identity];
+        self::replaceSession($session);
+        if ($field !== 'compose_env_file') {
+            $marker = self::ownerMarker($session, $field);
+            if (is_file($marker) && !is_link($marker)
+                && (self::pathIdentity($path) !== $identity || !unlink($marker))) {
+                throw new \RuntimeException("could not retire the resumed $field ownership marker");
+            }
+        }
     }
 
     /** @param array<string,mixed> $session */
@@ -1014,6 +1088,10 @@ final class DemoCommand {
                 self::assertPlannedPath($sourceRoot, $session, $field, $pathExists, $claimExists);
                 continue;
             }
+            if ($row['state'] === 'acquiring') {
+                self::assertAcquiringPath($session, $field, $pathExists, $claimExists);
+                continue;
+            }
             if ($field !== 'compose_env_file') {
                 $acquisition = self::acquisitionStage($session, $field);
                 if (file_exists($acquisition) || is_link($acquisition)) {
@@ -1039,6 +1117,30 @@ final class DemoCommand {
                     throw new \RuntimeException("demo $field cleanup identity changed and was retained: $candidate");
                 }
             }
+        }
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function assertAcquiringPath(
+        array $session,
+        string $field,
+        bool $pathExists,
+        bool $claimExists
+    ): void {
+        if ($claimExists) {
+            throw new \RuntimeException("acquiring demo $field has an unexpected cleanup claim");
+        }
+        $stage = $field === 'compose_env_file' ? null : self::acquisitionStage($session, $field);
+        $stageExists = $stage !== null && (file_exists($stage) || is_link($stage));
+        if ($pathExists && $stageExists) {
+            throw new \RuntimeException("acquiring demo $field has both canonical and staging paths");
+        }
+        if (!$pathExists && !$stageExists) {
+            return;
+        }
+        $candidate = $pathExists ? (string) $session[$field] : (string) $stage;
+        if (self::pathIdentity($candidate) !== $session['owned_paths'][$field]['identity']) {
+            throw new \RuntimeException("acquiring demo $field identity changed and was retained: $candidate");
         }
     }
 
@@ -1126,13 +1228,24 @@ final class DemoCommand {
         ];
     }
 
+    /** @param array<int|string,mixed> $stat @return array{dev:string,ino:string,type:string} */
+    private static function identityFromStat(array $stat, string $type): array {
+        if (!isset($stat['dev'], $stat['ino'])
+            || !is_int($stat['dev']) || $stat['dev'] < 0
+            || !is_int($stat['ino']) || $stat['ino'] < 0
+            || !in_array($type, ['file', 'directory'], true)) {
+            throw new \RuntimeException('demo path identity receipt is malformed');
+        }
+        return ['dev' => (string) $stat['dev'], 'ino' => (string) $stat['ino'], 'type' => $type];
+    }
+
     private static function validOwnedPaths(mixed $owned): bool {
         if (!is_array($owned) || array_keys($owned) !== ['source_repo', 'target_repo', 'origin', 'compose_env_file']) {
             return false;
         }
         foreach ($owned as $field => $row) {
             if (!is_array($row) || array_keys($row) !== ['state', 'identity']
-                || !in_array($row['state'] ?? null, ['planned', 'owned', 'deleting', 'deleted'], true)) {
+                || !in_array($row['state'] ?? null, ['planned', 'acquiring', 'owned', 'deleting', 'deleted'], true)) {
                 return false;
             }
             $identity = $row['identity'] ?? null;

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/EnvironmentDriver.php';
+require_once __DIR__ . '/ProcessGroup.php';
 
 /**
  * Exact command surface required by the adoption transaction.
@@ -47,12 +48,15 @@ interface AdoptionTransport {
  * which parse output and must not have it corrupted by e.g. `docker compose
  * run`'s own container-lifecycle chatter, which lands on stderr).
  */
-abstract class Transport implements EnvironmentDriver {
+abstract class Transport implements BoundedControlDriver {
     private const NANOS_PER_SECOND = 1000000000;
     private const TERMINATION_GRACE_NS = 250000000;
     private const DRAIN_DEADLINE_NS = 2000000000;
     private const PIPE_POLL_MICROSECONDS = 200000;
-    private const MAX_CAPTURE_TIMEOUT_NS = 900000000000;
+    private const MAX_CAPTURE_TIMEOUT_NS = 600000000000;
+    // Onboard's initial Git publication has an explicit fifteen-minute bound;
+    // Refresh's spool contract above remains capped at its reviewed ten minutes.
+    private const MAX_BOUNDED_CONTROL_TIMEOUT_NS = 900000000000;
     // Refresh's 1.5 GiB envelope and 8 MiB diagnostic frontiers are process
     // boundaries, not caller tuning knobs; larger positive values are unsafe.
     private const MAX_CAPTURE_STDOUT_BYTES = 1610612736;
@@ -100,6 +104,7 @@ abstract class Transport implements EnvironmentDriver {
             DriverCapability::ATTACH => true,
             DriverCapability::WP_CONTROL => true,
             DriverCapability::RAW_CONTROL => true,
+            DriverCapability::BOUNDED_CONTROL => true,
             DriverCapability::CODE_MATERIALIZE => true,
             DriverCapability::DB_SNAPSHOT_CREATE => true,
             DriverCapability::DB_SNAPSHOT_READ => true,
@@ -301,23 +306,28 @@ abstract class Transport implements EnvironmentDriver {
     }
 
     /** @return array{exit:int, stdout:string, stderr:string} */
-    private static function runCapturingBounded(
+    protected static function runCapturingBounded(
         string $fullCommand,
         int $timeoutMilliseconds,
         int $maxStdoutBytes,
         int $maxStderrBytes
     ): array {
         if ($timeoutMilliseconds < 1
-            || $timeoutMilliseconds * 1000000 > self::MAX_CAPTURE_TIMEOUT_NS
+            || $timeoutMilliseconds * 1000000 > self::MAX_BOUNDED_CONTROL_TIMEOUT_NS
             || $maxStdoutBytes < 1 || $maxStdoutBytes > self::MAX_CAPTURE_STDOUT_BYTES
             || $maxStderrBytes < 1 || $maxStderrBytes > self::MAX_CAPTURE_STDERR_BYTES) {
             throw new \InvalidArgumentException('bounded transport capture limits are outside the reviewed envelope');
         }
-        $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $proc = @proc_open($fullCommand, $descriptors, $pipes);
-        if (!is_resource($proc)) {
+        $opened = ProcessGroup::open(
+            $fullCommand,
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']]
+        );
+        if ($opened === null) {
             return ['exit' => 255, 'stdout' => '', 'stderr' => 'failed to start process'];
         }
+        $proc = $opened['process'];
+        $pipes = $opened['pipes'];
+        $leader = $opened['leader'];
         fclose($pipes[0]);
         stream_set_blocking($pipes[1], false);
         stream_set_blocking($pipes[2], false);
@@ -328,9 +338,10 @@ abstract class Transport implements EnvironmentDriver {
         while ($open !== [] || $exitCode === null) {
             $remaining = $deadline - hrtime(true);
             if ($remaining <= 0) {
-                @proc_terminate($proc);
-                self::drainTerminatedPipes($proc, $open);
-                proc_close($proc);
+                $owned = $open;
+                if (!ProcessGroup::terminateAndReap($proc, $owned, $leader)) {
+                    return ['exit' => 125, 'stdout' => '', 'stderr' => 'transport command process group could not be reaped'];
+                }
                 return ['exit' => 124, 'stdout' => '', 'stderr' => 'transport command timed out'];
             }
             if ($open === []) {
@@ -353,9 +364,10 @@ abstract class Transport implements EnvironmentDriver {
                 intdiv($remaining % self::NANOS_PER_SECOND, 1000)
             );
             if ($selected === false) {
-                @proc_terminate($proc, 9);
-                self::drainTerminatedPipes($proc, $open);
-                proc_close($proc);
+                $owned = $open;
+                if (!ProcessGroup::terminateAndReap($proc, $owned, $leader)) {
+                    return ['exit' => 125, 'stdout' => '', 'stderr' => 'transport command process group could not be reaped'];
+                }
                 return ['exit' => 125, 'stdout' => '', 'stderr' => 'could not read transport command output'];
             }
             if ($selected === 0) {
@@ -374,9 +386,10 @@ abstract class Transport implements EnvironmentDriver {
                 }
                 $limit = $fd === 1 ? $maxStdoutBytes : $maxStderrBytes;
                 if (strlen($buffers[$fd]) + strlen($chunk) > $limit) {
-                    @proc_terminate($proc);
-                    self::drainTerminatedPipes($proc, $open);
-                    proc_close($proc);
+                    $owned = $open;
+                    if (!ProcessGroup::terminateAndReap($proc, $owned, $leader)) {
+                        return ['exit' => 125, 'stdout' => '', 'stderr' => 'transport command process group could not be reaped'];
+                    }
                     return ['exit' => 125, 'stdout' => '', 'stderr' => 'transport command output exceeded capture limit'];
                 }
                 $buffers[$fd] .= $chunk;
@@ -390,6 +403,12 @@ abstract class Transport implements EnvironmentDriver {
             fclose($stream);
         }
         $closed = proc_close($proc);
+        $proc = null;
+        if (ProcessGroup::exists($leader)) {
+            $owned = [];
+            ProcessGroup::terminateAndReap($proc, $owned, $leader);
+            return ['exit' => 125, 'stdout' => '', 'stderr' => 'transport command left descendants running'];
+        }
         $exit = $closed === -1 && is_int($exitCode) && $exitCode >= 0 ? $exitCode : $closed;
         return ['exit' => $exit, 'stdout' => $buffers[1], 'stderr' => $buffers[2]];
     }

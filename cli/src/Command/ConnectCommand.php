@@ -30,6 +30,9 @@ final class ConnectCommand {
             $factory = $transportFactory ?? static fn(string $name, array $config): EnvironmentDriver =>
                 Transport::make($name, $config);
             $driver = $factory($request['environment'], $request['config']);
+            if (!$driver instanceof BoundedControlDriver) {
+                throw new \RuntimeException('selected driver does not implement bounded target control');
+            }
             if ($driver instanceof Transport && ($hostRepo = $driver->hostRepoBoundaryPath()) !== null) {
                 self::assertDisjointHostBoundaries($request['workspace'], $hostRepo);
             }
@@ -133,10 +136,7 @@ final class ConnectCommand {
         return ['environment' => $environment, 'workspace' => $workspace, 'config' => $config];
     }
 
-    private static function probe(EnvironmentDriver $driver): void {
-        if (!$driver instanceof Transport) {
-            throw new \RuntimeException('connect requires a transport with bounded target control');
-        }
+    private static function probe(BoundedControlDriver $driver): void {
         $reachable = $driver->captureRawBounded(
             'echo duo-connect-ready',
             self::PROBE_TIMEOUT_MILLISECONDS,

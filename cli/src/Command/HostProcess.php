@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/../Transport/ProcessGroup.php';
+
 /** Deadlock-free host subprocess boundary shared by composed CLI commands. */
 final class HostProcess {
     private const DEFAULT_TIMEOUT_MILLISECONDS = 30000;
@@ -25,35 +27,23 @@ final class HostProcess {
             throw new \InvalidArgumentException('host process timeout and output limit must be positive');
         }
         $descriptors = $passthrough
-            ? [0 => STDIN, 1 => STDOUT, 2 => STDERR]
+            ? [0 => STDIN, 1 => ['pipe', 'w'], 2 => ['pipe', 'w']]
             : [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
         $hostEnvironment = getenv();
         $environment = $extraEnv === []
             ? null
             : array_replace(is_array($hostEnvironment) ? $hostEnvironment : [], $extraEnv);
-        $process = @proc_open($argv, $descriptors, $pipes, $cwd, $environment, ['bypass_shell' => true]);
-        if (!is_resource($process)) {
+        $opened = ProcessGroup::open(ProcessGroup::command($argv), $descriptors, $cwd, $environment);
+        if ($opened === null) {
             return ['exit' => 127, 'stdout' => '', 'stderr' => 'could not start process'];
         }
+        $process = $opened['process'];
+        $pipes = $opened['pipes'];
+        $leader = $opened['leader'];
         $deadline = hrtime(true) + ($timeoutMilliseconds * 1000000);
-        if ($passthrough) {
-            while (true) {
-                $status = proc_get_status($process);
-                if (!$status['running']) {
-                    $closed = proc_close($process);
-                    $exit = $closed === -1 && $status['exitcode'] >= 0 ? $status['exitcode'] : $closed;
-                    return ['exit' => $exit, 'stdout' => '', 'stderr' => ''];
-                }
-                $remaining = $deadline - hrtime(true);
-                if ($remaining <= 0) {
-                    self::terminateAndDrain($process, []);
-                    return ['exit' => 124, 'stdout' => '', 'stderr' => 'process timed out'];
-                }
-                usleep((int) min(10000, max(1, intdiv($remaining, 1000))));
-            }
+        if (!$passthrough) {
+            fclose($pipes[0]);
         }
-
-        fclose($pipes[0]);
         // A child can fill stderr while holding stdout open (or the reverse).
         // The 200 KiB adversarial child in regress_ideal_onboarding.php pins
         // the concurrent drain; sequential stream_get_contents() deadlocks.
@@ -65,7 +55,10 @@ final class HostProcess {
         while ($open !== [] || $exitCode === null) {
             $remaining = $deadline - hrtime(true);
             if ($remaining <= 0) {
-                self::terminateAndDrain($process, $open);
+                $owned = $open;
+                if (!ProcessGroup::terminateAndReap($process, $owned, $leader)) {
+                    return ['exit' => 125, 'stdout' => '', 'stderr' => 'process group could not be reaped'];
+                }
                 return ['exit' => 124, 'stdout' => '', 'stderr' => 'process timed out'];
             }
             if ($open === []) {
@@ -84,7 +77,10 @@ final class HostProcess {
             $microseconds = intdiv($remaining % 1000000000, 1000);
             $selected = @stream_select($read, $write, $except, $seconds, $microseconds);
             if ($selected === false) {
-                self::terminateAndDrain($process, $open);
+                $owned = $open;
+                if (!ProcessGroup::terminateAndReap($process, $owned, $leader)) {
+                    return ['exit' => 125, 'stdout' => '', 'stderr' => 'process group could not be reaped'];
+                }
                 return ['exit' => 125, 'stdout' => '', 'stderr' => 'could not read process output'];
             }
             if ($selected === 0) {
@@ -98,9 +94,17 @@ final class HostProcess {
                     unset($open[$fd]);
                     continue;
                 }
+                if ($passthrough) {
+                    @fwrite($fd === 1 ? STDOUT : STDERR, $chunk);
+                    @fflush($fd === 1 ? STDOUT : STDERR);
+                    continue;
+                }
                 $buffers[$fd] .= $chunk;
                 if (strlen($buffers[1]) + strlen($buffers[2]) > $outputLimitBytes) {
-                    self::terminateAndDrain($process, $open);
+                    $owned = $open;
+                    if (!ProcessGroup::terminateAndReap($process, $owned, $leader)) {
+                        return ['exit' => 125, 'stdout' => '', 'stderr' => 'process group could not be reaped'];
+                    }
                     return ['exit' => 125, 'stdout' => '', 'stderr' => 'process output exceeded capture limit'];
                 }
             }
@@ -113,35 +117,17 @@ final class HostProcess {
             fclose($stream);
         }
         $closed = proc_close($process);
+        $process = null;
+        if (ProcessGroup::exists($leader)) {
+            $owned = [];
+            ProcessGroup::terminateAndReap($process, $owned, $leader);
+            return ['exit' => 125, 'stdout' => '', 'stderr' => 'process left descendants running'];
+        }
         $exit = $closed === -1 && is_int($exitCode) && $exitCode >= 0 ? $exitCode : $closed;
-        return ['exit' => $exit, 'stdout' => $buffers[1], 'stderr' => $buffers[2]];
-    }
-
-    /** @param resource $process @param array<int,resource> $pipes */
-    private static function terminateAndDrain($process, array $pipes): void {
-        proc_terminate($process);
-        $deadline = hrtime(true) + 1000000000;
-        while ($pipes !== [] && hrtime(true) < $deadline) {
-            foreach ($pipes as $fd => $pipe) {
-                fread($pipe, 65536);
-                if (feof($pipe)) {
-                    fclose($pipe);
-                    unset($pipes[$fd]);
-                }
-            }
-            $status = proc_get_status($process);
-            if (!$status['running']) {
-                break;
-            }
-            usleep(10000);
-        }
-        $status = proc_get_status($process);
-        if ($status['running']) {
-            proc_terminate($process, 9);
-        }
-        foreach ($pipes as $pipe) {
-            fclose($pipe);
-        }
-        proc_close($process);
+        return [
+            'exit' => $exit,
+            'stdout' => $passthrough ? '' : $buffers[1],
+            'stderr' => $passthrough ? '' : $buffers[2],
+        ];
     }
 }

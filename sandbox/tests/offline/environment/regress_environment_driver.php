@@ -110,7 +110,7 @@ assert_true(
 
 $expectedVocabulary = [
     'environment.attach', 'environment.bootstrap', 'environment.create', 'environment.destroy',
-    'environment.ttl', 'control.wp_cli', 'control.raw', 'code.transfer', 'code.materialize',
+    'environment.ttl', 'control.wp_cli', 'control.raw', 'control.bounded', 'code.transfer', 'code.materialize',
     'snapshot.database.create', 'snapshot.database.read', 'snapshot.database.restore',
     'snapshot.media.create', 'snapshot.media.read', 'snapshot.media.restore',
     'maintenance.enter', 'maintenance.exit', 'environment.url.discover', 'environment.url.set',
