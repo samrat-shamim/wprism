@@ -80,7 +80,7 @@ $manifest = [
     ],
 ];
 
-$policy = \Duo\Policy::from_snapshot(\DuoTest\FrozenPolicy::envelope([$manifest], [
+$policy = \DuoTest\FrozenPolicy::policy([$manifest], [
     'manifests' => ['trigger-probe'],
     'spec_version' => DUO_SPEC_VERSION,
     'policy' => [
@@ -89,7 +89,7 @@ $policy = \Duo\Policy::from_snapshot(\DuoTest\FrozenPolicy::envelope([$manifest]
         'term_meta' => [],
         'user_meta' => [],
     ],
-]));
+]);
 
 // Identify a selected row by the one field that distinguishes these four
 // declarations from each other: the transient each names.
@@ -125,10 +125,10 @@ $check(
 
 $expectThrow = static function (array $badManifest, string $needle, string $label) use ($check): void {
     try {
-        \Duo\Policy::from_snapshot(\DuoTest\FrozenPolicy::envelope(
+        \DuoTest\FrozenPolicy::policy(
             [$badManifest],
             \DuoTest\FrozenPolicy::site([$badManifest], DUO_SPEC_VERSION)
-        ));
+        );
         $check(false, "$label is rejected before selection");
     } catch (Throwable $failure) {
         $check(str_contains($failure->getMessage(), $needle), "$label is rejected before selection");

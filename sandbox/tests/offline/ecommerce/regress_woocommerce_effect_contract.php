@@ -594,10 +594,10 @@ function woo_effect_retention_scheduler_action(): array {
 /** @return list<array<string,mixed>> */
 /** @return array<string,mixed> */
 function woo_effect_policy_for_manifest(array $manifest): Policy {
-    return Policy::from_snapshot(FrozenPolicy::envelope(
+    return FrozenPolicy::policy(
         [$manifest],
         FrozenPolicy::site([$manifest], DUO_SPEC_VERSION)
-    ));
+    );
 }
 
 /** @return array<string,mixed> */

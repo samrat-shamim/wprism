@@ -1443,9 +1443,11 @@ mkdir($lintState . '/options', 0777, true);
 mkdir($lintState . '/terms/pa_conf-color', 0777, true);
 $lintLibrary = $lintState . '/manifest-library';
 mkdir($lintLibrary . '/interpreters', 0777, true);
-symlink($root . '/adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php', $lintLibrary . '/interpreters/woocommerce.php');
-$previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
-putenv('DUO_MANIFESTS_DIR=' . $lintLibrary);
+// The real package interpreter was loaded above. This fixture needs a regular
+// inventory member at the explicit archive path, not a second copy that would
+// redeclare the already-loaded class (the retired symlink happened to collapse
+// to the original require_once path, but strict AdapterLibrary rejects links).
+file_put_contents($lintLibrary . '/interpreters/woocommerce.php', "<?php\n");
 $lintFiles = [
     $lintState . '/options/core.json',
     $lintState . '/terms/pa_conf-color/11111111-1111-5111-8111-111111111111--red.json',
@@ -1453,28 +1455,20 @@ $lintFiles = [
     $lintLibrary . '/woocommerce.json',
     $lintLibrary . '/interpreters/woocommerce.php',
 ];
-$lintDirs = [
-    $lintState . '/terms/pa_conf-color',
-    $lintState . '/terms',
-    $lintState . '/options',
-    $lintLibrary . '/interpreters',
-    $lintLibrary,
-    $lintState,
-];
-register_shutdown_function(static function () use ($lintFiles, $lintDirs, $previousManifestsDir): void {
-    putenv($previousManifestsDir === false
-        ? 'DUO_MANIFESTS_DIR'
-        : 'DUO_MANIFESTS_DIR=' . $previousManifestsDir);
-    foreach ($lintFiles as $file) {
-        if (is_file($file)) {
-            unlink($file);
+$removeLintTree = static function (string $path) use (&$removeLintTree): void {
+    if (is_dir($path) && !is_link($path)) {
+        foreach (scandir($path) ?: [] as $entry) {
+            if ($entry !== '.' && $entry !== '..') {
+                $removeLintTree("$path/$entry");
+            }
         }
+        @rmdir($path);
+        return;
     }
-    foreach ($lintDirs as $dir) {
-        if (is_dir($dir)) {
-            rmdir($dir);
-        }
-    }
+    @unlink($path);
+};
+register_shutdown_function(static function () use ($lintState, $removeLintTree): void {
+    $removeLintTree($lintState);
 });
 file_put_contents($lintFiles[0], \Duo\Canon::encode([
     'format' => 'duo-options/v1',
@@ -1515,11 +1509,11 @@ foreach ([
     ['ID' => 7, 'post_type' => 'page', 'post_title' => 'Catalog', 'post_status' => 'publish'],
 ]);
 $lintPolicy = static function (array $wooManifest) use ($lintLibrary): Policy {
-    return Policy::from_snapshot(\DuoTest\FrozenPolicy::envelope(
+    return \DuoTest\FrozenPolicy::policy(
         [$wooManifest],
         \DuoTest\FrozenPolicy::site([$wooManifest], DUO_SPEC_VERSION),
         $lintLibrary
-    ));
+    );
 };
 $preReviewManifest = $manifest;
 unset(
