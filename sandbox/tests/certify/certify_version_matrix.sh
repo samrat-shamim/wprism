@@ -67,7 +67,7 @@ VMATRIX_MANIFEST="${VMATRIX_MANIFEST:-}"
 [[ "$VMATRIX_MANIFEST" =~ ^[a-z][a-z0-9-]*$ ]] \
   || fail "VMATRIX_MANIFEST must name one canonical manifest"
 jq -e '.evidence.tests | index("exact-artifact-version-matrix") != null' \
-  "../manifests/dispositions/$VMATRIX_MANIFEST.json" >/dev/null \
+  "../adapter-packages/$VMATRIX_MANIFEST/package/disposition.json" >/dev/null \
   || fail "manifest '$VMATRIX_MANIFEST' does not declare exact-artifact-version-matrix evidence"
 # The WooCommerce and Redirection legs are production-readiness evidence over
 # shipped manifest/provider bytes. pair.sh otherwise resolves a linked worktree to
@@ -86,7 +86,7 @@ case "$WORDPRESS_OFFLINE" in
   *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
 esac
 export DUO_PAIR="$PAIR"
-# A boundary result is evidence only for the agent/manifests bytes that the
+# A boundary result is evidence only for the agent and adapter-library source bytes that the
 # pair mounts. Export before the first pair.sh call: `up` can allocate the
 # databases and start containers, so setting it later would certify a stale
 # canonical checkout rather than this candidate.
@@ -412,7 +412,7 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   ' >/dev/null
   # The Events Calendar's Custom Tables v1 schema, its schema-version and
   # one-time-migration bookkeeping, and its kv cache all survive ordinary
-  # plugin deletion (manifests/the-events-calendar.json classifies exactly
+  # plugin deletion (adapter-packages/the-events-calendar/package/manifest.json classifies exactly
   # these as env/runtime/derived). `site empty` deletes the tribe_events
   # posts but not their tec_occurrences rows, and the target-only cache row
   # conformance/postdeploy/the-events-calendar.sh plants
@@ -2537,7 +2537,7 @@ pass "official duplicate-post 4.6 is loudly refused, remains inactive, and canno
 fi
 
 if [ "$VMATRIX_MANIFEST" = acf ]; then
-say "negative control: acf 5.12.6 (real wp.org release, genuinely below manifests/acf.json's own declared min 6.0.0) must be REFUSED, not silently accepted"
+say "negative control: acf 5.12.6 (real wp.org release, genuinely below adapter-packages/acf/package/manifest.json's own declared min 6.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
 
@@ -2591,7 +2591,7 @@ pass "confirmed: acf 5.12.6 (real, installed, genuinely below the declared min) 
 fi
 
 if [ "$VMATRIX_MANIFEST" = contact-form-7 ]; then
-say "negative control: contact-form-7 5.9.8 (real wp.org release, genuinely below manifests/contact-form-7.json's own declared min 6.0) must be REFUSED, not silently accepted"
+say "negative control: contact-form-7 5.9.8 (real wp.org release, genuinely below adapter-packages/contact-form-7/package/manifest.json's own declared min 6.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
 
@@ -2638,7 +2638,7 @@ pass "confirmed: contact-form-7 5.9.8 (real, installed, genuinely below the decl
 fi
 
 if [ "$VMATRIX_MANIFEST" = elementor ]; then
-say "negative control: elementor 3.35.9 (real wp.org release, genuinely below manifests/elementor.json's own declared min 4.0.0) must be REFUSED, not silently accepted"
+say "negative control: elementor 3.35.9 (real wp.org release, genuinely below adapter-packages/elementor/package/manifest.json's own declared min 4.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
 
@@ -2685,7 +2685,7 @@ pass "confirmed: elementor 3.35.9 (real, installed, genuinely below the declared
 fi
 
 if [ "$VMATRIX_MANIFEST" = ninja-forms ]; then
-say "negative control: ninja-forms 3.3.21.4 (real wp.org release, genuinely below manifests/ninja-forms.json's corrected min 3.4.34.2) must be REFUSED, not silently accepted"
+say "negative control: ninja-forms 3.3.21.4 (real wp.org release, genuinely below adapter-packages/ninja-forms/package/manifest.json's corrected min 3.4.34.2) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
 
@@ -2874,7 +2874,7 @@ done
 fi
 
 if [ "$VMATRIX_MANIFEST" = polylang ]; then
-say "negative control: polylang 3.7 (real wp.org release, immediately below manifests/polylang.json's corrected min 3.8) must be REFUSED, not silently accepted"
+say "negative control: polylang 3.7 (real wp.org release, immediately below adapter-packages/polylang/package/manifest.json's corrected min 3.8) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
 
@@ -2974,7 +2974,7 @@ pass 'synthetic Polylang 3.8.8 header is loudly refused at the exclusive upper b
 fi
 
 if [ "$VMATRIX_MANIFEST" = woocommerce ]; then
-say "negative control: woocommerce 10.9.4 (real wp.org release, closest stable below manifests/woocommerce.json's min 11.0.0) must be REFUSED, not silently accepted"
+say "negative control: woocommerce 10.9.4 (real wp.org release, closest stable below adapter-packages/woocommerce/package/manifest.json's min 11.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
 
@@ -3113,7 +3113,7 @@ pass "confirmed: synthetic WooCommerce 11.0.2 is rejected at the exclusive upper
 fi
 
 if [ "$VMATRIX_MANIFEST" = yoast ]; then
-say "negative control: wordpress-seo 27.9 (real wp.org release, closest stable below manifests/yoast.json's min 28.0) must be REFUSED, not silently accepted"
+say "negative control: wordpress-seo 27.9 (real wp.org release, closest stable below adapter-packages/yoast/package/manifest.json's min 28.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
 

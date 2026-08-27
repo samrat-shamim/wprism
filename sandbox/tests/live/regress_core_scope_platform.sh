@@ -9,7 +9,7 @@
 # regress_multisite_refusal.sh owns the fourth live axis; the readiness ledger
 # cites both suites explicitly.
 #
-# Both claimed sets are read out of manifests/capabilities/platform.json rather
+# Both claimed sets are read out of platform/adapter-library/capabilities/platform.json rather
 # than restated here, so the proof cannot drift from the claim it backs. The
 # image digest per cell is the one thing that must be hard-coded: registry
 # digests do not belong in a shipped manifest.
@@ -31,7 +31,7 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 PAIR="${CORE_SCOPE_PLATFORM_PAIR:-corescope}"
 PORT1="${CORE_SCOPE_PLATFORM_PORT1:-8996}"
 PORT2="${CORE_SCOPE_PLATFORM_PORT2:-8997}"
-PLATFORM_FILE='../manifests/capabilities/platform.json'
+PLATFORM_FILE='../platform/adapter-library/capabilities/platform.json'
 WP692_IMAGE='wordpress@sha256:ba1996f128e96e06613cffd9efa17e619d077a427c2d135204b1bc3bc9fa0510'
 WP702_IMAGE='wordpress@sha256:3dcb744b16cb673639d98cf1aa5ea1de46732850629830bf101f44165b9040a1'
 WP703_IMAGE='wordpress@sha256:a09147f15a882b956f67a617e9e1e053adf9322c45c797c2ff7c0e66522bf204'

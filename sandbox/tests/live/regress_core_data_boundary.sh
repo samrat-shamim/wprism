@@ -156,7 +156,7 @@ docker image inspect "$WORDPRESS_IMAGE" >/dev/null 2>&1 \
 # does not name would prove nothing about the claim.
 jq -e --arg version "$WORDPRESS_VERSION" \
   '[.platform.compatibility.wordpress.verified | to_entries[] | .value] | index($version) != null' \
-  ../manifests/capabilities/platform.json >/dev/null \
+  ../platform/adapter-library/capabilities/platform.json >/dev/null \
   || fail "platform.json names no exercised series whose proof is WordPress $WORDPRESS_VERSION"
 pass 'core data-boundary proof uses the exact reviewed WordPress image and platform declaration'
 
