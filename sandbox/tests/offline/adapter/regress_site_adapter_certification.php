@@ -73,6 +73,7 @@ if (!function_exists('apply_filters')) {
 require_once __DIR__ . '/../../../../agent/src/Command/Cli.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\InitPlanner;
@@ -313,8 +314,8 @@ if (!defined('ABSPATH')) {
 $agent = $root . '/agent-manifests';
 $site = $root . '/site';
 $bundle = $root . '/bundle';
-$policyManifests = $root . '/policy-manifests';
 register_shutdown_function(static fn() => cert_remove_tree($root));
+$sourceAdapterLibrary = AdapterLibrary::fromSourceTree(dirname(__DIR__, 4));
 
 $manifest = [
     'name' => 'site-demo',
@@ -386,15 +387,12 @@ $platform = [
 ];
 
 cert_write_canon($site . '/adapters/site-demo.json', $manifest);
-cert_write_canon($policyManifests . '/site-demo.json', $manifest);
-putenv('DUO_MANIFESTS_DIR=' . $policyManifests);
 try {
-    Policy::load(null, ['site-demo']);
+    Policy::load(null, ['site-demo'], false, $site, $sourceAdapterLibrary);
     cert_check(true, 'the fixture adapter is a valid Policy spec-v2 manifest independent of certification');
 } catch (Throwable $e) {
     cert_check(false, 'the fixture adapter is a valid Policy spec-v2 manifest independent of certification (' . $e->getMessage() . ')');
 }
-putenv('DUO_MANIFESTS_DIR');
 cert_write_canon($agent . '/capabilities/platform.json', [
     'format' => ManifestDispositions::PLATFORM_FORMAT,
     'platform' => $platform,
@@ -618,7 +616,10 @@ echo "\n== plugin-owned provider certification and offline negotiation ==\n";
 $providerSite = $root . '/provider-site';
 $providerBundle = $root . '/provider-bundle';
 $providerAgent = $root . '/provider-agent';
-$providerPolicyManifests = $root . '/provider-policy-manifests';
+$providerPolicyManifests = duo_cert_project_library(
+    $sourceAdapterLibrary,
+    $root . '/provider-policy-library'
+);
 $providerRange = ['min' => '1.0.0', 'max' => '2.0.0'];
 $providerManifest = [
     'actions' => [[
@@ -664,15 +665,12 @@ $providerRatification['manifests']['site-plugin']['supported_versions'] = [
     'range' => $providerRange,
 ];
 cert_write_canon($providerSite . '/adapters/site-plugin.json', $providerManifest);
-cert_write_canon($providerPolicyManifests . '/site-plugin.json', $providerManifest);
-putenv('DUO_MANIFESTS_DIR=' . $providerPolicyManifests);
 try {
-    Policy::load(null, ['site-plugin']);
+    Policy::load(null, ['site-plugin'], false, $providerSite, $sourceAdapterLibrary);
     cert_check(true, 'the plugin-provider fixture is a valid structured spec-v2 manifest without loading provider code');
 } catch (Throwable $e) {
     cert_check(false, 'the plugin-provider fixture is a valid structured spec-v2 manifest without loading provider code (' . $e->getMessage() . ')');
 }
-putenv('DUO_MANIFESTS_DIR');
 
 $providerKeys = new stdClass();
 $providerKeys->{'provider-key'} = [
@@ -986,18 +984,33 @@ $lazyManifest = [
         ]],
     ]],
 ];
-// The v6 wire proves shipped membership against the trusted library instead of
-// trusting the snapshot, so this synthetic adapter needs a library that really
-// holds its bytes — otherwise from_snapshot() refuses before the lazy-loading
-// question this child process exists to answer is ever reached.
-$lazyLibrary = sys_get_temp_dir() . '/duo-lazy-manifests-' . getmypid();
-@mkdir($lazyLibrary, 0700, true);
-file_put_contents($lazyLibrary . '/lazy-provider.json', \Duo\Canon::encode($lazyManifest));
-putenv('DUO_MANIFESTS_DIR=' . $lazyLibrary);
+// The synthetic adapter is plugin-bundled, so the v6 source record carries
+// that provenance explicitly. It never impersonates a shipped package merely
+// because a process-global path points at matching bytes.
+$lazyPath = 'plugins/lazy/duo-adapter.json';
+$lazyReason = "adapter 'lazy-provider' is bundled by the active plugin 'lazy/lazy.php' ($lazyPath) and carries "
+    . 'no reviewed certification evidence; a bundled adapter cannot be certified in place — certification is '
+    . 'a repository-scoped signed companion at adapters/certifications/lazy-provider.json.';
+$lazyAdapterLibrary = \Duo\AdapterLibrary::fromSourceTree(__ENGINE_ROOT__);
 try {
     $policy = \Duo\Policy::from_snapshot([
         'format' => 'duo-policy-snapshot/v6',
-        'adapter_sources' => ['certificates' => [], 'format' => 'duo-adapter-sources/v2', 'out_of_tree' => []],
+        'adapter_sources' => [
+            'certificates' => [],
+            'format' => 'duo-adapter-sources/v2',
+            'out_of_tree' => ['lazy-provider' => [
+                'certification' => 'uncertified',
+                'provenance' => [
+                    'format' => 'duo-adapter-sources/v2',
+                    'path' => $lazyPath,
+                    'sha256' => hash('sha256', \Duo\Canon::encode($lazyManifest)),
+                    'source' => 'plugin',
+                ],
+                'reason' => $lazyReason,
+                'status' => 'uncertified',
+                'trust_tier' => 'plugin_provider',
+            ]],
+        ],
         'dispositions' => null,
         'site' => [
             'manifests' => ['lazy-provider'],
@@ -1005,7 +1018,7 @@ try {
             'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
         ],
         'manifests' => [$lazyManifest],
-    ]);
+    ], $lazyAdapterLibrary);
     $negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:page']));
     $payload['problems'] = $negotiation['problems'];
 } catch (\Throwable $failure) {
@@ -1014,8 +1027,6 @@ try {
 $payload['admin_api_loaded_after'] = function_exists('validate_plugin')
     && function_exists('get_plugins') && function_exists('is_wp_error');
 $payload['invocations'] = $GLOBALS['lazy_provider_invocations'];
-@unlink($lazyLibrary . '/lazy-provider.json');
-@rmdir($lazyLibrary);
 echo json_encode($payload, JSON_THROW_ON_ERROR);
 PHP
 );
@@ -1078,20 +1089,19 @@ cert_check(
     'a valid plugin-owned provider without a top-level plugin claim signs and verifies at the derived plugin_provider tier'
 );
 
-$providerPolicyManifests = $root . '/provider-policy-manifests';
 cert_write_canon($providerPolicyManifests . '/capabilities/adapter-authorities.json', $authorities);
 cert_write_canon($providerPolicyManifests . '/capabilities/platform.json', [
     'format' => ManifestDispositions::PLATFORM_FORMAT,
     'platform' => $platform,
 ]);
+$providerPolicyLibrary = AdapterLibrary::fromLegacyFlatDirectory($providerPolicyManifests);
 cert_write_canon($site . '/site.duo.json', [
     'manifests' => [['name' => 'site-demo', 'source' => 'site']],
     'policy' => new stdClass(),
     'spec_version' => DUO_SPEC_VERSION,
 ]);
-putenv('DUO_MANIFESTS_DIR=' . $providerPolicyManifests);
 try {
-    $providerPolicy = Policy::load($site);
+    $providerPolicy = Policy::load($site, adapterLibrary: $providerPolicyLibrary);
     cert_check(
         $providerPolicy->adapter_sources()->source('site-demo') === 'site'
         && $providerPolicy->adapter_sources()->provenance('site-demo')['trust_tier'] === 'plugin_provider',
@@ -1100,7 +1110,6 @@ try {
 } catch (Throwable $e) {
     cert_check(false, 'a site pin validates the same safe provider plugin basename before runtime provider negotiation (' . $e->getMessage() . ')');
 } finally {
-    putenv('DUO_MANIFESTS_DIR');
     unlink($site . '/site.duo.json');
 }
 cert_write($certPath, $declarativeCertificateRaw);
@@ -1131,16 +1140,16 @@ cert_write_canon($integrationManifests . '/capabilities/adapter-authorities.json
     'format' => 'duo-adapter-authorities/v1',
     'keys' => $integrationKeys,
 ]);
+$integrationLibrary = AdapterLibrary::fromLegacyFlatDirectory($integrationManifests);
 $originalCertificateRaw = (string) file_get_contents($certPath);
 
-putenv('DUO_MANIFESTS_DIR=' . $integrationManifests);
 try {
     cert_write_canon($providerSite . '/site.duo.json', [
         'manifests' => [['name' => 'site-plugin', 'source' => 'site']],
         'policy' => new stdClass(),
         'spec_version' => DUO_SPEC_VERSION,
     ]);
-    $providerUnpinnedPolicy = Policy::load($providerSite);
+    $providerUnpinnedPolicy = Policy::load($providerSite, adapterLibrary: $integrationLibrary);
     $providerUnpinnedResolved = RepositoryCompiler::resolved_adapters($providerUnpinnedPolicy);
     $providerDigest = (string) ($providerUnpinnedResolved[0]['digest'] ?? '');
     $providerUnpinnedReport = $providerUnpinnedPolicy->capability_report(['operation' => 'promote']);
@@ -1197,7 +1206,7 @@ try {
         'human status/plan rendering identifies the signed-unpinned provider row, tier, blocker, and remediation'
     );
     WP_CLI::$lines = [];
-    (new \Duo\Cli())->capabilities([], ['repo' => $providerSite]);
+    (new \Duo\Cli())->capabilities([], ['repo' => $providerSite, 'adapter_library' => $integrationLibrary]);
     $providerHuman = implode("\n", WP_CLI::$lines);
     cert_check(
         str_contains($providerHuman, 'CAPABILITY site-plugin BLOCKED')
@@ -1208,7 +1217,11 @@ try {
         'the product human capability renderer exposes signed-unpinned provider readiness and its remediation'
     );
     WP_CLI::$lines = [];
-    (new \Duo\Cli())->capabilities([], ['repo' => $providerSite, 'format' => 'json']);
+    (new \Duo\Cli())->capabilities([], [
+        'repo' => $providerSite,
+        'format' => 'json',
+        'adapter_library' => $integrationLibrary,
+    ]);
     $providerMachine = json_decode(WP_CLI::$lines[0] ?? '', true);
     cert_check(
         is_array($providerMachine)
@@ -1229,7 +1242,7 @@ try {
         'policy' => new stdClass(),
         'spec_version' => DUO_SPEC_VERSION,
     ]);
-    $providerPinnedPolicy = Policy::load($providerSite);
+    $providerPinnedPolicy = Policy::load($providerSite, adapterLibrary: $integrationLibrary);
     $providerPinnedResolved = RepositoryCompiler::resolved_adapters($providerPinnedPolicy);
     $providerPinnedReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
     $providerPinnedRow = $providerPinnedReport['manifests'][0] ?? [];
@@ -1251,7 +1264,7 @@ try {
         'human status/plan rendering is clean after the exact provider pin'
     );
     WP_CLI::$lines = [];
-    (new \Duo\Cli())->capabilities([], ['repo' => $providerSite]);
+    (new \Duo\Cli())->capabilities([], ['repo' => $providerSite, 'adapter_library' => $integrationLibrary]);
     $providerPinnedHuman = implode("\n", WP_CLI::$lines);
     cert_check(
         str_contains($providerPinnedHuman, 'CAPABILITY site-plugin CERTIFIED')
@@ -1261,7 +1274,11 @@ try {
         'the product human capability renderer reports the exact plugin-provider pin as certified'
     );
     WP_CLI::$lines = [];
-    (new \Duo\Cli())->capabilities([], ['repo' => $providerSite, 'format' => 'json']);
+    (new \Duo\Cli())->capabilities([], [
+        'repo' => $providerSite,
+        'format' => 'json',
+        'adapter_library' => $integrationLibrary,
+    ]);
     $providerPinnedMachine = json_decode(WP_CLI::$lines[0] ?? '', true);
     cert_check(
         is_array($providerPinnedMachine)
@@ -1301,13 +1318,16 @@ try {
         array $report,
         array $planRows,
         string $requiredCode
-    ) use ($providerSite): bool {
+    ) use ($providerSite, $integrationLibrary): bool {
         $reportJson = json_encode($report, JSON_THROW_ON_ERROR);
         $planJson = json_encode($planRows, JSON_THROW_ON_ERROR);
         $status = PlanSummary::render(['adapter_dispositions' => $planRows]);
         $statusText = implode("\n", $status['lines']);
         WP_CLI::$lines = [];
-        (new \Duo\Cli())->capabilities([], ['repo' => $providerSite]);
+        (new \Duo\Cli())->capabilities([], [
+            'repo' => $providerSite,
+            'adapter_library' => $integrationLibrary,
+        ]);
         $cliText = implode("\n", WP_CLI::$lines);
         foreach ([$reportJson, $planJson, $statusText, $cliText] as $public) {
             if (str_contains($public, 'DUO_PROVIDER_SECRET_TOKEN')
@@ -1528,7 +1548,7 @@ try {
         'policy' => new stdClass(),
         'spec_version' => DUO_SPEC_VERSION,
     ]);
-    $unpinnedPolicy = Policy::load($site);
+    $unpinnedPolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
     $unpinnedResolved = RepositoryCompiler::resolved_adapters($unpinnedPolicy);
     $certifiedDigest = (string) ($unpinnedResolved[0]['digest'] ?? '');
     $unpinnedReport = $unpinnedPolicy->capability_report(['operation' => 'promote']);
@@ -1555,7 +1575,7 @@ try {
         'spec_version' => DUO_SPEC_VERSION,
     ]);
     cert_expect_throw(
-        static fn() => Policy::load($site),
+        static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         'pinned to the shipped adapter source but resolves from the site source',
         'a signed adapter pin cannot lie about its source'
     );
@@ -1569,7 +1589,7 @@ try {
         'spec_version' => DUO_SPEC_VERSION,
     ]);
     cert_expect_throw(
-        static fn() => Policy::load($site),
+        static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         'digest mismatch',
         'a signed adapter pin cannot elevate a different final digest'
     );
@@ -1580,7 +1600,7 @@ try {
         'policy' => new stdClass(),
         'spec_version' => DUO_SPEC_VERSION,
     ]);
-    $pinnedPolicy = Policy::load($site);
+    $pinnedPolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
     $pinnedResolved = RepositoryCompiler::resolved_adapters($pinnedPolicy);
     $pinnedReport = $pinnedPolicy->capability_report(['operation' => 'promote']);
     cert_check(
@@ -1591,7 +1611,7 @@ try {
         'the exact {name,source:site,digest} pin elevates only that signed adapter to certified readiness'
     );
     $loadInitSelection = new ReflectionMethod(InitPlanner::class, 'load_selected_policy');
-    [$initPolicy, $initPins] = $loadInitSelection->invoke(null, ['site-demo'], $site);
+    [$initPolicy, $initPins] = $loadInitSelection->invoke(null, ['site-demo'], $site, $integrationLibrary);
     $initReport = $initPolicy->capability_report(['operation' => 'capture']);
     cert_check(
         $initPins === [$exactPin]
@@ -1616,7 +1636,7 @@ try {
     // envelope's own facts on the row instead. Everything asserted here is
     // PROJECTED, never recomputed: if any of it could drift from the signed
     // statement it would be a second, unsigned copy of the same claim.
-    $signedSurvey = AdapterSources::survey($site);
+    $signedSurvey = AdapterSources::survey_library($integrationLibrary, $site);
     $signedRow = null;
     foreach ($signedSurvey['adapters'] as $surveyRow) {
         if (($surveyRow['name'] ?? null) === 'site-demo') {
@@ -1658,7 +1678,7 @@ try {
         . 'from the verified claim'
     );
     $unsignedRow = null;
-    foreach (AdapterSources::survey(null)['adapters'] as $shippedRow) {
+    foreach (AdapterSources::survey_library($integrationLibrary, null)['adapters'] as $shippedRow) {
         if (($shippedRow['source'] ?? null) === 'shipped') {
             $unsignedRow = $shippedRow;
             break;
@@ -1693,6 +1713,7 @@ try {
         'inspect',
         'site-demo',
         '--repo=' . $site,
+        '--adapter-library=' . $integrationManifests,
     ]);
     cert_check(
         str_contains($inspectRun['stdout'], 'signed certification evidence')
@@ -1710,7 +1731,7 @@ try {
     );
 
     $policySnapshot = $pinnedPolicy->export_snapshot();
-    $frozenPolicy = Policy::from_snapshot($policySnapshot);
+    $frozenPolicy = Policy::from_snapshot($policySnapshot, $integrationLibrary);
     cert_check(
         RepositoryCompiler::resolved_adapters($frozenPolicy) === $pinnedResolved,
         'a frozen policy snapshot re-verifies the certificate and reconstructs the exact source/digest/capability row'
@@ -1718,7 +1739,7 @@ try {
     $missingFrozenCertificate = $policySnapshot;
     unset($missingFrozenCertificate['adapter_sources']['certificates']['site-demo']);
     cert_expect_throw(
-        static fn() => Policy::from_snapshot($missingFrozenCertificate),
+        static fn() => Policy::from_snapshot($missingFrozenCertificate, $integrationLibrary),
         'malformed',
         'a frozen certified disposition cannot survive deletion of its certificate envelope'
     );
@@ -1738,7 +1759,7 @@ try {
     $pluginFrozen['adapter_sources']['out_of_tree']['site-demo']['provenance']['path']
         = 'plugins/site-demo/duo-adapter.json';
     cert_expect_throw(
-        static fn() => Policy::from_snapshot($pluginFrozen),
+        static fn() => Policy::from_snapshot($pluginFrozen, $integrationLibrary),
         'bundled by a plugin and cannot carry a certificate',
         'a frozen plugin-sourced record paired with a certificate is refused, naming the impossibility'
     );
@@ -1761,7 +1782,7 @@ try {
         'trust_tier' => 'declarative_manifest',
     ];
     cert_expect_throw(
-        static fn() => Policy::from_snapshot($pluginFrozenUnsigned),
+        static fn() => Policy::from_snapshot($pluginFrozenUnsigned, $integrationLibrary),
         'plugin basename',
         'and a frozen bundled record whose manifest declares no owning plugin has no derivable path at all'
     );
@@ -1814,7 +1835,6 @@ function is_multisite(): bool { return false; }
 function get_option(string $name, mixed $default = false): mixed {
     return $name === 'active_plugins' ? ['acme/acme.php'] : $default;
 }
-putenv('DUO_MANIFESTS_DIR=' . __MANIFESTS__);
 require __ENGINE_ROOT__ . '/agent/src/Kernel/Canon.php';
 require __ENGINE_ROOT__ . '/agent/src/Kernel/OptionState.php';
 require __ENGINE_ROOT__ . '/agent/src/Policy/ManifestDispositions.php';
@@ -1822,8 +1842,9 @@ require __ENGINE_ROOT__ . '/agent/src/Policy/Policy.php';
 require __ENGINE_ROOT__ . '/agent/src/Repository/Ledger.php';
 require __ENGINE_ROOT__ . '/agent/src/Repository/RepositoryCompiler.php';
 $payload = [];
+$adapterLibrary = \Duo\AdapterLibrary::fromLegacyFlatDirectory(__MANIFESTS__);
 try {
-    $policy = \Duo\Policy::load(__SITE__);
+    $policy = \Duo\Policy::load(__SITE__, adapterLibrary: $adapterLibrary);
     $sources = $policy->adapter_sources();
     $payload['source'] = $sources->source('site-demo');
     $payload['path'] = $sources->path('site-demo');
@@ -1832,7 +1853,7 @@ try {
     $payload['digest'] = \Duo\RepositoryCompiler::resolved_adapters($policy)[0]['digest'] ?? null;
     $payload['not_installed'] = $sources->not_installed();
     $payload['plugin_refusals'] = $sources->plugin_refusals();
-    $survey = \Duo\AdapterSources::survey(__SITE__);
+    $survey = \Duo\AdapterSources::survey_library($adapterLibrary, __SITE__);
     $payload['survey_not_installed'] = $survey['not_installed'];
     $payload['survey_sources'] = $survey['sources'];
 } catch (\Throwable $failure) {
@@ -1877,7 +1898,7 @@ PHP
         'policy' => new stdClass(),
         'spec_version' => DUO_SPEC_VERSION,
     ]);
-    $mixedPolicy = Policy::load($site);
+    $mixedPolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
     $mixedReport = $mixedPolicy->capability_report(['operation' => 'promote']);
     $mixedRows = [];
     foreach ($mixedReport['manifests'] as $row) {
@@ -1913,7 +1934,7 @@ PHP
         array_key_exists('platform', $mixedReport) && $mixedReport['platform'] === null,
         'and the report publishes no aggregate platform authority once a row answers from a source of its own'
     );
-    $shippedOnly = Policy::load(null, ['core']);
+    $shippedOnly = Policy::load(null, ['core'], adapterLibrary: $integrationLibrary);
     $shippedOnlyResolved = RepositoryCompiler::resolved_adapters($shippedOnly);
     $mixedResolved = RepositoryCompiler::resolved_adapters($mixedPolicy);
     cert_check(
@@ -1940,7 +1961,7 @@ PHP
         'spec_version' => DUO_SPEC_VERSION,
     ]);
     cert_expect_throw(
-        static fn() => Policy::load($site),
+        static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         'digest mismatch',
         'changing and re-signing the evidence bundle invalidates the prior explicit adapter pin'
     );
@@ -1949,7 +1970,9 @@ PHP
         'policy' => new stdClass(),
         'spec_version' => DUO_SPEC_VERSION,
     ]);
-    $updatedDigest = RepositoryCompiler::resolved_adapters(Policy::load($site))[0]['digest'] ?? null;
+    $updatedDigest = RepositoryCompiler::resolved_adapters(
+        Policy::load($site, adapterLibrary: $integrationLibrary)
+    )[0]['digest'] ?? null;
     cert_check(
         is_string($updatedDigest) && $updatedDigest !== $certifiedDigest,
         'a new signed statement/envelope/evidence proof produces a new final adapter digest'
@@ -1975,7 +1998,7 @@ PHP
         'policy' => new stdClass(),
         'spec_version' => DUO_SPEC_VERSION,
     ]);
-    $currentPolicy = Policy::load($site);
+    $currentPolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
     $currentResolved = RepositoryCompiler::resolved_adapters($currentPolicy);
     $currentCoreDigest = (string) ($currentResolved[0]['digest'] ?? '');
     // Captured while the boundary still agrees, because that is the artifact a
@@ -2016,7 +2039,7 @@ PHP
 
     $degradedPolicy = null;
     try {
-        $degradedPolicy = Policy::load($site);
+        $degradedPolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
         cert_check(
             true,
             '(a) a moved platform boundary no longer refuses the whole source — Policy::load() completes, and the '
@@ -2078,7 +2101,7 @@ PHP
     );
     $frozenPolicy = null;
     try {
-        $frozenPolicy = Policy::from_snapshot($currentSnapshot);
+        $frozenPolicy = Policy::from_snapshot($currentSnapshot, $integrationLibrary);
         cert_check(true, '(f) and Policy::from_snapshot() completes on the frozen snapshot the site already holds');
     } catch (Throwable $e) {
         cert_check(
@@ -2111,14 +2134,13 @@ PHP
     cert_write($root . '/remedy-secret.key', base64_encode(sodium_crypto_sign_secretkey($remedyKeypair)) . "\n");
     chmod($root . '/remedy-secret.key', 0600);
     $remedyRun = cert_run([
-        'env',
-        'DUO_MANIFESTS_DIR=' . $integrationManifests,
         PHP_BINARY,
         dirname(__DIR__, 4) . '/cli/duo',
         'adapter',
         'certify',
         $remedySite,
         '--name=site-demo',
+        '--adapter-library=' . $integrationManifests,
         '--secret-key-file=' . $root . '/remedy-secret.key',
         '--pin',
     ]);
@@ -2129,7 +2151,8 @@ PHP
     );
     try {
         cert_check(
-            Policy::load($remedySite)->adapter_sources()->is_certified('site-demo'),
+            Policy::load($remedySite, adapterLibrary: $integrationLibrary)
+                ->adapter_sources()->is_certified('site-demo'),
             '(g) and the re-signed adapter is certified again against the CURRENT boundary — the withdrawal is a '
             . 'state an operator can leave, not a trap'
         );
@@ -2143,6 +2166,7 @@ PHP
         'inspect',
         'site-demo',
         '--repo=' . $remedySite,
+        '--adapter-library=' . $integrationManifests,
         '--format=json',
     ]);
     $remedyInspectReport = json_decode($remedyInspect['stdout'], true);
@@ -2171,7 +2195,7 @@ PHP
     $forgedStatement['statement']['bundle']['git_revision'] = str_repeat('f', 40);
     cert_write_canon($certPath, $forgedStatement);
     cert_expect_throw(
-        static fn() => Policy::load($site),
+        static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         'invalid Ed25519 signature',
         '(d) a FORGED statement under the identical stale-platform conditions still refuses the whole source'
     );
@@ -2179,7 +2203,7 @@ PHP
     $misbound['statement']['adapter']['path'] = 'adapters/somewhere-else.json';
     cert_write_canon($certPath, $misbound);
     cert_expect_throw(
-        static fn() => Policy::load($site),
+        static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         'does not bind the exact source/path/canonical manifest/trust tier',
         '(d) a WRONG-BINDING companion still refuses the whole source, and is not read as a stale boundary'
     );
@@ -2194,7 +2218,7 @@ PHP
         'keys' => $revokedIntegrationKeys,
     ]);
     cert_expect_throw(
-        static fn() => Policy::load($site),
+        static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         // A revoked key is dropped from the current authority map, so the
         // binding check refuses before the revocation message is ever reached —
         // either way the source is refused, and the refusal names the root it
@@ -2229,14 +2253,14 @@ PHP
     foreach ($unparseableCases as $unparseableLabel => $unparseableMutation) {
         cert_write_canon($certPath, $unparseableMutation(Canon::decode($originalCertificateRaw)));
         cert_expect_throw(
-            static fn() => Policy::load($site),
+            static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
             'duo: site adapter certification',
             "(e) $unparseableLabel still refuses the whole source"
         );
     }
     cert_write($certPath, "{ this is not canonical json\n");
     cert_expect_throw(
-        static fn() => Policy::load($site),
+        static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         'is not valid JSON',
         '(e) and a companion that is not parseable JSON never reaches the wire-version test at all'
     );
@@ -2253,7 +2277,7 @@ PHP
         JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
     ) . "\n");
     cert_expect_throw(
-        static fn() => Policy::load($site),
+        static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         'canonical',
         '(e) and neither does a parseable but non-canonical one that claims a future wire'
     );
@@ -2266,7 +2290,9 @@ PHP
         'format' => ManifestDispositions::PLATFORM_FORMAT,
         'platform' => $platform,
     ]);
-    $restoredResolved = RepositoryCompiler::resolved_adapters(Policy::load($site));
+    $restoredResolved = RepositoryCompiler::resolved_adapters(
+        Policy::load($site, adapterLibrary: $integrationLibrary)
+    );
     cert_check(
         ($restoredResolved[1]['digest'] ?? null) === $certifiedDigest
         && ($restoredResolved[1]['capability']['status'] ?? null) === 'certified',
@@ -2283,7 +2309,7 @@ PHP
     cert_write_canon($certPath, $futureWire);
     $wirePolicy = null;
     try {
-        $wirePolicy = Policy::load($site);
+        $wirePolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
     } catch (Throwable $e) {
         cert_check(false, 'a superseded certificate WIRE withdraws one claim instead of refusing the source ('
             . $e->getMessage() . ')');
@@ -2316,7 +2342,7 @@ PHP
         $nearMiss['format'] = $nearMissFormat;
         cert_write_canon($certPath, $nearMiss);
         cert_expect_throw(
-            static fn() => Policy::load($site),
+            static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
             'unsupported or malformed root',
             "(e) format '$nearMissFormat' is not this wire family at another version — still a whole-source refusal"
         );
@@ -2337,7 +2363,7 @@ PHP
     cert_write_canon($certPath, $mutatedFutureWire);
     $mutatedWirePolicy = null;
     try {
-        $mutatedWirePolicy = Policy::load($site);
+        $mutatedWirePolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
     } catch (Throwable $e) {
         cert_check(false, '(h) a mutated statement under a superseded wire version withdraws rather than refuses ('
             . $e->getMessage() . ')');
@@ -2373,7 +2399,7 @@ PHP
     // reach the typed signal — before that ordering it degraded the adapter.
     cert_write_canon($certPath, ['format' => 'duo-adapter-certification/v2']);
     cert_expect_throw(
-        static fn() => Policy::load($site),
+        static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         'site adapter certification must contain exactly format, signature, statement',
         '(h) a bare {"format":"…/v2"} file with statement and signature REMOVED is refused as malformed and never '
         . 'reaches the wire signal — the closed root key set is proved first'
@@ -2385,7 +2411,7 @@ PHP
     $shortSignatureFutureWire['signature'] = base64_encode('not an ed25519 signature');
     cert_write_canon($certPath, $shortSignatureFutureWire);
     cert_expect_throw(
-        static fn() => Policy::load($site),
+        static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         'certification signature is not a base64 Ed25519 signature',
         '(h) and a superseded-wire file whose signature is not Ed25519-shaped is refused on the signature, not '
         . 'degraded on the version'
@@ -2418,7 +2444,7 @@ PHP
     $frozenWireSnapshot['adapter_sources']['certificates']['site-demo'] = $frozenWireEnvelope;
     $frozenWirePolicy = null;
     try {
-        $frozenWirePolicy = Policy::from_snapshot($frozenWireSnapshot);
+        $frozenWirePolicy = Policy::from_snapshot($frozenWireSnapshot, $integrationLibrary);
     } catch (Throwable $t) {
         cert_check(false, '(i) a superseded wire version inside a FROZEN snapshot withdraws one adapter rather '
             . 'than refusing the snapshot (' . $t->getMessage() . ')');
@@ -2487,7 +2513,7 @@ PHP
     );
     $flipPolicy = null;
     try {
-        $flipPolicy = Policy::load($site);
+        $flipPolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
     } catch (Throwable $e) {
         cert_check(false, '(k) and the site still LOADS at the flip (' . $e->getMessage() . ')');
     }
@@ -2521,7 +2547,7 @@ PHP
     $flipSnapshot['adapter_sources']['certificates']['site-demo'] = $flipEnvelope;
     $flipFrozenPolicy = null;
     try {
-        $flipFrozenPolicy = Policy::from_snapshot($flipSnapshot);
+        $flipFrozenPolicy = Policy::from_snapshot($flipSnapshot, $integrationLibrary);
     } catch (Throwable $t) {
         cert_check(false, '(k) and a PROMOTED site still loads its snapshot at the flip (' . $t->getMessage() . ')');
     }
@@ -2586,7 +2612,7 @@ PHP
     );
     $revokedPolicy = null;
     try {
-        $revokedPolicy = Policy::load($site);
+        $revokedPolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
     } catch (Throwable $e) {
         cert_check(false, '(l) and the site still LOADS with its authority revoked (' . $e->getMessage() . ')');
     }
@@ -2602,7 +2628,7 @@ PHP
     }
     $revokedFrozen = null;
     try {
-        $revokedFrozen = Policy::from_snapshot($currentSnapshot);
+        $revokedFrozen = Policy::from_snapshot($currentSnapshot, $integrationLibrary);
     } catch (Throwable $t) {
         cert_check(false, '(l) and a PROMOTED site still loads its snapshot (' . $t->getMessage() . ')');
     }
@@ -2624,7 +2650,7 @@ PHP
     $revokedMisbound['statement']['adapter']['path'] = 'adapters/somewhere-else.json';
     cert_write_canon($certPath, $revokedMisbound);
     cert_expect_throw(
-        static fn() => Policy::load($site),
+        static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         'does not bind the exact source/path/canonical manifest/trust tier',
         '(l) a WRONG-BINDING companion under the same revoked authority still refuses the whole source — the '
         . 'withdrawal is reached only after the certificate is proved to be about this adapter'
@@ -2641,7 +2667,7 @@ PHP
     cert_write_canon($certPath, $revokedForged);
     $forgedUnderRevoked = null;
     try {
-        $forgedUnderRevoked = Policy::load($site);
+        $forgedUnderRevoked = Policy::load($site, adapterLibrary: $integrationLibrary);
     } catch (Throwable $e) {
         cert_check(false, '(l) a forged statement under a revoked authority degrades (' . $e->getMessage() . ')');
     }
@@ -2656,7 +2682,7 @@ PHP
     unlink($revocationsPath);
     cert_write($certPath, $originalCertificateRaw);
     cert_check(
-        Policy::load($site)->adapter_sources()->is_certified('site-demo'),
+        Policy::load($site, adapterLibrary: $integrationLibrary)->adapter_sources()->is_certified('site-demo'),
         '(l) and removing the revocation restores the certified claim: the withdrawal wrote nothing and revoked '
         . 'nothing of its own'
     );
@@ -2680,7 +2706,7 @@ PHP
         'spec_version' => DUO_SPEC_VERSION,
     ]);
     try {
-        $sourcelessPolicy = Policy::load($site);
+        $sourcelessPolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
         cert_check(
             !$sourcelessPolicy->adapter_sources()->is_certified('site-demo')
             && (RepositoryCompiler::resolved_adapters($sourcelessPolicy)[0]['digest'] ?? null) === $currentCoreDigest,
@@ -2704,7 +2730,7 @@ PHP
         'spec_version' => DUO_SPEC_VERSION,
     ]);
     cert_expect_throw(
-        static fn() => Policy::load($site),
+        static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         "duo: manifest 'core' digest mismatch: expected " . str_repeat('a', 64) . ", actual $currentCoreDigest — "
         . 'review the manifest change, then update its site.duo.json pin',
         '(j) but a SOURCE-LESS digest pin on a SHIPPED-resolved manifest still refuses byte-identically — the '
@@ -2723,7 +2749,7 @@ PHP
         'spec_version' => DUO_SPEC_VERSION,
     ]);
     cert_expect_throw(
-        static fn() => Policy::load($site),
+        static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         "duo: manifest 'site-demo' digest mismatch: expected " . str_repeat('b', 64),
         '(j) and a source-less digest pin on a STILL-CERTIFIED site adapter refuses too — is_certified() is what '
         . 'gates the concession, and dropping `source` did not loosen it'
@@ -2737,7 +2763,6 @@ PHP
     ]);
 } finally {
     cert_write($certPath, $originalCertificateRaw);
-    putenv('DUO_MANIFESTS_DIR');
 }
 
 echo "\n== frozen verification and current agent-owned roots ==\n";
@@ -2773,7 +2798,7 @@ $numericCertificateEnvelope = $numericFrozenCertificate['adapter_sources']['cert
 unset($numericFrozenCertificate['adapter_sources']['certificates']['site-demo']);
 $numericFrozenCertificate['adapter_sources']['certificates']['123'] = $numericCertificateEnvelope;
 cert_expect_throw(
-    static fn() => Policy::from_snapshot($numericFrozenCertificate),
+    static fn() => Policy::from_snapshot($numericFrozenCertificate, $integrationLibrary),
     'numeric-only identities',
     'a frozen certified source record rejects a numeric-only certificate-map key before PHP map coercion can relabel it'
 );
@@ -3084,6 +3109,7 @@ cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
     'format' => 'duo-adapter-authorities/v1',
     'keys' => new stdClass(),
 ]);
+$orgLibrary = AdapterLibrary::fromLegacyFlatDirectory($orgAgent);
 
 $orgKeypair = sodium_crypto_sign_seed_keypair(str_repeat('S', SODIUM_CRYPTO_SIGN_SEEDBYTES));
 $orgSecret = sodium_crypto_sign_secretkey($orgKeypair);
@@ -3207,9 +3233,8 @@ cert_write_canon($orgSite . '/site.duo.json', [
     'policy' => new stdClass(),
     'spec_version' => DUO_SPEC_VERSION,
 ]);
-putenv('DUO_MANIFESTS_DIR=' . $orgAgent);
 $orgSurveyRow = null;
-foreach (AdapterSources::survey($orgSite)['adapters'] as $orgRow) {
+foreach (AdapterSources::survey_library($orgLibrary, $orgSite)['adapters'] as $orgRow) {
     if (($orgRow['name'] ?? null) === 'acme-catalog') {
         $orgSurveyRow = $orgRow;
     }
@@ -3224,7 +3249,7 @@ cert_check(
 
 $orgDigest = null;
 try {
-    $orgPolicy = Policy::load($orgSite);
+    $orgPolicy = Policy::load($orgSite, adapterLibrary: $orgLibrary);
     $orgResolved = RepositoryCompiler::resolved_adapters($orgPolicy);
     $orgDigest = (string) ($orgResolved[0]['digest'] ?? '');
 } catch (Throwable $t) {
@@ -3235,7 +3260,7 @@ cert_write_canon($orgSite . '/site.duo.json', [
     'policy' => new stdClass(),
     'spec_version' => DUO_SPEC_VERSION,
 ]);
-$orgPinnedPolicy = Policy::load($orgSite);
+$orgPinnedPolicy = Policy::load($orgSite, adapterLibrary: $orgLibrary);
 $orgDiagnostics = $orgPinnedPolicy->adapter_sources()->diagnostics($orgPinnedPolicy->manifests);
 cert_check(
     ($orgDiagnostics['acme-catalog']['certification'] ?? null) === AdapterSources::CERTIFICATION_SITE_SIGNED
@@ -3257,7 +3282,6 @@ cert_check(
     ]) === [],
     'host promotion accepts the site-rooted current claim'
 );
-putenv('DUO_MANIFESTS_DIR');
 
 // The frozen path, which reopens no mutable site file at all.
 $orgFrozen = AdapterCertification::verifyFrozen(
@@ -3331,7 +3355,7 @@ cert_check(
 // A malformed site trust root is a WHOLE-SOURCE refusal, not one adapter's
 // problem: every certificate in the repository is judged against it.
 cert_write($orgSite . '/adapters/authorities.json', "{ not json\n");
-$orgBrokenSurvey = AdapterSources::survey($orgSite);
+$orgBrokenSurvey = AdapterSources::survey_library($orgLibrary, $orgSite);
 cert_check(
     in_array(
         AdapterSources::REFUSAL_CERTIFICATION_SOURCE,
@@ -3481,10 +3505,7 @@ cert_write_canon($autoSite . '/site.duo.json', [
 ]);
 
 $autoReason = 'duo manifest-validate reported ok; certified by the site operator, not exercised';
-$autoEnv = 'DUO_MANIFESTS_DIR=' . $autoAgent;
 $autoSign = cert_run([
-    'env',
-    $autoEnv,
     PHP_BINARY,
     __DIR__ . '/../../../../scripts/adapter-certification.php',
     'sign-site',
@@ -3505,7 +3526,6 @@ cert_check(
     'nothing was written but the certificate: an unexercised bundle lives entirely inside the signed statement'
 );
 
-putenv('DUO_MANIFESTS_DIR=' . $autoAgent);
 $autoCertPath = $autoSite . '/adapters/certifications/acme-shop.json';
 $autoVerified = AdapterCertification::verifyFile(
     $autoAgent,
@@ -3583,7 +3603,7 @@ $autoDefaultManifest['tables']['acme_shop_meta'] = [
 cert_write_canon($autoSite . '/adapters/acme-shop.json', $autoDefaultManifest);
 unlink($autoCertPath);
 $autoDefaultSign = cert_run([
-    'env', $autoEnv, PHP_BINARY, __DIR__ . '/../../../../scripts/adapter-certification.php', 'sign-site',
+    PHP_BINARY, __DIR__ . '/../../../../scripts/adapter-certification.php', 'sign-site',
     '--manifest-dir=' . $autoAgent, '--repo=' . $autoSite, '--name=acme-shop',
     '--authority=acme-ops', '--secret-key-file=' . $autoRoot . '/acme-ops.key', '--reason=' . $autoReason,
 ]);
@@ -3626,7 +3646,7 @@ foreach ($autoRefusals as $autoLabel => [$autoExtra, $autoNeedle, $autoSetup]) {
         $autoSetup();
     }
     $autoArgs = [
-        'env', $autoEnv, PHP_BINARY, __DIR__ . '/../../../../scripts/adapter-certification.php', 'sign-site',
+        PHP_BINARY, __DIR__ . '/../../../../scripts/adapter-certification.php', 'sign-site',
         '--manifest-dir=' . $autoAgent, '--repo=' . $autoSite, '--name=acme-shop',
         '--authority=acme-ops', '--secret-key-file=' . $autoRoot . '/acme-ops.key', '--reason=' . $autoReason,
     ];
@@ -3665,7 +3685,7 @@ cert_write_canon($autoSite . '/adapters/acme-shop.json', [
     'spec_version' => DUO_SPEC_VERSION + 97,
 ]);
 $autoBroken = cert_run([
-    'env', $autoEnv, PHP_BINARY, __DIR__ . '/../../../../scripts/adapter-certification.php', 'sign-site',
+    PHP_BINARY, __DIR__ . '/../../../../scripts/adapter-certification.php', 'sign-site',
     '--manifest-dir=' . $autoAgent, '--repo=' . $autoSite, '--name=acme-shop',
     '--authority=acme-ops', '--secret-key-file=' . $autoRoot . '/acme-ops.key', '--reason=' . $autoReason,
 ]);
@@ -3694,7 +3714,6 @@ cert_expect_throw(
     . 'than the adapter declares'
 );
 cert_write_canon($autoSite . '/adapters/acme-shop.json', $autoManifest);
-putenv('DUO_MANIFESTS_DIR');
 
 if ($failures !== 0) {
     fwrite(STDERR, "\n$failures site-adapter-certification regression assertion(s) failed\n");
