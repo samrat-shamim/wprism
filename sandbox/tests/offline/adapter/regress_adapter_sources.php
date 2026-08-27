@@ -1388,6 +1388,24 @@ check(
     'frozen reconstruction proves shipped authority through the explicit package library without reopening a '
     . 'global manifest directory'
 );
+$selectedLibrary = getenv('DUO_MANIFESTS_DIR');
+putenv('DUO_MANIFESTS_DIR');
+try {
+    $defaultFrozenSources = AdapterSources::from_snapshot(
+        $snapshot['adapter_sources'],
+        $snapshot['manifests']
+    );
+} finally {
+    $selectedLibrary === false
+        ? putenv('DUO_MANIFESTS_DIR')
+        : putenv('DUO_MANIFESTS_DIR=' . $selectedLibrary);
+}
+check(
+    $defaultFrozenSources->export() === $snapshot['adapter_sources']
+        && realpath((string) $defaultFrozenSources->path('core'))
+            === Policy::shipped_adapter_library()->package('core')?->manifestPath(),
+    'default frozen reconstruction selects the shipped AdapterLibrary object rather than a guessed manifest path'
+);
 
 $numericFrozenPin = $snapshot;
 $numericFrozenPin['site']['manifests'][1] = '123';

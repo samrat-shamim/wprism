@@ -4583,7 +4583,7 @@ final class AdapterSources {
         array $manifests,
         string|AdapterLibrary|null $manifestLibrary = null
     ): self {
-        $manifestLibrary ??= Policy::manifests_dir();
+        $manifestLibrary ??= Policy::adapter_library_context();
         $manifestDir = $manifestLibrary instanceof AdapterLibrary
             ? $manifestLibrary->root()
             : rtrim($manifestLibrary, '/');

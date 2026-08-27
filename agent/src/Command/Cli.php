@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 // CommandRefusal.php above: the offline refusal suites load this file against
 // pre-declared \Duo stubs and never run that bootstrap.
 require_once __DIR__ . '/../Kernel/SiteTopology.php';
+require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Review/PlanExplanation.php';
 require_once __DIR__ . '/../Review/PlanCategorySummary.php';
 require_once __DIR__ . '/../Review/PlanView.php';
@@ -3556,6 +3557,7 @@ final class Cli {
      */
     public function adapter_survey($args, $assoc) {
         $repo = isset($assoc['repo']) ? (string) $assoc['repo'] : null;
+        $library = null;
         try {
             // This command advertises --format=json, so its refusals belong
             // inside DUO-3399's common envelope like every other one that
@@ -3565,10 +3567,14 @@ final class Cli {
             // throws by construction, so reaching here means an IO fault
             // about this command's own inputs — which is exactly the shape
             // the envelope exists to make machine-readable.
-            $survey = AdapterSources::survey($repo);
+            $library = Policy::adapter_library_context();
+            $survey = $library instanceof AdapterLibrary
+                ? AdapterSources::survey_library($library, $repo)
+                : AdapterSources::survey($repo);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'adapter-survey');
             WP_CLI::error($t->getMessage());
+            return;
         }
         $grammarErrors = 0;
         $grammarUnjudged = 0;
@@ -3587,7 +3593,7 @@ final class Cli {
             'format' => 'duo-adapter-catalog/v2',
             'spec_version' => DUO_SPEC_VERSION,
             'command' => 'survey',
-            'manifests_dir' => Policy::manifests_dir(),
+            'manifests_dir' => $library instanceof AdapterLibrary ? $library->root() : $library,
             'repo' => $repo,
             'sources' => $survey['sources'],
             'adapters' => $survey['adapters'],
