@@ -71,7 +71,7 @@ final class EngineGapsTest extends TestCase
     /** @return list<string> */
     private static function sections(): array
     {
-        return gap_manifest_sections(self::repoRoot() . '/manifests');
+        return gap_manifest_sections(gap_library(self::repoRoot()));
     }
 
     private static function exists(): callable

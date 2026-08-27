@@ -12,25 +12,22 @@ use PHPUnit\Framework\TestCase;
  *
  * WHY THIS TEST EXISTS AT ALL
  * ---------------------------
- * Until WP-1.2 the bidirectional coverage rule was enforced twice: once by
+ * Until WP-1.2 the bidirectional coverage rule was enforced by
  * `ManifestDispositions::load()` on every `Policy::load()` (a whole-directory
  * glob and decode, O(library) for an O(pins) question, which refused every
- * unrelated pin over one unreviewed file) and once by capdoc_cross_check()
- * here. The runtime half is now scoped to the PINNED shipped subset
- * (`ManifestDispositions::assert_covers()`), so this tool's copy is no longer
- * a second opinion — it is the whole of the authoring rule, and a gate nobody
- * has ever watched fail is a gate nobody knows still works.
+ * unrelated pin over one unreviewed file). Runtime is now scoped to the PINNED
+ * shipped subset (`ManifestDispositions::assert_covers()`), while
+ * AdapterLibrary closes the complete authoring inventory before this tool
+ * projects it. A gate nobody has watched fail is a gate nobody knows works.
  *
- * No second implementation was added for the gate: capdoc_cross_check()
- * already computed the identical two-way comparison with the identical
- * sentence, and `capdoc_build()` calls it BEFORE the byte-compare, so a
- * mismatched library fails `--check` whether or not the generated prose is
- * current. A new checker beside it would be exactly the drift trap
- * tools/capability-doc.php's own header warns about.
+ * `capdoc_build()` resolves AdapterLibrary before the byte-compare, so a
+ * mismatched legacy library fails `--check` whether or not the generated prose
+ * is current. The tool preserves its established coverage refusal wording at
+ * that boundary while the temporary flat reader remains.
  *
  * The tool resolves its inputs from `dirname(__DIR__)` of its own file and has
  * no --repo seam (deliberately: it is a release gate, not a library), so each
- * case runs against a COPY of the repository's four input files under a temp
+ * case runs against a COPY of the repository's logical inputs under a temp
  * root. Copying is also what keeps a red assertion from leaving an unreviewed
  * manifest in manifests/, which AGENTS.md rule 3 forbids and pair.sh refuses.
  */
@@ -43,22 +40,35 @@ final class CapabilityDocCoverageTest extends TestCase
     }
 
     /**
-     * A temp root carrying exactly the files tools/capability-doc.php reads:
-     * the four sources named in its header, plus the two generated documents
-     * it byte-compares and the Canon it requires.
+     * A temp root carrying exactly the inputs tools/capability-doc.php reads:
+     * the closed legacy adapter library, agent/version sources, the generated
+     * documents it byte-compares and the agent readers it requires.
      */
     private function stagedRepo(): string
     {
         $repo = self::repoRoot();
         $root = sys_get_temp_dir() . '/duo_capdoc_' . bin2hex(random_bytes(6));
-        foreach (['tools', 'manifests/capabilities', 'manifests/dispositions', 'agent/src/Kernel', 'docs'] as $dir) {
+        foreach ([
+            'tools',
+            'manifests/capabilities',
+            'manifests/dispositions',
+            'manifests/interpreters',
+            'manifests/providers',
+            'manifests/regenerators',
+            'agent/src/Kernel',
+            'agent/src/Policy',
+            'docs',
+        ] as $dir) {
             self::assertTrue(mkdir("$root/$dir", 0o777, true), "could not create $root/$dir");
         }
         foreach ([
             'tools/capability-doc.php',
             'agent/src/Kernel/Canon.php',
+            'agent/src/Policy/AdapterLibrary.php',
+            'agent/src/Policy/AdapterPackage.php',
             'agent/duo.php',
             'manifests/capabilities/platform.json',
+            'manifests/capabilities/adapter-authorities.json',
             'docs/capabilities.md',
             'docs/compatibility-baseline.json',
             'README.md',
@@ -69,10 +79,15 @@ final class CapabilityDocCoverageTest extends TestCase
             self::assertTrue(copy($manifest, "$root/manifests/" . basename($manifest)));
         }
         // One reviewed document per subject since WP-4.4 (spec § v3.4): the
-        // staged library has to carry the whole directory, because
-        // capdoc_dispositions() reads the listing, not one file.
+        // staged legacy library has to carry the whole directory because
+        // AdapterLibrary closes the manifest/disposition set before projection.
         foreach (glob("$repo/manifests/dispositions/*.json") ?: [] as $document) {
             self::assertTrue(copy($document, "$root/manifests/dispositions/" . basename($document)));
+        }
+        foreach (['interpreters', 'providers', 'regenerators'] as $runtime) {
+            foreach (glob("$repo/manifests/$runtime/*.php") ?: [] as $file) {
+                self::assertTrue(copy($file, "$root/manifests/$runtime/" . basename($file)));
+            }
         }
         return $root;
     }

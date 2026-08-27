@@ -482,12 +482,13 @@ $place = static function (string $relative) use ($duoRoot, $gateRoot): void {
     copy($duoRoot . '/' . $relative, $target);
 };
 
-// Everything the tool opens, and nothing else: the two agent files it requires
-// (Canon comes with ManifestDispositions, which requires nothing itself), the
-// manifest library and its dispositions, the readiness ledger, the tool and
-// the document it byte-compares.
+// Everything the tool opens, and nothing else: the agent readers and their
+// dependencies, the manifest library and its dispositions, the readiness
+// ledger, the tool and the document it byte-compares.
 $copyTree($duoRoot . '/manifests', $gateRoot . '/manifests');
 $place('agent/src/Kernel/Canon.php');
+$place('agent/src/Policy/AdapterLibrary.php');
+$place('agent/src/Policy/AdapterPackage.php');
 $place('agent/src/Policy/ManifestDispositions.php');
 $place('sandbox/conformance/production-readiness.json');
 $place('docs/adapter-grades.md');
