@@ -28,6 +28,7 @@ final class DockerTransport extends Transport {
     private const MODES = ['run', 'exec'];
 
     private string $composeFile;
+    private ?string $composeEnvFile;
     private ?string $profile;
     private string $service;
     private string $mode;
@@ -49,6 +50,16 @@ final class DockerTransport extends Transport {
         parent::__construct($name, $cfg);
         $dir = is_string($cfg['_dir'] ?? null) ? $cfg['_dir'] : (getcwd() ?: '.');
         $this->composeFile = self::resolvePath($dir, self::requireKey($cfg, $name, 'compose_file'));
+        $composeEnvFile = $cfg['compose_env_file'] ?? null;
+        if ($composeEnvFile !== null && (!is_string($composeEnvFile) || $composeEnvFile === '')) {
+            throw new \RuntimeException("env '$name': optional key 'compose_env_file' must be a non-empty path string");
+        }
+        $this->composeEnvFile = is_string($composeEnvFile)
+            ? self::resolvePath($dir, $composeEnvFile)
+            : null;
+        if ($this->composeEnvFile !== null && !is_file($this->composeEnvFile)) {
+            throw new \RuntimeException("env '$name': compose_env_file not found: {$this->composeEnvFile}");
+        }
         $profile = $cfg['profile'] ?? null;
         $this->profile = (is_string($profile) && $profile !== '') ? $profile : null;
         $this->service = self::requireKey($cfg, $name, 'service');
@@ -85,7 +96,8 @@ final class DockerTransport extends Transport {
         // `duo envs` — stays byte-identical for every environment that
         // never opted in (rule 8).
         $mode = $this->mode !== 'run' ? " mode={$this->mode}" : '';
-        return "docker compose_file={$this->composeFile}{$profile}{$mode} service={$this->service} repo_path={$this->repoPath}";
+        $envFile = $this->composeEnvFile !== null ? " compose_env_file={$this->composeEnvFile}" : '';
+        return "docker compose_file={$this->composeFile}{$envFile}{$profile}{$mode} service={$this->service} repo_path={$this->repoPath}";
     }
 
     /**
@@ -144,7 +156,12 @@ final class DockerTransport extends Transport {
     }
 
     private function baseTokens(): array {
-        $t = ['docker', 'compose', '-f', $this->composeFile];
+        $t = ['docker', 'compose'];
+        if ($this->composeEnvFile !== null) {
+            $t[] = '--env-file';
+            $t[] = $this->composeEnvFile;
+        }
+        array_push($t, '-f', $this->composeFile);
         if ($this->profile !== null) {
             $t[] = '--profile';
             $t[] = $this->profile;

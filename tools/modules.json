@@ -1527,7 +1527,7 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 31,
+        "file_count": 34,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
@@ -1538,7 +1538,9 @@
           "CodeImportCommand.php",
           "CodeResolveCommand.php",
           "CommandOutput.php",
+          "ConnectCommand.php",
           "ContractCommand.php",
+          "DemoCommand.php",
           "DeployCommand.php",
           "DoctorCommand.php",
           "DriverCapabilitiesCommand.php",
@@ -1549,6 +1551,7 @@
           "EnvironmentProviderCheckCommand.php",
           "InitCommand.php",
           "MergeCheckCommand.php",
+          "OnboardCommand.php",
           "PassthroughCommand.php",
           "PendingCommand.php",
           "PromoteCommand.php",

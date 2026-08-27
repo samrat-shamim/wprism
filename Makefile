@@ -12,7 +12,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-spec-v3-digest-neutrality regress-spec-migration-verbs
 
 .PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window regress-disposition-split
-.PHONY: regress-cli-json-refusals regress-fleet-census regress-cohort-rebaseline regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-migration-preflight regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
+.PHONY: regress-cli-json-refusals regress-fleet-census regress-cohort-rebaseline regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-migration-preflight regress-adopt-command regress-ideal-onboarding regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
 .PHONY: regress-init-command regress-init-contract regress-duo-init regress-bound-helper
@@ -1766,6 +1766,9 @@ regress-migration-preflight:
 
 regress-adopt-command:
 	php sandbox/tests/offline/cli/regress_adopt_command.php
+
+regress-ideal-onboarding:
+	php sandbox/tests/offline/cli/regress_ideal_onboarding.php
 
 regress-init-command:
 	php sandbox/tests/offline/cli/regress_init_command.php

@@ -1,12 +1,79 @@
 # Quickstart: getting a site under Duo
 
-Start by asking what Duo can honestly do with this site. `duo assess <env>` is
-read-only, refuses nothing, mutates nothing, and answers that question one
-WordPress surface at a time — and it answers it *before* you have committed to
-a baseline. It needs the agent to be reachable, which is the one thing adoption
-provides, so the order for a new site is:
+There are two good first contacts: try Duo on a disposable pair, or connect an
+existing site. Neither asks you to invent `site.duo.json` or an environment
+registry by hand.
+
+## Try Duo without connecting a site
+
+From a source checkout with Docker available:
+
+```sh
+cli/duo demo start --scenario=woocommerce
+```
+
+The command starts two disposable WordPress sites, installs the exact
+digest-pinned WooCommerce 11.0.1 artifact the shipped adapter certifies, creates
+an ordinary Git repository, and publishes the URLs and `admin / admin` login.
+It also creates one target-only order and decrements live stock; those are the
+runtime facts the later apply must preserve.
+
+Edit **Duo Demo Mug** on the source site, then follow the printed loop:
+
+```sh
+cli/duo demo capture
+git -C sandbox/siterepo/duodemo1 diff
+cli/duo demo apply
+cli/duo demo refusal
+cli/duo demo stop
+```
+
+`capture` uses the real orchestrator and leaves the result as an ordinary Git
+diff. `apply` commits that reviewed diff, transfers the revision through Git,
+drives the real deploy/apply path, and requires the target order identity,
+status, total, item count, and stock to remain byte-identical. `refusal` tries
+to replace the trusted environment's repository binding with a caller-supplied
+path and succeeds only when the host refuses before target contact, without
+changing that runtime proof. `stop` removes the pair and its three
+disposable repositories, so copy anything you want to keep first.
+
+## Connect an existing site
+
+Start by asking whether the native target is reachable without installing
+anything. Keep an absolute path to the CLI because the next command moves into
+the newly created site workspace:
+
+```sh
+DUO_CLI="$PWD/cli/duo"
+"$DUO_CLI" connect production --workspace=../my-site \
+  --transport=ssh --host=deploy@wp.example.com \
+  --wp-path=/var/www/html --repo-path=/home/deploy/site-repo
+```
+
+`connect` performs exactly three read-only native checks: transport
+reachability, `wp core is-installed`, and single-site topology. Only after all
+three pass does it create the dedicated Git root, the same minimal seed
+adoption uses, the complete `.gitignore` boundary, and a mode-`0600`, untracked
+`.duo-envs.json`. A failed probe creates no workspace and changes no target
+byte.
+
+Now enter the workspace and run the composed flow:
+
+```sh
+cd ../my-site
+"$DUO_CLI" onboard production --git-url=git@github.com:you/my-site.git
+```
+
+`onboard` fixes the order for a new site:
 
 **adopt (deliver the agent) → assess (decide) → init (commit to a baseline).**
+
+Each existing gate remains visible and fail-closed. The assessment is printed
+before init asks for confirmation. If `--git-url` is supplied, the initialized
+target baseline is committed and pushed, then checked out into the connected
+workspace while the untracked local registry stays in place. Without it,
+onboarding stops after a successful init and asks you to publish the target
+repository; it never guesses a remote or credential.
 
 On a Docker or local target whose control plane already carries the agent,
 `duo assess` is the very first Duo command you run. [assess.md](assess.md) is
@@ -55,13 +122,19 @@ write WordPress's actual `WPMU_PLUGIN_DIR` (discovered through the target's own
 The full prerequisite and safety contract is
 [docs/adoption.md](../adoption.md); this guide is the narrative around it.
 
-## Path A — adopt an existing site over SSH or an authorized local transport
+## The lower-level primitives
+
+Use the individual steps below when a site repository and registry already
+exist, or when you need to stop between gates. New source-checkout users should
+prefer `connect` and `onboard` above.
+
+### Adopt an existing site over SSH or an authorized local transport
 
 SSH always exposes the explicit transfer mechanism. A local environment may
 expose it only through a loader-proven, untracked machine-local opt-in; Docker
 does not infer bootstrap authority from a bind mount or shell access.
 
-### 1. Describe the environment
+#### 1. Describe the environment
 
 Duo searches upward for the committed `site.duo.json`, but inside Git accepts
 it only at the current worktree root, then reads a gitignored, machine-local
@@ -114,16 +187,16 @@ ordinary plugin/theme/MU loading, proves WordPress and a safe disjoint
 filesystem topology read-only, and refuses with remediation before creating
 an archive or target path when that proof is red.
 
-### 2. Check, then adopt
+#### 2. Check, then adopt
 
-Run these from a Duo source checkout whose `cli/`, `agent/`, `manifests/`, and
-`recovery/` directories are the release you intend to install — adoption ships
-*those exact trees*, so the checkout you invoke from is the version the target
-gets.
+Run these from the connected site workspace with `DUO_CLI` pointing to the Duo
+source checkout whose `cli/`, `agent/`, `manifests/`, and `recovery/`
+directories are the release you intend to install — adoption ships *those
+exact trees*, so the checkout you invoke is the version the target gets.
 
 ```sh
-cli/duo doctor production   # expected to report the agent/repo missing first
-cli/duo adopt production
+"$DUO_CLI" doctor production   # expected to report the agent/repo missing first
+"$DUO_CLI" adopt production
 ```
 
 The first command is supposed to fail. Running it anyway is worth the ten
@@ -145,10 +218,10 @@ site's policy untouched. The privileged machine-local bootstrap is
 initial-only and refuses a second adoption rather than racing an installed
 recovery authority.
 
-### 3. Assess before you initialize
+#### 3. Assess before you initialize
 
 ```sh
-cli/duo assess production
+"$DUO_CLI" assess production
 ```
 
 Adoption made the agent reachable; assessment is what tells you whether
@@ -177,10 +250,10 @@ If the assessment says the site is not a fit, you have learned that before
 creating a baseline, which is the whole reason this step is here rather than
 after step 7.
 
-### 4. Review and confirm the first baseline
+#### 4. Review and confirm the first baseline
 
 ```sh
-cli/duo init production
+"$DUO_CLI" init production
 ```
 
 Init reads WordPress, PHP, database, active plugin/theme, certified adapter,

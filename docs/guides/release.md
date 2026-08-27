@@ -3,7 +3,7 @@
 This is the whole customer loop for one change, from a disposable preview to a
 verified production release:
 
-**rehearse → change on the preview → capture → merge → release --plan-only →
+**preview → change on the preview → capture → merge → release --plan-only →
 authorize → verify.**
 
 It assumes the site has an accepted application contract. If it does not,
@@ -19,13 +19,14 @@ authorization in front and verification behind.
 `duo promote` remains documented and supported as the lower-level verb; see
 [daily-workflow.md](daily-workflow.md).
 
-## Rehearse
+## Create a preview
 
 ```sh
-duo rehearse preview --from production --branch feature/pricing-page --ttl 86400
+duo preview create preview --from production --branch feature/pricing-page --ttl 86400
 ```
 
-`duo rehearse` is `duo env materialize` plus a preview: the same option
+`duo preview create` is the first-contact spelling of `duo rehearse`, which is
+`duo env materialize` plus a preview: the same option
 grammar, the same machine-local provider registry, the same capability
 negotiation, the same journal, the same exact resource/lease/ownership
 compare. A missing provider capability is a refusal naming that capability id;
@@ -41,7 +42,7 @@ scope, each saying why it is in scope.
 Clean up explicitly, always:
 
 ```sh
-duo rehearse preview --reap
+duo preview remove preview
 ```
 
 That is `duo env reap` with the same compare-and-reap. Created targets are

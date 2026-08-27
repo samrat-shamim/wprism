@@ -36,6 +36,60 @@ final class Adopt {
     ];
 
     /**
+     * The one first-contact repository seed used on both sides of adoption.
+     *
+     * Connect publishes these bytes locally before assessment, while install
+     * publishes them at the target before init. Keeping both readers on this
+     * method prevents the historical split where `adopt` created a remote
+     * seed but the immediately recommended `assess` refused because no local
+     * site.duo.json existed.
+     *
+     * @return array<string,mixed>
+     */
+    public static function repositorySeed(): array {
+        return self::SEED;
+    }
+
+    public static function repositorySeedBytes(): string {
+        $seed = json_encode(self::repositorySeed(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if (!is_string($seed)) {
+            throw new \RuntimeException('could not encode adoption site-repo seed');
+        }
+        return $seed . "\n";
+    }
+
+    /**
+     * Root-anchored local-only paths required before a connection registry is
+     * written. InitRepositoryBoundary::ensure_gitignore() owns the same list
+     * on the target; this is the pre-init source-workspace projection.
+     */
+    public static function repositoryGitignoreBytes(): string {
+        return <<<'IGNORE'
+# Duo local publication and environment artifacts
+/.tmp*
+/.duo/
+/.duo-envs.json
+/.duo-init-code-*
+/.duo-init-attempt
+/.duo-init-attempt.next
+/.*.duo-init-*
+/state.capture.lock
+/state.capture-staging/
+/state.capture-backup/
+/state.capture-intent
+/state.capture-receipt
+/state.capture-intent.tmp.*
+/state.capture-receipt.tmp.*
+/state.capture-intent.previous
+/state.capture-intent.next
+/state.capture-receipt.previous
+/state.capture-receipt.next
+/.duo-env-values.json
+IGNORE
+            . "\n";
+    }
+
+    /**
      * @return array{exit:int, phase:string, stdout:string, stderr:string, version:string, repo_created:bool}
      */
     public static function install(
@@ -368,11 +422,7 @@ final class Adopt {
         $agent = rtrim($muDir, '/') . '/duo';
         $loader = rtrim($muDir, '/') . '/duo-loader.php';
         $manifest = rtrim($muDir, '/') . '/manifests';
-        $seed = json_encode(self::SEED, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        if (!is_string($seed)) {
-            throw new \RuntimeException('could not encode adoption site-repo seed');
-        }
-        $seed .= "\n";
+        $seed = self::repositorySeedBytes();
         $recovery = $recoveryConfig === null ? null : \Duo\Recovery\RollbackControl::canonical($recoveryConfig) . "\n";
 
         $q = static fn(string $value): string => escapeshellarg($value);

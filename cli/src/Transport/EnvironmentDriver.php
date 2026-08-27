@@ -227,7 +227,7 @@ final class DriverCapabilityReport {
             'refresh', 'rebase' => [
                 DriverCapability::ATTACH, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
             ],
-            'adopt' => [
+            'adopt', 'onboard' => [
                 DriverCapability::ATTACH, DriverCapability::BOOTSTRAP,
                 DriverCapability::CODE_TRANSFER, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
             ],
@@ -283,7 +283,7 @@ final class DriverCapabilityReport {
             default => throw new \RuntimeException(
                 "unknown driver operation '$operation' (expected attach, doctor, init, status, capabilities, capture, "
                 . 'lint, plan, explain, apply, env-set, pending, classify, coverage, scope, assess, contract, verify, '
-                . 'refresh, rebase, adapter-observe, adopt, deploy, promote, release, recover, rehearse, create, destroy, '
+                . 'refresh, rebase, adapter-observe, adopt, onboard, deploy, promote, release, recover, rehearse, create, destroy, '
                 . 'ttl, media-snapshot, maintenance, or url)'
             ),
         };

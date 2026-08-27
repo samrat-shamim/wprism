@@ -175,6 +175,7 @@ regress-offline-corpus: code-half-unit \
 	regress-graded-claim \
 	regress-graduated-version-range \
 	regress-grind-r1c-manifest-preserve \
+	regress-ideal-onboarding \
 	regress-identity-namespaces \
 	regress-identity-token-codec \
 	regress-init-code-split \

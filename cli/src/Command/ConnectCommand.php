@@ -1,0 +1,247 @@
+<?php
+declare(strict_types=1);
+
+namespace Duo\Orchestrator;
+
+require_once __DIR__ . '/../Onboarding/Adopt.php';
+require_once __DIR__ . '/../Transport/Transport.php';
+require_once __DIR__ . '/../Transport/LocalTransport.php';
+require_once __DIR__ . '/../Transport/DockerTransport.php';
+require_once __DIR__ . '/../Transport/SshTransport.php';
+
+/** Create the local half of a Duo relationship after native read-only probes. */
+final class ConnectCommand {
+    /**
+     * @param list<string> $args everything after `connect`
+     * @param ?callable(string,array<string,mixed>):EnvironmentDriver $transportFactory
+     * @param ?callable(list<string>,?string):array{exit:int,stdout:string,stderr:string} $processRunner
+     */
+    public static function run(
+        array $args,
+        string $sourceRoot,
+        ?callable $transportFactory = null,
+        ?callable $processRunner = null
+    ): int {
+        try {
+            $request = self::parse($args, getcwd() ?: '.');
+            $factory = $transportFactory ?? static fn(string $name, array $config): EnvironmentDriver =>
+                Transport::make($name, $config);
+            $driver = $factory($request['environment'], $request['config']);
+            self::probe($driver);
+            self::createWorkspace($request['workspace'], $request['environment'], $request['config'], $processRunner);
+        } catch (\Throwable $error) {
+            fwrite(STDERR, 'duo: connect: ' . $error->getMessage() . "\n");
+            return 1;
+        }
+
+        $cli = realpath($sourceRoot . '/cli/duo') ?: $sourceRoot . '/cli/duo';
+        echo "Connected read-only: WordPress is reachable and single-site; no target bytes were changed.\n";
+        echo "Workspace: {$request['workspace']}\n";
+        echo "Next:\n";
+        echo '  cd ' . escapeshellarg($request['workspace']) . "\n";
+        echo '  ' . escapeshellarg($cli) . ' onboard ' . escapeshellarg($request['environment']) . "\n";
+        echo "Add --git-url=<url> to onboard to publish the initialized baseline and check it out here automatically.\n";
+        return 0;
+    }
+
+    /**
+     * @return array{environment:string,workspace:string,config:array<string,mixed>}
+     */
+    public static function parse(array $args, string $cwd): array {
+        $environment = array_shift($args);
+        if (!is_string($environment)
+            || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', $environment) !== 1) {
+            throw new \RuntimeException('usage: duo connect <env> --workspace=<path> --transport=ssh|local|docker ...');
+        }
+
+        $values = [];
+        foreach ($args as $arg) {
+            if (!is_string($arg) || preg_match('/^--([a-z][a-z-]*)=(.+)$/D', $arg, $match) !== 1) {
+                throw new \RuntimeException("unsupported argument '$arg'; connect accepts only --name=value flags");
+            }
+            $key = str_replace('-', '_', $match[1]);
+            if (isset($values[$key])) {
+                throw new \RuntimeException("--{$match[1]} was supplied more than once");
+            }
+            $values[$key] = $match[2];
+        }
+
+        $allowed = [
+            'workspace', 'transport', 'host', 'wp_path', 'repo_path', 'ssh_config',
+            'compose_file', 'compose_env_file', 'service', 'profile', 'mode',
+        ];
+        $unknown = array_diff(array_keys($values), $allowed);
+        if ($unknown !== []) {
+            throw new \RuntimeException('unsupported flag --' . str_replace('_', '-', (string) reset($unknown)));
+        }
+        foreach (['workspace', 'transport', 'repo_path'] as $required) {
+            if (!is_string($values[$required] ?? null) || trim((string) $values[$required]) === '') {
+                throw new \RuntimeException('missing required --' . str_replace('_', '-', $required) . '=<value>');
+            }
+        }
+        $transport = (string) $values['transport'];
+        if (!in_array($transport, ['ssh', 'local', 'docker'], true)) {
+            throw new \RuntimeException('--transport must be ssh, local, or docker');
+        }
+        $requiredByTransport = match ($transport) {
+            'ssh' => ['host', 'wp_path'],
+            'docker' => ['compose_file', 'service'],
+            default => ['wp_path'],
+        };
+        foreach ($requiredByTransport as $required) {
+            if (!is_string($values[$required] ?? null) || trim((string) $values[$required]) === '') {
+                throw new \RuntimeException("--transport=$transport requires --" . str_replace('_', '-', $required));
+            }
+        }
+
+        $workspace = self::absolutePath($cwd, (string) $values['workspace']);
+        $config = ['transport' => $transport, '_dir' => dirname($workspace), '_machine_local' => true];
+        foreach (array_diff($allowed, ['workspace', 'transport']) as $key) {
+            if (isset($values[$key])) {
+                $config[$key] = $values[$key];
+            }
+        }
+        if ($transport === 'local') {
+            // Selecting a local target is the explicit machine-local opt-in
+            // LocalTransport requires before adoption can bootstrap it.
+            $config['bootstrap'] = ['format' => LocalTransport::BOOTSTRAP_FORMAT];
+        }
+
+        return ['environment' => $environment, 'workspace' => $workspace, 'config' => $config];
+    }
+
+    private static function probe(EnvironmentDriver $driver): void {
+        $reachable = $driver->captureRaw('echo duo-connect-ready');
+        if ($reachable['exit'] !== 0 || trim($reachable['stdout']) !== 'duo-connect-ready') {
+            throw new \RuntimeException('target transport is not reachable; no workspace was created');
+        }
+        $wordpress = $driver->captureWp(['core', 'is-installed']);
+        if ($wordpress['exit'] !== 0) {
+            throw new \RuntimeException('WordPress is not installed or wp-cli cannot read it; no workspace was created');
+        }
+        $topology = $driver->captureWp(['eval', 'echo is_multisite() ? "multisite" : "single-site";']);
+        if ($topology['exit'] !== 0 || trim($topology['stdout']) !== 'single-site') {
+            throw new \RuntimeException('the certified onboarding path supports single-site WordPress only; no workspace was created');
+        }
+    }
+
+    /** @param array<string,mixed> $config */
+    private static function createWorkspace(
+        string $workspace,
+        string $environment,
+        array $config,
+        ?callable $processRunner
+    ): void {
+        if (is_link($workspace) || (file_exists($workspace) && !is_dir($workspace))) {
+            throw new \RuntimeException("workspace is not an ordinary directory: $workspace");
+        }
+        if (is_dir($workspace)) {
+            $entries = array_values(array_diff(scandir($workspace) ?: [], ['.', '..']));
+            if ($entries !== []) {
+                throw new \RuntimeException("workspace is not empty: $workspace");
+            }
+        } elseif (!mkdir($workspace, 0700, true) && !is_dir($workspace)) {
+            throw new \RuntimeException("could not create workspace: $workspace");
+        }
+
+        $overlayConfig = $config;
+        unset($overlayConfig['_dir'], $overlayConfig['_machine_local']);
+        $overlay = json_encode(
+            ['envs' => [$environment => $overlayConfig]],
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
+        );
+        if (!is_string($overlay)) {
+            throw new \RuntimeException('could not encode the machine-local environment registry');
+        }
+
+        try {
+            self::writeNew($workspace . '/site.duo.json', Adopt::repositorySeedBytes(), 0644);
+            self::writeNew($workspace . '/.gitignore', Adopt::repositoryGitignoreBytes(), 0644);
+            self::writeNew($workspace . '/.duo-envs.json', $overlay . "\n", 0600);
+            $run = $processRunner ?? self::runProcess(...);
+            $git = $run(['git', 'init', '--initial-branch=main', $workspace], null);
+            if ($git['exit'] !== 0 || !is_dir($workspace . '/.git')) {
+                throw new \RuntimeException('could not initialize the workspace Git boundary: ' . trim($git['stderr']));
+            }
+        } catch (\Throwable $error) {
+            self::removeOwnedWorkspace($workspace);
+            throw $error;
+        }
+    }
+
+    private static function writeNew(string $path, string $bytes, int $mode): void {
+        if (file_exists($path) || is_link($path)) {
+            throw new \RuntimeException("refusing to overwrite $path");
+        }
+        if (file_put_contents($path, $bytes, LOCK_EX) !== strlen($bytes) || !chmod($path, $mode)) {
+            throw new \RuntimeException("could not publish $path");
+        }
+    }
+
+    private static function removeOwnedWorkspace(string $workspace): void {
+        foreach (['site.duo.json', '.gitignore', '.duo-envs.json'] as $name) {
+            $path = $workspace . '/' . $name;
+            if (is_file($path) && !is_link($path)) {
+                unlink($path);
+            }
+        }
+        $git = $workspace . '/.git';
+        if (is_dir($git) && !is_link($git)) {
+            self::removeTree($git);
+        }
+        @rmdir($workspace);
+    }
+
+    private static function removeTree(string $root): void {
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($iterator as $entry) {
+            $path = $entry->getPathname();
+            $entry->isDir() && !$entry->isLink() ? rmdir($path) : unlink($path);
+        }
+        rmdir($root);
+    }
+
+    private static function absolutePath(string $cwd, string $path): string {
+        if ($path === '' || str_contains($path, "\0")) {
+            throw new \RuntimeException('--workspace must name a non-empty path');
+        }
+        $absolute = str_starts_with($path, '/') ? $path : rtrim($cwd, '/') . '/' . $path;
+        $parent = realpath(dirname($absolute));
+        if ($parent === false) {
+            $grandparent = realpath(dirname(dirname($absolute)));
+            if ($grandparent === false) {
+                throw new \RuntimeException('workspace parent must be inside an existing directory');
+            }
+            $parent = $grandparent . '/' . basename(dirname($absolute));
+        }
+        return rtrim($parent, '/') . '/' . basename($absolute);
+    }
+
+    /** @return array{exit:int,stdout:string,stderr:string} */
+    private static function runProcess(array $argv, ?string $cwd): array {
+        $process = @proc_open(
+            $argv,
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $cwd,
+            null,
+            ['bypass_shell' => true]
+        );
+        if (!is_resource($process)) {
+            return ['exit' => 127, 'stdout' => '', 'stderr' => 'could not start process'];
+        }
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return [
+            'exit' => proc_close($process),
+            'stdout' => is_string($stdout) ? $stdout : '',
+            'stderr' => is_string($stderr) ? $stderr : '',
+        ];
+    }
+}

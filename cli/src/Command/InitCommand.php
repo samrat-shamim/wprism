@@ -23,7 +23,8 @@ final class InitCommand {
         array $extra,
         callable $renderRefusal,
         callable $statusRunner,
-        callable $readLine
+        callable $readLine,
+        bool $renderNextSteps = true
     ): int {
         $yes = false;
         $allowUnmanagedPlugins = false;
@@ -172,12 +173,14 @@ final class InitCommand {
             fwrite(STDERR, "duo: initialization captured a baseline, but the selected managed scope is not clean\n");
             return $status;
         }
-        foreach (Init::nextSteps(
-            $transport->name(),
-            (string) ($result['state']['repository'] ?? $transport->repoPath()),
-            $lockPlan !== null && CodeClassifier::lockRows($lockPlan) !== []
-        ) as $line) {
-            echo $line . "\n";
+        if ($renderNextSteps) {
+            foreach (Init::nextSteps(
+                $transport->name(),
+                (string) ($result['state']['repository'] ?? $transport->repoPath()),
+                $lockPlan !== null && CodeClassifier::lockRows($lockPlan) !== []
+            ) as $line) {
+                echo $line . "\n";
+            }
         }
         return 0;
     }

@@ -44,6 +44,8 @@ require __DIR__ . '/src/Command/DoctorCommand.php';
 require __DIR__ . '/src/Transport/CodeDeploy.php';
 require __DIR__ . '/src/Command/DeployCommand.php';
 require __DIR__ . '/src/Command/AdoptCommand.php';
+require __DIR__ . '/src/Command/ConnectCommand.php';
+require __DIR__ . '/src/Command/DemoCommand.php';
 require __DIR__ . '/src/Command/ScopeCommand.php';
 require __DIR__ . '/src/Plan/PlanContract.php';
 require __DIR__ . '/src/Plan/PlanSummary.php';
@@ -160,6 +162,9 @@ require __DIR__ . '/src/Command/VerifyCommand.php';
 require __DIR__ . '/src/Command/ReleaseCommand.php';
 require __DIR__ . '/src/Command/RecoverCommand.php';
 require __DIR__ . '/src/Command/RehearseCommand.php';
+// The guided composition requires Adopt, Assess, Init, and Status itself;
+// load it after all four plain-require owners above to avoid redeclaration.
+require __DIR__ . '/src/Command/OnboardCommand.php';
 // Pure immutable-contract validation for host-local --scope-contract files.
 // These classes perform no WordPress bootstrap or target access here.
 require_once dirname(__DIR__) . '/agent/src/Kernel/Canon.php';
@@ -279,6 +284,9 @@ use Duo\Orchestrator\DriverCapabilitiesCommand;
 use Duo\Orchestrator\EnvironmentListCommand;
 use Duo\Orchestrator\DoctorCommand;
 use Duo\Orchestrator\AdoptCommand;
+use Duo\Orchestrator\ConnectCommand;
+use Duo\Orchestrator\OnboardCommand;
+use Duo\Orchestrator\DemoCommand;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\RefreshCommand;
 use Duo\Orchestrator\RebaseCommand;
@@ -332,6 +340,9 @@ Usage:
   duo adapter-observe <env> [--out=<local-file>|--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
+  duo connect <env> --workspace=<path> --transport=ssh --host=<ssh-host>
+              --wp-path=<path> --repo-path=<path> [--ssh-config=<path>]
+  duo onboard <env> [--git-url=<url>] [init flags...]
   duo adopt  <env>
   duo init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
   duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
@@ -343,6 +354,11 @@ Usage:
   duo rehearse <env> --from <production-env> [--branch <ref>] [--create]
                      [--ttl <seconds>] [--limit=<1..200>] [--format=json]
   duo rehearse <env> --reap [--format=json]
+  duo preview create <env> --from <production-env> [rehearse flags...]
+  duo preview remove <env> [--format=json]
+  duo demo start [--scenario=woocommerce] [--name=<name>]
+                 [--source-port=<port>] [--target-port=<port>]
+  duo demo status|capture|apply|refusal|stop [--name=<name>]
   duo release <env> [--from=<ref>] [--plan-only] [--profile=<p>]
                     [--accept-weaker-recovery] [--with-deletes] [--yes]
                     [--limit=<1..200>] [--format=json]
@@ -1513,6 +1529,24 @@ function main(array $argv): int {
     if ($verb === 'env') {
         return cmd_environment($rest, $envsFileOverride);
     }
+    if ($verb === 'connect') {
+        return ConnectCommand::run($rest, dirname(__DIR__));
+    }
+    if ($verb === 'demo') {
+        return DemoCommand::run($rest, dirname(__DIR__));
+    }
+    if ($verb === 'preview') {
+        $action = array_shift($rest);
+        if ($action === 'create') {
+            $verb = 'rehearse';
+        } elseif ($action === 'remove') {
+            $verb = 'rehearse';
+            $rest[] = '--reap';
+        } else {
+            fwrite(STDERR, "duo: preview requires create or remove\n");
+            return 1;
+        }
+    }
 
     // No environment, no transport, no registry: this one reads manifest files
     // on this machine and drives the engine's own offline validators over them.
@@ -1730,6 +1764,12 @@ function main(array $argv): int {
     return match ($verb) {
         'doctor' => cmd_doctor($transport),
         'adopt' => cmd_adopt($transport, $extra),
+        'onboard' => OnboardCommand::run(
+            $transport,
+            $extra,
+            dirname(__DIR__),
+            ['status' => static fn(EnvironmentDriver $driver): int => cmd_status($driver, [], $envsFileOverride)]
+        ),
         'init' => cmd_init($transport, $extra, $envsFileOverride),
         'status' => cmd_status($transport, $extra, $envsFileOverride),
         'assess' => cmd_assess($transport, $extra),

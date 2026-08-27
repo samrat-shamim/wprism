@@ -1,5 +1,5 @@
 {
-    "class_count": 399,
+    "class_count": 402,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -24236,6 +24236,30 @@
                     "return_type": "array",
                     "static": true,
                     "visibility": "public"
+                },
+                "repositoryGitignoreBytes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "repositorySeed": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "repositorySeedBytes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
                 }
             },
             "parent": null,
@@ -27842,6 +27866,84 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\ConnectCommand": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "parse": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "cwd",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "transportFactory",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "processRunner",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\ContractAttestation": {
             "abstract": false,
             "constants": {
@@ -28628,6 +28730,68 @@
                     ],
                     "return_type": "void",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\DemoCommand": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "options": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
                     "visibility": "public"
                 }
             },
@@ -31287,6 +31451,14 @@
                             "name": "readLine",
                             "type": "callable",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": true,
+                            "has_default": true,
+                            "name": "renderNextSteps",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "int",
@@ -32452,6 +32624,76 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\OnboardCommand": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "options": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "steps",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
                     "static": true,
                     "visibility": "public"
                 }
