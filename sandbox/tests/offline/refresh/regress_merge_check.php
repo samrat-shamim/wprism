@@ -30,6 +30,10 @@ declare(strict_types=1);
 // From offline/refresh/: two hops to the corpus root, four to the repo root.
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../../../cli/src/Refresh/MergeCheck.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../lib/frozen_policy.php';
 
 use Duo\Orchestrator\Refresh;
 
@@ -347,6 +351,32 @@ PHP);
 mc_write($probe . '/state/options/core.json', mc_options());
 mc_write($probe . '/' . $pathX, mc_post($X, 'x', 'X title', 'open', ['_probe' => '{{post:' . $Y . '}}']));
 mc_write($probe . '/' . $pathY, mc_post($Y, 'y', 'Y title'));
+\DuoTest\FrozenPolicy::adapterLibrary($probe . '/manifests');
+mc_write(
+    $probe . '/adapter-packages/probe/package/manifest.json',
+    (string) file_get_contents($probe . '/manifests/probe.json')
+);
+mc_write(
+    $probe . '/adapter-packages/probe/package/disposition.json',
+    (string) file_get_contents($probe . '/manifests/dispositions/probe.json')
+);
+mc_write(
+    $probe . '/adapter-packages/probe/package/runtime/interpreters/probe.php',
+    (string) file_get_contents($probe . '/manifests/interpreters/probe.php')
+);
+foreach ([
+    'core/manifest.json',
+    'core/disposition.json',
+    'profiles.json',
+    'capabilities/platform.json',
+    'capabilities/adapter-authorities.json',
+] as $relative) {
+    mc_write(
+        $probe . '/platform/adapter-library/' . $relative,
+        (string) file_get_contents($repoRoot . '/platform/adapter-library/' . $relative)
+    );
+}
+mc_remove($probe . '/manifests');
 mc_git($probe, ['add', '.']);
 mc_git($probe, ['commit', '-qm', 'probe base with a resolvable typed reference']);
 $probeResolvable = mc_run($duo, $probe, ['merge-check', '--format=json']);

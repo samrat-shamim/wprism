@@ -321,19 +321,26 @@ final class RefreshPlan {
             );
         }
 
-        // Historical Git refs still carry the pre-package layout. Reading an
-        // explicitly named ref is the one bounded compatibility use for the
-        // strict legacy reader; it never changes the active runtime library or
-        // consults process state.
-        return $operation(
-            \Duo\Policy::load(
-                $root,
-                null,
-                false,
-                null,
-                \Duo\AdapterLibrary::fromLegacyFlatDirectory($root . '/manifests')
-            )
-        );
+        $legacy = $root . '/manifests';
+        if (is_dir($legacy)) {
+            // Historical Git refs may still carry the pre-package layout.
+            // Reading that explicitly named ref is the one bounded use for
+            // the strict legacy reader; it never changes runtime discovery.
+            return $operation(
+                \Duo\Policy::load(
+                    $root,
+                    null,
+                    false,
+                    null,
+                    \Duo\AdapterLibrary::fromLegacyFlatDirectory($legacy)
+                )
+            );
+        }
+
+        // A normal site repository owns adapters/ and canonical state, not the
+        // engine's shipped library. Compile it against the library belonging
+        // to this process, exactly as an ordinary Policy::load($root) does.
+        return $operation(\Duo\Policy::load($root));
     }
 
     /** @return array<string,mixed> */
