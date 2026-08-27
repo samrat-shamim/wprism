@@ -81,6 +81,18 @@ both source and post-deploy target fixtures, and added value-level readiness
 checks for all four tables, the database version marker and default groups.
 No raw SQL schema creation and no user decision were needed.
 
+The replacement run found a second fixture assumption at the target identity
+boundary. A target-only mapped row must be minted before first apply, but a
+capture against `/siterepo` already sees the source's canonical mapped UUIDs;
+with no target ledger for those source UUIDs, capture correctly refused with
+`mapped identity history is missing`. The agent retained the target for
+diagnosis, proved its onboarding and hostile rows were intact, then used the
+normal minting capture against an isolated disposable policy root containing
+the same `site.duo.json`. That established identities only for the target's
+current rows and left the real source branch untouched. The fixture now encodes
+that ordering and an offline regression prevents the invalid canonical-root
+shortcut from returning.
+
 After that public onboarding step, the agent used Redirection's `Red_Group`,
 `Red_Item` and `Red_Options` APIs to create a realistic summer marketplace
 campaign:

@@ -92,11 +92,17 @@ NEGATIVE_CODE=$(curl --max-time 20 -sS -o /dev/null -w '%{http_code}' "http://lo
   || fail "Redirection target cache/log premises failed (redirect=$TARGET_REDIRECT_CODE missing=$TARGET_MISSING_CODE negative=$NEGATIVE_CODE)"
 
 # A populated mapped row needs its own target identity before the repository's
-# unrelated mapped graph is applied. The disposable output is never published;
-# only the database-matched duo_map evidence survives.
-TARGET_IDENTITY_CAPTURE=$(wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-redirection-target-identity 2>&1)
+# unrelated mapped graph is applied. Capture against an isolated policy root:
+# using /siterepo directly would expose the source's canonical mapped UUIDs to
+# a database with no corresponding target ledger and correctly refuse as a
+# lost identity sidecar. The disposable state is never published; only the
+# database-matched duo_map evidence survives.
+IDENTITY_REPO="${CONF_REPO2:-siterepo/conf2}/.tmp-redirection-identity-repo"
+mkdir -p "$IDENTITY_REPO"
+cp "${CONF_REPO2:-siterepo/conf2}/site.duo.json" "$IDENTITY_REPO/site.duo.json"
+TARGET_IDENTITY_CAPTURE=$(wp_conf2 duo capture --repo=/siterepo/.tmp-redirection-identity-repo 2>&1)
 require_duo_answered "Redirection target-only identity capture" human "$TARGET_IDENTITY_CAPTURE"
-rm -rf "${CONF_REPO2:-siterepo/conf2}/.tmp-redirection-target-identity"
+rm -rf "$IDENTITY_REPO"
 RUNTIME=$(wp_conf2 eval '
   global $wpdb;
   echo wp_json_encode([
