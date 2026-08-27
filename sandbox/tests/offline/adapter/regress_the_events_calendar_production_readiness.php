@@ -779,7 +779,7 @@ function tec_readiness_native_boundary(string $boundary): void {
 /** Exact TEC 6.17.2/6.17.3 schema, identity, and refusal boundary. */
 
 if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+    define('DUO_SPEC_VERSION', 3);
 }
 
 require_once __DIR__ . '/../../lib/check.php';
@@ -4542,7 +4542,9 @@ add_action('tribe_log', [$GLOBALS['tec_readiness_log_provider'], 'dispatch_log']
 $colorDb = FakeWpdb::install();
 tec_readiness_sync_color_db();
 
-$colorProvider = new TheEventsCalendarCategoryColors($policy);
+$colorProvider = new TheEventsCalendarCategoryColors(
+    $policy->provider_declarations()['the-events-calendar-category-colors']
+);
 duo_check_same(
     [
         'id' => 'the-events-calendar-category-colors',
@@ -4577,7 +4579,7 @@ $colorCapabilityDigest = \Duo\Providers::scoped_capability_digest(
     $colorCapability
 );
 duo_check_same(
-    'c9520f2c4f79439396c46b152c2ee385407d9d3e02948b05ccd9025c48248622',
+    '4b0ae552a157dcccd1856b3111bce6109db3273fa0730735f7fc57ae44b1c862',
     $colorCapabilityDigest,
     'the provider capability digest binds both declared native effects'
 );

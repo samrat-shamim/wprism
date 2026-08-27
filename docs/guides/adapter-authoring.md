@@ -771,7 +771,7 @@ implements is refused as unimplemented rather than admitted as forward-looking.
 The document's own `engine_features` block is the authoritative, live list —
 read `engine_features.implemented` rather than trusting a count written on this
 page, because a feature ships by adding an `IMPLEMENTED_FEATURES` row, not by
-editing this paragraph. Six are implemented as of this engine: `spec-window/v1`
+editing this paragraph. Seven are implemented as of this engine: `spec-window/v1`
 claims `engine_features` itself, so declaring it is what lets you declare the
 list at all; `attr-id-codecs/v1` claims `attr_id_codecs`, the byte-exact
 block-attribute codec; `typed-column-codecs/v1` claims `column_codecs`;
@@ -783,21 +783,20 @@ post/option bodies; `structured-evidence/v1` claims `declaration_evidence`
 and every target's HEAD a top-level key the same manifest declares; it is where
 a ratified `duo adapter-draft` proposal's evidence goes instead of being
 deleted with the `_draft` sidecar, and `notes` is unaffected and keeps whatever
-it already carries; and `invalidate-vocabulary/v1` claims no key at all — it
+it already carries; `manifest-provider-runtime/v1` claims no key and moves
+manifest-owned identity, capability advertising, dispatch, scoped receipts,
+and recovery routing into the engine-owned provider runtime; and
+`invalidate-vocabulary/v1` claims no key at all — it
 widens a value vocabulary inside a section that already exists, legitimate
 under § v3.3's growth rule. A record whose addressed `declaration_evidence` is
 later deleted refuses at load, which is the point.
 
-**Before declaring any of the six** — including the shipped, working
-`attr-id-codecs/v1` fix for a faithful block-attribute round trip — know what
-it costs: an adapter that declares the top-level `engine_features` key at all
-is not certifiable today. The signer's own `topLevelKeyPartition()` has no arm
-for a feature-claimed key, nor for the channel that claims it (§ v3.3/§ v3.14),
-so `duo adapter certify`/`sign-site` refuse it **by name**, before ever reaching
-the section the feature admits. The manifest still loads, pins, plans and
-applies; it just never reads `Site-certified`. Decide this at the
-`spec_version` bullet above, not after certify has already refused — that
-bullet states the trade-off at the point you make it.
+**Before declaring any of the seven**, know that the declaration moves this
+adapter's manifest bytes and therefore its digest and pins. The signer classifies
+feature-claimed keys from the same roster row that admits them (§ v3.21), so a
+declared feature is certifiable when its ordinary disposition/evidence contract
+is satisfied; a value-vocabulary feature such as
+`manifest-provider-runtime/v1` claims no additional certificate surface.
 
 `top_level_keys` is the signer's own closed partition of
 manifest top-level keys — the set that decides whether an adapter can be

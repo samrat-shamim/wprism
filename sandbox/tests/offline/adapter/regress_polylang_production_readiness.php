@@ -449,6 +449,7 @@ namespace Duo {
 }
 
 namespace {
+    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
     require_once dirname(__DIR__, 4) . '/manifests/providers/polylang-nav-menus.php';
     require_once dirname(__DIR__, 4) . '/manifests/interpreters/polylang.php';
 
@@ -691,7 +692,13 @@ namespace {
         $GLOBALS['pll_term_meta'] = [];
         $GLOBALS['pll_cleaned_terms'] = [];
         $GLOBALS['pll_runtime'] = (object) ['model' => new PllNativeModel()];
-        return new PolylangNavMenus(new \Duo\Policy());
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/polylang.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        return new PolylangNavMenus($manifest['providers'][0]);
     }
 
     function pll_operation(): array {

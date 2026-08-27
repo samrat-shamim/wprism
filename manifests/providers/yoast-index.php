@@ -1,7 +1,7 @@
 <?php
 namespace Duo\Providers;
 
-use Duo\Policy;
+use Duo\ManifestProviderRuntime;
 use Duo\WpCliChildProcess;
 
 if (!class_exists(WpCliChildProcess::class, false)) {
@@ -16,9 +16,7 @@ if (!class_exists(WpCliChildProcess::class, false)) {
  * rebuilds anything, so this provider verifies all four schemas before that
  * boundary and binds the receipt to relational postconditions afterward.
  */
-final class YoastIndex {
-    private Policy $policy;
-
+final class YoastIndex extends ManifestProviderRuntime {
     private const COMMAND = 'yoast index --reindex --skip-confirmation';
     private const INDEXABLE_TABLE = 'yoast_indexable';
     private const HIERARCHY_TABLE = 'yoast_indexable_hierarchy';
@@ -37,92 +35,8 @@ final class YoastIndex {
         ],
     ];
 
-    public function __construct(Policy $policy) {
-        $this->policy = $policy;
-    }
-
-    /** @return array{id:string, plugin:string, version:string} */
-    public function identity(): array {
-        return [
-            'id' => 'yoast-index',
-            'plugin' => 'wordpress-seo/wp-seo.php',
-            'version' => '2.0.0',
-        ];
-    }
-
-    /**
-     * 600 seconds is retained because the plugin command walks every public
-     * post and term. The writes list matches Index_Command's exact 28.3
-     * actions, including Primary_Term_Builder and the post/term link passes.
-     */
-    public function capabilities(): array {
-        return [
-            'reindex' => [
-                'args' => [],
-                'reads' => [
-                    'table:postmeta',
-                    'table:posts',
-                    'table:term_taxonomy',
-                    'table:terms',
-                    'table:yoast_indexable',
-                    'table:yoast_indexable_hierarchy',
-                    'table:yoast_primary_term',
-                    'table:yoast_seo_links',
-                ],
-                'writes' => [
-                    'table:yoast_indexable',
-                    'table:yoast_indexable_hierarchy',
-                    'table:yoast_primary_term',
-                    'table:yoast_seo_links',
-                ],
-                'scope' => 'site',
-                'idempotent' => true,
-                'timeout_seconds' => 600,
-                'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
-                    'reconcile' => true,
-                ],
-            ],
-        ];
-    }
-
-    /** @param array<string,mixed> $args */
-    public function invoke(string $capability, array $args): array {
-        return match ($capability) {
-            'reindex' => $this->reindex(),
-            default => throw new \RuntimeException(
-                "duo: Yoast index provider does not implement capability '$capability'"
-            ),
-        };
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function invoke_scoped(string $capability, array $args, array $operation): array {
-        $receipt = $this->invoke($capability, $args);
-        return [
-            'operation' => $operation,
-            'before' => $receipt['before'],
-            'after' => $receipt['after'],
-            'verified' => true,
-        ];
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function reconcile_scoped(string $capability, array $args, array $operation): array {
-        if ($capability !== 'reindex') {
-            throw new \RuntimeException(
-                "duo: Yoast index provider does not implement capability '$capability'"
-            );
-        }
-        return [
-            'operation' => $operation,
-            'after' => $this->projection_snapshot(true),
-            'verified' => true,
-        ];
-    }
-
     /** @return array{before:array,after:array,verified:true} */
-    private function reindex(): array {
+    protected function invoke_reindex(array $args): array {
         if (!class_exists('\WP_CLI')) {
             throw new \RuntimeException(
                 "duo: Yoast reindex runs the plugin's own '" . self::COMMAND
@@ -161,6 +75,11 @@ final class YoastIndex {
             );
         }
         return ['before' => $before, 'after' => $after, 'verified' => true];
+    }
+
+    /** @return array<string,mixed> */
+    protected function reconcile_reindex(array $args): array {
+        return $this->projection_snapshot(true);
     }
 
     /**

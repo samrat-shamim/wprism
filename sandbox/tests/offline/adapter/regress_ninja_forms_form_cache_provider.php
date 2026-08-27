@@ -50,6 +50,8 @@ namespace Duo {
 }
 
 namespace {
+    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ProviderSdk.php';
+    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
     require_once dirname(__DIR__, 4) . '/manifests/providers/ninja-forms-form-cache.php';
 
     use Duo\Providers\NinjaFormsFormCache;
@@ -308,7 +310,13 @@ namespace {
             ['option_id' => 2, 'option_name' => 'nf_form_77', 'option_value' => serialize(['orphan' => $secret]), 'autoload' => 'yes'],
             ['option_id' => 3, 'option_name' => 'ninja_forms_target_runtime', 'option_value' => 'target-owned', 'autoload' => 'yes'],
         ]);
-        return new NinjaFormsFormCache(new \Duo\Policy());
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/ninja-forms.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        return new NinjaFormsFormCache($manifest['providers'][0]);
     }
 
     /** @return array<string,string> */

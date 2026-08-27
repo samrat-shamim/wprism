@@ -1,6 +1,7 @@
 {
-  "spec_version": 2,
+  "spec_version": 3,
   "name": "polylang",
+  "engine_features": ["manifest-provider-runtime/v1", "spec-window/v1"],
   "option_autoload": "preserve",
   "plugin": "polylang/polylang.php",
   "version_range": {
@@ -35,7 +36,33 @@
   ],
   "interpreter": "polylang",
   "providers": [
-    {"id": "polylang-nav-menus", "version": "2.0.0", "source": "manifest", "plugin": "polylang/polylang.php", "capabilities": ["synchronize_runtime"]}
+    {
+      "id": "polylang-nav-menus",
+      "version": "2.0.0",
+      "source": "manifest",
+      "plugin": "polylang/polylang.php",
+      "capabilities": ["synchronize_runtime"],
+      "contracts": {
+        "synchronize_runtime": {
+          "args": {},
+          "reads": [
+            "option:polylang",
+            "option:stylesheet",
+            "option:default_category",
+            "term:language",
+            "entity:nav-menu"
+          ],
+          "writes": ["entity:theme-mods-nav-menu-locations", "option:default_category"],
+          "scope": "site",
+          "idempotent": true,
+          "timeout_seconds": 120,
+          "scoped": {
+            "operation_envelope": "duo-scoped-effect-operation/v1",
+            "reconcile": true
+          }
+        }
+      }
+    }
   ],
   "actions": [
     {

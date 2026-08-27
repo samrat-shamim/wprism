@@ -80,6 +80,7 @@ namespace Yoast\WP\Duplicate_Post {
 }
 
 namespace {
+    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
     require_once dirname(__DIR__, 4) . '/manifests/providers/yoast-duplicate-post-role-capabilities.php';
 
     use Duo\Providers\YoastDuplicatePostRoleCapabilities;
@@ -118,7 +119,13 @@ namespace {
         $GLOBALS['ydp_inaccessible_role'] = null;
     }
 
-    $provider = new YoastDuplicatePostRoleCapabilities(new \Duo\Policy());
+    $manifest = json_decode(
+        (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/yoast-duplicate-post.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $provider = new YoastDuplicatePostRoleCapabilities($manifest['providers'][0]);
     duo_check_same(
         [
             'id' => 'yoast-duplicate-post-role-capabilities',

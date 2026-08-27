@@ -400,45 +400,24 @@ register_shutdown_function(static fn() => rehearsal_remove_tree($estate));
 echo "\n== the estate, built by the pre-flag agent ==\n";
 $materialized = rehearsal_pass($driver, $estate, 'A', 'materialize');
 
-// The multilingual cohort is deliberately digest-pinned alongside the shop
-// cohort, so Polylang must remain in the actual pre-flag estate rather than
-// being removed to make a newer interpreter load. Its native primary option is
-// a complete portable object; `value: []`, an incomplete object, or a
-// topology-bound mode is a different state and the interpreter rightly
-// refuses it. Inspect the bytes emitted by the state-A builder so turning the
-// row back into the generic absent/list fixture cannot be hidden by later
-// observation summaries.
-$multilingualOptions = json_decode(
-    (string) file_get_contents($estate . '/sites/multilingual/state/options/core.json'),
-    false,
+// Post-flag per-adapter restamps are a different migration from the flag day
+// this estate isolates. Both digest-pinned cohorts therefore use only the
+// seven manifests still at v2; otherwise state A would be asked to load bytes
+// that were deliberately authored after it ceased to be current.
+$multilingualSite = json_decode(
+    (string) file_get_contents($estate . '/sites/multilingual/site.duo.json'),
+    true,
     512,
     JSON_THROW_ON_ERROR
 );
-$multilingualPolylang = $multilingualOptions->records->polylang ?? null;
-duo_check(
-    is_object($multilingualPolylang)
-        && ($multilingualPolylang->state ?? null) === 'present'
-        && ($multilingualPolylang->autoload ?? null) === 'yes'
-        && isset($multilingualPolylang->value)
-        && is_object($multilingualPolylang->value)
-        && array_keys((array) $multilingualPolylang->value) === [
-            'browser', 'default_lang', 'force_lang', 'hide_default', 'media_support', 'nav_menus', 'post_types',
-            'redirect_lang', 'rewrite', 'sync', 'taxonomies',
-        ]
-        && $multilingualPolylang->value->browser === false
-        && $multilingualPolylang->value->default_lang === ''
-        && $multilingualPolylang->value->force_lang === 1
-        && $multilingualPolylang->value->hide_default === true
-        && $multilingualPolylang->value->media_support === true
-        && is_object($multilingualPolylang->value->nav_menus)
-        && (array) $multilingualPolylang->value->nav_menus === []
-        && $multilingualPolylang->value->post_types === []
-        && $multilingualPolylang->value->redirect_lang === false
-        && $multilingualPolylang->value->rewrite === true
-        && $multilingualPolylang->value->sync === []
-        && $multilingualPolylang->value->taxonomies === [],
-    'the pre-flag multilingual cohort retains Polylang and writes its complete portable native option namespace as '
-    . 'a present object, so immutable authorization exercises the current interpreter instead of a list-shaped fixture'
+$multilingualPins = array_map(
+    static fn(array $pin): string => (string) ($pin['name'] ?? ''),
+    (array) ($multilingualSite['manifests'] ?? [])
+);
+duo_check_same(
+    ['core', 'contact-form-7', 'wps-hide-login'],
+    $multilingualPins,
+    'the historical flag-day cohort pins only retained-v2 adapters, keeping later per-adapter restamps out of this drill'
 );
 $observedA = rehearsal_pass($driver, $estate, 'A', 'observe');
 $observedB = rehearsal_pass($driver, $estate, 'B', 'observe');

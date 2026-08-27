@@ -1212,9 +1212,13 @@ namespace {
     require dirname(__DIR__, 4) . '/agent/src/Adapter/Providers.php';
     require dirname(__DIR__, 4) . '/manifests/providers/woocommerce-product-lookups.php';
 
-    $reflection = new \ReflectionClass(\Duo\Policy::class);
-    $policy = $reflection->newInstanceWithoutConstructor();
-    $adapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+    $manifest = json_decode(
+        (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/woocommerce.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $adapter = new \Duo\Providers\WoocommerceProductLookups($manifest['providers'][1]);
     // These are the real WordPress/WooCommerce filter seams. Keep the args
     // filters identity-preserving so the registration assertions below pin
     // Woo's exact defaults; make the public object filter visibly change its

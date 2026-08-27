@@ -290,9 +290,16 @@ namespace Code_Snippets {
 }
 
 namespace {
+    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
     require_once dirname(__DIR__, 4) . '/manifests/providers/code-snippets-state.php';
 
-    $provider = new \Duo\Providers\CodeSnippetsState(new \Duo\Policy());
+    $manifest = json_decode(
+        (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/code-snippets.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $provider = new \Duo\Providers\CodeSnippetsState($manifest['providers'][0]);
     $capabilities = $provider->capabilities();
     duo_check_same(
         [
@@ -305,6 +312,7 @@ namespace {
             'scoped' => [
                 'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
                 'reconcile' => true,
+                'invoke_after' => 'reconcile',
             ],
         ],
         $capabilities['rebuild_snippet_state'] ?? null,

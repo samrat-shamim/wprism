@@ -20,6 +20,7 @@ require_once __DIR__ . '/src/Kernel/UserMetaState.php';
 require_once __DIR__ . '/src/Kernel/Db.php';
 require_once __DIR__ . '/src/Apply/CacheInvalidationTransaction.php';
 require_once __DIR__ . '/src/Adapter/ProviderSdk.php';
+require_once __DIR__ . '/src/Adapter/ManifestProviderRuntime.php';
 require_once __DIR__ . '/src/Kernel/Secrets.php';
 require_once __DIR__ . '/src/Kernel/CommandRefusal.php';
 // Beside CommandRefusal because that is its one dependency, and ahead of every

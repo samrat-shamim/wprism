@@ -260,15 +260,15 @@ function rehearsal_site_plan(): array {
         'pinned-shop' => [
             'kind' => 'cohort',
             'pins' => ['digest'],
-            'shipped' => ['core', 'woocommerce'],
+            'shipped' => ['core', 'advanced-editor-tools'],
             'holds' => ['scope_contract', 'identity_sidecar', 'checkpoint'],
-            'about' => 'exact content pins — the shape a flag day would break first if any digest moved',
+            'about' => 'exact content pins over retained v2 adapters — the shape the flag day would break first',
         ],
         'multilingual' => [
             'kind' => 'cohort',
             'pins' => ['digest'],
-            'shipped' => ['core', 'polylang', 'yoast'],
-            'about' => 'a second digest-pinned set, so a single adapter cannot carry the neutrality claim',
+            'shipped' => ['core', 'contact-form-7', 'wps-hide-login'],
+            'about' => 'a second retained-v2 digest-pinned set, so a single adapter cannot carry the neutrality claim',
         ],
         'certified-alpha' => [
             'kind' => 'cohort',
@@ -1719,11 +1719,10 @@ function rehearsal_registry_probes(string $estate, string $state): array {
                 ));
         }
     );
-    // A provider action whose manifest-shipped code is NOT in the library. The
-    // library is the one this state ships minus one provider file, which is
-    // also why the site here pins by bare name: deleting the file moves that
-    // manifest's row (rule 2), so a content pin would refuse at load and the
-    // probe would never reach the projection it is about.
+    // A provider action whose manifest-shipped code is NOT in the library.
+    // State A predates the later per-adapter provider-runtime migration, so its
+    // probe projects Woo's current declaration back onto the legacy v2 shape;
+    // that is a fixture input, not a compatibility path in product code.
     $probe(
         'agent/src/Adapter/AdapterRegistry.php::provider_readiness_blockers',
         'Policy::provider_readiness_blockers(<action whose manifest-shipped provider file is missing>)',
@@ -1731,6 +1730,18 @@ function rehearsal_registry_probes(string $estate, string $state): array {
         static function () use ($lib, $scratch): string {
             $providerLib = $scratch . '/provider-missing-lib';
             rehearsal_copy_tree($lib, $providerLib);
+            if (DUO_SPEC_VERSION === 2) {
+                $woocommerce = \Duo\Canon::decode(\Duo\Canon::read_file($providerLib . '/woocommerce.json'));
+                $woocommerce['spec_version'] = 2;
+                unset($woocommerce['engine_features']);
+                foreach ((array) ($woocommerce['providers'] ?? []) as $index => $declaration) {
+                    if (is_array($declaration)) {
+                        unset($declaration['contracts']);
+                        $woocommerce['providers'][$index] = $declaration;
+                    }
+                }
+                rehearsal_write_canon($providerLib . '/woocommerce.json', $woocommerce);
+            }
             @unlink($providerLib . '/providers/woocommerce-cache.php');
             $providerSite = $scratch . '/provider-missing-site';
             rehearsal_mkdir($providerSite . '/state');

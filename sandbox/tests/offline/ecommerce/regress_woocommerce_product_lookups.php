@@ -16,7 +16,7 @@
  */
 
 if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+    define('DUO_SPEC_VERSION', 3);
 }
 $root = dirname(__DIR__, 4);
 putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
@@ -93,7 +93,7 @@ check(is_file($providerFile), 'provider code ships beside its manifest, under pr
 check(!is_file($root . '/manifests/regenerators/woocommerce-product-lookups.php'),
     'and the retired regenerator file is gone, not left behind as a second copy of the same adapter');
 require $providerFile;
-$adapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+$adapter = new \Duo\Providers\WoocommerceProductLookups($declaration);
 check($adapter->identity() === [
     'id' => 'woocommerce-product-lookups',
     'plugin' => 'woocommerce/woocommerce.php',

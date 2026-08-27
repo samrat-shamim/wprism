@@ -1,6 +1,7 @@
 {
-  "spec_version": 2,
+  "spec_version": 3,
   "name": "yoast",
+  "engine_features": ["manifest-provider-runtime/v1", "spec-window/v1"],
   "option_autoload": "preserve",
   "plugin": "wordpress-seo/wp-seo.php",
   "version_range": {"min": "28.0", "max": "29.0.0"},
@@ -97,7 +98,35 @@
         "functions": ["YoastSEO", "wp_get_environment_type"],
         "classes": ["WP_CLI", "Yoast\\WP\\SEO\\Helpers\\Indexable_Helper", "Yoast\\WP\\SEO\\Helpers\\Post_Type_Helper"]
       },
-      "capabilities": ["reindex"]
+      "capabilities": ["reindex"],
+      "contracts": {
+        "reindex": {
+          "args": {},
+          "reads": [
+            "table:postmeta",
+            "table:posts",
+            "table:term_taxonomy",
+            "table:terms",
+            "table:yoast_indexable",
+            "table:yoast_indexable_hierarchy",
+            "table:yoast_primary_term",
+            "table:yoast_seo_links"
+          ],
+          "writes": [
+            "table:yoast_indexable",
+            "table:yoast_indexable_hierarchy",
+            "table:yoast_primary_term",
+            "table:yoast_seo_links"
+          ],
+          "scope": "site",
+          "idempotent": true,
+          "timeout_seconds": 600,
+          "scoped": {
+            "operation_envelope": "duo-scoped-effect-operation/v1",
+            "reconcile": true
+          }
+        }
+      }
     }
   ],
   "actions": [

@@ -144,28 +144,45 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * native rewrite action to declare TEC's rewrite-listener effects. The
  * reviewed Polylang production-readiness port then rewrote its manifest,
  * interpreter/provider set, and per-subject disposition. PMPro's reviewed
- * engine-absorption move later replaced its provider with the generic
- * invalidate declaration and re-stamped that manifest at v3. Rule 2 makes all
- * four fleet-visible BY DESIGN.
+ * engine-absorption move later replaced its provider with generic invalidation;
+ * the manifest-provider runtime then moved eight more manifest identities.
+ * Rule 2 makes all ten fleet-visible BY DESIGN.
  *
- * The 12 frozen digests above are NOT regenerated — this is an overlay, and
- * PART 1 asserts the moved set is exactly these four. A fifth adapter is a
+ * The six unaffected frozen digests above are NOT regenerated — this is an overlay, and
+ * PART 1 asserts the moved set is exactly these ten. An eleventh adapter is a
  * tripwire failure, not a re-pin. That keeps the split's
  * own invariant ("relocating the reviewed source moved no identity") measured
  * against numbers captured before the relocation, on every adapter the
  * reviewed changes did not touch. Re-freezing all 16 to absorb 4 would have
  * retired the evidence for the other 12 to fix a red run.
  */
-const SPLIT_REVIEWED_MOVED_ADAPTERS = ['core', 'paid-memberships-pro', 'polylang', 'the-events-calendar'];
-const SPLIT_REVIEWED_MOVED_DIGESTS = [
-    'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
-    'paid-memberships-pro' => '59e95f6f2089cb7b37787920ae62a9adbc83f6f7b4c673f611aa62fdb8fe2880',
-    'polylang' => '99d82ecc6402fda3a8d651d56ca07ae4a73836947ed5f2ecca11c0df4472e9a4',
-    'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
+const SPLIT_REVIEWED_MOVED_ADAPTERS = [
+    'code-snippets',
+    'core',
+    'elementor',
+    'ninja-forms',
+    'paid-memberships-pro',
+    'polylang',
+    'the-events-calendar',
+    'woocommerce',
+    'yoast',
+    'yoast-duplicate-post',
 ];
-const SPLIT_REVIEWED_MANIFEST_HASH = '09f07e92b2f1d0ec9ccc1229d61e5d61682608e228de06e0285ab84cac951f44';
+const SPLIT_REVIEWED_MOVED_DIGESTS = [
+    'code-snippets' => 'f4f235fcbb7349c3254fd91bebb0cc7922e02e113c898611963099ee2a60cb6b',
+    'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
+    'elementor' => '5b5a1791f24a44dc49e853db84c7027ed4af6791f6cba6ad111c941cb73b2752',
+    'ninja-forms' => 'd5be1f2b39fc535762c3e7553cfde5f750c426567e5e0893001cea5238e74176',
+    'paid-memberships-pro' => '59e95f6f2089cb7b37787920ae62a9adbc83f6f7b4c673f611aa62fdb8fe2880',
+    'polylang' => '62e70da2a6d88cf92aa7a72e8531ed04797971df654b604459cb3430efcf69d8',
+    'the-events-calendar' => 'ffcdca69b42c7aa8cd802edcdcd4f8d30f7b5e79733cccf469f9d464ab7e5a0b',
+    'woocommerce' => '070bf18f2ac6e839d81808a6b5638467eab91e63cc342518a58e1c81bb25cab4',
+    'yoast' => '1ed4d93c1648c7bfde3b6361524df0b70cea3ebc87146e8caa9246cbe2dfbd78',
+    'yoast-duplicate-post' => '9c17439fc670eebbe216133abbe57dd0e9add20ccf8f1897c2f4445013c65e75',
+];
+const SPLIT_REVIEWED_MANIFEST_HASH = '46c68577eae89e1d0ec168b8a931f07fa7f9dbbcbf10cf30c0ae81c75f69b1aa';
 const SPLIT_REVIEWED_REGISTRY_SHA = 'f98de94d550375201697cd2e8c507f7b2f0941b9e92dab4bc85d77635ec10746';
-const SPLIT_REVIEWED_SNAPSHOT_SHA = '03b0e963bff8444709d8f43db0873929983f5ab0eff7ee94b51846f135bed37a';
+const SPLIT_REVIEWED_SNAPSHOT_SHA = 'e5a24c0373cf068eb26a0b00365535681e12d0bfc9e78d4eadf223e203dd3561';
 
 putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
 $shippedRegistry = ManifestDispositions::load($manifestDir);
@@ -186,15 +203,15 @@ foreach (SPLIT_REVIEWED_MOVED_DIGESTS as $movedName => $movedDigest) {
 }
 ksort($expectedDigests, SORT_STRING);
 duo_check_same(
-    4,
+    10,
     count(SPLIT_REVIEWED_MOVED_ADAPTERS),
-    'the reviewed overlay names exactly four post-split adapters; a fifth identity move is a new reviewed re-pin, never a fixture refresh'
+    'the reviewed overlay names exactly ten post-split adapters; another identity move is a new reviewed re-pin, never a fixture refresh'
 );
 duo_check_same(
     $expectedDigests,
     $observed,
-    '12 OF THE 16 SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-split tree — the invariant the flag day '
-    . 'rests on; the other four carry reviewed #561/Polylang/PMPro edits and are re-pinned above'
+    '6 OF THE 16 SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-split tree — the invariant the flag day '
+    . 'rests on; the other ten carry reviewed post-split migrations and are re-pinned above'
 );
 $movedNames = [];
 foreach ($observed as $name => $digest) {
@@ -211,8 +228,8 @@ duo_check_same(
 duo_check_same(
     SPLIT_REVIEWED_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
-    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved only with the four '
-    . 'reviewed manifests: a 16-pin site recompiles for #561/Polylang/PMPro, not for the split'
+    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved only with the ten '
+    . 'reviewed manifests, not because disposition storage split into per-subject files'
 );
 duo_check(
     SPLIT_REVIEWED_MANIFEST_HASH !== SPLIT_FROZEN_MANIFEST_HASH

@@ -6,8 +6,9 @@
     "table:nf3_actions": {"cascades": ["attached_meta"], "guards": []},
     "table:nf3_fields": {"cascades": ["attached_meta"], "guards": []}
   },
-  "spec_version": 2,
+  "spec_version": 3,
   "name": "ninja-forms",
+  "engine_features": ["manifest-provider-runtime/v1", "spec-window/v1"],
   "interpreter": "ninja-forms",
   "plugin": "ninja-forms/ninja-forms.php",
   "version_range": {"min": "3.4.34.2", "max": "4.0.0"},
@@ -160,7 +161,29 @@
       "source": "manifest",
       "plugin": "ninja-forms/ninja-forms.php",
       "requires": {"functions": ["Ninja_Forms"], "classes": ["WP_CLI", "WPN_Helper"]},
-      "capabilities": ["rebuild_form_caches"]
+      "capabilities": ["rebuild_form_caches"],
+      "contracts": {
+        "rebuild_form_caches": {
+          "args": {},
+          "reads": [
+            "table:nf3_forms",
+            "table:nf3_form_meta",
+            "table:nf3_fields",
+            "table:nf3_field_meta",
+            "table:nf3_actions",
+            "table:nf3_action_meta",
+            "table:options"
+          ],
+          "writes": ["table:nf3_upgrades", "entity:ninja-forms-legacy-form-option"],
+          "scope": "site",
+          "idempotent": true,
+          "timeout_seconds": 300,
+          "scoped": {
+            "operation_envelope": "duo-scoped-effect-operation/v1",
+            "reconcile": true
+          }
+        }
+      }
     }
   ],
   "actions": [

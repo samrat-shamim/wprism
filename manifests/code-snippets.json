@@ -1,6 +1,7 @@
 {
-  "spec_version": 2,
+  "spec_version": 3,
   "name": "code-snippets",
+  "engine_features": ["manifest-provider-runtime/v1", "spec-window/v1"],
   "option_autoload": "preserve",
   "plugin": "code-snippets/code-snippets.php",
   "version_range": {"min": "3.9.5", "max": "3.9.7"},
@@ -44,7 +45,22 @@
           "Code_Snippets\\Snippet_Config_Repository"
         ]
       },
-      "capabilities": ["rebuild_snippet_state"]
+      "capabilities": ["rebuild_snippet_state"],
+      "contracts": {
+        "rebuild_snippet_state": {
+          "args": {},
+          "reads": ["table:snippets", "option:code_snippets_settings"],
+          "writes": ["entity:code-snippets-cache", "entity:code-snippets-flat-files"],
+          "scope": "site",
+          "idempotent": true,
+          "timeout_seconds": 60,
+          "scoped": {
+            "operation_envelope": "duo-scoped-effect-operation/v1",
+            "reconcile": true,
+            "invoke_after": "reconcile"
+          }
+        }
+      }
     }
   ],
   "actions": [

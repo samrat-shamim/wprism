@@ -1,8 +1,9 @@
 <?php
 namespace Duo\Providers;
 
+use Duo\ManifestProviderRuntime;
 use Duo\PlainData;
-use Duo\Policy;
+use Duo\ProviderSdk;
 use Duo\WpCliChildProcess;
 
 if (!class_exists(WpCliChildProcess::class, false)) {
@@ -20,9 +21,7 @@ if (!class_exists(WpCliChildProcess::class, false)) {
  * old cache row. A checked parent-process projection then proves source tables,
  * cache membership, and native field/action identities agree.
  */
-final class NinjaFormsFormCache {
-    private Policy $policy;
-
+final class NinjaFormsFormCache extends ManifestProviderRuntime {
     private const CACHE_TABLE = 'nf3_upgrades';
 
     private const CHILD_FORMAT = 'duo-ninja-forms-cache-rebuild/v1';
@@ -60,81 +59,8 @@ final class NinjaFormsFormCache {
         'nf3_action_meta',
     ];
 
-    public function __construct(Policy $policy) {
-        $this->policy = $policy;
-    }
-
-    /** @return array{id:string, plugin:string, version:string} */
-    public function identity(): array {
-        return [
-            'id' => 'ninja-forms-form-cache',
-            'plugin' => 'ninja-forms/ninja-forms.php',
-            'version' => '2.2.0',
-        ];
-    }
-
-    public function capabilities(): array {
-        return [
-            'rebuild_form_caches' => [
-                'args' => [],
-                'reads' => [
-                    'table:nf3_forms',
-                    'table:nf3_form_meta',
-                    'table:nf3_fields',
-                    'table:nf3_field_meta',
-                    'table:nf3_actions',
-                    'table:nf3_action_meta',
-                    'table:options',
-                ],
-                'writes' => ['table:nf3_upgrades', 'entity:ninja-forms-legacy-form-option'],
-                'scope' => 'site',
-                'idempotent' => true,
-                'timeout_seconds' => 300,
-                'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
-                    'reconcile' => true,
-                ],
-            ],
-        ];
-    }
-
-    /** @param array<string,mixed> $args */
-    public function invoke(string $capability, array $args): array {
-        return match ($capability) {
-            'rebuild_form_caches' => $this->rebuild_form_caches(),
-            default => throw new \RuntimeException(
-                "duo: Ninja Forms form-cache provider does not implement capability '$capability'"
-            ),
-        };
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function invoke_scoped(string $capability, array $args, array $operation): array {
-        $receipt = $this->invoke($capability, $args);
-        return [
-            'operation' => $operation,
-            'before' => $receipt['before'],
-            'after' => $receipt['after'],
-            'verified' => true,
-        ];
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function reconcile_scoped(string $capability, array $args, array $operation): array {
-        if ($capability !== 'rebuild_form_caches') {
-            throw new \RuntimeException(
-                "duo: Ninja Forms form-cache provider does not implement capability '$capability'"
-            );
-        }
-        return [
-            'operation' => $operation,
-            'after' => $this->projection_summary(true),
-            'verified' => true,
-        ];
-    }
-
     /** @return array{before:array<string,int|string>,after:array<string,int|string>,verified:true} */
-    private function rebuild_form_caches(): array {
+    protected function invoke_rebuild_form_caches(array $args): array {
         if (function_exists('is_multisite') && is_multisite()) {
             throw new \RuntimeException(
                 'duo: Ninja Forms form-cache provider is certified for single-site tables only'
@@ -229,6 +155,11 @@ final class NinjaFormsFormCache {
         }
 
         return ['before' => $before, 'after' => $after, 'verified' => true];
+    }
+
+    /** @return array<string,mixed> */
+    protected function reconcile_rebuild_form_caches(array $args): array {
+        return $this->projection_summary(true);
     }
 
     /**
@@ -361,9 +292,11 @@ PHP;
         $this->assert_schema();
         $source = [];
         foreach (self::SOURCE_TABLES as $table) {
-            $source[$table] = $this->checked_rows(
+            $source[$table] = ProviderSdk::checked_get_results(
                 "SELECT * FROM `{$this->table_name($table)}` ORDER BY `id`",
-                "$table source inventory"
+                "$table source inventory",
+                null,
+                "duo: $table source inventory query failed; recovery_required"
             );
         }
 
@@ -375,14 +308,18 @@ PHP;
         $this->assert_meta_rows($source['nf3_form_meta'], $formIds, 'form');
         $this->assert_meta_rows($source['nf3_field_meta'], $fieldEntityIds, 'field');
         $this->assert_meta_rows($source['nf3_action_meta'], $actionEntityIds, 'action');
-        $cacheRows = $this->checked_rows(
+        $cacheRows = ProviderSdk::checked_get_results(
             "SELECT id, cache, stage, maintenance FROM `{$this->table_name(self::CACHE_TABLE)}` ORDER BY `id`",
-            'Ninja Forms cache inventory'
+            'Ninja Forms cache inventory',
+            null,
+            'duo: Ninja Forms cache inventory query failed; recovery_required'
         );
-        $legacyRows = $this->checked_rows(
+        $legacyRows = ProviderSdk::checked_get_results(
             "SELECT option_name, option_value FROM `{$this->table_name('options')}` "
             . "WHERE option_name LIKE 'nf_form_%' ORDER BY option_name",
-            'Ninja Forms legacy cache inventory'
+            'Ninja Forms legacy cache inventory',
+            null,
+            'duo: Ninja Forms legacy cache inventory query failed; recovery_required'
         );
         $legacyFingerprintRows = [];
         foreach ($legacyRows as $row) {
@@ -597,17 +534,6 @@ PHP;
                 );
             }
         }
-    }
-
-    /** @return list<array<string,mixed>> */
-    private function checked_rows(string $sql, string $label): array {
-        global $wpdb;
-        $wpdb->last_error = '';
-        $rows = $wpdb->get_results($sql, ARRAY_A);
-        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: $label query failed; recovery_required");
-        }
-        return array_values($rows);
     }
 
     private function table_name(string $suffix): string {

@@ -382,13 +382,12 @@ duo_check_same(
 duo_check_same(
     [$open => true, DUO_SPEC_VERSION => true],
     $declaredVersions,
-    'and the library exercises both admitted versions: PMPro deliberately reaches the closed gate while the '
-        . 'other fifteen remain below it'
+    'and the library exercises both admitted versions through deliberate per-adapter feature migrations'
 );
 
 // The union in use against the partition, in both directions. Feature-claimed
 // keys deliberately sit beside the partition so they are admitted only for a
-// manifest that declares their owning feature. PMPro is the first shipped use:
+// manifest that declares their owning feature. Shipped v3 adapters exercise it:
 // `engine_features` is outside the partition but inside that manifest's
 // admitted set, and therefore is not a closed-key refusal.
 $union = [];

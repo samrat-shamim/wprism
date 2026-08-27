@@ -134,9 +134,9 @@ const PRE_FLAG_FIXTURE_SHA256 = '05fcb8368979c6e270ecc71cb651680be317a6921d432d6
 
 /**
  * The reviewed post-flag overlays that have moved shipped identities since the
- * freeze: #561's core/TEC work, the Polylang production-readiness port, and
- * PMPro's migration from a manifest provider to the generic row-cache-entry
- * invalidation primitive, measured on this tree adapter by adapter.
+ * freeze: #561's core/TEC work, the Polylang production-readiness port,
+ * PMPro's declarative invalidation migration, and the manifest-provider
+ * runtime migration, measured on this tree adapter by adapter.
  *
  * Every number here is an overlay ON TOP OF the frozen fixture, never a
  * replacement for it — the fixture keeps its pre-flag bytes and its pinned
@@ -149,12 +149,26 @@ const PRE_FLAG_FIXTURE_SHA256 = '05fcb8368979c6e270ecc71cb651680be317a6921d432d6
  * `duo-agency-cpt-only` is deliberately absent — it is the untouched control.
  */
 const REVIEWED_MOVES = [
-    'adapters' => ['core', 'paid-memberships-pro', 'polylang', 'the-events-calendar'],
+    'adapters' => [
+        'code-snippets',
+        'core',
+        'elementor',
+        'ninja-forms',
+        'paid-memberships-pro',
+        'polylang',
+        'the-events-calendar',
+        'woocommerce',
+        'yoast',
+        'yoast-duplicate-post',
+    ],
     'adapter_digests' => [
+        'code-snippets' => 'f4f235fcbb7349c3254fd91bebb0cc7922e02e113c898611963099ee2a60cb6b',
         // manifests/core.json: the native rewrite action's declared effect set
         // widened to cover TEC's rewrite-listener option writes and the
         // autoload filters around them.
         'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
+        'elementor' => '5b5a1791f24a44dc49e853db84c7027ed4af6791f6cba6ad111c941cb73b2752',
+        'ninja-forms' => 'd5be1f2b39fc535762c3e7553cfde5f750c426567e5e0893001cea5238e74176',
         // PMPro deliberately moves to spec v3 to negotiate
         // invalidate-vocabulary/v1, retires its manifest provider, and becomes
         // a declarative adapter. This is a reviewed post-flip restamp, not a
@@ -163,25 +177,34 @@ const REVIEWED_MOVES = [
         // The reviewed Polylang production-readiness port pins its 3.8.x
         // range, expanded authored surface, interpreter, manifest provider,
         // and per-subject disposition.
-        'polylang' => '99d82ecc6402fda3a8d651d56ca07ae4a73836947ed5f2ecca11c0df4472e9a4',
+        'polylang' => '62e70da2a6d88cf92aa7a72e8531ed04797971df654b604459cb3430efcf69d8',
         // manifests/the-events-calendar.json rewritten (block_attrs, widgets,
         // interpreter, option_autoload) AND dispositions/the-events-calendar
         // .json promoted experimental -> certified. Both halves are inside the
         // digest row, so one number carries both.
-        'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
+        'the-events-calendar' => 'ffcdca69b42c7aa8cd802edcdcd4f8d30f7b5e79733cccf469f9d464ab7e5a0b',
+        'woocommerce' => '070bf18f2ac6e839d81808a6b5638467eab91e63cc342518a58e1c81bb25cab4',
+        'yoast' => '1ed4d93c1648c7bfde3b6361524df0b70cea3ebc87146e8caa9246cbe2dfbd78',
+        'yoast-duplicate-post' => '9c17439fc670eebbe216133abbe57dd0e9add20ccf8f1897c2f4445013c65e75',
     ],
     'manifest_bytes_sha256' => [
+        'code-snippets' => '563533c51950cf3fb373acd484c5eb0fd54d8f1362169d84bac34fdb51feabb0',
         'core' => 'a2f673cd4107e7b32cc6cfff6e84e7f6aca68b789234cbc8c686458fee4de5b3',
+        'elementor' => 'e046946e10607b4ce64bb12904a33eccf45fb0ad8c0e58214f0064f1bdaaf17e',
+        'ninja-forms' => 'b56bc0c867350c437198cd5c1de3437f4949fd72b737f77a7ad62dca0acb4e67',
         'paid-memberships-pro' => 'b2a27f37b6f27ad46a8e361144a5a45026b87b6393cb869711f4e455619ecb12',
-        'polylang' => 'db7130aecf89217cdca8f6591f4481391f61ae84632478f89191bdda74b488d3',
-        'the-events-calendar' => '0c72e83a62ba5d461d975fd5380f49eab139d5413edaade07f7f47e396d80729',
+        'polylang' => 'ada90a0fffd9748c860fd38c8ea475ffe3c09d06baf71b00700f9dd6e029d39a',
+        'the-events-calendar' => '1312ca9ee33663535a7dcde57a2cdfbadc616a9798a6d1e7f20a1fea59b87bde',
+        'woocommerce' => '9d3893102ccccd666b2c734b90f5054eb51d61dfd99498b5ab6cc56278405542',
+        'yoast' => '7bf51282931ca9537955054c8d17ed3446d3b4599e15e765f2464814a9e4554c',
+        'yoast-duplicate-post' => '33989cb589aa411e2a440ebd2778366f01e3cb3b0ff7ebfb5414b8799c008071',
     ],
     'pin_sets' => [
-        'all-16' => '09f07e92b2f1d0ec9ccc1229d61e5d61682608e228de06e0285ab84cac951f44',
-        'core+elementor+yoast+contact-form-7' => '52200323db9516a2eb7b5738540534aa58e9115c04fb3ddf0b182ea4089d27f9',
-        'core+paid-memberships-pro+code-snippets' => '04d688883c993faa49f25b0bc28c33d4bbef34defac54ba8e24cc63a0eb10506',
-        'core+polylang+the-events-calendar' => '1d26c4687a24e143c8a24045ba85b370bd6d3aad11b16898b4f13966ba76e6e6',
-        'core+woocommerce+acf' => '247e7b9f084d050259130eee1d7bbb42aa1732dc9cd410df165a8c36a51f22b3',
+        'all-16' => '46c68577eae89e1d0ec168b8a931f07fa7f9dbbcbf10cf30c0ae81c75f69b1aa',
+        'core+elementor+yoast+contact-form-7' => 'ad9df633b665f272e1ad084893fc8d9f6dedc4b0f9297b724b34b833d4af9670',
+        'core+paid-memberships-pro+code-snippets' => '722687250167adba48337eca3487adf156381086eaffc3fb3b564c2860b4ee28',
+        'core+polylang+the-events-calendar' => '8e7ebb4f7244372d95a1bbab0935c8ef5c05235bee25bf12abfb43a027fbe1d8',
+        'core+woocommerce+acf' => 'fccdd7834b5e7f3c4abbb5ea54e9f841654f0fb32ff7dbed88fa2814615f9ca8',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC
@@ -250,24 +273,33 @@ duo_check_same(
         . 'still evidence rather than an assertion about a re-frozen file'
 );
 
-// The flag-day rule is preserved as history, while the first deliberate
-// post-flag migration is named exactly. PMPro pays one digest/pin change to
-// negotiate a generic primitive; the remaining fifteen prove the bump itself
-// did not bulk-restamp the library.
+// The flag-day rule is preserved as history while every deliberate post-flag
+// migration is named exactly. Each consumer pays its own digest/pin change;
+// the remaining seven prove the bump itself did not bulk-restamp the library.
 $declared = [];
 foreach ($names as $name) {
     $decoded = Canon::decode(Canon::read_file($manifestDir . '/' . $name . '.json'));
     $declared[$name] = $decoded['spec_version'] ?? 'absent';
 }
 duo_check_same(
-    ['paid-memberships-pro'],
+    [
+        'code-snippets',
+        'elementor',
+        'ninja-forms',
+        'paid-memberships-pro',
+        'polylang',
+        'the-events-calendar',
+        'woocommerce',
+        'yoast',
+        'yoast-duplicate-post',
+    ],
     array_keys(array_filter($declared, static fn($version): bool => $version === DUO_SPEC_VERSION)),
-    'and exactly PMPro is deliberately stamped to the current spec to consume its gated primitive'
+    'and exactly the feature-migrated manifests are deliberately stamped to the current spec'
 );
 duo_check_same(
-    15,
+    7,
     count(array_filter($declared, static fn($version): bool => $version === DUO_SPEC_VERSION - 1)),
-    'while the other fifteen manifests retain the pre-flag version, preserving the no-bulk-restamp evidence'
+    'while the other seven manifests retain the pre-flag version, preserving the no-bulk-restamp evidence'
 );
 
 // ---------------------------------------------------------------------------

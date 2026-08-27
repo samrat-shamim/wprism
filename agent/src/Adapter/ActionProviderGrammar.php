@@ -8,6 +8,7 @@ require_once __DIR__ . '/AdapterSources.php';
 // OWN require statement for this file runs, before Policy.php's body
 // finishes executing, so this resolves to a no-op rather than a re-include.
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/ManifestProviderRuntime.php';
 
 /**
  * The action/provider/effect half of DUO-3348's "ManifestValidator with
@@ -397,14 +398,15 @@ final class ActionProviderGrammar {
     /**
      * Validate one manifest's `providers` declarations.
      *
-     * A declaration is an identity assertion about executable code the engine
-     * does not own: which package supplies it (`source`), which plugin owns
-     * the semantics (`plugin`), which exact provider version the manifest was
-     * authored against, and the closed set of capability names actions may
-     * reference. Everything here is checkable offline; whether the code is
-     * actually present, matches this identity, and advertises these
-     * capabilities is negotiated against the live environment before any
-     * mutation (Providers::negotiate()).
+     * A declaration identifies executable plugin semantics: which package
+     * supplies them (`source`), which plugin owns them (`plugin`), which exact
+     * provider version the manifest was authored against, and the closed set
+     * of capability names actions may reference. A v3 manifest-owned provider
+     * may additionally declare `contracts`, moving advertising and dispatch
+     * protocol into core; a plugin-owned provider advertises the same contract
+     * from its independently shipped code. Everything here is checkable
+     * offline; presence and identity are still negotiated against the live
+     * environment before mutation (Providers::negotiate()).
      *
      * `plugin` must agree with the manifest's own `plugin` claim when it has
      * one: a manifest already declares exactly one plugin plus the version
@@ -434,7 +436,7 @@ final class ActionProviderGrammar {
             // join as the one OPTIONAL key without every other declaration
             // having to carry it.
             $required = ['capabilities', 'id', 'plugin', 'source', 'version'];
-            $optional = ['requires'];
+            $optional = ['contracts', 'requires'];
             $missing = array_diff($required, $keys);
             $unknown = array_diff($keys, $required, $optional);
             if ($missing !== [] || $unknown !== []) {
@@ -482,6 +484,55 @@ final class ActionProviderGrammar {
                     throw new \RuntimeException("duo: $where.capabilities repeats '$capability'");
                 }
                 $seenCapabilities[$capability] = true;
+            }
+            if (array_key_exists('contracts', $declaration)) {
+                if (($declaration['source'] ?? null) !== 'manifest') {
+                    throw new \RuntimeException(
+                        "duo: $where.contracts is only valid for source: manifest — plugin-sourced providers "
+                        . 'must advertise their own executable contract'
+                    );
+                }
+                $features = (array) ($manifest['engine_features'] ?? []);
+                if (!in_array(ManifestProviderRuntime::FEATURE, $features, true)) {
+                    throw new \RuntimeException(
+                        "duo: $where.contracts requires engine feature '" . ManifestProviderRuntime::FEATURE
+                        . "' — declare it in this manifest's sorted engine_features list"
+                    );
+                }
+                $contracts = $declaration['contracts'];
+                if (!is_array($contracts) || $contracts === [] || array_is_list($contracts)) {
+                    throw new \RuntimeException(
+                        "duo: $where.contracts must be a non-empty capability name => contract object map"
+                    );
+                }
+                if (array_keys($contracts) !== $capabilities) {
+                    throw new \RuntimeException(
+                        "duo: $where.contracts keys must exactly follow capabilities (expected: "
+                        . implode(', ', $capabilities) . '; found: ' . implode(', ', array_keys($contracts)) . ')'
+                    );
+                }
+                // Lazy to preserve Policy.php's standalone load shape: v2
+                // declarations never need the runtime capability grammar,
+                // while a v3 contracts map must be checked by the SAME
+                // validator live negotiation uses rather than a second copy.
+                require_once __DIR__ . '/Providers.php';
+                foreach ($contracts as $capability => $contract) {
+                    if (!is_array($contract) || array_is_list($contract)) {
+                        throw new \RuntimeException(
+                            "duo: $where.contracts.$capability must be a capability contract object"
+                        );
+                    }
+                    Providers::validate_capability_declaration(
+                        $contract,
+                        "$where.contracts.$capability"
+                    );
+                    if (array_key_exists('scoped', $contract)) {
+                        Providers::validate_scoped_capability_declaration(
+                            $contract,
+                            "$where.contracts.$capability"
+                        );
+                    }
+                }
             }
             if (array_key_exists('requires', $declaration)) {
                 self::validate_provider_requires($declaration['requires'], "$where.requires");

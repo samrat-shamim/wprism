@@ -32,8 +32,8 @@
  *   is still 2, the validator still admits an invented section, the
  *   disposition monolith is still one file, the certification signature domain
  *   is still /v1, the statement is still five members, the platform trust root
- *   is still empty, and one reviewed shipped manifest now declares v3 to
- *   consume a gated generic primitive. A rider that lands
+ *   is still empty, and reviewed shipped manifests now declare v3 only when
+ *   consuming gated generic primitives. A rider that lands
  *   enforcement without moving this suite's expectations is a rider that
  *   landed silently, which is the failure this half prevents.
  *
@@ -221,14 +221,15 @@ sort($featureReaders, SORT_STRING);
 // vocabulary and can refuse an unimplemented name.
 duo_check_same(
     [
+        'agent/src/Adapter/ActionProviderGrammar.php',
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
         'cli/src/Adapter/ManifestValidate.php',
     ],
     $featureReaders,
-    'v3.2 ENFORCED: the channel has one shipped OWNER — the grammar that holds the feature vocabulary — beside '
-        . 'two gate readers that each consume one gated declaration, and one publisher that consumes none'
+    'v3.2 ENFORCED: the channel has one shipped OWNER beside three gate readers that each consume one gated '
+        . 'declaration and one publisher that consumes none'
 );
 // WP-6.4 moved this from one name to two, and the second is the assertion
 // worth having: `spec-window/v1` claims only the channel's own key, so with it
@@ -236,20 +237,22 @@ duo_check_same(
 // admissibility. `structured-evidence/v1` claims `declaration_evidence`, a
 // section that did not exist when v3 was cut and that shipped with
 // DUO_SPEC_VERSION unmoved (§ v3.14) — so the channel is a walked path.
-// WP-6.5 makes it six, and the fifth section-claiming name is `body_refs`
+// WP-6.5 made it six; manifest-provider-runtime/v1 makes it seven while
+// claiming no new top-level section.
 // (§ v3.20) — another section that did not exist when v3 was cut, shipped with
 // DUO_SPEC_VERSION unmoved.
 duo_check_same(
     [
         'attr-id-codecs/v1',
         'invalidate-vocabulary/v1',
+        'manifest-provider-runtime/v1',
         'spec-window/v1',
         'structured-body-refs/v1',
         'structured-evidence/v1',
         'typed-column-codecs/v1',
     ],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: the vocabulary carries six IMPLEMENTED features, and four claim sections v3 did not have — '
+    'v3.2: the vocabulary carries seven IMPLEMENTED features, and four claim sections v3 did not have — '
         . '"declared and implemented admits" is a path walked four times, not an admissibility argument'
 );
 // WP-4.12: the channel OPENED. At DUO_SPEC_VERSION 2 this probe refused by
@@ -625,9 +628,9 @@ duo_check(
     . 'is the exact failure docs/wire-surface.md is generated to prevent'
 );
 
-// The no-BULK-restamp rule made the bump digest-neutral. PMPro is the first
-// later, reviewed per-adapter migration: it pays its own digest change for a
-// capability gained and leaves the other fifteen at the pre-flip version.
+// The no-BULK-restamp rule made the bump digest-neutral. Later, reviewed
+// per-adapter migrations each pay their own digest change for capability gained
+// and leave unrelated manifests at the pre-flip version.
 $declaredVersions = [];
 foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
     $name = basename($file, '.json');
@@ -639,15 +642,25 @@ foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
 }
 ksort($declaredVersions, SORT_STRING);
 duo_check_same(
-    ['paid-memberships-pro'],
+    [
+        'code-snippets',
+        'elementor',
+        'ninja-forms',
+        'paid-memberships-pro',
+        'polylang',
+        'the-events-calendar',
+        'woocommerce',
+        'yoast',
+        'yoast-duplicate-post',
+    ],
     array_keys(array_filter($declaredVersions, static fn($version): bool => $version === $specVersion)),
-    'PMPro is the only shipped manifest stamped to v' . $specVersion
-        . ' — its generic invalidation migration is one reviewed identity change, not a bulk restamp'
+    'only deliberately feature-migrated manifests are stamped to v' . $specVersion
+        . ' — each is a reviewed identity change, not a bulk restamp'
 );
 duo_check_same(
-    15,
+    7,
     count(array_filter($declaredVersions, static fn($version): bool => $version === $specVersion - 1)),
-    'the other fifteen shipped manifests remain one below the engine and inside the window'
+    'the seven unrelated shipped manifests remain one below the engine and inside the window'
 );
 
 echo "\nPART 2 — THE DOCUMENT: every measurable claim re-measured from the tree\n";

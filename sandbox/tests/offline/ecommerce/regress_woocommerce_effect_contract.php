@@ -14,7 +14,7 @@ declare(strict_types=1);
  * observer, and automatic-profile refusal against an irreversible row.
  */
 
-define('DUO_SPEC_VERSION', 2);
+define('DUO_SPEC_VERSION', 3);
 require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
 require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
@@ -549,8 +549,16 @@ woo_effect_check(
         && !array_key_exists('regen_dependency', (array) ($wooManifest['post_types']['product_variation'] ?? [])),
     'and neither post type still declares the batch regenerator channel those effects moved off'
 );
+$providerShells = (array) ($wooManifest['providers'] ?? []);
+$providerContractNames = [];
+foreach ($providerShells as $index => $providerShell) {
+    $providerContractNames[(string) ($providerShell['id'] ?? '')] = array_keys(
+        (array) ($providerShell['contracts'] ?? [])
+    );
+    unset($providerShells[$index]['contracts']);
+}
 woo_effect_check(
-    ($wooManifest['providers'] ?? null) === [
+    $providerShells === [
         [
             'id' => 'woocommerce-cache',
             'version' => '1.0.0',
@@ -592,8 +600,11 @@ woo_effect_check(
             ],
             'capabilities' => ['rebuild_product_lookups'],
         ],
+    ] && $providerContractNames === [
+        'woocommerce-cache' => ['invalidate_cache_groups'],
+        'woocommerce-product-lookups' => ['rebuild_product_lookups'],
     ],
-    'the Woo provider declarations are manifest-shipped identities owned by the version-pinned plugin, with the lookup runtime contract declared as exact requirements rather than provider code'
+    'the Woo provider declarations retain exact identities/requirements while every capability contract is now manifest data consumed by the engine runtime'
 );
 woo_effect_check(
     str_contains($cacheProviderSource, "get_transient_version('shipping', true)")

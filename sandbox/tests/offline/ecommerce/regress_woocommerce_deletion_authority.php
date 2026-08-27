@@ -12,7 +12,7 @@
  */
 
 if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+    define('DUO_SPEC_VERSION', 3);
 }
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
@@ -657,7 +657,9 @@ if (!function_exists('get_transient')) {
     }
 }
 require_once $root . '/manifests/providers/woocommerce-cache.php';
-$cacheProvider = new \Duo\Providers\WoocommerceCache($policy);
+$cacheProvider = new \Duo\Providers\WoocommerceCache(
+    $policy->provider_declarations()['woocommerce-cache']
+);
 check($cacheProvider->identity() === [
     'id' => 'woocommerce-cache',
     'plugin' => 'woocommerce/woocommerce.php',

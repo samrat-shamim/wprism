@@ -145,7 +145,13 @@ namespace {
     require_once "$root/manifests/providers/polylang-nav-menus.php";
 
     $GLOBALS['wpdb'] = new PllScopedWpdb();
-    $provider = new \Duo\Providers\PolylangNavMenus(new \Duo\Policy());
+    $manifest = json_decode(
+        (string) file_get_contents("$root/manifests/polylang.json"),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $provider = new \Duo\Providers\PolylangNavMenus($manifest['providers'][0]);
     $action = [
         'kind' => 'provider',
         'provider' => 'polylang-nav-menus',

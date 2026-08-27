@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Duo\Providers;
 
-use Duo\Policy;
+use Duo\ManifestProviderRuntime;
 
 /**
  * Yoast Duplicate Post 4.7 role-capability reconciliation.
@@ -15,77 +15,9 @@ use Duo\Policy;
  * This provider ports that exact add/remove loop and requires a fresh,
  * value-level readback before the action can report success.
  */
-final class YoastDuplicatePostRoleCapabilities {
-    public function __construct(Policy $policy) {
-        // The provider contract requires this constructor shape. The repair
-        // itself is fully determined by the target's applied option and the
-        // exact 4.7 plugin API negotiated before mutation.
-    }
-
-    /** @return array{id:string, plugin:string, version:string} */
-    public function identity(): array {
-        return [
-            'id' => 'yoast-duplicate-post-role-capabilities',
-            'plugin' => 'duplicate-post/duplicate-post.php',
-            'version' => '1.0.0',
-        ];
-    }
-
-    /** @return array<string,array<string,mixed>> */
-    public function capabilities(): array {
-        return [
-            'reconcile_role_capabilities' => [
-                'args' => [],
-                'reads' => ['option:duplicate_post_roles'],
-                'writes' => ['entity:yoast-duplicate-post-role-capabilities'],
-                'scope' => 'site',
-                'idempotent' => true,
-                'timeout_seconds' => 30,
-                'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
-                    'reconcile' => true,
-                ],
-            ],
-        ];
-    }
-
-    /** @param array<string,mixed> $args */
-    public function invoke(string $capability, array $args): array {
-        if ($capability !== 'reconcile_role_capabilities') {
-            throw new \RuntimeException(
-                "duo: Yoast Duplicate Post role provider does not implement capability '$capability'"
-            );
-        }
-        return $this->reconcile_role_capabilities();
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function invoke_scoped(string $capability, array $args, array $operation): array {
-        $receipt = $this->invoke($capability, $args);
-        return [
-            'operation' => $operation,
-            'before' => $receipt['before'],
-            'after' => $this->postcondition(true),
-            'verified' => true,
-        ];
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function reconcile_scoped(string $capability, array $args, array $operation): array {
-        if ($capability !== 'reconcile_role_capabilities') {
-            throw new \RuntimeException(
-                "duo: Yoast Duplicate Post role provider does not implement capability '$capability'"
-            );
-        }
-        return [
-            'operation' => $operation,
-            'after' => $this->postcondition(true),
-            'verified' => true,
-        ];
-    }
-
+final class YoastDuplicatePostRoleCapabilities extends ManifestProviderRuntime {
     /** @return array{before:array<string,mixed>,after:array<string,mixed>,verified:true} */
-    private function reconcile_role_capabilities(): array {
+    protected function invoke_reconcile_role_capabilities(array $args): array {
         $desired = $this->desired_roles();
         $roles = $this->roles();
         $before = $this->observation($roles, $desired);
@@ -105,6 +37,11 @@ final class YoastDuplicatePostRoleCapabilities {
             'after' => $this->postcondition(true),
             'verified' => true,
         ];
+    }
+
+    /** @return array<string,mixed> */
+    protected function reconcile_reconcile_role_capabilities(array $args): array {
+        return $this->postcondition(true);
     }
 
     /** @return array<string,mixed> */

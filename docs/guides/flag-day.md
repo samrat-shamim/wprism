@@ -252,9 +252,9 @@ artifact refuses until it is recompiled once more, or the pre-flip one is
 restored. This is why step 4 of the rollback list below is not optional.
 
 **Three acts make that lossy, and they do not carry the same rule.** The
-flag-day itself performed neither act 1 nor act 2. Paid Memberships Pro has
-since become the first deliberate act-1 migration: it is stamped to v3 to use
-`invalidate-vocabulary/v1`, retires its manifest provider, and therefore
+flag-day itself performed neither act 1 nor act 2. Paid Memberships Pro became
+the first deliberate act-1 migration; eight provider-bearing manifests later
+followed to use `manifest-provider-runtime/v1`. Each affected adapter therefore
 requires its own recompile/re-pin. Act 2 remains absent. Act 3 is the act this
 runbook schedules at step 5, and authorising that cohort remains an explicit
 certificate-rollout decision rather than a side effect of the version bump.
@@ -278,8 +278,8 @@ recompile/re-pin, not a compatibility fallback.
 
 So the practical certificate rule for a cohort is: **after step 5 a rollback
 costs one more `recertify`.** Plan the cohort so that step 4's post-verify
-happens before step 5. Separately, any site pinning the migrated PMPro adapter
-already owes the bundle-and-repin rollback described above.
+happens before step 5. Separately, any site pinning one of the deliberately
+migrated v3 adapters already owes the bundle-and-repin rollback described above.
 
 ---
 

@@ -348,18 +348,29 @@ foreach ($library as $name => $manifest) {
 $report('shipped library: ' . count($library) . ' manifests, declared spec_versions {'
     . implode(', ', array_map('strval', array_keys($declaredVersions))) . '}');
 duo_check_same([], $refused, 'every one of the ' . count($library) . ' shipped manifests still passes the contract grammar — the window refuses none of the library');
-// WP-4.12 moved the engine and left the library alone. PMPro is the first
-// later per-adapter migration to N; the other fifteen retain N-1.
+// WP-4.12 moved the engine and left the library alone. Later per-adapter
+// migrations independently opt into features; this provider-runtime slice
+// moves eight more manifests to N without bulk-restamping the remaining seven.
 duo_check_same(
     [($N - 1) => true, $N => true],
     $declaredVersions,
-    'and the shipped library now exercises both admitted versions: fifteen retained manifests plus PMPro at N'
+    'and the shipped library exercises both admitted versions after deliberate per-adapter migrations'
 );
 $declarers = array_keys(array_filter($library, static fn(array $m): bool => array_key_exists('engine_features', $m)));
 duo_check_same(
-    ['paid-memberships-pro'],
+    [
+        'code-snippets',
+        'elementor',
+        'ninja-forms',
+        'paid-memberships-pro',
+        'polylang',
+        'the-events-calendar',
+        'woocommerce',
+        'yoast',
+        'yoast-duplicate-post',
+    ],
     $declarers,
-    'PMPro is the first shipped engine_features consumer, opting into generic invalidation without an engine bump'
+    'each shipped feature consumer opts in at N without an engine version bump or a library-wide restamp'
 );
 
 echo "\nPART 2 — a synthetic N+1 engine: the channel's admitting half\n";

@@ -44,7 +44,7 @@ if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
 if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+    define('DUO_SPEC_VERSION', 3);
 }
 
 $GLOBALS['__fake_options'] = ['home' => 'http://example.test'];

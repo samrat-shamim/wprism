@@ -5,7 +5,7 @@ declare(strict_types=1);
 // fixture. The live conformance suite proves behavior; this fast test keeps a
 // future option/table addition from becoming invisible by accident.
 
-define('DUO_SPEC_VERSION', 2);
+define('DUO_SPEC_VERSION', 3);
 require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Code/Code.php';
 require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';

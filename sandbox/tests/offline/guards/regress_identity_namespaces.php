@@ -266,8 +266,8 @@ foreach ([null, 1, IdentityNamespaces::NAMESPACED_SINCE - 1] as $spec) {
 // the rider moved no shipped byte. After the flip the engine is AT the gate,
 // and what carries that same guarantee forward is the OTHER half of the
 // no-bulk-restamp rule: the gate only reads a manifest's OWN declared version.
-// PMPro later opts in deliberately and its grandfathered name passes; the
-// other fifteen remain below the gate.
+// Later feature consumers opt in deliberately and their grandfathered names
+// pass; seven unrelated manifests remain below the gate.
 duo_check_same(
     IdentityNamespaces::NAMESPACED_SINCE,
     DUO_SPEC_VERSION,
@@ -281,10 +281,20 @@ foreach (glob(dirname(__DIR__, 4) . '/manifests/*.json') ?: [] as $shipped) {
     }
 }
 duo_check_same(
-    ['paid-memberships-pro'],
+    [
+        'code-snippets',
+        'elementor',
+        'ninja-forms',
+        'paid-memberships-pro',
+        'polylang',
+        'the-events-calendar',
+        'woocommerce',
+        'yoast-duplicate-post',
+        'yoast',
+    ],
     $stampedAtGate,
-    'and exactly PMPro now declares a version at the gate — its grandfathered shipped name passes while the '
-    . 'other fifteen retain the no-bulk-restamp boundary (§ v3.12)'
+    'and exactly the feature-migrated manifests declare a version at the gate while seven unrelated manifests '
+    . 'retain the no-bulk-restamp boundary (§ v3.12)'
 );
 
 echo "\n== 4. at spec_version 3 the reserved form is a RULE ==\n";

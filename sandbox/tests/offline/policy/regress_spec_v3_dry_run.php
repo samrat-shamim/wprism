@@ -46,8 +46,8 @@
  * shipped reader, now two) and the two assertions that recorded F2 as open. The
  * fixtures' verdicts AT THIS ENGINE did not move at all, because the rule is
  * gated at `spec_version: 3` and every fixture here declares DUO_SPEC_VERSION.
- * The shipped library now straddles v2/v3: Paid Memberships Pro is the first
- * reviewed post-flag consumer, so the measurements below distinguish the
+ * The shipped library now straddles v2/v3: reviewed post-flag consumers opt in
+ * per adapter, so the measurements below distinguish the
  * partition from feature-roster classification instead of assuming every
  * shipped manifest predates the flag.
  * `sandbox/tests/offline/policy/regress_closed_top_level_keys.php` drives the
@@ -697,9 +697,19 @@ $report('engine features this engine implements: '
     . implode(', ', \Duo\AdapterContractGrammar::implemented_features()));
 
 duo_check_same(
-    ['paid-memberships-pro'],
+    [
+        'code-snippets',
+        'elementor',
+        'ninja-forms',
+        'paid-memberships-pro',
+        'polylang',
+        'the-events-calendar',
+        'woocommerce',
+        'yoast',
+        'yoast-duplicate-post',
+    ],
     $featureDeclarers,
-    'V3-FEAT: PMPro is the first shipped declarer, paying one adapter identity change to consume a generic primitive'
+    'V3-FEAT: every deliberately migrated adapter declares the feature it consumes and pays only its own identity change'
 );
 duo_check_same(
     [],
@@ -708,7 +718,7 @@ duo_check_same(
 );
 // THE FLIP (WP-4.2). This suite's header states that a rider landing a rule
 // moves the assertion that measured its absence and NOT the fixtures. This is
-// that assertion for V3-FEAT: the channel acquired exactly one shipped reader,
+// that assertion for V3-FEAT: the channel acquired shipped readers,
 // the grammar that owns the vocabulary, and `fixture:engine-features` below is
 // unchanged.
 // WP-6.2 added the SECOND reader, and the pair is the shape the channel is
@@ -743,6 +753,7 @@ duo_check_same(
 // unimplemented name.
 duo_check_same(
     [
+        'agent/src/Adapter/ActionProviderGrammar.php',
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
@@ -750,7 +761,8 @@ duo_check_same(
     ],
     $featureReaders,
     'V3-FEAT: the channel has exactly one shipped OWNER — the contract grammar, which holds the vocabulary and '
-        . 'refuses an unimplemented name — beside two gate readers (body mode, invalidate verbs) that ask only '
+        . 'refuses an unimplemented name — beside three gate readers (provider contracts, body mode, invalidate '
+        . 'verbs) that ask only '
         . 'whether THIS document declared the feature their gated declaration needs, and one publisher that '
         . 'refuses nothing'
 );
@@ -758,22 +770,24 @@ duo_check_same(
 // there, do not assert what ought to be — makes the COUNT the interesting fact:
 // a vocabulary of one is a special case that happens to satisfy the channel's
 // requirement, and a vocabulary of two is a set the refusal enumerates, the
-// author declares from, and register row R-19 projects. WP-6.5 makes it six,
+// author declares from, and register row R-19 projects. WP-6.5 made it six;
+// manifest-provider-runtime/v1 makes it seven,
 // and the count is now evidence for a different claim than the one it started
 // as: § v3.12 asks for "at least one grammar section shipped post-v3 through
 // engine_features with no version bump" before the window may ever close, and
-// five of these six shipped after the flip with DUO_SPEC_VERSION left at 3.
+// six of these seven shipped after the flip with DUO_SPEC_VERSION left at 3.
 duo_check_same(
     [
         'attr-id-codecs/v1',
         'invalidate-vocabulary/v1',
+        'manifest-provider-runtime/v1',
         'spec-window/v1',
         'structured-body-refs/v1',
         'structured-evidence/v1',
         'typed-column-codecs/v1',
     ],
     \Duo\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: the vocabulary carries six names, so an engine that lacks a declared name has something to '
+    'V3-FEAT: the vocabulary carries seven names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented
