@@ -164,7 +164,17 @@ namespace Duo {
     final class Policy {
         public static ?\Throwable $failure = null;
 
-        public static function load($repo, ?array $pins = null, bool $capabilities = false): array {
+        // Keep the test double's call boundary aligned with Policy::load().
+        // lint() passes the object-only adapter library by name, so omitting
+        // this parameter would replace the planted refusal with PHP's own
+        // "Unknown named parameter" Error before the backend is reached.
+        public static function load(
+            $repo,
+            ?array $manifestNames = null,
+            bool $allowUnsupportedSiteForReadOnlyCapabilities = false,
+            ?string $adapterRepo = null,
+            ?AdapterLibrary $adapterLibrary = null
+        ): array {
             if (self::$failure !== null) {
                 throw self::$failure;
             }
