@@ -6,8 +6,8 @@
  *
  * WHY THIS EXISTS
  * ---------------
- * `cli/src/Onboarding/Adopt.php:147-150` tars exactly `agent manifests
- * recovery`, so nothing under `sandbox/` reaches anyone — yet `sandbox/` is
+ * `cli/src/Onboarding/Adopt.php` tars exactly `agent recovery`, so nothing
+ * under `sandbox/` reaches anyone — yet `sandbox/` is
  * where the entire ability to PROVE an adapter lives. A third party writing an
  * adapter therefore reinvents the harness, and `sandbox/tests/lib/README.md`
  * counts what that costs in-tree already: 42 bespoke `$wpdb` fakes and 33
@@ -39,7 +39,7 @@
  *      (clause D), asserted against the ASSEMBLED file rather than the
  *      in-repo one.
  *   4. IT IS NOT SHIPPED TO SITES. Adopt's tar line is still exactly
- *      `agent manifests recovery` (clause E). AGENTS.md rule 1 — the drop-in
+ *      `agent recovery` (clause E). AGENTS.md rule 1 — the drop-in
  *      is dependency-free — is untouched by a test harness precisely because
  *      the harness never enters that archive, and that is checked here rather
  *      than promised in a comment.
@@ -346,16 +346,16 @@ if (!is_file($kit . '/lib/FakeWpdb.php')) {
 // cannot make this clause agree with itself.
 $adoptSource = (string) file_get_contents($repo . '/' . AdapterKit::ADOPT_PATH);
 duo_check(
-    str_contains($adoptSource, "escapeshellarg(\$localArchive) . ' agent manifests recovery'"),
-    'Adopt.php still tars exactly `agent manifests recovery` (AGENTS.md repo map, Adopt.php:147-150)'
+    str_contains($adoptSource, "escapeshellarg(\$localArchive) . ' agent recovery'"),
+    'Adopt.php tars exactly `agent recovery`; adapter bytes are embedded beneath the atomic agent release'
 );
 duo_check_same(
-    ['agent', 'manifests', 'recovery'],
+    ['agent', 'recovery'],
     AdapterKit::adoptionTar($repo),
     'the kit reads that composition out of Adopt.php rather than restating it'
 );
 duo_check_same(
-    ['agent', 'manifests', 'recovery'],
+    ['agent', 'recovery'],
     $manifest['adoption_tar']['components'],
     'tools/adapter-kit.json records the tar a managed site receives, so a change to it lands in this diff'
 );
@@ -540,7 +540,7 @@ $adoptCopy = $synthetic4 . '/' . AdapterKit::ADOPT_PATH;
 file_put_contents(
     $adoptCopy,
     str_replace(
-        "escapeshellarg(\$localArchive) . ' agent manifests recovery'",
+        "escapeshellarg(\$localArchive) . ' agent recovery'",
         'escapeshellarg($localArchive) . self::COMPONENTS',
         (string) file_get_contents($adoptCopy)
     )
