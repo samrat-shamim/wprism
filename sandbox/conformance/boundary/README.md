@@ -14,11 +14,12 @@ entry must carry a digest: the command refuses a half-recorded list rather than
 choose between fabricating a lock row and silently dropping one.
 
 Recording one is a deliberate human act, not something a suite does. Take the
-release list from the plugin's own release history, fetch each ZIP once,
-`sha256sum` it, and write `source` and `recorded_at` so the document says where
-it came from. Committed lists are the durable half of a live run: the pair is
-only the recorder (`docs/agents/live-pair-budget.md` §Recording over
-repetition).
+release list from the plugin's own release history, fetch each ZIP once, hash
+it (`shasum -a 256 <file>` on macOS — stock macOS ships no `sha256sum`;
+`sha256sum <file>` on Linux), and write `source` and `recorded_at` so the
+document says where it came from. Committed lists are the durable half of a
+live run: the pair is only the recorder (`docs/agents/live-pair-budget.md`
+§Recording over repetition).
 
 **`<manifest>.site.duo.json`** — the site policy a probe runs under. `--site-policy`
 is required rather than derived because "green" is a claim about a policy: the

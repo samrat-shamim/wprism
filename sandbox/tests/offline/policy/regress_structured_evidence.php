@@ -549,28 +549,51 @@ $signer = static function (string $name, array $manifest) use ($ratify): ?string
         return $e->getMessage();
     }
 };
-// The signer's classify-or-throw loop walks the manifest's own key order and
-// refuses the FIRST key it cannot place, so a realistic adapter is refused on
-// `engine_features` — one key earlier than the section. That is not a weaker
-// result, it is a stronger one: declaring the CHANNEL already makes an adapter
-// uncertifiable, so nothing about this section made anything worse, and both
-// halves are pinned rather than one being inferred from the other.
-$signerVerdict = (string) $signer(
-    'acme-evidence',
-    $adapter('acme-evidence', [SE_CHANNEL_FEATURE, SE_FEATURE], [$SECTION => $goodRecord])
+// RESOLVED BY WP-6.6 (§ v3.21), and this is the assertion that used to measure
+// the wall. It read "an adapter that uses the channel at all is already NOT
+// certifiable — the signer refuses `engine_features` itself, which is in no arm
+// either, one key before it reaches the section", and that was true and was the
+// defect: this section's own feature row now classifies its key, so a manifest
+// carrying the channel AND the section signs. Both keys still cover no state —
+// `engine_features` is the claim channel and `declaration_evidence` is
+// provenance — so both take the `non_surface` arm and NEITHER reaches the
+// certificate's `surfaces` list. The posture PART 1 and PART 2 demonstrate is
+// unchanged; what changed is that paying for it no longer costs the adapter its
+// certificate.
+$signerAdapter = $adapter('acme-evidence', [SE_CHANNEL_FEATURE, SE_FEATURE], [$SECTION => $goodRecord]);
+$signerVerdict = $signer('acme-evidence', $signerAdapter);
+duo_check_same(
+    null,
+    $signerVerdict,
+    'THE POSTURE, MEASURED AGAIN AFTER WP-6.6: an adapter that uses the channel AND this section is now '
+        . 'certifiable — the roster row classifies every key it claims, so the signer has an answer instead of '
+        . 'a refusal (spec/repo-format.md § v3.21)'
 );
+$armed = AdapterContractGrammar::admitted_feature_key_arms($signerAdapter);
+// ksorted by the accessor, so the expectation is written in key order rather
+// than in the roster's declaration order: a map whose iteration order depended
+// on which feature was listed first would make the arm a function of the
+// manifest's own spelling.
+duo_check_same(
+    [$SECTION => 'non_surface', 'engine_features' => 'non_surface'],
+    $armed,
+    '...and the answer for both keys is `non_surface`: the claim channel covers no state, and a certificate '
+        . 'surface list must not carry evidence prose — so the certificate this adapter gets is byte-identical '
+        . 'to the one it would get with neither key declared'
+);
+$surfaces = (new ReflectionMethod(AdapterCertification::class, 'siteSurfaceSections'))
+    ->invoke(null, 'acme-evidence', $signerAdapter);
 duo_check(
-    str_contains($signerVerdict, "declares 'engine_features'")
-        && str_contains($signerVerdict, 'which this signer cannot classify'),
-    'THE STATED POSTURE, MEASURED: an adapter that uses the channel at all is already NOT certifiable — the '
-        . 'signer refuses `engine_features` itself, which is in no arm either, one key before it reaches the '
-        . 'section'
+    !in_array($SECTION, $surfaces['entity'], true) && !in_array($SECTION, $surfaces['field'], true)
+        && !in_array('engine_features', $surfaces['entity'], true)
+        && !in_array('engine_features', $surfaces['field'], true),
+    '...measured on the surface lists themselves, which is the half that reaches a signature: neither key is '
+        . 'in either arm, so `claim_from_disposition()` cannot put it in the claim'
 );
-// The section's OWN answer, isolated by handing the signer a manifest whose
-// only unclassifiable key is the section. That manifest is not loadable (the
-// key needs its feature declared, and the feature needs the channel key), which
-// is exactly why the signer has to be asked directly to learn what it thinks of
-// this one section.
+// The genuinely unknown key is what the refusal is FOR, and it still is. A
+// manifest whose only unclassifiable key is this section but which never
+// declared the feature that claims it reads nothing from the section, so a
+// certificate may not cover it — the per-manifest scope § v3.21 states.
 $sectionOnly = (string) $signer('acme-evidence', [
     'name' => 'acme-evidence',
     'spec_version' => $N,
@@ -581,12 +604,10 @@ duo_check(
     str_contains($sectionOnly, "declares '" . $SECTION . "'")
         && str_contains($sectionOnly, 'which this signer cannot classify')
         && str_contains($sectionOnly, 'teach the signer this section'),
-    '...and the section itself is refused by name for the same reason: a feature record carries {since, keys} '
-        . 'and no ARM, so there is no reviewed answer to the only question the signer asks — § v3.3 states '
-        . 'that posture in advance and this is the refusal it predicts'
+    '...while the section WITHOUT its feature declared keeps the refusal byte for byte: the arm is read per '
+        . 'manifest, and a certificate may not claim coverage of a section this engine reads nothing from'
 );
-duo_check_detail('signer refusal (channel): ' . $signerVerdict);
-duo_check_detail('signer refusal (section): ' . $sectionOnly);
+duo_check_detail('signer refusal (section, feature undeclared): ' . $sectionOnly);
 $partition = AdapterCertification::topLevelKeyPartition();
 duo_check(
     !in_array($SECTION, array_merge(
@@ -594,8 +615,9 @@ duo_check(
         $partition['field_sections'],
         $partition['non_surface_keys']
     ), true),
-    '...and the key is in no arm of the partition, deliberately: an arm would also admit it with NO feature '
-        . 'declared, which would delete the demonstration PART 1 and PART 2 are'
+    '...and the key is STILL in no arm of the partition, deliberately: a partition arm would admit it with NO '
+        . 'feature declared, which would delete the demonstration PART 1 and PART 2 are. The arm rides in the '
+        . 'roster row instead, which is exactly the distinction § v3.21 draws'
 );
 
 // ===========================================================================

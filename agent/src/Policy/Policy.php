@@ -72,6 +72,7 @@ require_once __DIR__ . '/../Grammar/ContentAttributeRuleResolver.php';
 // directly-constructed Policy that never ran the loader.
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Grammar/AttrIdCodecGrammar.php';
+require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 // DUO-3348 slice 52: widget type registry/provenance is a pure manifest
 // projection; Policy retains its public facades for current callers.
 require_once __DIR__ . '/../Grammar/WidgetTypeResolver.php';
@@ -1265,6 +1266,24 @@ final class Policy {
      */
     public function attr_id_codec_rules(): array {
         return AttrIdCodecGrammar::rules($this->manifests);
+    }
+
+    /**
+     * `body_refs` (WP-6.5): the declared reference paths for ONE post type in
+     * `json` body mode, or null when that type declares none.
+     *
+     * Per post type rather than the whole section, because all three consumers
+     * (PostCapture, PostMaterializer, Lint) work one post at a time and reading
+     * the whole map would make each of them do the lookup this method already
+     * does. Null and not `[]` when nothing is declared: `body_mode()` returning
+     * `json` with no rule beneath it is a state validate_body_refs() refuses at
+     * load, so a null here means the caller is on a body mode that has no paths
+     * — a fact worth being able to distinguish from an empty path list.
+     *
+     * @return array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>}|null
+     */
+    public function body_ref_rule(string $postType): ?array {
+        return BodyRefGrammar::rules($this->manifests)[$postType] ?? null;
     }
 
     /**
@@ -3789,6 +3808,7 @@ final class Policy {
             'post_derivable_fields' => self::DERIVABLE_FIELD_COLUMNS,
             'post_field_classes' => self::FIELD_CLASSES,
             'post_type_body_modes' => PostTypeGrammar::bodyModes(),
+            'feature_gated_post_type_body_modes' => PostTypeGrammar::featureGatedBodyModes(),
             'post_type_phases' => PostTypeGrammar::postTypePhases(),
             'menu_derivable_fields' => self::MENU_DERIVABLE_FIELDS,
             'menu_field_classes' => self::MENU_FIELD_CLASSES,

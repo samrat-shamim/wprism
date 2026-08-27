@@ -158,6 +158,26 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
   are deliberately staging an older manifest across an engine move. Ask the
   engine rather than guessing: `duo manifest-validate --emit-schema` prints the
   accepted set in `spec_window`, measured from the shipped refusal.
+- **Two defaults apply, and they are not the same number.** Every shipped
+  manifest today declares `2` (`N-1`) — grep `manifests/*.json` and see zero
+  exceptions — because AGENTS.md rule 2 makes editing a working manifest's
+  bytes an adapter-identity move: nobody bumps the integer just to bump it, so
+  the library sits one behind `DUO_SPEC_VERSION` until an adapter has an actual
+  reason to move. A **new out-of-tree manifest** should declare `3` if and only
+  if it wants a post-v3 primitive (`engine_features` and the sections it
+  claims — [see below](#the-grammar-document)), and that "if and only if"
+  carries a real cost, not just a version bump: **declaring the top-level
+  `engine_features` key at all makes the manifest structurally uncertifiable**
+  through `duo adapter certify` / `sign-site` today — the signer refuses that
+  key by name before it ever reaches the section a feature admits
+  (`spec/repo-format.md` § v3.3, § v3.14; the mechanics are in [The grammar
+  document](#the-grammar-document) below). That is true even for a feature
+  that only fixes a known fidelity bug, like the shipped `attr-id-codecs/v1`
+  block-attribute codec: the manifest still loads, pins, plans and applies —
+  it simply never reads `Site-certified`. Decide fidelity-now-uncertified
+  versus certified-now-with-the-known-bug **before** you draft, because
+  `duo adapter certify` will not tell you until after you have already chosen
+  `spec_version: 3` and written the section.
 - `plugin` is the plugin basename; `version_range` is `{min, max}` with min
   inclusive and max exclusive, checked with two `version_compare()` calls. One
   plugin per manifest. Declaring a plugin without a well-formed range is
@@ -748,27 +768,50 @@ version refuses by SECTION NAME, which is how a format change stages one adapter
 at a time instead of arriving as a flag day; the top-level `engine_features`
 list (§ v3.2) is the first such section, and a name in it that no engine
 implements is refused as unimplemented rather than admitted as forward-looking.
-Two features exist today. `spec-window/v1` claims `engine_features` itself, so
-declaring it is what lets you declare the list at all. `structured-evidence/v1`
-claims `declaration_evidence` (`spec/repo-format.md` § v3.14) — an object keyed
-by TARGET, each record `{"evidence": [{source, locator, observation}, …]}` and
-optionally `{"answered": [{question, answer}, …]}`, with every member a
-non-empty string and every target's HEAD a top-level key the same manifest
-declares. It is where a ratified `duo adapter-draft` proposal's evidence goes
-instead of being deleted with the `_draft` sidecar; `notes` is unaffected and
-keeps whatever it already carries. Two things to know before adopting it: an
-adapter that declares any engine feature is not certifiable today (§ v3.3 — a
-feature-claimed key has no arm in the signer's partition, so `duo adapter
-certify` refuses it by name), and a record whose addressed declaration is later
-deleted refuses at load, which is the point.
+The document's own `engine_features` block is the authoritative, live list —
+read `engine_features.implemented` rather than trusting a count written on this
+page, because a feature ships by adding an `IMPLEMENTED_FEATURES` row, not by
+editing this paragraph. Six are implemented as of this engine: `spec-window/v1`
+claims `engine_features` itself, so declaring it is what lets you declare the
+list at all; `attr-id-codecs/v1` claims `attr_id_codecs`, the byte-exact
+block-attribute codec; `typed-column-codecs/v1` claims `column_codecs`;
+`structured-body-refs/v1` claims `body_refs`, a declared path grammar into JSON
+post/option bodies; `structured-evidence/v1` claims `declaration_evidence`
+(`spec/repo-format.md` § v3.14) — an object keyed by TARGET, each record
+`{"evidence": [{source, locator, observation}, …]}` and optionally
+`{"answered": [{question, answer}, …]}`, with every member a non-empty string
+and every target's HEAD a top-level key the same manifest declares; it is where
+a ratified `duo adapter-draft` proposal's evidence goes instead of being
+deleted with the `_draft` sidecar, and `notes` is unaffected and keeps whatever
+it already carries; and `invalidate-vocabulary/v1` claims no key at all — it
+widens a value vocabulary inside a section that already exists, legitimate
+under § v3.3's growth rule. A record whose addressed `declaration_evidence` is
+later deleted refuses at load, which is the point.
+
+**Before declaring any of the six** — including the shipped, working
+`attr-id-codecs/v1` fix for a faithful block-attribute round trip — know what
+it costs: an adapter that declares the top-level `engine_features` key at all
+is not certifiable today. The signer's own `topLevelKeyPartition()` has no arm
+for a feature-claimed key, nor for the channel that claims it (§ v3.3/§ v3.14),
+so `duo adapter certify`/`sign-site` refuse it **by name**, before ever reaching
+the section the feature admits. The manifest still loads, pins, plans and
+applies; it just never reads `Site-certified`. Decide this at the
+`spec_version` bullet above, not after certify has already refused — that
+bullet states the trade-off at the point you make it.
+
 `top_level_keys` is the signer's own closed partition of
 manifest top-level keys — the set that decides whether an adapter can be
 certified at all — published with the one fact an author most needs about it:
-it refuses at signing (`enforced_by`) and the manifest validator does not
-consult it (`not_enforced_by`), so an invented or transposed section name loads
-`ok` here and is unsignable later. Closing that gap is spec v3's V3-KEYS rule
-(`spec/repo-format.md` § v3.3); until it lands, treat `top_level_keys.all` as
-the list to check a new section name against by hand.
+it refuses at signing (`enforced_by`), for every `spec_version`. Since WP-4.3
+the manifest **loader** refuses an unrecognised top-level key too, by name,
+before any value in it is read — but only for a `spec_version: 3` manifest
+(spec v3's V3-KEYS rule, `spec/repo-format.md` § v3.3); a `spec_version: 2`
+manifest keeps the older, open load-time behaviour byte-for-byte, so an
+invented or transposed section name there still loads `ok` and does nothing —
+`not_enforced_by` names exactly that one case. Check `top_level_keys.all`
+against a new section name regardless of which `spec_version` you are writing:
+it is the fastest offline answer, whichever validator would eventually catch
+the mistake.
 
 Every set in it is read out of the engine at emission time, never written down
 in the emitter. That is the only property that makes it worth trusting: a
@@ -884,6 +927,46 @@ pattern, or a compatibility fallback. Record the required generic primitive in
 
 ## The authoring loop
 
+**The target needs Git before step 1 runs.** `wp duo init` refuses
+`unsupported: repository git — Git is unavailable on the target that owns the
+site repository` on a stock `wordpress:cli` image; that image has no Git
+installed, and nothing below tells you so until init already refused. Install
+Git on the target first (`sandbox/tests/lib/grind_lib.sh:744`'s
+`init-cli.Dockerfile` build is a working reference for what the image needs).
+
+**These six steps are not the whole command sequence** — two verbs run
+*inside* the loop without a numbered step of their own. `wp duo adapter-probe`
+answers the live schema questions a draft's `questions` field names (see
+[Answering the draft's live questions](#answering-the-drafts-live-questions)
+below); it runs between Draft (§3/§4b) and Pin (§5), because a probe reads
+what a drafted table looks like on the live target. `duo adapter boundary`
+bisects the `version_range` these steps write at Export/§4b (see [Finding the
+two versions the range names](#finding-the-two-versions-the-range-names)
+above); it has to run before that range is ratified, not after. Before
+authoring from nothing, it is also worth asking whether an adapter for this
+plugin already exists somewhere you can install from: `duo adapter discover`
+reads a published index and tells you, without writing anything (see
+[Planned: what an adapter cannot express yet](#planned-what-an-adapter-cannot-express-yet)
+for `discover`/`install`/`update`). Running this loop across many adapters
+at once — ranking which plugin to write next, re-measuring whether it moved
+the fleet's coverage — is [coverage-cohort.md](coverage-cohort.md)'s job, not
+this page's; its 9-step loop is where probe, boundary, the kit and `duo
+census` all sit inside one ordered sequence.
+
+**A sequencing trap between init and Propose.** If you already ran `duo init
+--allow-unmanaged-plugins` (the S1 unmanaged-plugin posture — see [the caveat
+that catches everyone](#the-caveat-that-catches-everyone) above) before
+starting this loop, it already wrote
+`policy.scope.<kind>.<name> = {"class": "runtime"}` into `site.duo.json` for
+every unmanaged plugin's rowful post types and taxonomies. By the time you
+reach §2 below, `duo pending` shows **nothing** for those types: a surface
+with a recorded scope decision is no longer "no scope disposition", which is
+exactly the condition `duo pending` looks for. This is not a bug to work
+around — it is init doing its job — but it means the review queue will not
+hand you the CPT or taxonomy you are writing the adapter *for*. Read `duo init
+--format=json`'s `unmanaged_scope_left_local` advisories (or the host
+renderer's `UNMANAGED SCOPE …` lines) for what init already decided instead.
+
 ### 1. Observe
 
 Exercise the plugin on a real environment — create the entities through the
@@ -901,6 +984,13 @@ first boot initializes with them intact.
 Note what the journal will *not* do: a bare authenticated write never proposes
 `authored`. Proposals come from evidence and are deliberately conservative.
 
+Journal rows are provenance, not live schema — they tell you what the plugin
+*wrote*, not what its tables *look like*. For the latter, `wp duo adapter-probe`
+(below) is the Observe-phase counterpart once you know which tables to ask
+about: it needs no `--repo` and reads the target's live `SHOW COLUMNS`/`SHOW
+INDEX` directly, so it is usable this early even though its answers are most
+useful once a draft's `questions` name exactly what to probe.
+
 ### 2. Propose
 
 ```sh
@@ -911,7 +1001,9 @@ The review queue shows unclassified meta on in-scope entities, entity types
 with live rows and no scope disposition, and journal-observed unclassified
 options. Each item carries whatever evidence exists — entity counts, journal
 surfaces, a ref-hint, a secret flag — and **never a guessed classification**.
-An item with no evidence for a proposal prints `-`.
+An item with no evidence for a proposal prints `-`. (If a type you expected
+here is missing, re-read the sequencing trap above — it may already be
+decided.)
 
 ### 3. Draft
 
@@ -1018,6 +1110,21 @@ wp duo adapter-probe --tables=wpforms_tasks_meta,wpforms_payments \
 duo adapter-draft <site-repo> --name=wpforms --evidence=probe.json \
   --out=<site-repo>/adapters/wpforms.json --force
 ```
+
+Note what that example gives you on a **freshly activated** plugin, because it
+is the state you are most likely to run it in. A plugin creates its tables at
+activation and fills them only through use, so every one of the six
+`wp_wpforms_*` tables exists and holds **zero rows** — and a natural key over an
+empty keyspace measures nothing. `natural_key` comes back
+`{"rows": 0, "distinct": 0, "unique": false}`, and that `false` is the absence
+of an answer rather than a duplicate. The human summary says so in as many
+words (`natural key wpforms_payments.transaction_id: 0 row(s) — nothing to
+measure yet`); exercise the plugin until the table holds real rows before you
+ratify anything from that line. `--tables=` never takes the site's table
+prefix, and a table reported `absent on this target` is a name, prefix or
+not-yet-activated question — never a "no rows yet" one. This verb also takes no
+`--repo`: unlike `wp duo coverage`, `pending`, `lint` and `adapter-observe`, it
+reads the target's live schema and owns no repository.
 
 Each fact lands as an `evidence[]` row at confidence 1.0 naming the question it
 closes, and **nothing else moves**. If the live PRIMARY KEY is not the column
@@ -1278,11 +1385,32 @@ Plugin-owned providers remain valid because their executable identity is the
 installed, active, version-bounded plugin and the ordinary provider
 negotiation/receipt contract—not the site manifest.
 
-Without a certificate, the adapter is usable for plan/apply but is visibly
-`uncertified`; readiness and host promotion remain blocked.
+Without a certificate the adapter loads, captures and plans, and is visibly
+`uncertified`; readiness and host promotion remain blocked. **Apply is blocked
+with them on any repository `duo init` created**, and that is worth reading
+twice because the uncertified row's remediation used to say otherwise: `duo
+init` writes a managed-baseline code revision into the compiled artifact, so
+`wp duo apply` on a target refuses `code_revision_stale` until `duo deploy
+<env>` has run — and `duo deploy` is host promotion, which the same
+`uncertified` state blocks. So an uncertified adapter is a **capture-and-plan**
+adapter, not a deployable one.
 
 There are two ways to certify one, and which you want depends on **whose
 approval the certificate represents**.
+
+> **Which trust root do you need?** Everything on this page — including the
+> section right below — is the **site trust root**: `adapters/authorities.json`
+> lives inside *your own* site repository, `duo adapter certify` populates it,
+> and it needs no gate, no vendor review and no key beyond one you mint
+> yourself. It is fully shipped and is almost certainly what you want if you
+> are authoring an adapter for your own site's plugin.
+> [trust-enrollment.md](trust-enrollment.md) is a *different* file:
+> `manifests/capabilities/adapter-authorities.json`, the **platform** trust
+> root this project alone can populate, gated on G4 and, as of this page,
+> still `{"keys":{}}` — nobody has been enrolled there yet. Read
+> trust-enrollment.md only if you are the platform reviewer vetting a *third
+> party* to sign under the agent's own key; skip it entirely for your own
+> site's certificate, which the section below covers completely.
 
 ### Your organization's own approval (`duo adapter certify`)
 
@@ -1618,7 +1746,17 @@ canned sentence on every refusal and leaves `--reason` as your only input, so a
 site that genuinely reviewed its adapter's deletion semantics signed the same
 document as one that reviewed nothing. Pass `--ratification-file=<file>` and
 `certify` signs the disposition **you** wrote — one entry, in the exact shape
-`manifests/dispositions/<name>.json` carries:
+`manifests/dispositions/<name>.json` carries.
+
+> **The file is the BARE entry, not the `duo-manifest-dispositions/v1`
+> envelope.** Write the object below at the file's top level — no `format`, no
+> `manifests`, no `profiles`. Those three are the signer's: it owns them so that
+> an authored document cannot ratify a second adapter or smuggle a profile
+> ([§ v3.17](../../spec/repo-format.md)), which is the same posture as the
+> certificate's path being derived rather than declared. Hand it an envelope and
+> `certify` says so by name and tells you to pass the value at
+> `manifests.<name>` instead. `manifests/dispositions/<name>.json` is itself a
+> bare entry, so a shipped disposition is a copyable starting point as-is.
 
 ```json
 {
@@ -1762,9 +1900,10 @@ that name, which fails with the refusal's own message.
 **A bundled adapter cannot be certified in place**, and no field or companion
 file changes that: certification hashes `adapters/<name>.json` and binds
 `source: "site"` and that exact path inside the signed statement. So a bundled
-adapter is `uncertified` by construction — plan and apply available, readiness
-and host promotion blocked, identical to an unsigned site adapter. To certify
-one, promote it:
+adapter is `uncertified` by construction — capture and plan available,
+readiness and host promotion blocked (and apply with them, for the reason the
+certification section above gives), identical to an unsigned site adapter. To
+certify one, promote it:
 
 1. Install the same adapter as a repository package at `adapters/<name>.json`.
 2. Obtain a signed `adapters/certifications/<name>.json` (the section above).

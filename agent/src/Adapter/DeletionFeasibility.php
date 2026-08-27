@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 
 /**
@@ -141,11 +142,16 @@ final class DeletionFeasibility {
             throw new \RuntimeException('duo: deletion feasibility needs a live target; $wpdb is unavailable');
         }
         if ($proposal === []) {
-            throw new \RuntimeException('duo: deletion feasibility needs at least one proposed deletion selector');
+            throw self::refuse(
+                'deletion feasibility needs at least one proposed deletion selector',
+                'name at least one `<post|term|menu|table>:<type>` selector in --proposal, then rerun adapter-deletion-feasibility'
+            );
         }
         if (count($proposal) > self::MAX_SELECTORS) {
-            throw new \RuntimeException(
-                'duo: deletion feasibility refuses more than ' . self::MAX_SELECTORS . ' selectors in one document'
+            throw self::refuse(
+                'deletion feasibility refuses more than ' . self::MAX_SELECTORS . ' selectors in one document',
+                'split the proposal into documents of at most ' . self::MAX_SELECTORS
+                    . ' selectors, then rerun adapter-deletion-feasibility'
             );
         }
 
@@ -155,11 +161,15 @@ final class DeletionFeasibility {
             if (preg_match(self::SELECTOR, $selector) !== 1) {
                 // The selector is never echoed: it is the one string here that
                 // nothing has vetted.
-                throw new \RuntimeException(
-                    'duo: deletion feasibility refused a selector outside the <post|term|menu|table>:<type> grammar'
+                throw self::refuse(
+                    'deletion feasibility refused a selector outside the <post|term|menu|table>:<type> grammar',
+                    'spell every key `<post|term|menu|table>:<type>`, exactly as Deletion::selector() does, '
+                        . 'then rerun adapter-deletion-feasibility'
                 );
             }
-            $selectors[$selector] = ['guards' => self::guard_rows(self::declared_guards($selector, $body))];
+            $selectors[$selector] = [
+                'guards' => self::guard_rows($selector, self::declared_guards($selector, $body)),
+            ];
         }
         ksort($selectors, SORT_STRING);
 
@@ -198,24 +208,35 @@ final class DeletionFeasibility {
      */
     private static function declared_guards(string $selector, mixed $body): array {
         if (!is_array($body)) {
-            throw new \RuntimeException("duo: deletion feasibility received a malformed proposal body for '$selector'");
+            throw self::refuse(
+                "deletion feasibility received a malformed proposal body for '$selector'",
+                'give every selector an object of `{"guards": [...]}`, then rerun adapter-deletion-feasibility'
+            );
         }
         foreach (array_keys($body) as $key) {
             if ($key === 'cascades') {
-                throw new \RuntimeException(
-                    "duo: deletion feasibility refuses the cascade set declared for '$selector': this report answers "
-                        . 'guard lock feasibility only and owns no destructive authority'
+                throw self::refuse(
+                    "deletion feasibility refuses the cascade set declared for '$selector': this report answers "
+                        . 'guard lock feasibility only and owns no destructive authority',
+                    'drop `cascades` from the proposal and declare it in the manifest a human ratifies, '
+                        . 'then rerun adapter-deletion-feasibility'
                 );
             }
             if ($key !== 'guards') {
-                throw new \RuntimeException(
-                    "duo: deletion feasibility received an unsupported proposal field for '$selector'"
+                throw self::refuse(
+                    'deletion feasibility received the proposal field ' . self::quoted_key($key)
+                        . " for '$selector', which it does not model: this report reads `guards` only",
+                    'give every selector exactly one key, `guards`, then rerun adapter-deletion-feasibility'
                 );
             }
         }
         $guards = $body['guards'] ?? null;
         if (!is_array($guards) || !array_is_list($guards)) {
-            throw new \RuntimeException("duo: deletion feasibility needs a guard list for '$selector'");
+            throw self::refuse(
+                "deletion feasibility needs a guard list for '$selector'",
+                'spell `guards` as a JSON LIST of guard objects, exactly as a manifest `deletions` section does, '
+                    . 'then rerun adapter-deletion-feasibility'
+            );
         }
         if ($guards === []) {
             // A selector with no guards is a real proposal — core's
@@ -225,8 +246,10 @@ final class DeletionFeasibility {
             return [];
         }
         if (count($guards) > self::MAX_GUARDS) {
-            throw new \RuntimeException(
-                'duo: deletion feasibility refuses more than ' . self::MAX_GUARDS . " guards for '$selector'"
+            throw self::refuse(
+                'deletion feasibility refuses more than ' . self::MAX_GUARDS . " guards for '$selector'",
+                'a hand-authored guard list wider than ' . self::MAX_GUARDS
+                    . ' is a different question; narrow it, then rerun adapter-deletion-feasibility'
             );
         }
         return array_values($guards);
@@ -237,16 +260,33 @@ final class DeletionFeasibility {
      * @return list<array<string,mixed>> in the author's own order: the rows map
      *   1:1 onto the fragment being reviewed
      */
-    private static function guard_rows(array $guards): array {
+    private static function guard_rows(string $selector, array $guards): array {
         $rows = [];
-        foreach ($guards as $guard) {
+        foreach ($guards as $position => $guard) {
             if (!is_array($guard)) {
-                throw new \RuntimeException('duo: deletion feasibility received a malformed guard');
+                throw self::refuse(
+                    'deletion feasibility received a malformed guard at position ' . (int) $position
+                        . " of '$selector'",
+                    'spell every guard as a JSON object of the manifest guard grammar\'s own fields ('
+                        . implode(', ', self::GUARD_KEYS) . '), then rerun adapter-deletion-feasibility'
+                );
             }
             foreach (array_keys($guard) as $key) {
                 if (!in_array((string) $key, self::GUARD_KEYS, true)) {
-                    throw new \RuntimeException(
-                        'duo: deletion feasibility received a guard field it does not model; it would answer for the wrong column'
+                    // NAMING the offender is the whole remedy here. `note` is
+                    // the obvious thing an author annotating a guard writes,
+                    // `wp help duo adapter-deletion-feasibility` documents
+                    // `--proposal` only as "`<selector>: {"guards": [...]}` —
+                    // minus `cascades`" and lists none of the 13 legal keys,
+                    // and the sentence that would have explained it was being
+                    // swallowed (see refuse() below). So the refusal names the
+                    // key, its position, and the closed set it is missing from.
+                    throw self::refuse(
+                        'deletion feasibility received the guard field ' . self::quoted_key($key)
+                            . ' at position ' . (int) $position . " of '$selector', which it does not model; "
+                            . 'it would answer for the wrong column',
+                        'use only the guard fields the manifest deletion grammar defines ('
+                            . implode(', ', self::GUARD_KEYS) . '), then rerun adapter-deletion-feasibility'
                     );
                 }
             }
@@ -268,12 +308,15 @@ final class DeletionFeasibility {
      */
     private static function guard_row(array $guard): array {
         global $wpdb;
+        // These three names come out of the AUTHOR's proposal, not off the
+        // server, so their refusal is one the author has to be able to read —
+        // hence the typed form. The name itself is still never echoed.
         $table = (string) ($guard['table'] ?? '');
-        self::assert_identifier($table, 'table');
+        self::assert_authored_identifier($table, 'table');
         $column = (string) ($guard['column'] ?? '');
-        self::assert_identifier($column, 'column');
+        self::assert_authored_identifier($column, 'column');
         $lockColumn = self::lock_column($guard);
-        self::assert_identifier($lockColumn, 'column');
+        self::assert_authored_identifier($lockColumn, 'column');
 
         $row = [
             'column' => $column,
@@ -457,6 +500,75 @@ final class DeletionFeasibility {
                 "duo: deletion feasibility refused a $kind name outside the portable identifier grammar"
             );
         }
+    }
+
+    /**
+     * The same grammar, for a name the AUTHOR wrote rather than one the server
+     * returned. One regex, two refusal classes: a server identifier arriving
+     * malformed is an operator-evidence event, while a malformed name in
+     * `--proposal` is the author's own typo and has to reach the terminal.
+     */
+    private static function assert_authored_identifier(string $value, string $kind): void {
+        if (preg_match(self::IDENTIFIER, $value) !== 1) {
+            throw self::refuse(
+                "deletion feasibility refused a $kind name outside the portable identifier grammar",
+                "spell every guard $kind with the portable identifier characters [A-Za-z0-9_] the deletion "
+                    . 'guard itself would use, then rerun adapter-deletion-feasibility'
+            );
+        }
+    }
+
+    /**
+     * A key from the author's proposal, quoted for a refusal — or described
+     * rather than echoed when it is outside the identifier grammar.
+     *
+     * The screen is the one this class already applies to a selector (`:161`):
+     * a key nothing has vetted is the one string in a refusal that could carry
+     * anything, and naming it is worth doing only when naming it is safe.
+     */
+    private static function quoted_key(mixed $key): string {
+        $key = (string) $key;
+        return preg_match(self::IDENTIFIER, $key) === 1
+            ? "`$key`"
+            : '(a key outside the portable identifier grammar, not echoed)';
+    }
+
+    /**
+     * A refusal about the PROPOSAL — the document the author just wrote.
+     *
+     * Typed, rather than the bare `\RuntimeException` these all used to be,
+     * because `Cli::halt_json_failure()` publishes a message only from a typed
+     * refusal: every other Throwable is private operator evidence and comes
+     * back as "adapter-deletion-feasibility refused at an unclassified safety
+     * gate" with `details_redacted: true`
+     * (`agent/src/Command/Cli.php:88-104`). That classification is correct —
+     * an ordinary message can carry a path or a server identifier — and these
+     * sentences are exactly the exception it describes: each one is about the
+     * author's own input, every value they interpolate is vetted against
+     * `SELECTOR`/`IDENTIFIER` first, and the author cannot act without them.
+     *
+     * Measured on a live WPForms Lite pair: a guard carrying a `note` key —
+     * the obvious thing an author annotating a guard writes, and a key
+     * `wp help duo adapter-deletion-feasibility` never lists — returned the
+     * unclassified envelope with remediation "inspect the proposed deletion
+     * selectors and their guards", while the sentence that names the actual
+     * problem ("…a guard field it does not model; it would answer for the
+     * wrong column") was thrown here and dropped.
+     *
+     * `invalid_arguments` is this verb's own reason code for a `--proposal` it
+     * cannot read (`Cli.php:3409`), so one command answers "your proposal is
+     * wrong" with one code whether the file was unreadable or its contents
+     * were. The operator message keeps the `duo: ` prefix these refusals have
+     * always carried, so the human/exception form is unchanged.
+     */
+    private static function refuse(string $publicMessage, string $remediation): CommandRefusalException {
+        return new CommandRefusalException(
+            'invalid_arguments',
+            $publicMessage,
+            $remediation,
+            [],
+            'duo: ' . $publicMessage
+        );
     }
 
     /**

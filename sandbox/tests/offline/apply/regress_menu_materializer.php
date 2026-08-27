@@ -270,7 +270,10 @@ $menuDb = static function (
     array $extraTerms = [],
     array $extraTaxonomies = []
 ) use ($menuUuid, $itemUuid): \DuoTest\LockingFakeWpdb {
-    $inner = (new \DuoTest\FakeWpdb())->enableRelationshipOwnershipJoin();
+    // The owner-range LEFT JOIN this suite depends on is the one join form the
+    // fake interprets generally (FakeWpdb header, parseLeftEquiJoin()); the
+    // per-query opt-in it once required was retired for that general form.
+    $inner = new \DuoTest\FakeWpdb();
     $db = new \DuoTest\LockingFakeWpdb($inner);
     $db->setColumns('terms', ['term_id' => 'bigint unsigned', 'name' => 'varchar(200)', 'slug' => 'varchar(200)']);
     $db->setColumns('term_taxonomy', [

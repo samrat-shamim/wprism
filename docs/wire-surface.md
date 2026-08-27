@@ -177,7 +177,7 @@ and its cost are written down.
 
 ### R-18 — The `spec_version` acceptance window is exactly {N-1, N}
 
-**Shipped now.** Measured by handing candidate integers to the shipped `AdapterContractGrammar::validate_adapter_contract()`: this engine accepts `2`, `3` and refuses every other integer wholesale, naming the window. An absent or non-integer `spec_version` keeps the older refusal, because it is not a version and so is not outside anything. A manifest inside the window that declares a section this engine implements only at a HIGHER version refuses naming the section (`attr_id_codecs`, `column_codecs`, `declaration_evidence`, `engine_features` today).
+**Shipped now.** Measured by handing candidate integers to the shipped `AdapterContractGrammar::validate_adapter_contract()`: this engine accepts `2`, `3` and refuses every other integer wholesale, naming the window. An absent or non-integer `spec_version` keeps the older refusal, because it is not a version and so is not outside anything. A manifest inside the window that declares a section this engine implements only at a HIGHER version refuses naming the section (`attr_id_codecs`, `body_refs`, `column_codecs`, `declaration_evidence`, `engine_features` today).
 
 **Why it cannot change.** The floor is DUO_SPEC_VERSION - 1 and never deeper, checked at generation time. Narrowing the window later refuses every adapter in the field that took it at its word, which is a flag day of exactly the kind the window exists to end; widening it to N-2 costs nothing on the day it is done and converts a staging channel with an expiry into permanent tolerance that no refusal, document or suite would report. So the equality is the gate, not the intention.
 
@@ -185,7 +185,7 @@ and its cost are written down.
 
 ### R-19 — Engine feature names are engine-owned, and permanent once declared
 
-**Shipped now.** This engine implements `attr-id-codecs/v1`, `invalidate-vocabulary/v1`, `spec-window/v1`, `structured-evidence/v1`, `typed-column-codecs/v1`. A manifest declares names through the top-level `engine_features` list; an engine lacking a listed name refuses THAT ADAPTER, naming the feature. An adapter declares a name and never mints one: a name nothing implements is refused as unimplemented rather than admitted as forward-looking.
+**Shipped now.** This engine implements `attr-id-codecs/v1`, `invalidate-vocabulary/v1`, `spec-window/v1`, `structured-body-refs/v1`, `structured-evidence/v1`, `typed-column-codecs/v1`. A manifest declares names through the top-level `engine_features` list; an engine lacking a listed name refuses THAT ADAPTER, naming the feature. An adapter declares a name and never mints one: a name nothing implements is refused as unimplemented rather than admitted as forward-looking.
 
 **Why it cannot change.** A declared feature name is inside the manifest bytes `ArtifactPolicyIdentity::manifest_rows()` folds into that adapter's `digest`, which every `site.duo.json` content pin and every certificate's `adapter.canonical_sha256` binds. Renaming or re-spelling a feature therefore moves the digest of every manifest that declares it and invalidates their pins and certificates at once — the same irreversibility R-17 records for `id_kind`, reached through a different door.
 
@@ -201,11 +201,11 @@ and its cost are written down.
 
 ### R-21 — The top-level manifest key set is closed at `spec_version: 3`, from one definition
 
-**Shipped now.** A `spec_version: 3` manifest may declare 33 top-level keys — the signer's three-arm partition, 5 entity + 14 field + 14 non-surface — plus whatever keys its own declared, IMPLEMENTED `engine_features` values claim (today `attr_id_codecs` via `attr-id-codecs/v1`, `column_codecs` via `typed-column-codecs/v1`, `declaration_evidence` via `structured-evidence/v1`, `engine_features` via `spec-window/v1`). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar values claim (`engine_features` itself, via `spec-window/v1`). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar `duo adapter-draft` writes — refuses with its own remedy, to strip it. v2 manifests keep the open behaviour byte for byte, so none of the shipped library changes. Measured here by asking the shipped validator and the shipped signer for their sets and comparing them in both directions.
+**Shipped now.** A `spec_version: 3` manifest may declare 33 top-level keys — the signer's three-arm partition, 5 entity + 14 field + 14 non-surface — plus whatever keys its own declared, IMPLEMENTED `engine_features` values claim (today `attr_id_codecs` via `attr-id-codecs/v1`, `body_refs` via `structured-body-refs/v1`, `column_codecs` via `typed-column-codecs/v1`, `declaration_evidence` via `structured-evidence/v1`, `engine_features` via `spec-window/v1`). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar `duo adapter-draft` writes — refuses with its own remedy, to strip it. v2 manifests keep the open behaviour byte for byte, so none of the shipped library changes. Measured here by asking the shipped validator and the shipped signer for their sets and comparing them in both directions.
 
 **Why it cannot change.** A key REMOVED from the set later refuses every manifest in the field that declared it, and takes its adapter digest with it: the key is inside the manifest bytes `ArtifactPolicyIdentity::manifest_rows()` folds, so the remedy is an edit that moves every `site.duo.json` content pin and invalidates every certificate over that adapter (R-19 records the same irreversibility for a feature name). Closing the set is therefore a one-way door: it can be opened wider through the growth rule and can never be narrowed. The one definition is load-bearing for the same reason — two lists that agree today diverge silently, and the symptom is an adapter that loads everywhere and cannot be certified.
 
-**Reserved.** Growth is § v3.2's channel and nothing else: a post-v3 primitive ships as an engine feature name, the top-level keys that feature claims, and a refusal for the engine that lacks it — so no key is ever added by widening this set for everyone. A feature whose key must also be SIGNABLE gives it an arm in the partition in the same change, because a feature record carries `{since, keys}` and no arm, and an arm is what decides whether a certificate covers the key as a surface.
+**Reserved.** Growth is § v3.2's channel and nothing else: a post-v3 primitive ships as an engine feature name, the top-level keys that feature claims, and a refusal for the engine that lacks it — so no key is ever added by widening this set for everyone. What a feature-claimed key is SIGNABLE as is no longer reserved and no longer this row's business: since WP-6.6 the arm rides in the feature's own roster row and R-31 records it. This row reserves the base partition, which the roster may never name a key in.
 
 ### R-22 — The shipped library wins the adapter-NAME namespace, against a pattern
 
@@ -269,7 +269,7 @@ and its cost are written down.
 
 **Why it cannot change.** The section name and every row member are inside the manifest bytes `ArtifactPolicyIdentity::manifest_rows()` folds into the adapter `digest`, reached through the same door R-19 records for the feature name that admits them: renaming a member moves the digest of every manifest carrying one and invalidates their pins and certificates at once. The rows are closed in BOTH directions for the reason R-21 gives one level up — a member no checker reads is indistinguishable from a deliberate one, and a section whose whole purpose is machine-checkable rationale cannot admit one.
 
-**Reserved.** An ARM in `AdapterCertification::topLevelKeyPartition()` is deliberately NOT taken. Without one the signer refuses this section by name — an adapter that adopts it loads everywhere and is not certifiable, which is § v3.3's stated posture for a feature-claimed key rather than an oversight. Taking the arm would also admit the key with NO feature declared, deleting the no-bump demonstration the section exists to be; it is a separate reviewed decision, for whoever needs a certificate to cover this surface. Also reserved: resolving a target's TAIL against the addressed section's own sub-grammar — fourteen field sections have fourteen of those, and a resolver here would be a second, drifting copy of all of them.
+**Reserved.** An arm in `AdapterCertification::topLevelKeyPartition()` is STILL deliberately not taken, and WP-6.6 is why that reservation now costs nothing. This row used to record the consequence as accepted — "the signer refuses this section by name, an adapter that adopts it loads everywhere and is not certifiable" — which was measured on a real adapter and found to be a wall rather than a posture. The arm rides in the FEATURE's roster row instead (R-31): `declaration_evidence` classifies as `non_surface`, because provenance rows are not state and a certificate's surface list may not carry evidence prose. Taking a partition arm would still be the wrong fix — it would admit the key with NO feature declared, deleting the no-bump demonstration the section exists to be. Also reserved: resolving a target's TAIL against the addressed section's own sub-grammar — fourteen field sections have fourteen of those, and a resolver here would be a second, drifting copy of all of them.
 
 ### R-30 — The adapter index is UNSIGNED by design, and its entry grammar is closed
 
@@ -278,6 +278,14 @@ and its cost are written down.
 **Why it cannot change.** The closed entry key set is the part that cannot move quietly. It is closed in BOTH directions for R-21's reason one level up — a member no checker reads is indistinguishable from a deliberate one — and the absent-member direction is the one that matters here: deleting `certificate_sha256` and `certificate_url` is precisely how a tamperer would express "this package is unsigned", so an entry missing them must be refused by the DOCUMENT grammar rather than discovered at verify time. Adding a member later would make every index already published unreadable by the agent that added it, which is why `/v1` is the whole change channel, exactly as R-01 records for the certification domain. The digests are full sha256 in one spelling for the same reason a certificate binds bytes rather than a path: a prefix, or a second accepted case, would let two different packages resolve under one pin.
 
 **Reserved.** A SIGNATURE over the index is deliberately not reserved, and this is the decision the row exists to hold. Signing it would create a second trust root — with its own custody, enrollment and revocation story — in front of a decision already taken by a root that has all three, and it would buy nothing the digests do not already buy: an index signature can only assert which packages EXIST, which is a denial-of-service surface, never an authorization one. Reversing this needs a new `format` value read beside v1, a reviewed answer to whose key signs it and how it is revoked, and a reason the answer is not simply "the certificate the entry already points at". Also not reserved: an ORDER over `version`, which is an opaque publisher label this format never parses (§ v3.19 — the two verbs refuse an ambiguity rather than rank it), and an HTTPS transport, whose absence is a stated boundary with its own refusal rather than a gap to be filled in.
+
+### R-31 — A feature-claimed key carries its certificate ARM in the feature's own roster row
+
+**Shipped now.** Every top-level key an implemented `engine_features` value claims is classified into exactly one of `entity`, `field`, `non_surface` by the row that claims it (`AdapterContractGrammar::IMPLEMENTED_FEATURES`, spec/repo-format.md § v3.21) — today `attr_id_codecs` -> `field`, `body_refs` -> `field`, `column_codecs` -> `field`, `declaration_evidence` -> `non_surface`, `engine_features` -> `non_surface`. `entity` and `field` become the two section lists a disposition names, and therefore members of the signed claim's `surfaces`; `non_surface` covers no state. `AdapterCertification::siteSurfaceSections()` asks the three-arm partition first and this roster second, for the keys the DECLARING manifest brought through the channel, so a section present without its feature keeps the unclassifiable refusal. Both signing profiles read the one method, so `--ratification-file` cannot certify a section the derivation cannot. Measured here by asking the shipped roster and the shipped signer, not by listing.
+
+**Why it cannot change.** An arm is inside the certificate. `claim_from_disposition()` turns the entity and field lists into the claim's `surfaces`, and that claim is inside the signed statement — so MOVING a key between arms, or from an arm to none, changes the surfaces every holder of that certificate already verified, and re-signing is the only remedy. `body_refs` and `attr_id_codecs` as `field`, `declaration_evidence` and `engine_features` as `non_surface`, are therefore as permanent as the section names themselves (R-29 records that door for the names, R-19 for the feature that admits them). The MAP is the other permanent half: `keys` is a key => arm map rather than a list, so a feature cannot claim a key without classifying it, and the failure this row exists to close — a section that loads on every site and is unsignable by every profile — is unrepresentable rather than remembered.
+
+**Reserved.** A FOURTH arm is refused, not reserved: a disposition entry has exactly two section lists (`entity_sections`, `field_sections`) and `non_surface` is the honest name for "in neither", so a fourth would need a disposition member that does not exist and a claim projection that does not read one. Also refused rather than reserved: a roster row naming a key the signer's own partition already carries — that is two spellings of one arm and `feature_key_arms()` throws on it. What IS reserved is the per-manifest scope: the arm is read for the keys a manifest's own declared, implemented features claim, never engine-wide, because a certificate may not claim coverage of a section this engine reads nothing from.
 
 ## 3. The grammars, as the shipped validators answer them
 
@@ -376,7 +384,7 @@ regenerates this document and, in doing so, reads the change.
 
 ## 5. What the checker proves, and what it does not
 
-`php tools/wire-surface.php --check` proves ten things and refuses the run rather than
+`php tools/wire-surface.php --check` proves eleven things and refuses the run rather than
 printing a register it cannot stand behind:
 
 1. **Every value above is the shipped value.** The document is rebuilt from the code and
@@ -405,12 +413,19 @@ printing a register it cannot stand behind:
    classifies against are compared in both directions, and the only excess admitted is what
    an implemented engine feature claims (R-21).
 
-9. **The § v3.9 grandfather list is in its place and is still closed.** Its constants are
-   declared under `agent/src` — never under `manifests/`, where AGENTS.md rule 2 would fold
-   them into every adapter digest — and their membership equals the shipped library exactly: 16 adapter
-   names and 18 `id_kind`s, in both directions, so a seventeenth unprefixed name is a reviewed
-   edit rather than a file appearing in a directory (R-27).
-10. **The register has no gaps and no duplicates.** Row ids run R-01 … R-30 with every integer
+9. **Every key that excess admits is signable.** Each top-level key an implemented engine
+   feature claims carries a certificate arm in the feature's own roster row — today `attr_id_codecs` -> `field`, `body_refs` -> `field`, `column_codecs` -> `field`, `declaration_evidence` -> `non_surface`, `engine_features` -> `non_surface` —
+   each arm is one of `entity`, `field`, `non_surface`, no roster row names a key the signer's partition
+   already carries, and every claimed section publishes its value grammar (R-31). This is the
+   one gate whose failure mode is an OMISSION rather than a disagreement: a feature-claimed
+   key with no arm loads on every site and is unsignable by both profiles.
+
+10. **The § v3.9 grandfather list is in its place and is still closed.** Its constants are
+    declared under `agent/src` — never under `manifests/`, where AGENTS.md rule 2 would fold
+    them into every adapter digest — and their membership equals the shipped library exactly: 16 adapter
+    names and 18 `id_kind`s, in both directions, so a seventeenth unprefixed name is a reviewed
+    edit rather than a file appearing in a directory (R-27).
+11. **The register has no gaps and no duplicates.** Row ids run R-01 … R-31 with every integer
     present exactly once. Ids are ordinal bookkeeping — nothing on disk or in a certificate
     embeds one — but an id nobody can account for reads as a row somebody deleted, and this
     document is the only place a deleted decision would be missed.

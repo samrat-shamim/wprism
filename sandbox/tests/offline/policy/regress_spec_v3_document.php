@@ -209,11 +209,25 @@ sort($featureReaders, SORT_STRING);
 // unimplemented name; ManifestGrammar reads a manifest's declared list for the
 // one narrower question its feature-gated `invalidate[]` verbs turn on, which
 // it cannot delegate upward across the module ladder.
+// WP-6.5 added the third gate reader and the first PUBLISHER, and the two are
+// different roles. BodyRefGrammar is ManifestGrammar's shape exactly: it owns
+// the name `structured-body-refs/v1` and reads a manifest's declared list for
+// the one narrower question its feature-gated `json` body MODE turns on, which
+// it cannot delegate upward across the module ladder either. ManifestValidate
+// is not a gate at all — it publishes the channel in `--emit-schema`'s grammar
+// document, which until WP-6.5 could not describe the channel it documents.
+// The property being ratcheted is unchanged: exactly one file OWNS the
+// vocabulary and can refuse an unimplemented name.
 duo_check_same(
-    ['agent/src/Adapter/AdapterContractGrammar.php', 'agent/src/Policy/ManifestGrammar.php'],
+    [
+        'agent/src/Adapter/AdapterContractGrammar.php',
+        'agent/src/Grammar/BodyRefGrammar.php',
+        'agent/src/Policy/ManifestGrammar.php',
+        'cli/src/Adapter/ManifestValidate.php',
+    ],
     $featureReaders,
-    'v3.2 ENFORCED: the channel has two shipped readers — the grammar that owns the feature vocabulary, and '
-        . 'the manifest grammar that consumes one gated declaration'
+    'v3.2 ENFORCED: the channel has one shipped OWNER — the grammar that holds the feature vocabulary — beside '
+        . 'two gate readers that each consume one gated declaration, and one publisher that consumes none'
 );
 // WP-6.4 moved this from one name to two, and the second is the assertion
 // worth having: `spec-window/v1` claims only the channel's own key, so with it
@@ -221,11 +235,21 @@ duo_check_same(
 // admissibility. `structured-evidence/v1` claims `declaration_evidence`, a
 // section that did not exist when v3 was cut and that shipped with
 // DUO_SPEC_VERSION unmoved (§ v3.14) — so the channel is a walked path.
+// WP-6.5 makes it six, and the fifth section-claiming name is `body_refs`
+// (§ v3.20) — another section that did not exist when v3 was cut, shipped with
+// DUO_SPEC_VERSION unmoved.
 duo_check_same(
-    ['attr-id-codecs/v1', 'invalidate-vocabulary/v1', 'spec-window/v1', 'structured-evidence/v1', 'typed-column-codecs/v1'],
+    [
+        'attr-id-codecs/v1',
+        'invalidate-vocabulary/v1',
+        'spec-window/v1',
+        'structured-body-refs/v1',
+        'structured-evidence/v1',
+        'typed-column-codecs/v1',
+    ],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: the vocabulary carries four IMPLEMENTED features, and three claim sections v3 did not have — '
-        . '"declared and implemented admits" is a path walked three times, not an admissibility argument'
+    'v3.2: the vocabulary carries six IMPLEMENTED features, and four claim sections v3 did not have — '
+        . '"declared and implemented admits" is a path walked four times, not an admissibility argument'
 );
 // WP-4.12: the channel OPENED. At DUO_SPEC_VERSION 2 this probe refused by
 // SECTION NAME, because the section's own version (3) sat outside the window;

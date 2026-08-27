@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 
 /**
  * Live SCHEMA facts about one target's candidate tables (`duo-adapter-probe/v1`).
@@ -84,23 +85,30 @@ final class AdapterProbe {
         $requested = [];
         foreach ($tables as $table) {
             $table = (string) $table;
-            self::assert_identifier($table, 'table');
+            self::assert_authored_identifier($table, 'table');
             $requested[$table] = true;
         }
         if ($requested === []) {
-            throw new \RuntimeException('duo: adapter probe needs at least one table to probe');
+            throw self::refuse(
+                'adapter probe needs at least one table to probe',
+                'name the tables one adapter draft proposes in --tables=<comma-separated names>, then rerun adapter-probe'
+            );
         }
         if (count($requested) > self::MAX_TABLES) {
-            throw new \RuntimeException(
-                'duo: adapter probe refuses more than ' . self::MAX_TABLES . ' tables in one document'
+            throw self::refuse(
+                'adapter probe refuses more than ' . self::MAX_TABLES . ' tables in one document',
+                'probe at most ' . self::MAX_TABLES . ' tables at a time — a wider sweep is a different tool — '
+                    . 'then rerun adapter-probe'
             );
         }
         foreach ($naturalKeys as $table => $column) {
-            self::assert_identifier((string) $table, 'table');
-            self::assert_identifier((string) $column, 'column');
+            self::assert_authored_identifier((string) $table, 'table');
+            self::assert_authored_identifier((string) $column, 'column');
             if (!isset($requested[(string) $table])) {
-                throw new \RuntimeException(
-                    "duo: adapter probe was asked for a natural key on '$table', which is not one of the probed tables"
+                throw self::refuse(
+                    "adapter probe was asked for a natural key on '$table', which is not one of the probed tables",
+                    "add $table to --tables=<names> — a natural key is measured on a table this run probes — "
+                        . 'then rerun adapter-probe'
                 );
             }
         }
@@ -338,7 +346,7 @@ final class AdapterProbe {
      */
     private static function eav_twin_of(string $table, string $prefixed): ?array {
         global $wpdb;
-        foreach ([$table . 'meta', $table . '_meta'] as $candidate) {
+        foreach (self::eav_twin_candidates($table) as $candidate) {
             $twinPrefixed = $wpdb->prefix . $candidate;
             if ($twinPrefixed === $prefixed || !self::table_exists($twinPrefixed)) {
                 continue;
@@ -376,6 +384,41 @@ final class AdapterProbe {
             ];
         }
         return null;
+    }
+
+    /**
+     * The names a plugin actually spells its meta sidecar with, in order.
+     *
+     * The first two are the concatenations core itself uses — `wp_postmeta`
+     * beside `wp_posts`, and the underscored variant `wp_wpforms_tasks_meta`.
+     * The third and fourth are the SINGULARIZED stem, and they exist because
+     * the first two miss a real, common shape: a plugin that pluralizes the
+     * parent table usually does NOT pluralize the twin. Measured on WPForms
+     * Lite 2.0.0.5, whose `wp_wpforms_payments` twin is
+     * `wp_wpforms_payment_meta` (`id` PK, `payment_id`, `meta_key`,
+     * `meta_value`) — a textbook EAV pair the plugin models as one entity
+     * (`src/Db/Payments/Payment.php` and `Meta.php`) — this heuristic probed
+     * `wp_wpforms_paymentsmeta` and `wp_wpforms_payments_meta`, found neither,
+     * and reported `eav_twin: null` while
+     * `docs/guides/adapter-authoring.md:1008` advertises `[eav_twin]` as one
+     * of the named questions "one command can answer".
+     *
+     * The strip is deliberately the naive trailing `s` and nothing more: this
+     * is a NAME guess whose only consequence is one extra `SHOW TABLES LIKE`,
+     * and every candidate still has to pass the key/value column screen below
+     * before it is reported as a twin. A wrong guess (`address` -> `addres`)
+     * costs one existence probe that answers no.
+     *
+     * @return list<string>
+     */
+    private static function eav_twin_candidates(string $table): array {
+        $candidates = [$table . 'meta', $table . '_meta'];
+        if (strlen($table) > 1 && str_ends_with($table, 's')) {
+            $stem = substr($table, 0, -1);
+            $candidates[] = $stem . '_meta';
+            $candidates[] = $stem . 'meta';
+        }
+        return array_values(array_unique($candidates));
     }
 
     /**
@@ -452,6 +495,46 @@ final class AdapterProbe {
             // one string in this document nothing has vetted.
             throw new \RuntimeException("duo: adapter probe refused a $kind name outside the portable identifier grammar");
         }
+    }
+
+    /**
+     * The same grammar, for a name the AUTHOR typed into `--tables=` or
+     * `--natural-keys=` rather than one the server returned. One regex, two
+     * refusal classes: a malformed server identifier is operator evidence,
+     * while a malformed name in an argument is the author's own typo and has
+     * to reach the terminal rather than the redacted catch-all.
+     */
+    private static function assert_authored_identifier(string $value, string $kind): void {
+        if (preg_match(self::IDENTIFIER, $value) !== 1) {
+            throw self::refuse(
+                "adapter probe refused a $kind name outside the portable identifier grammar",
+                "spell every $kind with the portable identifier characters [A-Za-z0-9_] and WITHOUT the site's "
+                    . 'table prefix, exactly as a manifest `tables` section does, then rerun adapter-probe'
+            );
+        }
+    }
+
+    /**
+     * A refusal about the ARGUMENTS — what the author asked this probe for.
+     *
+     * Typed for the reason `DeletionFeasibility::refuse()` states at length:
+     * `Cli::halt_json_failure()` publishes a message only from a typed refusal
+     * and every other Throwable becomes "adapter-probe refused at an
+     * unclassified safety gate" with `details_redacted: true`
+     * (`agent/src/Command/Cli.php:88-104`). These sentences are about the
+     * author's own arguments, every value they interpolate has passed
+     * `IDENTIFIER` first, and the author cannot act without them.
+     * `invalid_arguments` is this verb's own reason code for its argument
+     * gate (`Cli.php:3221-3252`).
+     */
+    private static function refuse(string $publicMessage, string $remediation): CommandRefusalException {
+        return new CommandRefusalException(
+            'invalid_arguments',
+            $publicMessage,
+            $remediation,
+            [],
+            'duo: ' . $publicMessage
+        );
     }
 
     /**

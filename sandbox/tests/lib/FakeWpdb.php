@@ -72,7 +72,8 @@
  *
  * SUPPORTED SQL GRAMMAR (everything else throws \LogicException):
  *
- *   SELECT [DISTINCT] <items> [FROM <table> [[AS] alias]]
+ *   SELECT [DISTINCT] <items> [FROM <table> [[AS] alias]
+ *            [LEFT [OUTER] JOIN <table> [[AS] alias] ON <a>.<col> = <b>.<col>]]
  *          [INNER|LEFT [OUTER]] JOIN <table> [[AS] alias] ON <cond>
  *          [WHERE <cond>] [GROUP BY <cols>] [ORDER BY <cols> [ASC|DESC]]
  *          [LIMIT n [OFFSET m] | LIMIT m, n]
@@ -104,11 +105,13 @@
  *   SET ...                           (accepted no-op)
  *   CREATE / ALTER / DROP / TRUNCATE  (recorded in ddlLog; DROP/TRUNCATE clear rows)
  *
- * Simple INNER/LEFT JOINs may be explicitly enabled for bounded join
- * predicates; the default remains closed so a fixture cannot silently become
- * a relational planner. Subqueries, UNION, RIGHT/CROSS JOIN, and HAVING remain
- * unsupported. Aggregate expressions are evaluated only over the bounded
- * in-memory result set, never over an unbounded synthetic stream.
+ * The default admits exactly one join form: a SINGLE LEFT JOIN whose ON is
+ * one equality between qualified columns. It is the engine's term-deletion
+ * lookup, and its NULL-preserving result is load-bearing refusal evidence.
+ * Wider INNER/LEFT joins exist only behind explicit bounded-fixture opt-ins;
+ * subqueries, UNION, RIGHT/CROSS JOIN, and HAVING remain unsupported.
+ * Aggregate expressions are evaluated only over an opted-in bounded result
+ * set, never over an unbounded synthetic stream.
  *
  * Schema-qualified row inventories (information_schema.COLUMNS /
  * .STATISTICS) remain unsupported -- parseTableRef() refuses the `db.table`
@@ -117,10 +120,9 @@
  * solely to bound a following SHOW transfer, whose rows still come from
  * setColumns()/setColumnDefinitions()/setIndexes(). SHOW schema probes are
  * otherwise supported only from explicit fixtures; no schema fact is inferred
- * from stored rows. Concretely it means
- * Ledger::assert_read_only_schema(), Ledger::prune_dead_table_map() (a
- * multi-table DELETE) and Snapshot::assert_all_mapped_rows_managed() (a LEFT
- * JOIN) cannot be migrated to this fake; they stay live-certification paths.
+ * from stored rows. Ledger::assert_read_only_schema() and
+ * Ledger::prune_dead_table_map() (a multi-table DELETE) therefore remain
+ * live-certification paths.
  * SHOW TABLES LIKE / SHOW COLUMNS FROM are supported and are the intended way
  * to probe existence and column shape offline.
  *
@@ -215,6 +217,57 @@ final class FakeWpdb {
     public string $actionscheduler_groups = 'wp_actionscheduler_groups';
     public string $actionscheduler_logs = 'wp_actionscheduler_logs';
 
+    /**
+     * wpdb's own three table lists, at wpdb's own declared DEFAULTS
+     * (class-wpdb.php:291-341, read from WP 7.0.3 and 7.1 sources). They are
+     * PUBLIC and MUTABLE here because they are public and mutable there, and
+     * that is the whole mechanism a fake with a hardcoded tables() could not
+     * model: `ActionScheduler_Abstract_Schema::register_tables()` does
+     * `$wpdb->tables[] = $table` (classes/abstracts/ActionScheduler_Abstract_Schema.php:54),
+     * so every plugin bundling Action Scheduler appends four names to the
+     * per-site list at runtime and tables('all') reports them exactly as it
+     * reports `posts`. A suite reproduces that with one array push.
+     *
+     * The defaults are declared in ARRAY LITERALS, not computed in the
+     * constructor, because Coverage::declared_core_tables() reads them back
+     * through ReflectionClass::getDefaultProperties() — a fake that assigned
+     * them at construction time would hand that reader an empty set and
+     * exercise the degraded `core_source` path instead of the real one.
+     *
+     * @var list<string>
+     */
+    public array $tables = [
+        'posts',
+        'comments',
+        'links',
+        'options',
+        'postmeta',
+        'terms',
+        'term_taxonomy',
+        'term_relationships',
+        'termmeta',
+        'commentmeta',
+    ];
+    /** @var list<string> */
+    public array $global_tables = ['users', 'usermeta'];
+    /** @var list<string> */
+    public array $ms_global_tables = [
+        'blogs',
+        'blogmeta',
+        'signups',
+        'site',
+        'sitemeta',
+        'registration_log',
+    ];
+    /**
+     * Stands in for the `is_multisite()` branch inside wpdb::tables(), rather
+     * than reaching for a global stub from a method that models one class:
+     * core folds ms_global_tables into 'all' and 'global' only on multisite
+     * (class-wpdb.php:1125-1136). Single-site by default, as every suite that
+     * has ever called tables() here assumed.
+     */
+    public bool $multisite = false;
+
     /** @var array<string,list<array<string,mixed>>> full table name => rows */
     private array $store = [];
     /** @var array<string,string> full table name => primary key column */
@@ -245,8 +298,6 @@ final class FakeWpdb {
     private bool $informationSchemaEnabled = false;
     /** Full-apply offline fixtures may opt into the reviewed apply-only SQL extensions. */
     private bool $fullApplySqlExtensionsEnabled = false;
-    /** Opt-in for RelationshipMaterializer's exact locked owner-range join. */
-    private bool $relationshipOwnershipJoinEnabled = false;
     /** Opt-in for the Woo capture fixture's bounded joined reads. */
     private bool $joinedCaptureSqlEnabled = false;
     /** @var list<array{command:string,outcome:string}> one-shot transaction ambiguity probes */
@@ -492,21 +543,6 @@ final class FakeWpdb {
     }
 
     /**
-     * Enable the one joined owner-range read RelationshipMaterializer uses.
-     *
-     * The default SQL grammar deliberately rejects JOINs: modelling a broad
-     * relational planner here would make a test prove the fake rather than
-     * MySQL. This exact projection is opt-in because menu ownership must
-     * classify a complete locked raw term_relationships range by its joined
-     * taxonomy, including a Polylang term-keyspace row whose object_id happens
-     * to equal a nav_menu_item post id.
-     */
-    public function enableRelationshipOwnershipJoin(): self {
-        $this->relationshipOwnershipJoinEnabled = true;
-        return $this;
-    }
-
-    /**
      * Enable bounded joined SELECTs for the Woo capture fixture, which seeds
      * every participating table. Ordinary fixtures keep multi-table SQL closed.
      */
@@ -514,7 +550,6 @@ final class FakeWpdb {
         $this->joinedCaptureSqlEnabled = true;
         return $this;
     }
-
     public function setTransactionIsolation(string $isolation): self {
         $this->transactionIsolation = $isolation;
         return $this;
@@ -826,16 +861,40 @@ final class FakeWpdb {
     }
 
     /**
-     * Real wpdb returns the core table names for the current blog. Only the
-     * tables this fake models are listed; the engine uses it to enumerate
-     * "tables WordPress itself owns".
+     * `logical name => prefixed name` for the requested scope, composed the
+     * way wpdb::tables() composes it (class-wpdb.php:1122-1177): from the
+     * INSTANCE properties above, so a table a plugin registered at runtime
+     * appears here indistinguishably from `posts` — which is precisely the
+     * observation Coverage::tables_report() has to see through. Reading the
+     * lists instead of a private const is what makes that reproducible; the
+     * default single-site 'all' result is byte-identical to the twelve names
+     * the hardcoded version returned, modulo order (global tables first, as
+     * core emits them).
+     *
+     * ms_global tables join only under multisite, matching core's own
+     * `is_multisite()` branch; this fake is single-site unless a suite says
+     * otherwise via $multisite.
      *
      * @return array<string,string>
      */
     public function tables(string $scope = 'all', bool $prefix = true, int $blog_id = 0): array {
+        $names = match ($scope) {
+            'all' => $this->multisite
+                ? array_merge($this->global_tables, $this->tables, $this->ms_global_tables)
+                : array_merge($this->global_tables, $this->tables),
+            'blog' => $this->tables,
+            'global' => $this->multisite
+                ? array_merge($this->global_tables, $this->ms_global_tables)
+                : $this->global_tables,
+            'ms_global' => $this->ms_global_tables,
+            default => [],
+        };
+        $globals = array_merge($this->global_tables, $this->ms_global_tables);
         $out = [];
-        foreach (array_keys(self::CORE_TABLES) as $name) {
-            $out[$name] = $prefix ? $this->prefix . $name : $name;
+        foreach ($names as $name) {
+            $name = (string) $name;
+            $tablePrefix = in_array($name, $globals, true) ? $this->base_prefix : $this->prefix;
+            $out[$name] = $prefix ? $tablePrefix . $name : $name;
         }
         return $out;
     }
@@ -2319,12 +2378,6 @@ final class FakeWpdb {
     // ------------------------------------------------------------ SELECT
 
     private function execSelect(): array {
-        if ($this->relationshipOwnershipJoinEnabled) {
-            $relationshipOwnershipRows = $this->relationshipOwnershipJoinRows($this->currentSql);
-            if ($relationshipOwnershipRows !== null) {
-                return ['kind' => 'rows', 'rows' => $relationshipOwnershipRows];
-            }
-        }
         if (preg_match(
             '/^SELECT um\.umeta_id AS meta_id FROM wp_usermeta um LEFT JOIN wp_users u '
                 . 'ON u\.ID = um\.user_id WHERE u\.ID IS NULL ORDER BY um\.umeta_id ASC LIMIT 1$/iD',
@@ -2378,16 +2431,23 @@ final class FakeWpdb {
 
         $table = null;
         $alias = null;
+        $join = null;
         $joins = [];
         if ($this->acceptKeyword('FROM')) {
             $table = $this->parseTableRef();
             $alias = $this->parseAliasOpt();
             $this->skipIndexHint();
-            if (!$this->joinedCaptureSqlEnabled
-                && in_array($this->keyword(), ['JOIN', 'INNER', 'LEFT'], true)) {
+            if (!$this->joinedCaptureSqlEnabled && $this->keyword() === 'LEFT') {
+                $join = $this->parseLeftEquiJoin($table, $alias);
+            }
+            if (!$this->joinedCaptureSqlEnabled && (
+                in_array($this->keyword(), ['JOIN', 'INNER', 'LEFT', 'RIGHT', 'CROSS', 'STRAIGHT_JOIN', 'UNION'], true)
+                || ($this->peek()['t'] === 'op' && $this->peek()['v'] === ',')
+            )) {
                 throw $this->unsupported('multi-table SELECT (JOIN/UNION)');
             }
-            while (in_array($this->keyword(), ['JOIN', 'INNER', 'LEFT'], true)) {
+            while ($this->joinedCaptureSqlEnabled
+                && in_array($this->keyword(), ['JOIN', 'INNER', 'LEFT'], true)) {
                 $joinType = 'INNER';
                 if ($this->acceptKeyword('LEFT')) {
                     $joinType = 'LEFT';
@@ -2449,76 +2509,83 @@ final class FakeWpdb {
         }
 
         $name = $this->requireTable($table);
-        $sources = [[
-            'table' => $name,
-            'alias' => $alias,
-            'short' => str_starts_with($name, $this->prefix)
-                ? substr($name, strlen($this->prefix))
-                : $name,
-            'columns' => $this->knownColumns($name),
-        ]];
-        foreach ($joins as $join) {
-            $joinName = $this->requireTable($join['table']);
-            $sources[] = [
-                'table' => $joinName,
-                'alias' => $join['alias'],
-                'short' => str_starts_with($joinName, $this->prefix)
-                    ? substr($joinName, strlen($this->prefix))
-                    : $joinName,
-                'columns' => $this->knownColumns($joinName),
-            ];
-        }
-        $ctx = [
-            'table' => $name,
-            'alias' => $alias,
-            'columns' => $this->knownColumns($name),
-            'sources' => $joins === [] ? null : $sources,
-        ];
-        if ($joins === []) {
+        if ($join !== null) {
+            $ctx = ['table' => $name, 'alias' => $alias, 'columns' => $this->knownColumns($name)];
+            $left = $this->store[$name];
+            [$left, $ctx] = $this->applyLeftEquiJoin($left, $ctx, $join);
             $matched = [];
-            foreach ($this->store[$name] as $row) {
+            foreach ($left as $row) {
                 if ($where === null || $this->evalCondition($where, $row, $ctx)) {
                     $matched[] = $row;
                 }
             }
+            $sources = [];
         } else {
-            $matched = array_map(
-                static fn(array $row): array => ['__join_sources' => [$row]],
-                $this->store[$name]
-            );
-            foreach (array_slice($joins, 0, null, true) as $joinIndex => $join) {
-                $joinName = $sources[$joinIndex + 1]['table'];
-                $next = [];
-                foreach ($matched as $left) {
-                    $found = false;
-                    foreach ($this->store[$joinName] as $right) {
-                        $candidate = [
-                            '__join_sources' => array_merge(
-                                $left['__join_sources'],
-                                [$right]
-                            ),
-                        ];
-                        if ($this->evalCondition($join['condition'], $candidate, $ctx)) {
-                            $next[] = $candidate;
-                            $found = true;
-                        }
-                    }
-                    if (!$found && $join['type'] === 'LEFT') {
-                        $next[] = [
-                            '__join_sources' => array_merge(
-                                $left['__join_sources'],
-                                [null]
-                            ),
-                        ];
+            $sources = [[
+                'table' => $name,
+                'alias' => $alias,
+                'short' => str_starts_with($name, $this->prefix)
+                    ? substr($name, strlen($this->prefix))
+                    : $name,
+                'columns' => $this->knownColumns($name),
+            ]];
+            foreach ($joins as $broadJoin) {
+                $joinName = $this->requireTable($broadJoin['table']);
+                $sources[] = [
+                    'table' => $joinName,
+                    'alias' => $broadJoin['alias'],
+                    'short' => str_starts_with($joinName, $this->prefix)
+                        ? substr($joinName, strlen($this->prefix))
+                        : $joinName,
+                    'columns' => $this->knownColumns($joinName),
+                ];
+            }
+            $ctx = [
+                'table' => $name,
+                'alias' => $alias,
+                'columns' => $this->knownColumns($name),
+                'sources' => $joins === [] ? null : $sources,
+            ];
+            if ($joins === []) {
+                $matched = [];
+                foreach ($this->store[$name] as $row) {
+                    if ($where === null || $this->evalCondition($where, $row, $ctx)) {
+                        $matched[] = $row;
                     }
                 }
-                $matched = $next;
-            }
-            if ($where !== null) {
-                $matched = array_values(array_filter(
-                    $matched,
-                    fn(array $row): bool => $this->evalCondition($where, $row, $ctx)
-                ));
+            } else {
+                $matched = array_map(
+                    static fn(array $row): array => ['__join_sources' => [$row]],
+                    $this->store[$name]
+                );
+                foreach (array_slice($joins, 0, null, true) as $joinIndex => $broadJoin) {
+                    $joinName = $sources[$joinIndex + 1]['table'];
+                    $next = [];
+                    foreach ($matched as $left) {
+                        $found = false;
+                        foreach ($this->store[$joinName] as $right) {
+                            $candidate = [
+                                '__join_sources' => array_merge($left['__join_sources'], [$right]),
+                            ];
+                            if ($this->evalCondition($broadJoin['condition'], $candidate, $ctx)) {
+                                $next[] = $candidate;
+                                $found = true;
+                            }
+                        }
+                        if (!$found && $broadJoin['type'] === 'LEFT') {
+                            $next[] = [
+                                '__join_sources' => array_merge($left['__join_sources'], [null]),
+                            ];
+                        }
+                    }
+                    $matched = $next;
+                }
+                if ($where !== null) {
+                    $matched = array_values(array_filter(
+                        $matched,
+                        fn(array $row): bool => $this->evalCondition($where, $row, $ctx)
+                    ));
+                }
             }
         }
 
@@ -2527,6 +2594,18 @@ final class FakeWpdb {
             $aggregate = $aggregate
                 || $item['type'] === 'count'
                 || ($item['type'] === 'expr' && $this->containsAggregate($item['expr']));
+        }
+        if ($join !== null && $aggregate) {
+            throw $this->unsupported('COUNT(*)/GROUP BY over a LEFT JOIN');
+        }
+        foreach ($join !== null ? $items : [] as $item) {
+            if ($item['type'] === 'star') {
+                // `*` over a join would have to invent a column ORDER across
+                // two tables, and project() resolves names in one
+                // namespace. Naming the columns costs the caller nothing --
+                // the one product query that reaches here already does.
+                throw $this->unsupported('`*` over a LEFT JOIN; name the columns');
+            }
         }
 
         if ($aggregate) {
@@ -2570,66 +2649,6 @@ final class FakeWpdb {
         return ['kind' => 'rows', 'rows' => array_values($out)];
     }
 
-    /**
-     * Exact row projection for RelationshipMaterializer::lock_owner_relationships()
-     * after LockingFakeWpdb removes its lock syntax. Keep every other JOIN in
-     * the normal loud-refusal path above.
-     *
-     * @return ?list<array{term_taxonomy_id:mixed,term_order:mixed,taxonomy:mixed}>
-     */
-    private function relationshipOwnershipJoinRows(string $sql): ?array {
-        $relationships = preg_quote($this->term_relationships, '/');
-        $taxonomies = preg_quote($this->term_taxonomy, '/');
-        $pattern = '/^SELECT tr\\.term_taxonomy_id, tr\\.term_order, tt\\.taxonomy '
-            . "FROM $relationships tr LEFT JOIN $taxonomies tt "
-            . 'ON tt\\.term_taxonomy_id = tr\\.term_taxonomy_id '
-            . 'WHERE tr\\.object_id = ([1-9][0-9]*) '
-            . 'ORDER BY tr\\.term_taxonomy_id ASC LIMIT ([1-9][0-9]*)$/D';
-        if (preg_match($pattern, $sql, $match) !== 1) {
-            return null;
-        }
-        $relationshipTable = $this->requireTable($this->term_relationships);
-        $taxonomyTable = $this->requireTable($this->term_taxonomy);
-        $objectId = (int) $match[1];
-        $limit = (int) $match[2];
-        $out = [];
-        foreach ($this->store[$relationshipTable] as $relationship) {
-            if (self::compare($relationship['object_id'] ?? null, $objectId) !== 0) {
-                continue;
-            }
-            $matched = false;
-            foreach ($this->store[$taxonomyTable] as $taxonomy) {
-                if (self::compare(
-                    $taxonomy['term_taxonomy_id'] ?? null,
-                    $relationship['term_taxonomy_id'] ?? null
-                ) !== 0) {
-                    continue;
-                }
-                $out[] = [
-                    'term_taxonomy_id' => $relationship['term_taxonomy_id'] ?? null,
-                    'term_order' => $relationship['term_order'] ?? null,
-                    'taxonomy' => $taxonomy['taxonomy'] ?? null,
-                ];
-                $matched = true;
-            }
-            if (!$matched) {
-                $out[] = [
-                    'term_taxonomy_id' => $relationship['term_taxonomy_id'] ?? null,
-                    'term_order' => $relationship['term_order'] ?? null,
-                    'taxonomy' => null,
-                ];
-            }
-        }
-        usort($out, static function (array $left, array $right): int {
-            $leftId = $left['term_taxonomy_id'];
-            $rightId = $right['term_taxonomy_id'];
-            if ($leftId === null || $rightId === null) {
-                return $leftId === $rightId ? 0 : ($leftId === null ? -1 : 1);
-            }
-            return self::compare($leftId, $rightId) ?? 0;
-        });
-        return array_slice($out, 0, $limit);
-    }
 
     /** @return array{type:string,expr?:array,alias:?string,qualifier?:?string} */
     private function parseSelectItem(): array {
@@ -2709,6 +2728,126 @@ final class FakeWpdb {
             throw $this->unsupported('schema-qualified table names (e.g. information_schema)');
         }
         return $this->tableName((string) $token['v']);
+    }
+
+    /**
+     * The ONE join shape this interpreter accepts: a single LEFT JOIN whose ON
+     * is exactly one equality between one qualified column on each side.
+     *
+     * The general refusal in execSelect() still rejects INNER,
+     * RIGHT, CROSS, a comma join, UNION and a second JOIN) for the reason the
+     * header states: a suite that needs a real join is characterizing a query
+     * whose behaviour belongs in live certification. A single-condition LEFT
+     * equi-join is not that. It is a per-row LOOKUP -- "carry this column
+     * across, or NULL" -- with no optimizer choice to model and one arithmetic
+     * outcome, so interpreting it invents no MySQL behaviour.
+     *
+     * It is here because it is on the engine's own term-deletion path and
+     * nowhere else: RelationshipMaterializer::lock_owner_relationships()
+     * (agent/src/Apply/RelationshipMaterializer.php:287-295) reads
+     * `term_relationships tr LEFT JOIN term_taxonomy tt ON tt.term_taxonomy_id
+     * = tr.term_taxonomy_id`, and DeleteExecutor's term branch calls it three
+     * times (DeleteExecutor.php:170, RelationshipMaterializer.php:229 and
+     * :247), so a term deletion cannot run offline at all without it. That
+     * LEFT is load-bearing product semantics, not incidental SQL: a
+     * term_relationships row whose term_taxonomy row is gone comes back with
+     * taxonomy NULL, which the reader at :310-318 turns into a refusal instead
+     * of silently dropping the row an INNER JOIN would have hidden.
+     *
+     * Parse only: the joined table's column set is not known until
+     * applyLeftEquiJoin() resolves it, which is also where the unseeded-table
+     * refusal fires.
+     *
+     * @return array{table:string,alias:?string,short:string,left:string,right:string}
+     */
+    private function parseLeftEquiJoin(string $baseTable, ?string $baseAlias): array {
+        $this->expectKeyword('LEFT');
+        $this->acceptKeyword('OUTER');
+        $this->expectKeyword('JOIN');
+        $table = $this->parseTableRef();
+        $alias = $this->parseAliasOpt();
+        // MySQL itself rejects a duplicate name ("Not unique table/alias"), and
+        // so must this: evalColumn() resolves a qualifier by name, so two sides
+        // answering to one name would silently send every qualified reference
+        // to whichever side the resolver happens to test first.
+        if ($alias !== null ? $alias === $baseAlias : ($table === $baseTable && $baseAlias === null)) {
+            throw $this->unsupported('a LEFT JOIN whose table/alias name is not unique');
+        }
+        $this->skipIndexHint();
+        $this->expectKeyword('ON');
+        $first = $this->parseColumnRef();
+        $token = $this->peek();
+        if ($token['t'] !== 'op' || $token['v'] !== '=') {
+            throw $this->unsupported('a LEFT JOIN ... ON that is not a single equality');
+        }
+        $this->tp++;
+        $second = $this->parseColumnRef();
+        if (in_array($this->keyword(), ['AND', 'OR'], true)) {
+            throw $this->unsupported('a multi-condition LEFT JOIN ... ON');
+        }
+        if ($first['q'] === null || $second['q'] === null) {
+            throw $this->unsupported('a LEFT JOIN ... ON whose columns are not both table-qualified');
+        }
+        $short = str_starts_with($table, $this->prefix) ? substr($table, strlen($this->prefix)) : $table;
+        $names = array_filter([$alias, $table, $short], static fn(?string $n): bool => $n !== null);
+        $firstIsRight = in_array($first['q'], $names, true);
+        $secondIsRight = in_array($second['q'], $names, true);
+        if ($firstIsRight === $secondIsRight) {
+            throw $this->unsupported('a LEFT JOIN ... ON that does not name one column from each side');
+        }
+        return [
+            'table' => $table,
+            'alias' => $alias,
+            'short' => (string) $short,
+            'right' => $firstIsRight ? $first['name'] : $second['name'],
+            'left' => $firstIsRight ? $second['name'] : $first['name'],
+        ];
+    }
+
+    /**
+     * Expand the base rows into joined rows, MySQL's order: ON first, WHERE
+     * after. A left row with no match keeps one output row carrying NULLs; a
+     * left row with several matches produces one output row per match, because
+     * that is what the server does when the joined key is not unique.
+     *
+     * Right-hand values live under `<alias>.<column>` keys so the existing
+     * unqualified column paths (WHERE, ORDER BY, projection) keep resolving
+     * against the base table exactly as they do for an unjoined SELECT.
+     * evalColumn() is the only reader that knows about them.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @return array{0:list<array<string,mixed>>,1:array<string,mixed>}
+     */
+    private function applyLeftEquiJoin(array $rows, array $ctx, array $join): array {
+        $name = $this->requireTable($join['table']);
+        $join['columns'] = $this->knownColumns($name);
+        $join['table'] = $name;
+        $ctx['join'] = $join;
+        $prefix = ($join['alias'] ?? $join['short']) . '.';
+        $index = [];
+        foreach ($this->store[$name] as $row) {
+            $index[(string) ($row[$join['right']] ?? "\0NULL")][] = $row;
+        }
+        $out = [];
+        foreach ($rows as $row) {
+            $matches = $index[(string) ($row[$join['left']] ?? "\0NULL")] ?? [];
+            if ($matches === []) {
+                $blank = [];
+                foreach ($join['columns'] as $column) {
+                    $blank[$prefix . $column] = null;
+                }
+                $out[] = $row + $blank;
+                continue;
+            }
+            foreach ($matches as $match) {
+                $carried = [];
+                foreach ($join['columns'] as $column) {
+                    $carried[$prefix . $column] = $match[$column] ?? null;
+                }
+                $out[] = $row + $carried;
+            }
+        }
+        return [$out, $ctx];
     }
 
     /** @return list<array{column:array,dir:int}> */
@@ -3325,6 +3464,23 @@ final class FakeWpdb {
             $short = str_starts_with($ctx['table'], $this->prefix)
                 ? substr($ctx['table'], strlen($this->prefix))
                 : $ctx['table'];
+            $join = $ctx['join'] ?? null;
+            $joinNames = $join === null
+                ? []
+                : array_filter(
+                    [$join['alias'], $join['table'], $join['short']],
+                    static fn(?string $name): bool => $name !== null
+                );
+            if ($join !== null && in_array($qualifier, $joinNames, true)) {
+                $key = ($join['alias'] ?? $join['short']) . '.' . $node['name'];
+                if (array_key_exists($key, $row)) {
+                    return $row[$key];
+                }
+                throw new \LogicException(
+                    "FakeWpdb: unknown column '{$node['name']}' on joined table '{$join['table']}'. Seed it in a"
+                    . " row or declare it with setColumns(). Statement: {$this->currentSql}"
+                );
+            }
             if ($qualifier !== $ctx['alias'] && $qualifier !== $ctx['table'] && $qualifier !== $short) {
                 throw $this->unsupported("column qualifier '$qualifier' names another table (JOIN)");
             }

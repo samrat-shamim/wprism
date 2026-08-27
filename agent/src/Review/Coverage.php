@@ -266,16 +266,39 @@ final class Coverage {
         $prefix = $wpdb->prefix;
         $live = $wpdb->get_col($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($prefix) . '%')) ?: [];
 
-        // $wpdb->tables('all', true) is WordPress's own authoritative,
-        // version-proof list of tables IT considers core (global + blog +
-        // ms-global as applicable) -- deliberately not a hardcoded name
-        // list here, which would drift across WP core versions the way a
-        // hand-maintained list always eventually does.
-        $core = array_values($wpdb->tables('all', true));
+        // `logical name => prefixed name` -- kept as a MAP rather than
+        // array_values()'d, because the key is the identity
+        // declared_core_tables() answers about and the value carries core's
+        // own per-table prefix rules (base_prefix for global tables,
+        // CUSTOM_USER_TABLE where defined, class-wpdb.php:1151-1173) that
+        // nothing here should restate.
+        $wpTables = $wpdb->tables('all', true);
+        $declaredCore = self::declared_core_tables($wpdb);
+        // With no readable declaration there is no honest split to make, so
+        // nothing is claimed as registered and `core_source` publishes WHY
+        // the numbers below are the pre-fix ones. A quiet fallback here would
+        // report every WordPress core table as an undeclared coverage
+        // subject, which is a worse answer than the defect this replaces.
+        $coreSource = $declaredCore === [] ? 'wpdb_instance' : 'wpdb_class_declaration';
+        $core = [];
+        $registered = [];
+        foreach ($wpTables as $logicalName => $prefixedName) {
+            if ($coreSource === 'wpdb_instance' || isset($declaredCore[(string) $logicalName])) {
+                $core[] = (string) $prefixedName;
+            } else {
+                $registered[] = (string) $prefixedName;
+            }
+        }
         $declared = $policy->declared_tables(); // unprefixed logical names, per manifests' own "tables" key shape
 
         $undeclared = [];
         foreach ($live as $tableName) {
+            // Only genuinely-core tables are skipped now. A table a plugin
+            // registered into $wpdb->tables falls through to exactly the same
+            // undeclared path an unregistered plugin table already took --
+            // that IS the fix: it becomes a coverage subject, gets its
+            // logical_name, and reaches `duo assess`'s `table:<name>` surface
+            // and `duo adapter-draft --seed`'s proposals.
             if (in_array($tableName, $core, true)) {
                 continue;
             }
@@ -288,7 +311,11 @@ final class Coverage {
                 // to classify the tool that was assessing them.
                 continue;
             }
-            $undeclared[] = ['table' => $tableName, 'logical_name' => $logicalName];
+            $undeclared[] = [
+                'table' => $tableName,
+                'logical_name' => $logicalName,
+                'registered' => in_array($tableName, $registered, true),
+            ];
         }
 
         $rows = [];
@@ -313,6 +340,14 @@ final class Coverage {
                 'logical_name' => $t['logical_name'],
                 'row_count' => $count,
                 'probable_owner' => self::attribute($t['logical_name'], $activeSlugs),
+                // Which of these rows the previous engine reported as core.
+                // Not a different KIND of subject -- an author drafting a
+                // declaration needs to know a `registered` table usually
+                // belongs to a bundled library rather than to the plugin
+                // whose slug attribution names (all four Action Scheduler
+                // tables on the measured site attribute to nothing, because
+                // no active slug is `actionscheduler`).
+                'registered' => $t['registered'],
             ];
         }
         usort($rows, static fn($a, $b) => strcmp($a['table'], $b['table']));
@@ -320,10 +355,73 @@ final class Coverage {
         return [
             'live_total' => count($live),
             'core_total' => count(array_intersect($core, $live)), // core tables actually present on this site
+            // Live tables `$wpdb->tables()` lists that WordPress's own class
+            // declaration does not -- each one also appears in `undeclared`
+            // below. Published as its own number because it is the whole
+            // difference between this report and the one before it: on the
+            // measured WPForms Lite site `core` reads 12 where it used to
+            // read 16, and this is the 4.
+            'registered_total' => count(array_intersect($registered, $live)),
+            'core_source' => $coreSource,
             'declared_total' => count($declared), // manifest-declared table names, regardless of live presence
             'undeclared_total' => count($undeclared),
             'undeclared' => $rows,
         ];
+    }
+
+    /**
+     * The table names WordPress's own class DECLARATION owns -- the one core
+     * list a plugin cannot extend.
+     *
+     * `$wpdb->tables('all', true)` is not that list, though the comment this
+     * replaces treated it as one. It composes from the INSTANCE properties
+     * `$wpdb->tables` / `$global_tables` / `$ms_global_tables`
+     * (class-wpdb.php:1122-1130), and any plugin may append to them at
+     * runtime: Action Scheduler does exactly `$wpdb->tables[] = $table` for
+     * each of its four tables (ActionScheduler_Abstract_Schema::
+     * register_tables(), classes/abstracts/ActionScheduler_Abstract_Schema.php:54),
+     * and WPForms Lite, WooCommerce and WP Mail SMTP all bundle it. Measured
+     * on a WPForms Lite 2.0.0.5 site: `tables('all', true)` returned 16 names,
+     * four of them `wp_actionscheduler_*` (one of which holds a real row,
+     * `action_scheduler/migration_hook`), so `duo coverage` reported them as
+     * core, `duo assess` minted no `table:` surface for them, and
+     * `duo adapter-draft --seed` proposed no declaration for a table set the
+     * site's own plugin writes to.
+     *
+     * The class's DECLARED DEFAULTS are the honest source, and they keep what
+     * the previous comment was right about: they are whatever WordPress core
+     * ships for the version actually loaded, so there is still no hardcoded
+     * name list here to drift. What they add is that a runtime append mutates
+     * the INSTANCE and never the declaration. getDefaultProperties() reports
+     * inherited declarations too, so a wpdb subclass a host drops in (HyperDB
+     * and friends) resolves through to wpdb's own three lists, and a
+     * replacement that declares its own is still answering "what does this DB
+     * layer's own code call core" -- which is the question being asked.
+     *
+     * `old_tables` is deliberately not folded in: `tables('all')` never
+     * returns the deprecated 2.3-era names, so a site that still holds a live
+     * `wp_categories` reaches the undeclared listing exactly as it always has.
+     *
+     * @return array<string,true> declared-core logical names, as a set
+     */
+    private static function declared_core_tables(object $wpdb): array {
+        try {
+            $defaults = (new \ReflectionClass($wpdb))->getDefaultProperties();
+        } catch (\ReflectionException) {
+            return [];
+        }
+        $set = [];
+        // Exactly the three properties tables('all') composes from, in that
+        // order -- asking for more would claim core-ness the switch at
+        // class-wpdb.php:1122-1130 never grants.
+        foreach (['tables', 'global_tables', 'ms_global_tables'] as $property) {
+            foreach ((array) ($defaults[$property] ?? []) as $name) {
+                if (is_string($name) && $name !== '') {
+                    $set[$name] = true;
+                }
+            }
+        }
+        return $set;
     }
 
     /**

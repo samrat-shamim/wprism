@@ -8,6 +8,7 @@ use DuoTest\FakeWpdb;
 use DuoTest\WpStore;
 use LogicException;
 use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 require_once DUO_REPO_ROOT . '/sandbox/tests/lib/check.php';
@@ -175,26 +176,13 @@ final class HarnessLibTest extends TestCase
         );
     }
 
-    public function testRelationshipOwnershipJoinRemainsClosedWithoutExplicitOptIn(): void
+    // The "remains closed without opt-in" companion this test once had is
+    // deliberately gone: the single-equality LEFT JOIN is now the ONE join
+    // form the interpreter accepts generally (its wider-shape refusals each
+    // have their own case below), so the ownership query needs no enable call.
+    public function testRelationshipOwnershipJoinProjectsRawOwnerRowsAndMissingTaxonomy(): void
     {
         $db = FakeWpdb::install();
-        $db->seedTable('wp_term_relationships', [])
-            ->seedTable('wp_term_taxonomy', []);
-
-        $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('multi-table SELECT');
-        $db->get_results(
-            'SELECT tr.term_taxonomy_id, tr.term_order, tt.taxonomy '
-            . 'FROM wp_term_relationships tr LEFT JOIN wp_term_taxonomy tt '
-            . 'ON tt.term_taxonomy_id = tr.term_taxonomy_id '
-            . 'WHERE tr.object_id = 7 ORDER BY tr.term_taxonomy_id ASC LIMIT 4',
-            ARRAY_A
-        );
-    }
-
-    public function testOptInRelationshipOwnershipJoinProjectsRawOwnerRowsAndMissingTaxonomy(): void
-    {
-        $db = FakeWpdb::install()->enableRelationshipOwnershipJoin();
         $db->seedTable('wp_term_relationships', [
             ['object_id' => 7, 'term_taxonomy_id' => 22, 'term_order' => 0],
             ['object_id' => 7, 'term_taxonomy_id' => 20, 'term_order' => 2],
@@ -600,6 +588,183 @@ final class HarnessLibTest extends TestCase
         $this->expectException(LogicException::class);
         $this->expectExceptionMessage('SELECT p.ID FROM wp_postmeta p JOIN');
         $db->get_col('SELECT p.ID FROM wp_postmeta p JOIN wp_posts q ON q.ID = p.post_id');
+    }
+
+    /** The one join form the interpreter accepts, seeded the way the engine reads it. */
+    private function relationshipDb(): FakeWpdb
+    {
+        $db = FakeWpdb::install();
+        $db->setColumns('term_relationships', [
+            'object_id' => 'bigint unsigned', 'term_taxonomy_id' => 'bigint unsigned', 'term_order' => 'int',
+        ]);
+        $db->setColumns('term_taxonomy', [
+            'term_taxonomy_id' => 'bigint unsigned', 'term_id' => 'bigint unsigned', 'taxonomy' => 'varchar(32)',
+        ]);
+        $db->seedTable('term_relationships', [
+            ['object_id' => 7, 'term_taxonomy_id' => 20, 'term_order' => 0],
+            ['object_id' => 7, 'term_taxonomy_id' => 99, 'term_order' => 0],
+        ]);
+        $db->seedTable('term_taxonomy', [
+            ['term_taxonomy_id' => 20, 'term_id' => 10, 'taxonomy' => 'wpforms_form_tag'],
+        ]);
+
+        return $db;
+    }
+
+    /**
+     * The exact statement RelationshipMaterializer::lock_owner_relationships()
+     * issues (agent/src/Apply/RelationshipMaterializer.php:287-295), which is
+     * the only product reader of a join and the reason this form is
+     * interpreted at all. The LEFT half is what carries the meaning: the
+     * term_taxonomy_id 99 row has no term_taxonomy row, and the reader at
+     * :310-318 turns that NULL taxonomy into a refusal. An INNER JOIN would
+     * have dropped the row and hidden the very state it refuses on.
+     */
+    public function testSelectInterpretsTheOneSupportedLeftEquiJoin(): void
+    {
+        $db = $this->relationshipDb();
+
+        self::assertSame(
+            [
+                ['term_taxonomy_id' => '20', 'term_order' => '0', 'taxonomy' => 'wpforms_form_tag'],
+                ['term_taxonomy_id' => '99', 'term_order' => '0', 'taxonomy' => null],
+            ],
+            $db->get_results(
+                'SELECT tr.term_taxonomy_id, tr.term_order, tt.taxonomy '
+                . 'FROM wp_term_relationships tr FORCE INDEX (`object_id`) '
+                . 'LEFT JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id '
+                . 'WHERE tr.object_id = 7 ORDER BY tr.term_taxonomy_id ASC LIMIT 101 FOR UPDATE',
+                ARRAY_A
+            )
+        );
+    }
+
+    /** ON is applied before WHERE, so a WHERE over the joined column sees the NULLs. */
+    public function testLeftJoinAppliesItsOnConditionBeforeTheWhereClause(): void
+    {
+        $db = $this->relationshipDb();
+
+        self::assertSame(
+            [['term_taxonomy_id' => '99']],
+            $db->get_results(
+                'SELECT tr.term_taxonomy_id FROM wp_term_relationships tr '
+                . 'LEFT JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id '
+                . 'WHERE tt.taxonomy IS NULL',
+                ARRAY_A
+            )
+        );
+    }
+
+    /**
+     * A non-unique join key multiplies rows, because that is what the server
+     * does. A fake that silently returned the first match would let a suite
+     * assert a one-row result the real target never produces.
+     */
+    public function testLeftJoinEmitsOneRowPerMatchWhenTheJoinedKeyRepeats(): void
+    {
+        $db = $this->relationshipDb();
+        $db->seedTable('term_taxonomy', [
+            ['term_taxonomy_id' => 20, 'term_id' => 10, 'taxonomy' => 'wpforms_form_tag'],
+            ['term_taxonomy_id' => 20, 'term_id' => 11, 'taxonomy' => 'category'],
+        ]);
+
+        self::assertSame(
+            [['term_id' => '10'], ['term_id' => '11'], ['term_id' => null]],
+            $db->get_results(
+                'SELECT tt.term_id FROM wp_term_relationships tr '
+                . 'LEFT JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id '
+                . 'WHERE tr.object_id = 7',
+                ARRAY_A
+            )
+        );
+    }
+
+    /**
+     * Everything past that one form still refuses BY NAME. Each of these is a
+     * shape the interpreter would have to model rather than look up, which is
+     * the line the header draws: a suite that needs one is characterizing a
+     * query whose behaviour belongs in the live certification.
+     *
+     * @return array<string,array{0:string,1:string}>
+     */
+    public static function refusedJoinProvider(): array
+    {
+        $from = 'SELECT a.term_taxonomy_id FROM wp_term_relationships a ';
+
+        return [
+            'inner join' => [
+                $from . 'INNER JOIN wp_term_taxonomy b ON b.term_taxonomy_id = a.term_taxonomy_id',
+                'multi-table SELECT (JOIN/UNION)',
+            ],
+            'comma join' => [
+                $from . ', wp_term_taxonomy b',
+                'multi-table SELECT (JOIN/UNION)',
+            ],
+            'second join' => [
+                $from . 'LEFT JOIN wp_term_taxonomy b ON b.term_taxonomy_id = a.term_taxonomy_id '
+                    . 'LEFT JOIN wp_terms c ON c.term_id = b.term_id',
+                'multi-table SELECT (JOIN/UNION)',
+            ],
+            'multi-condition on' => [
+                $from . 'LEFT JOIN wp_term_taxonomy b ON b.term_taxonomy_id = a.term_taxonomy_id '
+                    . "AND b.taxonomy = 'category'",
+                'a multi-condition LEFT JOIN ... ON',
+            ],
+            'inequality on' => [
+                $from . 'LEFT JOIN wp_term_taxonomy b ON b.term_taxonomy_id > a.term_taxonomy_id',
+                'a LEFT JOIN ... ON that is not a single equality',
+            ],
+            'unqualified on' => [
+                $from . 'LEFT JOIN wp_term_taxonomy b ON term_taxonomy_id = a.term_taxonomy_id',
+                'a LEFT JOIN ... ON whose columns are not both table-qualified',
+            ],
+            'one-sided on' => [
+                $from . 'LEFT JOIN wp_term_taxonomy b ON b.term_taxonomy_id = b.term_id',
+                'a LEFT JOIN ... ON that does not name one column from each side',
+            ],
+            // MySQL's own "Not unique table/alias": with one name for two
+            // sides, every qualified reference would resolve to whichever
+            // side the resolver tested first.
+            'colliding alias' => [
+                $from . 'LEFT JOIN wp_term_taxonomy a ON a.term_taxonomy_id = a.term_taxonomy_id',
+                'a LEFT JOIN whose table/alias name is not unique',
+            ],
+            'star projection' => [
+                'SELECT * FROM wp_term_relationships a '
+                    . 'LEFT JOIN wp_term_taxonomy b ON b.term_taxonomy_id = a.term_taxonomy_id',
+                '`*` over a LEFT JOIN; name the columns',
+            ],
+            'aggregate' => [
+                'SELECT COUNT(*) FROM wp_term_relationships a '
+                    . 'LEFT JOIN wp_term_taxonomy b ON b.term_taxonomy_id = a.term_taxonomy_id',
+                'COUNT(*)/GROUP BY over a LEFT JOIN',
+            ],
+        ];
+    }
+
+    #[DataProvider('refusedJoinProvider')]
+    public function testEveryOtherJoinShapeStillRefusesByName(string $sql, string $reason): void
+    {
+        $db = $this->relationshipDb();
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage($reason);
+        $db->get_results($sql, ARRAY_A);
+    }
+
+    /** A joined table nobody seeded refuses like any other unseeded read. */
+    public function testLeftJoinAgainstAnUnseededTableThrows(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_term_relationships', [['object_id' => 7, 'term_taxonomy_id' => 20]]);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage("table 'wp_term_taxonomy' was never seeded");
+        $db->get_results(
+            'SELECT a.object_id, b.taxonomy FROM wp_term_relationships a '
+            . 'LEFT JOIN wp_term_taxonomy b ON b.term_taxonomy_id = a.term_taxonomy_id',
+            ARRAY_A
+        );
     }
 
     public function testReadingAnUnseededTableThrowsRatherThanReturningNull(): void

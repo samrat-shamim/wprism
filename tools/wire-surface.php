@@ -52,8 +52,7 @@ declare(strict_types=1);
  *
  * The prose halves of each row (why a decision cannot change, what it
  * reserves) are this file's own bytes, because a rationale lives nowhere in
- * the engine. Everything factual beside them is projected, and the
- * the engine. Everything factual beside them is projected, and seven
+ * the engine. Everything factual beside them is projected, and ten
  * completeness gates below refuse the whole run rather than emit a register
  * that has gone quiet about a surface:
  *
@@ -76,26 +75,32 @@ declare(strict_types=1);
  *      are the SAME SET, in both directions, and the only excess is what an
  *      implemented `engine_features` value claims (row R-21). § v3.3's "one
  *      definition, not two" is a property a copy satisfies on the day it is
- *      typed, so it is asserted rather than reviewed.
- *      by probing the shipped validator rather than by reading its condition;
- *   6. the shipped platform trust root is the empty v1 registry byte for byte,
- *      or a v2 document that verifies through the shipped reader (row R-08);
- *   7. the § v3.9 grandfather list is declared under `agent/src` — never under
+ *      typed, so it is asserted rather than reviewed;
+ *   8. every key that excess admits carries a CERTIFICATE ARM in the feature's
+ *      own roster row, that arm is one of the signer's three, and no roster row
+ *      names a key the partition already carries (row R-31, spec § v3.21). The
+ *      failure this refuses is an omission rather than a disagreement: a
+ *      feature-claimed key with no arm loads on every site and is unsignable by
+ *      both profiles, which is what `sandbox/fixtures/wpforms-lite/` measured;
+ *   9. the § v3.9 grandfather list is declared under `agent/src` — never under
  *      `manifests/`, where rule 2 would make it an adapter-digest input — and
- *      its membership equals the shipped library exactly (row R-27).
+ *      its membership equals the shipped library exactly (row R-27);
+ *  10. the register is continuous: R-01 … R-NN with every id spent exactly once
+ *      (an id nobody can account for reads as a row somebody deleted).
  *
  * A new signed surface therefore cannot be added quietly: it fails gate 1 or 2
  * until it is registered, and any moved constant fails the byte-compare with
  * the first differing line named.
  *
- * Four rows here are not about a signature (R-17, R-18, R-19, R-21). They are
- * in the register because it is the list of decisions an external party's bytes
- * make permanent, and a bare `id_kind`, an accepted `spec_version`, a declared
- * engine feature name and a recognised top-level manifest key are each inside
- * bytes this product cannot rewrite afterwards — captured state and `duo_map`
- * rows for the first, every adapter in the field authored against the window
- * for the second, and the manifest bytes an adapter digest folds for the last
- * two.
+ * Five rows here are not about a signature (R-17, R-18, R-19, R-21, R-31). They
+ * are in the register because it is the list of decisions an external party's
+ * bytes make permanent, and a bare `id_kind`, an accepted `spec_version`, a
+ * declared engine feature name, a recognised top-level manifest key and the arm
+ * that key is covered under are each inside bytes this product cannot rewrite
+ * afterwards — captured state and `duo_map` rows for the first, every adapter
+ * in the field authored against the window for the second, the manifest bytes
+ * an adapter digest folds for the next two, and the `surfaces` list inside a
+ * signed claim for the last.
  */
 
 // $_SERVER['argv'] rather than the bare superglobal, for the reason
@@ -633,6 +638,84 @@ function ws_assert_closed_key_set(): void {
 }
 
 /**
+ * Gate 8 (WP-6.6, spec § v3.21, row R-31): EVERY feature-admitted key is
+ * classified into a certificate arm, and the two classifiers stay disjoint.
+ *
+ * The failure this is written against is not a disagreement either — it is an
+ * OMISSION, and one the register itself recorded as deliberate for two years:
+ * R-29 reserved "an ARM in topLevelKeyPartition() is deliberately NOT taken",
+ * and the measured price of that posture was an adapter that loads on every
+ * site and cannot be certified at all. WP-6.6 made the arm part of the roster
+ * row, so the omission is unrepresentable in the constant; this gate is the
+ * other half — it refuses the RELEASE if the shipped roster ever stops
+ * answering, whether through a bad arm value, an arm that collides with the
+ * signer's partition, or a claimed section whose value grammar nobody
+ * published.
+ *
+ * Every check runs by ASKING the shipped accessors, which is what makes it a
+ * measurement: `feature_key_arms()` performs its own two refusals on the way
+ * out, and `feature_section_grammars()` refuses a claimed key it cannot
+ * describe, so this gate mostly exists to run them under `make release-gate`
+ * and to state the third property — that the arm a key gets is one a
+ * certificate can actually carry.
+ */
+function ws_assert_feature_key_arms(): void {
+    $vocabulary = AdapterCertification::certificateArms();
+    // Both accessors throw by design; a gate that let the throw escape would
+    // report a PHP fatal where the register wants its own sentence.
+    try {
+        $armed = AdapterContractGrammar::feature_key_arms();
+        $grammars = AdapterContractGrammar::feature_section_grammars();
+    } catch (Throwable $e) {
+        ws_fail('the engine feature roster refuses its own rows: ' . $e->getMessage());
+
+        return;
+    }
+    $claimed = [];
+    foreach (AdapterContractGrammar::implemented_features() as $feature) {
+        foreach (AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$feature]]) as $key) {
+            $claimed[$key] = true;
+        }
+    }
+    $claimedKeys = array_keys($claimed);
+    sort($claimedKeys, SORT_STRING);
+    $armedKeys = array_keys($armed);
+    sort($armedKeys, SORT_STRING);
+    if ($armedKeys !== $claimedKeys) {
+        ws_fail(
+            'the feature-admitted key set and the arm roster disagree — admitted {'
+            . implode(', ', $claimedKeys) . '}, classified {' . implode(', ', $armedKeys)
+            . '}. Row R-31 records every feature-claimed key as carrying an arm, because a key with none is '
+            . 'a section that loads everywhere and cannot be certified'
+        );
+    }
+    foreach ($armed as $key => $arm) {
+        if (!in_array($arm, $vocabulary, true)) {
+            ws_fail(
+                "the roster classifies '$key' as '$arm', which is not one of the signer's arms {"
+                . implode(', ', $vocabulary) . '} — row R-31'
+            );
+        }
+        if (!isset($grammars[$key])) {
+            ws_fail("the roster claims '$key' and publishes no value grammar for it — row R-31");
+        }
+    }
+    // The arm a key gets must be one a certificate can CARRY. `entity` and
+    // `field` are the two lists a disposition names (ManifestDispositions::
+    // validate_entry()); `non_surface` names none, which is the honest third
+    // answer and not a third list. A fourth arm would need a disposition
+    // member that does not exist, so it is refused here rather than discovered
+    // at signing time by an author.
+    if ($vocabulary !== ['entity', 'field', 'non_surface']) {
+        ws_fail(
+            'the certificate arm vocabulary is {' . implode(', ', $vocabulary)
+            . '} — row R-31 records exactly three, because a disposition entry has exactly two section lists '
+            . 'plus the keys it names in neither'
+        );
+    }
+}
+
+/**
  * Gate 6 (WP-4.8, spec § v3.7 change (d)): the SHIPPED authorities document.
  *
  * `manifests/capabilities/adapter-authorities.json` is the platform trust root
@@ -724,7 +807,7 @@ function ws_shipped_identities(string $repo): array {
 }
 
 /**
- * Gate 7 (WP-4.10, spec § v3.9): the closed grandfather list, in its place and
+ * Gate 9 (WP-4.10, spec § v3.9): the closed grandfather list, in its place and
  * with its exact membership.
  *
  * Two halves, and the LOCATION half is the one that is easy to lose. A
@@ -1415,9 +1498,6 @@ function ws_rows(): array {
             . ws_partition_text() . ' — plus whatever keys its own declared, IMPLEMENTED `engine_features` '
             . 'values claim (today ' . ws_feature_key_text()
             . '). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar '
-            . 'values claim (`engine_features` itself, via `'
-            . implode('`, `', ws_features_claiming('engine_features'))
-            . '`). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar '
             . '`duo adapter-draft` writes — refuses with its own remedy, to strip it. v2 manifests keep the '
             . 'open behaviour byte for byte, so none of the shipped library changes. Measured here by asking '
             . 'the shipped validator and the shipped signer for their sets and comparing them in both '
@@ -1432,10 +1512,10 @@ function ws_rows(): array {
             . 'symptom is an adapter that loads everywhere and cannot be certified.',
         'reserved' => 'Growth is § v3.2\'s channel and nothing else: a post-v3 primitive ships as an engine '
             . 'feature name, the top-level keys that feature claims, and a refusal for the engine that lacks '
-            . 'it — so no key is ever added by widening this set for everyone. A feature whose key must also '
-            . 'be SIGNABLE gives it an arm in the partition in the same change, because a feature record '
-            . 'carries `{since, keys}` and no arm, and an arm is what decides whether a certificate covers '
-            . 'the key as a surface.',
+            . 'it — so no key is ever added by widening this set for everyone. What a feature-claimed key is '
+            . 'SIGNABLE as is no longer reserved and no longer this row\'s business: since WP-6.6 the arm '
+            . 'rides in the feature\'s own roster row and R-31 records it. This row reserves the base '
+            . 'partition, which the roster may never name a key in.',
     ];
     // R-22 was minted and never spent: a tranche-1 rider held it in its
     // disjoint range and shipped nothing that needed a row, so the register
@@ -1789,12 +1869,15 @@ function ws_rows(): array {
             . 'once. The rows are closed in BOTH directions for the reason R-21 gives one level up — a '
             . 'member no checker reads is indistinguishable from a deliberate one, and a section whose '
             . 'whole purpose is machine-checkable rationale cannot admit one.',
-        'reserved' => 'An ARM in `AdapterCertification::topLevelKeyPartition()` is deliberately NOT taken. '
-            . 'Without one the signer refuses this section by name — an adapter that adopts it loads '
-            . 'everywhere and is not certifiable, which is § v3.3\'s stated posture for a feature-claimed '
-            . 'key rather than an oversight. Taking the arm would also admit the key with NO feature '
-            . 'declared, deleting the no-bump demonstration the section exists to be; it is a separate '
-            . 'reviewed decision, for whoever needs a certificate to cover this surface. Also reserved: '
+        'reserved' => 'An arm in `AdapterCertification::topLevelKeyPartition()` is STILL deliberately not '
+            . 'taken, and WP-6.6 is why that reservation now costs nothing. This row used to record the '
+            . 'consequence as accepted — "the signer refuses this section by name, an adapter that adopts it '
+            . 'loads everywhere and is not certifiable" — which was measured on a real adapter and found to '
+            . 'be a wall rather than a posture. The arm rides in the FEATURE\'s roster row instead (R-31): '
+            . '`declaration_evidence` classifies as `non_surface`, because provenance rows are not state and '
+            . 'a certificate\'s surface list may not carry evidence prose. Taking a partition arm would '
+            . 'still be the wrong fix — it would admit the key with NO feature declared, deleting the '
+            . 'no-bump demonstration the section exists to be. Also reserved: '
             . 'resolving a target\'s TAIL against the addressed section\'s own sub-grammar — fourteen '
             . 'field sections have fourteen of those, and a resolver here would be a second, drifting '
             . 'copy of all of them.',
@@ -1852,7 +1935,72 @@ function ws_rows(): array {
             . 'stated boundary with its own refusal rather than a gap to be filled in.',
     ];
 
+    // WP-6.6's row, and it records a decision the register itself had twice
+    // written down as deliberately deferred (R-21's old `reserved`, R-29's).
+    // What changed is not the reasoning but the measurement: an adapter using
+    // the channel was authored end to end and the deferral turned out to close
+    // deploy and apply, not merely certification.
+    $rows[] = [
+        'id' => 'R-31',
+        'title' => 'A feature-claimed key carries its certificate ARM in the feature\'s own roster row',
+        'now' => 'Every top-level key an implemented `engine_features` value claims is classified into '
+            . 'exactly one of ' . ws_arm_text() . ' by the row that claims it '
+            . '(`AdapterContractGrammar::IMPLEMENTED_FEATURES`, spec/repo-format.md § v3.21) — today '
+            . ws_feature_arm_text() . '. `entity` and `field` become the two section lists a disposition '
+            . 'names, and therefore members of the signed claim\'s `surfaces`; `non_surface` covers no '
+            . 'state. `AdapterCertification::siteSurfaceSections()` asks the three-arm partition first and '
+            . 'this roster second, for the keys the DECLARING manifest brought through the channel, so a '
+            . 'section present without its feature keeps the unclassifiable refusal. Both signing profiles '
+            . 'read the one method, so `--ratification-file` cannot certify a section the derivation '
+            . 'cannot. Measured here by asking the shipped roster and the shipped signer, not by listing.',
+        'permanent' => 'An arm is inside the certificate. `claim_from_disposition()` turns the entity and '
+            . 'field lists into the claim\'s `surfaces`, and that claim is inside the signed statement — so '
+            . 'MOVING a key between arms, or from an arm to none, changes the surfaces every holder of that '
+            . 'certificate already verified, and re-signing is the only remedy. `body_refs` and '
+            . '`attr_id_codecs` as `field`, `declaration_evidence` and `engine_features` as `non_surface`, '
+            . 'are therefore as permanent as the section names themselves (R-29 records that door for the '
+            . 'names, R-19 for the feature that admits them). The MAP is the other permanent half: `keys` '
+            . 'is a key => arm map rather than a list, so a feature cannot claim a key without classifying '
+            . 'it, and the failure this row exists to close — a section that loads on every site and is '
+            . 'unsignable by every profile — is unrepresentable rather than remembered.',
+        'reserved' => 'A FOURTH arm is refused, not reserved: a disposition entry has exactly two section '
+            . 'lists (`entity_sections`, `field_sections`) and `non_surface` is the honest name for "in '
+            . 'neither", so a fourth would need a disposition member that does not exist and a claim '
+            . 'projection that does not read one. Also refused rather than reserved: a roster row naming a '
+            . 'key the signer\'s own partition already carries — that is two spellings of one arm and '
+            . '`feature_key_arms()` throws on it. What IS reserved is the per-manifest scope: the arm is '
+            . 'read for the keys a manifest\'s own declared, implemented features claim, never engine-wide, '
+            . 'because a certificate may not claim coverage of a section this engine reads nothing from.',
+    ];
+
     return $rows;
+}
+
+/**
+ * The certificate arm vocabulary as `` `entity`, `field`, `non_surface` ``.
+ *
+ * Projected from `AdapterCertification::certificateArms()` for R-31's sentence,
+ * because a row that records three names as permanent may not spell them itself.
+ */
+function ws_arm_text(): string {
+    return '`' . implode('`, `', AdapterCertification::certificateArms()) . '`';
+}
+
+/**
+ * Every feature-claimed key and its arm, as "`<key>` -> `<arm>`", key order.
+ *
+ * The same technique ws_feature_key_text() uses one row up and for the same
+ * reason: R-31 is a decision an external party's certificate already embeds, so
+ * the row may not describe the classification loosely or from a list that stops
+ * matching the engine.
+ */
+function ws_feature_arm_text(): string {
+    $parts = [];
+    foreach (AdapterContractGrammar::feature_key_arms() as $key => $arm) {
+        $parts[] = '`' . $key . '` -> `' . $arm . '`';
+    }
+
+    return implode(', ', $parts);
 }
 
 /**
@@ -2050,6 +2198,7 @@ function ws_build(string $repo): string {
     ws_assert_spec_window();
     ws_assert_shipped_authorities($repo);
     ws_assert_closed_key_set();
+    ws_assert_feature_key_arms();
     ws_assert_grandfather_list($repo);
     ws_assert_row_continuity();
     $domains = [
@@ -2151,7 +2300,7 @@ function ws_build(string $repo): string {
     }
 
     $out .= "\n## 5. What the checker proves, and what it does not\n\n";
-    $out .= "`php tools/wire-surface.php --check` proves ten things and refuses the run rather than\n";
+    $out .= "`php tools/wire-surface.php --check` proves eleven things and refuses the run rather than\n";
     $out .= "printing a register it cannot stand behind:\n\n";
     $out .= "1. **Every value above is the shipped value.** The document is rebuilt from the code and\n";
     $out .= "   byte-compared; a moved constant, a renamed key, a widened grammar or a reworded refusal\n";
@@ -2187,14 +2336,21 @@ function ws_build(string $repo): string {
     $out .= "   validator admits at `spec_version: 3` and the partition the shipped signer\n";
     $out .= "   classifies against are compared in both directions, and the only excess admitted is what\n";
     $out .= "   an implemented engine feature claims (R-21).\n\n";
-    $out .= "9. **The § v3.9 grandfather list is in its place and is still closed.** Its constants are\n";
-    $out .= "   declared under `agent/src` — never under `manifests/`, where AGENTS.md rule 2 would fold\n";
-    $out .= '   them into every adapter digest — and their membership equals the shipped library exactly: '
+    $out .= "9. **Every key that excess admits is signable.** Each top-level key an implemented engine\n";
+    $out .= '   feature claims carries a certificate arm in the feature\'s own roster row — today '
+        . ws_feature_arm_text() . " —\n";
+    $out .= '   each arm is one of ' . ws_arm_text() . ", no roster row names a key the signer's partition\n";
+    $out .= "   already carries, and every claimed section publishes its value grammar (R-31). This is the\n";
+    $out .= "   one gate whose failure mode is an OMISSION rather than a disagreement: a feature-claimed\n";
+    $out .= "   key with no arm loads on every site and is unsignable by both profiles.\n\n";
+    $out .= "10. **The § v3.9 grandfather list is in its place and is still closed.** Its constants are\n";
+    $out .= "    declared under `agent/src` — never under `manifests/`, where AGENTS.md rule 2 would fold\n";
+    $out .= '    them into every adapter digest — and their membership equals the shipped library exactly: '
         . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . " adapter\n";
-    $out .= '   names and ' . count(IdentityNamespaces::GRANDFATHERED_ID_KINDS)
+    $out .= '    names and ' . count(IdentityNamespaces::GRANDFATHERED_ID_KINDS)
         . " `id_kind`s, in both directions, so a seventeenth unprefixed name is a reviewed\n";
-    $out .= "   edit rather than a file appearing in a directory (R-27).\n";
-    $out .= '10. **The register has no gaps and no duplicates.** Row ids run R-01 … R-'
+    $out .= "    edit rather than a file appearing in a directory (R-27).\n";
+    $out .= '11. **The register has no gaps and no duplicates.** Row ids run R-01 … R-'
         . str_pad((string) count(ws_rows()), 2, '0', STR_PAD_LEFT) . " with every integer\n";
     $out .= "    present exactly once. Ids are ordinal bookkeeping — nothing on disk or in a certificate\n";
     $out .= "    embeds one — but an id nobody can account for reads as a row somebody deleted, and this\n";

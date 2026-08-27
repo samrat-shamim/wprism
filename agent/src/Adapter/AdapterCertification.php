@@ -639,6 +639,41 @@ final class AdapterCertification {
     private static ?\Closure $testAuthorityClock = null;
 
     /**
+     * The three arms a top-level manifest key can classify into, as the NAMES a
+     * classifier answers with (WP-6.6, spec/repo-format.md § v3.21).
+     *
+     * Owned here because the arm is the signer's decision and nobody else's:
+     * `entity` and `field` become the two lists a disposition names and
+     * `claim_from_disposition()` turns into the certificate's `surfaces`
+     * (ManifestDispositions.php:563-578); `non_surface` is the honest third
+     * answer for a key that covers no state at all.
+     *
+     * They exist as constants rather than as the literals this file used to
+     * spell four times because the roster in
+     * `AdapterContractGrammar::IMPLEMENTED_FEATURES` now classifies its own
+     * keys into these same three names, and `certificateArms()` is what its
+     * self-check refuses an out-of-vocabulary arm against. Two spellings of
+     * "field" — one here, one in the roster — would agree until the day one
+     * moved, which is exactly the failure the § v3.3 partition's own comment
+     * (:646-657) says it exists to prevent, one level up.
+     */
+    public const ARM_ENTITY = 'entity';
+    public const ARM_FIELD = 'field';
+    public const ARM_NON_SURFACE = 'non_surface';
+
+    /**
+     * The closed arm vocabulary, sorted, for the roster's self-check.
+     *
+     * @return list<string>
+     */
+    public static function certificateArms(): array {
+        $arms = [self::ARM_ENTITY, self::ARM_FIELD, self::ARM_NON_SURFACE];
+        sort($arms, SORT_STRING);
+
+        return $arms;
+    }
+
+    /**
      * The manifest's own top-level vocabulary, partitioned the way a
      * disposition names it, so sign_site() can DERIVE a ratification instead of
      * asking an operator to hand-write one.
@@ -655,6 +690,16 @@ final class AdapterCertification {
      * ManifestDispositions::validate_entry() independently refuses a named
      * section the manifest does not declare, so these lists can only ever be
      * too narrow, never too wide.
+     *
+     * THESE THREE ARE NO LONGER THE WHOLE CLASSIFIER (WP-6.6, § v3.21). A key a
+     * declared, implemented engine feature admits is classified by that
+     * feature's own roster row instead — see siteSurfaceSections() — because
+     * the alternative was measured twice and cost the same both times: a
+     * feature-claimed key is in no arm here, so an adapter using § v3.2's
+     * channel loaded everywhere and could not be certified at all. `environment`
+     * and `theme_version_range` below are the two patches that bought their way
+     * out of it one key at a time; the roster closes the shape rather than the
+     * next instance of it.
      */
     private const ENTITY_SECTIONS = ['post_types', 'tables', 'taxonomies', 'taxonomy_patterns', 'widgets'];
     private const FIELD_SECTIONS = [
@@ -730,11 +775,20 @@ final class AdapterCertification {
      * The two readers ask different questions of it and that asymmetry is
      * deliberate. The validator asks only whether a key is IN the set; the
      * signer needs the ARM, because a key's arm decides what a derived
-     * ratification says about it. So § v3.2's growth rule — a key claimed by a
-     * declared engine feature this engine implements — admits at LOAD and does
-     * not classify: a feature record carries `{since, keys}` and no arm, so a
-     * feature whose key must also be SIGNABLE gives it an arm here in the same
-     * change, exactly as WP-4.6 did for `environment`.
+     * ratification says about it.
+     *
+     * SO WHERE DOES A FEATURE-CLAIMED KEY GET ITS ARM (WP-6.6, § v3.21)? In the
+     * feature's own roster row, and no longer here. `IMPLEMENTED_FEATURES` used
+     * to carry `{since, keys}` and no arm, which meant § v3.2's growth rule
+     * admitted a key at LOAD and classified nothing — so every adapter using
+     * the channel was unsignable until somebody remembered to add the key to an
+     * arm above, the patch WP-4.6 paid for `environment` and WP-4.3 for
+     * `theme_version_range`. A roster row now classifies each key it claims
+     * into one of `certificateArms()`, siteSurfaceSections() reads it, and the
+     * omission is unrepresentable rather than merely discouraged. This
+     * partition is still the ONE definition for the base set; the roster is the
+     * ONE definition for the keys beyond it, and the two never name the same
+     * key (`AdapterContractGrammar::feature_key_arms()` refuses that overlap).
      *
      * @return array{entity_sections: list<string>, field_sections: list<string>, non_surface_keys: list<string>}
      */
@@ -1358,7 +1412,7 @@ final class AdapterCertification {
      * @return array<string,mixed>
      */
     private static function siteRatification(string $name, array $manifest, string $reason): array {
-        ['entity' => $entity, 'field' => $field] = self::siteSurfaceSections($name, $manifest);
+        [self::ARM_ENTITY => $entity, self::ARM_FIELD => $field] = self::siteSurfaceSections($name, $manifest);
 
         $unsupported = [[
             'operation' => 'delete',
@@ -1439,19 +1493,57 @@ final class AdapterCertification {
      * with one wording — an author cannot certify a section the signer cannot
      * classify merely by naming it in a file.
      *
+     * FOUR CLASSIFIERS SINCE WP-6.6, NOT THREE, and the fourth is the one that
+     * closes the shape (spec/repo-format.md § v3.21). The three constants above
+     * answer for the base partition; a key none of them carries is handed to
+     * `AdapterContractGrammar::admitted_feature_key_arms()`, the arm this
+     * MANIFEST's own declared, implemented engine features give it. That roster
+     * row is the single definition — there is no fourth list of keys here — so
+     * a feature that claims a top-level key classifies it in the same change
+     * that ships it, and the partition can no longer be incomplete against the
+     * shipped grammar for a feature-admitted key. The two patches this replaces
+     * (`environment`, `theme_version_range`, :672-694) each paid for one key.
+     *
+     * THE REFUSAL BELOW STAYS TRUE, and that is why it is unchanged byte for
+     * byte. A key in no constant AND admitted by no feature THIS manifest
+     * declares is still genuinely unknown to the signer — a misspelling, or a
+     * section from an engine feature nobody declared — and "teach the signer
+     * this section" is still exactly the remedy. The roster is consulted per
+     * MANIFEST rather than engine-wide on purpose: `body_refs` present without
+     * `structured-body-refs/v1` declared is a section this engine reads nothing
+     * from, so putting it in a certificate's surface list would claim coverage
+     * of state nothing captures.
+     *
+     * The lazy require mirrors `AdapterContractGrammar::admitted_top_level_
+     * keys()`'s own require of this class in the other direction: the two form
+     * a cycle through Policy, and a file-scope edge here would make otherwise
+     * independent offline entry points order-sensitive (siteGrammarVerdict()
+     * states the same reason for its own require of Policy).
+     *
      * @param array<string,mixed> $manifest
      * @return array{entity:list<string>,field:list<string>}
      */
     private static function siteSurfaceSections(string $name, array $manifest): array {
+        require_once __DIR__ . '/AdapterContractGrammar.php';
+        $featureArms = AdapterContractGrammar::admitted_feature_key_arms($manifest);
         $entity = [];
         $field = [];
         foreach (array_keys($manifest) as $key) {
             $key = (string) $key;
             if (in_array($key, self::ENTITY_SECTIONS, true)) {
-                $entity[] = $key;
+                $arm = self::ARM_ENTITY;
             } elseif (in_array($key, self::FIELD_SECTIONS, true)) {
+                $arm = self::ARM_FIELD;
+            } elseif (in_array($key, self::NON_SURFACE_KEYS, true)) {
+                $arm = self::ARM_NON_SURFACE;
+            } else {
+                $arm = $featureArms[$key] ?? null;
+            }
+            if ($arm === self::ARM_ENTITY) {
+                $entity[] = $key;
+            } elseif ($arm === self::ARM_FIELD) {
                 $field[] = $key;
-            } elseif (!in_array($key, self::NON_SURFACE_KEYS, true)) {
+            } elseif ($arm !== self::ARM_NON_SURFACE) {
                 throw new \RuntimeException(
                     "duo: site adapter '$name' declares '$key', which this signer cannot classify as an entity "
                     . 'or field surface — a certificate that silently omitted it would cover less than the '
@@ -1462,7 +1554,7 @@ final class AdapterCertification {
         sort($entity, SORT_STRING);
         sort($field, SORT_STRING);
 
-        return ['entity' => $entity, 'field' => $field];
+        return [self::ARM_ENTITY => $entity, self::ARM_FIELD => $field];
     }
 
     /**
@@ -1511,6 +1603,30 @@ final class AdapterCertification {
                 . 'disposition entry — the exact document manifests/dispositions/<name>.json carries'
             );
         }
+        // THE ENVELOPE, NAMED (WP-6.6). An author who reached for
+        // `duo-manifest-dispositions/v1` wrote a well-formed object, so every
+        // check below and every check in validate_entry() answered about the
+        // WRONG document: the measured verdict was "has a malformed required
+        // field", which is true of the envelope and says nothing about the two
+        // documents being confused. The envelope is the signer's own wrapper
+        // (the `return` at the bottom of this method builds it) and the author
+        // owns only the entry inside it, so the remedy is literal — hand over
+        // the value at `manifests.<name>`.
+        if (array_key_exists('format', $entry) && array_key_exists('manifests', $entry)) {
+            $inner = is_array($entry['manifests'] ?? null) ? $entry['manifests'] : [];
+            $remedy = array_key_exists($name, $inner)
+                ? "pass the value at manifests.$name from that file instead"
+                : 'pass the single disposition entry itself instead';
+            throw new \RuntimeException(
+                "duo: authored site adapter disposition for '$name' is a '"
+                . (is_string($entry['format']) ? $entry['format'] : var_export($entry['format'], true))
+                . "' ENVELOPE — --ratification-file takes the BARE entry, the object with {capabilities, "
+                . 'default_authored_keyspaces, evidence, reason, status, supported_versions, unsupported} that '
+                . 'manifests/dispositions/<name>.json carries at its top level. The envelope is the signer\'s: '
+                . 'it owns `format`, `profiles` and the single manifests key so an authored document cannot '
+                . "ratify a second adapter or smuggle a profile (spec/repo-format.md § v3.17). Remedy: $remedy"
+            );
+        }
         self::assertAuthoredSurfaceCoverage($name, $manifest, $entry);
 
         return [
@@ -1534,12 +1650,12 @@ final class AdapterCertification {
             return;
         }
         $arms = self::siteSurfaceSections($name, $manifest);
-        foreach (['entity' => 'entity_sections', 'field' => 'field_sections'] as $arm => $key) {
+        foreach ([self::ARM_ENTITY => 'entity_sections', self::ARM_FIELD => 'field_sections'] as $arm => $key) {
             $claimed = $capabilities[$key] ?? null;
             if (!is_array($claimed) || !array_is_list($claimed)) {
                 return;
             }
-            $other = $arm === 'entity' ? 'field' : 'entity';
+            $other = $arm === self::ARM_ENTITY ? self::ARM_FIELD : self::ARM_ENTITY;
             foreach ($arms[$arm] as $declared) {
                 if (!in_array($declared, $claimed, true)) {
                     throw new \RuntimeException(
@@ -1572,7 +1688,7 @@ final class AdapterCertification {
 
     /** `an entity` / `a field` — one spelling, so neither refusal above reads as machine output. */
     private static function surfaceArmArticle(string $arm): string {
-        return $arm === 'entity' ? 'an entity' : 'a field';
+        return $arm === self::ARM_ENTITY ? 'an entity' : 'a field';
     }
 
     /**

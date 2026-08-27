@@ -2171,6 +2171,42 @@ regress-column-codec-grammar:
 regress-attr-id-codec-grammar:
 	php sandbox/tests/offline/grammar/regress_attr_id_codec_grammar.php
 
+# WP-6.5's primitive, and the third to ship through the same channel: the `json`
+# post-type body mode plus the `body_refs` reference paths inside it. Its
+# sufficiency proof is the SAME previously-rejected candidate as
+# regress-attr-id-codec-grammar, one coordinate over — WPForms Lite's JSON
+# post_content — driven on four post_content values captured from a live
+# 2.0.0.5 pair through the plugin's own write paths, so the optional,
+# type-variant `$.id` and the `previous_page` sentinel are measured rather than
+# imagined.
+regress-body-ref-grammar:
+	php sandbox/tests/offline/grammar/regress_body_ref_grammar.php
+
+# The two primitives above, plus the rest of one adapter's declared surfaces, as
+# ONE INSTALLED FILE rather than as a manifest built in PHP:
+# sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json is the tree's first
+# spec_version 3 adapter, authored through the decentralized path a third party
+# takes and loaded here as a SITE adapter — so the out-of-tree contract and the
+# vendor-namespace rule run, which a library-directory fixture skips. Drives
+# capture -> apply -> recapture over the five measured 2.0.0.5 captures, and
+# asserts the honest half too: the open form-locations coordinate, the
+# unadvertised post:wpforms deletion, and the certification the feature channel
+# costs.
+regress-wpforms-lite-adapter:
+	php sandbox/tests/offline/adapter/regress_wpforms_lite_adapter.php
+
+# The `taxonomy_delete_scope_exercise` primitive, run rather than asserted: the
+# adversarial matrix tools/engine-gaps.json demands before a post-type adapter
+# carrying an authored taxonomy may claim a deletion selector. Four cases over
+# the same committed wpforms-lite fixture the target above loads — attached
+# state (the declared guard locks), cascade scope (the exact eight-table row
+# delta of a real DeleteExecutor run), residue on a dirty target, and the
+# unadvertised post:wpforms selector — each with a mutation proof that removes
+# its outcome. The first offline suite to execute a term cascade at all; the
+# FakeWpdb LEFT JOIN and the LockingFakeWpdb SHOW KEYS filter are what it cost.
+regress-wpforms-lite-term-deletion:
+	php sandbox/tests/offline/adapter/regress_wpforms_lite_term_deletion.php
+
 regress-lint-primitives:
 	php sandbox/tests/offline/reference-scope/regress_lint_primitives.php
 

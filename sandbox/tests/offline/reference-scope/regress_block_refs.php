@@ -184,7 +184,12 @@ require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../../../agent/src/Review/Pending.php';
-require __DIR__ . '/../../../../agent/src/Kernel/JsonRefs.php';
+// require_once, not require: WP-6.5 gave Policy.php a transitive path to this
+// file (Policy -> BodyRefGrammar -> JsonRefs), so the bare require above it now
+// meets a class that is already declared. Every file under agent/src uses
+// require_once for exactly this reason; a suite that hand-lists its dependencies
+// is not entitled to a weaker rule than the tree it is listing.
+require_once __DIR__ . '/../../../../agent/src/Kernel/JsonRefs.php';
 require __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require __DIR__ . '/../../../../agent/src/Grammar/Blocks.php';
 require __DIR__ . '/../../../../agent/src/Review/Lint.php';

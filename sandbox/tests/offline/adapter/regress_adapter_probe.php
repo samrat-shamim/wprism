@@ -301,6 +301,72 @@ duo_check_same(
 duo_check_same([], $tickets['unique_keys'], 'a table with only a PRIMARY KEY declares no unique key');
 duo_check_same(null, $tickets['eav_twin'], 'a table with no `<table>meta` sidecar reports no twin');
 
+// The SINGULARIZED stem, from a measured miss rather than a hypothetical.
+// WPForms Lite 2.0.0.5 creates `wp_wpforms_payments` and, beside it,
+// `wp_wpforms_payment_meta` (`id` PK, `payment_id`, `meta_key`, `meta_value`)
+// — a textbook EAV pair the plugin models as one entity
+// (`src/Db/Payments/Payment.php` and `Meta.php`). The heuristic tried only
+// `<table>meta` and `<table>_meta`, so it probed `wp_wpforms_paymentsmeta`
+// and `wp_wpforms_payments_meta`, found neither, and answered `eav_twin: null`
+// for the guide's own worked example
+// (`docs/guides/adapter-authoring.md:1016` probes exactly this table, and
+// `:1008` advertises `[eav_twin]` as a question one command can answer).
+// A plugin that pluralizes the parent usually does not pluralize the twin.
+$fake->setColumns('wp_wpforms_payments', ['id' => 'bigint(20)', 'form_id' => 'bigint(20)']);
+$fake->setPrimaryKey('wp_wpforms_payments', 'id');
+$fake->seedTable('wp_wpforms_payments', []);
+$fake->setColumns('wp_wpforms_payment_meta', [
+    'id' => 'bigint(20)',
+    'payment_id' => 'bigint(20)',
+    'meta_key' => 'varchar(255)',
+    'meta_value' => 'longtext',
+]);
+$fake->setPrimaryKey('wp_wpforms_payment_meta', 'id');
+$fake->seedTable('wp_wpforms_payment_meta', []);
+$GLOBALS['wpdb'] = new RecordedSchemaWpdb($fake, [
+    'SHOW INDEX FROM `wp_wpforms_payments`' => ['rows' => [
+        ['Key_name' => 'PRIMARY', 'Seq_in_index' => 1, 'Column_name' => 'id', 'Sub_part' => null, 'Non_unique' => 0],
+    ]],
+    RecordedSchemaWpdb::collapse(
+        "SELECT COLUMN_NAME, REFERENCED_TABLE_NAME\n"
+        . 'FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() '
+        . "AND TABLE_NAME = 'wp_wpforms_payments' AND REFERENCED_TABLE_NAME IS NOT NULL ORDER BY COLUMN_NAME"
+    ) => ['rows' => []],
+]);
+duo_check_same(
+    [
+        'key_column' => 'meta_key',
+        'parent_column' => 'payment_id',
+        'table' => 'wpforms_payment_meta',
+        'value_column' => 'meta_value',
+    ],
+    AdapterProbe::report(['wpforms_payments'])['tables']['wpforms_payments']['eav_twin'],
+    'a pluralized parent finds its SINGULAR-stem twin (measured: wp_wpforms_payments -> wp_wpforms_payment_meta)'
+);
+// The stem is a NAME guess and nothing more: a neighbour that merely matches
+// the spelling still has to carry a key/value pair to be reported as a twin.
+$fake->setColumns('wp_venues', ['id' => 'bigint(20)']);
+$fake->setPrimaryKey('wp_venues', 'id');
+$fake->seedTable('wp_venues', []);
+$fake->setColumns('wp_venue_meta', ['id' => 'bigint(20)', 'venue_id' => 'bigint(20)', 'headcount' => 'int(11)']);
+$fake->setPrimaryKey('wp_venue_meta', 'id');
+$fake->seedTable('wp_venue_meta', []);
+$GLOBALS['wpdb'] = new RecordedSchemaWpdb($fake, [
+    'SHOW INDEX FROM `wp_venues`' => ['rows' => [
+        ['Key_name' => 'PRIMARY', 'Seq_in_index' => 1, 'Column_name' => 'id', 'Sub_part' => null, 'Non_unique' => 0],
+    ]],
+    RecordedSchemaWpdb::collapse(
+        "SELECT COLUMN_NAME, REFERENCED_TABLE_NAME\n"
+        . 'FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() '
+        . "AND TABLE_NAME = 'wp_venues' AND REFERENCED_TABLE_NAME IS NOT NULL ORDER BY COLUMN_NAME"
+    ) => ['rows' => []],
+]);
+duo_check_same(
+    null,
+    AdapterProbe::report(['venues'])['tables']['venues']['eav_twin'],
+    'a singular-stem neighbour with no key/value pair is still not a twin: the wider net invents no shape'
+);
+
 // --------------------------------------------------------------------------
 echo "\n== 6. a probe can never propose a classification ==\n";
 // --------------------------------------------------------------------------
@@ -344,6 +410,34 @@ duo_check_throws(
     static fn() => AdapterProbe::report(['tickets'], ['rooms' => 'code']),
     RuntimeException::class,
     'a natural key naming a table that was not probed is refused'
+);
+// The refusals above are about the AUTHOR's own arguments, so each one is a
+// typed refusal whose sentence is the public answer. An untyped Throwable is
+// operator evidence and `Cli::halt_json_failure()` replaces it with
+// "adapter-probe refused at an unclassified safety gate"
+// (`agent/src/Command/Cli.php:88-104`) — which is the right rule for a failed
+// schema read and the wrong answer for a mistyped flag. Section 10 drives
+// both halves through the real verb.
+foreach ([
+    'an unsafe table name' => static fn() => AdapterProbe::report(['wp-rooms; DROP TABLE x']),
+    'no table at all' => static fn() => AdapterProbe::report([]),
+    'a natural key on an unprobed table' => static fn() => AdapterProbe::report(['tickets'], ['rooms' => 'code']),
+] as $label => $refused) {
+    try {
+        $refused();
+        duo_check(false, "$label was accepted");
+    } catch (Throwable $e) {
+        duo_check(
+            $e instanceof \Duo\CommandRefusalException && $e->reasonCode === 'invalid_arguments',
+            "$label is a typed argument refusal, so its sentence survives the JSON envelope"
+        );
+    }
+}
+duo_check_throws(
+    static fn() => AdapterProbe::report(['tickets'], ['rooms' => 'code']),
+    RuntimeException::class,
+    'and that refusal NAMES the table the author asked about but never probed',
+    "natural key on 'rooms'"
 );
 
 $GLOBALS['wpdb'] = new RecordedSchemaWpdb($fake, [
@@ -447,6 +541,151 @@ $internals = (string) file_get_contents($repoRoot . '/docs/guides/internals.md')
 duo_check(
     str_contains($internals, '`wp duo adapter-probe`'),
     'the authoring internal is named in docs/guides/internals.md (MUP §5.1)'
+);
+
+// --------------------------------------------------------------------------
+echo "\n== 10. the verb, driven: the argument gate names its offender, and an\n";
+echo "   unanswerable question is said out loud rather than left blank ==\n";
+// --------------------------------------------------------------------------
+/**
+ * WP-CLI's transport, as the offline refusal suites already stub it
+ * (`agent/src/Command/Cli.php:6-8` names that arrangement).
+ */
+final class WP_CLI {
+    /** @var list<string> */
+    public static array $lines = [];
+
+    public static function add_command($name, $class): void {
+    }
+
+    public static function line($line): void {
+        self::$lines[] = (string) $line;
+    }
+
+    public static function halt($status): void {
+        throw new RuntimeException("wp-cli halt: $status");
+    }
+
+    public static function error($message, $exit = true): void {
+        if ($exit !== false) {
+            throw new RuntimeException("wp-cli error: $message");
+        }
+    }
+
+    public static function reset(): void {
+        self::$lines = [];
+    }
+}
+require_once $repoRoot . '/agent/src/Review/Journal.php';
+require_once $repoRoot . '/agent/src/Command/Cli.php';
+
+$verb = new Duo\Cli();
+$journalSuspended = new ReflectionProperty(Duo\Journal::class, 'observationSuspended');
+$drive = static function (array $args, array $assoc) use ($verb, $journalSuspended): array {
+    $journalSuspended->setValue(null, false);
+    WP_CLI::reset();
+    $thrown = null;
+    try {
+        $verb->adapter_probe($args, $assoc);
+    } catch (Throwable $e) {
+        $thrown = $e;
+    }
+    return ['lines' => WP_CLI::$lines, 'thrown' => $thrown];
+};
+
+// The measured case. `wp duo coverage`, `pending`, `lint` and `adapter-observe`
+// all REQUIRE --repo; adapter-probe is the one verb that rejects it, and the
+// gate used to answer with a sentence about --tables syntax plus the
+// remediation "name the tables one adapter draft proposes" — so an author who
+// carried the flag over from the previous command was sent to re-check a
+// spelling that was already correct.
+$repoFlag = $drive([], ['repo' => '/srv/shop-state', 'tables' => 'rooms', 'format' => 'json']);
+$repoEnvelope = json_decode(implode("\n", $repoFlag['lines']), true);
+duo_check_same(
+    ['duo-command-refusal/v1', 'adapter-probe', 'invalid_arguments', 'adapter-probe does not take --repo'],
+    [
+        $repoEnvelope['format'] ?? null,
+        $repoEnvelope['command'] ?? null,
+        $repoEnvelope['error'] ?? null,
+        $repoEnvelope['message'] ?? null,
+    ],
+    'an unknown flag is NAMED, not answered with a lecture about the flags the verb does take'
+);
+duo_check(
+    is_string($repoEnvelope['remediation'] ?? null)
+        && str_contains($repoEnvelope['remediation'], 'owns no repository')
+        && str_contains($repoEnvelope['remediation'], 'drop --repo'),
+    'and the remediation says WHY this verb has no --repo and what to do, instead of naming tables'
+);
+$positional = $drive(['rooms'], ['format' => 'json']);
+$positionalEnvelope = json_decode(implode("\n", $positional['lines']), true);
+duo_check(
+    is_string($positionalEnvelope['message'] ?? null)
+        && str_contains($positionalEnvelope['message'], 'takes no positional arguments'),
+    'a stray positional gets its own sentence: it was the same blanket refusal as a bad flag'
+);
+
+// An ABSENT table and an UNANSWERABLE natural key, through the human summary
+// the author actually reads. `wpforms_payments` is seeded here exactly as a
+// freshly activated WPForms Lite 2.0.0.5 leaves it: the table exists (created
+// at activation) and holds no rows, so `COUNT(*) = 0` and the document's
+// `unique: false` is not a measurement of the key at all — which is what the
+// guide's own worked example (`docs/guides/adapter-authoring.md:1016`) returns
+// on a fresh install.
+$GLOBALS['wpdb'] = new RecordedSchemaWpdb($fake, [
+    'SHOW INDEX FROM `wp_wpforms_payments`' => ['rows' => [
+        ['Key_name' => 'PRIMARY', 'Seq_in_index' => 1, 'Column_name' => 'id', 'Sub_part' => null, 'Non_unique' => 0],
+    ]],
+    RecordedSchemaWpdb::collapse(
+        "SELECT COLUMN_NAME, REFERENCED_TABLE_NAME\n"
+        . 'FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() '
+        . "AND TABLE_NAME = 'wp_wpforms_payments' AND REFERENCED_TABLE_NAME IS NOT NULL ORDER BY COLUMN_NAME"
+    ) => ['rows' => []],
+    'SELECT COUNT(*) AS row_count, COUNT(DISTINCT `form_id`) AS distinct_count FROM `wp_wpforms_payments`'
+        => ['rows' => [['row_count' => '0', 'distinct_count' => '0']]],
+]);
+$fresh = $drive([], [
+    'tables' => 'wpforms_payments,wpforms_entries',
+    'natural-keys' => 'wpforms_payments.form_id',
+]);
+$human = implode("\n", $fresh['lines']);
+duo_check(
+    str_contains($human, 'wpforms_entries: absent on this target — no such table exists')
+        && str_contains($human, 'name, prefix or not-yet-activated question')
+        && str_contains($human, 'an activated plugin already has its tables (with no rows)'),
+    'an absent table says what absent MEANS — activation creates tables, so this is never a "no rows yet" answer'
+);
+duo_check(
+    str_contains($human, 'natural key wpforms_payments.form_id: 0 row(s) — nothing to measure yet')
+        && str_contains($human, 'creates its tables EMPTY, so exercise the plugin before reading this as uniqueness'),
+    'a natural key over an EMPTY keyspace reports that it measured nothing, rather than reading as "not unique"'
+);
+// Back to section 2's recording, where `rooms` really does hold three rows.
+$GLOBALS['wpdb'] = new RecordedSchemaWpdb($fake, $recorded);
+$measured = $drive([], ['tables' => 'rooms', 'natural-keys' => 'rooms.code']);
+duo_check(
+    str_contains(
+        implode("\n", $measured['lines']),
+        'natural key rooms.code: 3 row(s), 3 distinct — unique across the keyspace'
+    ),
+    'and a keyspace with rows still reports the measurement itself, counts and all'
+);
+$unprobed = $drive([], ['tables' => 'rooms', 'natural-keys' => 'tickets.slug', 'format' => 'json']);
+$unprobedEnvelope = json_decode(implode("\n", $unprobed['lines']), true);
+duo_check_same(
+    ['invalid_arguments', null],
+    [$unprobedEnvelope['error'] ?? null, $unprobedEnvelope['details_redacted'] ?? null],
+    'a natural key on a table this run does not probe is a named argument refusal, not the redacted catch-all'
+);
+duo_check(
+    is_string($unprobedEnvelope['message'] ?? null)
+        && str_contains($unprobedEnvelope['message'], "natural key on 'tickets'"),
+    'and it names the table the author asked about'
+);
+duo_check_same(
+    true,
+    $journalSuspended->getValue(),
+    'every one of these paths suspended the journal first: asking a target for its schema is never a Duo INSERT'
 );
 
 duo_check_summary('adapter probe (duo-adapter-probe/v1): the live half of adapter-draft\'s --evidence= seam');

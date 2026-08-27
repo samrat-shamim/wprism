@@ -18,6 +18,11 @@ require_once __DIR__ . '/StructuredEvidence.php';
 // caller that reaches this file first. ManifestGrammar requires nothing itself
 // — that is its stated design property — so this costs one stat.
 require_once __DIR__ . '/../Policy/ManifestGrammar.php';
+// WP-6.5: the same one-definition rule as the line above, for the feature name
+// and the section name `structured-body-refs/v1` claims. BodyRefGrammar is a
+// leaf in Grammar (JsonRefs/ReferenceRules/Secrets, all Kernel), so this costs
+// the same one stat and cannot circle back through this file.
+require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 // Circular with Policy.php's require_once of this file: safe because
 // require_once records the currently included path before the nested require
 // is reached, while these methods only resolve Policy at call time.
@@ -58,14 +63,30 @@ final class AdapterContractGrammar {
     /**
      * Engine features this engine IMPLEMENTS, and what each one claims.
      *
-     * ONE definition carrying both facts a feature decides, because they can
+     * ONE definition carrying every fact a feature decides, because they can
      * never be allowed to disagree: `since` is the first `spec_version` at
-     * which the feature's sections exist, and `keys` are the top-level
-     * manifest sections the feature claims. § v3.1's per-section refusal reads
-     * the minimum version of a section straight out of these rows
-     * (section_min_spec()), and § v3.2's channel answers "does this engine
-     * implement the name this adapter declared" out of the same rows — so a
-     * feature cannot be implemented with its section unknown, or the reverse.
+     * which the feature's sections exist, and `keys` maps each top-level
+     * manifest section the feature claims to the CERTIFICATE ARM that section
+     * classifies into. § v3.1's per-section refusal reads the minimum version
+     * of a section straight out of these rows (section_min_spec()), § v3.2's
+     * channel answers "does this engine implement the name this adapter
+     * declared" out of the same rows, and § v3.21's signer reads the arm out of
+     * them too (admitted_feature_key_arms()) — so a feature cannot be
+     * implemented with its section unknown, or the reverse, or with its section
+     * unsignable.
+     *
+     * THE ARM IS PART OF THE ROW BECAUSE THE ALTERNATIVE WAS MEASURED (WP-6.6,
+     * spec/repo-format.md § v3.21). `keys` used to be a bare list and the arm
+     * lived only in `AdapterCertification`'s three private constants, which
+     * meant a feature could ship its section, load on every site, and be
+     * unsignable — `AdapterCertification.php:672-694` narrates that exact wall
+     * being patched key by key twice (`environment`, `theme_version_range`), and
+     * `sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json` hit it a third
+     * time with four keys at once. A map cannot carry a key without an arm, so
+     * the failure mode is now unrepresentable rather than remembered. The arm
+     * VOCABULARY is not spelled here: it is
+     * `AdapterCertification::certificateArms()`, and feature_key_arms() refuses
+     * any other value and any key the signer's own partition already carries.
      *
      * `spec-window/v1` is the first entry and is implemented BY THIS FILE: the
      * N/N-1 acceptance window plus the declaration channel itself. That is what
@@ -110,16 +131,31 @@ final class AdapterContractGrammar {
      * adapter digest that every `site.duo.json` pin and every certificate
      * binds, so renaming one moves the digest of every manifest declaring it.
      *
-     * @var array<string,array{since:int,keys:list<string>}>
+     * @var array<string,array{since:int,keys:array<string,string>}>
      */
     private const IMPLEMENTED_FEATURES = [
+        // ARM `field`, and the reviewed reason: an id codec is a typed
+        // REFINEMENT over a declared `block_attrs` rule — it decides the JSON
+        // type one already-declared attribute's resolved id is written back as
+        // (AttrIdCodecGrammar::validate_one() refuses a codec with no rule
+        // beneath it). Its standing is `block_attrs`'s exactly, and
+        // `block_attrs` is a field section, so a certificate covers the two
+        // together or covers the second one falsely.
         'attr-id-codecs/v1' => [
             'since' => 3,
-            'keys' => ['attr_id_codecs'],
+            'keys' => ['attr_id_codecs' => 'field'],
         ],
+        // ARM `non_surface`, and this is the row that shows the arm is a
+        // decision rather than bookkeeping: `engine_features` is the CLAIM
+        // CHANNEL itself. It covers no state — it is a list of engine feature
+        // names — so putting it in a certificate's `surfaces` list would put a
+        // runtime assertion where an operator reads covered state. That is the
+        // standing `spec_version` already has in NON_SURFACE_KEYS, and this key
+        // is the same kind of fact about the document rather than about the
+        // site.
         'spec-window/v1' => [
             'since' => 3,
-            'keys' => ['engine_features'],
+            'keys' => ['engine_features' => 'non_surface'],
         ],
         // WP-6.4, and the reason this constant is worth having: the FIRST
         // grammar section to ship after v3, added here and nowhere else, with
@@ -132,13 +168,27 @@ final class AdapterContractGrammar {
         // which is how a channel meant to AVOID a flag day quietly schedules
         // one. `regress_structured_evidence.php` asserts this 3 against the
         // define, so the two cannot drift apart unnoticed.
+        // ARM `non_surface`: the records are PROVENANCE — `{source, locator,
+        // observation}` rows and answered questions about why the other
+        // declarations say what they say. A certificate's surface list is the
+        // state an operator is told is covered, and evidence prose is not
+        // state; listing it would make the claim's `surfaces` grow by a member
+        // no apply, capture or deploy ever touches. It is `notes` with a
+        // machine-checkable shape (§ v3.14), and `notes` is non-surface.
         'structured-evidence/v1' => [
             'since' => 3,
-            'keys' => [StructuredEvidence::SECTION],
+            'keys' => [StructuredEvidence::SECTION => 'non_surface'],
         ],
+        // ARM `field`, for `attr_id_codecs`'s reason read one section over: a
+        // column codec refines how ONE declared `authored` column of an
+        // already-declared `authored_snapshot` table decodes
+        // (ColumnCodecGrammar::validate_one() refuses a codec over a column
+        // that is not one). `tables` is the entity; the bytes inside one of its
+        // columns are a field, exactly as `post_meta` is a field beside
+        // `post_types`.
         'typed-column-codecs/v1' => [
             'since' => 3,
-            'keys' => ['column_codecs'],
+            'keys' => ['column_codecs' => 'field'],
         ],
         // WP-6.2, and the first entry that claims NO top-level key: it widens a
         // VALUE vocabulary inside a section that already exists
@@ -157,9 +207,46 @@ final class AdapterContractGrammar {
         // ManifestGrammar::assert_invalidate_feature_gate(); the name is read
         // from there rather than spelled here because Policy is below Adapter
         // on tools/modules.json's ladder and one definition cannot drift.
+        // NO ARM, because there is no key to classify — and that is the honest
+        // record rather than a gap. WP-6.6 swept every row for an arm and this
+        // one has nothing to sweep: a feature that widens a value vocabulary
+        // inside a section that already exists adds no surface, so the section
+        // it widens (`tables`) keeps the entity arm the partition already gives
+        // it. feature_key_arms() folds over `keys` and this row contributes
+        // nothing to it, exactly as it contributes nothing to
+        // section_min_spec().
         ManifestGrammar::INVALIDATE_VOCABULARY_FEATURE => [
             'since' => 3,
             'keys' => [],
+        ],
+        // WP-6.5 (spec/repo-format.md § v3.20), and the first row that does
+        // BOTH of the two things the four above each did one of: it claims a
+        // top-level key (`body_refs`) AND widens a value vocabulary inside a
+        // section that already exists (`post_types.<type>.body` gains `json`).
+        // That combination is the reason both halves are gated on ONE name
+        // rather than two — a manifest could otherwise declare the paths
+        // without the mode, or the mode without the paths, and each half alone
+        // is a declaration that captures nothing and says nothing.
+        //
+        // `since: 3` for the same reason as every row above: `since` is the
+        // first version whose grammar HAS the section, and this engine's does.
+        // `regress_body_ref_grammar.php` asserts that 3 against the define in
+        // the same run as its three § v3.2 verdicts, so the channel cannot
+        // quietly become a bump.
+        //
+        // The name is read from BodyRefGrammar rather than spelled here because
+        // Grammar is BELOW Adapter on tools/modules.json's ladder and the
+        // body-mode gate — which lives down there, where the declaring manifest
+        // is in hand — must be asking about the same string this row admits.
+        //
+        // ARM `field`: `body_refs` declares id-bearing PATHS inside a post
+        // body — `{path, kind, cast}` triples that capture tokenises and apply
+        // rebinds. That is the exact standing `block_attrs` has for a block
+        // attribute, one container deeper, so it takes the same arm.
+        // `post_types` stays the entity beneath it, unmoved.
+        BodyRefGrammar::FEATURE => [
+            'since' => 3,
+            'keys' => [BodyRefGrammar::SECTION => 'field'],
         ],
     ];
 
@@ -270,7 +357,11 @@ final class AdapterContractGrammar {
     public static function section_min_spec(): array {
         $out = [];
         foreach (self::IMPLEMENTED_FEATURES as $row) {
-            foreach ($row['keys'] as $key) {
+            // array_keys(), because `keys` is a key => ARM map since WP-6.6 and
+            // this question is about the SECTION only. The arm is read by
+            // admitted_feature_key_arms() and by nothing else on the load path.
+            foreach (array_keys($row['keys']) as $key) {
+                $key = (string) $key;
                 $out[$key] = isset($out[$key]) ? min($out[$key], $row['since']) : $row['since'];
             }
         }
@@ -289,6 +380,112 @@ final class AdapterContractGrammar {
         sort($names, SORT_STRING);
 
         return $names;
+    }
+
+    /**
+     * The same rows, whole: feature => `{since, keys}`, sorted by name.
+     *
+     * Published for `duo manifest-validate --emit-schema` (WP-6.5), which used
+     * to be unable to describe the channel at all — the four post-v3 SECTIONS
+     * and the `engine_features` key itself appeared nowhere in the emitted
+     * grammar document, so an author could not learn from the engine's own
+     * answer that the features exist. This exposes no information the two
+     * accessors above did not already publish between them (`implemented_
+     * features()` the names, `section_min_spec()` the sections and their
+     * versions); what it adds is the PAIRING, which is the half a consumer
+     * needs and the half neither accessor alone can state.
+     *
+     * A copy, not the constant: the rows are engine-owned and a caller that
+     * could mutate them would be a second vocabulary.
+     *
+     * WP-6.6 ADDS `sections`, and it is the half an author actually needs.
+     * WP-6.5 published that the features and their sections EXIST; an author
+     * who read that still had to open three engine files to learn what may go
+     * inside one, and had no way at all to learn whether a certificate would
+     * cover it. `sections` answers both, per claimed key: the `arm` the roster
+     * classifies it into (§ v3.21) and the `grammar` the owning collaborator
+     * publishes from its own constants. `keys` stays the flat list it was, so a
+     * consumer that only wanted membership is unaffected.
+     *
+     * @return array<string,array{since:int,keys:list<string>,sections:array<string,array<string,mixed>>}>
+     */
+    public static function implemented_feature_rows(): array {
+        $arms = self::feature_key_arms();
+        $grammars = self::feature_section_grammars();
+        $rows = [];
+        foreach (self::implemented_features() as $name) {
+            $keys = array_map('strval', array_keys(self::IMPLEMENTED_FEATURES[$name]['keys']));
+            sort($keys, SORT_STRING);
+            $sections = [];
+            foreach ($keys as $key) {
+                $sections[$key] = ['arm' => $arms[$key], 'grammar' => $grammars[$key]];
+            }
+            $rows[$name] = [
+                'since' => self::IMPLEMENTED_FEATURES[$name]['since'],
+                'keys' => $keys,
+                'sections' => $sections,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Each feature-claimed top-level section's own VALUE grammar, published by
+     * the collaborator that validates it (WP-6.6, § v3.21).
+     *
+     * ONE DEFINITION PER SECTION, and the completeness check below is what
+     * makes that claim hold rather than merely be intended. Every entry is a
+     * `section_grammar()` the owning class projects from the constants its own
+     * refusals are written against — `BodyRefGrammar::RECORD_*`,
+     * `AttrIdCodecGrammar::CODEC_KEYS`, `StructuredEvidence::EVIDENCE_KEYS`,
+     * and so on — never a shape retyped here or in the emitter.
+     *
+     * The refusal at the end is the structural half: the published set must be
+     * exactly the roster's claimed keys, so a feature that gains a key and
+     * publishes no grammar for it refuses HERE, on the next `--emit-schema` and
+     * under `make release-gate` (R-31), instead of shipping a document that has
+     * gone quiet about a section authors are expected to write.
+     *
+     * `engine_features` is described by this class because this class validates
+     * it (assert_engine_features()); the requires are lazy and local for
+     * `admitted_top_level_keys()`'s stated reason — no manifest load path
+     * reaches this method.
+     *
+     * @return array<string,array<string,mixed>> top-level key => grammar
+     */
+    public static function feature_section_grammars(): array {
+        require_once __DIR__ . '/../Grammar/AttrIdCodecGrammar.php';
+        require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
+        $grammars = [
+            AttrIdCodecGrammar::SECTION => AttrIdCodecGrammar::section_grammar(),
+            BodyRefGrammar::SECTION => BodyRefGrammar::section_grammar(),
+            ColumnCodecGrammar::SECTION => ColumnCodecGrammar::section_grammar(),
+            StructuredEvidence::SECTION => StructuredEvidence::section_grammar(),
+            'engine_features' => [
+                'shape' => 'a non-empty, sorted, duplicate-free LIST of engine feature name strings',
+                'values' => self::implemented_features(),
+                'refines' => 'nothing — declaring a name admits the top-level keys that feature claims '
+                    . '(§ v3.3\'s growth rule) and gates the value vocabularies it widens; a name this engine '
+                    . 'does not implement refuses the adapter BY FEATURE NAME',
+                'validated_by' => 'Duo\\AdapterContractGrammar::assert_engine_features()',
+            ],
+        ];
+        ksort($grammars, SORT_STRING);
+        $described = array_keys($grammars);
+        $claimed = array_keys(self::feature_key_arms());
+        if ($described !== $claimed) {
+            $missing = array_values(array_diff($claimed, $described));
+            $extra = array_values(array_diff($described, $claimed));
+            throw new \RuntimeException(
+                'duo: the published feature-section grammars do not match the roster — claimed but undescribed {'
+                . implode(', ', $missing) . '}, described but unclaimed {' . implode(', ', $extra)
+                . '}. A feature that claims a top-level key publishes that section\'s value grammar in the same '
+                . 'change (spec/repo-format.md § v3.21)'
+            );
+        }
+
+        return $grammars;
     }
 
     /**
@@ -347,14 +544,128 @@ final class AdapterContractGrammar {
             if (!is_string($feature) || !isset(self::IMPLEMENTED_FEATURES[$feature])) {
                 continue;
             }
-            foreach (self::IMPLEMENTED_FEATURES[$feature]['keys'] as $key) {
-                $keys[$key] = true;
+            foreach (array_keys(self::IMPLEMENTED_FEATURES[$feature]['keys']) as $key) {
+                $keys[(string) $key] = true;
             }
         }
         $out = array_keys($keys);
         sort($out, SORT_STRING);
 
         return $out;
+    }
+
+    /**
+     * The same keys, each with the CERTIFICATE ARM its feature classifies it
+     * into — for the manifest that declared the feature, and no other
+     * (WP-6.6, spec/repo-format.md § v3.21).
+     *
+     * THE ONE CONSUMER IS THE SIGNER, and the question it asks is narrower than
+     * `admitted_feature_keys()`'s. That method answers "may this key exist";
+     * this one answers "what does a certificate say about it", which is a
+     * question only for a key this manifest actually brought through the
+     * channel. So the roster is filtered by THIS manifest's declarations rather
+     * than published whole: `body_refs` sitting in a manifest that never
+     * declared `structured-body-refs/v1` is a section the engine reads nothing
+     * from, and classifying it anyway would put uncaptured state in a
+     * certificate's surface list. Such a manifest keeps the unclassifiable-key
+     * refusal it has today, which is the correct verdict for it.
+     *
+     * Every value is checked on the way out (assert_arm()), so a roster row
+     * with a typo'd arm cannot reach a signature: it refuses at the roster.
+     *
+     * @param array<string,mixed> $manifest
+     * @return array<string,string> top-level key => arm
+     */
+    public static function admitted_feature_key_arms(array $manifest): array {
+        $arms = [];
+        foreach ((array) ($manifest['engine_features'] ?? []) as $feature) {
+            if (!is_string($feature) || !isset(self::IMPLEMENTED_FEATURES[$feature])) {
+                continue;
+            }
+            foreach (self::IMPLEMENTED_FEATURES[$feature]['keys'] as $key => $arm) {
+                $arms[(string) $key] = self::assert_arm($feature, (string) $key, $arm);
+            }
+        }
+        ksort($arms, SORT_STRING);
+
+        return $arms;
+    }
+
+    /**
+     * The WHOLE roster's classification: every feature-admitted top-level key
+     * this engine implements, mapped to its arm.
+     *
+     * Published rather than derived per manifest because two readers need the
+     * engine-wide answer and neither has a manifest in hand: `duo
+     * manifest-validate --emit-schema` prints the arm beside each roster row so
+     * an author can see, before writing a line, whether the section they are
+     * about to declare will be covered by a certificate; and
+     * `tools/wire-surface.php --check` asserts under `make release-gate` that
+     * every claimed key has an arm and that no claimed key collides with the
+     * signer's own partition (register row R-31).
+     *
+     * @return array<string,string> top-level key => arm, key order
+     */
+    public static function feature_key_arms(): array {
+        $arms = [];
+        foreach (self::IMPLEMENTED_FEATURES as $feature => $row) {
+            foreach ($row['keys'] as $key => $arm) {
+                $arms[(string) $key] = self::assert_arm((string) $feature, (string) $key, $arm);
+            }
+        }
+        ksort($arms, SORT_STRING);
+
+        return $arms;
+    }
+
+    /**
+     * The roster's own self-check, and the reason property (a) holds by
+     * construction rather than by review.
+     *
+     * TWO REFUSALS, and they close the two ways a roster row could be a second
+     * spelling of the partition instead of the one definition beside it:
+     *
+     *   - an arm outside `AdapterCertification::certificateArms()` is a value
+     *     `siteSurfaceSections()` would silently treat as "not entity, not
+     *     field, not non-surface" — i.e. it would fall through to the
+     *     unclassifiable refusal and report the AUTHOR's manifest for the
+     *     ENGINE's typo. Refusing at the roster names the feature and the key;
+     *   - a key the signer's partition ALREADY carries would give one key two
+     *     arms whose winner depends on which `in_array()` runs first
+     *     (siteSurfaceSections() asks the constants before the roster, so the
+     *     roster row would be dead code that reads as a decision).
+     *
+     * The require is lazy for `admitted_top_level_keys()`'s stated reason:
+     * `AdapterCertification` is one of the four names agent/duo.php's bootstrap
+     * deliberately does not declare (agent/duo.php:124-128), and no v2 manifest
+     * reaches this method.
+     */
+    private static function assert_arm(string $feature, string $key, mixed $arm): string {
+        require_once __DIR__ . '/AdapterCertification.php';
+        $vocabulary = AdapterCertification::certificateArms();
+        if (!is_string($arm) || !in_array($arm, $vocabulary, true)) {
+            throw new \RuntimeException(
+                "duo: engine feature '$feature' classifies its top-level key '$key' as "
+                . var_export($arm, true) . ", which is not one of the signer's certificate arms ("
+                . implode(', ', $vocabulary) . ') — a feature that claims a top-level key must say what a '
+                . 'certificate covers it as, in the same row that claims it (spec/repo-format.md § v3.21)'
+            );
+        }
+        $partition = AdapterCertification::topLevelKeyPartition();
+        $classified = array_merge(
+            $partition['entity_sections'],
+            $partition['field_sections'],
+            $partition['non_surface_keys']
+        );
+        if (in_array($key, $classified, true)) {
+            throw new \RuntimeException(
+                "duo: engine feature '$feature' classifies '$key', which the signer's own three-arm partition "
+                . 'already carries — a roster row classifies only the keys § v3.2\'s channel ADDS, so the two '
+                . 'can never be two spellings of one arm (spec/repo-format.md § v3.21)'
+            );
+        }
+
+        return $arm;
     }
 
     /**

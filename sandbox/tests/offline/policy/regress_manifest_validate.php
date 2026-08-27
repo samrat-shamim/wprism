@@ -1345,6 +1345,94 @@ check(
     'and it publishes how the set GROWS (a key claimed by an implemented engine feature) and the one key refused on the merits (`_draft`), so `all` is not mistaken for the whole answer'
 );
 
+// ======================================================================
+echo "\n== WP-6.6 (§ v3.21): the feature roster publishes each claimed key's ARM and its section GRAMMAR ==\n";
+// ======================================================================
+// TWO GAPS, MEASURED BY WALKING THE AUTHORING PATH AS A STRANGER. WP-6.5 taught
+// this document that the post-v3 features and their sections EXIST. An author
+// who read that still had to open BodyRefGrammar.php, AttrIdCodecGrammar.php and
+// StructuredEvidence.php to learn what may go inside one — and could learn
+// nowhere at all whether a certificate would cover it, which is the question
+// that decides whether the adapter can be deployed. Both are published now, per
+// claimed key, and both are DERIVED: the arm from the roster the signer reads,
+// the grammar from the constants each validator's own refusals are written
+// against.
+$engineFeatures = $schema['engine_features'] ?? [];
+check(
+    ($engineFeatures['implemented'] ?? null) === \Duo\AdapterContractGrammar::implemented_feature_rows(),
+    'the emitted `engine_features.implemented` block is `implemented_feature_rows()` itself — rows, arms and section grammars alike'
+);
+check(
+    ($engineFeatures['certificate_arms'] ?? null) === \Duo\AdapterCertification::certificateArms(),
+    'and it publishes the closed arm vocabulary the roster is judged against, from the signer that owns it'
+);
+$emittedArms = [];
+foreach ((array) ($engineFeatures['implemented'] ?? []) as $row) {
+    foreach ((array) ($row['sections'] ?? []) as $key => $section) {
+        $emittedArms[(string) $key] = $section['arm'] ?? null;
+    }
+}
+ksort($emittedArms, SORT_STRING);
+check(
+    $emittedArms === [
+        'attr_id_codecs' => 'field',
+        'body_refs' => 'field',
+        'column_codecs' => 'field',
+        'declaration_evidence' => 'non_surface',
+        'engine_features' => 'non_surface',
+    ],
+    'every feature-claimed key is published with its reviewed arm: the three typed refinements as `field`, the claim channel and its evidence records as `non_surface`'
+);
+check(
+    array_keys($emittedArms) === array_values(array_diff(array_keys($emittedArms), $mergedPartition)),
+    'and none of them is in the partition `top_level_keys` publishes — two definitions of two disjoint sets, which is what R-31 records'
+);
+// The section grammars, pinned against the constants they are projected from
+// rather than against a literal copy: a literal here would equal the engine on
+// the day it was typed, which is the failure this whole block exists to close.
+$bodyRefsGrammar = $engineFeatures['implemented']['structured-body-refs/v1']['sections']['body_refs']['grammar'] ?? [];
+check(
+    ($bodyRefsGrammar['record'] ?? null) === [
+        'required' => \Duo\BodyRefGrammar::RECORD_REQUIRED,
+        'optional' => \Duo\BodyRefGrammar::RECORD_OPTIONAL,
+    ]
+    && ($bodyRefsGrammar['json_refs_entry'] ?? null) === [
+        'required' => \Duo\ReferenceRules::JSON_REF_REQUIRED,
+        'optional' => \Duo\ReferenceRules::JSON_REF_OPTIONAL,
+    ],
+    '`body_refs` publishes {json_refs, sentinels} and the {path, kind, cast} triple — the record set from BodyRefGrammar and the triple from the one JSONPath dialect ReferenceRules owns'
+);
+$attrGrammar = $engineFeatures['implemented']['attr-id-codecs/v1']['sections']['attr_id_codecs']['grammar'] ?? [];
+check(
+    ($attrGrammar['codec']['required'] ?? null) === \Duo\AttrIdCodecGrammar::CODEC_KEYS
+        && ($attrGrammar['id_type'] ?? null) === $vocabularies['attribute_id_types'],
+    '`attr_id_codecs` publishes its exact {id_type} object shape and the closed vocabulary that key takes'
+);
+$evidenceGrammar = $engineFeatures['implemented']['structured-evidence/v1']['sections']['declaration_evidence']['grammar'] ?? [];
+check(
+    ($evidenceGrammar['evidence_row'] ?? null) === ['locator', 'observation', 'source']
+        && ($evidenceGrammar['answered_row'] ?? null) === ['answer', 'question']
+        && ($evidenceGrammar['record'] ?? null) === ['required' => ['evidence'], 'optional' => ['answered']],
+    '`declaration_evidence` publishes {evidence:[{source,locator,observation}], answered:[{question,answer}]} — the three closed row sets R-29 records as permanent'
+);
+$columnGrammar = $engineFeatures['implemented']['typed-column-codecs/v1']['sections']['column_codecs']['grammar'] ?? [];
+check(
+    ($columnGrammar['codec']['required'] ?? null) === \Duo\ColumnCodecGrammar::CODEC_KEYS
+        && ($columnGrammar['container'] ?? null) === $vocabularies['column_codec_containers']
+        && ($columnGrammar['leaves'] ?? null) === $vocabularies['column_codec_leaves'],
+    'and `column_codecs` is published too, so the block is complete rather than shaped by whichever sections one adapter happened to use'
+);
+$grammarKeys = [];
+foreach ((array) ($engineFeatures['implemented'] ?? []) as $row) {
+    foreach ((array) ($row['sections'] ?? []) as $key => $section) {
+        $grammarKeys[(string) $key] = is_array($section['grammar'] ?? null) && ($section['grammar'] !== []);
+    }
+}
+check(
+    $grammarKeys !== [] && !in_array(false, $grammarKeys, true),
+    'every claimed key carries a non-empty grammar — `feature_section_grammars()` refuses a claimed key it cannot describe, so this document cannot go quiet about a section authors are expected to write'
+);
+
 $window = $schema['spec_window'] ?? [];
 check(
     ($window['engine_supported'] ?? null) === DUO_SPEC_VERSION
@@ -1586,6 +1674,22 @@ refuses(
     'the vocabulary is closed (' . implode(', ', $vocabularies['post_type_body_modes']) . ')',
     'and a body mode outside the published set is refused with that exact set printed back'
 );
+// WP-6.5: the gated body modes are published as a SEPARATE vocabulary keyed by
+// the feature that admits each, and the separation is the fact being exercised.
+// A manifest that declares no feature must not be able to write one of these —
+// otherwise the gate is decorative — and the refusal it gets names the FEATURE
+// rather than pretending the value is a misspelling, because there is no
+// spelling of it this manifest would have been allowed.
+$covered['feature_gated_post_type_body_modes'] = true;
+foreach ($vocabularies['feature_gated_post_type_body_modes'] as $feature => $gatedModes) {
+    foreach ($gatedModes as $mode) {
+        refuses(
+            $postType(['class' => 'authored', 'body' => $mode]),
+            "which the engine feature '$feature' gates",
+            "gated body mode '$mode' is refused for a manifest that declares no engine feature, naming '$feature'"
+        );
+    }
+}
 $covered['post_type_phases'] = true;
 foreach ($vocabularies['post_type_phases'] as $phase) {
     accepts($postType(['class' => 'authored', 'phase' => $phase]), "post_types phase '$phase' is published as legal and loads");

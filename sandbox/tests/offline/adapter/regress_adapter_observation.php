@@ -285,6 +285,15 @@ namespace Duo {
                     "unsafe\n/home/private/PENDING_VALUE" => ['entities' => 1, 'post_types' => ['product']],
                     'sha256:' . str_repeat('a', 64) => ['entities' => 1, 'post_types' => ['product']],
                     'secret-meta' => ['entities' => 1, 'post_types' => ['product']],
+                    // The key that makes the reference path run at all: since
+                    // the ref hint became key-evidenced (Pending::ref_hint()),
+                    // a bare '4242' under a key claiming no reference offers
+                    // no candidate and resolve_id() is never called — which
+                    // would leave every assertion below about the reference
+                    // projection, and about post_title/ID never reaching the
+                    // canonical document, quietly proving nothing. This is
+                    // also what a real reference-bearing meta key looks like.
+                    'related_post_id' => ['entities' => 1, 'post_types' => ['product']],
                 ],
                 'term_meta' => [],
                 'user_meta' => [],

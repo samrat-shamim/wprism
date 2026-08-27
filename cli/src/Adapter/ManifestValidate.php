@@ -668,7 +668,10 @@ final class ManifestValidate {
                 'Duo\\NativeActions::vocabulary()',
                 'Duo\\NativeActions::arg_schemas()',
                 'Duo\\AdapterContractGrammar::validate_adapter_contract() (probed)',
+                'Duo\\AdapterContractGrammar::implemented_feature_rows()',
+                'Duo\\AdapterContractGrammar::feature_section_grammars()',
                 'Duo\\AdapterCertification::topLevelKeyPartition()',
+                'Duo\\AdapterCertification::certificateArms()',
             ],
             // Every consumer of this document is entitled to know what it does
             // NOT describe, in the document rather than in a guide it may never
@@ -703,9 +706,47 @@ final class ManifestValidate {
                     . 'for a `spec_version: 3` manifest. A v2 manifest still loads with an unrecognised '
                     . 'top-level key and is refused only at signing time, and a v3 manifest may declare keys '
                     . 'BEYOND these arms when a declared engine feature claims them, so this block is the base '
-                    . 'set rather than the whole answer for one manifest (see `enforced_by`, `status`).',
+                    . 'set rather than the whole answer for one manifest (see `enforced_by`, `status`). Those '
+                    . 'further keys carry their arm in `engine_features.implemented.<feature>.sections`, never '
+                    . 'here: the partition and the roster are two definitions of two disjoint sets, and the '
+                    . 'signer refuses an overlap between them (§ v3.21).',
+                // WP-6.5. The gap this closes was found by walking the
+                // decentralized authoring path as a stranger: the four
+                // post-v3 SECTIONS (`attr_id_codecs`, `column_codecs`,
+                // `declaration_evidence`, `body_refs`) and the channel key
+                // `engine_features` itself appeared NOWHERE in this document —
+                // not in `vocabularies` (they are keys, not values), not in
+                // `top_level_keys` (which publishes the signer's base partition
+                // and says so), and not in `not_included`. So an author
+                // reading the engine's own answer could not learn that the
+                // features exist, and had to read three engine source files to
+                // author one. It is published rather than added to
+                // `not_included` because the answer is DERIVABLE from the same
+                // validator every other block here is derived from — and a
+                // boundary a document could have simply stated is not a
+                // boundary, it is an omission.
+                // WP-6.6 widened this block twice over, because publishing that
+                // a section EXISTS turned out to answer neither question an
+                // author actually has. `sections[].grammar` is the section's
+                // own closed key set, projected by the collaborator that
+                // validates it, so authoring one no longer means reading
+                // BodyRefGrammar.php; `sections[].arm` is what a certificate
+                // says about it, which used to be readable nowhere at all — the
+                // measured consequence being an adapter that loaded on every
+                // site and could not be certified, with the document silent
+                // about why (spec/repo-format.md § v3.21).
+                'engine_features' => 'The post-v3 declaration channel (spec/repo-format.md § v3.2), derived from '
+                    . 'the same `IMPLEMENTED_FEATURES` rows the validator refuses against: each feature\'s '
+                    . '`since` is the first spec_version whose grammar HAS its sections, and `keys` are the '
+                    . 'top-level sections declaring it ADMITS (§ v3.3\'s growth rule). A feature may legitimately '
+                    . 'claim no key — one that widens a value vocabulary inside a section that already exists. '
+                    . 'Names are ENGINE-OWNED: an adapter declares one and never mints one. `sections` carries, '
+                    . 'per claimed key, the certificate ARM the roster classifies it into (§ v3.21 — `entity` '
+                    . 'and `field` become covered surfaces in a signed claim, `non_surface` covers no state) '
+                    . 'and that section\'s own value GRAMMAR, published by the validator that owns it.',
             ],
             'spec_window' => self::specWindow(),
+            'engine_features' => self::engineFeatures(),
             'top_level_keys' => self::topLevelKeys(),
             'vocabularies' => Policy::closed_vocabularies(),
             'patterns' => Policy::grammar_patterns(),
@@ -754,6 +795,40 @@ final class ManifestValidate {
      *
      * @return array<string,mixed>
      */
+    /**
+     * The engine features this engine IMPLEMENTS, and what each one claims
+     * (WP-6.5).
+     *
+     * DERIVED, from the exact rows the validator itself refuses against:
+     * `implemented_feature_rows()` is the same constant `assert_engine_
+     * features()` compares a declaration against and `assert_section_versions()`
+     * reads section versions out of. So a feature added to the engine appears
+     * here on the very next emission with no edit in this file — the same
+     * technique, and the same argument, as `specWindow()` below: a literal typed
+     * here would equal the engine on the day it is typed and stop equalling it
+     * on the day the engine grows, which is the day a consumer needs this
+     * document to be right.
+     *
+     * @return array<string,mixed>
+     */
+    private static function engineFeatures(): array {
+        return [
+            'declared_by' => 'the manifest\'s own top-level `engine_features` list (a non-empty, sorted, '
+                . 'duplicate-free list of strings)',
+            'implemented' => AdapterContractGrammar::implemented_feature_rows(),
+            'enforced_by' => 'Duo\\AdapterContractGrammar::assert_engine_features()',
+            'certificate_arms' => AdapterCertification::certificateArms(),
+            'status' => 'A manifest declaring a name in `implemented` loads; one declaring any other name is '
+                . 'refused BY FEATURE NAME, naming this list. A declared feature\'s `keys` are admitted as '
+                . 'top-level sections on top of `top_level_keys` (§ v3.3\'s growth rule), which is why that block '
+                . 'is the base set rather than the whole answer for one manifest. Each claimed key\'s '
+                . '`sections.<key>.arm` is one of `certificate_arms` and decides what `duo adapter certify` '
+                . 'says about that section: `entity`/`field` put it in the signed claim\'s `surfaces` list, '
+                . '`non_surface` covers no state (§ v3.21). A key with no arm is unrepresentable — the roster '
+                . 'is a map, so a feature classifies every key it claims in the row that claims it.',
+        ];
+    }
+
     private static function specWindow(): array {
         $supported = DUO_SPEC_VERSION;
         $probed = [];

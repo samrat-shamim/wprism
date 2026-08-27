@@ -170,6 +170,18 @@ WPFORMS_OPTION_PREFIX=wpforms_
 # underscore (`wpforms`, `wpforms_transient`, `wpforms_version`), so the
 # operator reads a family name, not a glob. Run 7 asserted `wpforms_` and the
 # product printed `wpforms`; the product's spelling is the operator's.
+#
+# CARDINALITY DRIFT, recorded rather than asserted: the live WPForms Lite
+# 2.0.0.5 recon (sandbox/tmp/wpforms-recon/coverage.json) measured `duo
+# coverage` reporting SIX distinct families under this token on a fresh
+# install, not one — wpforms(3), wpforms_transient(2), wpforms_constant(1),
+# wpforms_forms(1), wpforms_version(1), wpforms_versions(1). The assertion at
+# the bottom of this scenario only requires `>= 1` for the token, so a reader
+# treating this walk as documentation of what `--seed` proposes for one plugin
+# would under-count by five. Not tightened here on purpose — this is a fixed,
+# out-of-tree fixture (§4's own caveat above), and a live-plugin cardinality
+# fact belongs to the recon evidence, not to a live-class grind assertion this
+# offline gate cannot re-measure against upstream WPForms releases.
 WPFORMS_OPTION_FAMILY=wpforms
 # One WPForms table the walk writes to itself after the checkpoint. Chosen
 # because it is the least load-bearing of the plugin's own tables (a task
@@ -576,6 +588,26 @@ scenario_s2() {
   seed_shop duo-walk-landing
 
   say "$S — one form on ${PAIR}1 to author against"
+  # GUIDE VIOLATION, kept deliberately: this hand-writes post_content instead
+  # of exercising WPForms's own save path
+  # (`wpforms()->obj('form')->add()`/`update()`), which is exactly what
+  # adapter-authoring.md § 1 Observe says not to do ("create the entities
+  # through the plugin's own admin code path, not by hand-writing postmeta …
+  # the whole point is to learn what the plugin actually writes"). The WPForms
+  # recon (sandbox/tmp/wpforms-recon/) measured the cost directly: this
+  # fixture's `"id":"1"` on a post whose real id is not 1 cannot exhibit the
+  # self-id round-trip defect the open `post_types.wpforms.body` ledger
+  # coordinate describes, and it carries no `confirmations`, `form_tags`,
+  # `wpforms_form_locations` postmeta or block embed — so none of the
+  # cross-entity references a real WPForms form produces are reachable from
+  # this fixture. The sanctioned alternative the recon exercised and recorded
+  # works under WP-CLI (`--user=1`, one `wp eval-file`, with
+  # `includes/admin/ajax-actions.php` required for `wpforms_prepare_form_data()`)
+  # and costs about as much as this call — not adopted here because this
+  # scenario is a trust-flow/authoring-loop fixture (§4's own caveat above),
+  # this is a live-class script outside the offline gate's reach, and swapping
+  # the write path is a behavior change this comment intentionally does not
+  # make; T6/S2 needs only a form that *exists*, not one that is faithful.
   if dry; then
     plan "wp1 post create --post_type=$WPFORMS_CPT --post_content='<form json>'"
   else

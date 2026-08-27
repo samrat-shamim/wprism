@@ -194,10 +194,20 @@ table with no recorded index fixture. Those facts already live in
 called `setIndexes()` — would only be asserting this harness's own
 bookkeeping. Concretely it means `Ledger::assert_read_only_schema()`,
 `Ledger::prune_dead_table_map()` (a multi-table `DELETE`) and
-`Snapshot::assert_all_mapped_rows_managed()` (a `LEFT JOIN`) stay
-live-certification paths and cannot be moved here. `SHOW TABLES LIKE` and
+`Snapshot::assert_all_mapped_rows_managed()` (`Snapshot.php:532-533` — a
+`LEFT JOIN` whose `ON` carries two conditions, one of them against a literal)
+stay live-certification paths and cannot be moved here. `SHOW TABLES LIKE` and
 `SHOW COLUMNS FROM` *are* supported — they are the offline way to probe
 existence and column shape.
+
+Joins are refused with ONE exception, added when the engine's own term-deletion
+path turned out to need it: a single `LEFT JOIN` whose `ON` is exactly one
+equality between one qualified column on each side. That is a per-row lookup,
+not an optimizer decision, and `RelationshipMaterializer::lock_owner_relationships()`
+is its only product reader. Everything past it — `INNER`/`RIGHT`/`CROSS`, a
+comma join, a second `JOIN`, a multi-condition or non-equality `ON`, a
+colliding table/alias name, `*` over a join, `COUNT(*)` over a join — still
+refuses by name, each with its own case in `tests/Tooling/HarnessLibTest.php`.
 
 The one way to fill those setters with something better than bookkeeping is a
 RECORDING. `ConformanceVector::seed()` drives them from a
@@ -298,8 +308,8 @@ shape. A new suite that adds a 43rd variant adds a new way to be quietly wrong.
 If the library cannot express what you need, extend the library in the same
 change and say why in its docblock. An in-file fake is acceptable only when the
 subject under test *is* a wpdb behaviour the interpreter deliberately refuses to
-model (JOINs, real collations, storage engines) — and that assertion probably
-belongs in the live certification instead.
+model (the join forms above, real collations, storage engines) — and that
+assertion probably belongs in the live certification instead.
 
 ## Migrating the existing suites
 

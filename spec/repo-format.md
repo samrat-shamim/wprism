@@ -681,7 +681,7 @@ Extended manifest capabilities (spec v0.5):
 
   **Refusals in this source are per-adapter, never whole-scan**, for the same reason. Every condition — a malformed bundle, a non-slug or reserved declared name, an anchor mismatch, a `duo-adapter.json` that is a symlink or a directory rather than a real file inside the plugin (a symlinked plugin DIRECTORY is accepted; dev checkouts use them routinely), a plugin directory this process cannot enumerate at all (`source_unreadable` — mode 0711 is the ordinary way to reach it, and without the directory listing nothing can prove the plugin bundles exactly one `duo-adapter.json`), a bundle that cannot be read at all, a near-miss inside this engine's reserved `duo-adapter*` namespace, a certificate-shaped companion, or an out-of-tree manifest reaching for executable privilege — records a refusal ROW with `scope: "adapter"`, drops that one adapter, and lets the walk continue. It becomes fatal exactly when someone pinned that name: the pin fails with the refusal's own message and remediation instead of a generic not-found. Everything else about the data-only privilege boundary is identical to the site source, with only the noun in the message changed.
 
-  **A plugin-bundled adapter cannot be certified in place.** Certification derives its path from the repository, hashes `adapters/<name>.json`, and binds `adapter.source: "site"` with `adapter.path: "adapters/<name>.json"` INSIDE the signed statement, so no certificate can name a bundled adapter at all; a frozen bundled record paired with a certificate is refused on the read side too. A bundled adapter is therefore `uncertified` by construction, with the `adapter_source_uncertified` blocker and the identical posture an unsigned site adapter has: plan and apply available, readiness and host promotion blocked. Its remediation is the promotion path, not a signature: an independently distributed adapter package is not a third source — it installs into the site source as `adapters/<name>.json` plus `adapters/certifications/<name>.json`, and its identity and version are the canonical file digest and the signed certificate's version-bound envelope (`supported_versions{plugin,range}` inside the signed ratification, `bundle.artifacts[].version` for what was exercised, `platform` for the engine window). Installing that package is safe with the bundling plugin still active: the site copy wins by precedence and the bundled copy reports as not installed.
+  **A plugin-bundled adapter cannot be certified in place.** Certification derives its path from the repository, hashes `adapters/<name>.json`, and binds `adapter.source: "site"` with `adapter.path: "adapters/<name>.json"` INSIDE the signed statement, so no certificate can name a bundled adapter at all; a frozen bundled record paired with a certificate is refused on the read side too. A bundled adapter is therefore `uncertified` by construction, with the `adapter_source_uncertified` blocker and the identical posture an unsigned site adapter has: capture and plan available, readiness and host promotion blocked — and apply blocked with them wherever a compiled code revision is pinned, which is every repository `duo init` created, because `wp duo apply` refuses the non-forceable `code_revision_stale` until `duo deploy <env>` has run and that deploy is the host promotion the blocker withholds. Its remediation is the promotion path, not a signature: an independently distributed adapter package is not a third source — it installs into the site source as `adapters/<name>.json` plus `adapters/certifications/<name>.json`, and its identity and version are the canonical file digest and the signed certificate's version-bound envelope (`supported_versions{plugin,range}` inside the signed ratification, `bundle.artifacts[].version` for what was exercised, `platform` for the engine window). Installing that package is safe with the bundling plugin still active: the site copy wins by precedence and the bundled copy reports as not installed.
 
 - **The installed-adapter catalog** (DUO-3339): `duo adapter list|inspect|doctor [--repo=<site-repo>] [--format=json]` reports what is installed, offline, in the `duo-adapter-catalog/v2` envelope. Each adapter row carries `name`, `source`, `path`, the canonical manifest `sha256`, `trust_tier` and `tier_basis` (the exact declaration that produced the tier — a shim cannot be asserted without a coordinate), `certification`, `disposition_status`, `required_providers` (declared ids with the capabilities each must advertise), `executable_surfaces` (interpreter, regenerators, manifest-sourced providers), and an ISOLATED grammar verdict from the real loader. `certification` reports the same states the reviewed path reports and mints none of its own: `registry` for a shipped adapter, and for a site adapter `uncertified`, `signed_unpinned` (a valid signature the repository pin has not yet elevated), `third_party_signed` (a key in the agent-owned authorities file, exact pin), or `site_signed` (a key in the site's own `adapters/authorities.json`, exact pin — the customer organization vouching for its own adapter, explicitly not a Duo endorsement); a plugin-bundled adapter is always `uncertified`, by construction. Every row additionally carries `trust_root` (`platform` for a shipped row, `site` or `platform` for a signed out-of-tree one, `null` when nothing signed) and `principal` (the authority key id, or `null`). A shipped adapter displaced by an explicit `{name, source:"site", digest}` pin is not an adapter row at all: it moves to `not_installed` with reason code `shadowed_by_site` and its winner named. The v2 envelope additionally carries `sources` — which of the three adapter sources this process could reach, and where — and `not_installed`, one row per adapter that is on this machine and lost to a higher-precedence definition, with the winner named. `not_installed` rows print on every run and deliberately do NOT flip the exit code: a correctly resolved shadow is neither a blocker nor a break, and a permanently red doctor on every site running a colliding plugin would destroy the exit code's meaning. Every refusal row carries `source` (which adapter source the condition is about) and `scope` (`source` for a whole-directory refusal, `adapter` for a per-adapter one), which is what keeps one plugin author's typo from un-judging every operator-authored adapter. Because the host command is WordPress-free it cannot reach the plugin source at all; `sources` says so on every run, and `wp duo adapter-survey [--repo=<path>] [--format=json]` is the same survey run ON the target, emitting the same `duo-adapter-catalog/v2` document with `command: "survey"`. The catalog is built on `AdapterSources::survey()`, the REPORTING mode of the same scan `discover()` throws from: every condition above (shadowing, ambiguous identity, declared-name and case-fold collisions, a non-canonical identity slug, symlinks, nested `*.json`, extension near-misses, reserved names, an unreadable manifest, an `adapters/` directory that is itself a link, a malformed certification source, an out-of-tree manifest reaching for executable privilege, and a certificate that does not verify) becomes a refusal ROW carrying a stable code, the paths it is about, the engine's own message byte for byte except in two stated cases, both at the site-manifest read (see the delta comment at `AdapterSources::scan()`): an unreadable or unparseable manifest is wrapped so the row names the file as a site adapter, and one that is valid JSON but not an object now refuses as `malformed_manifest` naming its actual top-level type instead of as an `ambiguous_identity` about a declared name it never had, and a remediation; a repository whose own `site.duo.json` cannot be read draws a single `site_policy_unreadable` row instead of a per-manifest echo. Reporting rather than throwing is the point: those conditions make every other command refuse outright, so an operator whose repository is in one has nowhere else to look. `inspect` additionally merges the reviewed disposition entry, the capability claim that disposition projects, and the verification facts that already exist — `plugin_execution.status`, the bundle schema the disposition cites, and the test ids named in that citation — and mints no verification vocabulary of its own. `evidence.status` went with the generated evidence record that decided it: a citation is what a reviewer wrote down, not a verdict this process can resolve, and printing `current` beside it would be the agent vouching for itself. `doctor` adds the pinned set's readiness blockers. Exit 0 healthy, 1 anything surfaced, 2 usage/IO; every run emits a `deferred` list naming the live-target checks it did not perform, the manifest-shipped PHP it names but deliberately never loads, and the cross-manifest guards that belong to a pin set.
 ### Vocabulary ownership and extension (spec v1, DUO-3318)
@@ -2332,6 +2332,176 @@ mirror step. A network fetcher no offline suite can exercise is an unevidenced s
 the one command whose entire job is to refuse unevidenced bytes, which is why `fetch-artifact.sh` keeps
 its own network half in the harness rather than in shipped code. Adding an HTTPS transport is a separate
 reviewed decision with its own evidence, not a fill-in.
+
+### v3.20 `body_refs` and the `json` body mode — a reference path inside a post body
+
+**Rider: WP-6.5. Enforced today: yes, for a manifest that declares `structured-body-refs/v1`.**
+`DUO_SPEC_VERSION` did not move to admit it and is still `3`, asserted in the same run as the section's
+own verdicts by `sandbox/tests/offline/grammar/regress_body_ref_grammar.php`. It is the THIRD grammar
+change to ride § v3.2's channel after § v3.14 and § v3.15, and the first to ride it in both directions at
+once: it claims a top-level key AND widens a value vocabulary inside a section that already exists.
+
+**What was missing.** `post_types.<type>.body` was closed at `{blocks, verbatim, serialized}`, and
+`tools/engine-gaps.json` carried `structured_post_body_reference_paths` as its highest-demand open
+primitive: a `wpforms` post's `post_content` is a JSON document that carries a reference to another
+entity inside it, and none of the three modes addresses that. `blocks` runs a block parser over a
+document with no blocks; `serialized` decodes PHP serialization that is not there; `verbatim` preserves
+the bytes, which means preserving a SOURCE-LOCAL id. Omitting `body` is not a fourth option — it defaults
+to `blocks` — so a JSON body was mis-read rather than left alone.
+
+**The declaration.** One post type in `json` mode, and the paths inside it:
+
+```json
+"post_types": {"wpforms": {"class": "authored", "body": "json"}},
+"body_refs": {
+  "wpforms": {
+    "json_refs": [
+      {"path": "$.settings.confirmations.*.page", "kind": "post", "cast": "string"}
+    ],
+    "sentinels": {"$.settings.confirmations.*.page": ["previous_page"]}
+  }
+}
+```
+
+`json_refs` is the SHIPPED dialect, not a new one: the same minimal JSONPath (`$`, `.`, `..`, `.*`), the
+same `kind` keyspace names, the same `cast: "string"`, and the same overlapping-path refusal, because
+`BodyRefGrammar::validate_one()` hands the list to `ReferenceRules::value_rule()` rather than
+re-implementing any of it. `key_refs` is refused BY NAME: an id-keyed map inside a post body has no
+measured demand, and this engine does not claim a shape it has never seen.
+
+**What is genuinely new is `sentinels`, and it is the measurement that forced it.** On a live WPForms
+Lite 2.0.0.5 pair, `settings.confirmations.<n>.page` holds a PAGE post id as the JSON string `"4"`, and
+the SAME key legitimately holds the literal `previous_page` — `includes/class-process.php:1553-1562`
+branches on exactly that before `get_permalink((int) $confirmation['page'])`. A rule that coerced the
+slot would silently repoint a confirmation at post 0. So a declared path may carry a declared set of
+non-reference literals, and a value that is neither a positive id nor a declared sentinel REFUSES: "the
+adapter forgot a sentinel" and "this path is not a reference after all" have opposite remedies, and only
+the author can tell them apart. A NUMERIC sentinel is refused in turn — it would be indistinguishable
+from the id the path resolves.
+
+**The identity round-trip precondition, which is the mode's whole safety.** Before any substitution the
+document is decoded and re-encoded with `wp_json_encode()`'s default flags and compared to the input BYTE
+FOR BYTE; a mismatch refuses, naming the document. A post body is not a meta row — it is folded into
+`Canon::post_hash_basis()` and it is what an operator reads in a diff — so a mode that could not reproduce
+an untouched body would show every adopted form as changed forever. Two hazards make this a real check:
+a JSON object whose keys are `"0","1","2"…` decodes to a PHP list and re-encodes as a JSON ARRAY, and an
+empty object `{}` re-encodes as `[]`. Both are refusals, not accommodations. The same discipline decides
+the per-path TYPE in both directions: apply writes the DECLARED type, so a source whose stored type
+disagrees with the declaration refuses at capture — `AttrIdCodecGrammar::assert_source_type()`'s rule
+(§ v3.2's WP-6.1 pair) reached through a different door.
+
+**Optionality and type variance are answered by PRESERVATION, not by a rule.** The measured `$.id` on the
+same plugin is ABSENT on the template create path, an INT on the `['builder' => false]` path and a STRING
+on the real builder save, because the builder posts a flat jQuery input list and every leaf that reaches
+`update()` is a string. This mode rewrites DECLARED PATHS ONLY and reproduces everything else from the
+decode, so an adapter that does not declare `$.id` keeps all three shapes as it found them, with no rule
+written for any of them. An adapter that DOES declare it must declare one type, and the capture refusal
+then names the write path it has not accounted for — which makes the variance visible instead of
+silently mis-typing two paths out of three.
+
+**What the mode does NOT claim, stated so it cannot be inferred.** It rewrites declared reference paths
+and nothing else. The same measured bodies bake the source site's absolute home URL into
+`settings.confirmations.<n>.redirect` and `get_bloginfo('name')` into
+`notifications.<n>.sender_name`; neither is a reference path and neither is rebound. Capture WARNS when
+the body carries this environment's home URL — checking the JSON-ESCAPED form as well as the plain one,
+because `wp_json_encode()` escapes every `/` and a plain scan would never match. It is also not block
+attributes: `attr_id_codecs` is a separate declaration over a separate parser, and nothing here reaches
+`serialize_block_attributes()`'s escaping or `wp_update_post()`'s `wp_unslash()`.
+
+**Why the mode's gate is asked LATE while the key's is asked by § v3.3.** The section is admitted by the
+closed key set the moment the feature is declared, which gives the three distinct verdicts § v3.2
+requires. The MODE cannot be staged that way — a value inside a closed vocabulary has no key to refuse by
+— so `PostTypeGrammar` recognises `json` and defers, and `BodyRefGrammar::assert_body_mode_gate()` refuses
+it by feature name after `validate_adapter_contract()` has run. Refusing earlier would pre-empt all three
+verdicts with a fourth sentence about a body mode, telling a `spec_version: 2` author about an engine
+feature when what is wrong is the version their whole document declares. The one case left for the late
+gate is the one no key can express: the mode declared with no `body_refs` section at all.
+
+**No shipped manifest declares it, so no adapter digest moves** (AGENTS.md rule 2). The sufficiency proof
+is the previously-rejected candidate authored end to end as a FIXTURE adapter, driven through the real
+`PostCapture` seam over four `post_content` values captured from a live pair through the plugin's own
+write paths — `sandbox/tests/fixtures/wpforms-body/`. That provenance is the point: a hand-written
+fixture body has no confirmations, no page reference and no sentinel, which is why the ledger's own
+one-sentence description of this coordinate was measurably wrong until the entities were authored through
+the plugin instead of through `wp post create --post_content=…`.
+
+### v3.21 The certificate ARM rides in the feature's roster row
+
+**Rider: WP-6.6. Enforced today: yes, for every manifest that declares an implemented engine feature.**
+`DUO_SPEC_VERSION` did not move; no shipped manifest declares a feature, so no adapter digest moves
+(AGENTS.md rule 2). Register row R-31.
+
+**What was measured.** § v3.2's channel admits a top-level key at LOAD. § v3.3's partition is what a
+SIGNER classifies with. Those were two different sets on purpose, and the gap between them was the whole
+defect: `AdapterCertification::siteRatification()` refuses a key it cannot put in the `entity` or `field`
+arm, both signing profiles share that one method (§ v3.17), and `claim_from_disposition()` builds the
+signed claim's `surfaces` from exactly those two lists. So an adapter that used the channel — the first
+real one, `sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json`, with four feature-claimed keys —
+loaded on every site, captured, planned, and could not be certified by anybody. Downstream that is not a
+certification problem: uncertified blocks readiness and host promotion, host promotion is `duo deploy`,
+and `wp duo apply` refuses the non-forceable `code_revision_stale` until a deploy has run, so `certify ->
+init -> deploy -> apply` refused in that order.
+
+It had been patched twice before, one key at a time: `theme_version_range` joined the partition with
+§ v3.3 (resolution 1) and `environment` with § v3.5, each because a top-level key in no arm makes its
+whole adapter unsignable. The comment recording those two patches is the specification of a wall being
+hit repeatedly, not of a rule.
+
+**The rule.** A feature's roster row classifies every top-level key it claims:
+`AdapterContractGrammar::IMPLEMENTED_FEATURES` maps `keys` as `<key> => <arm>`, where an arm is one of
+`AdapterCertification::certificateArms()` — `entity`, `field`, `non_surface`. `siteSurfaceSections()` asks
+the three-arm partition first and the roster second, for the keys the DECLARING manifest brought through
+the channel. Four properties, and each is structural rather than reviewed:
+
+1. **The partition can never again be incomplete against the shipped grammar for a feature-admitted key.**
+   `keys` is a MAP: a row cannot carry a key without an arm. The failure mode is unrepresentable rather
+   than remembered.
+2. **The roster is the one definition.** It is not a fourth list of keys — the base partition still owns
+   its 33 — and the two sets are disjoint by refusal: a roster row naming a key the partition already
+   carries throws at `feature_key_arms()`, because that would be two spellings of one arm whose winner
+   depends on which lookup runs first.
+3. **An arm outside the vocabulary refuses at the roster.** Not at the author's manifest: a bad arm value
+   would otherwise fall through to the unclassifiable-section refusal and report the AUTHOR's document
+   for the ENGINE's typo. The refusal names the feature and the key.
+4. **The scope is per manifest, never engine-wide.** `body_refs` present without
+   `structured-body-refs/v1` declared keeps the unclassifiable refusal, because a certificate may not
+   claim coverage of a section this engine reads nothing from.
+
+The genuinely unknown key is unchanged, byte for byte: a key in no arm and admitted by no feature this
+manifest declares still refuses with "which this signer cannot classify as an entity or field surface …
+teach the signer this section", which remains exactly the right remedy for a misspelling.
+
+**The four reviewed arm decisions.**
+
+| key | arm | why |
+|---|---|---|
+| `engine_features` | `non_surface` | The claim channel itself. It is a list of engine feature names and covers no state, so a certificate's `surfaces` list would be carrying a runtime assertion. Same standing as `spec_version`. |
+| `declaration_evidence` | `non_surface` | Provenance rows (§ v3.14). A surface list is the state an operator is told is covered, and evidence prose is not state. It is `notes` with a checkable shape, and `notes` is non-surface. |
+| `body_refs` | `field` | Id-bearing paths inside a post body (§ v3.20) — capture tokenises them, apply rebinds them. The exact standing `block_attrs` has for a block attribute, one container deeper. `post_types` stays the entity beneath it. |
+| `attr_id_codecs` | `field` | A typed refinement over a declared `block_attrs` rule; the validator refuses a codec with no rule beneath it. Its standing is `block_attrs`'s exactly. |
+
+The sweep is complete rather than wpforms-shaped: `column_codecs` (`typed-column-codecs/v1`) is `field`
+for `attr_id_codecs`' reason read one section over — a codec refines one declared `authored` column of an
+already-declared `authored_snapshot` table, and the bytes inside a column are a field beside the table
+that is the entity. `invalidate-vocabulary/v1` claims no key and therefore classifies nothing; it widens a
+value vocabulary inside `tables.<t>.invalidate[]`, which keeps the entity arm the partition already gives
+it.
+
+**What a certificate now carries.** For the wpforms fixture: entity `[post_types, tables, taxonomies]`,
+field `[attr_id_codecs, block_attrs, body_refs, options, post_meta]`. That is the irreversible half —
+`claim_from_disposition()` turns those two lists into the claim's `surfaces` and the claim is inside the
+signed statement, so moving a key between arms invalidates every certificate already issued over an
+adapter declaring it (R-31).
+
+**Also published.** `duo manifest-validate --emit-schema` carries, per claimed key,
+`engine_features.implemented.<feature>.sections.<key>.arm` and `.grammar` — that section's own closed key
+set, projected by the collaborator that validates it (`BodyRefGrammar::RECORD_*` and
+`ReferenceRules::JSON_REF_*`, `AttrIdCodecGrammar::CODEC_KEYS`, `ColumnCodecGrammar::CODEC_KEYS`,
+`StructuredEvidence::EVIDENCE_KEYS`/`ANSWERED_KEYS`). Before this, an author reading the engine's own
+answer learned that the sections exist and had to open three engine files to learn what may go inside
+one — and could learn nowhere at all whether a certificate would cover it. `feature_section_grammars()`
+refuses a claimed key it cannot describe, so the document cannot go quiet about a section authors are
+expected to write.
 
 ## Ledger tables (per environment, never in the repo)
 

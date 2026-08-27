@@ -1427,11 +1427,12 @@ woo_ok(count(array_filter(
     static fn(array $entity): bool => ($entity['type'] ?? null) === 'options'
 )) === 1, 'the candidate completes its downstream options/capture assembly after term discovery');
 
-// Exact 11.0.1 conformance found these four legitimate numeric values by
-// running the real lint path: v3 attribute-term REST menu_order 7/3 and the
-// bounded Customizer thumbnail ratio 1/1 happened to match live entity ids.
-// Recreate that collision through Lint itself so a static flag assertion
-// cannot hide a future scanner/policy integration regression.
+// Exact 11.0.1 conformance found four legitimate numeric values: v3
+// attribute-term REST menu_order 7/3 and the bounded Customizer thumbnail
+// ratio 1/1. Lint's option scan now shares DUO-3508's wholly-0/1 boolean
+// suppression, so only the two genuine non-boolean collisions remain findings;
+// drive the real scanner here so neither that suppression nor the reviewed
+// lint_ok declarations can drift behind a static manifest assertion.
 $lintState = sys_get_temp_dir() . '/duo-woo-lint-' . bin2hex(random_bytes(6));
 mkdir($lintState . '/options', 0777, true);
 mkdir($lintState . '/terms/pa_conf-color', 0777, true);
@@ -1531,10 +1532,8 @@ sort($preReviewLocators, SORT_STRING);
 woo_ok($preReviewLocators === [
     'meta.order',
     'meta.order',
-    'options.woocommerce_thumbnail_cropping_custom_height',
-    'options.woocommerce_thumbnail_cropping_custom_width',
 ] && array_values(array_unique(array_column($preReviewFindings, 'class'))) === ['bare_id'],
-'the pre-review Woo policy reproduces all four exact bare-id collisions through the product linter');
+'the pre-review Woo policy reproduces both non-boolean bare-id collisions while wholly-1 option values stay suppressed');
 woo_ok(
     \Duo\Lint::scan_tree($lintState, $lintPolicy($manifest), \Duo\LintEnvironment::live()) === [],
     'the shipped Woo policy audits the exact term-order and thumbnail-dimension scalars without suppressing other keys'

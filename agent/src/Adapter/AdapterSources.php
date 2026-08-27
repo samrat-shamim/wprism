@@ -4347,9 +4347,32 @@ final class AdapterSources {
                                 : ('review the signed evidence, then replace this name-only pin with the exact '
                                     . '{name,source:"site",digest} object emitted by `wp duo manifest-pin '
                                     . '--repo=...`'))
+                            // CORRECTED IN WP-6.6, because the old sentence was
+                            // measured false end to end. It read "plan and
+                            // apply remain available", and `duo plan` is indeed
+                            // available — but apply is not, on any repository
+                            // `duo init` created. init REQUIRES
+                            // `code.management: managed-baseline` and writes a
+                            // compiled code descriptor with it
+                            // (cli/src/Onboarding/Init.php:580-590), so
+                            // `LifecyclePlanner::code_revision_mismatch()`
+                            // raises `code_revision_stale` on every environment
+                            // that has not run `duo deploy`, and
+                            // `ApplyPreparationCoordinator::enforce_code_
+                            // mismatch_gate()` refuses it as NON-FORCEABLE
+                            // (:435-440) — which the same blocker that produced
+                            // this row also keeps the operator from clearing,
+                            // since host promotion is what `duo deploy` is. A
+                            // remediation that promises a verb the product then
+                            // refuses costs an operator the afternoon it takes
+                            // to disprove it, which is the one thing an
+                            // uncertified row is supposed to save them.
                             : ('obtain an externally signed certificate from an authority trusted by this agent, or '
-                                . 'keep it as uncertified support — plan and apply remain available, while readiness '
-                                . 'and host promotion stay blocked'))),
+                                . 'keep it as uncertified support — `duo plan` remains available, while readiness '
+                                . 'and host promotion stay blocked. Apply is blocked with them wherever a compiled '
+                                . 'code revision is pinned, which is every repository `duo init` created: '
+                                . '`wp duo apply` refuses code_revision_stale until `duo deploy <env>` has run, '
+                                . 'and that ordering invariant is non-forceable'))),
                 'source' => $source,
                 'trust_tier' => self::trust_tier($manifest),
             ];
