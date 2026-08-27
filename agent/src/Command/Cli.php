@@ -3795,6 +3795,13 @@ final class Cli {
         $all = isset($assoc['all']);
         $repo = isset($assoc['repo']) ? (string) $assoc['repo'] : null;
         try {
+            // Object-only injection for in-process evidence/rendering callers.
+            // WP-CLI has no registered `--adapter_library` option, so a target
+            // operator cannot redirect production discovery to arbitrary disk.
+            $adapterLibrary = $assoc['adapter_library'] ?? null;
+            if ($adapterLibrary !== null && !$adapterLibrary instanceof AdapterLibrary) {
+                throw new \RuntimeException('duo: internal capabilities adapter library must be an AdapterLibrary');
+            }
             // Both selector gates move inside the boundary, keeping their
             // original order relative to each other and to the registry reads
             // below. This is the command an external reviewer polls for a
@@ -3821,11 +3828,9 @@ final class Cli {
                 $query['surface'] = (string) $assoc['surface'];
             }
             if ($all) {
-                $library = Policy::adapter_library_context();
-                $dir = is_string($library) ? $library : $library->root();
-                $dispositions = is_string($library)
-                    ? ManifestDispositions::load($library)
-                    : ManifestDispositions::load_library($library);
+                $library = $adapterLibrary ?? Policy::adapter_library_context();
+                $dir = $library->root();
+                $dispositions = ManifestDispositions::load_library($library);
                 if ($dispositions === null) {
                     throw new \RuntimeException("duo: $dir has no external manifest disposition registry");
                 }
@@ -3835,14 +3840,8 @@ final class Cli {
                 // does not match, and ManifestDispositions::load() above has
                 // already refused a library that still carries the file.
                 $manifestFiles = [];
-                if (is_string($library)) {
-                    foreach (glob(rtrim($dir, '/') . '/*.json') ?: [] as $file) {
-                        $manifestFiles[basename($file, '.json')] = $file;
-                    }
-                } else {
-                    foreach ($library->packages() as $package) {
-                        $manifestFiles[$package->name()] = $package->manifestPath();
-                    }
+                foreach ($library->packages() as $package) {
+                    $manifestFiles[$package->name()] = $package->manifestPath();
                 }
                 foreach ($manifestFiles as $expectedName => $file) {
                     $manifest = Canon::decode(Canon::read_file($file));
@@ -3875,13 +3874,9 @@ final class Cli {
                     $manifests,
                     $query,
                     null,
-                    (is_string($library)
-                        ? AdapterSources::discover($dir, null)
-                        : AdapterSources::discover_library($library, null))->diagnostics($manifests),
+                    AdapterSources::discover_library($library, null)->diagnostics($manifests),
                     [],
-                    is_string($library)
-                        ? ManifestDispositions::platform_boundary($library)
-                        : ManifestDispositions::platform_boundary_library($library)
+                    ManifestDispositions::platform_boundary_library($library)
                 );
             } else {
                 if ($repo === null || $repo === '') {
@@ -3906,7 +3901,13 @@ final class Cli {
                     [$policy] = AssessInventory::policy_for_assessment($repo);
                     $report = $policy->capability_report($query);
                 } else {
-                    $report = Policy::load($repo, null, true)->capability_report($query);
+                    $report = Policy::load(
+                        $repo,
+                        null,
+                        true,
+                        null,
+                        $adapterLibrary
+                    )->capability_report($query);
                 }
             }
         } catch (\Throwable $t) {
