@@ -26,6 +26,7 @@ $fixtureDir = $root . '/sandbox/fixtures/rank-math';
 $adapterPath = $fixtureDir . '/adapters/rank-math.json';
 $releasePath = $fixtureDir . '/rank-math.releases.json';
 $outcomePath = $fixtureDir . '/rank-math.outcomes.json';
+$combinationPath = $fixtureDir . '/rank-math.combinations.json';
 $adapterBytes = (string) file_get_contents($adapterPath);
 $adapter = Canon::decode($adapterBytes);
 
@@ -168,6 +169,46 @@ duo_check_same('runtime', $policy->table_rule('actionscheduler_actions')['class'
 duo_check(!isset($adapter['column_codecs']['rank_math_redirections']['sources']),
     'D4: the natural identity column carries no codec that could change its lookup bytes');
 
+$combinedPins = ['core', 'woocommerce', 'acf', 'polylang', 'rank-math'];
+$combined = Policy::load($site, $combinedPins);
+foreach (['actionscheduler_actions', 'actionscheduler_claims', 'actionscheduler_groups', 'actionscheduler_logs'] as $table) {
+    duo_check_same('runtime', $combined->table_rule($table)['class'] ?? null,
+        "D5: Rank Math and WooCommerce compose only through one byte-identical runtime $table declaration");
+}
+duo_check_same('rank-math', $combined->option_namespace('rank_math_modules')['owner'] ?? null,
+    'D5: the combined policy retains Rank Math option ownership');
+duo_check_same('woocommerce', $combined->option_namespace('woocommerce_shop_page_id')['owner'] ?? null,
+    'D5: the combined policy retains WooCommerce option ownership');
+duo_check_same('polylang', $combined->option_namespace('polylang')['owner'] ?? null,
+    'D5: the combined policy retains Polylang option ownership');
+duo_check_same('authored', $combined->meta_rule_for_post('rank_math_title', [])['class'] ?? null,
+    'D5: an ordinary Rank Math product title remains statically authored when no ACF shadow claims it');
+
+$hostileAcfField = [
+    'type' => 'post',
+    'path' => 'state/posts/acf-field/field_rmcombo_rank_title.json',
+    'data' => ['type' => 'acf-field', 'slug' => 'field_rmcombo_rank_title'],
+    'body' => serialize([
+        'key' => 'field_rmcombo_rank_title',
+        'name' => 'rank_math_title',
+        'type' => 'post_object',
+    ]),
+];
+foreach ([$combinedPins, ['core', 'woocommerce', 'rank-math', 'acf', 'polylang']] as $pins) {
+    $collisionPolicy = Policy::load($site, $pins);
+    $collisionPolicy->prime_interpreters_from_repository([$hostileAcfField]);
+    duo_check_throws(
+        fn() => $collisionPolicy->meta_rule_for_post('rank_math_title', [
+            '_rank_math_title' => 'field_rmcombo_rank_title',
+            'rank_math_title' => '17',
+        ]),
+        RuntimeException::class,
+        'D6: an ACF field cannot reinterpret a Rank Math physical meta key under pin order '
+        . implode(',', $pins),
+        "post_meta 'rank_math_title' has multiple classification owners"
+    );
+}
+
 $releases = AdapterBoundary::readReleaseList($releasePath);
 $outcomes = AdapterBoundary::readOutcomeTable($outcomePath, 'seo-by-rank-math');
 duo_check_same(['1.0.276', '1.0.277'], array_column($releases['releases'], 'version'),
@@ -189,16 +230,35 @@ duo_check(str_contains($signature, 'adopt 4')
     && str_contains($signature, 'unchanged 11'),
     'E2: the outcome signature retains hostile-target adoption, reference rebinding, recapture and idempotence evidence');
 
-$exercise = (string) file_get_contents($root . '/docs/agents/rank-math-adapter-authoring-exercise.md');
-foreach (['now lets test and harden', 'use terra/luna appropriately', 'can we relax the digest requirement?'] as $prompt) {
-    duo_check(str_contains($exercise, $prompt), "F1: the interaction record retains the actual user prompt '$prompt'");
-}
-duo_check(str_contains($exercise, 'natural identity matches local ids 2 and 6')
-    && str_contains($exercise, '--adopt-by-slug=posts,terms')
-    && str_contains($exercise, 'rank_math_registration_skip'),
-    'F2: the record carries the live duplicate, adoption and executable-setup findings that changed machinery');
+$combinationBytes = (string) file_get_contents($combinationPath);
+$combination = Canon::decode($combinationBytes);
+duo_check_same($combinationBytes, Canon::encode($combination),
+    'E3: the multi-plugin exercise record is canonical and value-redacted');
+duo_check_same(
+    ['advanced-custom-fields:6.8.7', 'polylang:3.8.6', 'seo-by-rank-math:1.0.277', 'woocommerce:11.0.1'],
+    array_map(
+        static fn(array $plugin): string => $plugin['name'] . ':' . $plugin['version'],
+        $combination['combinations'][0]['plugins'] ?? []
+    ),
+    'E3: the combination record pins all four exact plugin releases that actually ran'
+);
+$combinationSignature = (string) ($combination['combinations'][0]['signature'] ?? '');
+duo_check(($combination['combinations'][0]['outcome'] ?? null) === 'green'
+    && str_contains($combinationSignature, 'unchanged 43')
+    && str_contains($combinationSignature, 'target-only scheduler action remained')
+    && str_contains($combinationSignature, 'hreflang'),
+    'E3: the green record retains convergence, runtime isolation and rendered multilingual SEO evidence');
+duo_check_same('refused', $combination['refusals'][0]['outcome'] ?? null,
+    'E4: the hostile ACF overlap is recorded as a refusal, not compatibility');
+duo_check(str_contains(
+    (string) ($combination['refusals'][0]['signature'] ?? ''),
+    "post_meta 'rank_math_title' has multiple classification owners"
+), 'E4: the combination record retains the exact ownership refusal exposed by the real stack');
+duo_check(count((array) ($combination['limitations'] ?? [])) >= 4,
+    'E4: the evidence names setup, recovery and unsupported boundaries instead of widening the product claim');
+
 duo_check(!is_file($root . '/manifests/rank-math.json')
     && !is_file($root . '/manifests/dispositions/rank-math.json'),
-    'F3: the exercise remains a site fixture and makes no shipped Rank Math capability claim');
+    'F1: the exercise remains a site fixture and makes no shipped Rank Math capability claim');
 
 duo_check_summary('regress_rank_math_adapter');

@@ -2416,7 +2416,7 @@ check(
         && substr_count($policySource, 'UserMetaGrammar::validate_user_meta_rules(') === 0
         && substr_count($manifestValidatorSource, 'UserMetaGrammar::validate_user_meta_rules(') === 1
         && substr_count($sitePolicyValidatorSource, 'UserMetaGrammar::validate_user_meta_rules(') === 1
-        && substr_count($policySource, 'UserMetaGrammar::validate_user_meta_rule(') === 4,
+        && substr_count($policySource, 'UserMetaGrammar::validate_user_meta_rule(') === 3,
     'user-meta safety grammar lives in UserMetaGrammar for declarations and interpreter rules'
 );
 

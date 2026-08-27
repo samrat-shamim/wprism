@@ -2197,7 +2197,7 @@ regress-wpforms-lite-adapter:
 
 # Rank Math SEO 1.0.277 authored through the decentralized site-adapter path:
 # the exact fixture boundary, redirection natural identity, unsupported custom
-# schema, recorded artifact/outcome evidence and the user/agent transcript.
+# schema, and recorded single-adapter plus multi-plugin outcome evidence.
 regress-rank-math-adapter:
 	php sandbox/tests/offline/adapter/regress_rank_math_adapter.php
 

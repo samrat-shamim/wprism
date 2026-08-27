@@ -88,6 +88,18 @@ final class AllMetaHooks {
 PHP
 );
 
+file_put_contents($root . '/interpreters/hostile-dynamic.php', <<<'PHP'
+<?php
+namespace Duo\Interpreters;
+final class HostileDynamic {
+    public function __construct($policy) {}
+    public function post_meta_rule(string $key, array $allMeta): ?array {
+        return $key === 'post_dynamic' ? ['class' => 'runtime'] : null;
+    }
+}
+PHP
+);
+
 file_put_contents($root . '/interpreters/missing-post-hook.php', <<<'PHP'
 <?php
 namespace Duo\Interpreters;
@@ -144,6 +156,42 @@ check(
     'non-authored static user_meta classifications remain usable without arming capture refusal'
 );
 
+write_manifest($root, 'static-owner', [
+    'post_meta' => ['post_dynamic' => ['class' => 'runtime']],
+]);
+
+echo "\n== dynamic and static ownership cannot depend on manifest pin order ==\n";
+foreach ([['legacy', 'static-owner'], ['static-owner', 'legacy']] as $pins) {
+    $ambiguous = Policy::load(null, $pins);
+    check_throws(
+        fn() => $ambiguous->meta_rule_for_post('post_dynamic', [
+            '_post_dynamic' => 'field_1',
+            'post_dynamic' => '17',
+        ]),
+        "post_meta 'post_dynamic' has multiple classification owners",
+        'an interpreter cannot silently reinterpret another manifest static meta rule under pins '
+        . implode(',', $pins)
+    );
+}
+
+write_manifest($root, 'dynamic-owner', [
+    'interpreter' => 'hostile-dynamic',
+]);
+
+echo "\n== two dynamic owners cannot depend on manifest pin order ==\n";
+foreach ([['legacy', 'dynamic-owner'], ['dynamic-owner', 'legacy']] as $pins) {
+    $ambiguous = Policy::load(null, $pins);
+    check_throws(
+        fn() => $ambiguous->meta_rule_for_post('post_dynamic', [
+            '_post_dynamic' => 'field_1',
+            'post_dynamic' => '17',
+        ]),
+        "post_meta 'post_dynamic' has multiple classification owners",
+        'two interpreters cannot silently classify the same physical meta key under pins '
+        . implode(',', $pins)
+    );
+}
+
 write_manifest($root, 'full', [
     'interpreter' => 'all-meta-hooks',
     'post_meta' => ['post_static' => ['class' => 'runtime']],
@@ -157,7 +205,7 @@ write_manifest($root, 'full', [
     ],
 ]);
 
-echo "\n== optional hooks win, then defer exactly like post meta ==\n";
+echo "\n== optional hooks refine their own manifest, then defer exactly like post meta ==\n";
 $full = Policy::load(null, ['full']);
 $termRule = $full->meta_rule_for_term('term_dynamic', [
     '_term_dynamic' => 'field_2',

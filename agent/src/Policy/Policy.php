@@ -2425,22 +2425,20 @@ final class Policy {
         string $key,
         array $allMeta
     ): ?array {
-        foreach ($this->interpreters() as $i) {
-            if (!method_exists($i, $hook)) {
-                continue;
-            }
-            $rule = $i->{$hook}($key, $allMeta);
-            if ($rule !== null) {
-                return $rule;
-            }
-        }
-        return $this->rule($section, $key);
+        return $this->rule_details_for_interpreter_hook(
+            $hook,
+            $section,
+            $key,
+            $allMeta,
+            fn() => $this->rule_details($section, $key)
+        )['rule'];
     }
 
     /** @return array{rule:?array, source:?string} */
     public function meta_rule_details_for_post(string $key, array $allMeta): array {
         return $this->rule_details_for_interpreter_hook(
             'post_meta_rule',
+            'post_meta',
             $key,
             $allMeta,
             fn() => $this->post_meta_rule_details($key)
@@ -2458,6 +2456,7 @@ final class Policy {
     public function option_rule_details_for_option(string $name, array $allOptions): array {
         return $this->rule_details_for_interpreter_hook(
             'option_rule',
+            'options',
             $name,
             $allOptions,
             fn() => $this->option_rule_details($name)
@@ -2465,12 +2464,11 @@ final class Policy {
     }
 
     /**
-     * Shared by meta_rule_details_for_post() (post_meta_rule is mandatory —
-     * every interpreter already satisfies method_exists() by the load-time
-     * check in interpreters(), so the guard below is a no-op there) and
-     * option_rule_details_for_option() (option_rule is optional, so the
-     * guard is load-bearing there, mirroring meta_rule_for_interpreter_hook()'s
-     * own method_exists() gate).
+     * Shared by every interpreter-backed meta/option lookup. post_meta_rule is
+     * mandatory, while option_rule, term_meta_rule and user_meta_rule are
+     * optional, so the method_exists() gate is load-bearing for those hooks.
+     * Evaluate every non-null answer: the first interpreter cannot safely win
+     * when another pinned manifest or static declaration owns the same bytes.
      *
      * The $hook === 'option_rule' branch below is the one hook-specific
      * exception to this being a generic dispatcher: every STATIC options
@@ -2489,81 +2487,98 @@ final class Policy {
      */
     private function rule_details_for_interpreter_hook(
         string $hook,
+        string $section,
         string $key,
-        array $allMeta,
+        array $allValues,
         callable $staticDetails
     ): array {
+        $static = $staticDetails();
+        $candidates = [];
         foreach ($this->interpreters() as $name => $i) {
             if (!method_exists($i, $hook)) {
                 continue;
             }
-            $rule = $i->{$hook}($key, $allMeta);
+            $rule = $i->{$hook}($key, $allValues);
             if ($rule === null) {
                 continue;
             }
+            $owners = [];
             foreach ($this->manifests as $m) {
                 if (($m['interpreter'] ?? null) === $name) {
-                    if ($hook === 'option_rule') {
-                        $rule = self::with_option_autoload($rule, $m);
-                    }
-                    return [
-                        'rule' => $rule,
-                        'source' => (string) ($m['name'] ?? '?') . " (interpreter $name)",
-                    ];
+                    $owners[] = $m;
                 }
             }
-            return ['rule' => $rule, 'source' => "interpreter $name"];
+            if (count($owners) > 1) {
+                $ownerNames = array_map(static fn(array $m): string => "'" . (string) ($m['name'] ?? '?') . "'", $owners);
+                sort($ownerNames, SORT_STRING);
+                throw new \RuntimeException(
+                    "duo: interpreter '$name' classified $section '$key' but its manifest owner is ambiguous: "
+                    . implode(', ', $ownerNames)
+                );
+            }
+            $owner = $owners === [] ? "interpreter $name" : (string) ($owners[0]['name'] ?? '?');
+            $source = $owners === [] ? $owner : $owner . " (interpreter $name)";
+            if ($hook === 'option_rule' && $owners !== []) {
+                $rule = self::with_option_autoload($rule, $owners[0]);
+            }
+            $candidates[] = [
+                'owner' => $owner,
+                'rule' => $rule,
+                'source' => $source,
+            ];
         }
-        return $staticDetails();
+
+        if ($candidates === []) {
+            return $static;
+        }
+
+        $owners = [];
+        foreach ($candidates as $candidate) {
+            $owners[$candidate['owner']] = "'{$candidate['owner']}' via {$candidate['source']}";
+        }
+        if ($static['rule'] !== null) {
+            $staticSource = (string) ($static['source'] ?? '?');
+            $owners[$staticSource] ??= "'$staticSource' via static declaration";
+        }
+        if (count($owners) > 1) {
+            ksort($owners, SORT_STRING);
+            throw new \RuntimeException(
+                "duo: $section '$key' has multiple classification owners: "
+                . implode(', ', array_values($owners))
+                . '; dynamic interpreter dispatch cannot resolve cross-manifest ownership'
+            );
+        }
+
+        return ['rule' => $candidates[0]['rule'], 'source' => $candidates[0]['source']];
     }
 
     /** @return array{rule:?array, source:?string} */
     public function meta_rule_details_for_term(string $key, array $allMeta): array {
-        foreach ($this->interpreters() as $name => $i) {
-            if (!method_exists($i, 'term_meta_rule')) {
-                continue;
-            }
-            $rule = $i->term_meta_rule($key, $allMeta);
-            if ($rule === null) {
-                continue;
-            }
-            foreach ($this->manifests as $m) {
-                if (($m['interpreter'] ?? null) === $name) {
-                    return [
-                        'rule' => $rule,
-                        'source' => (string) ($m['name'] ?? '?') . " (interpreter $name)",
-                    ];
-                }
-            }
-            return ['rule' => $rule, 'source' => "interpreter $name"];
-        }
-        return $this->rule_details('term_meta', $key);
+        return $this->rule_details_for_interpreter_hook(
+            'term_meta_rule',
+            'term_meta',
+            $key,
+            $allMeta,
+            fn() => $this->term_meta_rule_details($key)
+        );
     }
 
     /** @return array{rule:?array, source:?string} */
     public function meta_rule_details_for_user(string $key, array $allMeta): array {
-        foreach ($this->interpreters() as $name => $i) {
-            if (!method_exists($i, 'user_meta_rule')) {
-                continue;
-            }
-            $rule = $i->user_meta_rule($key, $allMeta);
-            if ($rule === null) {
-                continue;
-            }
-            UserMetaGrammar::validate_user_meta_rule($rule, "interpreter $name user_meta.$key", self::CLASSES, self::MISSING_USER_MODES);
-            foreach ($this->manifests as $m) {
-                if (($m['interpreter'] ?? null) === $name) {
-                    return [
-                        'rule' => $rule,
-                        'source' => (string) ($m['name'] ?? '?') . " (interpreter $name)",
-                    ];
-                }
-            }
-            return ['rule' => $rule, 'source' => "interpreter $name"];
-        }
-        $details = $this->rule_details('user_meta', $key);
+        $details = $this->rule_details_for_interpreter_hook(
+            'user_meta_rule',
+            'user_meta',
+            $key,
+            $allMeta,
+            fn() => $this->rule_details('user_meta', $key)
+        );
         if ($details['rule'] !== null) {
-            UserMetaGrammar::validate_user_meta_rule($details['rule'], "user_meta.$key", self::CLASSES, self::MISSING_USER_MODES);
+            UserMetaGrammar::validate_user_meta_rule(
+                $details['rule'],
+                (string) ($details['source'] ?? '?') . " user_meta.$key",
+                self::CLASSES,
+                self::MISSING_USER_MODES
+            );
         }
         return $details;
     }

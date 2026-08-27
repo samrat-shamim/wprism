@@ -858,6 +858,14 @@ plugin faithfully.
 7. Mutate the proposed manifest in tests: remove a ref, broaden a namespace,
    switch a runtime field to authored, and create a conflicting second owner.
    Each false claim must fail for the reason the production path would fail.
+8. Co-load the adapter with common adjacent manifests and exercise the plugins
+   together, not merely as isolated installs. Enable optional modules through
+   the plugin's native lifecycle before probing their tables: writing an option
+   can select a module without running its installer. Include a hostile
+   schema-driven field whose physical key matches another adapter's static
+   declaration; capture must refuse multiple owners independent of pin order.
+   Preserve target-only queue jobs and plugin state through apply, then prove a
+   repeat plan is unchanged and inspect real front-end output.
 
 ### Getting the harness those tests need
 
@@ -1244,11 +1252,6 @@ dogfooded CPT plugin). Each script's header states the fixture and the
 finding behind every assertion, and the manifests those rounds produced
 (`manifests/contact-form-7.json`, `manifests/ninja-forms.json`,
 `manifests/elementor.json`) carry the reasoning in their own note strings.
-The [Rank Math user/agent exercise](../agents/rank-math-adapter-authoring-exercise.md)
-is the complementary site-adapter case study: real admin UI setup, unsupported
-schema refusal, independently populated target, explicit slug adoption,
-reference rebinding, setup-state activation, adjacent-version refusal and a
-duplicate natural-key attack.
 
 ## Dispositions: the reviewed claim source
 
