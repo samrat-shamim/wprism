@@ -856,7 +856,10 @@ plugin faithfully.
    and readiness marker through its public lifecycle before observation,
    coverage or probe; never manufacture them with raw SQL. Compare the plugin's
    own import/export allowlist when it has one; it is strong evidence for
-   portable subkeys, not proof of every other surface.
+   portable subkeys, not proof of every other surface. If a reusable harness
+   clears uploads with `wp site empty --uploads`, recreate and verify the
+   ordinary WordPress uploads root through `wp_mkdir_p` before apply; apply is
+   right to refuse a missing or symlinked production root.
 6. Trace the plugin hooks skipped by Duo's direct writes. Cache invalidation,
    generated files, rewrite flushes, index tables, and type registration need a
    bounded provider with value-level verification or an explicit unsupported

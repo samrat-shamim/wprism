@@ -3,6 +3,7 @@
 # the reset must remove uploads as well as database content. Without
 # `--uploads`, WooCommerce's 11.0.0 placeholder derivatives survived into the
 # standalone 11.0.1 leg and correctly tripped the unowned-file collision gate.
+# The reset must then recreate the ordinary uploads root that apply requires.
 # DUO-3366 also requires Elementor's active-kit option to be removed before
 # `site empty` deletes its target post. Woo's active Review Order endpoint must
 # likewise be disabled before that deletion or init:4 recreates its page during
@@ -29,10 +30,15 @@ reset = text[start:end]
 
 delete = '"$cli" option delete elementor_active_kit >/dev/null 2>&1 || true'
 empty = '"$cli" site empty --yes --uploads >/dev/null'
+uploads_restore = 'version-matrix reset could not restore uploads root'
 if delete not in reset:
     raise SystemExit("reset_env no longer deletes Elementor's active-kit option")
 if empty not in reset:
     raise SystemExit("reset_env no longer clears persistent uploads at the site-empty boundary")
+if uploads_restore not in reset or 'wp_get_upload_dir()' not in reset or 'wp_mkdir_p($root)' not in reset:
+    raise SystemExit("reset_env no longer recreates and verifies the WordPress uploads root")
+if reset.index(empty) >= reset.index(uploads_restore):
+    raise SystemExit("reset_env verifies the uploads root before site empty can remove it")
 if reset.index(delete) >= reset.index(empty):
     raise SystemExit("Elementor active-kit cleanup happens after site empty; the null-post warning can return")
 woo_review_options = (

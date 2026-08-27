@@ -234,6 +234,19 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # native metadata". All uploads are disposable boundary-fixture content, so
   # use WP-CLI's bounded native cleanup instead of a plugin filename glob.
   "$cli" site empty --yes --uploads >/dev/null
+  # `site empty --uploads` can remove the uploads root itself. A later apply
+  # treats that as an invalid production filesystem boundary rather than
+  # silently inventing it, so reset must restore the ordinary WordPress
+  # premise explicitly before any exact-version case begins.
+  "$cli" eval '
+    $upload = wp_get_upload_dir();
+    $root = (string) ($upload["basedir"] ?? "");
+    if ($root === "" || is_link($root)
+        || (!is_dir($root) && !wp_mkdir_p($root))
+        || !is_dir($root) || is_link($root)) {
+      throw new RuntimeException("version-matrix reset could not restore uploads root");
+    }
+  ' >/dev/null
   # site empty can leave default_category pointing at a term it deleted. A
   # later plugin installer may reuse that numeric id for another taxonomy
   # (WooCommerce product_visibility exposed this), turning harmless stale

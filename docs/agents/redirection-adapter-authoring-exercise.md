@@ -121,6 +121,14 @@ destination. The same activation finding was propagated to the exact-version
 matrix target before running it: that target now completes and verifies the
 public database install before it truncates any boundary fixture tables.
 
+The first exact-version matrix attempt then found a shared reset defect before
+adapter apply: `wp site empty --uploads` had removed the uploads root, and Duo
+correctly refused `uploads root is missing, symlinked, or not a directory`.
+The agent updated the reusable matrix reset to recreate and verify the ordinary
+WordPress directory through `wp_mkdir_p`, after cleanup and before any boundary
+case. A static guard now prevents that production filesystem premise from
+regressing for Redirection or any other adapter that uses the matrix.
+
 After that public onboarding step, the agent used Redirection's `Red_Group`,
 `Red_Item` and `Red_Options` APIs to create a realistic summer marketplace
 campaign:
