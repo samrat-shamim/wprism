@@ -68,9 +68,10 @@ if (($axisArgv[1] ?? null) === '--probe') {
     $probeRepo = dirname(__DIR__, 4);
     require_once $probeRepo . '/agent/src/Adapter/AdapterCertification.php';
     [$lib, $repo, $name, $certificate] = array_slice($axisArgv, 4, 4);
+    $adapterLibrary = \Duo\AdapterLibrary::fromLegacyFlatDirectory($lib);
     $manifest = \Duo\Canon::decode(\Duo\Canon::read_file($repo . '/adapters/' . $name . '.json'));
     try {
-        $verified = \Duo\AdapterCertification::verifyFile($lib, $repo, $name, $manifest, $certificate);
+        $verified = \Duo\AdapterCertification::verifyFile($adapterLibrary, $repo, $name, $manifest, $certificate);
         echo json_encode([
             'outcome' => 'valid',
             'certification' => $verified['disposition']['certification'] ?? null,
@@ -122,6 +123,9 @@ copy($duoRoot . '/platform/adapter-library/core/manifest.json', $lib . '/core.js
 // documents a core-only library resolves), so the copy follows the layout the
 // loader reads rather than a file the library no longer ships.
 mkdir($lib . '/dispositions', 0755, true);
+foreach (['interpreters', 'providers', 'regenerators'] as $runtimeDirectory) {
+    mkdir($lib . '/' . $runtimeDirectory, 0755, true);
+}
 copy($duoRoot . '/platform/adapter-library/core/disposition.json', $lib . '/dispositions/core.json');
 copy($duoRoot . '/platform/adapter-library/profiles.json', $lib . '/dispositions/profiles.json');
 copy($duoRoot . '/platform/adapter-library/capabilities/platform.json', $lib . '/capabilities/platform.json');
@@ -129,13 +133,10 @@ copy(
     $duoRoot . '/platform/adapter-library/capabilities/adapter-authorities.json',
     $lib . '/capabilities/adapter-authorities.json'
 );
-// Set before the engine boots, because sign_site() refuses to sign against any
-// library other than the one THIS process loads (siteGrammarVerdict()).
-putenv('DUO_MANIFESTS_DIR=' . $lib);
-
 require_once $duoRoot . '/cli/src/Adapter/AdapterCertify.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\ManifestDispositions;
@@ -143,11 +144,7 @@ use Duo\Policy;
 use Duo\Orchestrator\AdapterCertify;
 
 (new ReflectionMethod(AdapterCertify::class, 'boot'))->invoke(null);
-
-if (realpath(Policy::manifests_dir()) !== realpath($lib)) {
-    fwrite(STDERR, "the scratch library did not take: Policy::manifests_dir() is " . Policy::manifests_dir() . "\n");
-    exit(1);
-}
+$adapterLibrary = AdapterLibrary::fromLegacyFlatDirectory($lib);
 
 /** @return mixed */
 function axis_private(string $class, string $method, array $args) {
@@ -214,7 +211,7 @@ axis_private(AdapterCertify::class, 'registerAuthority', [
 ]);
 
 $certificateRaw = AdapterCertification::sign_site(
-    $lib,
+    $adapterLibrary,
     $repo,
     'axis-demo',
     $keyId,
@@ -226,10 +223,10 @@ $certificate = Canon::decode($certificateRaw);
 
 /** Verify the subject certificate against whatever boundary is installed now. */
 function axis_verify(): array {
-    global $lib, $repo, $subject, $certPath;
+    global $adapterLibrary, $repo, $subject, $certPath;
     try {
         return ['outcome' => 'valid', 'verified' => AdapterCertification::verifyFile(
-            $lib,
+            $adapterLibrary,
             $repo,
             'axis-demo',
             $subject,
@@ -570,10 +567,10 @@ echo "\n== PART 4 — the wire generation, and the ordering that guards it ==\n"
  * restored afterwards so the cases stay independent of each other's order.
  */
 function axis_verify_document(array $document): array {
-    global $lib, $repo, $subject, $certPath, $certificateRaw;
+    global $adapterLibrary, $repo, $subject, $certPath, $certificateRaw;
     Canon::write_file($certPath, Canon::encode($document));
     try {
-        AdapterCertification::verifyFile($lib, $repo, 'axis-demo', $subject, $certPath);
+        AdapterCertification::verifyFile($adapterLibrary, $repo, 'axis-demo', $subject, $certPath);
         $outcome = ['outcome' => 'valid'];
     } catch (Throwable $t) {
         $outcome = ['outcome' => 'refused', 'class' => get_class($t), 'message' => $t->getMessage()];
@@ -720,7 +717,7 @@ duo_check(
 );
 
 $roundTripVerified = AdapterCertification::verifyFile(
-    $lib,
+    $adapterLibrary,
     $roundTripRepo,
     'axis-roundtrip',
     $roundTripManifest,

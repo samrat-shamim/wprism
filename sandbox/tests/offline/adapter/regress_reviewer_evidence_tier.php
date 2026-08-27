@@ -87,6 +87,7 @@ require_once __DIR__ . '/certification_fixture.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\Policy;
@@ -352,6 +353,7 @@ $root = sys_get_temp_dir() . '/duo-reviewer-tier-' . bin2hex(random_bytes(6));
 register_shutdown_function(static fn() => rev_remove_tree($root));
 
 $library = duo_cert_hermetic_library($repo, $root . '/library-projection');
+$adapterLibrary = AdapterLibrary::fromLegacyFlatDirectory($library);
 $site = $root . '/site';
 $foreign = $root . '/foreign-evidence';
 if (!mkdir($site . '/adapters', 0777, true) || !mkdir($foreign . '/adapters', 0777, true)) {
@@ -435,19 +437,17 @@ $v2Record = static fn(string $encodedPublic, array $names, array $tiers): array 
     'trust_tiers' => $tiers,
 ];
 
-putenv('DUO_MANIFESTS_DIR=' . $library);
-
 /**
  * Reset the pin to bare, load, read the certificate-derived digest back, and
  * write the exact pin. Two passes because the digest folds the CERTIFICATE in,
  * so it cannot be known before the certificate exists — the same two passes
  * `duo adapter certify --pin` makes.
  */
-$pinRepository = static function (string $name) use ($site): string {
+$pinRepository = static function (string $name) use ($site, $adapterLibrary): string {
     $reset = Canon::decode(Canon::read_file($site . '/site.duo.json'));
     $reset['manifests'] = [['name' => $name, 'source' => 'site']];
     rev_write_canon($site . '/site.duo.json', $reset);
-    $policy = Policy::load($site);
+    $policy = Policy::load($site, adapterLibrary: $adapterLibrary);
     $digest = '';
     foreach (RepositoryCompiler::resolved_adapters($policy) as $row) {
         if ((string) $row['name'] === $name) {
@@ -460,8 +460,8 @@ $pinRepository = static function (string $name) use ($site): string {
 
     return $digest;
 };
-$surveyWord = static function (string $name) use ($site): ?string {
-    foreach (AdapterSources::survey($site)['adapters'] as $row) {
+$surveyWord = static function (string $name) use ($site, $adapterLibrary): ?string {
+    foreach (AdapterSources::survey_library($adapterLibrary, $site)['adapters'] as $row) {
         if (($row['name'] ?? null) === $name) {
             return $row['certification'] === null ? null : (string) $row['certification'];
         }
@@ -544,8 +544,6 @@ duo_check(
 
 $bundleDir = rev_write_bundle($foreign . '/runs/' . $adapterName, $foreign, $adapterName, $adapterManifest);
 $signFrom = static fn(string $bundle): array => rev_run([
-    'env',
-    'DUO_MANIFESTS_DIR=' . $library,
     PHP_BINARY,
     $repo . '/scripts/adapter-certification.php',
     'sign',
@@ -693,8 +691,6 @@ rev_write_canon($site . '/adapters/authorities.json', [
     ],
 ]);
 $siteSign = rev_run([
-    'env',
-    'DUO_MANIFESTS_DIR=' . $library,
     PHP_BINARY,
     $repo . '/scripts/adapter-certification.php',
     'sign-site',

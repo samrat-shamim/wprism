@@ -55,6 +55,7 @@ require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterCertification.php'
 require_once __DIR__ . '/certification_fixture.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\WithdrawnAuthoritySiteAdapterCertificate;
@@ -117,6 +118,7 @@ if (!mkdir($root . '/site/adapters', 0777, true)) {
 register_shutdown_function(static fn() => rev_remove_tree($root));
 
 $library = duo_cert_hermetic_library($repo, $root . '/library-projection');
+$adapterLibrary = AdapterLibrary::fromLegacyFlatDirectory($library);
 $site = $root . '/site';
 
 $refusal = static function (callable $fn): ?string {
@@ -256,8 +258,6 @@ file_put_contents($operatorSecretPath, base64_encode($operatorKey['secret']) . "
 chmod($operatorSecretPath, 0600);
 
 $signSite = static fn(string $authorityId, string $secretPath): array => rev_run([
-    'env',
-    'DUO_MANIFESTS_DIR=' . $library,
     PHP_BINARY,
     $repo . '/scripts/adapter-certification.php',
     'sign-site',
@@ -604,13 +604,10 @@ duo_check(
     . 'row `AdapterSources::survey()` raises, so an operator who installed a document that grants nothing is '
     . 'told so (' . (is_array($channel) ? $channel['message'] : 'no row') . ')'
 );
-// Through the REAL survey, against the scratch library this suite installed the
-// document into: `survey()` resolves its own manifest directory, so the env var
-// is how a test points it at a fixture — the same seam `regress_adapter_certify`
-// uses for the signing verbs.
-putenv('DUO_MANIFESTS_DIR=' . $library);
-$librarySurvey = AdapterSources::survey(null);
-putenv('DUO_MANIFESTS_DIR');
+// Through the REAL survey, against the exact closed library object this suite
+// installed the document into. Runtime discovery has no process-global path
+// override; fixture selection is an explicit input to the survey.
+$librarySurvey = AdapterSources::survey_library($adapterLibrary, null);
 $inertRows = array_values(array_filter(
     $librarySurvey['refusals'],
     static fn(array $row): bool => ($row['code'] ?? '') === AdapterSources::REFUSAL_REVOCATION_INERT

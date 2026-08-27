@@ -94,11 +94,10 @@ declare(strict_types=1);
 
 // ---------------------------------------------------------------------------
 // THE SCRATCH ESTATE. Built before the engine loads, because sign_site() takes
-// its grammar verdict from the loader and refuses to sign against any library
-// other than the one THIS process loaded (siteGrammarVerdict(),
-// AdapterCertification.php:1271-1291) — so DUO_MANIFESTS_DIR has to be set
-// before the first require. Under sandbox/tmp/ per AGENTS.md rule 3, keyed by
-// pid and random bytes because `make -j8` runs the corpus concurrently.
+// its grammar verdict from the exact AdapterLibrary object supplied to it
+// (siteGrammarVerdict(), AdapterCertification.php:1271-1291). Under
+// sandbox/tmp/ per AGENTS.md rule 3, keyed by pid and random bytes because
+// `make -j8` runs the corpus concurrently.
 // ---------------------------------------------------------------------------
 $xrrRepo = dirname(__DIR__, 4);
 $xrrRoot = $xrrRepo . '/sandbox/tmp/cross-root-replay-' . getmypid() . '-' . bin2hex(random_bytes(4));
@@ -120,6 +119,9 @@ function xrr_rmtree(string $path): void {
 xrr_rmtree($xrrRoot);
 if (!mkdir($xrrRoot . '/library/capabilities', 0777, true)
     || !mkdir($xrrRoot . '/library/dispositions', 0777, true)
+    || !mkdir($xrrRoot . '/library/interpreters', 0777, true)
+    || !mkdir($xrrRoot . '/library/providers', 0777, true)
+    || !mkdir($xrrRoot . '/library/regenerators', 0777, true)
     || !mkdir($xrrRoot . '/site/adapters/certifications', 0777, true)) {
     fwrite(STDERR, "cannot create scratch root $xrrRoot\n");
     exit(1);
@@ -144,23 +146,17 @@ foreach ([
         exit(1);
     }
 }
-putenv('DUO_MANIFESTS_DIR=' . $xrrLibrary);
-
 require_once __DIR__ . '/../../lib/check.php';
 require_once $xrrRepo . '/cli/src/Adapter/AdapterCertify.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\Orchestrator\AdapterCertify;
 use Duo\Policy;
 
 (new ReflectionMethod(AdapterCertify::class, 'boot'))->invoke(null);
-
-if (realpath(Policy::manifests_dir()) !== realpath($xrrLibrary)) {
-    fwrite(STDERR, 'the scratch library did not take: Policy::manifests_dir() is ' . Policy::manifests_dir() . "\n");
-    exit(1);
-}
 
 /**
  * THE THREE UNPROVEN CELLS, and the mutation each one leaves alive.
@@ -250,6 +246,7 @@ $platformRootRaw = AdapterCertification::signAuthorities(
     base64_encode($signerKey['secret'])
 );
 file_put_contents($xrrLibrary . '/capabilities/adapter-authorities.json', $platformRootRaw);
+$xrrAdapterLibrary = AdapterLibrary::fromLegacyFlatDirectory($xrrLibrary);
 
 $siteRootRaw = AdapterCertification::signAuthorities(
     Canon::encode((object) [
@@ -280,7 +277,7 @@ Canon::write_file($xrrSite . '/site.duo.json', Canon::encode([
 
 $certificatePath = AdapterCertification::certificatePath($xrrSite, $adapter);
 $certificateRaw = AdapterCertification::sign_site(
-    $xrrLibrary,
+    $xrrAdapterLibrary,
     $xrrSite,
     $adapter,
     $siteId,
@@ -412,8 +409,8 @@ $slots = [
             $document['signature'] = $signature;
             file_put_contents($certificatePath, Canon::encode($document));
         },
-        'drive' => static function () use ($xrrLibrary, $xrrSite, $adapter, $manifest, $certificatePath): void {
-            AdapterCertification::verifyFile($xrrLibrary, $xrrSite, $adapter, $manifest, $certificatePath);
+        'drive' => static function () use ($xrrAdapterLibrary, $xrrSite, $adapter, $manifest, $certificatePath): void {
+            AdapterCertification::verifyFile($xrrAdapterLibrary, $xrrSite, $adapter, $manifest, $certificatePath);
         },
         'reset' => static function () use ($certificatePath, $certificateRaw): void {
             file_put_contents($certificatePath, $certificateRaw);
@@ -453,8 +450,8 @@ $slots = [
                 'format' => AdapterCertification::DELEGATIONS_FORMAT,
             ]));
         },
-        'drive' => static function () use ($xrrLibrary, $xrrSite): void {
-            AdapterCertification::assert_site_delegations($xrrLibrary, $xrrSite);
+        'drive' => static function () use ($xrrAdapterLibrary, $xrrSite): void {
+            AdapterCertification::assert_site_delegations($xrrAdapterLibrary, $xrrSite);
         },
         'reset' => static function () use ($delegationPath): void {
             if (is_file($delegationPath)) {
@@ -472,8 +469,8 @@ $slots = [
                 'statement' => $revocationStatement,
             ]));
         },
-        'drive' => static function () use ($xrrLibrary): void {
-            AdapterCertification::revocation_channel($xrrLibrary);
+        'drive' => static function () use ($xrrAdapterLibrary): void {
+            AdapterCertification::revocation_channel($xrrAdapterLibrary);
         },
         'reset' => static function () use ($revocationPath): void {
             if (is_file($revocationPath)) {

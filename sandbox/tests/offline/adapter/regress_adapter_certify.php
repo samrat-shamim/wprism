@@ -350,7 +350,7 @@ cert_private('registerAuthority', [
 // around it, and that the composition produces a claim the LIVE verifier
 // accepts — the same call the policy path makes on every load.
 $certificate = AdapterCertification::sign_site(
-    Policy::manifests_dir(),
+    Policy::shipped_adapter_library(),
     $signRepo,
     'acme-catalog',
     $signKeyId,
@@ -373,7 +373,7 @@ duo_check_same(
 );
 
 $verified = AdapterCertification::verifyFile(
-    Policy::manifests_dir(),
+    Policy::shipped_adapter_library(),
     $signRepo,
     'acme-catalog',
     $rich,
@@ -444,7 +444,7 @@ cert_private('registerAuthority', [
     $environmentRepo, $signKeyId, $signPublic, 'acme-catalog', AdapterSources::TIER_DECLARATIVE,
 ]);
 $environmentCertificate = AdapterCertification::sign_site(
-    Policy::manifests_dir(),
+    Policy::shipped_adapter_library(),
     $environmentRepo,
     'acme-catalog',
     $signKeyId,
@@ -479,7 +479,7 @@ $foreignEnvironment['signature'] = base64_encode(sodium_crypto_sign_detached(
 $foreignEnvironmentBytes = Canon::encode($foreignEnvironment);
 Canon::write_file($environmentCertificatePath, $foreignEnvironmentBytes);
 $foreignVerified = AdapterCertification::verifyFile(
-    Policy::manifests_dir(),
+    Policy::shipped_adapter_library(),
     $environmentRepo,
     'acme-catalog',
     $rich,
@@ -491,7 +491,7 @@ duo_check_same(
     'fixture premise: the different-PHP certificate is a valid current signed certificate'
 );
 $currentEnvironmentCertificate = AdapterCertification::sign_site(
-    Policy::manifests_dir(),
+    Policy::shipped_adapter_library(),
     $environmentRepo,
     'acme-catalog',
     $signKeyId,
@@ -531,7 +531,7 @@ $tampered['options']['acme_catalog_layout']['class'] = 'runtime';
 Canon::write_file($signRepo . '/adapters/acme-catalog.json', Canon::encode($tampered));
 duo_check_throws(
     static fn() => AdapterCertification::verifyFile(
-        Policy::manifests_dir(),
+        Policy::shipped_adapter_library(),
         $signRepo,
         'acme-catalog',
         $tampered,
@@ -825,7 +825,10 @@ duo_check(str_contains($handBad['err'], 'is not valid JSON'), 'and named as such
 // a site key; (3) certifying a SECOND adapter under the same key keeps the
 // first certificate valid — the site trust root is a living registry, and a
 // certificate binds the key's identity, not the record's growing scope lists.
-$shippedWoo = json_decode((string) file_get_contents(Policy::manifests_dir() . '/woocommerce.json'), true);
+$shippedWoo = json_decode(
+    (string) file_get_contents(Policy::shipped_adapter_library()->package('woocommerce')->manifestPath()),
+    true
+);
 $overrideCopy = $shippedWoo;
 $overrideCopy['options']['woocommerce_walk_banner'] = ['class' => 'authored'];
 $overRepo = cert_site($root, 'oversite', $overrideCopy, ['core', 'woocommerce']);
@@ -918,7 +921,13 @@ duo_check_same(
     'BOTH certificates verify after the record grew — a growing site trust root does not invalidate earlier certificates'
 );
 $overWooCert = $overRepo . '/adapters/certifications/woocommerce.json';
-$verifiedOver = AdapterCertification::verifyFile(Policy::manifests_dir(), $overRepo, 'woocommerce', $overrideCopy, $overWooCert);
+$verifiedOver = AdapterCertification::verifyFile(
+    Policy::shipped_adapter_library(),
+    $overRepo,
+    'woocommerce',
+    $overrideCopy,
+    $overWooCert
+);
 duo_check_same(
     'site',
     $verifiedOver['provenance']['proof']['authority']['trust_root'] ?? null,
@@ -953,7 +962,13 @@ Canon::write_file(
     Canon::encode(['format' => $rotated['format'], 'keys' => (object) $rotated['keys']])
 );
 duo_check_throws(
-    static fn() => AdapterCertification::verifyFile(Policy::manifests_dir(), $overRepo, 'woocommerce', $overrideCopy, $overWooCert),
+    static fn() => AdapterCertification::verifyFile(
+        Policy::shipped_adapter_library(),
+        $overRepo,
+        'woocommerce',
+        $overrideCopy,
+        $overWooCert
+    ),
     RuntimeException::class,
     'a rotated public key under the same key id invalidates the certificate — identity is bound'
 );
@@ -964,7 +979,13 @@ Canon::write_file(
     Canon::encode(['format' => $revokedRoot['format'], 'keys' => (object) $revokedRoot['keys']])
 );
 duo_check_throws(
-    static fn() => AdapterCertification::verifyFile(Policy::manifests_dir(), $overRepo, 'woocommerce', $overrideCopy, $overWooCert),
+    static fn() => AdapterCertification::verifyFile(
+        Policy::shipped_adapter_library(),
+        $overRepo,
+        'woocommerce',
+        $overrideCopy,
+        $overWooCert
+    ),
     RuntimeException::class,
     'and a revoked key refuses on the next verification — revocation is live, not frozen into the certificate'
 );
