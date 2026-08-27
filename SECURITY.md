@@ -8,7 +8,9 @@ answer to "am I supported?" is "are you on current `main`?".
 
 Duo runs with write access to a WordPress database, filesystem and code tree,
 and reaches production hosts over SSH. Treat findings in `agent/`, `cli/`,
-`recovery/` and `manifests/` as reachable from a real site.
+`recovery/`, `adapter-packages/*/package/`, and `platform/adapter-library/` as
+reachable from a real site. Adoption embeds the latter two sources inside the
+installed agent.
 
 ## Reporting a vulnerability
 

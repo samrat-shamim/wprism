@@ -1,6 +1,6 @@
 # The Code Half (`code/`)
 
-*Written as a proposal 2026-08-05; promoted to canonical documentation at this path 2026-08-21 because eight shipped source files (nine citation sites), `manifests/core.json`'s own note and a `duo doctor` warning string cite its § numbers by name. The § numbering is therefore load-bearing — renumber nothing. Status: the implementation ruling below is authoritative for the first functional skeleton. Owner: code-design (Task #18).*
+*Written as a proposal 2026-08-05; promoted to canonical documentation at this path 2026-08-21 because eight shipped source files (nine citation sites), `platform/adapter-library/core/manifest.json`'s own note and a `duo doctor` warning string cite its § numbers by name. The § numbering is therefore load-bearing — renumber nothing. Status: the implementation ruling below is authoritative for the first functional skeleton. Owner: code-design (Task #18).*
 
 > **Implementation ruling (2026-08-07).** Duo's first complete code-half
 > transport is an opt-in, descriptor-hashed `code/wp-content` payload of
@@ -183,7 +183,7 @@ Core is composer-managed and lands directly under `code/` (full-tree management:
 
 ### 1.6 Where wp-config / env-bound config does NOT live
 
-Never in `state/` (obvious — it's not authored content) and never with real values inside git-tracked `code/` either. `wp-config.php` needs DB credentials, salts, `WP_HOME`/`WP_SITEURL`, and Duo's own env-bound switches (`DUO_JOURNAL`, `DUO_MANIFESTS_DIR`) — every one of these is exactly the `env`-portability class DESIGN.md §1 defines (*"env-bound (siteurl, API keys, salts, file paths)"*). Handling splits cleanly by transport, and both halves are already precedented elsewhere in this codebase:
+Never in `state/` (obvious — it's not authored content) and never with real values inside git-tracked `code/` either. `wp-config.php` needs DB credentials, salts, `WP_HOME`/`WP_SITEURL`, and Duo's env-bound runtime switches such as `DUO_JOURNAL` — every one of these is exactly the `env`-portability class DESIGN.md §1 defines (*"env-bound (siteurl, API keys, salts, file paths)"*). The adapter library is not such a switch: production uses the one embedded in the installed agent. Handling splits cleanly by transport, and both halves are already precedented elsewhere in this codebase:
 
 - **`docker`**: the official `wordpress:php8.3-apache` image's entrypoint **(recall — docker-library/wordpress's well-known startup behavior, not re-verified this session)** auto-generates `wp-config.php` from `WORDPRESS_DB_*` environment variables at container start if the file is absent. The existing sandbox already relies on exactly this (`docker-compose.yml`'s `x-wp-env`/`WORDPRESS_CONFIG_EXTRA` blocks). Recommendation: keep doing this — add `/wp-config.php` to `code/.gitignore` and let the entrypoint keep writing it into the now-bind-mounted `code/` directory. Simplest option, zero new code, matches current practice.
 - **`local`/`ssh`**: no docker entrypoint to lean on, so `code/wp-config.php` should be a **thin, committed bootstrap** (Bedrock's actual pattern, minus its directory rename): it contains only logic — read `getenv()` / a gitignored `.env` — and defines the WordPress constants from those. The file is git-tracked (its *logic* is stable across environments) but contains **zero secrets or env-specific values itself**.
@@ -257,12 +257,12 @@ State already has a rollback story (`wp db export` snapshot before apply, per sp
 
 ## 3. The cross-partition invariant, concretely
 
-DESIGN.md §3.4 names the invariant and stops: *"**Guards**: … cross-partition invariant (`active_plugins` ⊆ plugins in `code/`); drift detection with capture-first workflow."* Today, `active_plugins` is not in the core manifest's options at all (verified by reading `manifests/core.json` in full — no `active_plugins`/`template`/`stylesheet` keys exist), so nothing currently captures it, checks it, or enforces the invariant. This section is the concrete design.
+DESIGN.md §3.4 names the invariant and stops: *"**Guards**: … cross-partition invariant (`active_plugins` ⊆ plugins in `code/`); drift detection with capture-first workflow."* At the time of this proposal, `active_plugins` was not in the core manifest's options at all (verified against the then-current core manifest — no `active_plugins`/`template`/`stylesheet` keys existed), so nothing captured it, checked it, or enforced the invariant. This section records the concrete design that followed.
 
 ### 3.1 Classification: `managed`, not `authored`
 
 ```jsonc
-// manifests/core.json — proposed additions to "options"
+// platform/adapter-library/core/manifest.json — proposed additions to "options"
 "active_plugins": {"class": "managed"},
 "template":       {"class": "managed"},
 "stylesheet":     {"class": "managed"}
@@ -381,25 +381,25 @@ On DESIGN.md §4's *"Env orchestration — none owned in v1 (host-agnostic)"*: `
 ### 4.1 Worked example: bumping WooCommerce 8.x → 9.x on a branch
 
 1. **Branch, bump.** `git checkout -b feature/woo-9`. Edit `code/composer.json`'s constraint (`"wp-plugin/woocommerce": "^8.0"` → `"^9.0"`), run `composer update wp-plugin/woocommerce` locally. `composer.lock`'s diff is small and reviewable — old→new version, updated dependency hashes — a genuine advantage of composer-managed mode over vendored-wholesale, where the equivalent change would be a multi-thousand-line diff across the entire plugin source with no meaningful review surface.
-2. **Manifest check.** If 9.x crosses a boundary the pinned `woocommerce` manifest doesn't cover — DESIGN.md's own example: *"a manifest for Woo 7 must not claim Woo 9"* — bump `manifests/woocommerce.json`'s new `version_range` (§4.3) in the same PR, or push the manifest update as a prerequisite commit.
+2. **Manifest check.** If 9.x crosses a boundary the pinned `woocommerce` manifest doesn't cover — DESIGN.md's own example: *"a manifest for Woo 7 must not claim Woo 9"* — bump `adapter-packages/woocommerce/package/manifest.json`'s `version_range` (§4.3) in the same PR, or push the adapter-package update as a prerequisite commit.
 3. **CI gates it** — the *existing* conformance harness (`sandbox/conformance/run.sh`), extended per §4.4 to install the exact pinned version rather than always-latest, runs its clean-room capture→apply→re-capture round-trip against Woo 9.x specifically. If the manifest's classification rules no longer match 9.x's real behavior, the round-trip diff is non-empty and CI fails loudly — this is DESIGN.md §3.1.2/§8's manifest-treadmill defense, now also exercising the **exact version this branch is bumping to**, rather than whatever `plugin install woocommerce` happens to resolve as "latest" on the day CI happens to run (today's actual behavior — see §4.4).
 4. **Merge.** `main` now has code/composer.lock at Woo 9.x plus (if needed) an updated manifest.
 5. **`duo deploy prod`** materializes the new code (§2), then reconciles `active_plugins` (§3.4) — WooCommerce was already active, so no `activate_plugin()` call is needed purely for activation *state*; what changed is the code loaded underneath it. `deploy` explicitly forces one full WP bootstrap over the transport (any wp-cli call boots `plugins_loaded` fully) immediately after materializing, so WooCommerce's own updater (`WC_Install`) notices the version change deterministically on `deploy`'s own schedule — not whenever the next stray visitor or cron tick happens to hit the site.
 6. **Migrations run inside WooCommerce's own code**, self-triggered, exactly as they do on a manual admin-panel update today: WooCommerce compares `get_option('woocommerce_version')` (currently loaded code) against `WC_VERSION` (the constant the *new* code defines), detects the mismatch, and runs its installer/upgrade routines — synchronously for lightweight steps, via its own Action Scheduler background jobs for heavier ones (schema changes, large data migrations). **`duo deploy` guarantees the update *process starts* deterministically; it does not guarantee instant completion** — see §7 for the honest caveat on large-catalog migrations.
-7. **`woocommerce_db_version`/`woocommerce_version` update themselves** as a side effect of step 6. Duo does not touch either value directly, and this proposal does not change their existing `{"class": "env", "required": false}` classification in `manifests/woocommerce.json` (the `required` key is DUO-3232's later, unrelated addition — every `class: "env"` rule now carries one — but the `env` classification itself, this proposal's actual subject, is unchanged) — that classification is already correct. This is the crux worth stating explicitly: **"migrations re-run per environment" is not a mechanism Duo builds.** It falls straight out of two things that are *already true*: code is deployed identically everywhere via the same git revision + composer resolution, and `woocommerce_db_version` is already, correctly, excluded from `state/` — so each environment's own copy of the plugin code independently notices its own staleness and self-heals, with zero coordination and zero migration-state ever entering the repo. The only thing this proposal adds is the **ordering guarantee** (§3.4) that this self-healing has a chance to run before `duo apply` writes content into whatever schema the new code now expects.
+7. **`woocommerce_db_version`/`woocommerce_version` update themselves** as a side effect of step 6. Duo does not touch either value directly, and this proposal does not change their existing `{"class": "env", "required": false}` classification in `adapter-packages/woocommerce/package/manifest.json` (the `required` key is DUO-3232's later, unrelated addition — every `class: "env"` rule now carries one — but the `env` classification itself, this proposal's actual subject, is unchanged) — that classification is already correct. This is the crux worth stating explicitly: **"migrations re-run per environment" is not a mechanism Duo builds.** It falls straight out of two things that are *already true*: code is deployed identically everywhere via the same git revision + composer resolution, and `woocommerce_db_version` is already, correctly, excluded from `state/` — so each environment's own copy of the plugin code independently notices its own staleness and self-heals, with zero coordination and zero migration-state ever entering the repo. The only thing this proposal adds is the **ordering guarantee** (§3.4) that this self-healing has a chance to run before `duo apply` writes content into whatever schema the new code now expects.
 8. **`duo apply prod`** now runs — canary-armed, hook-free, direct SQL — safely, because the schema it's writing into already matches the code that's been running since step 6.
 9. **Staging, dev, and any other environment** repeat steps 5–8 independently, on their own schedule, from the same git revision. No cross-environment coordination, no shared migration ledger — each environment's `duo deploy` + WooCommerce's own updater does the same self-healing locally.
 
 ### 4.2 `woocommerce_db_version` — no manifest change needed, ordering is the fix
 
-To be explicit since the mission calls this out specifically: **no change to `manifests/woocommerce.json`'s existing `"woocommerce_db_version": {"class": "env", "required": false}` / `"woocommerce_version": {"class": "env", "required": false}` is proposed** (the `required` key is DUO-3232's later, unrelated addition to the grammar). Both are already correctly excluded from `state/` today. What was missing wasn't classification — it was the *ordering guarantee* (§3.4) that code (and the migrations it triggers) lands before state apply runs against it. That's the actual gap this proposal closes for the worked example above.
+To be explicit since the mission calls this out specifically: **no change to `adapter-packages/woocommerce/package/manifest.json`'s existing `"woocommerce_db_version": {"class": "env", "required": false}` / `"woocommerce_version": {"class": "env", "required": false}` is proposed** (the `required` key is DUO-3232's later, unrelated addition to the grammar). Both are already correctly excluded from `state/` today. What was missing wasn't classification — it was the *ordering guarantee* (§3.4) that code (and the migrations it triggers) lands before state apply runs against it. That's the actual gap this proposal closes for the worked example above.
 
 ### 4.3 `version_range` mechanics
 
-**Where declared**: a new, optional top-level key on each plugin manifest (`manifests/<name>.json`), sibling to the existing `options`/`post_meta`/`actions`/`deletions` keys:
+**Where declared**: a top-level key on each plugin manifest (`adapter-packages/<name>/package/manifest.json`), sibling to the existing `options`/`post_meta`/`actions`/`deletions` keys:
 
 ```jsonc
-// manifests/woocommerce.json — proposed addition
+// adapter-packages/woocommerce/package/manifest.json — proposed addition
 "version_range": {"min": "8.0.0", "max": "10.0.0"}   // min inclusive, max exclusive
 ```
 
@@ -416,13 +416,20 @@ The `cli/` orchestrator has the identical dependency-free constraint (its own RE
 
 **Plan-time warning wording**: given in §3.3 (the third message block) — placed there rather than duplicated here because it shares the same `code_mismatch` plan bucket and the same blocking posture (`outside_version_range` hard-blocks apply by default, `--force-code-mismatch` overrides) as the directory-existence check.
 
-**Relationship to the broader manifest-versioning workstream** (referenced in the mission as task #11 item 4): this proposal deliberately stays narrow. It adds a single optional field to today's one-file-per-plugin manifest shape and the plan-time check that reads it — nothing here assumes or requires manifests becoming multiple versioned files (`manifests/woocommerce-8.json`, `manifests/woocommerce-9.json`, …), which DESIGN.md §3.1.2's *"versioned artifacts pinned to plugin version ranges"* language gestures toward as a further-future shape. If/when that fuller redesign lands, `version_range` is the natural field that would select *which* manifest file auto-loads for an installed version — but that file-selection mechanism is that workstream's to design, not this proposal's. What's specified here is useful on its own, today, even as a single-file field: a declared compatibility window with a loud warning outside it, better than the silent-drift status quo.
+**Relationship to the broader manifest-versioning workstream** (referenced in the mission as task #11 item 4): this proposal deliberately stays narrow. It adds a single optional field to the one-manifest-per-adapter shape and the plan-time check that reads it — nothing here assumes or requires multiple versioned manifest files inside a capsule, which DESIGN.md §3.1.2's *"versioned artifacts pinned to plugin version ranges"* language gestures toward as a further-future shape. If/when that fuller redesign lands, `version_range` is the natural field that would select *which* manifest file auto-loads for an installed version — but that file-selection mechanism is that workstream's to design, not this proposal's. What's specified here is useful on its own, today, even as a single-file field: a declared compatibility window with a loud warning outside it, better than the silent-drift status quo.
 
 ### 4.4 Conformance harness gating
 
 Today, `sandbox/conformance/run.sh`'s `install_env()` always runs `wp plugin install <slug> --activate` — whatever WordPress.org resolves as latest at the moment CI happens to execute, an accidental, unpinned version (confirmed by reading the script — no `--version` flag, no read of any manifest field). Two small, additive changes close this gap:
 
-1. **`sandbox/conformance/manifests.json`** gains a `test_version` field per entry (e.g., `"test_version": "9.4.1"` for `woocommerce`) — the *specific* version CI verifies against right now. This is intentionally **separate** from the manifest's own `version_range`: `version_range` is "what the manifest claims to support" (a runtime compatibility check, §4.3), `test_version` is "what CI actually exercises" (a point-in-range pin, bumped on its own cadence — plausibly more often, even automatable via a Dependabot-style bot watching the registry). They should agree in spirit (test_version should fall inside version_range) but are different knobs for different audiences.
+1. **`adapter-packages/<slug>/tests/conformance/entry.json`** carries a
+   `test_version` field (e.g., `"test_version": "9.4.1"` for `woocommerce`) —
+   the *specific* version the adapter's evidence exercises. This is
+   intentionally **separate** from the manifest's own `version_range`:
+   `version_range` is "what the manifest claims to support" (a runtime
+   compatibility check, §4.3), `test_version` is "what the evidence actually
+   exercises" (a point-in-range pin, bumped on its own cadence). They should
+   agree in spirit but are different knobs for different audiences.
 2. **`sandbox/conformance/run.sh`**'s `install_env()` reads `test_version` and installs it explicitly: `wp plugin install woocommerce --version="$TEST_VERSION" --activate` (wp-cli's `plugin install` already supports a `--version` flag **(recall — standard, long-standing wp-cli feature, not re-verified this session)**).
 
 This makes a plugin-version bump in `code/` and a `version_range` bump in the manifest **mutually self-verifying** through the same CI job that already exists for manifest changes generally — no new pipeline, no new job, just closing the "which version did we actually just test" gap in the existing one.
@@ -521,7 +528,7 @@ Following the existing spike scripts' exact shape (helper functions, `say`/`pass
    duo apply f2 → assert exit 0.
    pass "plugin removed fails the invariant check until deactivated, and recovers cleanly".
 8. ACCEPTANCE 3 (stretch, if time permits) — version_range warning:
-   add "version_range": {"min": "9.0.0", "max": "99.0.0"} to a copy of manifests/woocommerce.json
+   add "version_range": {"min": "9.0.0", "max": "99.0.0"} to a scratch copy of adapter-packages/woocommerce/package/manifest.json
    used by this spike's site.duo.json; f2 is still running whatever WooCommerce version step 6
    installed (likely < 9.0.0 depending on wpackagist/wp-packages resolution at spike-build time).
    duo status f2 → assert output contains "outside the 'woocommerce' manifest's declared
@@ -539,7 +546,7 @@ Minimal list — file, hook point, one-line description. No implementation shown
 
 | File | Hook point | Change |
 |---|---|---|
-| `manifests/core.json` | `options` map | Add `active_plugins`, `template`, `stylesheet`, each `{"class": "managed"}` (data change, not code — listed because it's required and minimal). |
+| `platform/adapter-library/core/manifest.json` | `options` map | Add `active_plugins`, `template`, `stylesheet`, each `{"class": "managed"}` (data change, not code — listed because it's required and minimal). |
 | `agent/src/Capture/Capture.php` | `build_options()` (or a new sibling private method called from `build()`) | Bespoke read of `active_plugins`/`template`/`stylesheet` into the same options output, bypassing the generic `authored_options()`-driven loop (they're `managed`, not `authored`) — no ref-tokenization needed, values are already portable strings. |
 | `agent/src/Apply/Apply.php` | `build_plan()` | Add the two §3.2 checks (directory/file existence via WP's plugin-validation primitives; `version_range` compatibility via `version_compare()`), populating a new `code_mismatch` plan bucket; also add the `code_revision_stale` check against `duo_kv['code_revision']`. |
 | `agent/src/Apply/Apply.php` | `apply_options()` | Exclude `active_plugins`/`template`/`stylesheet` from the generic direct-SQL upsert loop — they must never be written via raw `$wpdb`. |
@@ -550,8 +557,8 @@ Minimal list — file, hook point, one-line description. No implementation shown
 | `cli/src/Transport/Transport.php` | new abstract method (e.g. `deployCode()`) | Each transport implements how materialization reaches it: local/docker run composer directly via the *existing* raw-command path (no new primitive needed there); ssh gets one new capability — resolve off-box, then rsync to `host`+`wp_path` (today private properties on `SshTransport`, would need exposing or handling internally). |
 | `cli/duo` | verb dispatch | New `deploy <env>` verb, wired the same way `envs`/`doctor`/`status`/`capture`/`plan`/`apply` already are; usage text updated. |
 | `cli/src/Onboarding/Doctor.php` | `run()` | Optional 5th check: "`code/` present and non-empty" — cheap orchestrator-side fast-fail, belt-and-suspenders alongside the agent-side check in `Apply::build_plan()` (which stays authoritative). |
-| `manifests/woocommerce.json` (and, illustratively, other manifests) | `version_range` key | Data change: add the new optional field (§4.3). |
-| `sandbox/conformance/manifests.json`, `sandbox/conformance/run.sh` | `install_env()` | Add `test_version` field; install that exact version instead of always-latest (§4.4). |
+| `adapter-packages/woocommerce/package/manifest.json` (and, illustratively, other package manifests) | `version_range` key | Data change: add the new optional field (§4.3). |
+| `adapter-packages/woocommerce/tests/conformance/entry.json`, `sandbox/conformance/run.sh` | `install_env()` | Add `test_version` field; install that exact version instead of always-latest (§4.4). |
 
 **What explicitly does NOT need engine work:**
 

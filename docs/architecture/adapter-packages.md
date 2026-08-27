@@ -1,8 +1,9 @@
 # Adapter packages and the shipped library
 
-Status: proposed migration architecture. The repository and installed runtime
-still use the flat `manifests/` library described below; this document defines
-the required end state and the conditions for reaching it.
+Status: implemented architecture. Source adapters are capsules, adoption
+installs an embedded library, and the flat `manifests/` runtime layout is
+retired. The migration and reverse-bridge sections remain as cutover
+archaeology because they explain the transactional guarantees still enforced.
 
 ## Decision
 
@@ -40,7 +41,7 @@ platform/
 evidence, and authoring documentation remain beside it so that ordinary work on
 one adapter changes only `adapter-packages/<slug>/`, but none of those files
 reach a managed site. Cross-adapter scenarios are not owned by either capsule;
-they belong in an explicitly named integration-scenario area.
+they belong in an explicitly named `integration-scenarios/<name>/` area.
 
 `platform/` owns the WordPress core policy, the reviewed profile vocabulary,
 and agent-wide capability and authority configuration. Engine changes may
@@ -72,17 +73,14 @@ Assembly copies only files admitted by the package and platform schemas. An
 undeclared PHP file, symlink, special node, path escape, test, fixture, evidence
 file, or authoring document is a build refusal, not an extra archive member.
 
-This projection replaces the current direct archive construction in
-`cli/src/Onboarding/Adopt.php:207-213`, which tars `agent manifests recovery`,
-and the current target copy from `stage/manifests` at `:560-571`. Recovery
-continues to ship as its own public runtime and to be staged under
+`cli/src/Onboarding/Adopt.php` builds this projection through the package
+assembler, rejects non-allowlisted members, and tars exactly `agent recovery`.
+Recovery continues to ship as its own public runtime and to be staged under
 `repo_path/.duo/control/recovery-runtime/`; it is not part of an adapter
 package.
 
-The package library is embedded in the agent root for atomicity. Today Adopt
-journals agent, loader, flat manifests, and `.duo` as four separate surfaces
-(`cli/src/Onboarding/Adopt.php:378-409`) and publishes them sequentially
-(`:586-590`). Separate deployed engine, adapter, and platform roots would allow
+The package library is embedded in the agent root for atomicity. Separate
+deployed engine, adapter, and platform roots would allow
 a request to observe an engine from one release with library bytes from
 another. A complete `duo/` root rename instead publishes the engine and its
 allowlisted library together. The top-level `duo-loader.php` remains a separate
@@ -93,21 +91,15 @@ WordPress-required surface.
 The installed agent resolves exactly its embedded `adapter-library/`. There is
 no runtime compatibility search and no silent fallback.
 
-The migration removes all three current branches of
-`Policy::manifests_dir()`—`DUO_MANIFESTS_DIR`, the sibling `manifests/`, and
-`/duo-manifests` (`agent/src/Policy/Policy.php:278-288`)—and the duplicate
-partial-load fallback in `ManifestDispositions`
-(`agent/src/Policy/ManifestDispositions.php:517-530`). Interpreter, provider,
+Production no longer has a process-global manifest-directory selector, sibling
+flat-library search, or `/duo-manifests` fallback. Interpreter, provider,
 regenerator, disposition, identity, catalog, certification, and frozen-policy
-reads must resolve through one package-library interface rather than append
-paths to a manifest directory.
+reads resolve through an explicit `AdapterLibrary`; the installed production
+context is the embedded projection.
 
 A missing, malformed, ambiguous, or incomplete embedded library refuses by
-name. Tests and host-side tools receive an explicit library context; they do
-not move a production process between libraries by changing
-`DUO_MANIFESTS_DIR`. In particular, the two environment mutations in
-`cli/src/Refresh/RefreshPlan.php:144-183` and `:302-307` must become explicit
-library inputs before the legacy environment contract can be removed.
+name. Tests and host-side tools receive an explicit library context; they
+cannot move a production process between libraries through environment state.
 
 ## Identity preservation
 
@@ -119,7 +111,7 @@ interpreter, provider, and regenerator; it does not bind their filesystem paths
 therefore identity-neutral only when all of those input bytes and the resolved
 row ordering are unchanged.
 
-Before moving sources, record for every shipped adapter:
+The cutover recorded for every shipped adapter:
 
 - the canonical manifest and disposition bytes;
 - every declared executable's bytes and SHA-256;
@@ -127,22 +119,23 @@ Before moving sources, record for every shipped adapter:
 - representative multi-adapter `manifest_hash` values; and
 - the old runtime member to new projection member mapping.
 
-The cutover must prove the same values after assembly and must prove that the
-archive contains no non-allowlisted member. Any adapter whose executable bytes
-must change—for example to replace a relative engine import—moves identity in a
-separate adapter change, with the normal recompile and re-pin cost. It is not
-hidden in the filesystem migration. Manifest JSON, disposition JSON, canonical
-output, refusal text, and version defines remain byte-identical unless a
-separately reviewed change explicitly owns them.
+The assembler regressions prove the same values after assembly and prove that
+the archive contains no non-allowlisted member. Any adapter whose executable
+bytes must change—for example to replace a relative engine import—moves identity
+in a separate adapter change, with the normal recompile and re-pin cost. It is
+not hidden in the filesystem migration. Manifest JSON, disposition JSON,
+canonical output, refusal text, and version defines remain byte-identical unless
+a separately reviewed change explicitly owns them.
 
-## Forward migration from flat manifests
+## Historical forward migration from flat manifests
 
-The migration extends Adopt's existing identity-bound journal; it does not add
-another lock or change recovery lock ordering. The existing adoption lock is
-still acquired after read-only topology checks and before repository,
-transaction, or staging publication (`cli/src/Onboarding/Adopt.php:538-552`).
+The implemented cutover extended Adopt's existing identity-bound journal; it
+did not add another lock or change recovery lock ordering. The existing
+adoption lock is still acquired after read-only topology checks and before
+repository, transaction, or staging publication
+(`cli/src/Onboarding/Adopt.php:538-552`).
 
-The forward transaction is:
+The forward transaction was:
 
 1. Assemble, validate, archive, upload, and inspect a complete generation-marked
    artifact without changing a target.
@@ -173,11 +166,11 @@ operator recovery, as Adopt does today; do not infer a rollback from partial
 state. A fresh installation records the legacy library as absent and never
 creates it.
 
-## Reverse migration and rollback window
+## Historical reverse migration and rollback window
 
-The prior release's installer cannot safely reverse this layout after the flat
-directory has been removed: its current order publishes an old agent before it
-publishes `manifests/`. The cutover therefore requires a retained,
+At cutover, the prior release's installer could not safely reverse this layout
+after the flat directory was removed: that installer published an old agent
+before it published `manifests/`. The cutover therefore required a retained,
 generation-aware bridge installer and a retained prior artifact. This is part
 of the release, not an optional operator convenience.
 
@@ -198,46 +191,34 @@ checkout's unmodified `duo adopt` is not the reverse-migration procedure.
 Retirement of the bridge and prior artifact requires an explicit dated fleet
 decision after the rollback window closes.
 
-## Revocation blocker
+## Durable revocation control
 
-`capabilities/adapter-revocations.json` is currently an operator-installed,
-self-authenticating document under the manifest directory. The code records
-that re-adoption can overwrite it
-(`agent/src/Adapter/AdapterCertification.php:476-495`), and
-`docs/guides/trust-enrollment.md:357-365` records the resulting silent-erasure
-residual.
-
-The flat directory cannot be retired until this document has a durable home
-that live and frozen verification both read, or migration refuses before any
-swap and gives an explicit relocation procedure. It must not be silently
-discarded, copied into an unauthenticated site source, or treated as an adapter
-package file. The same preflight must refuse a target that deliberately selects
-an external `DUO_MANIFESTS_DIR`; ignoring an operator's selected library is not
-a migration.
+Operator revocations live at
+`WPMU_PLUGIN_DIR/duo-control/adapter-revocations.json`, outside the replaceable
+agent and its embedded library. Live and frozen verification read that explicit
+control document alongside the installed `AdapterLibrary`. A target still
+holding the historical flat-library document must first carry a byte-identical
+durable copy; adoption refuses before swap when the migration proof is absent.
+The embedded platform projection refuses an operator revocation member, and no
+runtime directory override or fallback exists.
 
 ## Sandbox and archive evidence
 
-The pair estate currently exports `DUO_AGENT_SRC` and `DUO_MANIFESTS_SRC`
-(`sandbox/lib/pair_identity.sh:39-47`), persists them to Compose configuration
-(`sandbox/lib/pair_compose.sh:62-83`), mounts `/duo-manifests`
-(`sandbox/pair.yml:93-125`), and checks dirtiness only under `agent manifests`
-(`sandbox/bin/pair.sh:325-374`). The package cutover must replace that contract
-with sources for `agent/`, `adapter-packages/`, and `platform/`, verify that all
-baked mounts in both web containers come from the same selected Git worktree,
-and bind candidate evidence to cleanliness across every shipped input.
+The pair estate exports `DUO_AGENT_SRC`, `DUO_ADAPTER_PACKAGES_SRC`, and
+`DUO_PLATFORM_SRC`, persists them to Compose configuration, and checks
+dirtiness across those three candidate roots. Both web containers mount the
+same selected Git worktree, and candidate evidence is bound to cleanliness
+across every shipped input.
 
-Archive evidence must be structural rather than a restated list. The existing
-adapter-kit guard reads the literal tar composition from Adopt
-(`tools/adapter-kit.php:140-170`); the assembler must instead expose a
-machine-readable member projection that the kit guard, release gate, and
-adoption regressions all verify. The invariant remains that the adapter test
-kit and every capsule's tests, fixtures, and evidence do not ship.
+Archive evidence is structural rather than a restated list. The assembler
+exposes a machine-readable member projection that the adapter-kit guard,
+release gate, and adoption regressions verify. The invariant remains that the
+adapter test kit and every capsule's tests, fixtures, and evidence do not ship.
 
-## Gate transition
+## Gates
 
-The architecture cutover itself runs the full current local gate. Scoped
-adapter testing becomes authoritative only after all of the following are
-implemented and self-tested:
+The cutover satisfied the following conditions before package-local iteration
+became authoritative:
 
 1. Capsule and platform discovery are complete and fail closed: no package or
    recognized test file can exist without being selected by a gate.
@@ -259,10 +240,11 @@ implemented and self-tested:
    generated corpus counts, readiness rows, and capability tables—have been
    replaced by checked discovery or package-local sources.
 
-Until those conditions are green and the repository instructions are changed
-explicitly, `make regress-offline-all` remains the unconditional merge gate and
-`make release-gate` remains required. A package-only fast path is iteration
-evidence, not merge authority. Full-project evidence remains mandatory for the
-cutover and for every later change to the engine, platform, package schema,
-assembler, shared SDK or harness, release transaction, or unknown ownership
-boundary.
+For one adapter, `php tools/adapter-package-validate.php --adapter=<slug>` and
+`php tools/adapter-package-tests.php --adapter=<slug>` are the package-local
+iteration path. `make regress-offline-all` remains the unconditional global
+merge gate: its fixed `regress-adapter-packages` leaf dynamically discovers all
+capsules, while the generated corpus covers shared engine/product suites.
+`make release-gate` remains required. Engine, platform, package-schema,
+assembler, shared SDK/harness, release-transaction, unknown, or mixed changes
+escalate beyond a single capsule.

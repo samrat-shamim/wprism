@@ -1,7 +1,8 @@
 # Enrolling a key in the platform trust root
 
 **Read this when** you are about to put a key into
-`manifests/capabilities/adapter-authorities.json` — or rotate one, or burn one
+`platform/adapter-library/capabilities/adapter-authorities.json` — or rotate
+one, or burn one
 after a compromise — and you need to know what that key will be able to do, what
 your signature on it actually asserts, and what it costs to take it back.
 
@@ -12,7 +13,7 @@ your signature on it actually asserts, and what it costs to take it back.
 > [adapter-authoring.md § Your organization's own
 > approval](adapter-authoring.md#your-organizations-own-approval-duo-adapter-certify).
 > This page is about the **platform** trust root instead:
-> `manifests/capabilities/adapter-authorities.json`, the one only this project
+> `platform/adapter-library/capabilities/adapter-authorities.json`, the one only this project
 > can populate, gated on **G4**, and — as stated below — still empty. None of
 > the G4 gating on this page applies to a site adapter certified under its own
 > key.
@@ -26,7 +27,7 @@ run it, and what happens to a fleet when you do.
 
 ## Where this stands today
 
-`manifests/capabilities/adapter-authorities.json` is
+`platform/adapter-library/capabilities/adapter-authorities.json` is
 `{"format":"duo-adapter-authorities/v1","keys":{}}` and **no key has ever been
 enrolled**. Issuing the first one is gate **G4**'s decision, and G4's conditions
 are enumerated with their current truth values [at the bottom of this
@@ -36,7 +37,7 @@ of those two cannot be met by anybody inside this repository.
 Everything below is therefore a **ceremony that has been rehearsed, not
 performed**. It is rehearsed end to end on every run of
 `sandbox/tests/offline/adapter/regress_platform_authority_population.php`, over
-deterministic fixture keys, in a scratch manifest library — through the shipped
+deterministic fixture keys, in an explicitly injected scratch library — through the shipped
 producers (`scripts/adapter-certification.php`) and the shipped reader, never a
 second implementation. That suite re-asserts the shipped file is still the empty
 registry, byte for byte, before it does anything else.
@@ -165,7 +166,7 @@ be strictly before `not_after`.
 
 ```
 php scripts/adapter-certification.php authorities-sign \
-  --authorities=manifests/capabilities/adapter-authorities.json \
+  --authorities=platform/adapter-library/capabilities/adapter-authorities.json \
   --authority=<key-id> --secret-key-file=<0600 file>
 ```
 
@@ -296,8 +297,10 @@ trust comes from the signature, not from the channel.
      --statement=<statement.json> \
      --authority=<platform-key-id> --secret-key-file=<0600 file>
    ```
-3. **Courier it** to `capabilities/adapter-revocations.json` inside each site's
-   manifest library. Any channel; the signature is the integrity.
+3. **Courier it** to
+   `WPMU_PLUGIN_DIR/duo-control/adapter-revocations.json` on each site. This is
+   durable operator control state outside the replaceable agent. Any channel;
+   the signature is the integrity.
 4. **Expect the measured consequences below**, and plan the remedy before you
    send it rather than after.
 5. **Stand down** by removing the document once the affected keys have been
@@ -356,13 +359,12 @@ command run on the site that needs it.
 
 ### Residuals, stated rather than softened
 
-- **`duo adopt` overwrites the revocation document, and the erasure is silent.**
-  The adoption archive is `agent manifests recovery`, so re-adopting an agent
-  replaces the manifest library and takes this file with it. Absence means
-  "nothing is revoked", so a site that lost the document reads exactly like one
-  that never had it: the burnt keys quietly trusted again, with no refusal and no
-  row anywhere. Re-install it after every adopt, or point `DUO_MANIFESTS_DIR` at
-  a library the adoption tar does not overwrite.
+- **Adoption preserves the durable revocation document.** It lives under
+  `duo-control/`, not in the assembled `agent/adapter-library/`. A target that
+  still has the historical flat-library document must first copy it to the
+  durable path byte-for-byte; adoption refuses before cutover when the old and
+  new paths do not prove equal. There is no runtime directory override or
+  fallback.
 - **A revocation signed by a key the site's platform root does not carry is
   inert** — reported by `duo adapter doctor` and not obeyed. Before any
   enrollment, that is the only state a correctly-signed revocation can be in, and

@@ -17,18 +17,22 @@ shell library and has nothing to do with the PHP harness below.)
 for provenance. A suite that only wants a `Policy` object used to hand
 `Policy::from_snapshot()` a `duo-policy-snapshot/v4` envelope, where any
 manifest name absent from `out_of_tree` was granted shipped authority with no
-proof; v4 is now refused by name and v6 compares the frozen manifest against
-`<manifests_dir>/<name>.json`. `FrozenPolicy::envelope()` publishes the
-manifests into a scratch library and points `DUO_MANIFESTS_DIR` at it, so a
-synthetic adapter still loads — over the fail-closed path a real deployment
-uses. Pass its third argument when your suite already owns the library
-(`Policy::load()` coverage, manifest-shipped provider code): it publishes there
-and leaves your `DUO_MANIFESTS_DIR` alone.
+proof; v4 is now refused by name and v6 compares the frozen manifest against an
+explicit `AdapterLibrary`. `FrozenPolicy::envelope()` publishes the manifests
+into caller-owned scratch, while `FrozenPolicy::adapterLibrary()` closes those
+bytes with the active platform documents and hands the resulting library to
+`Policy::from_snapshot()` explicitly. No process environment selects it. Pass
+the third argument when your suite already owns a scratch flat fixture library
+(`Policy::load()` coverage, manifest-shipped provider code); this is a
+test-only historical-layout input, never production discovery.
 
 ## Where your suite goes, and what that costs you in `../`
 
-The corpus root holds no suites. A suite lives in the directory of the
-`Makefile` class that runs it, and the offline class is subdivided by domain:
+The shared corpus root holds no adapter-owned suites. Shared engine/product
+suites live in the directory of the `Makefile` class that runs them; adapter
+suites live under `adapter-packages/<slug>/tests/<class>/` and are discovered
+by the fixed `regress-adapter-packages` aggregate. The shared offline class is
+subdivided by domain:
 
 | class | directory | depth below `sandbox/tests/` | `lib/` from a suite | repo root from a suite |
 | --- | --- | --- | --- | --- |

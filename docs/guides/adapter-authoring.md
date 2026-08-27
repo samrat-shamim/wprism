@@ -7,14 +7,14 @@ touch at all. The engine holds no plugin names and no plugin logic — every
 plugin-specific fact lives in a manifest.
 
 This guide is the authoring loop. The normative format is
-[spec/repo-format.md § Manifests (registry format)](../../spec/repo-format.md#manifests-registry-format),
+[spec/repo-format.md § Adapter manifests (package format)](../../spec/repo-format.md#adapter-manifests-package-format),
 and everything a manifest may declare is enumerated there. Read it alongside
 this page rather than instead of it.
 
 ## What a manifest is, and what it is not
 
-A manifest is a JSON file in the platform repository's `manifests/` directory,
-pinned by name from a site's
+A manifest is `adapter-packages/<name>/package/manifest.json`, inside the
+adapter's source capsule, and is pinned by name from a site's
 [`site.duo.json`](../../spec/repo-format.md#siteduojson). It declares
 classification rules, reference shapes, deletion capability, derived-state
 repair actions, and a compatibility window.
@@ -28,21 +28,28 @@ manifest cannot certify itself merely by existing beside the agent`. See
 ## Directory conventions
 
 ```
-manifests/
-  <name>.json                        # the manifest; basename is the pin name
-  dispositions/<name>.json           # one adapter's reviewed support boundary;
-                                     #   NOT a manifest
-  dispositions/profiles.json         # the reviewed profiles map
-  interpreters/<name>.php            # \Duo\Interpreters\<Name>
-  regenerators/<name>.php            # \Duo\Regenerators\<Name>
-  providers/<id>.php                 # \Duo\Providers\<Id>
-  capabilities/platform.json         # duo-platform-boundary/v1: the ONE platform
-                                     #   /environment boundary, hand-reviewed
-  capabilities/adapter-authorities.json  # duo-adapter-authorities/v1: the
-                                     #   agent-owned trust root; ships {"keys":{}}
+adapter-packages/<name>/
+  package/
+    manifest.json                    # declared adapter policy
+    disposition.json                 # reviewed support boundary; NOT a manifest
+    runtime/
+      interpreters/<name>.php        # \Duo\Interpreters\<Name>
+      regenerators/<name>.php        # \Duo\Regenerators\<Name>
+      providers/<id>.php             # \Duo\Providers\<Id>
+  tests/                             # offline/live/certify/conformance evidence
+  fixtures/
+  evidence/
+
+platform/adapter-library/
+  core/{manifest,disposition}.json
+  profiles.json
+  capabilities/platform.json         # the reviewed platform boundary
+  capabilities/adapter-authorities.json # platform trust root; ships {"keys":{}}
 ```
 
-Both files under `capabilities/` are hand-authored and reviewed, not generated.
+Only `package/` is assembled into the installed agent. Tests, fixtures, and
+evidence stay in the capsule but do not ship. Both platform capability files
+are hand-authored and reviewed, not generated.
 `platform.json` is the object a site-adapter certificate reads its bound
 compatibility cells out of (§ v3.6), so it has exactly one on-disk
 representation; the agent refuses at load time if its
@@ -51,10 +58,10 @@ representation; the agent refuses at load time if its
 
 Four rules that will bite you if you learn them the hard way:
 
-- **The file basename is the pin name, and it is enforced.** `Policy::load()`
-  resolves a pin to `<manifests_dir>/<name>.json`, while the disposition loader
-  keys coverage by file basename and `AdapterRegistry` keys the loaded library
-  by the manifest's own `"name"` field. A disagreement would be one adapter
+- **The capsule name is the pin name, and it is enforced.** `Policy::load()`
+  resolves a pin through the installed `AdapterLibrary`, while package
+  discovery, the reviewed disposition, and `AdapterRegistry` all key the
+  loaded library by the manifest's own `"name"` field. A disagreement would be one adapter
   under two identities, so it is refused the moment the manifest is read — by
   name, with both values:
 
@@ -68,12 +75,10 @@ Four rules that will bite you if you learn them the hard way:
   The same sentence refuses a site-installed adapter (see below), and
   `duo manifest-validate <dir>` reports it per manifest offline, before any
   target is contacted.
-- **`dispositions/` is not matched by manifest globbing.** It is reviewed data
-  *about* manifests, not a manifest. A leftover `dispositions.json` beside it —
-  the pre-WP-4.4 monolith — refuses the load by name rather than being ignored:
-  ratification bytes nothing reads are the failure mode this library refuses
-  everywhere else. Inside the directory, a file not named for a canonical
-  adapter slug refuses too, and `profiles` is reserved for the profiles map.
+- **`package/disposition.json` is not part of the manifest.** It is reviewed
+  data *about* that one declaration. Package validation requires exactly one
+  manifest/disposition pair; profiles remain platform-owned at
+  `platform/adapter-library/profiles.json`.
 - **A regression fixture is marked by its disposition, not by its name.** Give
   it `"status": "excluded"` and the generated document prints it as shipping
   "for regression use only" and carrying no product claim; the projected claim
@@ -83,23 +88,22 @@ Four rules that will bite you if you learn them the hard way:
   generator that read it.
 - **Interpreter, regenerator, and provider code ships with the manifest, not
   the engine.** A declared interpreter name resolves to
-  `manifests/interpreters/<name>.php` and must define
+  `package/runtime/interpreters/<name>.php` inside the same capsule and must define
   `\Duo\Interpreters\<CamelCase(name)>` with
   `post_meta_rule(string $key, array $allMeta): ?array`; it may additionally
   define `term_meta_rule()` and `user_meta_rule()` with the same signature and
   nullable-defer semantics. A regenerator, declared under a post type's
-  `regen_dependency`, resolves to `manifests/regenerators/<name>.php` and must
+  `regen_dependency`, resolves to `package/runtime/regenerators/<name>.php` and must
   define `\Duo\Regenerators\<CamelCase(name)>` with
   `regenerate(int $localId): void`. A manifest-sourced provider resolves to
-  `manifests/providers/<id>.php` and must define
+  `package/runtime/providers/<id>.php` and must define
   `\Duo\Providers\<CamelCase(id)>` with `identity()`, `capabilities()`, and
   `invoke()`. A missing file is a loud load-time error naming the exact path.
 
-That last one is worth stating without euphemism: **Duo loads PHP shipped
-inside the manifests directory today.** The trust argument is not that it
-doesn't — it is that the manifests directory is operator-controlled and deploys
-with the agent itself, so loading code from it is the same trust decision as
-running the agent at all. Content digests strengthen that: all three files —
+That last one is worth stating without euphemism: **Duo loads PHP shipped from
+an adapter capsule's `package/runtime/`.** Adoption embeds that allowlisted
+package projection in `agent/adapter-library/`, so loading it is the same trust
+decision as running the installed agent. Content digests strengthen that: all three files —
 interpreter, manifest-sourced provider, and (since DUO-3360) regenerator — join
 the per-adapter content digest, so editing any of them is a *changed adapter*
 rather than invisible drift behind a stable manifest digest. Two
@@ -133,7 +137,7 @@ implementations can no longer share one manifest revision's identity.
 
 ## The minimal worked example
 
-[`manifests/contact-form-7.json`](../../manifests/contact-form-7.json) is about
+[`adapter-packages/contact-form-7/package/manifest.json`](../../adapter-packages/contact-form-7/package/manifest.json) is about
 as small as a real adapter gets. Stripped of its notes, it is six keys:
 
 ```json
@@ -159,7 +163,8 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
   engine rather than guessing: `duo manifest-validate --emit-schema` prints the
   accepted set in `spec_window`, measured from the shipped refusal.
 - **Two defaults apply, and they are not the same number.** Every shipped
-  manifest today declares `2` (`N-1`) — grep `manifests/*.json` and see zero
+  manifest today declares `2` (`N-1`) — inspect
+  `adapter-packages/*/package/manifest.json` and see zero
   exceptions — because AGENTS.md rule 2 makes editing a working manifest's
   bytes an adapter-identity move: nobody bumps the integer just to bump it, so
   the library sits one behind `DUO_SPEC_VERSION` until an adapter has an actual
@@ -193,8 +198,8 @@ that in O(log releases) instead of by trying versions until one sticks.
 
 ```bash
 duo adapter boundary \
-  --releases=sandbox/conformance/boundary/<slug>.releases.json \
-  --outcomes=sandbox/conformance/boundary/<slug>.outcomes.json \
+  --releases=adapter-packages/<slug>/fixtures/boundary/releases.json \
+  --outcomes=adapter-packages/<slug>/fixtures/boundary/outcomes.json \
   --anchor=<a version you already believe works> \
   --manifest=<name> --format=json
 ```
@@ -208,8 +213,8 @@ rather than fetched — the same discipline package-owned artifact fragments alr
 One probe is a full pair round-trip, so the command is a planner: exit 3 names
 the one release to probe next, exit 0 emits the finished document, and
 `sandbox/bin/adapter-boundary.sh` is the loop that runs the probes in between,
-using the very same `sandbox/tests/certify/matrix.d/<slug>.sh` seed hook the
-certify version matrix uses. Outcomes are `green`, `boot-fatal`,
+using the capsule's own `adapter-packages/<slug>/tests/certify/version-matrix.sh`
+seed hook. Outcomes are `green`, `boot-fatal`,
 `round-trip-diverges` or `artifact-unresolved`; the last blocks the search
 instead of counting as a failing release, because a mirror outage is not
 evidence about a plugin.
@@ -217,8 +222,9 @@ evidence about a plugin.
 **It never edits a manifest, and it is not trying to.** What it produces is the
 sentence a reviewer needs — "6.0.0 installs, round-trips and recaptures
 byte-identically; 5.12.6 fatals with this signature" — plus
-`evidence/artifacts.lock.json` rows in that fragment's three-role vocabulary. Writing the
-range, and restating it in `manifests/dispositions/<name>.json` so the two stay
+`evidence/artifacts.lock.json` rows in that fragment's three-role vocabulary.
+Writing the range, and restating it in the same capsule's
+`package/disposition.json` so the two stay
 Canon-byte-equal, remains one reviewed human edit; every proposed endpoint is a
 release that probed green, and a recorded failure inside the proposed window
 blocks the proposal rather than narrowing it by guess.
@@ -230,7 +236,7 @@ adapter proposals` is the scheduled job that reads it out of the evidence
 instead:
 
 ```bash
-duo adapter proposals --ledger=sandbox/conformance/boundary --format=json > health.json
+duo adapter proposals --ledger=adapter-packages/<slug>/fixtures/boundary --format=json > health.json
 duo census --dir=<inventories> --health=health.json
 ```
 
@@ -239,19 +245,20 @@ ledger, deriving each adapter's anchor from its own newest green probe rather
 than from a flag, and emits two things.
 
 The first is a proposed range bump as **both** edits — `version_range` in the
-manifest and `supported_versions` in `manifests/dispositions/<name>.json` — built from
+manifest and `supported_versions` in the capsule's `package/disposition.json` — built from
 one value, so they agree on the canonical bytes
 `ManifestDispositions::validate_entry()` compares. It is a review packet, never
-a commit: a byte under `manifests/` is adapter identity, so a job that widened a
-range on a schedule would refuse every deployed site holding a compiled
+a commit: a byte under `adapter-packages/<slug>/package/` is adapter identity,
+so a job that widened a range on a schedule would refuse every deployed site holding a compiled
 artifact. `max` moves only as far as the next **recorded** release after the
 evidenced ceiling — exclusive, so it admits nothing unprobed — and a bisection
 that never reached green is refused rather than proposed, as is a range that
 would contain a release the record says fails.
 
 The second is a derived `last_verified` per adapter: the newest release that
-probed green, the same shape `manifests/capabilities/platform.json` uses per
-axis. It lives **outside** `manifests/` on purpose — stored beside a manifest it
+probed green, the same shape
+`platform/adapter-library/capabilities/platform.json` uses per axis. It lives
+**outside** `package/` on purpose — stored beside a manifest it
 would move every adapter digest on every re-verification — and it cannot be
 hand-asserted: a ledger document carrying its own `last_verified` is refused.
 `duo census --health=` ranks those rows beside the demand rank, by sites pinning
@@ -271,7 +278,8 @@ init-owned repository a manifest with `"post_types": {"wpcf7_contact_form":
 entity, and `duo classify` is how a type left local is re-decided later.
 
 For an interpreter-shaped adapter, where meta semantics live in data rather
-than in a static key list, [`manifests/acf.json`](../../manifests/acf.json) is
+than in a static key list,
+[`adapter-packages/acf/package/manifest.json`](../../adapter-packages/acf/package/manifest.json) is
 the reference.
 
 ### Deleting what you author
@@ -297,7 +305,8 @@ it:
 post_revisions, term_relationships; `term`: termmeta, term_taxonomy,
 term_relationships; `menu`: those plus menu_items); `guards` lists the
 reverse references that must be empty before a delete is allowed (`{table,
-column, id_kind, reason}` — `manifests/core.json`'s `post:attachment` shows a
+column, id_kind, reason}` — `platform/adapter-library/core/manifest.json`'s
+`post:attachment` shows a
 comments guard and a child-posts guard). An empty guard list is a claim that
 nothing references the row: make it only when it is true. The T6 walk in
 [docs/grind/adapter-walk.md](../grind/adapter-walk.md) still exercises this
@@ -345,7 +354,7 @@ The proposal is deliberately *not* a manifest fragment. It carries no
 `authority: false`, because a covering index is a necessary condition for a
 deletion contract and never a sufficient one. The example above is Ninja Forms,
 and its shipped `parent_id` columns are unindexed: the honest conclusion is the
-one `manifests/ninja-forms.json` records, that Duo does not advertise
+one `adapter-packages/ninja-forms/package/manifest.json` records, that Duo does not advertise
 `table:nf3_forms` deletion. Deciding that is your job. The report only makes
 sure you are deciding it before an operator meets it.
 
@@ -370,7 +379,7 @@ what maintain a plugin's derived state: indexables, lookup tables, generated
 CSS, blanket caches. A manifest declares that repair **as data**, in a top-level
 `"actions"` list. The full grammar is the "Structured rebuild actions and
 providers" bullet in
-[spec/repo-format.md § Manifests (registry format)](../../spec/repo-format.md#manifests-registry-format);
+[spec/repo-format.md § Adapter manifests (package format)](../../spec/repo-format.md#adapter-manifests-package-format);
 below is the shape of the decision, not the schema.
 
 Every entry declares a `kind`, and choosing between the two is the whole design:
@@ -407,7 +416,8 @@ because pin order must never decide which code runs — and its `plugin` must
 match the manifest's own `plugin` claim, so the executable half stays inside
 the version window the declarative half was certified for.
 
-`"source": "manifest"` is code you ship: `manifests/providers/<id>.php`, under
+`"source": "manifest"` is code you ship:
+`package/runtime/providers/<id>.php`, under
 the same trust boundary as interpreters, digest-bound into the adapter
 identity. `"source": "plugin"` is advertised by the installed plugin itself
 through the `duo_providers` filter and trusted as part of it; that file is
@@ -591,10 +601,10 @@ context. Keep values out of your own messages the same way.
 
 An adapter needing no executable semantics declares neither key and stays purely
 declarative. Most should. For worked examples,
-[`manifests/woocommerce.json`](../../manifests/woocommerce.json) pairs a
+[`adapter-packages/woocommerce/package/manifest.json`](../../adapter-packages/woocommerce/package/manifest.json) pairs a
 manifest-sourced provider with a triggered, effect-declaring native
 `transient.delete`, and the
-[`manifests/duo-agency-cpt.json`](../../manifests/duo-agency-cpt.json) fixture
+[`adapter-packages/duo-agency-cpt/package/manifest.json`](../../adapter-packages/duo-agency-cpt/package/manifest.json) fixture
 shows a plugin-advertised one.
 
 ## Checking the grammar offline
@@ -606,22 +616,24 @@ exposed on its own so you can iterate on a declaration in seconds instead of
 reinstalling an agent to find out you transposed a letter.
 
 ```sh
-duo manifest-validate manifests/
-duo manifest-validate manifests/ --manifest=contact-form-7
-duo manifest-validate manifests/ --pins=core,woocommerce --format=json
-duo manifest-validate manifests/ --site=/path/to/site-repo
+duo manifest-validate .
+duo manifest-validate . --manifest=contact-form-7
+duo manifest-validate . --pins=core,woocommerce --format=json
+duo manifest-validate . --site=/path/to/site-repo
 duo manifest-validate ./untrusted-adapter-package --no-code
 ```
 
-It needs no environment, no database, and no docker. Every manifest in the
-directory is loaded on its own first — so one broken file does not hide the
+It needs no environment, no database, and no docker. The `.` above is the source
+tree containing `adapter-packages/` and `platform/adapter-library/`. Every
+manifest is loaded on its own first — so one broken file does not hide the
 verdict on the other nine — and then the requested pin set is co-loaded, which
 is the only way the cross-manifest guards run at all (one owner per declared
 name, overlapping option namespaces, conflicting plugin claims, duplicate
 provider ids, duplicate table `id_kind`s). `--manifest` narrows what is checked
 individually; `--pins`/`--all` choose the co-loaded set. A declared
 `interpreter` or `regen_dependency.regenerator` is resolved too: the named file
-must exist under `interpreters/`/`regenerators/` in the same directory and must
+must exist under the declaring package's `runtime/interpreters/` or
+`runtime/regenerators/` directory and must
 define the contract class.
 
 Refusals are the engine's own, printed verbatim with their exact coordinates
@@ -631,15 +643,15 @@ paths of everything co-loaded, because a cross-manifest refusal names manifests
 rather than one file. Exit status is `0` when everything is valid, `1` when
 anything is not, and `2` for a usage or IO problem.
 
-### Point it only at a manifests directory you trust
+### Point it only at an adapter library you trust
 
 Resolving a declared interpreter or regenerator means **loading that PHP**: the
 file's top level runs when it is `require`d, and its constructor runs when the
 class contract is checked. There is no way to answer "does this file define
 `\Duo\Interpreters\Acme` with the right method" without doing that. So this
-command is exactly as safe as the directory you point it at — which is the same
-trust decision running the agent itself already makes about its manifests
-directory, no more and no less. Treat a manifests directory as code, not as
+command is exactly as safe as the library you point it at — which is the same
+trust decision running the agent itself makes about its embedded adapter
+library, no more and no less. Treat a source library as code, not as
 data, and do not run this against a package you would not install.
 
 For the one case that boundary does not cover — a **first look at an unfamiliar
@@ -685,7 +697,7 @@ repo (the directory holding `site.duo.json`) and all three guards get their
 real input:
 
 ```sh
-duo manifest-validate manifests/ --site=/path/to/site-repo
+duo manifest-validate . --site=/path/to/site-repo
 ```
 
 Without it, a refusal from any of the three is **annotated**, never rewritten — the
@@ -713,14 +725,14 @@ server can consume directly:
 {
   "format": "duo-manifest-validation/v1",
   "spec_version": 2,
-  "manifests_dir": "/path/to/manifests",
+  "manifests_dir": "/path/to/duo-wp",
   "site": null,
   "code": "resolved",
   "status": "ok",
-  "manifests": [{"name": "core", "file": "/path/to/manifests/core.json",
+  "manifests": [{"name": "core", "file": "/path/to/duo-wp/platform/adapter-library/core/manifest.json",
                  "status": "ok", "message": null}],
   "pinned_set": {"names": ["core"],
-                 "files": {"core": "/path/to/manifests/core.json"},
+                 "files": {"core": "/path/to/duo-wp/platform/adapter-library/core/manifest.json"},
                  "status": "ok", "message": null},
   "deferred": [{"status": "deferred", "surface": "tables",
                 "check": "Snapshot::assert_row_schema() …", "why": "…"}],
@@ -898,8 +910,9 @@ plugin faithfully.
 
 ### Getting the harness those tests need
 
-The archive `duo adopt` sends a site is exactly `agent manifests recovery`, so
-none of Duo's own test estate reaches you. Rather than reinvent it, assemble
+Adoption assembles package and platform sources into
+`agent/adapter-library/`, then sends exactly `agent recovery`; none of Duo's
+test estate reaches the site. Rather than reinvent it, assemble
 the adapter test kit out of a Duo checkout:
 
 ```sh
@@ -1093,10 +1106,11 @@ promotion path from "one site decided this" to "the library declares this",
 and it is deliberately one-directional: nothing reads a manifest back into site
 policy.
 
-Move the emitted JSON into `manifests/<name>.json`, add `plugin`,
+Move the emitted JSON into `adapter-packages/<name>/package/manifest.json`, add `plugin`,
 `version_range`, and the evidence notes by hand, and drop the now-redundant
 site-local rules from `site.duo.json`. Run
-`duo manifest-validate manifests/ --manifest=<name>` on the result before going
+`php tools/adapter-package-validate.php --adapter=<name>` and
+`duo manifest-validate . --manifest=<name>` on the result before going
 further — see [Checking the grammar offline](#checking-the-grammar-offline);
 the hand-added parts are exactly the ones no export path checked.
 
@@ -1319,7 +1333,7 @@ An experimental adapter that deliberately excludes `apply` uses the narrower
 `mode: "capture-plan"` conformance profile instead. It still boots a fresh
 exact-artifact pair, authors state through the plugin's own APIs, runs capture,
 lint, deterministic recapture, capability reporting, and the real structured
-plan path, plus a convention-named `conformance/capture-checks/<name>.sh`.
+plan path, plus a convention-named `tests/conformance/capture-check.sh`.
 It then stops before deploy/apply. This is evidence only for the operations the
 disposition lists; it is not a partial round-trip and cannot justify adding
 `apply`, `deploy`, or `promote` to that list.
@@ -1329,15 +1343,17 @@ grind rounds themselves: `make grind-r1a` (forms — Contact Form 7 + Ninja
 Forms) and `make grind-r1c` (the agency stack — Elementor + ACF + a
 dogfooded CPT plugin). Each script's header states the fixture and the
 finding behind every assertion, and the manifests those rounds produced
-(`manifests/contact-form-7.json`, `manifests/ninja-forms.json`,
-`manifests/elementor.json`) carry the reasoning in their own note strings.
+(`adapter-packages/contact-form-7/package/manifest.json`,
+`adapter-packages/ninja-forms/package/manifest.json`, and
+`adapter-packages/elementor/package/manifest.json`) carry the reasoning in
+their own note strings.
 
 ## Dispositions: the reviewed claim source
 
-`manifests/dispositions/` (`duo-manifest-dispositions/v1`) is separate from
-every manifest **so that declaration cannot imply certification**. Each adapter
-owns one document, `manifests/dispositions/<name>.json`, holding its entry
-verbatim; `manifests/dispositions/profiles.json` holds the profiles map. It is
+Each capsule's `package/disposition.json` (`duo-manifest-dispositions/v1`) is
+separate from `package/manifest.json` **so that declaration cannot imply
+certification**. The document holds that adapter's entry verbatim;
+`platform/adapter-library/profiles.json` holds the profiles map. It is
 hand-authored and reviewed, and it is the *only* authored source of a product
 capability claim: `ManifestDispositions::claim_from_disposition()` projects the
 claim, `AdapterRegistry` evaluates that projection against a live target, and
@@ -1365,7 +1381,7 @@ it renders a line of prose.
 manifest disposition coverage mismatch; missing=[<manifest with no entry>], extra=[<entry with no manifest>]
 ```
 
-So shipping `manifests/<name>.json` without adding its entry does not produce
+So shipping a capsule manifest without its sibling disposition does not produce
 an unreviewed adapter. It produces a red `make release-gate`, and an agent that
 refuses the moment anything pins that name — while every adapter beside it
 keeps loading, which is the point of scoping the runtime half: one unreviewed
@@ -1404,20 +1420,23 @@ generated page can print it.
 Nothing here is an allowlist edit; every step is data or a convention-named
 file.
 
-1. **Write the manifest** at `manifests/<name>.json`. `php cli/duo
-   manifest-validate manifests --manifest=<name>` runs the engine's real
-   validators over it offline, with no WordPress and no environment.
-2. **Add the reviewed entry** at `manifests/dispositions/<name>.json`, with a
+1. **Create the capsule and write its manifest** at
+   `adapter-packages/<name>/package/manifest.json`. `php
+   tools/adapter-package-validate.php --adapter=<name>` closes the package
+   convention and `php cli/duo manifest-validate . --manifest=<name>` runs the
+   engine's real validators offline, with no WordPress or environment.
+2. **Add the reviewed entry** at
+   `adapter-packages/<name>/package/disposition.json`, with a
    `reason` a human wrote. Coverage is exact, so this is not optional
    bookkeeping — see the refusal above.
-3. **Add the conformance checks.** Add
-   `sandbox/conformance/entries/<name>.json` and the mirroring key in
-   `sandbox/conformance/manifests.json` (the entry declares the pin set, the
-   plugin/theme artifacts, and the post types and taxonomies the round trip
-   must preserve), plus any of the three optional hooks the harness invokes if
-   present: `seeds/<name>.sh` before capture, `postdeploy/<name>.sh` between
-   deploy and apply, `checks/<name>.sh` after apply. Pin every plugin/theme
-   version and its SHA-256 in the owning capsule's `evidence/artifacts.lock.json`. Run
+3. **Add deterministic offline coverage** under `tests/offline/`, then run
+   `php tools/adapter-package-tests.php --adapter=<name>`. Package discovery is
+   the wiring; do not add a Makefile leaf or edit the generated corpus.
+4. **Add the conformance checks inside the capsule.** Add
+   `tests/conformance/entry.json` (the entry declares the pin set, artifacts,
+   and state the round trip must preserve), plus convention-named `seed.sh`,
+   `postdeploy.sh`, `postapply.sh`, or `check.sh` hooks as needed. Pin every
+   plugin artifact version and SHA-256 in `evidence/artifacts.lock.json`. Run
    it with:
 
    ```sh
@@ -1426,9 +1445,10 @@ file.
 
    A `certified` entry whose manifest declares a `plugin` must cite
    `conformance-<name>` in its `evidence.tests`, and that citation is only
-   discoverable if `sandbox/conformance/entries/<name>.json` exists —
+   discoverable if
+   `adapter-packages/<name>/tests/conformance/entry.json` exists —
    `sandbox/tests/offline/policy/regress_manifest_dispositions.php` proves both offline.
-4. **Regenerate the public prose** and check it in:
+5. **Regenerate the public prose** and check it in:
 
    ```sh
    php tools/capability-doc.php generate   # rewrites docs/capabilities.md + the README block
@@ -1464,7 +1484,7 @@ duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
 ```
 
 `certify` binds the signed statement to the compatibility CELLS
-`manifests/capabilities/platform.json` states — `spec_version`, `site_mode`, and
+`platform/adapter-library/capabilities/platform.json` states — `spec_version`, `site_mode`, and
 per axis the exercised cell names plus a digest of what each admits (§ v3.6). It
 also RECORDS the shipped `agent_version` inside the signature without binding
 it, so an agent release that moves no exercised cell leaves the certificate
@@ -1523,7 +1543,7 @@ approval the certificate represents**.
 > yourself. It is fully shipped and is almost certainly what you want if you
 > are authoring an adapter for your own site's plugin.
 > [trust-enrollment.md](trust-enrollment.md) is a *different* file:
-> `manifests/capabilities/adapter-authorities.json`, the **platform** trust
+> `platform/adapter-library/capabilities/adapter-authorities.json`, the **platform** trust
 > root this project alone can populate, gated on G4 and, as of this page,
 > still `{"keys":{}}` — nobody has been enrolled there yet. Read
 > trust-enrollment.md only if you are the platform reviewer vetting a *third
@@ -1621,7 +1641,7 @@ edit. That is the mechanism working, not a bug to route around.
 
 **An agent upgrade can withdraw the claim, and only the claim.** The signed
 statement also binds the agent's own platform boundary
-(`manifests/capabilities/platform.json`) and the certificate wire version, and
+(`platform/adapter-library/capabilities/platform.json`) and the certificate wire version, and
 both move on an ordinary agent upgrade. When either no longer matches, that one
 adapter drops back to uncertified with a reason naming what moved — "its signed
 certification binds an agent platform boundary this agent no longer publishes"
@@ -1662,7 +1682,7 @@ asked to sign. Treat it the way you treat the wire-version case: a report about
 a file, and worth looking at the file.
 
 **The revocation channel is inert until a key is enrolled, and it says so.** The
-agent ships `manifests/capabilities/adapter-authorities.json` as an empty
+agent ships `platform/adapter-library/capabilities/adapter-authorities.json` as an empty
 registry, so on a stock agent no key exists that could have signed a revocation
 document. Installing one anyway is not fatal: the document is REPORTED — `duo
 adapter doctor` and `wp duo adapter-survey` print "the document is installed and
@@ -1681,11 +1701,12 @@ snapshot, which holds no repository and therefore reads no
 fingerprint. Revoking only the delegator will look like it worked everywhere you
 can see and will not have.
 
-**Re-adopting an agent erases an installed revocation document.** The document
-lives in the agent's manifest library, which is what `duo adopt` replaces — and
-absence means "nothing is revoked", so the erasure is silent. Re-install it after
-an adopt, or point `DUO_MANIFESTS_DIR` at a library the adoption tar does not
-overwrite.
+**Re-adopting an agent preserves installed revocations.** Operator revocations
+live at `WPMU_PLUGIN_DIR/duo-control/adapter-revocations.json`, outside the
+replaceable agent and its embedded adapter library. A legacy flat-library
+document must first be copied there byte-for-byte; adoption refuses the cutover
+when both paths do not prove equal. There is no runtime library override or
+fallback.
 
 **Key custody is yours.** A lost key cannot re-sign. A leaked key can certify
 any adapter in a repository whose `adapters/authorities.json` names it. Back it
@@ -1773,7 +1794,8 @@ richer bundle — real tests, real artifacts, a real evidence repository:
    `adapter_names` and permitted `trust_tiers`, and the canonical public key —
    the same six-key grammar in both files:
 
-   - the agent-owned `manifests/capabilities/adapter-authorities.json`, which
+   - the platform-owned
+     `platform/adapter-library/capabilities/adapter-authorities.json`, which
      only this project can fill. A certificate under one of its keys is
      `third_party_signed`, trust root `platform`.
    - **the site's own `adapters/authorities.json`**, held by the customer
@@ -1803,12 +1825,12 @@ richer bundle — real tests, real artifacts, a real evidence repository:
 
    ```sh
    php scripts/adapter-certification.php sign \
-     --manifest-dir=manifests --repo=<site-repo> --name=<name> \
+     --manifest-dir=. --repo=<site-repo> --name=<name> \
      --bundle=<bundle-dir> --evidence-repo=<reviewed-checkout> \
      --authority=<key-id> --secret-key-file=<private-key>
 
    php scripts/adapter-certification.php verify \
-     --manifest-dir=manifests --repo=<site-repo> --name=<name>
+     --manifest-dir=. --repo=<site-repo> --name=<name>
    ```
 
    The only site output is the canonical, path-derived
@@ -1828,7 +1850,7 @@ produce, and no step 1 — one command does the whole thing:
 
 ```sh
 php scripts/adapter-certification.php sign-site \
-  --manifest-dir=manifests --repo=<site-repo> --name=<name> \
+  --manifest-dir=. --repo=<site-repo> --name=<name> \
   --authority=<key-id> --secret-key-file=<private-key> \
   --reason='grammar verified by the site operator; not exercised'
 ```
@@ -1864,7 +1886,7 @@ canned sentence on every refusal and leaves `--reason` as your only input, so a
 site that genuinely reviewed its adapter's deletion semantics signed the same
 document as one that reviewed nothing. Pass `--ratification-file=<file>` and
 `certify` signs the disposition **you** wrote — one entry, in the exact shape
-`manifests/dispositions/<name>.json` carries.
+`adapter-packages/<name>/package/disposition.json` carries.
 
 > **The file is the BARE entry, not the `duo-manifest-dispositions/v1`
 > envelope.** Write the object below at the file's top level — no `format`, no
@@ -1873,7 +1895,7 @@ document as one that reviewed nothing. Pass `--ratification-file=<file>` and
 > ([§ v3.17](../../spec/repo-format.md)), which is the same posture as the
 > certificate's path being derived rather than declared. Hand it an envelope and
 > `certify` says so by name and tells you to pass the value at
-> `manifests.<name>` instead. `manifests/dispositions/<name>.json` is itself a
+> `manifests.<name>` instead. A capsule's `package/disposition.json` is itself a
 > bare entry, so a shipped disposition is a copyable starting point as-is.
 
 ```json
@@ -1959,7 +1981,8 @@ out-of-tree rule refuses an `interpreter`, a `regen_dependency.regenerator`
 or a `providers[]` row with `source: "manifest"` in a site adapter, because
 that code lives in the agent's own tree. A copy of a shipped adapter carries
 those declarations already, and they are the shipped grant repeated: an
-override keeps every one that is byte-for-byte what `manifests/<name>.json`
+override keeps every one that is byte-for-byte what
+`adapter-packages/<name>/package/manifest.json`
 declares, and may add or edit none. Widening (a second manifest-sourced
 provider, one more capability on the inherited one, another adapter's
 interpreter) is refused with the override's own remediation — repeat the

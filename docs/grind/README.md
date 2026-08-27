@@ -24,7 +24,10 @@ The `grind-r1a` / `grind-r1b` / `grind-r1c` / `grind-r3a` / `grind-r3b` rounds
 have no document here on purpose: each script *is* its spec, its header states
 the fixture and the finding behind every assertion, and the durable conclusions
 those rounds reached live in the note strings of the manifests they produced
-(`manifests/contact-form-7.json`, `manifests/ninja-forms.json`,
-`manifests/woocommerce.json`, `manifests/polylang.json`,
-`manifests/the-events-calendar.json`, `manifests/paid-memberships-pro.json`) —
+(`adapter-packages/contact-form-7/package/manifest.json`,
+`adapter-packages/ninja-forms/package/manifest.json`,
+`adapter-packages/woocommerce/package/manifest.json`,
+`adapter-packages/polylang/package/manifest.json`,
+`adapter-packages/the-events-calendar/package/manifest.json`,
+`adapter-packages/paid-memberships-pro/package/manifest.json`) —
 which is where a reader with a real question actually needs them.

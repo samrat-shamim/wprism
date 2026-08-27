@@ -335,8 +335,11 @@ it worked for real (hooks fired). `up --codebind` also passes
 G's own script applies to itself).
 
 **`--artifacts`** layers `pair.artifacts.yml` and bootstraps the exact
-Twenty Twenty-One version in `conformance/artifacts.lock.json` from the shared
-digest-addressed ZIP cache. The typed cache identity is
+Twenty Twenty-One version in `platform/artifact-library/artifacts.lock.json`
+from the shared digest-addressed ZIP cache. Adapter-owned plugin pins live in
+`adapter-packages/<slug>/evidence/artifacts.lock.json`; the artifact-library
+loader validates and aggregates those package fragments with the platform
+fragment in memory, refusing duplicate ownership. The typed cache identity is
 `<plugin|theme>-<slug>-<version>-<sha256>.zip`; a per-identity flock means
 concurrent cold callers perform one download, and every cache hit re-hashes
 the bytes before use. **`--wordpress-offline`** additionally maps the
