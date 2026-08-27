@@ -1112,10 +1112,14 @@ $wooMultisiteHarness = (string) file_get_contents(
     dirname(__DIR__) . '/live/regress_woocommerce_multisite_refusal.sh'
 );
 $wooRewriteCoInstallHarness = (string) file_get_contents(
-    $root . '/sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh'
+    $root . '/integration-scenarios/woocommerce-rewrite-coinstall/tests/live/'
+    . 'regress_woocommerce_rewrite_coinstall.sh'
 );
 $wooRewriteCoInstallTopology = json_decode(
-    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-rewrite-coinstall-topology.json'),
+    (string) file_get_contents(
+        $root . '/integration-scenarios/woocommerce-rewrite-coinstall/fixtures/'
+        . 'woocommerce-rewrite-coinstall-topology.json'
+    ),
     true,
     flags: JSON_THROW_ON_ERROR
 );

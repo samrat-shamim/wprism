@@ -7,7 +7,7 @@
 # correctly, using WHATEVER local ids conf2 assigned them (never conf1's),
 # with zero manual pre-provisioning step anywhere in run.sh's own flow —
 # the same live proof already run on the dedicated r3e pair
-# (sandbox/tests/live/regress_pa_attributes.sh), now folded into the ordinary
+# (adapter-packages/woocommerce/tests/live/regress_pa_attributes.sh), now folded into the ordinary
 # conformance sweep.
 #
 # Invoked by conformance/run.sh after a clean apply, from the sandbox/

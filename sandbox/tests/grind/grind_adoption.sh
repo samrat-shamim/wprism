@@ -394,7 +394,7 @@ shop_journeys() {
 }
 
 # create_order <side> <product-id> <email> — one WooCommerce order through the
-# plugin's own API (wc_create_order), as sandbox/conformance/seeds/woocommerce.sh
+# plugin's own API (wc_create_order), as adapter-packages/woocommerce/tests/conformance/seed.sh
 # does; prints the order id.
 create_order() {
   local side="$1" pid="$2" email="$3"

@@ -26,7 +26,10 @@ use DuoTest\WpCliChildRuntime;
 use DuoTest\WpStore;
 
 $coinstallTopology = json_decode(
-    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-rewrite-coinstall-topology.json'),
+    (string) file_get_contents(
+        $root . '/integration-scenarios/woocommerce-rewrite-coinstall/fixtures/'
+        . 'woocommerce-rewrite-coinstall-topology.json'
+    ),
     true,
     flags: JSON_THROW_ON_ERROR
 );
@@ -1484,7 +1487,10 @@ $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs);
 
 $source = (string) file_get_contents($root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php');
 duo_check(str_contains($source, 'use Duo\\WpCliChildProcess;')
-    && str_contains($source, "require_once __DIR__ . '/../../agent/src/Kernel/WpCliChildProcess.php';")
+    && str_contains($source, "\$duoLayoutRoot = dirname(__DIR__, 5);")
+    && str_contains($source, "is_dir(\$duoLayoutRoot . '/agent/src')")
+    && str_contains($source, "basename(\$duoLayoutRoot) === 'agent'")
+    && str_contains($source, "require_once \$duoAgentRoot . '/src/Kernel/WpCliChildProcess.php';")
     && preg_match('/WpCliChildProcess::capture\(\s*\'eval \' \. escapeshellarg\(\$code\),\s*120,\s*16384,\s*16384\s*\)/', $source) === 1
     && !str_contains($source, 'WP_CLI::runcommand('),
     'hierarchy repair owns the reviewed bounded 120-second/16-KiB child transport rather than WP-CLI return=all');

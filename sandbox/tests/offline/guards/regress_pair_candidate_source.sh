@@ -668,8 +668,8 @@ run_parallel_compose_source_pin_case() {
   local identity="$ROOT/sandbox/lib/pair_identity.sh"
   local conformance="$ROOT/sandbox/conformance/run.sh"
   local matrix="$ROOT/sandbox/tests/certify/certify_version_matrix.sh"
-  local woo_multisite="$ROOT/sandbox/tests/live/regress_woocommerce_multisite_refusal.sh"
-  local woo_coinstall="$ROOT/sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh"
+  local woo_multisite="$ROOT/adapter-packages/woocommerce/tests/live/regress_woocommerce_multisite_refusal.sh"
+  local woo_coinstall="$ROOT/integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh"
 
   assert_file_contains "$identity" 'pair_identity_export_source_mounts()' \
     "$label: pair identity has no caller-local mount export"
@@ -715,7 +715,7 @@ run_multisite_passthrough_case() {
 }
 
 say "bash syntax checks"
-bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_budget_lock.sh" "$ROOT/sandbox/lib/pair_force_hatch.sh" "$ROOT/sandbox/lib/pair_db.sh" "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" "$ROOT/sandbox/lib/pair_siterepo.sh" "$ROOT/sandbox/conformance/run.sh" "$ROOT/sandbox/tests/certify/certify_version_matrix.sh" "$ROOT/sandbox/tests/live/regress_multisite_refusal.sh" "$ROOT/sandbox/tests/live/regress_woocommerce_multisite_refusal.sh" "$ROOT/sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh" \
+bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_budget_lock.sh" "$ROOT/sandbox/lib/pair_force_hatch.sh" "$ROOT/sandbox/lib/pair_db.sh" "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" "$ROOT/sandbox/lib/pair_siterepo.sh" "$ROOT/sandbox/conformance/run.sh" "$ROOT/sandbox/tests/certify/certify_version_matrix.sh" "$ROOT/sandbox/tests/live/regress_multisite_refusal.sh" "$ROOT/adapter-packages/woocommerce/tests/live/regress_woocommerce_multisite_refusal.sh" "$ROOT/integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh" \
   "$ROOT/sandbox/tests/offline/guards/regress_pair_candidate_source.sh"
 command -v git >/dev/null 2>&1 || fail "git is required for the linked-worktree fixture"
 assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_identity.sh"' \

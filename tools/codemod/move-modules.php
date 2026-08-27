@@ -1665,9 +1665,6 @@ function mm_scanner_fixes(): array
         'sandbox/tests/offline/policy/regress_manifest_validate.php' => [
             [MM_MV_ENGINE_GLOB_OLD, MM_MV_ENGINE_GLOB_NEW, 1],
         ],
-        'sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php' => [
-            [MM_WOO_SCAN_OLD, MM_WOO_SCAN_NEW, 1],
-        ],
         'sandbox/tests/offline/capture/regress_capture_refactor_boundaries.php' => [
             [MM_REFACTOR_READ_OLD, MM_REFACTOR_READ_NEW, 1],
         ],
