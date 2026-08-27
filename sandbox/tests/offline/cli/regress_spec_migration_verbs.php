@@ -82,7 +82,7 @@ register_shutdown_function(static function () use ($removeTree, $root): void {
 mkdir($root, 0755, true);
 
 /**
- * Run the real `duo` as a subprocess with an explicit manifest library.
+ * Run the real `duo` as a subprocess with an explicit adapter library.
  *
  * @param list<string> $args
  * @return array{exit:int,out:string,err:string}
@@ -92,11 +92,11 @@ function mv_duo(array $args, string $manifestDir): array {
     $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
     $pipes = [];
     $process = proc_open(
-        array_merge([PHP_BINARY, $duoRoot . '/cli/duo'], $args),
+        array_merge([PHP_BINARY, $duoRoot . '/cli/duo'], $args, ['--adapter-library=' . $manifestDir]),
         $descriptors,
         $pipes,
         null,
-        ['PATH' => (string) getenv('PATH'), 'HOME' => (string) getenv('HOME'), 'DUO_MANIFESTS_DIR' => $manifestDir]
+        ['PATH' => (string) getenv('PATH'), 'HOME' => (string) getenv('HOME')]
     );
     if (!is_resource($process)) {
         return ['exit' => -1, 'out' => '', 'err' => 'cannot start duo'];
@@ -122,14 +122,18 @@ function mv_library(string $dir, int $spec, string $agentVersion): void {
     global $duoRoot;
     mkdir($dir . '/capabilities', 0755, true);
     mkdir($dir . '/dispositions', 0755, true);
-    copy($duoRoot . '/manifests/core.json', $dir . '/core.json');
-    copy($duoRoot . '/manifests/dispositions/core.json', $dir . '/dispositions/core.json');
+    foreach (['interpreters', 'providers', 'regenerators'] as $runtime) {
+        mkdir($dir . '/' . $runtime, 0755, true);
+    }
+    copy($duoRoot . '/platform/adapter-library/core/manifest.json', $dir . '/core.json');
+    copy($duoRoot . '/platform/adapter-library/core/disposition.json', $dir . '/dispositions/core.json');
+    copy($duoRoot . '/platform/adapter-library/profiles.json', $dir . '/dispositions/profiles.json');
 
     // The shipped boundary with EXACTLY the two members rule 8 binds moved.
     // Every compatibility axis is copied byte for byte, because the exercised
     // cells inside a signed statement are read out of these bytes (§ v3.6) and
     // a re-authored axis would sign against a platform no agent runs.
-    $platform = Canon::decode(Canon::read_file($duoRoot . '/manifests/capabilities/platform.json'));
+    $platform = Canon::decode(Canon::read_file($duoRoot . '/platform/adapter-library/capabilities/platform.json'));
     $platform['platform']['spec_version'] = $spec;
     $platform['platform']['agent_version'] = $agentVersion;
     Canon::write_file($dir . '/capabilities/platform.json', Canon::encode($platform));
@@ -209,17 +213,17 @@ $minterSource = "<?php\ndeclare(strict_types=1);\n"
     . "define('DUO_SPEC_VERSION', " . (DUO_SPEC_VERSION - 1) . ");\n"
     . "define('DUO_AGENT_VERSION', '0.5.0');\n"
     . "function is_multisite(): bool { return false; }\n"
-    . 'putenv(' . var_export('DUO_MANIFESTS_DIR=' . $priorLib, true) . ");\n"
-    . "require " . var_export($duoRoot . '/agent/src/Kernel/Canon.php', true) . ";\n"
-    . "require " . var_export($duoRoot . '/agent/src/Kernel/OptionState.php', true) . ";\n"
-    . "require " . var_export($duoRoot . '/agent/src/Policy/Policy.php', true) . ";\n"
-    . "require " . var_export($duoRoot . '/agent/src/Adapter/AdapterCertification.php', true) . ";\n"
+    . 'require ' . var_export($duoRoot . '/agent/src/Kernel/Canon.php', true) . ";\n"
+    . 'require ' . var_export($duoRoot . '/agent/src/Kernel/OptionState.php', true) . ";\n"
+    . 'require ' . var_export($duoRoot . '/agent/src/Policy/Policy.php', true) . ";\n"
+    . 'require ' . var_export($duoRoot . '/agent/src/Adapter/AdapterCertification.php', true) . ";\n"
     . '$repo = ' . var_export($repo, true) . ";\n"
     . '$lib = ' . var_export($priorLib, true) . ";\n"
+    . '$library = \\Duo\\AdapterLibrary::fromLegacyFlatDirectory($lib);' . "\n"
     . '$secret = ' . var_export(base64_encode($secret), true) . ";\n"
     . '$keyId = ' . var_export($keyId, true) . ";\n"
     . 'foreach (' . var_export($adapters, true) . " as \$name) {\n"
-    . "    \$cert = \\Duo\\AdapterCertification::sign_site(\$lib, \$repo, \$name, \$keyId, \$secret,\n"
+    . "    \$cert = \\Duo\\AdapterCertification::sign_site(\$library, \$repo, \$name, \$keyId, \$secret,\n"
     . "        'The site organization approves these exact adapter bytes.');\n"
     . "    \\Duo\\Canon::write_file(\$repo . '/adapters/certifications/' . \$name . '.json', \$cert);\n"
     . "}\n"

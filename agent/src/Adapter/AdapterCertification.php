@@ -1386,24 +1386,17 @@ final class AdapterCertification {
      * a file-scope edge would make otherwise independent offline entry points
      * order-sensitive.
      *
-     * The manifest directory must be the one this process would load anyway.
-     * A verdict judged against a different library than the verifier will use
-     * is not a verdict about anything.
+     * The exact AdapterLibrary supplied to signing is also supplied to Policy.
+     * That object is the physical inventory the certificate verifier consumes;
+     * joining it to a process-global path would silently judge another library.
      */
     private static function siteGrammarVerdict(string|AdapterLibrary $manifestDir, string $repo, string $name): string {
         require_once __DIR__ . '/../Policy/Policy.php';
-        $resolvedDeclared = realpath(self::manifestRoot($manifestDir));
-        $resolvedLoaded = realpath(self::manifestRoot(Policy::adapter_library_context()));
-        if ($resolvedDeclared === false || $resolvedLoaded === false
-            || !hash_equals($resolvedLoaded, $resolvedDeclared)) {
-            throw new \RuntimeException(
-                'duo: site adapter certification must be signed against the manifest library this process loads ('
-                . ($resolvedLoaded === false ? '(unresolvable)' : $resolvedLoaded) . '), not '
-                . ($resolvedDeclared === false ? '(unresolvable)' : $resolvedDeclared)
-            );
-        }
+        $library = $manifestDir instanceof AdapterLibrary
+            ? $manifestDir
+            : AdapterLibrary::fromLegacyFlatDirectory($manifestDir);
         try {
-            Policy::load($repo, [$name]);
+            Policy::load($repo, [$name], false, null, $library);
         } catch (\Throwable $t) {
             throw new \RuntimeException(
                 "duo: site adapter '$name' does not load, so there is no grammar verdict to certify: "

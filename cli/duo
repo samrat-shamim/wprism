@@ -326,6 +326,7 @@ Usage:
                       [--key-id=<id>] [--reason=<text>]
                       [--ratification-file=<f>] [--pin [--adopt-scope]]
   duo adapter recertify <site-repo> --secret-key-file=<f> [--format=json]
+                        [--adapter-library=<source-or-archive-root>]
   duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
   duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
   duo adapter boundary --releases=<release-list.json> --anchor=<version>
@@ -366,6 +367,7 @@ Usage:
   duo release --spec-v3 <site-repo> [--artifact=<artifact.json>]
                     [--scope-contract=<scope-contract.json>]
                     [--snapshot=<snapshot.json>] [--format=json]
+                    [--adapter-library=<source-or-archive-root>]
   duo verify  <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
   duo recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded]
                     [--operator-directed] [--limit=<1..200>] [--format=json]
@@ -661,6 +663,10 @@ Verbs:
     <site-repo>           under the key each certificate already names, in one
     --secret-key-file=<f> idempotent invocation. The flag day's remedy: a
     [--format=json]       certificate binds `spec_version` inside its signed
+    [--adapter-library=<root>]
+                          Use one explicit source, embedded, or historical-flat
+                          library instead of the checkout default; no process
+                          environment can redirect the production library.
                           statement, so every certificate minted before the v3
                           bump withdraws to `uncertified` (a named degradation
                           — the adapter keeps loading, capture and plan stay
@@ -1150,7 +1156,11 @@ Verbs:
     [--scope-contract=<f>]  1. Enumerate what the bump reaches on THIS site by
     [--snapshot=<f>]           calling `adapter doctor --migration`'s own
     [--format=json]            preflight — never a second answer to the same
-                               question. The optional --artifact /
+    [--adapter-library=<root>]  question. An explicit source, embedded, or
+                               historical-flat library is accepted for a
+                               reviewed archive migration; the process
+                               environment never selects one.
+                               The optional --artifact /
                                --scope-contract / --snapshot are the documents
                                a deployed site holds and git does not; each one
                                omitted becomes a `deferred` row naming the flag
@@ -1963,7 +1973,7 @@ function render_command_refusal_human(array $refusal): void {
         // operator was told to inspect evidence nobody had told them existed;
         // CommandOutput::redactedRefusalEvidenceHint() already names the same
         // place for the transport-detail path (DUO-3496).
-        fwrite(STDERR, "details: redacted from machine output; inspect private operator evidence"
+        fwrite(STDERR, 'details: redacted from machine output; inspect private operator evidence'
             . " under the target site repository's .duo/refusals/\n");
     }
 }
