@@ -5,8 +5,10 @@ namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Policy/AdapterLibrary.php';
 require_once __DIR__ . '/ApplicationContract.php';
 
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\CommandRefusalException;
 
@@ -302,7 +304,7 @@ final class ContractAttestation {
         string $keyId,
         string $secret,
         array $claim,
-        ?string $manifestDir = null
+        string|AdapterLibrary|null $manifestDir = null
     ): array {
         self::assertSodium();
         self::assertKeyId($keyId);
@@ -362,7 +364,7 @@ final class ContractAttestation {
     public static function verify(
         array $document,
         string $siteRepo,
-        ?string $manifestDir = null,
+        string|AdapterLibrary|null $manifestDir = null,
         ?int $now = null
     ): array {
         self::assertSodium();
@@ -466,11 +468,8 @@ final class ContractAttestation {
      * than array, because an array projection re-encodes an empty object as
      * `[]` and would hash different bytes than the certificate path does.
      */
-    public static function currentPlatformDigest(?string $manifestDir = null): string {
-        $directory = $manifestDir !== null && $manifestDir !== ''
-            ? $manifestDir
-            : dirname(__DIR__, 3) . '/manifests';
-        $file = rtrim($directory, '/') . '/' . self::PLATFORM_RELATIVE;
+    public static function currentPlatformDigest(string|AdapterLibrary|null $manifestDir = null): string {
+        $file = self::platformPath($manifestDir);
         $raw = is_file($file) ? @file_get_contents($file) : false;
         if ($raw === false) {
             throw self::refuse(
@@ -490,6 +489,20 @@ final class ContractAttestation {
         }
 
         return hash('sha256', Canon::encode($typed->platform));
+    }
+
+    /**
+     * Resolve production through AdapterLibrary while retaining the explicit
+     * string spelling used by custom migration fixtures during this phase.
+     */
+    private static function platformPath(string|AdapterLibrary|null $manifestDir): string {
+        if ($manifestDir instanceof AdapterLibrary) {
+            return $manifestDir->platformBoundaryPath();
+        }
+        $directory = $manifestDir !== null && $manifestDir !== ''
+            ? $manifestDir
+            : dirname(__DIR__, 3) . '/manifests';
+        return rtrim($directory, '/') . '/' . self::PLATFORM_RELATIVE;
     }
 
     private static function signedBytes(string $attestedDigest): string {

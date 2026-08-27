@@ -7,6 +7,9 @@ namespace Duo;
 // (assert_out_of_tree_contract()) is reached from four entry points that do
 // not otherwise share a require.
 require_once __DIR__ . '/IdentityNamespaces.php';
+// The object-based shipped source owns package paths; direct partial loads of
+// this scanner cannot rely on Policy.php or agent/duo.php to have loaded it.
+require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 
 /**
  * Where each pinned adapter came from, and what that origin is allowed to do.
@@ -503,6 +506,12 @@ final class AdapterSources {
      */
     private string $manifestDir;
     /**
+     * The closed shipped-library inventory used by object-based callers. Null
+     * preserves the public custom-directory path, whose deliberately looser
+     * fixture grammar predates AdapterLibrary.
+     */
+    private ?AdapterLibrary $adapterLibrary;
+    /**
      * Memoized has_reviewed_registry(). A property of a directory this instance
      * already scanned, asked up to three times per policy (AdapterRegistry's
      * readiness, provider and capability paths each call diagnostics()).
@@ -533,9 +542,11 @@ final class AdapterSources {
         array $provenance,
         array $certificates = [],
         array $claims = [],
-        array $scanReport = []
+        array $scanReport = [],
+        ?AdapterLibrary $adapterLibrary = null
     ) {
         $this->manifestDir = $manifestDir;
+        $this->adapterLibrary = $adapterLibrary;
         $this->origins = $origins;
         $this->provenance = $provenance;
         $this->certificates = $certificates;
@@ -584,6 +595,30 @@ final class AdapterSources {
     }
 
     /**
+     * Discover against AdapterLibrary's closed physical inventory. Shipped
+     * origins come from package objects; the string entry point above remains
+     * available for registry-free custom manifest directories.
+     */
+    public static function discover_library(AdapterLibrary $library, ?string $repo): self {
+        $refusals = [];
+        $scan = self::scan($library->root(), $repo, false, $refusals, $library);
+        return new self(
+            $library->root(),
+            $scan['origins'],
+            $scan['provenance'],
+            $scan['certificates'],
+            $scan['claims'],
+            [
+                'not_installed' => $scan['not_installed'],
+                'refusals' => $refusals,
+                'refused_names' => $scan['refused_names'],
+                'sources' => $scan['sources'],
+            ],
+            $library
+        );
+    }
+
+    /**
      * WHAT THE SCAN'S ANSWER IS A FUNCTION OF — the inputs a memo of it has to
      * key on (WP-1.3).
      *
@@ -616,23 +651,43 @@ final class AdapterSources {
      * @return array{anchors:list<string>, files:list<string>, plugins:list<string>}
      */
     public static function scan_dependencies(string $manifestDir, ?string $repo): array {
-        $anchored = self::scan_anchors($manifestDir, $repo);
+        return self::scan_dependencies_from($manifestDir, $repo, null);
+    }
+
+    /**
+     * @return array{anchors:list<string>, files:list<string>, plugins:list<string>}
+     */
+    public static function scan_dependencies_library(AdapterLibrary $library, ?string $repo): array {
+        return self::scan_dependencies_from($library->root(), $repo, $library);
+    }
+
+    /**
+     * @return array{anchors:list<string>, files:list<string>, plugins:list<string>}
+     */
+    private static function scan_dependencies_from(
+        string $manifestDir,
+        ?string $repo,
+        ?AdapterLibrary $adapterLibrary
+    ): array {
+        $anchored = self::scan_anchors_from($manifestDir, $repo, $adapterLibrary);
         $library = rtrim($manifestDir, '/');
         // The platform boundary is not an adapter and is not matched by the
         // adapter glob, but Policy's own load precondition reads it
         // (ManifestDispositions::platform_boundary()), so a memo that outlived
         // a change to it would answer with a boundary the process no longer
         // enforces.
-        $files = array_merge(
-            array_values(glob($library . '/*.json') ?: []),
-            // One reviewed entry per file since WP-4.4. The monolith was
-            // matched by the adapter glob above and skipped by name; the
-            // directory is not matched at all, so a memo that did not witness
-            // these bytes would answer with a disposition an operator had
-            // already revised.
-            glob($library . '/dispositions/*.json') ?: [],
-            glob($library . '/capabilities/*.json') ?: []
-        );
+        $files = $adapterLibrary === null
+            ? array_merge(
+                array_values(glob($library . '/*.json') ?: []),
+                // One reviewed entry per file since WP-4.4. The monolith was
+                // matched by the adapter glob above and skipped by name; the
+                // directory is not matched at all, so a memo that did not witness
+                // these bytes would answer with a disposition an operator had
+                // already revised.
+                glob($library . '/dispositions/*.json') ?: [],
+                glob($library . '/capabilities/*.json') ?: []
+            )
+            : $adapterLibrary->scanFiles();
         if ($repo !== null) {
             $root = rtrim($repo, '/');
             $siteDir = $root . '/' . self::SITE_DIR;
@@ -675,6 +730,20 @@ final class AdapterSources {
      * @return array{anchors:list<string>, plugins:list<string>}
      */
     public static function scan_anchors(string $manifestDir, ?string $repo): array {
+        return self::scan_anchors_from($manifestDir, $repo, null);
+    }
+
+    /** @return array{anchors:list<string>, plugins:list<string>} */
+    public static function scan_anchors_library(AdapterLibrary $library, ?string $repo): array {
+        return self::scan_anchors_from($library->root(), $repo, $library);
+    }
+
+    /** @return array{anchors:list<string>, plugins:list<string>} */
+    private static function scan_anchors_from(
+        string $manifestDir,
+        ?string $repo,
+        ?AdapterLibrary $adapterLibrary
+    ): array {
         $library = rtrim($manifestDir, '/');
         // `dispositions` is a DIRECTORY since WP-4.4 (ManifestDispositions::
         // DIRECTORY names it; spelled literally here for the reason the two
@@ -685,7 +754,9 @@ final class AdapterSources {
         // in scan_dependencies() covers an in-place rewrite that churns no
         // entry. Anchoring the retired `dispositions.json` instead would have
         // left a memo that never notices a reviewed claim changing.
-        $anchors = [$library, $library . '/dispositions', $library . '/capabilities'];
+        $anchors = $adapterLibrary === null
+            ? [$library, $library . '/dispositions', $library . '/capabilities']
+            : $adapterLibrary->scanAnchors();
         if ($repo !== null) {
             $root = rtrim($repo, '/');
             $siteDir = $root . '/' . self::SITE_DIR;
@@ -741,10 +812,25 @@ final class AdapterSources {
      * @param array<int, array<string,mixed>> $refusals collected in $collect mode
      * @return array{origins:array<string,array>, provenance:array<string,array>, manifests:array<string,array>, not_installed:list<array<string,mixed>>, refused_names:array<string,array<string,mixed>>, sources:list<array<string,mixed>>}
      */
-    private static function scan(string $manifestDir, ?string $repo, bool $collect, array &$refusals): array {
+    private static function scan(
+        string $manifestDir,
+        ?string $repo,
+        bool $collect,
+        array &$refusals,
+        ?AdapterLibrary $adapterLibrary = null
+    ): array {
         $origins = [];
-        foreach (glob(rtrim($manifestDir, '/') . '/*.json') ?: [] as $file) {
-            $name = basename($file, '.json');
+        $shippedFiles = [];
+        if ($adapterLibrary === null) {
+            foreach (glob(rtrim($manifestDir, '/') . '/*.json') ?: [] as $file) {
+                $shippedFiles[basename($file, '.json')] = $file;
+            }
+        } else {
+            foreach ($adapterLibrary->packages() as $package) {
+                $shippedFiles[$package->name()] = $package->manifestPath();
+            }
+        }
+        foreach ($shippedFiles as $name => $file) {
             if ($name === 'dispositions') {
                 continue;
             }
@@ -824,6 +910,7 @@ final class AdapterSources {
         ]];
         self::scan_site_source(
             $manifestDir,
+            $adapterLibrary,
             $repo,
             $collect,
             $declaredNames,
@@ -881,6 +968,7 @@ final class AdapterSources {
      */
     private static function scan_site_source(
         string $manifestDir,
+        ?AdapterLibrary $adapterLibrary,
         ?string $repo,
         bool $collect,
         callable $declaredNames,
@@ -893,6 +981,7 @@ final class AdapterSources {
         array &$notInstalled,
         array &$sources
     ): void {
+        $shippedLibrary = $adapterLibrary ?? $manifestDir;
         if ($repo === null) {
             $sources[] = [
                 'note' => 'no site repository was named, so this process surveyed the shipped library alone; '
@@ -1129,7 +1218,7 @@ final class AdapterSources {
                 self::REFUSAL_CERTIFICATION_SOURCE,
                 [self::SITE_DIR . '/' . self::SITE_DELEGATIONS_FILE],
                 'repair the delegation document, or remove it and keep these adapters as uncertified support',
-                static fn() => AdapterCertification::assert_site_delegations($manifestDir, $repo)
+                static fn() => AdapterCertification::assert_site_delegations($shippedLibrary, $repo)
             );
         }
         sort($siteFiles, SORT_STRING);
@@ -1377,7 +1466,9 @@ final class AdapterSources {
                     $relative,
                     'site adapter',
                     false,
-                    isset($overridePins[$name]) ? self::shipped_executable_grants($manifestDir, $name) : null
+                    isset($overridePins[$name])
+                        ? self::shipped_executable_grants_from($manifestDir, $adapterLibrary, $name)
+                        : null
                 )
             )) {
                 continue;
@@ -1411,10 +1502,10 @@ final class AdapterSources {
                 [self::SITE_DIR . '/' . self::CERTIFICATION_DIR . "/$name.json", $relative],
                 'obtain a certificate signed by an authority this agent trusts, or remove the companion and keep '
                     . 'the adapter as uncertified support',
-                static function () use ($manifestDir, $repo, $name, $manifest, $certificateFile, &$verified, &$superseded, &$withdrawn): void {
+                static function () use ($shippedLibrary, $repo, $name, $manifest, $certificateFile, &$verified, &$superseded, &$withdrawn): void {
                     try {
                         $verified = AdapterCertification::verifyFile(
-                            $manifestDir,
+                            $shippedLibrary,
                             $repo,
                             $name,
                             $manifest,
@@ -3898,8 +3989,36 @@ final class AdapterSources {
      *
      * @return ?array{interpreter:mixed,regenerators:array<string,mixed>,providers:array<string,array<string,mixed>>}
      */
-    public static function shipped_executable_grants(string $manifestDir, string $name): ?array {
+    public static function shipped_executable_grants(string|AdapterLibrary $manifestDir, string $name): ?array {
+        if ($manifestDir instanceof AdapterLibrary) {
+            $package = $manifestDir->package($name);
+            return $package === null ? null : self::shipped_executable_grants_file($package->manifestPath());
+        }
         $file = rtrim($manifestDir, '/') . '/' . $name . '.json';
+        return self::shipped_executable_grants_file($file);
+    }
+
+    /**
+     * Resolve a namesake's shipped executable grants without reconstructing its
+     * physical manifest path outside AdapterLibrary.
+     *
+     * @return ?array{interpreter:mixed,regenerators:array<string,mixed>,providers:array<string,array<string,mixed>>}
+     */
+    private static function shipped_executable_grants_from(
+        string $manifestDir,
+        ?AdapterLibrary $adapterLibrary,
+        string $name
+    ): ?array {
+        if ($adapterLibrary === null) {
+            return self::shipped_executable_grants($manifestDir, $name);
+        }
+        return self::shipped_executable_grants($adapterLibrary, $name);
+    }
+
+    /**
+     * @return ?array{interpreter:mixed,regenerators:array<string,mixed>,providers:array<string,array<string,mixed>>}
+     */
+    private static function shipped_executable_grants_file(string $file): ?array {
         if (!is_file($file) || is_link($file)) {
             return null;
         }
@@ -4021,7 +4140,9 @@ final class AdapterSources {
             // A site adapter that answers to a shipped name is, by
             // construction, the reviewed override (any other site copy of a
             // shipped name is refused at scan), so its namesake's grants apply.
-            $source === self::SITE ? self::shipped_executable_grants(Policy::manifests_dir(), $name) : null
+            $source === self::SITE
+                ? self::shipped_executable_grants_from($this->manifestDir, $this->adapterLibrary, $name)
+                : null
         );
     }
 
@@ -4280,7 +4401,9 @@ final class AdapterSources {
         $dispositions = null;
         if (class_exists(ManifestDispositions::class)) {
             try {
-                $dispositions = ManifestDispositions::load($this->manifestDir);
+                $dispositions = $this->adapterLibrary === null
+                    ? ManifestDispositions::load($this->manifestDir)
+                    : ManifestDispositions::load_library($this->adapterLibrary);
             } catch (\Throwable $t) {
                 $dispositions = null;
             }

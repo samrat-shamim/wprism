@@ -246,7 +246,7 @@ final class InitPlanner {
         // stopped being a whole-directory check. These are the adapters this
         // site actually installed, which is the set a proposal may be built
         // from.
-        $fse = self::fse_profile_scope(null, null, array_keys($manifests));
+        $fse = self::fse_profile_scope(null, null, array_keys($manifests), $policy);
         if ($fse !== null) {
             if ($fse['scope'] !== null) {
                 $postTypes = array_merge($postTypes, $fse['scope']['post_types']);
@@ -940,7 +940,8 @@ final class InitPlanner {
     public static function fse_profile_scope(
         ?bool $blockTheme = null,
         ?array $profiles = null,
-        ?array $manifestNames = null
+        ?array $manifestNames = null,
+        ?Policy $policy = null
     ): ?array {
         $blockTheme ??= function_exists('wp_is_block_theme') && wp_is_block_theme();
         if (!$blockTheme) {
@@ -949,7 +950,13 @@ final class InitPlanner {
         $stylesheet = function_exists('get_option') ? (string) get_option('stylesheet', '') : '';
         if ($profiles === null) {
             try {
-                $dispositions = ManifestDispositions::load(Policy::manifests_dir());
+                // plan() already resolved the exact library while selecting its
+                // adapters. Reuse that physical boundary so profiles cannot be
+                // read from a second directory if DUO_MANIFESTS_DIR moves in
+                // the same process; the null path preserves this public pure
+                // helper's existing test/partial-load contract.
+                $dir = $policy === null ? Policy::manifests_dir() : $policy->adapter_library()->root();
+                $dispositions = ManifestDispositions::load($dir);
                 $profiles = $dispositions === null ? [] : $dispositions->profiles();
             } catch (\Throwable $t) {
                 $profiles = [];

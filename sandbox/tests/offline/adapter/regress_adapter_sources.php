@@ -62,6 +62,7 @@ require_once __DIR__ . '/../../../../agent/src/Policy/ArtifactPolicyIdentity.php
 require __DIR__ . '/certification_fixture.php';
 
 use Duo\AdapterSources;
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\Policy;
 use Duo\RepositoryCompiler;
@@ -304,6 +305,31 @@ check(
     && hash_equals($fixtureDispositions->sha256(), hash('sha256', Canon::encode($shippedRegistry))),
     'registry_sha256 addresses exactly the shipped manifests/dispositions/ bytes reassembled, read through the real '
     . 'loader — the number did not move when WP-4.4 split the document'
+);
+
+$adapterLibrary = AdapterLibrary::fromDirectory($shippedDir);
+$packageManifestPaths = [];
+foreach ($adapterLibrary->packages() as $package) {
+    $packageManifestPaths[$package->name()] = $package->manifestPath();
+}
+$librarySources = AdapterSources::discover_library($adapterLibrary, null);
+$librarySourcePaths = [];
+foreach ($librarySources->names() as $name) {
+    $librarySourcePaths[$name] = $librarySources->path($name);
+}
+check(
+    $librarySourcePaths === $packageManifestPaths,
+    'object discovery gets every shipped origin from AdapterPackage::manifestPath(), with no parallel flat-tree walk'
+);
+$libraryDependencies = AdapterSources::scan_dependencies_library($adapterLibrary, null);
+check(
+    $libraryDependencies['anchors'] === $adapterLibrary->scanAnchors()
+        && $libraryDependencies['files'] === $adapterLibrary->scanFiles(),
+    'object dependency discovery uses AdapterLibrary scan anchors and files as its complete shipped witness'
+);
+check(
+    AdapterSources::scan_anchors_library($adapterLibrary, null)['anchors'] === $adapterLibrary->scanAnchors(),
+    'the cheap object memo witness uses AdapterLibrary scan anchors directly'
 );
 
 // ======================================================================

@@ -4,11 +4,17 @@ declare(strict_types=1);
 
 namespace Duo\Tests\Adapter;
 
+use Duo\AdapterCertification;
 use Duo\AdapterLibrary;
+use Duo\ManifestDispositions;
+use Duo\Orchestrator\ContractAttestation;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
 require_once dirname(__DIR__, 2) . '/agent/src/Policy/AdapterLibrary.php';
+require_once dirname(__DIR__, 2) . '/agent/src/Policy/ManifestDispositions.php';
+require_once dirname(__DIR__, 2) . '/agent/src/Adapter/AdapterCertification.php';
+require_once dirname(__DIR__, 2) . '/cli/src/Contract/ContractAttestation.php';
 
 /** Pin the closed physical inventory before any production consumer adopts it. */
 final class AdapterLibraryTest extends TestCase
@@ -51,6 +57,35 @@ final class AdapterLibraryTest extends TestCase
         $this->assertContains(realpath($root . '/providers/redirection-state.php'), $library->scanFiles());
         $this->assertSame($root . '/capabilities/adapter-revocations.json', $library->revocationsPath());
         $this->assertNotContains($library->revocationsPath(), $library->scanFiles());
+    }
+
+    public function testTrustConsumersUseObjectPathsWithoutMovingCurrentValues(): void
+    {
+        $root = dirname(__DIR__, 2) . '/manifests';
+        $library = AdapterLibrary::fromDirectory($root);
+        $legacyDispositions = ManifestDispositions::load($root);
+
+        $this->assertNotNull($legacyDispositions);
+        $this->assertSame(
+            $legacyDispositions->sha256(),
+            ManifestDispositions::load_library($library)->sha256()
+        );
+        $this->assertSame(
+            ManifestDispositions::platform_boundary($root),
+            ManifestDispositions::platform_boundary_library($library)
+        );
+        $this->assertSame(
+            AdapterCertification::hasAuthorities($root),
+            AdapterCertification::hasAuthorities($library)
+        );
+        $this->assertSame(
+            AdapterCertification::revocation_channel($root),
+            AdapterCertification::revocation_channel($library)
+        );
+        $this->assertSame(
+            ContractAttestation::currentPlatformDigest($root),
+            ContractAttestation::currentPlatformDigest($library)
+        );
     }
 
     public function testPackagePathsFollowDecodedRuntimeDeclarationsWithoutRewritingManifest(): void

@@ -1650,6 +1650,31 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "discover_library": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "library",
+                            "type": "Duo\\AdapterLibrary",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\AdapterSources",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "export": {
                     "abstract": false,
                     "final": false,
@@ -1893,6 +1918,31 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "scan_anchors_library": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "library",
+                            "type": "Duo\\AdapterLibrary",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "scan_dependencies": {
                     "abstract": false,
                     "final": false,
@@ -1918,6 +1968,31 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "scan_dependencies_library": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "library",
+                            "type": "Duo\\AdapterLibrary",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "shipped_executable_grants": {
                     "abstract": false,
                     "final": false,
@@ -1927,7 +2002,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "manifestDir",
-                            "type": "string",
+                            "type": "Duo\\AdapterLibrary|string",
                             "variadic": false
                         },
                         {
@@ -18212,6 +18287,14 @@
                             "name": "manifestNames",
                             "type": "?array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "policy",
+                            "type": "?Duo\\Policy",
+                            "variadic": false
                         }
                     ],
                     "return_type": "?array",
@@ -21076,6 +21159,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "load_library": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "library",
+                            "type": "Duo\\AdapterLibrary",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\ManifestDispositions",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "narrowed_environment": {
                     "abstract": false,
                     "final": false,
@@ -21111,6 +21211,23 @@
                             "has_default": true,
                             "name": "dir",
                             "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "platform_boundary_library": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "library",
+                            "type": "Duo\\AdapterLibrary",
                             "variadic": false
                         }
                     ],
@@ -28395,7 +28512,7 @@
                             "default": null,
                             "has_default": true,
                             "name": "manifestDir",
-                            "type": "?string",
+                            "type": "Duo\\AdapterLibrary|string|null",
                             "variadic": false
                         }
                     ],
@@ -28485,7 +28602,7 @@
                             "default": null,
                             "has_default": true,
                             "name": "manifestDir",
-                            "type": "?string",
+                            "type": "Duo\\AdapterLibrary|string|null",
                             "variadic": false
                         }
                     ],
@@ -28518,7 +28635,7 @@
                             "default": null,
                             "has_default": true,
                             "name": "manifestDir",
-                            "type": "?string",
+                            "type": "Duo\\AdapterLibrary|string|null",
                             "variadic": false
                         },
                         {

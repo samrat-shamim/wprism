@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/AdapterLibrary.php';
+
 /**
  * External ratification data for the shipped manifest library.
  *
@@ -136,14 +138,29 @@ final class ManifestDispositions {
     /** @var ?array<string,mixed> the profiles map, decoded once */
     private ?array $profiles;
 
+    /** @var ?array<string,string> subject => AdapterLibrary-owned disposition path */
+    private ?array $documentPaths;
+
+    /** AdapterLibrary-owned profiles path, or null for the legacy string source. */
+    private ?string $profilesPath;
+
     /**
      * @param ?list<string>         $names    prefilled for a frozen snapshot, null to resolve from disk
      * @param ?array<string,mixed>  $profiles prefilled for a frozen snapshot, null to resolve from disk
+     * @param ?array<string,string> $documentPaths exact object-owned document paths, null for string resolution
      */
-    private function __construct(string $dir, ?array $names, ?array $profiles) {
+    private function __construct(
+        string $dir,
+        ?array $names,
+        ?array $profiles,
+        ?array $documentPaths = null,
+        ?string $profilesPath = null
+    ) {
         $this->dir = $dir;
         $this->names = $names;
         $this->profiles = $profiles;
+        $this->documentPaths = $documentPaths;
+        $this->profilesPath = $profilesPath;
     }
 
     /**
@@ -219,6 +236,35 @@ final class ManifestDispositions {
     }
 
     /**
+     * Load the production reviewed source through its closed library object.
+     *
+     * The string entry point above remains the custom-library authoring
+     * contract during the preparatory phase. Production callers hand over the
+     * inventory they already validated, so neither profiles nor per-subject
+     * dispositions are rediscovered by joining physical path spellings here.
+     */
+    public static function load_library(AdapterLibrary $library): self {
+        $paths = [];
+        foreach ($library->packages() as $package) {
+            $paths[$package->name()] = $package->dispositionPath();
+        }
+        ksort($paths, SORT_STRING);
+        $names = array_keys($paths);
+        $self = new self(
+            dirname($library->profilesPath()),
+            $names,
+            null,
+            $paths,
+            $library->profilesPath()
+        );
+        $profiles = $self->profiles();
+        if ($profiles !== []) {
+            self::validate_profiles($profiles, $names);
+        }
+        return $self;
+    }
+
+    /**
      * The subjects this source declares — the directory listing, never a
      * decode, so the AUTHORING question ("which adapters are reviewed here")
      * costs one readdir and the RUNTIME question ("is this pin reviewed")
@@ -271,6 +317,12 @@ final class ManifestDispositions {
     private function document(string $name): array {
         if (array_key_exists($name, $this->documents)) {
             return $this->documents[$name];
+        }
+        if ($this->documentPaths !== null) {
+            $file = $this->documentPaths[$name] ?? null;
+            return $this->documents[$name] = $file !== null
+                ? [true, Canon::decode(Canon::read_file($file))]
+                : [false, null];
         }
         if ($this->dir === '') {
             // A frozen snapshot carries every document it will ever have.
@@ -410,7 +462,7 @@ final class ManifestDispositions {
         self::validate_profiles($data['profiles'], array_keys($data['manifests']));
         $names = array_map('strval', array_keys($data['manifests']));
         sort($names, SORT_STRING);
-        $self = new self('', $names, $data['profiles']);
+        $self = new self('', $names, $data['profiles'], []);
         foreach ($data['manifests'] as $name => $entry) {
             $self->documents[(string) $name] = [true, $entry];
         }
@@ -458,8 +510,8 @@ final class ManifestDispositions {
         if ($this->profiles !== null) {
             return $this->profiles;
         }
-        $file = $this->dir . '/' . self::PROFILES_DOCUMENT . '.json';
-        if ($this->dir === '' || !is_file($file)) {
+        $file = $this->profilesPath ?? ($this->dir . '/' . self::PROFILES_DOCUMENT . '.json');
+        if (($this->dir === '' && $this->profilesPath === null) || !is_file($file)) {
             return $this->profiles = [];
         }
         $decoded = Canon::decode(Canon::read_file($file));
@@ -493,6 +545,16 @@ final class ManifestDispositions {
      */
     public static function platform_boundary(?string $dir = null): array {
         $file = rtrim($dir ?? self::manifests_dir(), '/') . '/' . self::PLATFORM_RELATIVE;
+        return self::platform_boundary_file($file);
+    }
+
+    /** Resolve the production boundary only through AdapterLibrary's accessor. */
+    public static function platform_boundary_library(AdapterLibrary $library): array {
+        return self::platform_boundary_file($library->platformBoundaryPath());
+    }
+
+    /** @return array<string,mixed> */
+    private static function platform_boundary_file(string $file): array {
         $label = "agent platform boundary '$file'";
         if (!is_file($file)) {
             throw new \RuntimeException("duo: $label is absent; this manifest library declares no platform boundary");

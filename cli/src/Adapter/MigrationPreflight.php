@@ -407,7 +407,7 @@ final class MigrationPreflight {
         }
 
         $site = basename($repo);
-        $certificates = self::certificates($repo, $manifestDir, $site, $state);
+        $certificates = self::certificates($repo, $manifestDir, $policy, $site, $state);
         $adapters = self::adapters($resolved, $targetClaimAgent);
         $identity = self::identity($site, $compiled, $held['artifact'], $policy, $adapters, $state);
         $contracts = self::contracts($repo, $manifestDir, (string) $report['target']['registry_sha256'], $state);
@@ -496,7 +496,13 @@ final class MigrationPreflight {
      * @param array<string,mixed> $state
      * @return list<array<string,mixed>>
      */
-    private static function certificates(string $repo, string $manifestDir, string $site, array &$state): array {
+    private static function certificates(
+        string $repo,
+        string $manifestDir,
+        ?Policy $policy,
+        string $site,
+        array &$state
+    ): array {
         $directory = $repo . '/' . AdapterSources::SITE_DIR . '/' . AdapterSources::CERTIFICATION_DIR;
         if (!is_dir($directory)) {
             return [];
@@ -521,8 +527,12 @@ final class MigrationPreflight {
         // ever disagreed the gate answers false and every SITE certificate — the
         // only kind an operator mints — still gets its reachability answer from
         // the site root below. The shipped root is empty on every shipped build.
-        $platformKeyIds = AdapterCertification::hasAuthorities($manifestDir)
-            ? self::authorityKeyIds($manifestDir . '/capabilities/adapter-authorities.json')
+        $authoritySource = $policy === null ? $manifestDir : $policy->adapter_library();
+        $authoritiesPath = $policy === null
+            ? $manifestDir . '/capabilities/adapter-authorities.json'
+            : $policy->adapter_library()->authoritiesPath();
+        $platformKeyIds = AdapterCertification::hasAuthorities($authoritySource)
+            ? self::authorityKeyIds($authoritiesPath)
             : [];
 
         $rows = [];
