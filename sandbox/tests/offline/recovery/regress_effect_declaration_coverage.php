@@ -16,7 +16,7 @@
  *
  * WHAT THIS SUITE PINS
  * --------------------
- *  1. THE MEASURED BASELINE. The 16 shipped adapters score clean over a fixture
+ *  1. THE MEASURED BASELINE. The 17 shipped adapters score clean over a fixture
  *     DERIVED from the tree — every surface they declare as an effect selector,
  *     as an `option:`/`table:` action trigger, as an exact option, or as a
  *     declared table. Not a hand-written journal: a hand-written one would only
@@ -26,7 +26,7 @@
  *  2. Under-declaration is NAMED, with its table and item, against observed
  *     journal rows.
  *  3. Over-declaration is NAMED as `unexercised` — and `unexercised` is
- *     EXPLICITLY NOT AN ERROR: a journal with nothing in it produces 64
+ *     EXPLICITLY NOT AN ERROR: a journal with nothing in it produces 102
  *     unexercised declarations, zero findings, and a document that returns.
  *  4. A MISSING journal is a TYPED REFUSAL. The failure this closes is a report
  *     that reads an absent table as zero rows and publishes a perfect clean
@@ -41,9 +41,9 @@
  * WHAT THIS SUITE DELIBERATELY DOES NOT PIN
  * -----------------------------------------
  * That the scorer is COMPLETE. The journal sees database writes only, so of the
- * 248 effect rows the shipped library projects, 64 carry a `database_checkpoint`
- * selector and 184 select external hooks, cache namespaces and provider
- * resources that no journal row can confirm or refute. Eight of the sixteen
+ * 385 effect rows the shipped library projects, 102 carry a `database_checkpoint`
+ * selector and 283 select external hooks, cache namespaces and provider
+ * resources that no journal row can confirm or refute. Eight of the seventeen
  * adapters declare no journal-observable effect at all. That is reported as
  * `scorable => false` rather than as a clean score, and asserted below, because
  * the honest answer to "can this become blocking?" has to start from how much
@@ -54,7 +54,9 @@
  * seventh scorable adapter, and its production-ready manifest plus core.json's
  * widened rewrite action added 56 effect rows of which only 8 are
  * journal-observable. The reviewed Polylang production-readiness port then
- * added 5 effects, 2 journal-observable, and the eighth scorable adapter. The
+ * added 5 effects, 2 journal-observable, and the eighth scorable adapter.
+ * Redirection adds 3 projected effects, 1 journal-observable, and becomes the
+ * ninth scorable adapter. The
  * clean sheet -- 0 findings -- survived both widenings unchanged, and that,
  * not the totals, is the property this suite asserts.
  */
@@ -64,7 +66,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
 
-define('DUO_SPEC_VERSION', 2);
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/CommandRefusal.php';
@@ -88,10 +91,10 @@ foreach (glob($root . '/manifests/*.json') ?: [] as $file) {
     }
 }
 sort($shipped, SORT_STRING);
-// AGENTS.md's repo map says "16 adapters in all". Every count below is stated
-// per-adapter, so a seventeenth manifest arriving silently would shift them all
+// AGENTS.md's repo map says "17 adapters in all". Every count below is stated
+// per-adapter, so an eighteenth manifest arriving silently would shift them all
 // without naming itself.
-duo_check_same(16, count($shipped), 'the shipped manifest library is the 16 adapters the baseline is measured over');
+duo_check_same(17, count($shipped), 'the shipped manifest library is the 17 adapters the baseline is measured over');
 
 $policy = Policy::load(null, $shipped, true);
 
@@ -178,24 +181,24 @@ function edc_adapter(array $report, string $name): array {
     return [];
 }
 
-echo "\n== the measured baseline: the 16 shipped adapters over a derived fixture ==\n";
+echo "\n== the measured baseline: the 17 shipped adapters over a derived fixture ==\n";
 
 $fixture = edc_derived_fixture($policy);
-duo_check_same(619, count($fixture), 'the derived fixture is every database surface the 16 shipped adapters declare');
+duo_check_same(625, count($fixture), 'the derived fixture is every database surface the 17 shipped adapters declare');
 
 $baseline = EffectDeclarationCoverage::from_facts($policy, ['rows' => $fixture]);
 
 duo_check_same(EffectDeclarationCoverage::FORMAT, $baseline['format'], 'the report names its versioned format');
-duo_check_same(16, $baseline['totals']['adapters'], 'every pinned adapter gets a row, scorable or not');
-duo_check_same(382, $baseline['totals']['declared_effects'], 'the declared side is Policy::effects_inventory() in full');
-duo_check_same(101, $baseline['totals']['observable_effects'], '101 of the 382 declared effects carry a database_checkpoint selector');
-duo_check_same(8, $baseline['totals']['scorable_adapters'], 'only 8 of 16 adapters declare a journal-observable effect at all');
+duo_check_same(17, $baseline['totals']['adapters'], 'every pinned adapter gets a row, scorable or not');
+duo_check_same(385, $baseline['totals']['declared_effects'], 'the declared side is Policy::effects_inventory() in full');
+duo_check_same(102, $baseline['totals']['observable_effects'], '102 of the 385 declared effects carry a database_checkpoint selector');
+duo_check_same(9, $baseline['totals']['scorable_adapters'], 'only 9 of 17 adapters declare a journal-observable effect at all');
 
 // THE NUMBER THE RISK FIELD ASKS TO BE PUBLISHED. 0 findings over 2178 scored
 // (adapter, surface) judgements on the shipped library: the noise floor a
 // later argument about making this blocking has to start from.
-duo_check_same(0, $baseline['totals']['outside_declaration'], 'the 16 shipped adapters score clean: no observed write falls outside every declared effect');
-duo_check_same(3554, $baseline['baseline']['scored_surfaces'], 'the published rate is measured over 3554 scored (adapter, surface) judgements');
+duo_check_same(0, $baseline['totals']['outside_declaration'], 'the 17 shipped adapters score clean: no observed write falls outside every declared effect');
+duo_check_same(3572, $baseline['baseline']['scored_surfaces'], 'the published rate is measured over 3572 scored (adapter, surface) judgements');
 duo_check_same(0, $baseline['baseline']['outside_declaration_surfaces'], 'no scored judgement produced a finding');
 duo_check_same(0.0, $baseline['baseline']['outside_declaration_rate'], 'the published false-positive baseline over the shipped library is 0.0000');
 duo_check_same([], $baseline['unattributed'], 'every derived surface is claimed by at least one adapter territory');
@@ -216,9 +219,9 @@ foreach ($baseline['adapters'] as $row) {
     }
 }
 duo_check_same(
-    ['core', 'elementor', 'ninja-forms', 'polylang', 'the-events-calendar', 'woocommerce', 'yoast', 'yoast-duplicate-post'],
+    ['core', 'elementor', 'ninja-forms', 'polylang', 'redirection', 'the-events-calendar', 'woocommerce', 'yoast', 'yoast-duplicate-post'],
     $scorable,
-    'the eight scorable adapters are named, so the eight silent ones cannot be summed as clean'
+    'the nine scorable adapters are named, so the eight silent ones cannot be summed as clean'
 );
 $acf = edc_adapter($baseline, 'acf');
 duo_check_same(false, $acf['scorable'], 'an adapter with no journal-observable effect reports scorable=false');
@@ -231,7 +234,7 @@ duo_check_same(2, $polylang['observable_effects'], 'two Polylang effects are dat
 duo_check_same(2, $polylang['exercised_effects'], 'the derived fixture exercises both Polylang database effects');
 
 $woo = edc_adapter($baseline, 'woocommerce');
-duo_check_same(271, $woo['declared_effects'], 'woocommerce declares 271 of the 382 effect rows');
+duo_check_same(271, $woo['declared_effects'], 'woocommerce declares 271 of the 385 effect rows');
 duo_check_same(77, $woo['observable_effects'], '77 of them are journal-observable');
 duo_check_same(77, $woo['exercised_effects'], 'the derived fixture exercises every one of them');
 duo_check_same([], $woo['unexercised_effects'], 'nothing is left unexercised when every declared surface is written');
@@ -292,7 +295,7 @@ echo "\n== an over-declared effect is NAMED as unexercised, and that is not an e
 // unexercised; nothing is a finding. Treating this as a defect would punish
 // exactly the over-declaration this report exists to reward.
 $empty = EffectDeclarationCoverage::from_facts($policy, ['rows' => []]);
-duo_check_same(101, $empty['totals']['unexercised'], 'all 101 journal-observable declarations report unexercised against an empty journal');
+duo_check_same(102, $empty['totals']['unexercised'], 'all 102 journal-observable declarations report unexercised against an empty journal');
 duo_check_same(0, $empty['totals']['outside_declaration'], 'unexercised is NOT an error: an empty journal produces zero findings');
 duo_check_same(false, $empty['blocking'], 'the document still says it blocks nothing');
 duo_check_same(null, $empty['baseline']['outside_declaration_rate'], 'a rate over zero scored surfaces is null, never a fabricated 0');

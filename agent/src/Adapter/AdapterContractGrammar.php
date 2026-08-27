@@ -23,6 +23,9 @@ require_once __DIR__ . '/../Policy/ManifestGrammar.php';
 // leaf in Grammar (JsonRefs/ReferenceRules/Secrets, all Kernel), so this costs
 // the same one stat and cannot circle back through this file.
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
+// Redirection's action_data column is the measured mixed serialized/text
+// demand; this leaf owns the value-vocabulary feature name that gates it.
+require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 // Circular with Policy.php's require_once of this file: safe because
 // require_once records the currently included path before the nested require
 // is reached, while these methods only resolve Policy at call time.
@@ -92,7 +95,7 @@ final class AdapterContractGrammar {
      * N/N-1 acceptance window plus the declaration channel itself. That is what
      * makes the channel a live product path on the day it ships rather than an
      * admissibility argument — the failure mode `authored_typed_snapshot_
-     * post_v1` demonstrates, which is declared by nothing across all 16 shipped
+     * post_v1` demonstrates, which is declared by nothing across all 17 shipped
      * manifests.
      *
      * After `spec-window/v1`, FOUR post-v3 features shipped through this
@@ -117,8 +120,9 @@ final class AdapterContractGrammar {
      *     invent one would put a section in the manifest bytes for the sake of
      *     the record's shape.
      *
-     * All are keyed at `since` 3 and declared by no shipped manifest, so no
-     * adapter digest moves (AGENTS.md rule 2). The whole cost of each was one
+     * All are keyed at `since` 3. Redirection is the first shipped declarer of
+     * the codec/evidence rows, so its digest alone contains those declarations;
+     * existing adapter digests do not move (AGENTS.md rule 2). The whole cost of each was one
      * row in this constant plus its validating collaborator — the entire claim
      * § v3.12 makes when it says the window may one day close: the replacement
      * for a flag day has been walked, four times, before the flag day is
@@ -189,6 +193,14 @@ final class AdapterContractGrammar {
         'typed-column-codecs/v1' => [
             'since' => 3,
             'keys' => ['column_codecs' => 'field'],
+        ],
+        // Redirection 5.9.0 stores a plain URL, a serialized conditional map,
+        // or NULL in one action_data column. This claims no new top-level key:
+        // it widens the container vocabulary inside column_codecs, while the
+        // existing typed-column-codecs/v1 feature still claims that section.
+        ColumnCodecGrammar::MIXED_FEATURE => [
+            'since' => 3,
+            'keys' => [],
         ],
         // WP-6.2, and the first entry that claims NO top-level key: it widens a
         // VALUE vocabulary inside a section that already exists

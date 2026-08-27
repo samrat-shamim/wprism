@@ -280,6 +280,26 @@
       "blocked": {},
       "not_applicable": {}
     },
+    "redirection": {
+      "readiness": "ready",
+      "covered": {
+        "contract-dependency": ["manifests/redirection.json", "manifests/providers/redirection-state.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/offline/adapter/regress_redirection_adapter.php", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "clean-target": ["sandbox/conformance/entries/redirection.json", "sandbox/conformance/seeds/redirection.sh", "sandbox/conformance/checks/redirection.sh"],
+        "dirty-target": ["sandbox/conformance/postdeploy/redirection.sh", "sandbox/conformance/postapply/redirection.sh", "sandbox/conformance/checks/redirection.sh"],
+        "identity-references": ["manifests/redirection.json", "sandbox/conformance/seeds/redirection.sh", "sandbox/conformance/postdeploy/redirection.sh", "sandbox/conformance/checks/redirection.sh"],
+        "native-behavior": ["sandbox/conformance/seeds/redirection.sh", "sandbox/conformance/checks/redirection.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "derived-state": ["manifests/providers/redirection-state.php", "sandbox/tests/offline/adapter/regress_redirection_adapter.php", "sandbox/conformance/checks/redirection.sh"],
+        "deletion": ["manifests/dispositions/redirection.json", "sandbox/tests/offline/adapter/regress_redirection_adapter.php"],
+        "failure-recovery": ["manifests/providers/redirection-state.php", "sandbox/tests/offline/adapter/regress_redirection_adapter.php", "sandbox/conformance/checks/redirection.sh", "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"],
+        "concurrency-idempotence": ["sandbox/conformance/checks/redirection.sh", "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"],
+        "lifecycle": ["sandbox/conformance/checks/redirection.sh", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "data-boundary": ["agent/src/Grammar/ColumnCodecGrammar.php", "manifests/redirection.json", "sandbox/conformance/seeds/redirection.sh", "sandbox/conformance/checks/redirection.sh", "sandbox/tests/offline/grammar/regress_column_codec_grammar.php"],
+        "scope-platform": ["manifests/redirection.json", "manifests/providers/redirection-state.php", "sandbox/conformance/checks/redirection.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
+      },
+      "gaps": {},
+      "blocked": {},
+      "not_applicable": {}
+    },
     "the-events-calendar": {
       "readiness": "ready",
       "covered": {

@@ -768,12 +768,12 @@ what it did and did not move.
 
 **What "v3 is in force" means, stated precisely, because it is easy to over-read.** It means the WIRE
 VERSION IS 3 and the acceptance window is therefore `{2, 3}`. It does NOT mean anything was re-stamped:
-every one of the 16 shipped manifests still declares `spec_version: 2`, every deployed repository still
-declares whatever its adopting agent wrote, and both keep loading — which is precisely why not one
+the 16 manifests that existed at the flip still declare `spec_version: 2`, while Redirection — authored
+after the flip — is the first shipped `spec_version: 3` adapter. Deployed repositories still declare
+whatever their adopting agent wrote, and both versions keep loading — which is precisely why not one existing
 adapter digest, `manifest_hash`, content pin or compiled artifact moved on the flag day. A rule in this
 section gated at `spec_version: 3` is now REACHABLE through the product path, and it reaches exactly the
-documents that declare 3: today that is none of the shipped library and no repository that has not been
-deliberately migrated.
+documents that declare 3: today that is Redirection plus any repository deliberately migrated.
 
 Four rules were already in force before the bump — the acceptance window and the `engine_features`
 channel (§ v3.1, § v3.2), environment narrowing (§ v3.5) and authority record v2 (§ v3.7) — and that was
@@ -882,8 +882,8 @@ letter drops a plugin's authored rows out of canonical state.
 
 **Rider: WP-4.2. Enforced today: yes.** `AdapterContractGrammar::IMPLEMENTED_FEATURES` is the engine-owned
 vocabulary, `validate_adapter_contract()` refuses a declared name it does not carry, and register row R-19
-records what a name costs once one is declared. No shipped manifest declares the key — that is § v3.12's
-no-restamp rule, not an empty channel: the key is a v3-only section (§ v3.1), so it is declarable exactly
+records what a name costs once one is declared. Redirection is the first shipped manifest to declare the
+key; § v3.12's no-restamp rule still keeps every pre-existing adapter byte-identical. The key is a v3-only section (§ v3.1), so it is declarable exactly
 when a manifest can declare `spec_version` 3, which is the flip.
 
 A manifest may declare `"engine_features": ["<feature>", …]`, a sorted, duplicate-free, non-empty list of
@@ -899,7 +899,7 @@ its name, the first `spec_version` its sections exist at, and the top-level keys
 constant in the engine, because a feature that is implemented while its section is unknown (or the
 reverse) is precisely the silent mis-read the channel exists to remove.
 
-This engine implements five features, and the first one is what the other four ride:
+This engine implements seven features, and the first one is what the other six ride:
 
 - **`spec-window/v1`** — the acceptance window of § v3.1 and this channel itself, claiming the
   `engine_features` key from `spec_version` 3. It is a real entry, not a placeholder — the channel's own
@@ -910,11 +910,15 @@ This engine implements five features, and the first one is what the other four r
 - **`typed-column-codecs/v1`** (WP-6.1) — claims `column_codecs` from `spec_version` 3: per typed table,
   per authored column, `{container, leaves}`, both members required and both vocabularies closed. It
   decodes the column's container, rewrites its string leaves and re-encodes with correct length prefixes.
+- **`mixed-column-codecs/v1`** — claims no additional top-level key. It admits the
+  `php_serialized_or_text` container inside `column_codecs` for a measured column that stores canonical
+  PHP-serialized containers, plain text, and SQL `NULL`. Serialized-looking malformed bytes and values of
+  any other type refuse; the strict `php_serialized` container keeps its original semantics.
 - **`attr-id-codecs/v1`** (WP-6.1) — claims `attr_id_codecs` from `spec_version` 3: per block, per
   attribute path, `{id_type}`, a closed vocabulary of one member (`string`). It decides the JSON type a
   resolved entity id is written back as, instead of normalising every id to an integer.
 
-**The last two are the evidence for the claim this section makes.** They are the first grammar this engine
+**`typed-column-codecs/v1` and `attr-id-codecs/v1` are the evidence for the claim this section makes.** They are the first grammar this engine
 grew after v3, they shipped through this channel and NOTHING ELSE, and `DUO_SPEC_VERSION` is still 3 —
 asserted by `sandbox/tests/offline/grammar/regress_column_codec_grammar.php` and
 `sandbox/tests/offline/grammar/regress_attr_id_codec_grammar.php`, which also walk each section's three
@@ -924,9 +928,9 @@ Neither is a new addressing surface: one refines how a declared `tables.<t>.colu
 other how a declared `block_attrs` rule re-encodes. Both are nonetheless TOP-LEVEL keys, because a field
 nested inside an existing section cannot be staged — an engine that predates it would ignore the field and
 carry the plugin's bytes into canonical state unchanged, which is exactly the silent mis-read this channel
-converts into a named refusal. No shipped manifest declares either (§ v3.12's no-restamp rule), so no
-adapter digest moved; `tools/engine-gaps.json` records the demand each one closed and the coordinates that
-stayed open beside it.
+converts into a named refusal. Redirection is the first shipped manifest to declare the typed and mixed
+codec features; pre-existing manifests remain byte-identical. `tools/engine-gaps.json` records the demand
+each one closed and the coordinates that stayed open beside it.
 - **`structured-evidence/v1`** (WP-6.4, § v3.14) — claims `declaration_evidence` from `spec_version` 3:
   the typed sibling of `notes` carrying per-declaration `{source, locator, observation}` evidence rows and
   answered questions, keyed by the declaration they justify. The first section added AFTER v3 shipped —
@@ -942,17 +946,6 @@ VALUE vocabulary inside `tables.<t>.invalidate[]`, a section that already exists
 empty and § v3.3's partition does not move. The channel gates the value the same way it would gate a
 section — declared-and-implemented admits it, declared-and-unimplemented refuses by feature name — which
 is what let a grammar change ship after the flip with nothing re-stamped (§ v3.15).
-
-This engine implements two features. **`spec-window/v1`** is the acceptance window of § v3.1 and this
-channel itself, claiming the `engine_features` key from `spec_version` 3. It is a real entry, not a
-placeholder — the channel's own requirement is that one feature the engine IMPLEMENTS exists on the day it
-ships, so that "declared and implemented admits the claimed key" is a path something walks rather than an
-argument about admissibility. That path is walked in
-`sandbox/tests/offline/policy/regress_spec_window.php` against a synthetic `spec_version` 3 engine, which
-is the only place it can be walked before the flip. **`invalidate-vocabulary/v1`** is § v3.15's, and it is
-the first to arrive through the channel rather than beside it. Because `spec-window/v1` is what claims the
-`engine_features` key, a manifest reaching any other feature declares BOTH names — the channel's own
-admission is not free, and that is the growth rule working rather than an awkwardness in it.
 
 Feature names are engine-owned: an adapter may declare one, never mint one. A name nothing implements is
 refused as unimplemented rather than admitted as forward-looking — the honest-refusal posture, which is
@@ -1064,11 +1057,11 @@ manifests/dispositions/<name>.json     # one document per adapter, the entry ver
 manifests/dispositions/profiles.json   # the profiles map, keyed independently of the manifest glob
 ```
 
-17 documents, 1,203 lines, 52,108 bytes — the same entries, the same profile, re-indented as 17 roots
+18 documents, 1,269 lines, 54,602 bytes — the same entries, the same profile, re-indented as 18 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
-review, all without changing the split topology.)
+review, followed by the newly authored Redirection subject, all without changing the split topology.)
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
 is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day
@@ -1161,9 +1154,8 @@ uncertified adapters could use would be no channel at all.
 whole boundary, byte for byte, exactly as if the key were absent — which is the same silence
 `engine_features` sits in (§ v3.2). Refusing a v3-only section inside a v2 manifest BY NAME rather than
 ignoring it is § v3.1's acceptance window, and it is the only mechanism that can do so without refusing
-the manifest wholesale; until it ships this channel is a declaration surface a v2 engine reads and does
-not act on. `DUO_SPEC_VERSION` is still `2`, so no shipped manifest reaches the live half of this rule and
-no shipped claim, digest or certificate moved.
+the manifest wholesale. `DUO_SPEC_VERSION` is `3`; the 16 pre-flag manifests remain at v2 and newly
+authored Redirection is v3 but declares no `environment` narrowing, so no shipped claim is narrowed today.
 
 Narrowing relaxes no load-time assertion. `PlatformCompatibility::assert_supported()` still gates
 `site_mode`, PHP, database engine and version, WordPress version, the filesystem profile and the process
@@ -1573,17 +1565,16 @@ adapter, which is the case the list exists to keep loading.
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
 
-- 16 adapter names, 18 `id_kind`s, 14 provider ids = 48 identities, all of which already pass the one
+- 17 adapter names, 20 `id_kind`s, 15 provider ids = 52 identities, all of which already pass the one
   shared grammar;
-- a bare `<vendor>-<name>` refusal would break **24** of them — the 6 adapter names carrying no hyphen at
-  all (`acf`, `core`, `elementor`, `polylang`, `woocommerce`, `yoast`) and all 18 `id_kind`s, every one of
+- a bare `<vendor>-<name>` refusal would break **27** of them — the 7 adapter names carrying no hyphen at
+  all (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 20 `id_kind`s, every one of
   which is underscore-separated;
 - the other 10 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
-  vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 16
-  names and all 18 `id_kind`s;
-- all 11 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
-  convention is de facto in force. (#561 added the eleventh,
-  `the-events-calendar-category-colors`, which the same first-segment convention already covers.)
+  vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 17
+  names; all 20 `id_kind`s remain governed by R-17 rather than that name list;
+- all 15 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
+  convention is de facto in force.
 
 **`id_kind` prefixing can never become a RULE, and v3 does not make it one.** The irreversibility register
 rules on this at R-17: captured state and `duo_map` rows embed the BARE kind, so a prefix rule introduced
@@ -1701,8 +1692,8 @@ substitutable for another:
 1. **Declarative sufficiency.** The engine-gap ledger shows a residual demand that still requires
    executable repair AFTER the declarative primitives land, and the `compatibility_shim` share of NEWLY
    authored adapters has fallen below a threshold stated in advance of the measurement. The baseline is
-   today's, measured over the shipped library: 11 of the 16 adapters name manifest-shipped hook code, and
-   that code is 20 files totalling 27,643 lines under `manifests/{interpreters,providers,regenerators}`.
+   today's, measured over the shipped library: 12 of the 17 adapters name manifest-shipped hook code, and
+   that code is 21 files totalling 27,944 lines under `manifests/{interpreters,providers,regenerators}`.
    The baseline more than doubled with #561 alone — one adapter reaching production-readiness added a TEC
    interpreter and a Category Colors provider and rewrote its regenerator. Polylang then added the sixteenth
    hook file and 1,828 lines through its reviewed production-readiness port — which is the condition arguing
@@ -1757,13 +1748,14 @@ and `manifest_hash` for seven representative pin sets and compares them against
 `sandbox/tests/fixtures/spec-v3/pre-flag-identity.json` — a document captured from the tree BEFORE the
 defines moved, in the same change, and never regenerated since.
 
-- **No shipped manifest is re-stamped to `spec_version: 3`.** This is the central exclusion and the reason
+- **No pre-flag shipped manifest is re-stamped to `spec_version: 3`.** This is the central exclusion and the reason
   the bump is survivable and reversible. Stamping moves every manifest's bytes, therefore every adapter
   digest, therefore every `manifest_hash`, therefore every deployed site's
   `compiled_artifact_manifest_mismatch` (`agent/src/Repository/CompiledArtifactReader.php:56`) and every
   `site.duo.json` content pin — simultaneously, for zero capability gained on the day it is paid. The
-  shipped library stays at `spec_version: 2` inside the window (§ v3.1) and migrates one adapter at a
-  time, each moving only its own digest and only for the sites that pin it.
+  original 16-manifest library stays at `spec_version: 2` inside the window (§ v3.1) and migrates one adapter at a
+  time, each moving only its own digest and only for the sites that pin it. Redirection was authored after
+  the flip and is the first shipped v3 manifest; no older adapter byte was changed to create that fact.
 - **No DEPLOYED REPOSITORY is re-stamped either, and it does not need to be.** `site.duo.json`'s own
   `spec_version` is the same wire integer with a larger population — every site has one, and no site
   author chose it. It is judged against the window (§ v3.1), so a repository declaring `2` compiles
@@ -1988,10 +1980,11 @@ is a non-empty string. Two rules carry the weight:
    question is OPEN — it names a deferral for a human. An open question has no business in an installed
    manifest; the shape is the rule.
 
-**`notes` keeps everything.** Nothing is migrated, nothing is rewritten, no rule here reads `notes`, and
-the shipped library declares neither this section nor any engine feature. It cannot: a manifest byte is
-adapter identity (AGENTS.md rule 2), so adopting the section in the 16 shipped adapters would move all 16
-digests and invalidate every pin and certificate naming one, for a documentation change. So the
+**`notes` keeps everything.** Nothing is migrated, nothing is rewritten, and no rule here reads `notes`.
+The 16 pre-existing adapters were not retrofitted: a manifest byte is adapter identity (AGENTS.md rule 2),
+so mass-adopting the section would move every affected digest and invalidate every pin and certificate
+naming one for a documentation change. Redirection was authored after the feature existed and is the first
+shipped manifest to declare structured evidence; its first digest already includes those bytes. So the
 declaration-to-rationale link is gated two ways at once, and honestly:
 `regress_shipped_option_declarations.php` keeps its `str_contains($text, 'DUO-3509')` grep over `notes`
 prose for the shipped library, and the schema check applies to fixtures and out-of-tree adapters that
@@ -1999,14 +1992,11 @@ carry the section. The grep is retired per adapter, when that adapter is next to
 reason — a deferral recorded here rather than left implicit, because a converted gate that never converted
 is worse than one that says which half it covers.
 
-**An adapter that adopts it is not certifiable, by the rule § v3.3 already states.** A feature-claimed key
-has no arm in `AdapterCertification::topLevelKeyPartition()`, so `siteRatification()` refuses it by name —
-"which this signer cannot classify as an entity or field surface … teach the signer this section". That is
-the honest state and it is pinned by suite, not discovered. Measured precisely, the signer refuses one key
-EARLIER than that: `engine_features` is in no arm either, so declaring the CHANNEL is already what makes
-an adapter uncertifiable and this section made nothing worse — both halves are pinned rather than one
-inferred from the other. Giving the key an arm would also admit it with no feature declared, which would
-delete the demonstration above; the arm is a separate reviewed decision and this rider does not take it.
+**An adapter that adopts it is certifiable through § v3.21's feature roster.** Neither
+`declaration_evidence` nor `engine_features` was copied into the older signer partition: each feature row
+carries its own `non_surface` certificate arm, and that arm is admitted only when the manifest declares the
+corresponding implemented feature. A declaration without its feature still refuses by name. This preserves
+the three-way feature gate without putting evidence prose in a certificate's state surfaces.
 
 ### v3.15 The `invalidate[]` vocabulary, and the price of admitting a verb
 
@@ -2428,7 +2418,8 @@ the plugin instead of through `wp post create --post_content=…`.
 ### v3.21 The certificate ARM rides in the feature's roster row
 
 **Rider: WP-6.6. Enforced today: yes, for every manifest that declares an implemented engine feature.**
-`DUO_SPEC_VERSION` did not move; no shipped manifest declares a feature, so no adapter digest moves
+`DUO_SPEC_VERSION` did not move. The 16 pre-feature manifests remain byte-identical; newly authored
+Redirection is the first shipped feature declarer and its initial digest includes the roster-backed keys
 (AGENTS.md rule 2). Register row R-31.
 
 **What was measured.** § v3.2's channel admits a top-level key at LOAD. § v3.3's partition is what a

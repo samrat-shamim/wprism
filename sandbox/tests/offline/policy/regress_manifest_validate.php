@@ -1965,11 +1965,18 @@ $codecTable = [
     ],
 ];
 /** @param array<string,mixed> $codec */
-$columnCodecManifest = static fn(array $codec): array => solo_b([
-    'engine_features' => ['spec-window/v1', 'typed-column-codecs/v1'],
-    'tables' => $codecTable,
-    'column_codecs' => ['acme_b_codecs' => ['payload' => $codec]],
-]);
+$columnCodecManifest = static function (array $codec) use ($codecTable): array {
+    $features = ['spec-window/v1', 'typed-column-codecs/v1'];
+    if (($codec['container'] ?? null) === 'php_serialized_or_text') {
+        $features[] = 'mixed-column-codecs/v1';
+        sort($features, SORT_STRING);
+    }
+    return solo_b([
+        'engine_features' => $features,
+        'tables' => $codecTable,
+        'column_codecs' => ['acme_b_codecs' => ['payload' => $codec]],
+    ]);
+};
 
 $covered['column_codec_containers'] = true;
 foreach ($vocabularies['column_codec_containers'] as $container) {

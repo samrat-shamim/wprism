@@ -85,6 +85,12 @@
     "taxonomies": ["category", "post_tag", "language", "term_language", "term_translations", "post_translations"],
     "themes": [{"slug": "twentytwentyone", "version": "2.8"}]
   },
+  "redirection": {
+    "pin": ["core", "redirection"],
+    "plugins": [{"slug": "redirection", "version": "5.9.0"}],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
   "the-events-calendar": {
     "pin": ["core", "the-events-calendar"],
     "plugins": [{"slug": "the-events-calendar", "version": "6.17.3"}],

@@ -77,7 +77,7 @@ $redirection = [
     // (spec/repo-format.md § v3.3's worked example). So an adapter that uses
     // the channel at all declares the channel's own feature; case A5 pins that,
     // because it is the first thing an author of a post-v3 section trips over.
-    'engine_features' => ['spec-window/v1', 'typed-column-codecs/v1'],
+    'engine_features' => ['mixed-column-codecs/v1', 'spec-window/v1', 'typed-column-codecs/v1'],
     'tables' => [
         'redirection_groups' => [
             'class' => 'authored_snapshot',
@@ -116,7 +116,7 @@ $redirection = [
     // makes this a codec declaration rather than a table-wide mode.
     'column_codecs' => [
         'redirection_items' => [
-            'action_data' => ['container' => 'php_serialized', 'leaves' => 'text'],
+            'action_data' => ['container' => 'php_serialized_or_text', 'leaves' => 'text'],
         ],
     ],
 ];
@@ -169,7 +169,7 @@ duo_check_same(
     'A1: a spec_version 3 manifest declaring the feature AND the section loads through the real loader'
 );
 duo_check_same(
-    ['action_data' => ['container' => 'php_serialized', 'leaves' => 'text']],
+    ['action_data' => ['container' => 'php_serialized_or_text', 'leaves' => 'text']],
     $policy->column_codec_rules('redirection_items'),
     'A1: the loaded policy projects the declared codec for the table that declared it'
 );
@@ -180,6 +180,15 @@ duo_check_throws(
     RuntimeException::class,
     'A2: a spec_version 2 manifest declaring the section is refused BY SECTION, naming the version that has it',
     "the section 'column_codecs', which this engine implements only at spec_version 3"
+);
+
+$withoutMixedFeature = $redirection;
+$withoutMixedFeature['engine_features'] = ['spec-window/v1', 'typed-column-codecs/v1'];
+duo_check_throws(
+    static fn(): Policy => $load(['redirection' => $withoutMixedFeature]),
+    RuntimeException::class,
+    'A6: the heterogeneous framing is a separately gated value-vocabulary change',
+    "the engine feature 'mixed-column-codecs/v1' gates"
 );
 
 $noFeature = $redirection;
@@ -290,7 +299,7 @@ $refuse(
 );
 
 duo_check_same(
-    ['php_serialized'],
+    ['php_serialized', 'php_serialized_or_text'],
     Policy::closed_vocabularies()['column_codec_containers'],
     'B12: the container vocabulary is published from the same const the refusal consults'
 );
@@ -418,6 +427,43 @@ duo_check_throws(
     'secret guard tripped'
 );
 
+// C6 — Redirection's actual storage union. One action_data column holds raw
+// target text for ordinary URL redirects, a serialized map for conditional
+// redirects, and NULL for actions such as HTTP errors. The mixed codec is
+// explicit because treating any of those as another is silent corruption.
+$mixed = ['container' => 'php_serialized_or_text', 'leaves' => 'text'];
+duo_check_same(
+    '{{home}}/go',
+    ColumnCodecGrammar::capture_value('https://source.example/go', $mixed, $sourceTokens, 'C6'),
+    'C6: a plain action target takes the ordinary text path'
+);
+duo_check_same(
+    'https://target.example.co.uk/go',
+    ColumnCodecGrammar::apply_value('{{home}}/go', $mixed, $targetTokens, 'C6'),
+    'C6: a plain action target rebinds on apply without being serialized'
+);
+duo_check_same(
+    $captured,
+    ColumnCodecGrammar::capture_value($withUrl, $mixed, $sourceTokens, 'C6'),
+    'C6: a serialized conditional map retains the strict container path'
+);
+duo_check_same(null, ColumnCodecGrammar::capture_value(null, $mixed, $sourceTokens, 'C6'),
+    'C6: a nullable action keeps SQL NULL distinct from text and serialized data');
+duo_check_same(null, ColumnCodecGrammar::apply_value(null, $mixed, $targetTokens, 'C6'),
+    'C6: apply preserves the nullable arm byte-for-byte');
+duo_check_throws(
+    static fn(): mixed => ColumnCodecGrammar::capture_value('a:1:{broken', $mixed, $sourceTokens, 'C6'),
+    RuntimeException::class,
+    'C6: a serialized-looking malformed value refuses instead of falling through as text',
+    'malformed or noncanonical PHP-serialized data'
+);
+duo_check_throws(
+    static fn(): mixed => ColumnCodecGrammar::capture_value(301, $mixed, $sourceTokens, 'C6'),
+    RuntimeException::class,
+    'C6: the mixed framing admits no undocumented integer arm',
+    'not a string'
+);
+
 // ===========================================================================
 // D. THE SUFFICIENCY PROOF — the rejected candidate, captured end to end
 // ===========================================================================
@@ -460,6 +506,30 @@ $wpdb->seedTable('wp_redirection_items', [
         'last_count' => 0,
         'last_access' => '2026-08-22 00:00:00',
     ],
+    [
+        'id' => 13,
+        'url' => '/plain',
+        'match_type' => 'url',
+        'action_type' => 'url',
+        'action_code' => 302,
+        'action_data' => 'https://source.example/plain-target',
+        'position' => 2,
+        'group_id' => 3,
+        'last_count' => 0,
+        'last_access' => '2026-08-22 00:00:00',
+    ],
+    [
+        'id' => 14,
+        'url' => '/gone',
+        'match_type' => 'url',
+        'action_type' => 'error',
+        'action_code' => 410,
+        'action_data' => null,
+        'position' => 3,
+        'group_id' => 3,
+        'last_count' => 0,
+        'last_access' => '2026-08-22 00:00:00',
+    ],
 ]);
 
 $captureTokens = new Tokens('https://source.example', 'https://source.example/wp-content/uploads');
@@ -493,7 +563,7 @@ $entities = $boundary->capture_table(
     false,
     $policy->column_codec_rules('redirection_items')
 );
-duo_check_same(2, count($entities), 'D1: both authored rows captured');
+duo_check_same(4, count($entities), 'D1: serialized, plain-text and NULL action rows all capture');
 
 $first = Canon::decode($entities[0]['content']);
 duo_check_same(
@@ -527,6 +597,12 @@ duo_check_same(
     $second['columns']['action_data'],
     'D4: a container with nothing portable in it round-trips to the exact source bytes (the identity precondition, through the product path)'
 );
+$third = Canon::decode($entities[2]['content']);
+duo_check_same('{{home}}/plain-target', $third['columns']['action_data'] ?? null,
+    'D4: Redirection ordinary URL actions use the mixed codec text arm');
+$fourth = Canon::decode($entities[3]['content']);
+duo_check(array_key_exists('action_data', $fourth['columns']) && $fourth['columns']['action_data'] === null,
+    'D4: Redirection error actions preserve the mixed codec NULL arm');
 
 // D5 — the whole point of the primitive: what the target actually receives.
 $targetSide = ColumnCodecGrammar::apply_value(

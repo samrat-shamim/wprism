@@ -169,7 +169,7 @@ duo_check_same('runtime', $policy->table_rule('actionscheduler_actions')['class'
 duo_check(!isset($adapter['column_codecs']['rank_math_redirections']['sources']),
     'D4: the natural identity column carries no codec that could change its lookup bytes');
 
-$combinedPins = ['core', 'woocommerce', 'acf', 'polylang', 'rank-math'];
+$combinedPins = ['core', 'woocommerce', 'acf', 'polylang', 'redirection', 'rank-math'];
 $combined = Policy::load($site, $combinedPins);
 foreach (['actionscheduler_actions', 'actionscheduler_claims', 'actionscheduler_groups', 'actionscheduler_logs'] as $table) {
     duo_check_same('runtime', $combined->table_rule($table)['class'] ?? null,
@@ -181,6 +181,12 @@ duo_check_same('woocommerce', $combined->option_namespace('woocommerce_shop_page
     'D5: the combined policy retains WooCommerce option ownership');
 duo_check_same('polylang', $combined->option_namespace('polylang')['owner'] ?? null,
     'D5: the combined policy retains Polylang option ownership');
+duo_check_same('redirection', $combined->option_namespace('redirection_options')['owner'] ?? null,
+    'D5: the combined policy retains Redirection option ownership');
+duo_check_same('authored_snapshot', $combined->table_rule('redirection_items')['class'] ?? null,
+    'D5: Redirection rules coexist with WooCommerce and Rank Math redirection tables without ownership overlap');
+duo_check_same('runtime', $combined->table_rule('redirection_logs')['class'] ?? null,
+    'D5: Redirection request history stays runtime inside the full common-plugin policy');
 duo_check_same('authored', $combined->meta_rule_for_post('rank_math_title', [])['class'] ?? null,
     'D5: an ordinary Rank Math product title remains statically authored when no ACF shadow claims it');
 
@@ -194,7 +200,7 @@ $hostileAcfField = [
         'type' => 'post_object',
     ]),
 ];
-foreach ([$combinedPins, ['core', 'woocommerce', 'rank-math', 'acf', 'polylang']] as $pins) {
+foreach ([$combinedPins, ['core', 'woocommerce', 'rank-math', 'redirection', 'acf', 'polylang']] as $pins) {
     $collisionPolicy = Policy::load($site, $pins);
     $collisionPolicy->prime_interpreters_from_repository([$hostileAcfField]);
     duo_check_throws(

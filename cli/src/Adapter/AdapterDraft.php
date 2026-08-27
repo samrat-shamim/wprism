@@ -1472,6 +1472,16 @@ final class AdapterDraft {
                     . 'confirm against a live target before ratifying'
                     . ($pk !== null ? " (pk='$pk' is a structural guess)" : ' (no PK inferable offline)')
                 ),
+                // SHOW COLUMNS answers the storage TYPE, not the framing of
+                // values a plugin writes into it. Redirection 5.9.0 proved the
+                // distinction is load-bearing: one mediumtext column holds a
+                // plain URL, a serialized conditional map, or NULL depending
+                // on the native matcher/action. A rowless probe intentionally
+                // cannot expose any of those bytes, so this remains a named
+                // authoring exercise rather than false schema evidence.
+                'storage framing is not a schema fact: exercise every native writer variant for text/blob '
+                . 'columns and classify plain text, JSON, PHP serialization, NULL, and mixed framing before '
+                . 'ratifying column codecs; `wp duo adapter-probe` intentionally reads no row values',
                 // lock_index() resolves the covering index by FIRST column and
                 // compares a meta_key length against Sub_part
                 // (agent/src/Delete/DeleteGuardEvaluator.php:445-456). Neither

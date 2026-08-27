@@ -166,8 +166,8 @@ const SPLIT_REVIEWED_MOVED_DIGESTS = [
     'yoast' => '389934c1b3638e4a93284eaaf3cee98a15eaeb76302f4f28b9f1cf1526504609',
 ];
 const SPLIT_REVIEWED_MANIFEST_HASH = '45285420196f8c427d5c203f5ac39fba075ce9642adc0a7924d1a45ef78fb12c';
-const SPLIT_REVIEWED_REGISTRY_SHA = '49c84c27e199e198ac4452d52177fd732d7b1c33110e75a3d74a6a463be1a3f8';
-const SPLIT_REVIEWED_SNAPSHOT_SHA = 'e23f604ab0c3835de65407dc817b1abf9ae7a4a9676d8fe57b16357774b335ac';
+const SPLIT_REVIEWED_REGISTRY_SHA = 'a9b7fdbb8d7c62e78ac8ca1c10a395aa0dc54079fb54cef2809c71babf395f2e';
+const SPLIT_REVIEWED_SNAPSHOT_SHA = '436b6aa8b17d631f8c0fc34ac8c93386c1510db72605cc78a3e254437ca1e379';
 
 putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
 $shippedRegistry = ManifestDispositions::load($manifestDir);
@@ -227,7 +227,7 @@ duo_check_same(
     SPLIT_REVIEWED_REGISTRY_SHA,
     $shippedRegistry->sha256(),
     'and registry_sha256, the content address a host contract pins, reassembles from the per-subject documents '
-    . 'to exactly one document — carrying #561\'s TEC promotion plus Polylang and WooCommerce review, not the '
+    . 'to exactly one document — carrying #561\'s TEC promotion, Polylang/WooCommerce review, and Redirection, not the '
     . 'split itself (WP-4.5 is the rider that narrows this to per-subject addressing)'
 );
 duo_check_same(
@@ -278,7 +278,7 @@ foreach (glob($subjectDir . '/*.json') ?: [] as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
-duo_check_same(17, $documentCount, 'the reviewed source is 17 documents: 16 subjects and the profiles map');
+duo_check_same(18, $documentCount, 'the reviewed source is 18 documents: 17 subjects and the profiles map');
 duo_check_same(
     [],
     $numberMembers,

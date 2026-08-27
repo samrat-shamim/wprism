@@ -766,10 +766,12 @@ implements is refused as unimplemented rather than admitted as forward-looking.
 The document's own `engine_features` block is the authoritative, live list —
 read `engine_features.implemented` rather than trusting a count written on this
 page, because a feature ships by adding an `IMPLEMENTED_FEATURES` row, not by
-editing this paragraph. Six are implemented as of this engine: `spec-window/v1`
+editing this paragraph. Seven are implemented as of this engine: `spec-window/v1`
 claims `engine_features` itself, so declaring it is what lets you declare the
 list at all; `attr-id-codecs/v1` claims `attr_id_codecs`, the byte-exact
 block-attribute codec; `typed-column-codecs/v1` claims `column_codecs`;
+`mixed-column-codecs/v1` admits the measured plain/serialized/NULL container
+inside that section without claiming a second top-level key;
 `structured-body-refs/v1` claims `body_refs`, a declared path grammar into JSON
 post/option bodies; `structured-evidence/v1` claims `declaration_evidence`
 (`spec/repo-format.md` § v3.14) — an object keyed by TARGET, each record
@@ -783,16 +785,15 @@ widens a value vocabulary inside a section that already exists, legitimate
 under § v3.3's growth rule. A record whose addressed `declaration_evidence` is
 later deleted refuses at load, which is the point.
 
-**Before declaring any of the six** — including the shipped, working
-`attr-id-codecs/v1` fix for a faithful block-attribute round trip — know what
-it costs: an adapter that declares the top-level `engine_features` key at all
-is not certifiable today. The signer's own `topLevelKeyPartition()` has no arm
-for a feature-claimed key, nor for the channel that claims it (§ v3.3/§ v3.14),
-so `duo adapter certify`/`sign-site` refuse it **by name**, before ever reaching
-the section the feature admits. The manifest still loads, pins, plans and
-applies; it just never reads `Site-certified`. Decide this at the
-`spec_version` bullet above, not after certify has already refused — that
-bullet states the trade-off at the point you make it.
+**Before declaring any of the seven**, verify that the adapter actually uses
+the primitive and declare `spec-window/v1` with it, because that feature admits
+the `engine_features` channel itself. The signer reads each feature's reviewed
+`entity`, `field`, or `non_surface` arm from the same
+`IMPLEMENTED_FEATURES` row as the loader, so a recognised claimed section is
+certifiable; an unknown feature, a missing gate, or a key with no arm refuses
+by name. A value-only feature such as `mixed-column-codecs/v1` adds no surface
+of its own—the `column_codecs` field surface remains owned by
+`typed-column-codecs/v1`.
 
 `top_level_keys` is the signer's own closed partition of
 manifest top-level keys — the set that decides whether an adapter can be
@@ -929,6 +930,33 @@ pattern, or a compatibility fallback. Record the required generic primitive in
 [the limitation ledger](adapter-authoring-limitations.md).
 
 ## The authoring loop
+
+### The one-prompt coding-agent contract
+
+A normal user prompt can be as short as: “Author and production-harden an
+adapter for `<plugin>` from the exact installed release.” The coding agent
+should complete the loop without asking the user to classify individual keys.
+It owns the reversible evidence work: inspect the official artifact, exercise
+every reachable native writer, run observation/coverage/probe/draft, ratify the
+smallest defensible manifest, add adversarial offline and live tests, and run
+the repository gates. It records commands, visible outputs, corrections and
+assumptions; it does not record private chain-of-thought.
+
+Continue autonomously when a command already supplies a typed recovery. In
+particular, narrow an over-broad or under-broad `--match`, use `--force` after
+the create-only draft output names that remedy, seed representative rows when
+a probe reports an empty keyspace, and keep an unsupported surface
+runtime/env or outside the disposition. Escalate only when progress needs new
+authority or information the repository and target cannot supply: a paid
+artifact or credential, permission to exercise an external server/CDN/service,
+destructive deletion authority, a production-only mutation, or two plausible
+product meanings whose choice changes what Duo will overwrite. “I have not
+read enough plugin code yet” is not an escalation reason.
+
+The worked transcript for this contract is
+[`docs/agents/redirection-adapter-authoring-exercise.md`](../agents/redirection-adapter-authoring-exercise.md).
+It starts from one user instruction, selects exact Redirection 5.9.0, and
+requires no further user decision.
 
 **The target needs Git before step 1 runs.** `wp duo init` refuses
 `unsupported: repository git — Git is unavailable on the target that owns the
@@ -1072,6 +1100,19 @@ own review questions in a very large draft. A later scoped `--force` drops
 unchanged, unratified machine proposals that no longer match while preserving
 ratified or edited candidates.
 
+The filter is applied to the names the input document actually contains. For
+an undeclared table that is the unprefixed logical table name. For invisible
+options, coverage intentionally publishes an ownership **prefix** such as
+`redirection`, not every option name beneath it. Therefore an exact-looking
+filter such as `^(redirection_options|redirection_(groups|items))$` can select
+the tables and honestly select no option proposal. Inspect `_draft.seed` and
+the candidate counts; if the plugin option family is missing, rerun against
+the reported prefix (for example `^redirection`) with `--force`. A pre-existing
+output refuses with `draft_output_exists` instead of guessing whether to
+overwrite human edits; that named refusal is sufficient authority for the
+coding agent to retry with `--force`, because regeneration preserves edited or
+ratified candidates.
+
 Why `--seed` earns its place: the offline proposers read `state/**`, so they
 can only see surfaces Duo **already captures** — and the surfaces you are
 writing an adapter *for* are exactly the ones it does not. An option prefix
@@ -1148,6 +1189,20 @@ disagreement is stated beside it — the probe declares `authority: false`, and
 vocabulary, so it cannot classify anything on your behalf. Read the rows, then
 ratify by hand. The document never carries a row value: enum/set member lists
 are reduced to their base type word for the same reason.
+
+The probe is intentionally rowless, so it cannot answer a different question:
+how values inside a text/blob column are framed. `SHOW COLUMNS` may say
+`mediumtext` while native writers store a plain string for one action, a PHP
+serialized map for another, and SQL `NULL` for a third. Exercise every native
+writer variant in the admitted release and compare the raw stored bytes with
+the plugin API's readback. Declare strict `php_serialized` only when every
+authored value is one canonical serialized container. When one column is the
+measured plain/serialized/NULL union, declare
+`{"container":"php_serialized_or_text","leaves":"text"}` and the explicit
+`mixed-column-codecs/v1` feature; malformed serialized-looking bytes and
+non-string/non-NULL values must refuse. Redirection 5.9.0 is the reference
+manifest and `regress_column_codec_grammar.php` is the mutation proof. Never
+infer a codec from the first populated row or from the SQL type.
 
 For a natural key, uniqueness is a **source and hostile-target invariant**, not
 one source-side probe result. Populate the candidate key, probe it, then create

@@ -146,9 +146,14 @@ duo_check_same(
     'Code Snippets 3.9.6 upper-boundary evidence is digest-pinned'
 );
 
-foreach (['wpforms', 'redirection', 'custom-post-type-ui'] as $rejected) {
+foreach (['wpforms', 'custom-post-type-ui'] as $rejected) {
     duo_check(!is_file($root . "/manifests/$rejected.json"), "$rejected remains rejected instead of gaining an unsafe manifest");
 }
+duo_check(
+    is_file($root . '/manifests/redirection.json')
+        && is_file($root . '/sandbox/tests/offline/adapter/regress_redirection_adapter.php'),
+    'Redirection left the rejected-candidate set only with its own exact adapter and regression evidence'
+);
 
 duo_check_same('ecosystem-adapter-batch', $conformanceEntry['manifest'] ?? null, 'the shared live suite has a convention-discoverable fixture entry');
 duo_check_same('capture-plan', $conformanceEntry['entry']['mode'] ?? null, 'the shared live suite stops before every explicitly unsupported apply path');

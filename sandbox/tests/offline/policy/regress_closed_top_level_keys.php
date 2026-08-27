@@ -378,10 +378,15 @@ duo_check_same(
         . 'key set refuses none of the library'
 );
 duo_check_same(
-    [$open => true],
+    [$open => true, $N => true],
     $declaredVersions,
-    'and every one still declares spec_version ' . $open . ' — BELOW the gate, so the rule reaches none of the '
-        . 'shipped library even though the engine has crossed (§ v3.12: no shipped manifest is re-stamped)'
+    'the 16 pre-flag manifests remain at spec_version ' . $open . ', while newly authored Redirection is the '
+        . 'first shipped manifest at the v' . $N . ' gate'
+);
+duo_check_same(
+    ['redirection'],
+    array_keys(array_filter($library, static fn(array $m): bool => ($m['spec_version'] ?? null) === $N)),
+    'Redirection alone exercises the closed-key gate in the shipped library'
 );
 
 // The union in use against the partition, in both directions. The measurement
@@ -395,11 +400,16 @@ foreach ($library as $manifest) {
 }
 $unionKeys = array_keys($union);
 sort($unionKeys, SORT_STRING);
+$outsidePartition = array_values(array_diff($unionKeys, $shipped['partition']));
+duo_check_same(
+    ['column_codecs', 'declaration_evidence', 'engine_features'],
+    $outsidePartition,
+    'the shipped keys outside the older signer partition are exactly Redirection\'s feature-claimed sections'
+);
 duo_check_same(
     [],
-    array_values(array_diff($unionKeys, $shipped['partition'])),
-    'no shipped manifest declares a top-level key the closed set does not know, so the flag day refuses zero '
-        . 'shipped adapters for this rule'
+    array_values(array_diff($outsidePartition, array_keys(AdapterContractGrammar::feature_key_arms()))),
+    'every shipped key outside the partition is classified by the feature roster, so the closed rule refuses zero shipped adapters'
 );
 $report('in-use union: ' . count($unionKeys) . ' keys; closed set: ' . count($shipped['partition'])
     . '; admitted but undeclared: ' . implode(', ', array_diff($shipped['partition'], $unionKeys)));

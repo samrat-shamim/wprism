@@ -122,9 +122,9 @@ $readyAdapters = array_keys(array_filter(
 ));
 sort($readyAdapters, SORT_STRING);
 duo_check_same(
-    ['acf', 'advanced-editor-tools', 'classic-editor', 'code-snippets', 'contact-form-7', 'core', 'elementor', 'ninja-forms', 'paid-memberships-pro', 'polylang', 'the-events-calendar', 'woocommerce', 'wps-hide-login', 'yoast', 'yoast-duplicate-post'],
+    ['acf', 'advanced-editor-tools', 'classic-editor', 'code-snippets', 'contact-form-7', 'core', 'elementor', 'ninja-forms', 'paid-memberships-pro', 'polylang', 'redirection', 'the-events-calendar', 'woocommerce', 'wps-hide-login', 'yoast', 'yoast-duplicate-post'],
     $readyAdapters,
-    'only the fifteen adapters with complete isolated adversarial and exact-version evidence are production-ready'
+    'only the sixteen adapters with complete isolated adversarial and exact-version evidence are production-ready'
 );
 
 duo_check_summary('adapter production-readiness ledger');

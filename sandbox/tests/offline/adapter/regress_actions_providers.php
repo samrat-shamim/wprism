@@ -76,9 +76,8 @@ use Duo\Policy;
 use Duo\Providers;
 use Duo\RepositoryCompiler;
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
+require_once __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -918,7 +917,7 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         }
     }
 }
-check($providerCount === 13, "all thirteen shipped manifest-sourced providers were exercised (found $providerCount)");
+check($providerCount === 14, "all fourteen shipped manifest-sourced providers were exercised (found $providerCount)");
 
 // ======================================================================
 echo "\n== the two identity implementations agree over the REAL shipped library ==\n";

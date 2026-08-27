@@ -29,6 +29,7 @@ An axis with no evidence document for a subject is **silent** and leaves the ari
 | [ninja-forms](#ninja-forms) | certified | complete · 17/17 units · 2 of 3 axes | complete 12/12 | — | complete 5/5 |
 | [paid-memberships-pro](#paid-memberships-pro) | certified | complete · 17/17 units · 2 of 3 axes | complete 12/12 | — | complete 5/5 |
 | [polylang](#polylang) | certified | complete · 17/17 units · 2 of 3 axes | complete 12/12 | — | complete 5/5 |
+| [redirection](#redirection) | certified | complete · 17/17 units · 2 of 3 axes | complete 12/12 | — | complete 5/5 |
 | [the-events-calendar](#the-events-calendar) | certified | complete · 17/17 units · 2 of 3 axes | complete 12/12 | — | complete 5/5 |
 | [woocommerce](#woocommerce) | certified | complete · 17/17 units · 2 of 3 axes | complete 12/12 | — | complete 5/5 |
 | [wps-hide-login](#wps-hide-login) | certified | complete · 15/15 units · 2 of 3 axes | complete 10/10 | — | complete 5/5 |
@@ -131,6 +132,15 @@ No exercise axis carries evidence for this subject: the readiness ledger reviews
 - **Platform reach:** complete, 5 of 5. Exercised: `php:8.3`, `php:8.4`, `wordpress:6.9`, `wordpress:7.0`, `wordpress:7.1`. Not counted: `database`, `filesystem`, `process`. Input: manifests/capabilities/platform.json → compatibility.*.verified: the exercised-series cells this claim states after § v3.5 narrowing (ManifestDispositions::narrowed_environment(), the same projection a certificate binds as its exercised cells under § v3.6); an axis publishing no `verified` series carries no per-cell witness and is excluded rather than counted against the claim.
 - **Reviewed citation:** `conformance-polylang`, `exact-artifact-version-matrix`, `regress-polylang-production-readiness`, `regress-polylang-multisite-refusal`, `regress-polylang-tec-rewrite-coinstall` — named by the disposition, not a per-test verdict record, which is why the depth axis is silent rather than complete.
 
+## redirection
+
+**Reviewed status: certified. Grade: complete · 17/17 units · 2 of 3 axes.**
+
+- **Coverage breadth:** complete, 12 of 12. Exercised: `clean-target`, `concurrency-idempotence`, `contract-dependency`, `data-boundary`, `deletion`, `derived-state`, `dirty-target`, `failure-recovery`, `identity-references`, `lifecycle`, `native-behavior`, `scope-platform`. Input: sandbox/conformance/production-readiness.json → adapters.redirection: the reviewed scenario families whose `covered` bucket names at least one evidence file, against the ledger's own taxonomy minus the families reviewed `not_applicable`.
+- **Exercise depth:** silent — no evidence document of this kind exists for this subject, so the axis counts nothing rather than counting zero.
+- **Platform reach:** complete, 5 of 5. Exercised: `php:8.3`, `php:8.4`, `wordpress:6.9`, `wordpress:7.0`, `wordpress:7.1`. Not counted: `database`, `filesystem`, `process`. Input: manifests/capabilities/platform.json → compatibility.*.verified: the exercised-series cells this claim states after § v3.5 narrowing (ManifestDispositions::narrowed_environment(), the same projection a certificate binds as its exercised cells under § v3.6); an axis publishing no `verified` series carries no per-cell witness and is excluded rather than counted against the claim.
+- **Reviewed citation:** `conformance-redirection`, `exact-artifact-version-matrix` — named by the disposition, not a per-test verdict record, which is why the depth axis is silent rather than complete.
+
 ## the-events-calendar
 
 **Reviewed status: certified. Grade: complete · 17/17 units · 2 of 3 axes.**
@@ -180,4 +190,4 @@ No exercise axis carries evidence for this subject: the readiness ledger reviews
 
 The grade counts units; it does not read them. A family is `covered` because a reviewer named evidence files and `sandbox/tests/offline/adapter/regress_adapter_production_readiness.php` proved those files exist — not because this document judged them. A cited test passed because the certification path refused every claim citing one that did not. Two adapters with the same grade can still be very different adapters, and the reviewed reason in [docs/capabilities.md](capabilities.md) is where that difference is written down.
 
-Generated from 16 reviewed subjects against agent 0.6.0.
+Generated from 17 reviewed subjects against agent 0.6.0.

@@ -222,12 +222,13 @@ duo_check_same(
     [
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
+        'agent/src/Grammar/ColumnCodecGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
         'cli/src/Adapter/ManifestValidate.php',
     ],
     $featureReaders,
     'v3.2 ENFORCED: the channel has one shipped OWNER — the grammar that holds the feature vocabulary — beside '
-        . 'two gate readers that each consume one gated declaration, and one publisher that consumes none'
+        . 'three gate readers that each consume one gated declaration, and one publisher that consumes none'
 );
 // WP-6.4 moved this from one name to two, and the second is the assertion
 // worth having: `spec-window/v1` claims only the channel's own key, so with it
@@ -235,20 +236,22 @@ duo_check_same(
 // admissibility. `structured-evidence/v1` claims `declaration_evidence`, a
 // section that did not exist when v3 was cut and that shipped with
 // DUO_SPEC_VERSION unmoved (§ v3.14) — so the channel is a walked path.
-// WP-6.5 makes it six, and the fifth section-claiming name is `body_refs`
+// WP-6.5 made it six, and the Redirection authoring exercise makes it seven;
+// the fifth section-claiming name remains `body_refs`
 // (§ v3.20) — another section that did not exist when v3 was cut, shipped with
 // DUO_SPEC_VERSION unmoved.
 duo_check_same(
     [
         'attr-id-codecs/v1',
         'invalidate-vocabulary/v1',
+        'mixed-column-codecs/v1',
         'spec-window/v1',
         'structured-body-refs/v1',
         'structured-evidence/v1',
         'typed-column-codecs/v1',
     ],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: the vocabulary carries six IMPLEMENTED features, and four claim sections v3 did not have — '
+    'v3.2: the vocabulary carries seven IMPLEMENTED features, and four claim sections v3 did not have — '
         . '"declared and implemented admits" is a path walked four times, not an admissibility argument'
 );
 // WP-4.12: the channel OPENED. At DUO_SPEC_VERSION 2 this probe refused by
@@ -643,10 +646,15 @@ ksort($declaredVersions, SORT_STRING);
 // stamping any one of these would move its digest, its `manifest_hash` and
 // every content pin naming it, fleet-wide.
 duo_check_same(
-    [$specVersion - 1],
+    [$specVersion - 1, $specVersion],
     array_values(array_unique(array_values($declaredVersions))),
-    'NO SHIPPED MANIFEST IS STAMPED TO v' . $specVersion . ': all ' . count($declaredVersions)
-        . ' still declare spec_version ' . ($specVersion - 1) . ', one below the engine and inside the window'
+    'the 16 pre-flag manifests remain at spec_version ' . ($specVersion - 1)
+        . '; newly authored Redirection is the first shipped v' . $specVersion . ' manifest'
+);
+duo_check_same(
+    ['redirection'],
+    array_keys(array_filter($declaredVersions, static fn($v): bool => $v === $specVersion)),
+    'Redirection alone exercises the shipped v3 declaration channel'
 );
 
 echo "\nPART 2 — THE DOCUMENT: every measurable claim re-measured from the tree\n";
@@ -824,7 +832,7 @@ duo_check(
     . number_format($lineCount) . ' lines, ' . number_format($byteCount) . ' bytes'
 );
 duo_check_same(
-    16,
+    17,
     $entryCount,
     'and the entry count the subsection states for the monolith it replaced is the number of subject documents now'
 );

@@ -353,13 +353,13 @@ duo_check_same([], $refused, 'every one of the ' . count($library) . ' shipped m
 // left every manifest byte alone, which is why not one adapter digest moved
 // and why the window had to exist before the bump rather than with it.
 duo_check_same(
-    [($N - 1) => true],
+    [($N - 1) => true, $N => true],
     $declaredVersions,
-    'and every one still declares spec_version ' . ($N - 1) . ' — the flip moved the engine to ' . $N
-        . ' and re-stamped nothing, so no manifest byte and no adapter digest moved'
+    'the 16 pre-flag manifests remain at spec_version ' . ($N - 1) . ', while newly authored Redirection '
+        . 'uses the live v' . $N . ' feature channel'
 );
 $declarers = array_keys(array_filter($library, static fn(array $m): bool => array_key_exists('engine_features', $m)));
-duo_check_same([], $declarers, 'no shipped manifest declares `engine_features` — the channel ships with a live implementation and no declarer, which is § v3.12\'s no-restamp rule and not an empty channel');
+duo_check_same(['redirection'], $declarers, 'Redirection is the first shipped manifest to declare `engine_features`; the 16 pre-flag adapters remain byte-identical');
 
 echo "\nPART 2 — a synthetic N+1 engine: the channel's admitting half\n";
 

@@ -1,0 +1,11 @@
+{
+  "entry": {
+    "pin": ["core", "redirection"],
+    "plugins": [
+      {"slug": "redirection", "version": "5.9.0"}
+    ],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "redirection"
+}
