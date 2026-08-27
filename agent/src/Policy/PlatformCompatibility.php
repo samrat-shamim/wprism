@@ -361,7 +361,7 @@ final class PlatformCompatibility {
             throw new CommandRefusalException(
                 'platform_boundary_invalid',
                 'the shipped platform compatibility declaration is malformed or unsupported',
-                'restore the reviewed manifests/capabilities/platform.json bytes before another command',
+                'restore the reviewed platform/adapter-library/capabilities/platform.json bytes before another command',
                 [[
                     'code' => 'platform_boundary_invalid',
                     'message' => 'the platform boundary cannot be evaluated safely',
