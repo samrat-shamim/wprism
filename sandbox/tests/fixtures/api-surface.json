@@ -597,6 +597,31 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "fromSourcePackage": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "directory",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "slug",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\AdapterLibrary",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "fromSourceTree": {
                     "abstract": false,
                     "final": false,
@@ -8431,6 +8456,14 @@
                             "name": "hostEnvironment",
                             "type": "?string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "adapterLibrary",
+                            "type": "?Duo\\AdapterLibrary",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -9253,6 +9286,14 @@
                             "has_default": true,
                             "name": "hostEnvironment",
                             "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "adapterLibrary",
+                            "type": "?Duo\\AdapterLibrary",
                             "variadic": false
                         }
                     ],
@@ -43520,6 +43561,14 @@
                             "has_default": false,
                             "name": "name",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "adapterLibrary",
+                            "type": "?Duo\\AdapterLibrary",
                             "variadic": false
                         }
                     ],

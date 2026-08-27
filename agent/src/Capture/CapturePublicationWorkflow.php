@@ -339,7 +339,7 @@ final class CapturePublicationWorkflow {
                 $initialStateIdentity, $initialMediaIdentity, $initialConfigIdentity,
                 $lock, $initialBaseline, $scoped, $scopeContract,
                 $scopeSourceTreeSha256, $repoPath, $onInitialPayloadReady,
-                $hostEnvironment,
+                $hostEnvironment, $adapterLibrary,
                 &$publicationPhase
             ): array {
                 // All map/state mutations which can happen while deciding
