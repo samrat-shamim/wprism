@@ -502,29 +502,41 @@ echo "\n== 5. conformance/record-vector.php assembles a vector this replay accep
 // drives it, over the synthetic adapter and the pinned trees above — no pair,
 // no shipped manifest bytes pinned into a fixture (AGENTS.md rule 2).
 $work = sys_get_temp_dir() . '/duo_vector_recorder_' . bin2hex(random_bytes(6));
-mkdir($work . '/manifests', 0700, true);
+$sourceRoot = $work . '/source';
+$packageRoot = $sourceRoot . '/adapter-packages/duo-vector-fixture/package';
+$platformRoot = $sourceRoot . '/platform/adapter-library';
+mkdir($packageRoot, 0700, true);
+mkdir($platformRoot . '/capabilities', 0700, true);
+mkdir($platformRoot . '/core', 0700, true);
 mkdir($work . '/state/tables/duovec_notes', 0700, true);
 mkdir($work . '/recapture/tables/duovec_notes', 0700, true);
-register_shutdown_function(static function () use ($work): void {
-    foreach (['state', 'recapture'] as $tree) {
-        foreach (glob($work . '/' . $tree . '/tables/duovec_notes/*') ?: [] as $file) {
-            @unlink($file);
-        }
-        @rmdir($work . '/' . $tree . '/tables/duovec_notes');
-        @rmdir($work . '/' . $tree . '/tables');
-        @rmdir($work . '/' . $tree);
+$removeWork = static function () use ($work): void {
+    if (!is_dir($work)) {
+        return;
     }
-    foreach (glob($work . '/manifests/*') ?: [] as $file) {
-        @unlink($file);
-    }
-    @rmdir($work . '/manifests');
-    foreach (glob($work . '/*.json') ?: [] as $file) {
-        @unlink($file);
+    $entries = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($work, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($entries as $entry) {
+        $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
     }
     @rmdir($work);
-});
+};
+register_shutdown_function($removeWork);
 
-file_put_contents($work . '/manifests/duo-vector-fixture.json', Canon::encode(vector_manifest()));
+file_put_contents($packageRoot . '/manifest.json', Canon::encode(vector_manifest()));
+file_put_contents($packageRoot . '/disposition.json', "{}\n");
+$repoPlatform = dirname(__DIR__, 4) . '/platform/adapter-library';
+foreach ([
+    'capabilities/adapter-authorities.json',
+    'capabilities/platform.json',
+    'core/disposition.json',
+    'core/manifest.json',
+    'profiles.json',
+] as $platformMember) {
+    copy($repoPlatform . '/' . $platformMember, $platformRoot . '/' . $platformMember);
+}
 foreach (vector_expected_tree() as $path => $bytes) {
     file_put_contents($work . '/state/' . $path, $bytes);
     file_put_contents($work . '/recapture/' . $path, $bytes);
@@ -537,8 +549,19 @@ file_put_contents($work . '/rows.json', json_encode([
     'spec_version' => 2,
 ]));
 
-$command = 'DUO_MANIFESTS_DIR=' . escapeshellarg($work . '/manifests')
-    . ' php ' . escapeshellarg(__DIR__ . '/../../../conformance/record-vector.php') . ' '
+$recorderShell = (string) file_get_contents(__DIR__ . '/../../../conformance/record-vector.sh');
+duo_check(
+    !str_contains($recorderShell, 'DUO_MANIFESTS_DIR')
+        && !str_contains($recorderShell, '../manifests/'),
+    'the live recorder has no process-global or flat-manifest library selection'
+);
+duo_check(
+    str_contains($recorderShell, '$SOURCE_ROOT/adapter-packages/$MANIFEST/package/manifest.json')
+        && str_contains($recorderShell, '"$WORK/rows.json" "$SOURCE_ROOT"'),
+    'the live recorder reads and hands off the same explicit source adapter package'
+);
+
+$command = 'php ' . escapeshellarg(__DIR__ . '/../../../conformance/record-vector.php') . ' '
     . implode(' ', array_map('escapeshellarg', [
         $work . '/vector.json',
         'duo-vector-fixture',
@@ -546,6 +569,7 @@ $command = 'DUO_MANIFESTS_DIR=' . escapeshellarg($work . '/manifests')
         $work . '/recapture',
         $work . '/probe.json',
         $work . '/rows.json',
+        $sourceRoot,
     ])) . ' 2>&1';
 $recorderOutput = [];
 $recorderStatus = 1;

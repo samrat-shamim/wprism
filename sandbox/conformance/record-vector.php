@@ -16,25 +16,28 @@
  * `ConformanceVector::assert_document()` refuses any vector carrying a weaker
  * word — so a replay can never father a vector.
  *
- * Usage: php conformance/record-vector.php <out.json> <manifest> <state-dir> <recapture-dir> <probe.json> <rows.json>
- * `DUO_MANIFESTS_DIR` overrides where `<manifest>.json` is read from, the same
- * way it does for the agent.
+ * Usage: php conformance/record-vector.php <out.json> <manifest> <state-dir> <recapture-dir> <probe.json> <rows.json> <source-root>
+ * `<source-root>` is the checkout whose one named adapter capsule is selected
+ * through AdapterLibrary::fromSourcePackage(); no process-global library
+ * override participates in a recorded identity.
  */
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../tests/lib/FakeWpdb.php';
 require_once __DIR__ . '/../tests/lib/frozen_policy.php';
 require_once __DIR__ . '/../tests/lib/ConformanceVector.php';
 
+use Duo\AdapterLibrary;
 use DuoTest\ConformanceVector;
 
 $argvList = $_SERVER['argv'] ?? [];
-if (count($argvList) !== 7) {
-    fwrite(STDERR, "usage: record-vector.php <out.json> <manifest> <state-dir> <recapture-dir> <probe.json> <rows.json>\n");
+if (count($argvList) !== 8) {
+    fwrite(STDERR, "usage: record-vector.php <out.json> <manifest> <state-dir> <recapture-dir> <probe.json> <rows.json> <source-root>\n");
     exit(1);
 }
-[, $out, $manifestName, $stateDir, $recaptureDir, $probePath, $rowsPath] = $argvList;
+[, $out, $manifestName, $stateDir, $recaptureDir, $probePath, $rowsPath, $sourceRoot] = $argvList;
 
 /** Read one JSON artifact or die naming it; a half-recorded vector is worse than none. */
 $readJson = static function (string $path, string $what): array {
@@ -77,18 +80,25 @@ $readTree = static function (string $dir, string $what): array {
     return $tree;
 };
 
-// The shipped library by default; `DUO_MANIFESTS_DIR` is the same override the
-// agent itself honours (Policy::load()), which is what lets the offline suite
-// drive this recorder against a synthetic adapter and prove the recorder emits
-// exactly what the replay accepts — without pinning a shipped manifest's bytes
-// into a test fixture (AGENTS.md rule 2: those bytes ARE adapter identity).
-$manifestsDir = getenv('DUO_MANIFESTS_DIR') ?: (__DIR__ . '/../../manifests');
-$manifestPath = rtrim($manifestsDir, '/') . '/' . $manifestName . '.json';
+// A vector records one adapter identity, so select exactly that source capsule
+// plus core. Reading the whole source tree would make an unrelated sibling
+// adapter capable of blocking this adapter's evidence recording.
+try {
+    $adapterLibrary = AdapterLibrary::fromSourcePackage($sourceRoot, $manifestName);
+    $adapterPackage = $adapterLibrary->package($manifestName);
+    if ($adapterPackage === null) {
+        throw new \RuntimeException("adapter package '$manifestName' is absent from its selected library");
+    }
+    $manifestPath = $adapterPackage->manifestPath();
+} catch (\Throwable $failure) {
+    fwrite(STDERR, "FAIL: cannot select source adapter package '$manifestName': {$failure->getMessage()}\n");
+    exit(1);
+}
 $manifest = $readJson($manifestPath, "shipped manifest '$manifestName'");
 $probe = $readJson($probePath, 'the adapter probe');
 $dump = $readJson($rowsPath, 'the row dump');
 
-$sourceSha = trim((string) shell_exec('git -C ' . escapeshellarg(__DIR__ . '/../..') . ' rev-parse HEAD 2>/dev/null'));
+$sourceSha = trim((string) shell_exec('git -C ' . escapeshellarg($sourceRoot) . ' rev-parse HEAD 2>/dev/null'));
 
 $document = ConformanceVector::document([
     'ledger' => ['duo_map' => array_values((array) ($dump['ledger']['duo_map'] ?? []))],

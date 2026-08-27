@@ -29,12 +29,17 @@
 # point this at a site whose content is not yours to commit.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+SOURCE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+
 OUT="${1:-}"
 MANIFEST="${2:-}"
 STATE_DIR="${3:-}"
 RECAPTURE_DIR="${4:-}"
 [ -n "$OUT" ] && [ -n "$MANIFEST" ] && [ -n "$STATE_DIR" ] && [ -n "$RECAPTURE_DIR" ] \
   || { echo "usage: record-vector.sh <out.json> <manifest> <state-dir> <recapture-dir>" >&2; exit 1; }
+[[ "$MANIFEST" =~ ^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$ ]] \
+  || { echo "FAIL: manifest '$MANIFEST' is not a canonical adapter package name" >&2; exit 1; }
 [ -d "$STATE_DIR" ] || { echo "FAIL: recorded state dir '$STATE_DIR' does not exist" >&2; exit 1; }
 [ -d "$RECAPTURE_DIR" ] || { echo "FAIL: recorded recapture dir '$RECAPTURE_DIR' does not exist" >&2; exit 1; }
 # The pair's side-1 repo is bind-mounted at /siterepo inside the containers;
@@ -44,8 +49,9 @@ RECAPTURE_DIR="${4:-}"
 command -v wp_conf1 >/dev/null 2>&1 || declare -F wp_conf1 >/dev/null \
   || { echo "FAIL: wp_conf1 is not available; run this through conformance/run.sh" >&2; exit 1; }
 
-MANIFEST_JSON="../manifests/${MANIFEST}.json"
-[ -f "$MANIFEST_JSON" ] || { echo "FAIL: no shipped manifest at $MANIFEST_JSON" >&2; exit 1; }
+MANIFEST_JSON="$SOURCE_ROOT/adapter-packages/$MANIFEST/package/manifest.json"
+[ -f "$MANIFEST_JSON" ] \
+  || { echo "FAIL: no source adapter package manifest at $MANIFEST_JSON" >&2; exit 1; }
 
 # The probe and the row dump cover exactly the tables the manifest declares —
 # not the schema, not the site. An adapter that declares no tables has nothing
@@ -122,5 +128,5 @@ wp_conf1 eval-file /siterepo/.tmp-record-vector.php | awk 'NF { line=$0 } END { 
 jq -e 'has("rows") and has("ledger")' "$WORK/rows.json" >/dev/null \
   || { echo "FAIL: the row dump did not answer with rows and ledger" >&2; exit 1; }
 
-php conformance/record-vector.php \
-  "$OUT" "$MANIFEST" "$STATE_DIR" "$RECAPTURE_DIR" "$WORK/probe.json" "$WORK/rows.json"
+php "$SCRIPT_DIR/record-vector.php" \
+  "$OUT" "$MANIFEST" "$STATE_DIR" "$RECAPTURE_DIR" "$WORK/probe.json" "$WORK/rows.json" "$SOURCE_ROOT"
