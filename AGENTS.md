@@ -11,17 +11,21 @@ about CI belongs in a PR, an issue, or this file.
 
 | path | what it is | ships? |
 | --- | --- | --- |
-| `agent/` | the WordPress drop-in. `duo.php` `require_once`s 99 files at load; `agent/src` is 247 `namespace Duo;` files across 17 directories, each requiring its own dependencies. The only autoload is the generated additive fallback `agent/duo-classmap.php` (rule 1). | yes |
-| `cli/` | the `duo` orchestrator (`cli/duo` is an extensionless `#!/usr/bin/env php` executable) over 102 `cli/src` files | yes |
+| `agent/` | the WordPress drop-in. Source files keep explicit dependency loads; the generated additive `agent/duo-classmap.php` is only a fallback (rule 1). Adoption assembles the selected platform and adapter packages into `agent/adapter-library/`; that embedded directory is an output, not a second checked-in source. | yes |
+| `cli/` | the `duo` orchestrator (`cli/duo` is an extensionless `#!/usr/bin/env php` executable) | yes |
 | `recovery/` | the recovery runtime (canonical JSON, atomic store, Ed25519 rollback control) | yes |
-| `manifests/` | core + 15 plugin manifests + `duo-agency-cpt` (the one `excluded` regression fixture, no product claim) — 17 adapters in all; `providers/`, `interpreters/`, `regenerators/` hook code; `dispositions/<name>.json` + `dispositions/profiles.json`, the hand-authored reviewed claim source (one document per subject since WP-4.4; a leftover `dispositions.json` refuses at load); `capabilities/platform.json` (the platform boundary certificates sign against) and `capabilities/adapter-authorities.json` | yes |
-| `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (298 `regress_*.php` + 105 `regress_*.sh`, counted recursively — every suite is under one of the five execution-class directories `offline/<domain>/`, `live/`, `grind/`, `certify/`, `spike/`, and the corpus root holds only `fixtures/`, `lib/`, `support/` and `offline_diagnostics_guard.sh`), `conformance/`, `siterepo/`, `tmp/` (gitignored scratch) | no |
-| `tools/` | dev entry points: `doctor.sh`, `offline.php`, `affected.php`, `capability-doc.php`, `classmap-generate.php`, `offline-corpus.php`, `api-surface.php`, `adapter-kit.php` (assembles the distributable adapter test kit out of the live `sandbox/tests/lib/` + `sandbox/conformance/` files, and pins them in the generated `adapter-kit.json`; never in Adopt's tar); data: `modules.json`, the single per-path `{module, layer}` source for `agent/src` and `cli/src` (+ `layers-exceptions.json`, the upward-reference ratchet against it — `tools/layers.json`'s old duplicate file-level `path => layer` map was retired in DUO-3493), and `offline-corpus.mk`, the generated corpus include the `Makefile` includes (rule 4) | no |
+| `adapter-packages/` | one self-contained capsule per plugin adapter: `package/manifest.json`, `package/disposition.json`, named runtime hooks, and its own `tests/`, `fixtures/`, and `evidence/`. Only `package/` is assembled into the installed library; authoring or testing one adapter stays inside its capsule. | package bytes only |
+| `platform/adapter-library/` | the non-plugin library source: core manifest/disposition, profiles, platform compatibility, and adapter-authority trust roots. The assembler combines this with adapter packages. | yes, embedded |
+| `integration-scenarios/` | explicitly participant-declared cross-adapter evidence. A scenario is not owned by any one capsule and therefore selects the global aggregate gate. | no |
+| `sandbox/` | shared engine/test infrastructure: pair management, global offline/live/grind/certify/spike suites, shared libraries, site repositories, and gitignored scratch. Adapter-owned tests and conformance assets live in their capsules. | no |
+| `tools/` | dev entry points, package assembly/validation/testing, generated-document checks, affected-test analysis, and the generated global offline-corpus include. `regress-adapter-packages` dynamically discovers capsule-local offline tests, so a new package test adds no Makefile row. | no |
 | `tests/` | PHPUnit 11 self-tests for `tools/` (`Duo\Tests\…`, PSR-4) | no |
 | `scripts/` | `adapter-certification.php` (reviewer-facing adapter certificate sign/verify), `agent-bootstrap.sh`, `close-gate-check.sh` | mixed |
 
-`cli/src/Onboarding/Adopt.php` tars exactly `agent manifests recovery` — that is the whole
-list of what reaches a managed site.
+`cli/src/Onboarding/Adopt.php` assembles `adapter-packages/*/package/` and
+`platform/adapter-library/` into staging's `agent/adapter-library/`, then tars
+exactly `agent recovery`. Tests, fixtures, evidence, and source capsules never
+reach a managed site.
 
 ## Non-negotiables
 
@@ -35,13 +39,15 @@ list of what reaches a managed site.
    three properties that keep it behaviour-neutral). Regenerate it with
    `php tools/classmap-generate.php`; `make release-gate` byte-checks it.
    `vendor/` is dev-only and structurally unreachable from a site.
-2. **Shipped manifest and hook bytes are adapter identity.**
+2. **Shipped package and platform-library bytes are adapter identity.**
    `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's JSON, its
    disposition, and `hash_file('sha256', …)` of every interpreter, provider and
    regenerator file that manifest names
    (`agent/src/Policy/ArtifactPolicyIdentity.php:60-115`); `manifest_hash()`
    and each adapter's `digest` are that one row hashed (`:127`, `:147`). So a
-   one-byte edit under `manifests/` is a fleet-visible change: a deployed site
+   one-byte edit to a capsule's `package/` identity inputs, or to the platform
+   library inputs that participate in an identity, is fleet-visible: a deployed
+   site
    holding a compiled artifact refuses with
    `compiled_artifact_manifest_mismatch` — "compiled manifest/interpreter set
    does not match active pins"
@@ -50,46 +56,37 @@ list of what reaches a managed site.
    re-pin (`wp duo manifest-pin` emits the copy-pasteable object), never a
    fallback. Nothing under `agent/src` or `cli/src` has this property: a
    namespace or class-file move there moves no digest and costs nothing.
-3. **Never leave scratch under `agent/` or `manifests/`.** `sandbox/bin/pair.sh`
-   gates on `git status --porcelain=v1 --untracked-files=all -- agent manifests`
-   (`:355`) and refuses before any pair mutation — "candidate source is DIRTY"
-   (`:369`) — because those two directories are exactly what it bind-mounts.
+3. **Never leave scratch under `agent/`, `adapter-packages/`, or `platform/`.**
+   `sandbox/bin/pair.sh` gates on those exact candidate source roots and refuses
+   before any pair mutation — "candidate source is DIRTY" — because they are
+   the bytes its Compose configuration bind-mounts and the assembler consumes.
    An untracked file counts. Scratch goes in `sandbox/tmp/` or a `mktemp -d`.
-4. **A new offline product suite goes in `sandbox/tests/offline/<domain>/`,
-   needs its own `Makefile` leaf target, and then
-   `php tools/offline-corpus.php`.** The corpus list and its count are
-   DERIVED, not written: that generator enumerates the suite files under the
-   five execution-class directories, maps each to the target whose recipe runs
-   it, and emits `tools/offline-corpus.mk` — the generated include carrying
-   `regress-offline-corpus`'s prerequisite list and the one integer both
-   status lines print. `make release-gate` byte-compares it, the way it
-   already byte-compares `agent/duo-classmap.php` and the capability document.
-   There is no exclusion input, so a suite on disk cannot be left out; the
-   generator refuses a suite no recipe runs, a suite two targets claim, and a
-   corpus target naming a file that is not there. Never hand-edit the include
-   or the counts — regenerate. The corpus root holds no suites;
-   `regress_suite_wiring.php` refuses one that sits outside a class directory,
-   and `tools/suite-layout.review.md` says what each `offline/` domain means.
-   `regress_bundle_coverage.sh` still expands the prerequisite graph and
-   compares it against the generated `regress-offline-all: N offline suites
-   green` line, and each of its refusals — unwired suite, stale count,
-   attempted exclusion — has its own self-test in that suite. Tooling
-   self-tests go in `tests/` instead. Adding a `Makefile` target is otherwise
-   ordinary work.
-5. **New suites use `sandbox/tests/lib/`** (`check.php`, `wp_stubs.php`,
+4. **Put tests with their owner.** An adapter-owned suite goes under
+   `adapter-packages/<slug>/tests/<class>/`; the fixed
+   `regress-adapter-packages` row discovers every capsule and runs its complete
+   offline gate, so adding or changing that adapter requires no Makefile or
+   generated-corpus edit. A shared engine/product suite still goes in
+   `sandbox/tests/offline/<domain>/`, needs its own Makefile leaf, and then
+   `php tools/offline-corpus.php`. Cross-adapter evidence belongs under a named
+   `integration-scenarios/<name>/` with a versioned participant record. Never
+   hand-edit `tools/offline-corpus.mk`: it is the derived global aggregate,
+   and `make release-gate` byte-compares it.
+5. **New shared suites use `sandbox/tests/lib/`** (`check.php`, `wp_stubs.php`,
    `FakeWpdb.php`) — see `sandbox/tests/lib/README.md` for the skeleton. Don't
    write an eleventh bespoke `$wpdb` fake.
 6. **No mass reformat.** `php-cs-fixer` runs on changed files only, by design.
    A whole-tree fix buries the reviewable change in thousands of lines nobody
-   read, and under `manifests/` it would move every `adapter_digest` (rule 2).
+   read, and under an adapter capsule's `package/` it would move that
+   `adapter_digest` (rule 2).
 7. **`declare(strict_types=1)` in new files only.** Adding it to an existing
    file changes that file's bytes and its coercion behaviour.
 8. **Keep byte-identical unless the issue is explicitly about changing them:**
    canonical JSON output, refusal envelopes and their messages, WP-CLI output,
-   lock acquisition order, `manifests/*.json` bytes (rule 2 — they *are*
+   lock acquisition order, adapter `package/` bytes (rule 2 — they *are*
    adapter identity), and the `define('DUO_AGENT_VERSION', …)` /
    `define('DUO_SPEC_VERSION', …)` lines in `agent/duo.php`.
-   `manifests/capabilities/platform.json` restates both defines, and
+   `platform/adapter-library/capabilities/platform.json` restates both defines,
+   and
    `ManifestDispositions::platform_boundary()` throws "platform version
    disagrees with the loaded agent" the moment they diverge
    (`agent/src/Policy/ManifestDispositions.php:145-146`); `make release-gate`
@@ -108,15 +105,18 @@ composer check                    # php -l + phpstan + php-cs-fixer(changed) + p
 php tools/offline.php -j8         # whole offline corpus in parallel, one log per suite
 php tools/offline.php --changed   # only affected suites — iteration only, never the gate
 php tools/affected.php --explain  # why each suite was selected
-make regress-offline-all          # THE merge gate (DUO-3285) — unconditional, quote it in the PR
-make release-gate                 # capability-doc --check + classmap --check: the generated
-                                  # capability document and the classmaps match their sources
+php tools/adapter-package-validate.php --adapter=<slug> # one capsule's structure/identity/evidence
+php tools/adapter-package-tests.php --adapter=<slug>    # one capsule's offline tests
+make regress-offline-all          # dynamic global aggregate merge gate — quote it in the PR
+make release-gate                 # generated capability/protocol/gap/wire docs,
+                                  # classmaps, corpus, adapter kit and grades match their sources
 ```
 
-The gate runs every offline leaf target. The number is derived
-from the suite files on disk by `php tools/offline-corpus.php`, and the
-`regress-offline-all: N offline suites green` line it generates into
-`tools/offline-corpus.mk` is the count of record.
+The gate runs every global offline leaf plus the one fixed
+`regress-adapter-packages` aggregate, which discovers every capsule and its
+package-local offline suites dynamically. The global row count is derived from
+the shared suite files by `php tools/offline-corpus.php`; package test additions
+do not change the Makefile or `tools/offline-corpus.mk`.
 `tools/offline.php` runs the same work as `make regress-offline-all` with
 per-suite logs and the guard's exact diagnostic regex applied per suite, so a
 failure is named rather than merely detected — but the PR quotes the canonical
@@ -131,14 +131,14 @@ human output, machine output and exit status must agree.
 
 There is no sealed evidence record and no generated registry. A status in
 [docs/capabilities.md](docs/capabilities.md) means exactly three things:
-**declared** by the adapter's own manifest, **reviewed** into
-`manifests/dispositions/` by a human who wrote down why, and **exercised**
-by the named live conformance suites in `sandbox/conformance/`. It does not
+**declared** by `adapter-packages/<slug>/package/manifest.json`, **reviewed**
+in its sibling `package/disposition.json` by a human who wrote down why, and
+**exercised** by the named package-local conformance/live evidence (or an
+explicit participant-declared integration scenario). It does not
 mean a digest binds that claim to an artifact set or a specific run.
 
 `tools/capability-doc.php` projects the document and the README summary from
-exactly four files — `manifests/*.json`, `manifests/dispositions/*.json`,
-`manifests/capabilities/platform.json`, `agent/duo.php` — and `make
+the adapter packages, `platform/adapter-library/`, and `agent/duo.php`; `make
 release-gate` byte-compares its output, so the prose cannot drift from the
 library. Its four cross-checks each mirror a rule `ManifestDispositions`
 enforces at agent load time, which is what keeps the document from describing a

@@ -34,7 +34,7 @@ policy load outside its PHP/database ranges, or on a core outside its
 WordPress range or inside it but on a minor line `verified` does not name,
 `cli/src/Onboarding/Doctor.php` reports the same failures before orchestration,
 and `tools/capability-doc.php` cross-checks it against
-`manifests/capabilities/platform.json` so the two copies cannot drift.
+`platform/adapter-library/capabilities/platform.json` so the two copies cannot drift.
 `DUO_WP_IMAGE` is an explicit override for exploratory local work; a
 candidate-bound run leaves it unset and therefore uses
 `wordpress:7.1-php8.3-apache`.
@@ -84,8 +84,9 @@ gap `--innodb_initialized` was chosen to close.
 `pair.sh` exports `DUO_DB_HOST="$DB_CONTAINER"` **at load**, beside the
 engine selection and therefore for every subcommand — not just `up`.
 `pair.yml` renders `WORDPRESS_DB_HOST: ${DUO_DB_HOST:-duo-shared-db}` from it,
-and `pair_compose_configure()` writes it into `sandbox/.env` as a third line
-beside `DUO_AGENT_SRC`/`DUO_MANIFESTS_SRC`. The `.env` write is load-bearing,
+and `pair_compose_configure()` writes it into `sandbox/.env` beside
+`DUO_AGENT_SRC`, `DUO_ADAPTER_PACKAGES_SRC`, and `DUO_PLATFORM_SRC`. The
+`.env` write is load-bearing,
 not belt-and-braces: `conformance/run.sh` and every `regress_*.sh` invoke
 `pair.sh up` as a subprocess and then make their own `docker compose -f
 pair.yml` calls, which never see pair.sh's export. A MySQL pair whose
@@ -99,7 +100,7 @@ it, so exporting only inside `up` would let a later `pair.sh stop
 compose call reads. (Exactly the failure `DUO_AGENT_SRC` hit in DUO-3277.)
 
 **What this server now proves — and what it does not yet.**
-`manifests/capabilities/platform.json`'s database axis is an engine-keyed map
+`platform/adapter-library/capabilities/platform.json`'s database axis is an engine-keyed map
 (`compatibility.database.engines`) that names `MySQL [8.4.0, 8.5.0)` beside
 `MariaDB [11.0.0, 12.0.0)`, so a pair pointed at `duo-shared-mysql` is no
 longer refused on the engine axis: `wp duo ...` runs, and this lane is what
@@ -221,8 +222,8 @@ way).
 
 ### The exact-source gate (`DUO_EXPECTED_SOURCE_SHA`)
 
-`agent/` and `manifests/` are bind-mounted from the repo's **canonical**
-checkout, resolved through git's own common-dir, never from wherever
+`agent/`, `adapter-packages/`, and `platform/` are bind-mounted from the repo's
+**canonical** checkout, resolved through git's own common-dir, never from wherever
 `pair.sh` was invoked (DUO-3277 — a linked worktree is removed at close-gate,
 which would kill a persistent pair's mount source out from under it). The
 consequence for evidence: a live suite or `conformance/run.sh` sweep launched
@@ -475,20 +476,22 @@ before a `git pull` on the second side). If the pattern this template
 covers ever needs to change, change it once, there, not across every
 fixture's own copy.
 
-## The five execution classes under `sandbox/tests/`
+## Execution classes and ownership
 
-Which gate runs a suite is its directory, not its name. `offline/<domain>/`
-(267 files across fifteen subject domains) is the merge-gate corpus: no
-docker, no pair, `make regress-offline-all` runs every one of them anywhere.
-The other four sit outside that gate, and — with the one exception named
-below — every file in them needs a live pair. `live/` (43 files) is
+Which gate runs a suite is its directory, not its name. Shared engine and
+product suites live under `sandbox/tests/`; adapter-owned suites use the same
+class directories under `adapter-packages/<slug>/tests/`, and cross-adapter
+evidence lives in a participant-declared `integration-scenarios/<name>/`.
+`make regress-offline-all` runs every shared offline leaf plus the fixed
+`regress-adapter-packages` aggregate, which discovers every capsule-local
+offline test dynamically. `sandbox/tests/live/` is
 per-mechanism pair evidence, one pair each, enumerated by `make
 regress-live-list` and run when the diff touches the mechanism a suite's own
-header names. `grind/` (11) holds the scenario grinds that walk a whole
+header names. `grind/` holds the scenario grinds that walk a whole
 fixture site through a round of work (`grind_r1a_forms.sh` and its siblings),
 plus `grind_ecommerce_developer.matrix.json` — a data file whose two readers
 are offline suites, kept here with the harness whose stem it shares.
-`certify/` (7) is live certification-style evidence, one mechanism apiece: the
+`certify/` is live certification-style evidence, one mechanism apiece: the
 merge, version-skew-merge, deletion, version and adversarial matrices and the
 two SSH adoption/rollback proofs. `spike/` (10) is the hand-run family — the
 exploratory `spike_*.sh` seeds, the three docker smokes whose own headers
@@ -565,12 +568,12 @@ The subject-certification apparatus this section used to describe — the
 registry import that published them — is retired. No content-addressed bundle
 stands behind a product claim any more, and no byte change expires anything.
 
-What stands behind a claim now is a reviewed entry in
-`manifests/dispositions/` plus live conformance that is run continuously
-rather than sealed into a record. `make conformance-<name>` runs one entry
-(`sandbox/conformance/run.sh <name>`; the entries are
-`sandbox/conformance/entries/*.json`), and `CONF_EXPECTED_SOURCE_SHA` is how a
-sweep binds itself to a commit — `run.sh` exports it as the
+What stands behind a claim now is the adapter capsule's reviewed
+`package/disposition.json` plus live conformance that is run continuously
+rather than sealed into a record. `make conformance-<name>` runs the capsule's
+`tests/conformance/entry.json` and sibling seed/check hooks through the shared
+`sandbox/conformance/run.sh <name>` harness. `CONF_EXPECTED_SOURCE_SHA` is how a
+sweep binds itself to a commit — the harness exports it as the
 `DUO_EXPECTED_SOURCE_SHA` the gate above enforces.
 
 The narrower live fixtures keep their own targets, each with its rationale in

@@ -93,7 +93,7 @@ The core loop for unclassified writes: loud block → `duo pending <env>` (journ
 
 ## Reviewed and tested, not asserted
 
-Certified capability claims are generated, never written by hand. A claim passes three gates in order: the adapter's own manifest **declares** the surface; [manifests/dispositions/](manifests/dispositions/) — one reviewed document per adapter, kept separate from the manifests, with exact one-for-one coverage, so no manifest can certify itself — records a human's **reviewed** status and the reason for it; and clean-room conformance runs ([sandbox/conformance/](sandbox/conformance/)) **exercise** it against a live WordPress pair. `tools/capability-doc.php` projects that one source into the summary at the top of this file and into [docs/capabilities.md](docs/capabilities.md), and `make release-gate` byte-compares the result so the prose cannot drift from the library. `duo capabilities` answers the same question against a live target. Review can also *reduce* capability: working but unreviewable behavior is removed and refused, not shipped under-proven.
+Certified capability claims are generated, never written by hand. A claim passes three gates in order: `adapter-packages/<slug>/package/manifest.json` **declares** the surface; its sibling `package/disposition.json`, kept outside the manifest document so no adapter can certify itself, records a human's **reviewed** status and reason; and the capsule's named conformance/live tests (or an explicit participant-declared [integration scenario](integration-scenarios/)) **exercise** it against a live WordPress pair. Core and shared compatibility live separately in [platform/adapter-library/](platform/adapter-library/). `tools/capability-doc.php` projects those sources into the summary at the top of this file and into [docs/capabilities.md](docs/capabilities.md), and `make release-gate` byte-compares the result so the prose cannot drift from the library. `duo capabilities` answers the same question against a live target. Review can also *reduce* capability: working but unreviewable behavior is removed and refused, not shipped under-proven.
 
 What this deliberately is not: a claim is not sealed to a content-addressed evidence bundle, and no digest binds it to a particular run. The honest reading of a `certified` row is *declared, reviewed by a named human, and exercised by the named live suites* — nothing stronger.
 
@@ -109,9 +109,11 @@ What this deliberately is not: a claim is not sealed to a content-addressed evid
 | [docs/roadmap.md](docs/roadmap.md) | Owner roadmap: thesis, horizons, standing decisions |
 | [agent/](agent/) | The Duo agent — drop-in mu-plugin + `wp duo …` engine commands |
 | [cli/](cli/) | The `duo` orchestrator CLI + transports |
-| [manifests/](manifests/) | Classification manifests, their provider/interpreter/regenerator hooks, the reviewed dispositions, and the platform boundary |
+| [adapter-packages/](adapter-packages/) | One capsule per plugin adapter: shipped package bytes plus package-local tests, fixtures, and evidence |
+| [platform/adapter-library/](platform/adapter-library/) | Core classification, profiles, platform compatibility, and adapter authority roots |
+| [integration-scenarios/](integration-scenarios/) | Explicitly participant-declared cross-adapter evidence |
 | [recovery/](recovery/) | WordPress-independent rollback runtime: checkpoints, code releases, upload and effect bundles |
-| [sandbox/](sandbox/) | Dockerized disposable environment pairs + the acceptance, conformance, and regression suites |
+| [sandbox/](sandbox/) | Dockerized disposable environment pairs plus shared engine and integration test infrastructure |
 
 ## Development & verification
 
@@ -158,6 +160,7 @@ or later](LICENSE) — the WordPress ecosystem's own license. The `agent/` drop-
 runs inside WordPress, so GPL compatibility is not just a choice here but the
 shipped half's natural obligation; the whole repository carries one license
 rather than splitting hairs at the tarball boundary
-(`cli/src/Onboarding/Adopt.php` ships exactly `agent manifests recovery`).
+(`cli/src/Onboarding/Adopt.php` assembles the selected package and platform
+sources into `agent/adapter-library/`, then ships exactly `agent recovery`).
 Contributions are accepted under the same terms — see
 [CONTRIBUTING.md](CONTRIBUTING.md).
