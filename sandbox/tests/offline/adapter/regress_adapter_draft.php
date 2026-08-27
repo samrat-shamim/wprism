@@ -50,6 +50,7 @@ define('DRAFT_SPEC', SPEC - 1);
 require $repo . '/agent/src/Kernel/Canon.php';
 require $repo . '/agent/src/Kernel/OptionState.php';
 require $repo . '/agent/src/Policy/Policy.php';
+require $repo . '/sandbox/tests/lib/frozen_policy.php';
 
 $root = sys_get_temp_dir() . '/duo_regress_adapter_draft_' . bin2hex(random_bytes(4));
 mkdir($root, 0777, true);
@@ -108,7 +109,14 @@ function duo(array $args): array {
 /** A minimal core-only manifest library every site.duo.json pins. */
 function make_lib(string $dir): string {
     wrj($dir . '/core.json', ['name' => 'core', 'spec_version' => SPEC, 'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) []]);
+    \DuoTest\FrozenPolicy::adapterLibrary($dir);
     return $dir;
+}
+
+/** Publish one manifest and close the explicit historical-layout test archive around it. */
+function publish_manifest(string $dir, string $name, array $manifest): void {
+    wr($dir . '/' . $name . '.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    \DuoTest\FrozenPolicy::adapterLibrary($dir);
 }
 
 /** A site.duo.json with the given policy sections. */
@@ -195,7 +203,7 @@ echo "\n== 1. envelope + validate acceptance ==\n";
     // Feed the draft to the REAL manifest-validate.
     $md = "$t/md";
     make_lib($md);
-    wr($md . '/nf-draft.json', json_encode($draft, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    publish_manifest($md, 'nf-draft', $draft);
     $v = duo(['manifest-validate', $md, '--manifest=nf-draft', '--pins=nf-draft,core']);
     check($v['exit'] === 0, 'manifest-validate exits 0 on the draft (facts valid, sidecar inert)');
     check(str_contains($v['stdout'], 'draft:') && str_contains($v['stdout'], 'facts validated'), 'manifest-validate prints the _draft annotation distinguishing facts / proposals / unsupported');
@@ -237,7 +245,7 @@ echo "\n== 2. INERTNESS (load-bearing): undeclared id_kind under _draft stays ok
             '_meta' => (object) [],
         ],
     ];
-    wr($md . '/inert-draft.json', json_encode($draft, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    publish_manifest($md, 'inert-draft', $draft);
     $v = duo(['manifest-validate', $md, '--manifest=inert-draft', '--pins=inert-draft,core']);
     check($v['exit'] === 0, 'a draft whose _draft table proposal names an UNDECLARED id_kind still validates ok (sidecar is inert)');
     check(!str_contains($v['stdout'], 'kind vocabulary is closed'), 'the closed-vocabulary refusal is NOT tripped by the renamed proposal');
@@ -250,7 +258,7 @@ echo "\n== 2. INERTNESS (load-bearing): undeclared id_kind under _draft stays ok
     unset($frag['proposed_refs']);
     $mutated['_draft']['proposals']['tables'][0]['candidate'] = $frag;
     $mutated['name'] = 'mutant-draft';
-    wr($md . '/mutant-draft.json', json_encode($mutated, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    publish_manifest($md, 'mutant-draft', $mutated);
     $vm = duo(['manifest-validate', $md, '--manifest=mutant-draft', '--pins=mutant-draft,core']);
     check($vm['exit'] !== 0, 'MUTATION PROOF: un-renaming the trigger key makes manifest-validate FAIL — the rename is load-bearing');
     check(str_contains($vm['stdout'] . $vm['stderr'], 'kind vocabulary is closed'), 'the un-renamed proposal trips exactly the closed-vocabulary refusal the rename prevents');
@@ -624,7 +632,7 @@ echo "\n== 6d. prior manifest intent and graduated facts survive a policy export
 
     $md = "$t/md";
     make_lib($md);
-    wr("$md/intent-draft.json", json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    publish_manifest($md, 'intent-draft', $out);
     $v = duo(['manifest-validate', $md, '--manifest=intent-draft', '--pins=intent-draft,core']);
     check($v['exit'] === 0, 'the preserved intent and inert fact-conflict sidecar still pass the real manifest validator');
 }
@@ -1277,7 +1285,7 @@ require_once $repo . '/agent/src/Adapter/AdapterProbe.php';
     // Inertness is preserved: evidence rows carry no blind-walk trigger key.
     $md = "$t/md";
     make_lib($md);
-    wr($md . '/rooms-draft.json', json_encode($answered, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    publish_manifest($md, 'rooms-draft', $answered);
     $validated = duo(['manifest-validate', $md, '--manifest=rooms-draft', '--pins=rooms-draft,core']);
     check(
         $validated['exit'] === 0,
