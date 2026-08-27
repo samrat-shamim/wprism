@@ -8892,10 +8892,10 @@ $tecRegenLive = (string) file_get_contents(
     dirname(__DIR__) . '/live/regress_tec_regen.sh'
 );
 foreach ([
-    'cp ../platform/adapter-library/capabilities/platform.json "$TEST_MANIFEST_DIR/capabilities/platform.json"' => 'the mandatory platform boundary',
-    'cp ../adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php "$TEST_MANIFEST_DIR/interpreters/the-events-calendar.php"' => 'the manifest-bound interpreter',
-    'cp ../adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php "$TEST_MANIFEST_DIR/providers/the-events-calendar-category-colors.php"' => 'the manifest-bound provider',
-    'cp ../adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php "$TEST_MANIFEST_DIR/regenerators/the-events-calendar.php"' => 'the manifest-bound regenerator',
+    'cp -R ../platform/adapter-library "$TEST_LIBRARY_ROOT/platform/adapter-library"' => 'the mandatory platform boundary',
+    '../adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php' => 'the manifest-bound interpreter',
+    '../adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php' => 'the manifest-bound provider',
+    '../adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php' => 'the manifest-bound regenerator',
 ] as $regenFixtureEvidence => $regenFixtureLabel) {
     duo_check(
         str_contains($tecRegenLive, $regenFixtureEvidence),
