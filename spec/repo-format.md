@@ -1064,9 +1064,9 @@ follows, and WP-4.3 implemented them with the rule:
 
 ### v3.4 Per-adapter disposition addressing, and per-subject registry pins
 
-**Historical riders: WP-4.4 (layout) and WP-4.5 (addressing). The flat-library
-split below was enforced then and is superseded by the capsule layout in
-“Adapter manifests”; the ADDRESSING proposal remains unimplemented.**
+**Riders: WP-4.4 (layout) and WP-4.5 (addressing). Enforced today: the flat-library
+split was enforced then and is superseded by the capsule layout in “Adapter
+manifests”; the ADDRESSING proposal remains unimplemented.**
 `manifests/dispositions.json` was one document — 302 lines, 37,707 bytes, 16 entries plus one `profiles`
 row (`fse`) — where one missing entry refused `Policy::load()` for every site and every unrelated
 adapter. WP-4.4 removed that file. At that stage the reviewed claim source
@@ -1717,7 +1717,7 @@ substitutable for another:
    code, and that code was 20 files totalling 27,643 lines under
    `manifests/{interpreters,providers,regenerators}`. After the engine
    absorptions below, the current inventory is
-   this: 11 of the 17 adapters name manifest-shipped hook code, and that code is 20 files totalling 26,958
+   this: 11 of the 17 adapters name manifest-shipped hook code, and that code is 20 files totalling 27,006
    lines under `adapter-packages/*/package/runtime/`;
    `tools/adapter-executable-inventory.json` records the generated inventory.
    The baseline more than doubled with #561 alone — one adapter reaching production-readiness added a TEC
