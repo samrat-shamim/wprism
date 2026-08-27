@@ -287,11 +287,16 @@ function subject_test_is_discoverable(string $repo, string $test, string $name):
         return true;
     }
     if ($test === 'regress-polylang-production-readiness') {
-        return is_file("$repo/sandbox/tests/offline/adapter/regress_polylang_production_readiness.php");
+        return is_file("$repo/adapter-packages/polylang/tests/offline/regress_polylang_production_readiness.php");
     }
-    if (in_array($test, ['regress-polylang-multisite-refusal', 'regress-polylang-tec-rewrite-coinstall'], true)) {
-        $suite = str_replace('-', '_', $test);
-        return is_file("$repo/sandbox/tests/live/$suite.sh");
+    if ($test === 'regress-polylang-multisite-refusal') {
+        return is_file("$repo/adapter-packages/polylang/tests/live/regress_polylang_multisite_refusal.sh");
+    }
+    if ($test === 'regress-polylang-tec-rewrite-coinstall') {
+        return is_file(
+            "$repo/integration-scenarios/polylang-tec-rewrite-coinstall/tests/live/"
+            . 'regress_polylang_tec_rewrite_coinstall.sh'
+        );
     }
     // A third arm used to fall back to sandbox/certification/tests/$test.sh.
     // That whole directory went with the certification-evidence apparatus, so

@@ -366,8 +366,11 @@ $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/agent/src/Rebuild/RebuildActionNegotiator.php';
 
-putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
-$policy = Duo\Policy::load(null, ['core']);
+$policy = Duo\Policy::load(
+    null,
+    ['core'],
+    adapterLibrary: Duo\AdapterLibrary::fromSourceTree($root)
+);
 $selected = $policy->actions_for(['option:permalink_structure']);
 duo_check_same(1, count($selected), 'core selects exactly one action for the permalink surface');
 duo_check_same('rewrite.flush', $selected[0]['action'] ?? null, 'core selects the closed rewrite.flush operation');

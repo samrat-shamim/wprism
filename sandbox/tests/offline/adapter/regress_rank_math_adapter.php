@@ -68,8 +68,11 @@ Canon::write_file($site . '/site.duo.json', Canon::encode([
     'policy' => new stdClass(),
     'spec_version' => DUO_SPEC_VERSION,
 ]));
-putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
-$policy = Policy::load($site, ['rank-math']);
+$policy = Policy::load(
+    $site,
+    ['rank-math'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourceTree($root)
+);
 
 $range = $policy->version_ranges()['seo-by-rank-math/rank-math.php'] ?? null;
 duo_check(is_array($range)

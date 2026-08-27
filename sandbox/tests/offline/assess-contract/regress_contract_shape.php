@@ -775,17 +775,16 @@ duo_check_same(
 // An explicitly supplied object must be the actual source of the fold, not a
 // decorative option beside a hidden checkout glob. Change one reviewed byte
 // in a complete scratch library so falling back to this checkout is visible.
-if (is_dir(dirname(__DIR__, 4) . '/manifests')) {
-    $selectedRoot = sys_get_temp_dir() . '/duo-assess-provenance-library-' . bin2hex(random_bytes(6));
-    mkdir($selectedRoot, 0777, true);
-    $sourceRoot = dirname(__DIR__, 4) . '/manifests';
+$selectedRoot = sys_get_temp_dir() . '/duo-assess-provenance-library-' . bin2hex(random_bytes(6));
+$repoRoot = dirname(__DIR__, 4);
+$copySelectedTree = static function (string $sourceRoot, string $destinationRoot): void {
     $sourceFiles = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($sourceRoot, FilesystemIterator::SKIP_DOTS),
         RecursiveIteratorIterator::SELF_FIRST
     );
     foreach ($sourceFiles as $sourceFile) {
         $relative = substr($sourceFile->getPathname(), strlen($sourceRoot) + 1);
-        $destination = $selectedRoot . '/' . $relative;
+        $destination = $destinationRoot . '/' . $relative;
         if ($sourceFile->isDir()) {
             if (!is_dir($destination)) {
                 mkdir($destination, 0777, true);
@@ -794,36 +793,40 @@ if (is_dir(dirname(__DIR__, 4) . '/manifests')) {
             copy($sourceFile->getPathname(), $destination);
         }
     }
-    $changedDisposition = $selectedRoot . '/dispositions/acf.json';
-    $changedDocument = json_decode((string) file_get_contents($changedDisposition), true, 512, JSON_THROW_ON_ERROR);
-    $changedDocument['reason'] .= ' Scratch provenance selector.';
-    file_put_contents($changedDisposition, Canon::encode($changedDocument));
-    register_shutdown_function(static function () use ($selectedRoot): void {
-        $files = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($selectedRoot, FilesystemIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::CHILD_FIRST
-        );
-        foreach ($files as $file) {
-            $file->isDir() ? @rmdir($file->getPathname()) : @unlink($file->getPathname());
-        }
-        @rmdir($selectedRoot);
-    });
-    $selectedLibrary = \Duo\AdapterLibrary::fromLegacyFlatDirectory($selectedRoot);
-    $selectedDocuments = ['profiles' => $selectedLibrary->profilesPath()];
-    foreach ($selectedLibrary->packages() as $package) {
-        $selectedDocuments[$package->name()] = $package->dispositionPath();
+};
+mkdir($selectedRoot . '/adapter-packages/acf', 0777, true);
+mkdir($selectedRoot . '/platform/adapter-library', 0777, true);
+$copySelectedTree($repoRoot . '/adapter-packages/acf', $selectedRoot . '/adapter-packages/acf');
+$copySelectedTree($repoRoot . '/platform/adapter-library', $selectedRoot . '/platform/adapter-library');
+$changedDisposition = $selectedRoot . '/adapter-packages/acf/package/disposition.json';
+$changedDocument = json_decode((string) file_get_contents($changedDisposition), true, 512, JSON_THROW_ON_ERROR);
+$changedDocument['reason'] .= ' Scratch provenance selector.';
+file_put_contents($changedDisposition, Canon::encode($changedDocument));
+register_shutdown_function(static function () use ($selectedRoot): void {
+    $files = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($selectedRoot, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($files as $file) {
+        $file->isDir() ? @rmdir($file->getPathname()) : @unlink($file->getPathname());
     }
-    $selectedProvenance = $provenanceMethod->invoke(null, ['adapter_library' => $selectedLibrary]);
-    duo_check_same(
-        $provenanceFrom($selectedDocuments),
-        $selectedProvenance,
-        'an explicit AdapterLibrary object, not a checkout fallback, supplies every provenance document'
-    );
-    duo_check(
-        $selectedProvenance !== $provenanceFrom($shippedDocuments),
-        'changing one selected-library disposition byte changes its provenance instead of reading the checkout'
-    );
+    @rmdir($selectedRoot);
+});
+$selectedLibrary = \Duo\AdapterLibrary::fromSourcePackage($selectedRoot, 'acf');
+$selectedDocuments = ['profiles' => $selectedLibrary->profilesPath()];
+foreach ($selectedLibrary->packages() as $package) {
+    $selectedDocuments[$package->name()] = $package->dispositionPath();
 }
+$selectedProvenance = $provenanceMethod->invoke(null, ['adapter_library' => $selectedLibrary]);
+duo_check_same(
+    $provenanceFrom($selectedDocuments),
+    $selectedProvenance,
+    'an explicit AdapterLibrary object, not a checkout fallback, supplies every provenance document'
+);
+duo_check(
+    $selectedProvenance !== $provenanceFrom($shippedDocuments),
+    'changing one selected-library disposition byte changes its provenance instead of reading the checkout'
+);
 
 // During the preparatory phase an explicit manifests_dir remains a sparse
 // authoring-fixture seam. It deliberately does not construct AdapterLibrary,

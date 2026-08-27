@@ -316,6 +316,10 @@ function ms_runtime_created_prefixes(): array
         // managed site and requires `duo/duo.php` BESIDE IT THERE; in this tree
         // the agent is `agent/duo.php` and `agent/duo/` has no tracked files.
         'agent/duo/' => 'the deployed mu-plugin layout: agent/duo-loader.php:7 requires duo/duo.php beside itself on a managed site, never in this tree',
+        // `cli/src/Onboarding/Adopt.php:104-118` assembles source capsules
+        // into this embedded projection during deployment. The source tree
+        // intentionally has adapter-packages/ + platform/ instead.
+        'agent/adapter-library/' => 'the deployed adapter projection: cli/src/Onboarding/Adopt.php assembles it from adapter-packages/ and platform/ at install time',
     ];
 }
 

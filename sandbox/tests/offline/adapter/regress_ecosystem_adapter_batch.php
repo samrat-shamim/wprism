@@ -54,11 +54,11 @@ foreach ($names as $name) {
 }
 $conformanceEntry = Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/ecosystem-adapter-batch.json'));
 $standaloneEntries = [
-    'advanced-editor-tools' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/advanced-editor-tools.json')),
-    'classic-editor' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/classic-editor.json')),
-    'code-snippets' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/code-snippets.json')),
-    'wps-hide-login' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/wps-hide-login.json')),
-    'yoast-duplicate-post' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/yoast-duplicate-post.json')),
+    'advanced-editor-tools' => Canon::decode(Canon::read_file($root . '/adapter-packages/advanced-editor-tools/tests/conformance/entry.json')),
+    'classic-editor' => Canon::decode(Canon::read_file($root . '/adapter-packages/classic-editor/tests/conformance/entry.json')),
+    'code-snippets' => Canon::decode(Canon::read_file($root . '/adapter-packages/code-snippets/tests/conformance/entry.json')),
+    'wps-hide-login' => Canon::decode(Canon::read_file($root . '/adapter-packages/wps-hide-login/tests/conformance/entry.json')),
+    'yoast-duplicate-post' => Canon::decode(Canon::read_file($root . '/adapter-packages/yoast-duplicate-post/tests/conformance/entry.json')),
 ];
 $artifactLock = Canon::decode(Canon::read_file($root . '/sandbox/conformance/artifacts.lock.json'));
 
@@ -156,7 +156,7 @@ foreach (['wpforms', 'custom-post-type-ui'] as $rejected) {
 }
 duo_check(
     $sourceLibrary->package('redirection') !== null
-        && is_file($root . '/sandbox/tests/offline/adapter/regress_redirection_adapter.php'),
+        && is_file($root . '/adapter-packages/redirection/tests/offline/regress_redirection_adapter.php'),
     'Redirection left the rejected-candidate set only with its own exact adapter and regression evidence'
 );
 
@@ -182,9 +182,9 @@ foreach ($standaloneEntries as $name => $fixture) {
     duo_check_same($name, $fixture['manifest'] ?? null, "$name has an independently runnable live profile");
     duo_check(!isset($fixture['entry']['mode']), "$name standalone evidence uses the complete roundtrip path");
     duo_check_same(['core', $name], $fixture['entry']['pin'] ?? null, "$name live profile isolates core plus one adapter");
-    foreach (['seeds', 'postdeploy', 'checks'] as $phase) {
+    foreach (['seeds' => 'seed.sh', 'postdeploy' => 'postdeploy.sh', 'checks' => 'check.sh'] as $phase => $file) {
         duo_check(
-            is_file($root . "/sandbox/conformance/$phase/$name.sh"),
+            is_file($root . "/adapter-packages/$name/tests/conformance/$file"),
             "$name live profile has a separately diagnosable $phase hook"
         );
     }

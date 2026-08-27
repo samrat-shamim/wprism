@@ -189,9 +189,11 @@ $loadSite = static function (array $manifest) use ($root): Policy {
         'policy' => new stdClass(),
         'spec_version' => DUO_SPEC_VERSION,
     ]));
-    putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
-
-    return Policy::load($dir, ['wpforms-lite']);
+    return Policy::load(
+        $dir,
+        ['wpforms-lite'],
+        adapterLibrary: \Duo\AdapterLibrary::fromSourceTree($root)
+    );
 };
 
 /**
