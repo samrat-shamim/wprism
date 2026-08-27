@@ -258,6 +258,37 @@ final class AdapterLibraryTest extends TestCase
         $this->assertNotContains(realpath(dirname($packageRoot) . '/tests/regress.php'), $library->scanFiles());
     }
 
+    public function testSourcePackageFactoryNeverInspectsASiblingAdapter(): void
+    {
+        [$root, $packageRoot] = $this->logicalFixture('source');
+        $brokenSibling = $root . '/adapter-packages/beta/package';
+        mkdir($brokenSibling, 0o777, true);
+        file_put_contents($brokenSibling . '/manifest.json', "not-json\n");
+        file_put_contents($brokenSibling . '/disposition.json', "{}\n");
+
+        $library = AdapterLibrary::fromSourcePackage($root, 'alpha');
+
+        $this->assertSame(
+            ['alpha', 'core'],
+            array_map(static fn($package): string => $package->name(), $library->packages())
+        );
+        $this->assertSame(realpath($packageRoot . '/manifest.json'), $library->package('alpha')?->manifestPath());
+        $this->assertNotContains(realpath($brokenSibling . '/manifest.json'), $library->scanFiles());
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('duo: invalid JSON');
+        AdapterLibrary::fromSourceTree($root);
+    }
+
+    public function testSourcePackageFactoryRejectsPlatformOwnedCore(): void
+    {
+        [$root] = $this->logicalFixture('source');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('core is platform-owned');
+        AdapterLibrary::fromSourcePackage($root, 'core');
+    }
+
     public function testEmbeddedFactoryReadsOnlyTheProjectedLibrary(): void
     {
         [$root, $packageRoot, $platformRoot] = $this->logicalFixture('embedded');

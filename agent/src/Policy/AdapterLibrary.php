@@ -101,6 +101,46 @@ final class AdapterLibrary
         );
     }
 
+    /** Read one authoring capsule plus core without inspecting sibling adapters. */
+    public static function fromSourcePackage(string $directory, string $slug): self
+    {
+        self::assertLogicalSlug($slug, 'adapter package name');
+        if ($slug === 'core') {
+            throw new \RuntimeException('duo: core is platform-owned and has no adapter authoring capsule');
+        }
+
+        $root = self::canonicalRoot($directory);
+        $packagesRoot = self::assertDirectory(
+            $root,
+            $root . '/adapter-packages',
+            'adapter package source directory'
+        );
+        $platformRoot = self::assertDirectory(
+            $root,
+            $root . '/platform/adapter-library',
+            'platform adapter library directory'
+        );
+        $capsule = self::assertDirectory($root, $packagesRoot . '/' . $slug, "adapter capsule $slug");
+        self::assertAllowedEntries(
+            $capsule,
+            ['README.md', 'evidence', 'fixtures', 'package', 'tests'],
+            "adapter capsule $slug"
+        );
+        self::assertOptionalAuthoringMembers($root, $capsule, $slug);
+        $packageRoot = self::assertDirectory(
+            $root,
+            $capsule . '/package',
+            "adapter package payload $slug"
+        );
+
+        return self::fromLogicalLayout(
+            $root,
+            [$slug => $packageRoot],
+            $platformRoot,
+            [$capsule, $platformRoot]
+        );
+    }
+
     /**
      * Read the deployed agent/adapter-library projection, never a neighboring
      * source tree.

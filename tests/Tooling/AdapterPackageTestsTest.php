@@ -7,6 +7,7 @@ namespace Duo\Tests\Tooling;
 use Duo\Tooling\AdapterPackageTestDiscovery;
 use Duo\Tooling\AdapterPackageTestRunner;
 use Duo\Tooling\AdapterPackageTestsCommand;
+use Duo\Tooling\AdapterPackageValidator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -14,6 +15,7 @@ use RuntimeException;
 require_once dirname(__DIR__, 2) . '/tools/src/AdapterPackageTestDiscovery.php';
 require_once dirname(__DIR__, 2) . '/tools/src/AdapterPackageTestRunner.php';
 require_once dirname(__DIR__, 2) . '/tools/src/AdapterPackageTestsCommand.php';
+require_once dirname(__DIR__, 2) . '/tools/src/AdapterPackageValidator.php';
 
 final class AdapterPackageTestsTest extends TestCase
 {
@@ -56,6 +58,19 @@ final class AdapterPackageTestsTest extends TestCase
             'adapter-packages/acf/tests/offline/zeta/regress_z.sh',
         ], array_column($found['tests'], 'path'));
         self::assertSame(['bash', 'php', 'bash'], array_column($found['tests'], 'runtime'));
+    }
+
+    public function testCurrentAcfCapsuleValidatesWithoutReadingSiblingPackages(): void
+    {
+        $result = AdapterPackageValidator::validate(dirname(__DIR__, 2), 'acf');
+
+        self::assertSame(AdapterPackageValidator::FORMAT, $result['format']);
+        self::assertSame('acf', $result['adapter']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $result['digest']);
+        self::assertSame(['conformance-acf', 'exact-artifact-version-matrix'], $result['evidence_tests']);
+        self::assertContains('closed-library', $result['checks']);
+        self::assertContains('adapter-identity', $result['checks']);
+        self::assertContains('evidence-wiring:2', $result['checks']);
     }
 
     /** @return iterable<string,array{0:string}> */
