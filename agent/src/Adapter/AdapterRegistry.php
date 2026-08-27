@@ -95,7 +95,7 @@ final class AdapterRegistry {
         }
         foreach ($this->policy->manifests as $manifest) {
             if ((string) ($manifest['name'] ?? '') === $name) {
-                return self::shipped_claim($manifest, $disposition, ManifestDispositions::platform_boundary());
+                return self::shipped_claim($manifest, $disposition, $this->policy->adapter_platform_boundary());
             }
         }
 
@@ -152,7 +152,8 @@ final class AdapterRegistry {
             ['operation' => 'promote'],
             TargetProbe::probe_target(),
             $this->policy->adapter_sources()->diagnostics($this->policy->manifests),
-            $this->policy->adapter_sources()->certification_contexts()
+            $this->policy->adapter_sources()->certification_contexts(),
+            $this->policy->adapter_platform_boundary()
         )['blockers'];
     }
 
@@ -271,7 +272,8 @@ final class AdapterRegistry {
             $query,
             TargetProbe::probe_target(),
             $this->policy->adapter_sources()->diagnostics($this->policy->manifests),
-            $this->policy->adapter_sources()->certification_contexts()
+            $this->policy->adapter_sources()->certification_contexts(),
+            $this->policy->adapter_platform_boundary()
         );
         $providerBlockers = $this->provider_readiness_blockers($this->policy->actions());
         if ($providerBlockers === []) {
@@ -334,11 +336,12 @@ final class AdapterRegistry {
         array $query = [],
         ?array $target = null,
         array $sources = [],
-        array $externalContexts = []
+        array $externalContexts = [],
+        ?array $platformBoundary = null
     ): array {
         $operation = (string) ($query['operation'] ?? 'promote');
         $surface = isset($query['surface']) ? (string) $query['surface'] : null;
-        $platform = ManifestDispositions::platform_boundary();
+        $platform = $platformBoundary ?? ManifestDispositions::platform_boundary();
         $rows = [];
         $blockers = [];
         $perRowEvidence = [];

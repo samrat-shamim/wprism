@@ -308,6 +308,13 @@ final class Policy {
         return $this->adapterLibrary ??= AdapterLibrary::fromDirectory(self::manifests_dir());
     }
 
+    /** The platform boundary belonging to this policy's resolved library. */
+    public function adapter_platform_boundary(): array {
+        return $this->adapterLibrary === null
+            ? ManifestDispositions::platform_boundary()
+            : ManifestDispositions::platform_boundary_library($this->adapterLibrary);
+    }
+
     /** The shipped package that owns one manifest name. */
     public function adapter_package(string $name): AdapterPackage {
         $package = $this->adapter_library()->package($name);
