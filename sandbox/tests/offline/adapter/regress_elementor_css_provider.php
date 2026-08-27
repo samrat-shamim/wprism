@@ -184,7 +184,8 @@ namespace Duo {
 
 namespace {
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
-    require_once dirname(__DIR__, 4) . '/manifests/providers/elementor-css.php';
+    require_once dirname(__DIR__, 4) . '/agent/src/Kernel/WpCliChildProcess.php';
+    require_once dirname(__DIR__, 4) . '/adapter-packages/elementor/package/runtime/providers/elementor-css.php';
 
     use Duo\Providers\ElementorCss;
 
@@ -209,7 +210,7 @@ namespace {
         $GLOBALS['ec_cache_delete_calls'] = [];
         $GLOBALS['wpdb'] = new ElementorCssWpdb();
         $manifest = json_decode(
-            (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/elementor.json'),
+            (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/elementor/package/manifest.json'),
             true,
             512,
             JSON_THROW_ON_ERROR

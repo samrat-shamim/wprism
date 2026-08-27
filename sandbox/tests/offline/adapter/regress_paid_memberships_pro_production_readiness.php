@@ -109,10 +109,10 @@ function pmpro_fixture(): array {
     return [$db, $materializer, $run];
 }
 
-$manifestPath = __DIR__ . '/../../../../manifests/paid-memberships-pro.json';
+$manifestPath = __DIR__ . '/../../../../adapter-packages/paid-memberships-pro/package/manifest.json';
 $manifest = json_decode((string) file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
 $disposition = json_decode(
-    (string) file_get_contents(__DIR__ . '/../../../../manifests/dispositions/paid-memberships-pro.json'),
+    (string) file_get_contents(__DIR__ . '/../../../../adapter-packages/paid-memberships-pro/package/disposition.json'),
     true,
     512,
     JSON_THROW_ON_ERROR

@@ -641,7 +641,7 @@ $wooRows = array_values(array_filter(
     $wooPolicy->effects_inventory(),
     static fn(array $row): bool => ($row['manifest'] ?? null) === 'woocommerce'
 ));
-$manifestPath = dirname(__DIR__, 4) . '/manifests/woocommerce.json';
+$manifestPath = dirname(__DIR__, 4) . '/adapter-packages/woocommerce/package/manifest.json';
 $wooManifest = json_decode((string) file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
 // DUO-3338: the effect inventory's `source` is now each action's closed
 // identity (the native vocabulary entry, or provider/capability) rather than
@@ -751,7 +751,7 @@ woo_effect_check(
         && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 271,
     'Woo inventory exposes exact transient/version, hierarchy/rewrite, TEC marker/purge rollback, bounded sale-action, and Action Scheduler hook boundaries, keeps every unproven boundary irreversible, and uses unique effect IDs'
 );
-$cacheProviderSource = (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/providers/woocommerce-cache.php');
+$cacheProviderSource = (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-cache.php');
 woo_effect_check(
     ($wooManifest['actions'][0]['kind'] ?? null) === 'native'
         && ($wooManifest['actions'][0]['action'] ?? null) === 'transient.delete'

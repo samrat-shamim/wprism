@@ -17,7 +17,7 @@
  * WHAT ONE LEVEL MEANS, MECHANICALLY
  * ----------------------------------
  * A platform key — reviewed by this project, shipped in
- * `manifests/capabilities/adapter-authorities.json` — signs a statement granting
+ * `platform/adapter-library/capabilities/adapter-authorities.json` — signs a statement granting
  * a namespace pattern, a tier set and a validity window to a vendor key. The
  * vendor key then certifies adapters inside that grant, in ONE site repository,
  * under trust root `site` (register row R-13's third-value channel is
@@ -277,12 +277,12 @@ echo "\n== the shipped preconditions, re-checked on every run ==\n";
 
 duo_check_same(
     ['format' => 'duo-adapter-authorities/v1', 'keys' => []],
-    (array) json_decode((string) file_get_contents($repo . '/manifests/capabilities/adapter-authorities.json'), true),
-    'manifests/capabilities/adapter-authorities.json is still the EMPTY v1 registry — no platform key exists to '
+    (array) json_decode((string) file_get_contents($repo . '/platform/adapter-library/capabilities/adapter-authorities.json'), true),
+    'platform/adapter-library/capabilities/adapter-authorities.json is still the EMPTY v1 registry — no platform key exists to '
     . 'delegate FROM, so nothing this suite builds can be reached by any site in the field'
 );
 duo_check(
-    !file_exists($repo . '/manifests/capabilities/adapter-revocations.json'),
+    !file_exists($repo . '/platform/adapter-library/capabilities/adapter-revocations.json'),
     'and the shipped manifest library carries NO revocation document: the out-of-band channel ships absent, '
     . 'which is what makes its absence the meaning "nothing is revoked" rather than a default'
 );

@@ -11,7 +11,7 @@ require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Secrets.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
-require_once __DIR__ . '/../../../../manifests/interpreters/ninja-forms.php';
+require_once __DIR__ . '/../../../../adapter-packages/ninja-forms/package/runtime/interpreters/ninja-forms.php';
 
 use Duo\Interpreters\NinjaForms;
 use Duo\Policy;
@@ -288,7 +288,7 @@ $addonRegistered = ninja_readiness_one_problem($interpreter, 'nf3_fields', ['typ
 duo_check(str_contains((string) $addonRegistered['message'], 'outside this adapter'), 'runtime add-on registration cannot widen the digest-bound built-in allowlist');
 
 $manifest = json_decode(
-    (string) file_get_contents(__DIR__ . '/../../../../manifests/ninja-forms.json'),
+    (string) file_get_contents(__DIR__ . '/../../../../adapter-packages/ninja-forms/package/manifest.json'),
     true,
     32,
     JSON_THROW_ON_ERROR

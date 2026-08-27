@@ -52,7 +52,8 @@ namespace Duo {
 namespace {
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ProviderSdk.php';
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
-    require_once dirname(__DIR__, 4) . '/manifests/providers/ninja-forms-form-cache.php';
+    require_once dirname(__DIR__, 4) . '/agent/src/Kernel/WpCliChildProcess.php';
+    require_once dirname(__DIR__, 4) . '/adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php';
 
     use Duo\Providers\NinjaFormsFormCache;
     use DuoTest\FakeWpdb;
@@ -311,7 +312,7 @@ namespace {
             ['option_id' => 3, 'option_name' => 'ninja_forms_target_runtime', 'option_value' => 'target-owned', 'autoload' => 'yes'],
         ]);
         $manifest = json_decode(
-            (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/ninja-forms.json'),
+            (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/ninja-forms/package/manifest.json'),
             true,
             512,
             JSON_THROW_ON_ERROR

@@ -510,7 +510,7 @@ if (!function_exists('wc_get_permalink_structure')) {
     }
 }
 
-require_once $root . '/manifests/providers/woocommerce-hierarchy-lookups.php';
+require_once $root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php';
 
 /** @return array<int,int> */
 function woo_hierarchy_test_parent_map(string $taxonomy): array {
@@ -1482,7 +1482,7 @@ $wpdb->setColumns('wp_wc_category_lookup', [
 ]);
 $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs);
 
-$source = (string) file_get_contents($root . '/manifests/providers/woocommerce-hierarchy-lookups.php');
+$source = (string) file_get_contents($root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php');
 duo_check(str_contains($source, 'use Duo\\WpCliChildProcess;')
     && str_contains($source, "require_once __DIR__ . '/../../agent/src/Kernel/WpCliChildProcess.php';")
     && preg_match('/WpCliChildProcess::capture\(\s*\'eval \' \. escapeshellarg\(\$code\),\s*120,\s*16384,\s*16384\s*\)/', $source) === 1

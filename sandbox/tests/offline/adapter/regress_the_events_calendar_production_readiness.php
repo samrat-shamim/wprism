@@ -811,9 +811,9 @@ require_once __DIR__ . '/../../../../agent/src/Capture/CaptureCandidateBuilder.p
 require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/OptionsMaterializer.php';
-require_once __DIR__ . '/../../../../manifests/interpreters/the-events-calendar.php';
-require_once __DIR__ . '/../../../../manifests/providers/the-events-calendar-category-colors.php';
-require_once __DIR__ . '/../../../../manifests/regenerators/the-events-calendar.php';
+require_once __DIR__ . '/../../../../adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php';
+require_once __DIR__ . '/../../../../adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php';
+require_once __DIR__ . '/../../../../adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php';
 
 use Duo\Interpreters\TheEventsCalendar;
 use Duo\Blocks;
@@ -1829,7 +1829,7 @@ function tec_readiness_refuses(TheEventsCalendar $interpreter, array $tree, stri
 
 $root = dirname(__DIR__, 4);
 $manifest = json_decode(
-    (string) file_get_contents($root . '/manifests/the-events-calendar.json'),
+    (string) file_get_contents($root . '/adapter-packages/the-events-calendar/package/manifest.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
@@ -1845,7 +1845,7 @@ $artifacts = json_decode(
 // monolith held under ['manifests']['the-events-calendar'], so every member
 // read below is unchanged.
 $disposition = json_decode(
-    (string) file_get_contents($root . '/manifests/dispositions/the-events-calendar.json'),
+    (string) file_get_contents($root . '/adapter-packages/the-events-calendar/package/disposition.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
@@ -3269,7 +3269,7 @@ $expectedTopLevelOptionClasses = [
         'tribe_skip_welcome',
     ],
 ];
-$manifest = json_decode((string) file_get_contents($root . '/manifests/the-events-calendar.json'), true, 512, JSON_THROW_ON_ERROR);
+$manifest = json_decode((string) file_get_contents($root . '/adapter-packages/the-events-calendar/package/manifest.json'), true, 512, JSON_THROW_ON_ERROR);
 $actualTopLevelOptionClasses = [];
 foreach ((array) ($manifest['options'] ?? []) as $key => $rule) {
     $actualTopLevelOptionClasses[(string) ($rule['class'] ?? '')][] = (string) $key;
@@ -3460,7 +3460,7 @@ duo_check_same(
     'provider negotiation refuses before mutation when the exact 6.17.x native CSS path disappears'
 );
 $colorProviderSource = (string) file_get_contents(
-    $root . '/manifests/providers/the-events-calendar-category-colors.php'
+    $root . '/adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php'
 );
 $nativeGenerateOffset = strpos($colorProviderSource, '$generator->generate_and_save_css();');
 $nativeBustOffset = strpos($colorProviderSource, '$dropdown->bust_dropdown_categories_cache();');
@@ -5362,7 +5362,7 @@ duo_check_same(
     'the source audit promotes legacy-widget only with the shipped bounded target-rebinding codec'
 );
 $coreManifest = json_decode(
-    (string) file_get_contents($root . '/manifests/core.json'),
+    (string) file_get_contents($root . '/platform/adapter-library/core/manifest.json'),
     true,
     512,
     JSON_THROW_ON_ERROR
@@ -5822,7 +5822,7 @@ duo_check_throws(
     'Customizer'
 );
 $tecRegeneratorSource = (string) file_get_contents(
-    $root . '/manifests/regenerators/the-events-calendar.php'
+    $root . '/adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php'
 );
 $lastSaveHookTopology = [];
 foreach (($optionHookFixture['last_save_paths'] ?? []) as $pathHooks) {

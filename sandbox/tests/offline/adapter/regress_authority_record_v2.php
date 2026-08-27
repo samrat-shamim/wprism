@@ -26,7 +26,7 @@
  * any v2 assertion is reached.
  *
  * WHAT IS DELIBERATELY NOT ASSERTED: that a v2 record exists anywhere in the
- * shipped library. It does not, and must not — `manifests/capabilities/
+ * shipped library. It does not, and must not — `platform/adapter-library/capabilities/
  * adapter-authorities.json` is `{"keys":{}}` through the flag day, asserted
  * here on every run, because issuing one key freezes this wire format in a
  * stranger's hands.
@@ -160,8 +160,8 @@ echo "\n== the shipped precondition, re-checked on every run ==\n";
 
 duo_check_same(
     ['format' => 'duo-adapter-authorities/v1', 'keys' => []],
-    (array) json_decode((string) file_get_contents($repo . '/manifests/capabilities/adapter-authorities.json'), true),
-    'manifests/capabilities/adapter-authorities.json is still the EMPTY v1 registry — the flag day\'s standing '
+    (array) json_decode((string) file_get_contents($repo . '/platform/adapter-library/capabilities/adapter-authorities.json'), true),
+    'platform/adapter-library/capabilities/adapter-authorities.json is still the EMPTY v1 registry — the flag day\'s standing '
     . 'precondition, and the reason the platform root may still choose its binding (register row R-08)'
 );
 duo_check_same(
@@ -833,7 +833,7 @@ $setClock(null);
 duo_check_same(
     [],
     (array) (json_decode(
-        (string) file_get_contents($repo . '/manifests/capabilities/adapter-authorities.json'),
+        (string) file_get_contents($repo . '/platform/adapter-library/capabilities/adapter-authorities.json'),
         true
     )['keys'] ?? null),
     'and it was decidable NOW only because the shipped platform root holds zero keys, so no platform-rooted '

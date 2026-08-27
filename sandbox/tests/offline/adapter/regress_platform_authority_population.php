@@ -5,7 +5,7 @@
  *
  * WHAT THIS SUITE IS, AND THE ONE THING IT IS NOT
  * ----------------------------------------------
- * `manifests/capabilities/adapter-authorities.json` is the one file in this
+ * `platform/adapter-library/capabilities/adapter-authorities.json` is the one file in this
  * repository whose contents decide what a stranger's key may certify on every
  * managed site. It ships as the EMPTY v1 registry and stays that way: gate G4
  * is what admits a real external author, and every one of its conditions must
@@ -83,6 +83,8 @@
  *      typed channel's own grammar and its three installed states.
  */
 declare(strict_types=1);
+
+require_once __DIR__ . '/certification_fixture.php';
 
 require_once __DIR__ . '/../../lib/agent_version.php';
 duo_test_define_agent_versions();
@@ -326,9 +328,8 @@ function pop_run(array $command): array {
 $root = sys_get_temp_dir() . '/duo-authority-population-' . bin2hex(random_bytes(6));
 register_shutdown_function(static fn() => pop_remove_tree($root));
 
-$library = $root . '/library';
+$library = duo_cert_hermetic_library($repo, $root . '/library-projection');
 $site = $root . '/site';
-pop_copy_tree($repo . '/manifests', $library);
 if (!mkdir($site . '/adapters', 0777, true)) {
     fwrite(STDERR, "FAIL: cannot create the scratch site repository at $site\n");
     exit(1);
@@ -422,11 +423,11 @@ $setClock('2026-06-01T00:00:00Z');
 echo "\n== the shipped precondition: G4 gates real population, and it has not opened ==\n";
 // ---------------------------------------------------------------------------
 
-$shippedAuthorities = (string) file_get_contents($repo . '/manifests/capabilities/adapter-authorities.json');
+$shippedAuthorities = (string) file_get_contents($repo . '/platform/adapter-library/capabilities/adapter-authorities.json');
 duo_check_same(
     Canon::encode((object) ['format' => AdapterCertification::AUTHORITIES_FORMAT, 'keys' => new stdClass()]),
     $shippedAuthorities,
-    'manifests/capabilities/adapter-authorities.json is still the EMPTY v1 registry, BYTE FOR BYTE — this work '
+    'platform/adapter-library/capabilities/adapter-authorities.json is still the EMPTY v1 registry, BYTE FOR BYTE — this work '
     . 'package populates a scratch library and never the shipped one, because issuing a real key is gate G4\'s '
     . 'decision and G4 has conditions this environment cannot meet'
 );
@@ -438,7 +439,7 @@ duo_check(
     . 'into this file, not over material any party holds'
 );
 duo_check(
-    !file_exists($repo . '/manifests/capabilities/adapter-revocations.json'),
+    !file_exists($repo . '/platform/adapter-library/capabilities/adapter-revocations.json'),
     'the shipped manifest library still carries NO revocation document either — its absence is what makes '
     . '"nothing is revoked" an answer rather than a default (§ v3.8)'
 );

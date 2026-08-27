@@ -220,7 +220,7 @@ namespace {
 
     $policy = Policy::load(null, ['woocommerce']);
     $wpdb = woo_fulfillment_ready_target();
-    require_once $root . '/manifests/providers/woocommerce-fulfillment-prerequisites.php';
+    require_once $root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-fulfillment-prerequisites.php';
     $provider = woo_fulfillment_provider($policy);
 
     duo_check_same([

@@ -52,6 +52,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterSources.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterCertification.php';
+require_once __DIR__ . '/certification_fixture.php';
 
 use Duo\AdapterCertification;
 use Duo\AdapterSources;
@@ -115,9 +116,8 @@ if (!mkdir($root . '/site/adapters', 0777, true)) {
 }
 register_shutdown_function(static fn() => rev_remove_tree($root));
 
-$library = $root . '/library';
+$library = duo_cert_hermetic_library($repo, $root . '/library-projection');
 $site = $root . '/site';
-rev_copy_tree($repo . '/manifests', $library);
 
 $refusal = static function (callable $fn): ?string {
     try {
@@ -197,13 +197,13 @@ $setClock('2026-06-01T00:00:00Z');
 echo "\n== the channel ships ABSENT, and absence is an answer ==\n";
 
 duo_check(
-    !file_exists($repo . '/manifests/capabilities/adapter-revocations.json'),
+    !file_exists($repo . '/platform/adapter-library/capabilities/adapter-revocations.json'),
     'no revocation document ships: the flag day moves no byte, because this channel\'s shipped state is "the '
     . 'file is not there"'
 );
 duo_check_same(
     ['format' => 'duo-adapter-authorities/v1', 'keys' => []],
-    (array) json_decode((string) file_get_contents($repo . '/manifests/capabilities/adapter-authorities.json'), true),
+    (array) json_decode((string) file_get_contents($repo . '/platform/adapter-library/capabilities/adapter-authorities.json'), true),
     'and the shipped trust root is still the empty v1 registry, so no key exists anywhere that this channel '
     . 'could revoke in the field'
 );

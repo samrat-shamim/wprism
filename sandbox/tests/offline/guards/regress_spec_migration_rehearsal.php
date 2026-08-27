@@ -474,7 +474,7 @@ duo_check(
     . $observedB['spec_version'] . ' agent would refuse every manifest in this estate by name and there would be '
     . 'no flag day to rehearse, only a brick'
 );
-$authorities = json_decode((string) file_get_contents($root . '/manifests/capabilities/adapter-authorities.json'), true);
+$authorities = json_decode((string) file_get_contents($root . '/platform/adapter-library/capabilities/adapter-authorities.json'), true);
 duo_check_same(
     [],
     (array) ($authorities['keys'] ?? ['unreadable']),

@@ -263,8 +263,7 @@ duo_check(str_contains(
 duo_check(count((array) ($combination['limitations'] ?? [])) >= 4,
     'E4: the evidence names setup, recovery and unsupported boundaries instead of widening the product claim');
 
-duo_check(!is_file($root . '/manifests/rank-math.json')
-    && !is_file($root . '/manifests/dispositions/rank-math.json'),
+duo_check(!is_dir($root . '/adapter-packages/rank-math'),
     'F1: the exercise remains a site fixture and makes no shipped Rank Math capability claim');
 
 duo_check_summary('regress_rank_math_adapter');

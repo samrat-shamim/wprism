@@ -451,8 +451,8 @@ namespace Duo {
 namespace {
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
     require_once dirname(__DIR__, 4) . '/agent/src/Rebuild/NativeRewriteEffects.php';
-    require_once dirname(__DIR__, 4) . '/manifests/providers/polylang-nav-menus.php';
-    require_once dirname(__DIR__, 4) . '/manifests/interpreters/polylang.php';
+    require_once dirname(__DIR__, 4) . '/adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php';
+    require_once dirname(__DIR__, 4) . '/adapter-packages/polylang/package/runtime/interpreters/polylang.php';
 
     use Duo\Interpreters\Polylang;
     use Duo\Providers\PolylangNavMenus;
@@ -694,7 +694,7 @@ namespace {
         $GLOBALS['pll_cleaned_terms'] = [];
         $GLOBALS['pll_runtime'] = (object) ['model' => new PllNativeModel()];
         $manifest = json_decode(
-            (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/polylang.json'),
+            (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/polylang/package/manifest.json'),
             true,
             512,
             JSON_THROW_ON_ERROR
@@ -936,14 +936,14 @@ namespace {
         'raw nav_menu_locations does not match'
     );
 
-    $providerSource = (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/providers/polylang-nav-menus.php');
+    $providerSource = (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php');
     duo_check(
         !str_contains($providerSource, "runcommand('rewrite flush'")
             && !str_contains($providerSource, 'NativeActions::'),
         'Polylang provider models plugin projections without invoking the native rewrite action'
     );
     $polylangManifest = json_decode(
-        (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/polylang.json'),
+        (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/polylang/package/manifest.json'),
         true,
         512,
         JSON_THROW_ON_ERROR
@@ -981,7 +981,7 @@ namespace {
 
     $interpreter = new Polylang(new \Duo\Policy());
     $manifest = json_decode(
-        (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/polylang.json'),
+        (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/polylang/package/manifest.json'),
         true,
         512,
         JSON_THROW_ON_ERROR

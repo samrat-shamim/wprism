@@ -81,7 +81,7 @@ namespace Yoast\WP\Duplicate_Post {
 
 namespace {
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
-    require_once dirname(__DIR__, 4) . '/manifests/providers/yoast-duplicate-post-role-capabilities.php';
+    require_once dirname(__DIR__, 4) . '/adapter-packages/yoast-duplicate-post/package/runtime/providers/yoast-duplicate-post-role-capabilities.php';
 
     use Duo\Providers\YoastDuplicatePostRoleCapabilities;
 
@@ -120,7 +120,7 @@ namespace {
     }
 
     $manifest = json_decode(
-        (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/yoast-duplicate-post.json'),
+        (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/yoast-duplicate-post/package/manifest.json'),
         true,
         512,
         JSON_THROW_ON_ERROR

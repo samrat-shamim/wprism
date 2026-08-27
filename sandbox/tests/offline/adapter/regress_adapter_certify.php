@@ -157,20 +157,20 @@ function cert_agent_library(string $root, string $label, array $adapterNames, ar
     global $duoRoot;
     $dir = $root . '/' . $label;
     mkdir($dir . '/capabilities', 0755, true);
-    copy($duoRoot . '/manifests/core.json', $dir . '/core.json');
+    copy($duoRoot . '/platform/adapter-library/core/manifest.json', $dir . '/core.json');
     // Only `core` is copied, so only `core`'s reviewed document is: WP-4.4
     // addressed the reviewed source per subject (spec/repo-format.md § v3.4),
     // and a library carrying entries for manifests it does not hold is exactly
     // what `make release-gate`'s two-way comparison refuses.
     mkdir($dir . '/dispositions', 0755, true);
-    copy($duoRoot . '/manifests/dispositions/core.json', $dir . '/dispositions/core.json');
+    copy($duoRoot . '/platform/adapter-library/core/disposition.json', $dir . '/dispositions/core.json');
 
     // The shipped platform boundary verbatim: the exercised compatibility cells
     // inside every signed statement are read out of these exact bytes
     // (spec/repo-format.md § v3.6), so a fixture that re-authored them would
     // sign against a platform no agent runs.
     copy(
-        $duoRoot . '/manifests/capabilities/platform.json',
+        $duoRoot . '/platform/adapter-library/capabilities/platform.json',
         $dir . '/capabilities/platform.json'
     );
 

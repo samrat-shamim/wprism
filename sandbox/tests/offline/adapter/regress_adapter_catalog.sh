@@ -159,7 +159,7 @@ fi
 pass "handler is WordPress-free, and its engine load set [$catalog_set] is inside the closure ../policy/regress_manifest_validate.sh scans"
 
 say "the shipped manifest library must be untouched by this suite"
-tree_hash() { (cd ../../../.. && find manifests -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256); }
+tree_hash() { (cd ../../../.. && find adapter-packages platform/adapter-library -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256); }
 before="$(tree_hash)"
 
 say "running the offline harness (catalog rows, tier basis, merges, refusal rows, doctor, exit codes)"

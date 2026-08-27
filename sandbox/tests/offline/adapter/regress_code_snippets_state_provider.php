@@ -291,10 +291,10 @@ namespace Code_Snippets {
 
 namespace {
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
-    require_once dirname(__DIR__, 4) . '/manifests/providers/code-snippets-state.php';
+    require_once dirname(__DIR__, 4) . '/adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php';
 
     $manifest = json_decode(
-        (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/code-snippets.json'),
+        (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/code-snippets/package/manifest.json'),
         true,
         512,
         JSON_THROW_ON_ERROR

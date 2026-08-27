@@ -241,13 +241,13 @@ namespace {
 
 namespace {
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
-    require_once dirname(__DIR__, 4) . '/manifests/providers/redirection-state.php';
+    require_once dirname(__DIR__, 4) . '/adapter-packages/redirection/package/runtime/providers/redirection-state.php';
 
     use Duo\Providers\RedirectionState;
 
     $root = dirname(__DIR__, 4);
     $manifest = json_decode(
-        (string) file_get_contents($root . '/manifests/redirection.json'),
+        (string) file_get_contents($root . '/adapter-packages/redirection/package/manifest.json'),
         true,
         512,
         JSON_THROW_ON_ERROR

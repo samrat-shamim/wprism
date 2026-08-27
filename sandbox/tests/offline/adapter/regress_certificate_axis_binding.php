@@ -7,7 +7,7 @@
  * --------------------------
  * Verification used to be `hash_equals(Canon::encode($platform),
  * Canon::encode($statementTyped->platform))` — the whole
- * `manifests/capabilities/platform.json` record, byte for byte. AGENTS.md rule
+ * `platform/adapter-library/capabilities/platform.json` record, byte for byte. AGENTS.md rule
  * 8 makes that file restate both `define()`s, so EVERY agent release moved it,
  * and every release therefore withdrew every certificate in the field: a patch
  * release that re-measured one PHP patch and moved no axis anyone exercised
@@ -116,17 +116,17 @@ register_shutdown_function(static fn() => axis_rmtree($root));
 // binds, and the three axis shapes below are exactly the three the shipped
 // file declares.
 $lib = $root . '/manifests';
-copy($duoRoot . '/manifests/core.json', $lib . '/core.json');
+copy($duoRoot . '/platform/adapter-library/core/manifest.json', $lib . '/core.json');
 // WP-4.4 split the monolith: the reviewed claim source is now the
 // dispositions/ directory (core's own entry plus profiles.json — the two
 // documents a core-only library resolves), so the copy follows the layout the
 // loader reads rather than a file the library no longer ships.
 mkdir($lib . '/dispositions', 0755, true);
-copy($duoRoot . '/manifests/dispositions/core.json', $lib . '/dispositions/core.json');
-copy($duoRoot . '/manifests/dispositions/profiles.json', $lib . '/dispositions/profiles.json');
-copy($duoRoot . '/manifests/capabilities/platform.json', $lib . '/capabilities/platform.json');
+copy($duoRoot . '/platform/adapter-library/core/disposition.json', $lib . '/dispositions/core.json');
+copy($duoRoot . '/platform/adapter-library/profiles.json', $lib . '/dispositions/profiles.json');
+copy($duoRoot . '/platform/adapter-library/capabilities/platform.json', $lib . '/capabilities/platform.json');
 copy(
-    $duoRoot . '/manifests/capabilities/adapter-authorities.json',
+    $duoRoot . '/platform/adapter-library/capabilities/adapter-authorities.json',
     $lib . '/capabilities/adapter-authorities.json'
 );
 // Set before the engine boots, because sign_site() refuses to sign against any

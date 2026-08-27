@@ -24,6 +24,7 @@ require_once __DIR__ . '/../../../../agent/src/Promotion/Deploy.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/Providers.php';
 require_once __DIR__ . '/../../../../cli/src/Plan/PlanSummary.php';
 require_once __DIR__ . '/../../../../cli/src/Transport/CodeDeploy.php';
+require_once __DIR__ . '/certification_fixture.php';
 
 /** Minimal command runner surface for exercising the real Cli handler offline. */
 if (!class_exists('WP_CLI', false)) {
@@ -1107,8 +1108,10 @@ cert_write_canon($site . '/adapters/site-demo.json', $manifest);
 $keys->{'review-key'}['trust_tiers'] = $declarativeTiers;
 cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities);
 echo "\n== Policy, digest pin, reporting, and host-promotion integration ==\n";
-$integrationManifests = $root . '/integration-manifests';
-cert_copy_tree(dirname(__DIR__, 4) . '/manifests', $integrationManifests);
+$integrationManifests = duo_cert_project_library(
+    \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4)),
+    $root . '/integration-library'
+);
 // The copied library keeps its shipped dispositions and gets this fixture's
 // platform boundary, so every signature below binds one known platform.
 //
@@ -3022,7 +3025,10 @@ cert_remove_tree($site . '/adapters/certifications/nested');
 chmod($site . '/adapters/certifications', 0000);
 try {
     cert_expect_throw(
-        static fn() => \Duo\AdapterSources::discover(dirname(__DIR__, 4) . '/manifests', $site),
+        static fn() => \Duo\AdapterSources::discover_library(
+            \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4)),
+            $site
+        ),
         'not readable',
         'adapter discovery cannot launder an unreadable authority directory into an uncertified absence'
     );
@@ -3049,7 +3055,10 @@ echo "\n== T6 §3.1/§3.2: the SITE trust root, and Site-certified ==\n";
 // root, in the operator's own repository, with the one honest relaxation the
 // weaker evidence requires.
 $orgRoot = $root . '/site-root';
-$orgAgent = $orgRoot . '/agent-manifests';
+$orgAgent = duo_cert_project_library(
+    \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4)),
+    $orgRoot . '/agent-library'
+);
 $orgSite = $orgRoot . '/site';
 $orgBundle = $orgRoot . '/bundle';
 
@@ -3067,7 +3076,6 @@ cert_write_canon($orgSite . '/adapters/acme-catalog.json', $orgManifest);
 // shipped: present, well-formed, and EMPTY. A synthetic manifest directory
 // with no disposition registry cannot demonstrate that — the capability
 // report degrades to `unreviewed` before any of this is reached.
-cert_copy_tree(dirname(__DIR__, 4) . '/manifests', $orgAgent);
 cert_write_canon($orgAgent . '/capabilities/platform.json', [
     'format' => ManifestDispositions::PLATFORM_FORMAT,
     'platform' => $platform,
@@ -3415,7 +3423,10 @@ echo "\n== T6: sign_site() — the agent owns the unexercised bundle ==\n";
 // that drifted could not mint a certificate at all rather than minting one
 // nothing re-verifies.
 $autoRoot = $root . '/auto-site';
-$autoAgent = $autoRoot . '/agent-manifests';
+$autoAgent = duo_cert_project_library(
+    \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4)),
+    $autoRoot . '/agent-library'
+);
 $autoSite = $autoRoot . '/site';
 
 // A manifest with the three shapes the derivation actually has to reason
@@ -3439,7 +3450,6 @@ $autoManifest = [
     'version_range' => ['max' => '3.0.0', 'min' => '1.0.0'],
 ];
 cert_write_canon($autoSite . '/adapters/acme-shop.json', $autoManifest);
-cert_copy_tree(dirname(__DIR__, 4) . '/manifests', $autoAgent);
 cert_write_canon($autoAgent . '/capabilities/platform.json', [
     'format' => ManifestDispositions::PLATFORM_FORMAT,
     'platform' => $platform,

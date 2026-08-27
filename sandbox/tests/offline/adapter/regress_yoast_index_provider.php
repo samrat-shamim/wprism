@@ -206,7 +206,8 @@ namespace Duo {
 
 namespace {
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
-    require_once dirname(__DIR__, 4) . '/manifests/providers/yoast-index.php';
+    require_once dirname(__DIR__, 4) . '/agent/src/Kernel/WpCliChildProcess.php';
+    require_once dirname(__DIR__, 4) . '/adapter-packages/yoast/package/runtime/providers/yoast-index.php';
 
     use Duo\Providers\YoastIndex;
 
@@ -222,7 +223,7 @@ namespace {
             $GLOBALS['wpdb']->makeValid();
         };
         $manifest = json_decode(
-            (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/yoast.json'),
+            (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/yoast/package/manifest.json'),
             true,
             512,
             JSON_THROW_ON_ERROR
@@ -282,7 +283,7 @@ namespace {
     );
 
     $manifest = json_decode(
-        (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/yoast.json'),
+        (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/yoast/package/manifest.json'),
         true,
         512,
         JSON_THROW_ON_ERROR

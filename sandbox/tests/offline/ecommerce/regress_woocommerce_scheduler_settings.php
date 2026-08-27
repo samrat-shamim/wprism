@@ -1377,11 +1377,11 @@ namespace {
     require_once $root . '/agent/src/Policy/Policy.php';
     require_once $root . '/agent/src/Adapter/ProviderSdk.php';
     require_once $root . '/agent/src/Adapter/Providers.php';
-    require_once $root . '/manifests/providers/woocommerce-scheduler-settings.php';
+    require_once $root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php';
 
     $policy = Policy::load(null, ['woocommerce']);
     $manifest = json_decode(
-        (string) file_get_contents($root . '/manifests/woocommerce.json'),
+        (string) file_get_contents($root . '/adapter-packages/woocommerce/package/manifest.json'),
         true,
         flags: JSON_THROW_ON_ERROR
     );

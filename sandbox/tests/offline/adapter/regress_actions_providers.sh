@@ -52,7 +52,7 @@ php -l ../../../../agent/src/Repository/RepositoryCompiler.php >/dev/null || fai
 php -l ../../../../agent/src/Adapter/AdapterRegistry.php >/dev/null || fail "agent/src/Adapter/AdapterRegistry.php has a syntax error"
 php -l ../../../../agent/src/Adapter/TargetProbe.php >/dev/null || fail "agent/src/Adapter/TargetProbe.php has a syntax error"
 php -l ../../../../agent/src/Promotion/Deploy.php >/dev/null || fail "agent/src/Promotion/Deploy.php has a syntax error"
-for provider in ../../../../manifests/providers/*.php; do
+for provider in ../../../../adapter-packages/*/package/runtime/providers/*.php; do
   php -l "$provider" >/dev/null || fail "$provider has a syntax error"
 done
 pass "no syntax errors"

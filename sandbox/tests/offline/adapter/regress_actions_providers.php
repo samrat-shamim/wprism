@@ -73,6 +73,7 @@ require $root . '/agent/src/Promotion/Deploy.php';
 // bare `require` of it here is a redeclaration fatal, not a safety net.
 
 use Duo\Canon;
+use Duo\AdapterLibrary;
 use Duo\NativeActions;
 use Duo\Policy;
 use Duo\Providers;
@@ -775,16 +776,18 @@ copy(
     $shippedRoot . '/agent/src/Kernel/WpCliChildProcess.php'
 );
 $copied = [];
-foreach (glob($root . '/manifests/*.json') ?: [] as $file) {
-    $name = basename($file, '.json');
-    if ($name === 'dispositions') {
-        continue;
-    }
-    copy($file, "$shipped/$name.json");
+$sourceLibrary = AdapterLibrary::fromSourceTree($root);
+foreach ($sourceLibrary->packages() as $package) {
+    $name = $package->name();
+    copy($package->manifestPath(), "$shipped/$name.json");
     $copied[] = $name;
-}
-foreach (glob($root . '/manifests/providers/*.php') ?: [] as $file) {
-    copy($file, $shipped . '/providers/' . basename($file));
+    $manifest = Canon::decode(Canon::read_file($package->manifestPath()));
+    foreach ((array) ($manifest['providers'] ?? []) as $provider) {
+        $id = is_array($provider) ? ($provider['id'] ?? null) : null;
+        if (is_string($id)) {
+            copy($package->providerPath($id), "$shipped/providers/$id.php");
+        }
+    }
 }
 $wpCliProviderFiles = [
     'elementor-css.php' => '\\Duo\\Providers\\ElementorCss',
@@ -828,13 +831,23 @@ foreach ($wpCliProviderFiles as $providerFile => $providerClass) {
             . ($stderr === '' ? '' : " (stderr: $stderr)")
     );
 }
-foreach (['interpreters', 'regenerators'] as $sub) {
-    if (!is_dir($root . '/manifests/' . $sub)) {
-        continue;
+foreach ($sourceLibrary->packages() as $package) {
+    $interpreter = $package->interpreterPath();
+    if ($interpreter !== null) {
+        if (!is_dir("$shipped/interpreters")) {
+            mkdir("$shipped/interpreters", 0777, true);
+        }
+        copy($interpreter, "$shipped/interpreters/" . basename($interpreter));
     }
-    mkdir("$shipped/$sub", 0777, true);
-    foreach (glob($root . '/manifests/' . $sub . '/*.php') ?: [] as $file) {
-        copy($file, "$shipped/$sub/" . basename($file));
+    $manifest = Canon::decode(Canon::read_file($package->manifestPath()));
+    foreach ((array) ($manifest['regenerators'] ?? []) as $regenerator) {
+        $id = is_array($regenerator) ? ($regenerator['id'] ?? null) : null;
+        if (is_string($id)) {
+            if (!is_dir("$shipped/regenerators")) {
+                mkdir("$shipped/regenerators", 0777, true);
+            }
+            copy($package->regeneratorPath($id), "$shipped/regenerators/$id.php");
+        }
     }
 }
 register_shutdown_function(function () use ($shipped, $shippedRoot) {
@@ -967,7 +980,7 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         }
         $providerCount++;
         $file = "$shipped/providers/$id.php";
-        check(is_file($file), "manifest '$name' declares provider '$id' and manifests/providers/$id.php ships with it");
+        check(is_file($file), "manifest '$name' declares provider '$id' and its package runtime ships $id.php");
         if (!is_file($file)) {
             continue;
         }

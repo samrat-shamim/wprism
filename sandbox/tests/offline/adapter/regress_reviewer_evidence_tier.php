@@ -83,6 +83,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterSources.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterCertification.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/certification_fixture.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 
 use Duo\AdapterCertification;
@@ -350,10 +351,9 @@ const REVIEWER_TIER_PARTY = 'acme-conformance-lab';
 $root = sys_get_temp_dir() . '/duo-reviewer-tier-' . bin2hex(random_bytes(6));
 register_shutdown_function(static fn() => rev_remove_tree($root));
 
-$library = $root . '/library';
+$library = duo_cert_hermetic_library($repo, $root . '/library-projection');
 $site = $root . '/site';
 $foreign = $root . '/foreign-evidence';
-rev_copy_tree($repo . '/manifests', $library);
 if (!mkdir($site . '/adapters', 0777, true) || !mkdir($foreign . '/adapters', 0777, true)) {
     fwrite(STDERR, "FAIL: cannot create the scratch site/evidence repositories under $root\n");
     exit(1);
@@ -473,7 +473,7 @@ $surveyWord = static function (string $name) use ($site): ?string {
 echo "\n== step 1: the evidence repository is FOREIGN, and this one holds none of it ==\n";
 // ===========================================================================
 
-$shippedAuthorities = (string) file_get_contents($repo . '/manifests/capabilities/adapter-authorities.json');
+$shippedAuthorities = (string) file_get_contents($repo . '/platform/adapter-library/capabilities/adapter-authorities.json');
 duo_check_same(
     Canon::encode((object) ['format' => AdapterCertification::AUTHORITIES_FORMAT, 'keys' => new stdClass()]),
     $shippedAuthorities,

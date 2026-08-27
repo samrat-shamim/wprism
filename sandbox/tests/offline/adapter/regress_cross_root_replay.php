@@ -134,13 +134,13 @@ $xrrSite = $xrrRoot . '/site';
 // certificate binds, and a hand-authored disposition set would stop the loader
 // agreeing with the one a deployed site loads.
 foreach ([
-    'core.json' => 'core.json',
-    'dispositions/core.json' => 'dispositions/core.json',
-    'dispositions/profiles.json' => 'dispositions/profiles.json',
-    'capabilities/platform.json' => 'capabilities/platform.json',
+    'platform/adapter-library/core/manifest.json' => 'core.json',
+    'platform/adapter-library/core/disposition.json' => 'dispositions/core.json',
+    'platform/adapter-library/profiles.json' => 'dispositions/profiles.json',
+    'platform/adapter-library/capabilities/platform.json' => 'capabilities/platform.json',
 ] as $from => $to) {
-    if (!copy($xrrRepo . '/manifests/' . $from, $xrrLibrary . '/' . $to)) {
-        fwrite(STDERR, "cannot copy manifests/$from into the scratch library\n");
+    if (!copy($xrrRepo . '/' . $from, $xrrLibrary . '/' . $to)) {
+        fwrite(STDERR, "cannot copy $from into the scratch library\n");
         exit(1);
     }
 }

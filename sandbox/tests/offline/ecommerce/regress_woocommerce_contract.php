@@ -59,11 +59,11 @@ if (!function_exists('get_taxonomy')) {
     }
 }
 
-$manifest = json_decode((string) file_get_contents($root . '/manifests/woocommerce.json'), true, flags: JSON_THROW_ON_ERROR);
+$manifest = json_decode((string) file_get_contents($root . '/adapter-packages/woocommerce/package/manifest.json'), true, flags: JSON_THROW_ON_ERROR);
 // One document per subject since WP-4.4 (spec/repo-format.md § v3.4): this
 // suite reads woocommerce's reviewed entry, not the whole library.
-$wooDispositionDocument = json_decode((string) file_get_contents($root . '/manifests/dispositions/woocommerce.json'), true, flags: JSON_THROW_ON_ERROR);
-// No scratch library: $manifest IS manifests/woocommerce.json, so the v2
+$wooDispositionDocument = json_decode((string) file_get_contents($root . '/adapter-packages/woocommerce/package/disposition.json'), true, flags: JSON_THROW_ON_ERROR);
+// No scratch library: $manifest IS the WooCommerce package manifest, so the v2
 // shipped-membership proof compares the frozen bytes against the very file they
 // were read from — the strongest form of the claim this snapshot makes.
 $policy = Policy::from_snapshot([
@@ -857,7 +857,7 @@ woo_ok($policy->regen_batch_post_types() === [] && $policy->regen_dependency('pr
 // DUO-3341: the legacy whole-catalog projection class is deleted outright,
 // not quarantined. Engine core must carry no WooCommerce-named production
 // source and the bootstrap must not load one; Woo semantics live in
-// manifests/woocommerce.json and the provider/native-action contract.
+// WooCommerce package manifest and the provider/native-action contract.
 // These assertions fail against the pre-DUO-3341 tree (class present,
 // require_once in agent/duo.php), which is this issue's regression proof.
 // Recursive since the module move (ROUND 3 TRAIN 1): agent/src is a tree of
@@ -924,7 +924,7 @@ $wooSeedHarness = (string) file_get_contents($root . '/sandbox/conformance/seeds
 $wooPostdeployHarness = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/woocommerce.sh');
 $wooPostapplyHarness = (string) file_get_contents($root . '/sandbox/conformance/postapply/woocommerce.sh');
 $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
-$wooInterpreterSource = (string) file_get_contents($root . '/manifests/interpreters/woocommerce.php');
+$wooInterpreterSource = (string) file_get_contents($root . '/adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php');
 
 // DUO-3525: deploy compiles mixed options while installed WooCommerce code can
 // still be inactive, so only WordPress's plugin root exists at that boundary.
@@ -1089,7 +1089,7 @@ foreach ($expectedWooProviderContracts as $providerId => $contract) {
     );
 }
 foreach ($expectedWooProviderContracts as $providerId => $contract) {
-    require_once $root . "/manifests/providers/$providerId.php";
+    require_once $root . "/adapter-packages/woocommerce/package/runtime/providers/$providerId.php";
     $providerClass = $contract['class'];
     $declaration = $manifestWooProviderDeclarations[$providerId] ?? null;
     woo_ok(is_array($declaration), "$providerId retains its complete manifest declaration");
@@ -1377,7 +1377,7 @@ woo_ok(
 // hand-authored two-item policy.
 $correctedTaxonomies = (array) ($wooEntry['entry']['taxonomies'] ?? []);
 $coreManifest = json_decode(
-    (string) file_get_contents($root . '/manifests/core.json'),
+    (string) file_get_contents($root . '/platform/adapter-library/core/manifest.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
@@ -1443,7 +1443,7 @@ mkdir($lintState . '/options', 0777, true);
 mkdir($lintState . '/terms/pa_conf-color', 0777, true);
 $lintLibrary = $lintState . '/manifest-library';
 mkdir($lintLibrary . '/interpreters', 0777, true);
-symlink($root . '/manifests/interpreters/woocommerce.php', $lintLibrary . '/interpreters/woocommerce.php');
+symlink($root . '/adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php', $lintLibrary . '/interpreters/woocommerce.php');
 $previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
 putenv('DUO_MANIFESTS_DIR=' . $lintLibrary);
 $lintFiles = [

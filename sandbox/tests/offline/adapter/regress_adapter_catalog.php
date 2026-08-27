@@ -73,6 +73,7 @@ require $repo . '/agent/src/Policy/Policy.php';
 // has no subprocess path to reach it, and asserting it through Reflection is
 // how the CLI's half stays provable before that lands.
 require $repo . '/cli/src/Adapter/AdapterCatalog.php';
+require_once __DIR__ . '/certification_fixture.php';
 
 use Duo\AdapterSources;
 use Duo\Canon;
@@ -1481,8 +1482,10 @@ echo "\n== WP-1.3: a bigger library changes what a row COSTS, never what it says
 // original row must come back byte-identical. Counting the SAVING is
 // regress_adapter_survey_scale.php's job (it can instrument the loader);
 // this surface can only see the answer, which is the half rule 8 governs.
-$sizedLibrary = scratch('sized-library') . '/manifests';
-copy_tree($repo . '/manifests', $sizedLibrary);
+$sizedLibrary = duo_cert_project_library(
+    \Duo\AdapterLibrary::fromSourceTree($repo),
+    scratch('sized-library')
+);
 $smallRun = report(duo(['list', '--format=json'], $sizedLibrary));
 $smallRows = [];
 foreach ($smallRun['adapters'] ?? [] as $row) {

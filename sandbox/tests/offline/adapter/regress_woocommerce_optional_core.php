@@ -268,14 +268,14 @@ final class WooOptionalWakeupCanary {
 
 $root = dirname(__DIR__, 4);
 $manifest = json_decode(
-    (string) file_get_contents($root . '/manifests/woocommerce.json'),
+    (string) file_get_contents($root . '/adapter-packages/woocommerce/package/manifest.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
 $dispositions = [
     'manifests' => [
         'woocommerce' => json_decode(
-            (string) file_get_contents($root . '/manifests/dispositions/woocommerce.json'),
+            (string) file_get_contents($root . '/adapter-packages/woocommerce/package/disposition.json'),
             true,
             flags: JSON_THROW_ON_ERROR
         ),

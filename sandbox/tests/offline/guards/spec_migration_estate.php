@@ -6,7 +6,7 @@
  * WHAT A "STATE" IS, AND WHY THIS FILE IS A CHILD PROCESS
  * ------------------------------------------------------
  * The flag day moves exactly two things together: the two `define()` lines in
- * `agent/duo.php` and `manifests/capabilities/platform.json`, which restates
+ * `agent/duo.php` and `platform/adapter-library/capabilities/platform.json`, which restates
  * them (AGENTS.md rule 8; `ManifestDispositions::platform_boundary()` throws
  * "platform version disagrees with the loaded agent" the moment they diverge).
  * `cli/src/Onboarding/Adopt.php:147-150` tars `agent manifests recovery` as ONE
@@ -100,6 +100,19 @@ function rehearsal_copy_tree(string $from, string $to): void {
             throw new RuntimeException('rehearsal estate: cannot copy ' . $item->getPathname());
         }
     }
+}
+
+/** Project the accepted package inventory into the legacy-shaped mutable state fixture. */
+function rehearsal_project_library(string $repoRoot, string $to): array {
+    $library = \Duo\AdapterLibrary::fromSourceTree($repoRoot);
+    foreach (duo_cert_projected_paths($library) as $relative => $source) {
+        $destination = rtrim($to, '/') . '/' . $relative;
+        rehearsal_mkdir(dirname($destination));
+        if (!copy($source, $destination)) {
+            throw new RuntimeException("rehearsal estate: cannot project $source");
+        }
+    }
+    return duo_cert_projected_bytes($library);
 }
 
 /** Every file of a directory tree, keyed by relative path, valued by sha256. */
@@ -390,16 +403,16 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
     // libraries still differ in exactly ONE path, which the suite asserts: it
     // is the premise the whole digest-neutrality claim rests on, and it is
     // cheaper to prove than to trust.
-    rehearsal_copy_tree($repoRoot . '/manifests', $estate . '/libs/B');
+    $shippedHashes = rehearsal_project_library($repoRoot, $estate . '/libs/B');
     rehearsal_copy_tree($estate . '/libs/B', $estate . '/libs/A');
     rehearsal_write_canon(
         $estate . '/libs/A/capabilities/platform.json',
-        rehearsal_platform_document($repoRoot . '/manifests', rehearsal_state_versions($repoRoot, 'A'))
+        rehearsal_platform_document($estate . '/libs/B', rehearsal_state_versions($repoRoot, 'A'))
     );
     $record['libraries'] = [
         'A' => rehearsal_tree_hashes($estate . '/libs/A'),
         'B' => rehearsal_tree_hashes($estate . '/libs/B'),
-        'shipped' => rehearsal_tree_hashes($repoRoot . '/manifests'),
+        'shipped' => $shippedHashes,
     ];
     putenv('DUO_MANIFESTS_DIR=' . $estate . '/libs/A');
 
@@ -2088,6 +2101,7 @@ require_once $rehearsalRepoRoot . '/cli/src/Transport/CodeDeploy.php';
 require_once $rehearsalRepoRoot . '/cli/src/Refresh/RefreshFieldDiff.php';
 require_once $rehearsalRepoRoot . '/recovery/rollback-control.php';
 require_once $rehearsalRepoRoot . '/cli/src/Recovery/ScopedRollbackProfile.php';
+require_once $rehearsalRepoRoot . '/sandbox/tests/offline/adapter/certification_fixture.php';
 
 // The two WordPress seams a policy load can touch. They REFUSE rather than
 // answer: an estate that reached a target would stop being an offline

@@ -583,7 +583,7 @@ check(str_contains($cacheNote, 'WC_Cache_Helper::invalidate_cache_group')
     'manifest pins Woo public cache invalidation for persistent shipping/tax caches');
 // DUO-3338: the cache boundary moved from an eval'd command string to a
 // plugin-owned provider. The manifest now carries identity and arguments as
-// data; the executable half is manifests/providers/woocommerce-cache.php,
+// data; the executable half is the WooCommerce package's cache provider,
 // exercised for real below against a fake public Woo boundary.
 $cacheActions = array_values(array_filter(
     $policy->actions(),
@@ -699,7 +699,7 @@ if (!function_exists('get_transient')) {
         return false;
     }
 }
-require_once $root . '/manifests/providers/woocommerce-cache.php';
+require_once $root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-cache.php';
 $cacheProvider = new \Duo\Providers\WoocommerceCache(
     $policy->provider_declarations()['woocommerce-cache']
 );

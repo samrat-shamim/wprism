@@ -10,6 +10,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../lib/check.php';
 
 $root = dirname(__DIR__, 4);
+require_once $root . '/agent/src/Policy/AdapterLibrary.php';
 $matrix = json_decode(
     (string) file_get_contents($root . '/sandbox/conformance/production-readiness.json'),
     true,
@@ -20,12 +21,13 @@ $matrix = json_decode(
 // a listing rather than as one document's `manifests` keys, which is what
 // makes an adapter reviewed-but-absent-from-the-ledger impossible to miss.
 $dispositions = [];
-foreach (glob($root . '/manifests/dispositions/*.json') ?: [] as $document) {
-    $subject = basename($document, '.json');
-    if ($subject === 'profiles') {
-        continue;
-    }
-    $dispositions[$subject] = json_decode((string) file_get_contents($document), true, flags: JSON_THROW_ON_ERROR);
+foreach (\Duo\AdapterLibrary::fromSourceTree($root)->packages() as $package) {
+    $subject = $package->name();
+    $dispositions[$subject] = json_decode(
+        (string) file_get_contents($package->dispositionPath()),
+        true,
+        flags: JSON_THROW_ON_ERROR
+    );
 }
 ksort($dispositions, SORT_STRING);
 

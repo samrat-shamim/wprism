@@ -18,7 +18,7 @@ require_once $root . '/agent/src/Kernel/PlainData.php';
 require_once $root . '/agent/src/Kernel/Db.php';
 require_once $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/agent/src/Apply/ApplyFieldMaterializer.php';
-require_once $root . '/manifests/interpreters/woocommerce.php';
+require_once $root . '/adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php';
 
 use Duo\ApplyFieldMaterializer;
 use Duo\Policy;

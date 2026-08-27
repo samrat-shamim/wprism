@@ -9,7 +9,7 @@
  *
  * DUO-3342 moved that dispatch boundary from the regenerator channel to the
  * provider contract. The adapter's own public-API choices below are unchanged
- * (same needles, same file, moved to manifests/providers/); what changed is
+ * (same needles, same package-owned file); what changed is
  * which engine channel reaches it, so the declaration half of this suite now
  * asserts the provider contract and the ABSENCE of the batch regen_dependency
  * that used to claim the same two post types.
@@ -95,9 +95,9 @@ check(is_array($declaration)
     && !array_key_exists('plugin_version', (array) ($declaration['requires'] ?? [])),
     'the Woo lookup provider declares exactly its required functions/classes and does not duplicate the manifest plugin_version range');
 
-$providerFile = $root . '/manifests/providers/woocommerce-product-lookups.php';
+$providerFile = $root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php';
 check(is_file($providerFile), 'provider code ships beside its manifest, under providers/');
-check(!is_file($root . '/manifests/regenerators/woocommerce-product-lookups.php'),
+check(!is_file($root . '/adapter-packages/woocommerce/package/runtime/regenerators/woocommerce-product-lookups.php'),
     'and the retired regenerator file is gone, not left behind as a second copy of the same adapter');
 require $providerFile;
 $adapter = new \Duo\Providers\WoocommerceProductLookups($declaration);

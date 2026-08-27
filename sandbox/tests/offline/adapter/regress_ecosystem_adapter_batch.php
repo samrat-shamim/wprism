@@ -22,6 +22,7 @@ $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/OptionState.php';
 require_once $root . '/agent/src/Policy/Policy.php';
+require_once $root . '/agent/src/Policy/AdapterLibrary.php';
 require_once $root . '/sandbox/tests/support/wp-shortcode-stub.php';
 require_once $root . '/agent/src/Review/ShortcodeReferenceScanner.php';
 
@@ -39,11 +40,16 @@ $names = [
     'wps-hide-login',
     'yoast-duplicate-post',
 ];
+$sourceLibrary = \Duo\AdapterLibrary::fromSourceTree($root);
 
 /** @var array<string,array<string,mixed>> $manifests */
 $manifests = [];
 foreach ($names as $name) {
-    $manifests[$name] = Canon::decode(Canon::read_file($root . "/manifests/$name.json"));
+    $package = $sourceLibrary->package($name);
+    if ($package === null) {
+        throw new RuntimeException("missing shipped adapter package $name");
+    }
+    $manifests[$name] = Canon::decode(Canon::read_file($package->manifestPath()));
 }
 $conformanceEntry = Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/ecosystem-adapter-batch.json'));
 $standaloneEntries = [
@@ -147,10 +153,10 @@ duo_check_same(
 );
 
 foreach (['wpforms', 'custom-post-type-ui'] as $rejected) {
-    duo_check(!is_file($root . "/manifests/$rejected.json"), "$rejected remains rejected instead of gaining an unsafe manifest");
+    duo_check($sourceLibrary->package($rejected) === null, "$rejected remains rejected instead of gaining an unsafe package");
 }
 duo_check(
-    is_file($root . '/manifests/redirection.json')
+    $sourceLibrary->package('redirection') !== null
         && is_file($root . '/sandbox/tests/offline/adapter/regress_redirection_adapter.php'),
     'Redirection left the rejected-candidate set only with its own exact adapter and regression evidence'
 );
@@ -303,7 +309,7 @@ duo_check_same(
     'Yoast Duplicate Post checkpoints the prefix-dependent merged role map before mutation'
 );
 duo_check(
-    is_file($root . '/manifests/providers/yoast-duplicate-post-role-capabilities.php'),
+    is_file($root . '/adapter-packages/yoast-duplicate-post/package/runtime/providers/yoast-duplicate-post-role-capabilities.php'),
     'the shipped Yoast Duplicate Post role provider source exists beside its manifest identity'
 );
 
@@ -350,7 +356,7 @@ duo_check_same(
     array_column($snippetActions[0]['effects'] ?? [], 'kind'),
     'Code Snippets declares both irreversible external projections before mutation'
 );
-duo_check(is_file($root . '/manifests/providers/code-snippets-state.php'), 'the shipped provider source exists beside its manifest identity');
+duo_check(is_file($root . '/adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php'), 'the shipped provider source exists inside its package identity');
 
 $shortcodes = $policy->shortcode_attr_rules();
 $snippetRefRules = [
