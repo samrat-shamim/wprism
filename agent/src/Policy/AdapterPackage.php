@@ -4,15 +4,7 @@ declare(strict_types=1);
 
 namespace Duo;
 
-/**
- * One adapter's reviewed and executable bytes in the legacy flat library.
- *
- * This is deliberately a physical boundary, not a second manifest grammar.
- * AdapterLibrary derives these paths from the decoded manifest without
- * normalizing its data; the policy grammar remains the semantic authority.
- * The flag-day package layout will replace this reader rather than teaching it
- * compatibility searches for both layouts.
- */
+/** One adapter's closed set of reviewed and executable shipped bytes. */
 final class AdapterPackage
 {
     private string $name;
@@ -47,18 +39,27 @@ final class AdapterPackage
         self::assertName($name, 'adapter name');
         $canonicalRoot = self::canonicalRoot($root);
 
+        $logicalLayout = $manifestPath === $canonicalRoot . '/manifest.json'
+            && $dispositionPath === $canonicalRoot . '/disposition.json';
+        $legacyLayout = $manifestPath === $canonicalRoot . '/' . $name . '.json'
+            && $dispositionPath === $canonicalRoot . '/dispositions/' . $name . '.json';
+        if (!$logicalLayout && !$legacyLayout) {
+            throw new \RuntimeException("duo: adapter $name package paths do not match a supported explicit layout");
+        }
+        $runtimePrefix = $logicalLayout ? 'runtime/' : '';
+
         $this->name = $name;
         $this->root = $canonicalRoot;
         $this->manifestPath = self::packageFile(
             $canonicalRoot,
             $manifestPath,
-            $name . '.json',
+            $logicalLayout ? 'manifest.json' : $name . '.json',
             "adapter $name manifest"
         );
         $this->dispositionPath = self::packageFile(
             $canonicalRoot,
             $dispositionPath,
-            'dispositions/' . $name . '.json',
+            $logicalLayout ? 'disposition.json' : 'dispositions/' . $name . '.json',
             "adapter $name disposition"
         );
 
@@ -69,7 +70,7 @@ final class AdapterPackage
             $this->interpreterPath = self::packageFile(
                 $canonicalRoot,
                 $interpreterPath,
-                'interpreters/' . $interpreter . '.php',
+                $runtimePrefix . 'interpreters/' . $interpreter . '.php',
                 "adapter $name interpreter"
             );
         }
@@ -77,13 +78,13 @@ final class AdapterPackage
         $this->providerPaths = self::runtimePaths(
             $canonicalRoot,
             $providerPaths,
-            'providers',
+            $runtimePrefix . 'providers',
             "adapter $name provider"
         );
         $this->regeneratorPaths = self::runtimePaths(
             $canonicalRoot,
             $regeneratorPaths,
-            'regenerators',
+            $runtimePrefix . 'regenerators',
             "adapter $name regenerator"
         );
 
@@ -164,7 +165,7 @@ final class AdapterPackage
     private static function packageFile(string $root, string $path, string $relative, string $label): string
     {
         if ($path !== $root . '/' . $relative) {
-            throw new \RuntimeException("duo: $label must resolve to $relative inside the adapter library");
+            throw new \RuntimeException("duo: $label must resolve to $relative inside its adapter package");
         }
         if (is_link($path)) {
             throw new \RuntimeException("duo: $label may not be a symlink: $path");
@@ -174,7 +175,7 @@ final class AdapterPackage
             throw new \RuntimeException("duo: $label is not a readable regular file: $path");
         }
         if (!str_starts_with($canonical, $root . '/')) {
-            throw new \RuntimeException("duo: $label escapes the adapter library root: $path");
+            throw new \RuntimeException("duo: $label escapes the adapter package root: $path");
         }
         return $canonical;
     }

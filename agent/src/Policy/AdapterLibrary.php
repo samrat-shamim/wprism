@@ -7,14 +7,7 @@ namespace Duo;
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/AdapterPackage.php';
 
-/**
- * A closed inventory of the current flat shipped adapter library.
- *
- * The reader owns physical discovery only. It intentionally does not accept a
- * second layout, search neighboring directories, or normalize manifest data:
- * the package-layout cutover replaces it atomically after consumers have one
- * source boundary to depend on.
- */
+/** A closed physical inventory of one explicitly selected adapter library. */
 final class AdapterLibrary
 {
     private const DISPOSITIONS_DIRECTORY = 'dispositions';
@@ -24,6 +17,9 @@ final class AdapterLibrary
     private const AUTHORITIES = 'capabilities/adapter-authorities.json';
     private const REVOCATIONS = 'capabilities/adapter-revocations.json';
     private const PROFILES = 'dispositions/profiles.json';
+    private const LOGICAL_PROFILES = 'profiles.json';
+    private const LOGICAL_PACKAGE_MEMBERS = ['disposition.json', 'manifest.json', 'runtime'];
+    private const LOGICAL_RUNTIME_DIRECTORIES = ['interpreters', 'providers', 'regenerators'];
 
     private string $root;
     /** @var array<string,AdapterPackage> */
@@ -62,7 +58,93 @@ final class AdapterLibrary
         $this->scanFiles = $scanFiles;
     }
 
+    /** Read authoring capsules plus the separately owned platform library. */
+    public static function fromSourceTree(string $directory): self
+    {
+        $root = self::canonicalRoot($directory);
+        $packagesRoot = self::assertDirectory(
+            $root,
+            $root . '/adapter-packages',
+            'adapter package source directory'
+        );
+        $platformRoot = self::assertDirectory(
+            $root,
+            $root . '/platform/adapter-library',
+            'platform adapter library directory'
+        );
+
+        $packageRoots = [];
+        foreach (self::entries($packagesRoot, 'adapter package source directory') as $slug) {
+            self::assertLogicalSlug($slug, "adapter package basename at $packagesRoot/$slug");
+            if (isset($packageRoots[$slug])) {
+                throw new \RuntimeException("duo: duplicate adapter package $slug in the source tree");
+            }
+            $capsule = self::assertDirectory($root, $packagesRoot . '/' . $slug, "adapter capsule $slug");
+            self::assertAllowedEntries(
+                $capsule,
+                ['README.md', 'evidence', 'fixtures', 'package', 'tests'],
+                "adapter capsule $slug"
+            );
+            $packageRoots[$slug] = self::assertDirectory(
+                $root,
+                $capsule . '/package',
+                "adapter package payload $slug"
+            );
+            self::assertOptionalAuthoringMembers($root, $capsule, $slug);
+        }
+
+        return self::fromLogicalLayout(
+            $root,
+            $packageRoots,
+            $platformRoot,
+            [$packagesRoot, $platformRoot]
+        );
+    }
+
+    /** Read the deployed agent/adapter-library projection, never a neighboring source tree. */
+    public static function fromEmbeddedDirectory(string $directory): self
+    {
+        $root = self::canonicalRoot($directory);
+        self::assertAllowedEntries($root, ['adapters', 'platform'], 'embedded adapter library');
+        $adaptersRoot = self::assertDirectory(
+            $root,
+            $root . '/adapters',
+            'embedded adapter packages directory'
+        );
+        $platformRoot = self::assertDirectory(
+            $root,
+            $root . '/platform',
+            'embedded platform adapter library directory'
+        );
+
+        $packageRoots = [];
+        foreach (self::entries($adaptersRoot, 'embedded adapter packages directory') as $slug) {
+            self::assertLogicalSlug($slug, "embedded adapter package basename at $adaptersRoot/$slug");
+            if (isset($packageRoots[$slug])) {
+                throw new \RuntimeException("duo: duplicate embedded adapter package $slug");
+            }
+            $packageRoots[$slug] = self::assertDirectory(
+                $root,
+                $adaptersRoot . '/' . $slug,
+                "embedded adapter package $slug"
+            );
+        }
+
+        return self::fromLogicalLayout(
+            $root,
+            $packageRoots,
+            $platformRoot,
+            [$root, $adaptersRoot, $platformRoot]
+        );
+    }
+
     public static function fromDirectory(string $directory): self
+    {
+        return self::fromLegacyFlatDirectory($directory);
+    }
+
+    /** Temporary explicit reader for callers that still receive manifests/. */
+    public static function fromLegacyFlatDirectory(string $directory): self
     {
         $root = self::canonicalRoot($directory);
         $directories = [self::DISPOSITIONS_DIRECTORY, self::CAPABILITIES_DIRECTORY];
@@ -241,6 +323,237 @@ final class AdapterLibrary
     public function scanFiles(): array
     {
         return $this->scanFiles;
+    }
+
+    /**
+     * @param array<string,string> $adapterRoots adapter slug => package payload root
+     * @param list<string> $initialAnchors
+     */
+    private static function fromLogicalLayout(
+        string $root,
+        array $adapterRoots,
+        string $platformRoot,
+        array $initialAnchors
+    ): self {
+        self::assertAllowedEntries(
+            $platformRoot,
+            ['capabilities', 'core', self::LOGICAL_PROFILES],
+            'platform adapter library'
+        );
+        $coreRoot = self::assertDirectory($root, $platformRoot . '/core', 'platform core package');
+        self::assertAllowedEntries(
+            $coreRoot,
+            ['disposition.json', 'manifest.json'],
+            'platform core package'
+        );
+        $capabilitiesRoot = self::assertDirectory(
+            $root,
+            $platformRoot . '/capabilities',
+            'platform adapter capabilities directory'
+        );
+        self::assertAllowedEntries(
+            $capabilitiesRoot,
+            [basename(self::PLATFORM_BOUNDARY), basename(self::AUTHORITIES), basename(self::REVOCATIONS)],
+            'platform adapter capabilities directory'
+        );
+
+        $profiles = self::assertFile(
+            $root,
+            $platformRoot . '/' . self::LOGICAL_PROFILES,
+            'adapter disposition profiles'
+        );
+        $platform = self::assertFile(
+            $root,
+            $platformRoot . '/' . self::PLATFORM_BOUNDARY,
+            'adapter platform boundary'
+        );
+        $authorities = self::assertFile(
+            $root,
+            $platformRoot . '/' . self::AUTHORITIES,
+            'adapter authorities'
+        );
+        $revocations = $platformRoot . '/' . self::REVOCATIONS;
+        if (self::nodeExists($revocations)) {
+            self::assertFile($root, $revocations, 'adapter revocations');
+        }
+
+        if (isset($adapterRoots['core'])) {
+            throw new \RuntimeException('duo: adapter package core collides with the platform-owned core package');
+        }
+        $adapterRoots['core'] = $coreRoot;
+        ksort($adapterRoots, SORT_STRING);
+
+        $packages = [];
+        $anchors = array_merge($initialAnchors, [$coreRoot, $capabilitiesRoot]);
+        foreach ($adapterRoots as $slug => $packageRoot) {
+            [$package, $packageAnchors] = self::logicalPackage($root, $slug, $packageRoot);
+            if (isset($packages[$package->name()])) {
+                throw new \RuntimeException("duo: duplicate adapter name {$package->name()} in the logical library");
+            }
+            $packages[$package->name()] = $package;
+            $anchors = array_merge($anchors, $packageAnchors);
+        }
+        ksort($packages, SORT_STRING);
+
+        $files = [$profiles, $platform, $authorities];
+        if (is_file($revocations)) {
+            $files[] = $revocations;
+        }
+        foreach ($packages as $package) {
+            $files = array_merge($files, $package->shippablePaths());
+        }
+        $files = array_values(array_unique($files));
+        sort($files, SORT_STRING);
+        $anchors = array_values(array_unique($anchors));
+        sort($anchors, SORT_STRING);
+
+        return new self($root, $packages, $platform, $authorities, $revocations, $profiles, $anchors, $files);
+    }
+
+    /**
+     * @return array{0:AdapterPackage,1:list<string>}
+     */
+    private static function logicalPackage(string $libraryRoot, string $slug, string $packageRoot): array
+    {
+        self::assertLogicalSlug($slug, 'adapter package name');
+        self::assertAllowedEntries($packageRoot, self::LOGICAL_PACKAGE_MEMBERS, "adapter package $slug");
+        $manifestPath = self::assertFile(
+            $libraryRoot,
+            $packageRoot . '/manifest.json',
+            "adapter $slug manifest"
+        );
+        $dispositionPath = self::assertFile(
+            $libraryRoot,
+            $packageRoot . '/disposition.json',
+            "adapter $slug disposition"
+        );
+        $manifest = Canon::decode(Canon::read_file($manifestPath));
+        if (!is_array($manifest)) {
+            throw new \RuntimeException("duo: adapter manifest is not a JSON object: $manifestPath");
+        }
+        $declaredName = $manifest['name'] ?? null;
+        if (!is_string($declaredName)) {
+            throw new \RuntimeException("duo: adapter manifest has no string name: $manifestPath");
+        }
+        self::assertLogicalSlug($declaredName, "adapter name declared by $manifestPath");
+        if ($declaredName !== $slug) {
+            throw new \RuntimeException(
+                "duo: adapter package basename $slug disagrees with its declared name $declaredName"
+            );
+        }
+
+        $spec = self::runtimeDeclarations($slug, $manifest);
+        if ($spec['interpreter'] !== null) {
+            self::assertRuntimeName($spec['interpreter'], "adapter $slug interpreter id");
+        }
+        foreach ($spec['providers'] as $provider) {
+            self::assertRuntimeName($provider, "adapter $slug provider id");
+        }
+        foreach ($spec['regenerators'] as $regenerator) {
+            self::assertRuntimeName($regenerator, "adapter $slug regenerator id");
+        }
+
+        $expected = [
+            'interpreters' => $spec['interpreter'] === null ? [] : [$spec['interpreter']],
+            'providers' => $spec['providers'],
+            'regenerators' => $spec['regenerators'],
+        ];
+        $actual = ['interpreters' => [], 'providers' => [], 'regenerators' => []];
+        $anchors = [$packageRoot];
+        $runtimeRoot = $packageRoot . '/runtime';
+        if (self::nodeExists($runtimeRoot)) {
+            $runtimeRoot = self::assertDirectory($libraryRoot, $runtimeRoot, "adapter $slug runtime directory");
+            self::assertAllowedEntries($runtimeRoot, self::LOGICAL_RUNTIME_DIRECTORIES, "adapter $slug runtime");
+            $anchors[] = $runtimeRoot;
+            foreach (self::LOGICAL_RUNTIME_DIRECTORIES as $kind) {
+                $kindRoot = $runtimeRoot . '/' . $kind;
+                if (!self::nodeExists($kindRoot)) {
+                    continue;
+                }
+                $kindRoot = self::assertDirectory(
+                    $libraryRoot,
+                    $kindRoot,
+                    "adapter $slug runtime $kind directory"
+                );
+                $anchors[] = $kindRoot;
+                foreach (self::entries($kindRoot, "adapter $slug runtime $kind directory") as $entry) {
+                    $path = $kindRoot . '/' . $entry;
+                    if (is_link($path)) {
+                        throw new \RuntimeException("duo: adapter runtime may not be a symlink: $path");
+                    }
+                    if (!is_file($path) || !str_ends_with($entry, '.php')) {
+                        throw new \RuntimeException("duo: unexpected adapter runtime entry: $path");
+                    }
+                    $id = substr($entry, 0, -4);
+                    self::assertRuntimeName($id, "adapter runtime basename at $path");
+                    $actual[$kind][$id] = self::assertFile(
+                        $libraryRoot,
+                        $path,
+                        "adapter $slug runtime $kind/$entry"
+                    );
+                }
+                ksort($actual[$kind], SORT_STRING);
+            }
+        }
+
+        foreach (self::LOGICAL_RUNTIME_DIRECTORIES as $kind) {
+            $owned = array_fill_keys($expected[$kind], $slug);
+            self::assertRuntimeCoverage($kind, $owned, $actual[$kind]);
+        }
+
+        $interpreter = $spec['interpreter'] === null
+            ? null
+            : $actual['interpreters'][$spec['interpreter']];
+        $providers = [];
+        foreach ($spec['providers'] as $provider) {
+            $providers[$provider] = $actual['providers'][$provider];
+        }
+        $regenerators = [];
+        foreach ($spec['regenerators'] as $regenerator) {
+            $regenerators[$regenerator] = $actual['regenerators'][$regenerator];
+        }
+
+        return [
+            new AdapterPackage(
+                $slug,
+                $packageRoot,
+                $manifestPath,
+                $dispositionPath,
+                $interpreter,
+                $providers,
+                $regenerators
+            ),
+            $anchors,
+        ];
+    }
+
+    private static function assertOptionalAuthoringMembers(string $root, string $capsule, string $slug): void
+    {
+        foreach (['evidence', 'fixtures', 'tests'] as $member) {
+            $path = $capsule . '/' . $member;
+            if (self::nodeExists($path)) {
+                self::assertDirectory($root, $path, "adapter $slug authoring $member directory");
+            }
+        }
+        $readme = $capsule . '/README.md';
+        if (self::nodeExists($readme)) {
+            self::assertFile($root, $readme, "adapter $slug README");
+        }
+    }
+
+    /** @param list<string> $allowed */
+    private static function assertAllowedEntries(string $directory, array $allowed, string $label): void
+    {
+        foreach (self::entries($directory, $label) as $entry) {
+            if (!in_array($entry, $allowed, true)) {
+                throw new \RuntimeException("duo: unexpected $label entry: $directory/$entry");
+            }
+        }
+    }
+
+    private static function nodeExists(string $path): bool
+    {
+        return is_link($path) || file_exists($path);
     }
 
     private static function canonicalRoot(string $directory): string
@@ -500,6 +813,20 @@ final class AdapterLibrary
         if (preg_match('/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/D', $name) !== 1
             || preg_match('/[a-z]/D', $name) !== 1) {
             throw new \RuntimeException("duo: $label is not a canonical lowercase ASCII slug: " . var_export($name, true));
+        }
+    }
+
+    private static function assertLogicalSlug(string $name, string $label): void
+    {
+        if (preg_match('/\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*\z/D', $name) !== 1) {
+            throw new \RuntimeException("duo: $label is not a canonical adapter slug: " . var_export($name, true));
+        }
+    }
+
+    private static function assertRuntimeName(string $name, string $label): void
+    {
+        if (preg_match('/\A[a-z0-9][a-z0-9_-]*\z/D', $name) !== 1) {
+            throw new \RuntimeException("duo: $label is not a canonical runtime name: " . var_export($name, true));
         }
     }
 }

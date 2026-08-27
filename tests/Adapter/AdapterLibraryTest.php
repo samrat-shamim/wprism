@@ -33,7 +33,7 @@ final class AdapterLibraryTest extends TestCase
     public function testCurrentFlatLibraryIncludesRedirectionAndSortedPackages(): void
     {
         $root = dirname(__DIR__, 2) . '/manifests';
-        $library = AdapterLibrary::fromDirectory($root);
+        $library = AdapterLibrary::fromLegacyFlatDirectory($root);
         $names = array_map(static fn($package): string => $package->name(), $library->packages());
 
         $this->assertCount(17, $names);
@@ -62,7 +62,7 @@ final class AdapterLibraryTest extends TestCase
     public function testTrustConsumersUseObjectPathsWithoutMovingCurrentValues(): void
     {
         $root = dirname(__DIR__, 2) . '/manifests';
-        $library = AdapterLibrary::fromDirectory($root);
+        $library = AdapterLibrary::fromLegacyFlatDirectory($root);
         $legacyDispositions = ManifestDispositions::load($root);
 
         $this->assertNotNull($legacyDispositions);
@@ -103,7 +103,7 @@ final class AdapterLibraryTest extends TestCase
         ]);
         $manifestBefore = file_get_contents($root . '/alpha.json');
 
-        $library = AdapterLibrary::fromDirectory($root);
+        $library = AdapterLibrary::fromLegacyFlatDirectory($root);
         $package = $library->package('alpha');
 
         $this->assertNotNull($package);
@@ -129,7 +129,7 @@ final class AdapterLibraryTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('missing=[alpha-provider]');
-        AdapterLibrary::fromDirectory($root);
+        AdapterLibrary::fromLegacyFlatDirectory($root);
     }
 
     public function testUndeclaredRuntimePhpRefuses(): void
@@ -139,7 +139,7 @@ final class AdapterLibraryTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('undeclared=[extra]');
-        AdapterLibrary::fromDirectory($root);
+        AdapterLibrary::fromLegacyFlatDirectory($root);
     }
 
     public function testManifestBasenameMustMatchDeclaredName(): void
@@ -151,7 +151,7 @@ final class AdapterLibraryTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('basename alpha disagrees with its declared name different');
-        AdapterLibrary::fromDirectory($root);
+        AdapterLibrary::fromLegacyFlatDirectory($root);
     }
 
     public function testDuplicateDeclaredNameRefusesBeforeASecondPackageCanBeConstructed(): void
@@ -162,7 +162,7 @@ final class AdapterLibraryTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('duplicate adapter name alpha');
-        AdapterLibrary::fromDirectory($root);
+        AdapterLibrary::fromLegacyFlatDirectory($root);
     }
 
     public function testRuntimePathEscapeInManifestRefuses(): void
@@ -174,7 +174,7 @@ final class AdapterLibraryTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('provider id is not a canonical lowercase ASCII slug');
-        AdapterLibrary::fromDirectory($root);
+        AdapterLibrary::fromLegacyFlatDirectory($root);
     }
 
     public function testSymlinkedRuntimeRefusesEvenWhenItIsDeclared(): void
@@ -190,14 +190,161 @@ final class AdapterLibraryTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('runtime may not be a symlink');
-        AdapterLibrary::fromDirectory($root);
+        AdapterLibrary::fromLegacyFlatDirectory($root);
     }
 
     public function testInvalidAndSymlinkedRootsRefuse(): void
     {
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('root is not a readable directory');
-        AdapterLibrary::fromDirectory($this->scratch('missing') . '/absent');
+        AdapterLibrary::fromLegacyFlatDirectory($this->scratch('missing') . '/absent');
+    }
+
+    public function testSourceTreeFactoryOwnsOnlyPackagePayloadsAndPlatformFiles(): void
+    {
+        [$root, $packageRoot, $platformRoot] = $this->logicalFixture('source');
+        file_put_contents(dirname($packageRoot) . '/README.md', "authoring only\n");
+        mkdir(dirname($packageRoot) . '/tests');
+        file_put_contents(dirname($packageRoot) . '/tests/regress.php', "<?php\n");
+
+        $library = AdapterLibrary::fromSourceTree($root);
+        $alpha = $library->package('alpha');
+
+        $this->assertSame(realpath($root), $library->root());
+        $this->assertSame(['alpha', 'core'], array_map(static fn($package): string => $package->name(), $library->packages()));
+        $this->assertNotNull($alpha);
+        $this->assertSame(realpath($packageRoot), $alpha->root());
+        $this->assertSame(realpath($packageRoot . '/manifest.json'), $alpha->manifestPath());
+        $this->assertSame(realpath($packageRoot . '/disposition.json'), $alpha->dispositionPath());
+        $this->assertSame(realpath($packageRoot . '/runtime/interpreters/alpha.php'), $alpha->interpreterPath());
+        $this->assertSame(
+            realpath($packageRoot . '/runtime/providers/alpha-provider.php'),
+            $alpha->providerPath('alpha-provider')
+        );
+        $this->assertSame(realpath($platformRoot . '/profiles.json'), $library->profilesPath());
+        $this->assertSame(realpath($platformRoot . '/capabilities/platform.json'), $library->platformBoundaryPath());
+        $this->assertContains(realpath($packageRoot), $library->scanAnchors());
+        $this->assertContains(realpath($packageRoot . '/manifest.json'), $library->scanFiles());
+        $this->assertNotContains(realpath(dirname($packageRoot) . '/README.md'), $library->scanFiles());
+        $this->assertNotContains(realpath(dirname($packageRoot) . '/tests/regress.php'), $library->scanFiles());
+    }
+
+    public function testEmbeddedFactoryReadsOnlyTheProjectedLibrary(): void
+    {
+        [$root, $packageRoot, $platformRoot] = $this->logicalFixture('embedded');
+
+        $library = AdapterLibrary::fromEmbeddedDirectory($root);
+        $alpha = $library->package('alpha');
+
+        $this->assertNotNull($alpha);
+        $this->assertSame(['alpha', 'core'], array_map(static fn($package): string => $package->name(), $library->packages()));
+        $this->assertSame(realpath($packageRoot . '/manifest.json'), $alpha->manifestPath());
+        $this->assertSame(realpath($platformRoot . '/core/manifest.json'), $library->package('core')?->manifestPath());
+        $this->assertSame(
+            dirname($library->profilesPath()) . '/capabilities/adapter-revocations.json',
+            $library->revocationsPath()
+        );
+        $this->assertNotContains($library->revocationsPath(), $library->scanFiles());
+    }
+
+    public function testLogicalFactoriesDoNotSearchForAnotherLayout(): void
+    {
+        [$root] = $this->logicalFixture('source');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('unexpected embedded adapter library entry');
+        AdapterLibrary::fromEmbeddedDirectory($root);
+    }
+
+    public function testLogicalPackageSlugMustBeCanonical(): void
+    {
+        [$root, $packageRoot] = $this->logicalFixture('source');
+        rename(dirname($packageRoot), dirname(dirname($packageRoot)) . '/Alpha');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('is not a canonical adapter slug');
+        AdapterLibrary::fromSourceTree($root);
+    }
+
+    public function testLogicalManifestSubjectMustAgreeWithPackageSlug(): void
+    {
+        [$root, $packageRoot] = $this->logicalFixture('source');
+        $manifest = json_decode((string) file_get_contents($packageRoot . '/manifest.json'), true);
+        $manifest['name'] = 'different';
+        file_put_contents($packageRoot . '/manifest.json', json_encode($manifest, JSON_PRETTY_PRINT) . "\n");
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('package basename alpha disagrees with its declared name different');
+        AdapterLibrary::fromSourceTree($root);
+    }
+
+    public function testLogicalPackageRequiresItsDisposition(): void
+    {
+        [$root, $packageRoot] = $this->logicalFixture('embedded');
+        unlink($packageRoot . '/disposition.json');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('adapter alpha disposition is not a readable regular file');
+        AdapterLibrary::fromEmbeddedDirectory($root);
+    }
+
+    public function testLogicalPackageRequiresEveryDeclaredRuntimeFile(): void
+    {
+        [$root, $packageRoot] = $this->logicalFixture('embedded');
+        unlink($packageRoot . '/runtime/providers/alpha-provider.php');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('missing=[alpha-provider]');
+        AdapterLibrary::fromEmbeddedDirectory($root);
+    }
+
+    public function testLogicalPackageRefusesUndeclaredRuntime(): void
+    {
+        [$root, $packageRoot] = $this->logicalFixture('embedded');
+        file_put_contents($packageRoot . '/runtime/providers/extra.php', "<?php\n");
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('undeclared=[extra]');
+        AdapterLibrary::fromEmbeddedDirectory($root);
+    }
+
+    public function testLogicalPackageRefusesUnknownShippableMembers(): void
+    {
+        [$root, $packageRoot] = $this->logicalFixture('embedded');
+        file_put_contents($packageRoot . '/helper.php', "<?php\n");
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('unexpected adapter package alpha entry');
+        AdapterLibrary::fromEmbeddedDirectory($root);
+    }
+
+    public function testLogicalPackageRefusesSymlinkedShippableBytes(): void
+    {
+        [$root, $packageRoot] = $this->logicalFixture('embedded');
+        $outside = $this->scratch('logical-outside');
+        $outsideFile = $outside . '/disposition.json';
+        file_put_contents($outsideFile, "{}\n");
+        unlink($packageRoot . '/disposition.json');
+        if (!@symlink($outsideFile, $packageRoot . '/disposition.json')) {
+            $this->markTestSkipped('symlinks are unavailable');
+        }
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('disposition may not be a symlink');
+        AdapterLibrary::fromEmbeddedDirectory($root);
+    }
+
+    public function testPlatformCoreCannotBeShadowedByAnAdapterPackage(): void
+    {
+        [$root] = $this->logicalFixture('source');
+        $packageRoot = $root . '/adapter-packages/core/package';
+        mkdir($packageRoot, 0o777, true);
+        file_put_contents($packageRoot . '/manifest.json', "{\"name\":\"core\"}\n");
+        file_put_contents($packageRoot . '/disposition.json', "{}\n");
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('collides with the platform-owned core package');
+        AdapterLibrary::fromSourceTree($root);
     }
 
     private function fixture(?array $manifest = null): string
@@ -224,6 +371,46 @@ final class AdapterLibraryTest extends TestCase
         file_put_contents($root . '/providers/alpha-provider.php', "<?php\n");
         file_put_contents($root . '/regenerators/alpha-regenerator.php', "<?php\n");
         return $root;
+    }
+
+    /** @return array{0:string,1:string,2:string} */
+    private function logicalFixture(string $layout): array
+    {
+        $root = $this->scratch('logical-' . $layout);
+        if ($layout === 'source') {
+            $packageRoot = $root . '/adapter-packages/alpha/package';
+            $platformRoot = $root . '/platform/adapter-library';
+        } else {
+            $packageRoot = $root . '/adapters/alpha';
+            $platformRoot = $root . '/platform';
+        }
+
+        foreach (['interpreters', 'providers', 'regenerators'] as $kind) {
+            mkdir($packageRoot . '/runtime/' . $kind, 0o777, true);
+        }
+        mkdir($platformRoot . '/core', 0o777, true);
+        mkdir($platformRoot . '/capabilities', 0o777, true);
+
+        $manifest = [
+            'name' => 'alpha',
+            'interpreter' => 'alpha',
+            'providers' => [['id' => 'alpha-provider', 'source' => 'manifest']],
+            'post_types' => [
+                'post' => ['regen_dependency' => ['regenerator' => 'alpha-regenerator']],
+            ],
+        ];
+        file_put_contents($packageRoot . '/manifest.json', json_encode($manifest, JSON_PRETTY_PRINT) . "\n");
+        file_put_contents($packageRoot . '/disposition.json', "{}\n");
+        file_put_contents($packageRoot . '/runtime/interpreters/alpha.php', "<?php\n");
+        file_put_contents($packageRoot . '/runtime/providers/alpha-provider.php', "<?php\n");
+        file_put_contents($packageRoot . '/runtime/regenerators/alpha-regenerator.php', "<?php\n");
+        file_put_contents($platformRoot . '/core/manifest.json', "{\"name\":\"core\"}\n");
+        file_put_contents($platformRoot . '/core/disposition.json', "{}\n");
+        file_put_contents($platformRoot . '/profiles.json', "{}\n");
+        file_put_contents($platformRoot . '/capabilities/platform.json', "{}\n");
+        file_put_contents($platformRoot . '/capabilities/adapter-authorities.json', "{}\n");
+
+        return [$root, $packageRoot, $platformRoot];
     }
 
     private function scratch(string $label): string
