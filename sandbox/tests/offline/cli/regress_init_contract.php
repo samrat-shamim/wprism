@@ -760,7 +760,7 @@ check(
 check(
     str_contains($plannerSource, "'unsafe_code_root'")
         && str_contains($confirmationSource, "assert_absent_owned_path(\$codeRoot, 'code publication root')")
-        && str_contains($confirmationSource, "mkdir(\$codeRoot, 0700)")
+        && str_contains($confirmationSource, 'mkdir($codeRoot, 0700)')
         && str_contains($confirmationSource, "rename(\$stagedCode, \$codeRoot . '/wp-content')"),
     'code baseline reserves an owned root before publishing its verified child'
 );
@@ -865,7 +865,7 @@ check(
         && str_contains($confirmationSource, 'if ($error instanceof InitAttemptRetentionException)')
         && str_contains($codeBaselineSource, "DUO_TEST_INIT_FAIL_PHASE') === 'code-copy-after-file'")
         && str_contains($liveHarness, 'changed code source left a staging tree, journal, lock, or canonical payload')
-        && str_contains($publishSource, "if (\$stillSame) @unlink(\$name);"),
+        && str_contains($publishSource, 'if ($stillSame) @unlink($name);'),
     'post-create code-copy failures either compensate the exact partial stage or retain sealed recovery authority'
 );
 check(
@@ -955,7 +955,7 @@ check(
 // alive.
 $preLockGate = strpos(
     $captureSource,
-    "if (!\$initialBaseline && !file_exists(\$canonicalLock) && !is_link(\$canonicalLock)) {"
+    'if (!$initialBaseline && !file_exists($canonicalLock) && !is_link($canonicalLock)) {'
 );
 $lockAcquire = strpos($captureSource, '$lock = $publicationLock ?? Publish::lock($stateDir);');
 $postLockGate = strpos($captureSource, 'InitialCaptureBoundary::assertNoInterruptedInit($repoPath);', (int) $lockAcquire);
@@ -969,8 +969,8 @@ $publishSourceLock = (string) file_get_contents(__DIR__ . '/../../../../agent/sr
 check(
     str_contains($publishSourceLock, "'capture_lock_held',")
         && str_contains($publishSourceLock, "'capture refused because another publisher holds the destination lock',")
-        && str_contains($liveHarness, "\$CAPTURE_OUT) >/dev/null 2>&1 \\") === false
-        && str_contains($liveHarness, ".reason_code == \"capture_lock_held\"")
+        && str_contains($liveHarness, '$CAPTURE_OUT) >/dev/null 2>&1 \\') === false
+        && str_contains($liveHarness, '.reason_code == "capture_lock_held"')
         && !str_contains($liveHarness, "grep -q 'another capture is already publishing'"),
     'the live concurrency case asserts the machine refusal contract, not the operator-message wording'
 );
@@ -1006,7 +1006,10 @@ check(str_contains($codeSource, 'complete_initial_baseline_in_active_transaction
 check(str_contains($codeSource, 'lifecycle metadata') && str_contains($codeSource, 'already exists'), 'initial baseline refuses to overwrite existing lifecycle metadata');
 check(str_contains($codeSource, 'self::verify_payload($descriptor)') && str_contains($codeSource, 'self::owned_extra_files($descriptor)'), 'initial baseline verifies live bytes and rejects unrecorded managed files');
 
-$woo = json_decode((string) file_get_contents(__DIR__ . '/../../../../manifests/woocommerce.json'), true, 512, JSON_THROW_ON_ERROR);
+$sourceLibrary = \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4));
+$wooPackage = $sourceLibrary->package('woocommerce');
+check($wooPackage !== null, 'source adapter library contains the WooCommerce package');
+$woo = json_decode((string) file_get_contents($wooPackage?->manifestPath() ?? ''), true, 512, JSON_THROW_ON_ERROR);
 foreach (['product_cat', 'product_tag', 'product_shipping_class', 'product_type', 'product_visibility', 'pos_product_visibility'] as $taxonomy) {
     check(($woo['taxonomies'][$taxonomy]['class'] ?? null) === 'authored', "Woo adapter owns authored init scope for $taxonomy");
 }
@@ -1027,7 +1030,7 @@ check(
 check(
     str_contains($liveHarness, 'DUO_TEST_INIT_KILL_PHASE=attempt-remove-pre-unlink')
         && str_contains($liveHarness, 'DUO_TEST_INIT_KILL_PHASE=attempt-remove-post-unlink')
-        && str_contains($liveHarness, ".duo-init-compensate-*"),
+        && str_contains($liveHarness, '.duo-init-compensate-*'),
     'live coverage proves both sides of the completed-journal unlink crash boundary'
 );
 check(
@@ -1128,8 +1131,8 @@ check(
     'the per-init clock refuses a certified set that timed nothing, so the claim cannot go vacuous'
 );
 
-// DUO-3421. The live harness mounts a HERMETIC manifest library into its pair,
-// never the primary checkout's own. It was introduced because the checked-in
+// DUO-3421. The live harness mounts a HERMETIC source adapter library into its
+// pair, never the primary checkout's own packages/platform. It was introduced because the checked-in
 // attestation was expired by construction on any bundle-owing branch — legs
 // 13-14 included — so `evidence_not_current` rode on every certified claim, the
 // paused root-replacement confirmations refused instantly, and the races timed
@@ -1137,19 +1140,21 @@ check(
 // and cannot expire anything now, but the MOUNT DISCIPLINE is pinned here on
 // its own merit: built and asserted BEFORE the pair exists, and the live
 // library never mounted at all, so no live case can reach the shipped bytes.
-$fixtureBuild = strpos($liveHarness, 'php sandbox/tests/offline/adapter/certification_fixture.php "$HERMETIC_ROOT"');
-$fixtureMount = strpos($liveHarness, 'export DUO_MANIFESTS_SRC="$HERMETIC_MANIFESTS"');
+$fixtureBuild = strpos($liveHarness, 'certification_fixture.php --source-tree "$HERMETIC_ROOT"');
+$packageMount = strpos($liveHarness, 'export DUO_ADAPTER_PACKAGES_SRC="$HERMETIC_SOURCE/adapter-packages"');
+$platformMount = strpos($liveHarness, 'export DUO_PLATFORM_SRC="$HERMETIC_SOURCE/platform"');
 check(
-    $fixtureBuild !== false && $fixtureMount !== false && $pairUp !== false
-        && $fixtureBuild < $fixtureMount && $fixtureMount < $pairUp
-        && !str_contains($liveHarness, 'export DUO_MANIFESTS_SRC="$REPO_ROOT/manifests"'),
-    'live init builds and mounts a hermetic manifest library before pair bring-up, never the live one'
+    $fixtureBuild !== false && $packageMount !== false && $platformMount !== false && $pairUp !== false
+        && $fixtureBuild < $packageMount && $packageMount < $pairUp
+        && $fixtureBuild < $platformMount && $platformMount < $pairUp
+        && !str_contains($liveHarness, 'DUO_MANIFESTS_SRC'),
+    'live init builds and mounts hermetic package and platform roots before pair bring-up, never the live ones'
 );
 check(
     str_contains($liveHarness, 'fixture manufacture failed: a certified disposition cites no evidence')
         && str_contains($liveHarness, 'fixture manufacture failed: the hermetic library has no platform boundary')
         && str_contains($liveHarness, 'fixture manufacture failed: the hermetic library is not the shipped library byte for byte')
-        && str_contains($liveHarness, 'fixture manufacture failed: building the fixture modified the shipped manifest library'),
+        && str_contains($liveHarness, 'fixture manufacture failed: building the fixture modified the shipped source adapter library'),
     'live harness asserts its own fixture manufacture — reviewed, whole, byte-identical, and non-destructive — before any behavior'
 );
 // The fixture builder itself, exercised offline: if it cannot produce a
@@ -1160,8 +1165,10 @@ $fixtureRoot = sys_get_temp_dir() . '/duo-init-contract-fixture-' . bin2hex(rand
 register_shutdown_function(static function () use ($fixtureRoot): void {
     exec('rm -rf ' . escapeshellarg($fixtureRoot));
 });
-$hermeticDir = duo_cert_hermetic_library(dirname(__DIR__, 4), $fixtureRoot);
-$hermeticDispositions = \Duo\ManifestDispositions::load($hermeticDir);
+$hermeticRoot = duo_cert_hermetic_source_tree(dirname(__DIR__, 4), $fixtureRoot);
+$sourceLibrary = \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4));
+$hermeticLibrary = \Duo\AdapterLibrary::fromSourceTree($hermeticRoot);
+$hermeticDispositions = \Duo\ManifestDispositions::load_library($hermeticLibrary);
 $citedTests = [];
 foreach (($hermeticDispositions?->data()['manifests'] ?? []) as $reviewed) {
     if (($reviewed['status'] ?? null) === 'certified') {
@@ -1170,7 +1177,7 @@ foreach (($hermeticDispositions?->data()['manifests'] ?? []) as $reviewed) {
 }
 check(
     $hermeticDispositions !== null && $citedTests !== [] && min($citedTests) > 0
-        && duo_cert_library_bytes($hermeticDir) === duo_cert_library_bytes(dirname(__DIR__, 4) . '/manifests'),
+        && duo_cert_source_library_bytes($hermeticLibrary) === duo_cert_source_library_bytes($sourceLibrary),
     'the shared fixture reproduces the shipped library byte for byte, and every certified claim in it still names '
     . 'the evidence it was reviewed against'
 );
@@ -2141,7 +2148,7 @@ mkdir($adapterRepo . '/adapters', 0777, true);
 file_put_contents($adapterRepo . '/adapters/foreign.json', "{}\n");
 chmod($adapterRepo . '/adapters', 0000);
 try {
-    \Duo\AdapterSources::discover(__DIR__ . '/../../../../manifests', $adapterRepo);
+    \Duo\AdapterSources::discover_library($sourceLibrary, $adapterRepo);
     fail('unreadable adapter source was silently treated as empty');
 } catch (RuntimeException $expected) {
     check(
@@ -2161,7 +2168,7 @@ mkdir($nestedAdapterRepo . '/adapters/nested', 0777, true);
 file_put_contents($nestedAdapterRepo . '/adapters/nested/hidden.json', "{}\n");
 chmod($nestedAdapterRepo . '/adapters/nested', 0000);
 try {
-    \Duo\AdapterSources::discover(__DIR__ . '/../../../../manifests', $nestedAdapterRepo);
+    \Duo\AdapterSources::discover_library($sourceLibrary, $nestedAdapterRepo);
     fail('unreadable nested adapter content was silently treated as empty');
 } catch (RuntimeException $expected) {
     check(
@@ -2466,7 +2473,7 @@ check(
         && $fseGhost['advisory']['code'] === 'fse_profile_not_certified'
         && str_contains($fseGhost['advisory']['reason'], "names the adapter 'core', which this site has not installed")
         && str_contains($fseGhost['advisory']['remediation'], "install the adapter 'core'"),
-    "but one naming a manifest this site does not install proposes NOTHING and names the ghost, rather than putting "
+    'but one naming a manifest this site does not install proposes NOTHING and names the ghost, rather than putting '
     . "core's site-editor types under a profile whose adapter is absent"
 );
 check(

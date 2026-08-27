@@ -197,6 +197,45 @@ function duo_cert_hermetic_library(string $repo, string $root): string {
     return $manifestDir;
 }
 
+/** @return array<string,string> source-relative path => sha256 */
+function duo_cert_source_library_bytes(AdapterLibrary $library): array {
+    $bytes = [];
+    foreach ($library->scanFiles() as $path) {
+        $relative = substr($path, strlen(rtrim($library->root(), '/')) + 1);
+        $bytes[$relative] = (string) hash_file('sha256', $path);
+    }
+    ksort($bytes, SORT_STRING);
+    return $bytes;
+}
+
+/**
+ * Copy the authoring source layout for mount-based tests whose production
+ * path now requires package and platform siblings, then prove the copy is the
+ * same closed AdapterLibrary inventory.
+ */
+function duo_cert_hermetic_source_tree(string $repo, string $root): string {
+    $repo = rtrim($repo, '/');
+    $root = rtrim($root, '/');
+    $source = AdapterLibrary::fromSourceTree($repo);
+    duo_cert_copy_tree($repo . '/adapter-packages', $root . '/adapter-packages');
+    duo_cert_copy_tree($repo . '/platform', $root . '/platform');
+    $copy = AdapterLibrary::fromSourceTree($root);
+    if (duo_cert_source_library_bytes($source) !== duo_cert_source_library_bytes($copy)) {
+        throw new RuntimeException(
+            'certification fixture manufacture failed: the hermetic source library is not the shipped library byte for byte'
+        );
+    }
+    ManifestDispositions::load_library($copy)->assert_covers(
+        array_map(
+            static fn(\Duo\AdapterPackage $package): array =>
+                \Duo\Canon::decode(\Duo\Canon::read_file($package->manifestPath())),
+            $copy->packages()
+        )
+    );
+    ManifestDispositions::platform_boundary_library($copy);
+    return $root;
+}
+
 /**
  * The fixture's own premise check.
  *
@@ -251,12 +290,26 @@ function duo_cert_assert_loadable(AdapterLibrary $shippedLibrary, string $manife
 }
 
 if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
-    if (($argc ?? 0) !== 2 || $argv[1] === '') {
-        fwrite(STDERR, 'usage: php ' . basename(__FILE__) . " <scratch-root>\n");
+    $sourceTree = ($argv[1] ?? null) === '--source-tree';
+    $scratch = $sourceTree ? ($argv[2] ?? null) : ($argv[1] ?? null);
+    if (($sourceTree && ($argc ?? 0) !== 3) || (!$sourceTree && ($argc ?? 0) !== 2)
+        || !is_string($scratch) || $scratch === '') {
+        fwrite(STDERR, 'usage: php ' . basename(__FILE__) . " [--source-tree] <scratch-root>\n");
         exit(2);
     }
     try {
-        $manifestDir = duo_cert_hermetic_library(dirname(__DIR__, 4), $argv[1]);
+        if ($sourceTree) {
+            $sourceRoot = duo_cert_hermetic_source_tree(dirname(__DIR__, 4), $scratch);
+            $library = AdapterLibrary::fromSourceTree($sourceRoot);
+            fwrite(STDERR, sprintf(
+                "hermetic source adapter library built: %d files, %d packages\n",
+                count(duo_cert_source_library_bytes($library)),
+                count($library->packages())
+            ));
+            fwrite(STDOUT, $sourceRoot . "\n");
+            exit(0);
+        }
+        $manifestDir = duo_cert_hermetic_library(dirname(__DIR__, 4), $scratch);
         $dispositions = ManifestDispositions::load($manifestDir);
         fwrite(STDERR, sprintf(
             "hermetic manifest library built: %d files, %d reviewed dispositions, %d profiles\n",

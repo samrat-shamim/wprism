@@ -270,43 +270,48 @@ assert_init_plan() {
 # claim source and no branch state can expire them, so the mounted library is a
 # straight hermetic COPY (sandbox/tests/offline/adapter/certification_fixture.php, shared with
 # regress_adapter_sources.php). What is kept from that episode is the mount
-# discipline: this pair still never mounts the primary checkout's own manifest
-# directory, so nothing a case does can reach the shipped bytes.
+# discipline: this pair still never mounts the primary checkout's own package
+# or platform directory, so nothing a case does can reach the shipped bytes.
 #
 # Manufactured and asserted BEFORE the first Docker mutation, and never on the
 # shipped library: a fixture whose manufacture silently failed would report the
 # ENGINE as broken (DUO-3381's premise-before-behavior family).
-say "manufacture the hermetic manifest library this pair will mount"
-SHIPPED_LIBRARY_BEFORE=$(library_digest "$REPO_ROOT/manifests")
+say "manufacture the hermetic source adapter library this pair will mount"
+SHIPPED_PACKAGES_BEFORE=$(library_digest "$REPO_ROOT/adapter-packages")
+SHIPPED_PLATFORM_BEFORE=$(library_digest "$REPO_ROOT/platform")
 rm -rf "$HERMETIC_ROOT"
-HERMETIC_MANIFESTS=$(php sandbox/tests/offline/adapter/certification_fixture.php "$HERMETIC_ROOT") \
-  || fail "fixture manufacture failed: could not build a hermetic manifest library under $HERMETIC_ROOT"
-[ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
-  || fail "fixture manufacture failed: hermetic library landed at $HERMETIC_MANIFESTS, not under this run's owned scratch"
+HERMETIC_SOURCE=$(php sandbox/tests/offline/adapter/certification_fixture.php --source-tree "$HERMETIC_ROOT") \
+  || fail "fixture manufacture failed: could not build a hermetic source adapter library under $HERMETIC_ROOT"
+[ "$HERMETIC_SOURCE" = "$HERMETIC_ROOT" ] \
+  || fail "fixture manufacture failed: hermetic source landed at $HERMETIC_SOURCE, not at this run's owned scratch"
 jq -e -s '[.[] | select(.status == "certified") | .evidence.tests | length] | all(. > 0)' \
-  "$HERMETIC_MANIFESTS"/dispositions/*.json >/dev/null \
+  "$HERMETIC_SOURCE"/adapter-packages/*/package/disposition.json >/dev/null \
   || fail "fixture manufacture failed: a certified disposition cites no evidence"
 jq -e '.format == "duo-platform-boundary/v1"' \
-  "$HERMETIC_MANIFESTS/capabilities/platform.json" >/dev/null \
+  "$HERMETIC_SOURCE/platform/adapter-library/capabilities/platform.json" >/dev/null \
   || fail "fixture manufacture failed: the hermetic library has no platform boundary"
-diff -r "$REPO_ROOT/manifests" "$HERMETIC_MANIFESTS" >/dev/null \
+diff -r "$REPO_ROOT/adapter-packages" "$HERMETIC_SOURCE/adapter-packages" >/dev/null \
+  || fail "fixture manufacture failed: the hermetic adapter packages are not shipped bytes"
+diff -r "$REPO_ROOT/platform" "$HERMETIC_SOURCE/platform" >/dev/null \
   || fail "fixture manufacture failed: the hermetic library is not the shipped library byte for byte"
-[ "$SHIPPED_LIBRARY_BEFORE" = "$(library_digest "$REPO_ROOT/manifests")" ] \
-  || fail "fixture manufacture failed: building the fixture modified the shipped manifest library"
-pass "hermetic manifest library built at $HERMETIC_MANIFESTS (shipped bytes unchanged)"
+[ "$SHIPPED_PACKAGES_BEFORE" = "$(library_digest "$REPO_ROOT/adapter-packages")" ] \
+  && [ "$SHIPPED_PLATFORM_BEFORE" = "$(library_digest "$REPO_ROOT/platform")" ] \
+  || fail "fixture manufacture failed: building the fixture modified the shipped source adapter library"
+pass "hermetic source adapter library built at $HERMETIC_SOURCE (shipped bytes unchanged)"
 
 # pair.sh deliberately binds durable pairs to the primary checkout, and
-# pair_compose_configure() re-resolves DUO_AGENT_SRC/DUO_MANIFESTS_SRC from the canonical
+# pair_compose_configure() re-resolves all three source mounts from the canonical
 # root inside its own process for exactly that reason — so the long-lived wp1/
 # wp2 web containers it creates below mount the canonical agent and library no
 # matter what this suite exports, and nothing here tries to change that. This
 # pair is disposable evidence for the current issue worktree, so every CLI
-# invocation the suite actually drives is an ephemeral `run --rm` container,
-# which resolves these two from the environment: this checkout's agent, and the
-# hermetic library sealed above. Exported before bring-up so the mount source
+# invocation the suite actually drives is an ephemeral `run --rm` container;
+# it resolves this checkout's agent plus the hermetic package and platform
+# siblings from the environment. Exported before bring-up so the mount source
 # is fixed and asserted before the first container exists.
 export DUO_AGENT_SRC="$REPO_ROOT/agent"
-export DUO_MANIFESTS_SRC="$HERMETIC_MANIFESTS"
+export DUO_ADAPTER_PACKAGES_SRC="$HERMETIC_SOURCE/adapter-packages"
+export DUO_PLATFORM_SRC="$HERMETIC_SOURCE/platform"
 
 say "boot disposable authenticated Docker target on owned ports $PORT1/$PORT2"
 unset DUO_CLI_IMAGE || true
