@@ -1380,7 +1380,8 @@ situation_a10() {
   local override="$HOST_R1/adapters/woocommerce.json"
   run mkdir -p "$HOST_R1/adapters"
   if ! dry; then
-    jq '.options.woocommerce_duo_site_override_probe = {class: "authored", autoload: "preserve"}' "$REPO_ROOT/manifests/woocommerce.json" > "$override"
+    jq '.options.woocommerce_duo_site_override_probe = {class: "authored", autoload: "preserve"}' \
+      "$REPO_ROOT/adapter-packages/woocommerce/package/manifest.json" > "$override"
   fi
   duo_ok "$EVIDENCE/$S/adapter-pin.txt" "$HOST_R1" adapter pin "$HOST_R1" --name=woocommerce --source=site
   adapter_catalog "$S" override

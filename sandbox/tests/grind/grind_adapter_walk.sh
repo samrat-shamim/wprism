@@ -1041,13 +1041,13 @@ scenario_s4() {
   local newOption=woocommerce_duo_site_override_probe
   run mkdir -p "$HOST_R1/adapters"
   if dry; then
-    plan "jq: cp manifests/woocommerce.json -> adapters/woocommerce.json + options.$newOption = authored"
+    plan "jq: cp adapter-packages/woocommerce/package/manifest.json -> adapters/woocommerce.json + options.$newOption = authored"
   else
     jq -e --arg o "$newOption" '
       .options[$o] == null
       and ([(.option_patterns // [])[] | . as $p | select($o | test($p.match))] | length == 0)
-    ' "$REPO_ROOT/manifests/woocommerce.json" >/dev/null \
-      || fail "$S: manifests/woocommerce.json already declares or pattern-covers $newOption, so adding it proves nothing; pick another undeclared option"
+    ' "$REPO_ROOT/adapter-packages/woocommerce/package/manifest.json" >/dev/null \
+      || fail "$S: the WooCommerce package already declares or pattern-covers $newOption, so adding it proves nothing; pick another undeclared option"
     # `notes` is free-form in the grammar and the shipped copy carries it as
     # an object (keyed rationale), so the override adds a key rather than
     # assuming a list.
@@ -1055,7 +1055,7 @@ scenario_s4() {
       .options[$o] = {class: "authored", autoload: "preserve"}
       | .notes = ((if (.notes | type) == "object" then .notes else {} end)
           + {"round-3 T6 S4: site override": "This copy is the shipped manifest plus one synthetic authored option the shipped copy neither declares nor pattern-covers (\($o)), so which copy answered to the name is observable rather than asserted."})
-    ' "$REPO_ROOT/manifests/woocommerce.json" > "$override" \
+    ' "$REPO_ROOT/adapter-packages/woocommerce/package/manifest.json" > "$override" \
       || fail "$S: could not build the site override manifest"
   fi
 
