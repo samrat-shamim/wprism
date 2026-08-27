@@ -306,7 +306,7 @@ Usage:
   duo env provider-check <env> [--role=source|target] [--format=json]
   duo env provider-check <env> --cycle --from <disposable-src>
                          --confirm-disposable [--create] [--branch <ref>] [--format=json]
-  duo manifest-validate <manifests-dir> [--manifest=<name>[,...]]
+  duo manifest-validate <adapter-library> [--manifest=<name>[,...]]
                         [--pins=<name>[,...]|--all] [--site=<site-repo>]
                         [--no-code] [--format=json]
   duo manifest-validate --emit-schema
@@ -432,13 +432,13 @@ Verbs:
   envs                    List environments from site.duo.json + .duo-envs.json
                           (overlay wins per env name), with transport summaries.
   manifest-validate       Adapter-authoring aid: run the engine's REAL manifest
-    <manifests-dir>       validators over a directory of manifests with no
-    [--manifest=<names>]  WordPress, no database, and no environment. Each
+    <adapter-library>     validators over a source checkout or explicit adapter
+    [--manifest=<names>]  library with no WordPress, database, or environment. Each
     [--pins=<names>]      manifest is loaded on its own (so every verdict shows
     [--all]               in one run), then the requested pin set is co-loaded
     [--site=<site-repo>]  so the cross-manifest guards run too; --manifest
     [--no-code]           narrows what is checked individually, --pins/--all the
-    [--format=json]       co-loaded set (default: every manifest in the dir).
+    [--format=json]       co-loaded set (default: every adapter in the library).
     [--emit-schema]       Engine messages carry their own exact coordinates and
                           are surfaced verbatim; a per-manifest row carries the
                           manifest's file path, the pin-set row the paths of
@@ -449,7 +449,7 @@ Verbs:
                           policy as input, so without it a manifest valid on its
                           real site can be refused here; such a refusal is
                           annotated as possibly site-resolvable rather than
-                          rewritten. TRUST: point this only at a manifests dir
+                          rewritten. TRUST: point this only at a library
                           you trust as much as the agent's own — a declared
                           interpreter/regenerator is resolved, which LOADS that
                           PHP (top level + constructor). --no-code skips that
@@ -1576,8 +1576,8 @@ function main(array $argv): int {
         }
     }
 
-    // No environment, no transport, no registry: this one reads manifest files
-    // on this machine and drives the engine's own offline validators over them.
+    // No environment or transport: this reads one explicit adapter library on
+    // this machine and drives the engine's own offline validators over it.
     if ($verb === 'manifest-validate') {
         return ManifestValidate::run($rest);
     }
