@@ -1859,12 +1859,27 @@ foreach ([
     'FORCED past code_drift',
     '17.345678',
     '17.3457',
-    'in-range downgrade lost byte identity',
+    'tests/support/woocommerce-downgrade-recapture.php',
+    'in-range downgrade recapture diverged outside declared derived product timestamps',
 ] as $downgradeEvidence) {
     duo_check(
         str_contains($woocommerceMatrix, $downgradeEvidence),
         "WooCommerce exact version matrix statically binds $downgradeEvidence"
     );
 }
+$downgradeComparator = (string) file_get_contents(
+    $root . '/sandbox/tests/support/woocommerce-downgrade-recapture.php'
+);
+duo_check(
+    str_contains($downgradeComparator, "str_starts_with(\$path, 'posts/product/')")
+        && str_contains($downgradeComparator, "['conformance-widget', 'conformance-precision-download']")
+        && str_contains($downgradeComparator, "['modified', 'modified_gmt']")
+        && str_contains($downgradeComparator, 'source and target tree inventories differ')
+        && str_contains($downgradeComparator, 'unexpected recapture difference at')
+        && str_contains($downgradeComparator, 'hash_equals')
+        && !str_contains($downgradeComparator, 'product_variation')
+        && !str_contains($downgradeComparator, 'del(.modified'),
+    'WooCommerce downgrade timestamp allowance is exact-path, raw-byte, field-presence, and tree-inventory bounded'
+);
 
 duo_check_summary('WooCommerce production readiness');

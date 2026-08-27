@@ -2095,6 +2095,122 @@ woo_ok(
         && ($variationFields['modified_gmt'] ?? null) === ['class' => 'derived'],
     'only Woo product and variation persistence timestamps authorize lifecycle rendered-byte variance'
 );
+$downgradeComparatorPath = $root . '/sandbox/tests/support/woocommerce-downgrade-recapture.php';
+$downgradeComparatorSource = (string) file_get_contents($downgradeComparatorPath);
+require_once $downgradeComparatorPath;
+woo_ok(
+    str_contains($downgradeComparatorSource, "str_starts_with(\$path, 'posts/product/')")
+        && str_contains($downgradeComparatorSource, "['conformance-widget', 'conformance-precision-download']")
+        && str_contains($downgradeComparatorSource, "['modified', 'modified_gmt']")
+        && str_contains($downgradeComparatorSource, 'source and target tree inventories differ')
+        && str_contains($downgradeComparatorSource, 'recapture differs outside derived product timestamps')
+        && !str_contains($downgradeComparatorSource, 'product_variation')
+        && !str_contains($downgradeComparatorSource, 'del(.modified'),
+    'downgrade recapture comparator permits only both existing timestamp values on the two evidenced product fixtures'
+);
+
+$downgradeFixtureRoot = sys_get_temp_dir() . '/duo-woo-downgrade-' . bin2hex(random_bytes(6));
+$downgradeSourceRoot = $downgradeFixtureRoot . '/source';
+$downgradeTargetRoot = $downgradeFixtureRoot . '/target';
+$removeDowngradeFixture = static function () use ($downgradeFixtureRoot): void {
+    if (!is_dir($downgradeFixtureRoot)) {
+        return;
+    }
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($downgradeFixtureRoot, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($iterator as $entry) {
+        $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname());
+    }
+    rmdir($downgradeFixtureRoot);
+};
+register_shutdown_function($removeDowngradeFixture);
+foreach ([$downgradeSourceRoot, $downgradeTargetRoot] as $fixtureRoot) {
+    mkdir($fixtureRoot . '/posts/product', 0777, true);
+    mkdir($fixtureRoot . '/posts/product_variation', 0777, true);
+    mkdir($fixtureRoot . '/options', 0777, true);
+}
+$renderDowngradeProduct = static fn(
+    string $slug,
+    string $modified,
+    string $modifiedGmt,
+    string $body
+): string => "---\n{\n"
+    . "    \"modified\": \"$modified\",\n"
+    . "    \"modified_gmt\": \"$modifiedGmt\",\n"
+    . "    \"slug\": \"$slug\"\n"
+    . "}\n---\n$body\n";
+$downgradePaths = [
+    'widget' => 'posts/product/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa--conformance-widget.md',
+    'precision' => 'posts/product/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb--conformance-precision-download.md',
+];
+$downgradeSourceBytes = [
+    'widget' => $renderDowngradeProduct('conformance-widget', '2026-08-27 00:45:28', '2026-08-27 00:45:28', 'widget body'),
+    'precision' => $renderDowngradeProduct('conformance-precision-download', '2026-08-27 00:47:28', '2026-08-27 00:47:28', 'precision body'),
+];
+$downgradeTargetBytes = [
+    'widget' => $renderDowngradeProduct('conformance-widget', '2026-08-27 00:43:31', '2026-08-27 00:43:31', 'widget body'),
+    'precision' => $renderDowngradeProduct('conformance-precision-download', '2026-08-27 00:39:29', '2026-08-27 00:39:29', 'precision body'),
+];
+foreach ($downgradePaths as $name => $relative) {
+    file_put_contents($downgradeSourceRoot . '/' . $relative, $downgradeSourceBytes[$name]);
+    file_put_contents($downgradeTargetRoot . '/' . $relative, $downgradeTargetBytes[$name]);
+}
+$strictRelative = 'options/woocommerce.json';
+file_put_contents($downgradeSourceRoot . '/' . $strictRelative, "{\"strict\":true}\n");
+file_put_contents($downgradeTargetRoot . '/' . $strictRelative, "{\"strict\":true}\n");
+$variationRelative = 'posts/product_variation/cccccccc-cccc-4ccc-8ccc-cccccccccccc--variation.md';
+$variationBytes = $renderDowngradeProduct('variation', '2026-08-27 00:40:00', '2026-08-27 00:40:00', 'variation body');
+file_put_contents($downgradeSourceRoot . '/' . $variationRelative, $variationBytes);
+file_put_contents($downgradeTargetRoot . '/' . $variationRelative, $variationBytes);
+
+\Duo\Tests\Support\assert_woocommerce_downgrade_recapture($downgradeSourceRoot, $downgradeTargetRoot);
+woo_ok(true, 'downgrade comparator accepts exactly the two evidenced product timestamp pairs');
+$downgradeComparatorRefuses = static function (string $message) use ($downgradeSourceRoot, $downgradeTargetRoot): void {
+    $threw = false;
+    try {
+        \Duo\Tests\Support\assert_woocommerce_downgrade_recapture($downgradeSourceRoot, $downgradeTargetRoot);
+    } catch (RuntimeException) {
+        $threw = true;
+    }
+    woo_ok($threw, $message);
+};
+
+file_put_contents(
+    $downgradeTargetRoot . '/' . $downgradePaths['widget'],
+    str_replace('    "modified_gmt": "2026-08-27 00:43:31",' . "\n", '', $downgradeTargetBytes['widget'])
+);
+$downgradeComparatorRefuses('downgrade comparator rejects a missing derived timestamp field');
+file_put_contents($downgradeTargetRoot . '/' . $downgradePaths['widget'], $downgradeTargetBytes['widget']);
+
+file_put_contents(
+    $downgradeTargetRoot . '/' . $downgradePaths['precision'],
+    $downgradeTargetBytes['precision'] . 'unexpected body change'
+);
+$downgradeComparatorRefuses('downgrade comparator rejects body drift on an evidenced product');
+file_put_contents($downgradeTargetRoot . '/' . $downgradePaths['precision'], $downgradeTargetBytes['precision']);
+
+file_put_contents(
+    $downgradeTargetRoot . '/' . $variationRelative,
+    str_replace('2026-08-27 00:40:00', '2026-08-27 00:41:00', $variationBytes)
+);
+$downgradeComparatorRefuses('downgrade comparator rejects product-variation timestamp drift');
+file_put_contents($downgradeTargetRoot . '/' . $variationRelative, $variationBytes);
+
+file_put_contents($downgradeTargetRoot . '/options/unexpected.json', "{}\n");
+$downgradeComparatorRefuses('downgrade comparator rejects any added tree entry');
+unlink($downgradeTargetRoot . '/options/unexpected.json');
+
+file_put_contents($downgradeTargetRoot . '/' . $downgradePaths['widget'], $downgradeSourceBytes['widget']);
+\Duo\Tests\Support\assert_woocommerce_downgrade_recapture($downgradeSourceRoot, $downgradeTargetRoot);
+woo_ok(true, 'downgrade comparator accepts exact equality for one evidenced product');
+file_put_contents($downgradeTargetRoot . '/' . $downgradePaths['precision'], $downgradeSourceBytes['precision']);
+\Duo\Tests\Support\assert_woocommerce_downgrade_recapture($downgradeSourceRoot, $downgradeTargetRoot);
+woo_ok(true, 'downgrade comparator accepts a completely byte-identical tree');
+file_put_contents($downgradeTargetRoot . '/' . $downgradePaths['widget'], $downgradeTargetBytes['widget']);
+file_put_contents($downgradeTargetRoot . '/' . $downgradePaths['precision'], $downgradeTargetBytes['precision']);
+$removeDowngradeFixture();
 woo_ok(
     str_contains(
         $woocommerceMatrixHarness,
@@ -2129,6 +2245,22 @@ woo_ok(
             'WooCommerce 11.0.0 to 11.0.1 in-place upgrade lost byte identity'
         ),
     'exact WooCommerce upgrade recapture permits only manifest-declared product timestamp drift'
+);
+woo_ok(
+    str_contains(
+        $woocommerceMatrixHarness,
+        'tests/support/woocommerce-downgrade-recapture.php'
+    )
+        && str_contains(
+            $woocommerceMatrixHarness,
+            'in-range downgrade recapture diverged outside declared derived product timestamps'
+        )
+        && strpos($woocommerceMatrixHarness, 'wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-downgrade-final')
+            < strpos($woocommerceMatrixHarness, 'tests/support/woocommerce-downgrade-recapture.php')
+        && strpos($woocommerceMatrixHarness, 'tests/support/woocommerce-downgrade-recapture.php')
+            < strpos($woocommerceMatrixHarness, 'rm -rf "siterepo/${PAIR}2/.tmp-woo-downgrade-final"')
+        && !str_contains($woocommerceMatrixHarness, 'downgrade_diff=$(diff -rq'),
+    'exact WooCommerce downgrade recapture invokes the strict two-product timestamp comparator before cleanup'
 );
 woo_ok(str_contains($wooCheckHarness, 'wc_product_download_directories ORDER BY url_id')
     && !str_contains($wooCheckHarness, 'wc_product_download_directories ORDER BY id'),

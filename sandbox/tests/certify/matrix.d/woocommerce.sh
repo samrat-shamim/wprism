@@ -320,7 +320,8 @@ assert_woocommerce_downgrade_refusal_unchanged() { # <operation> <post-install-s
 
 check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact-11.0.0-target-artifact>
   local source_artifact="$1" target_artifact="$2" expected_sha snapshot plan_out plan_json plan_rc
-  local deploy_out deploy_rc apply_out apply_rc revision settled source_price target_price downgrade_diff
+  local deploy_out deploy_rc apply_out apply_rc revision settled source_price target_price
+  local downgrade_compare_out downgrade_compare_rc
   local mutation_note='WooCommerce 11.0.1 to 11.0.0 downgrade 東京 🚀'
 
   say 'in-range downgrade: populated woocommerce 11.0.1 -> exact 11.0.0 refuses until explicit re-baseline'
@@ -424,11 +425,14 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict,.code_mismatch,.code_drift,.incomplete_apply,.incomplete_lifecycle,.regen_pending,.regen_context] | map(length) | add) == 0' <<<"$settled" >/dev/null \
     || fail "WooCommerce exact 11.0.0 plan did not settle after downgrade mutation: $settled"
   wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-downgrade-final >/dev/null
-  downgrade_diff=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-woo-downgrade-final" || true)
+  downgrade_compare_rc=0
+  downgrade_compare_out=$(php tests/support/woocommerce-downgrade-recapture.php \
+    "siterepo/${PAIR}1/state" \
+    "siterepo/${PAIR}2/.tmp-woo-downgrade-final" 2>&1) || downgrade_compare_rc=$?
   rm -rf "siterepo/${PAIR}2/.tmp-woo-downgrade-final"
-  [ -z "$downgrade_diff" ] \
-    || fail "WooCommerce 11.0.1 to 11.0.0 in-range downgrade lost byte identity: $downgrade_diff"
-  pass 'WooCommerce 11.0.1 -> 11.0.0 explicit re-baseline applies exact DECIMAL catalog mutation, settles, and recaptures byte-identically'
+  [ "$downgrade_compare_rc" -eq 0 ] \
+    || fail "WooCommerce 11.0.1 to 11.0.0 in-range downgrade recapture diverged outside declared derived product timestamps: $downgrade_compare_out"
+  pass 'WooCommerce 11.0.1 -> 11.0.0 explicit re-baseline applies exact DECIMAL catalog mutation, settles, and recaptures modulo exact derived product timestamps'
 }
 
 check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
