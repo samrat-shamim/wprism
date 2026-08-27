@@ -85,6 +85,39 @@ try {
 }
 $check($badBase64Rejected, 'create(): noncanonical encoded media is refused before base64_decode allocation');
 
+// The Juniper Lane WooCommerce rehearsal reached a 95,662-byte product image
+// whose 127,552-byte encoded payload made PCRE2 return
+// PREG_JIT_STACKLIMIT_ERROR. Use a larger ordinary blob so this regression
+// also fails with JIT disabled (the prior repeated-group regex then exhausts
+// PCRE's recursion limit) while staying far below the 256 MiB media frontier.
+$largeMediaBytes = str_repeat("\0", 786432);
+$largeMediaBase64 = base64_encode($largeMediaBytes);
+$largeMediaHash = hash('sha256', $largeMediaBytes);
+$largeMediaName = "$largeMediaHash.bin";
+$largeMediaPayload = $payload;
+$largeMediaPayload['tree'] = [
+    'marketplace-product-image' => [
+        'type' => 'post',
+        'data' => [
+            'type' => 'attachment',
+            'file' => '2026/08/marketplace-product-image.bin',
+            'mime' => 'application/octet-stream',
+            'media' => $largeMediaName,
+        ],
+    ],
+];
+$largeMediaPayload['media'] = [
+    $largeMediaName => ['sha256' => $largeMediaHash, 'base64' => $largeMediaBase64],
+];
+$largeMediaCompiled = CompiledRepository::create($largeMediaPayload);
+$largeMediaRoundTrip = CompiledRepository::from_array($largeMediaCompiled->export());
+$check(
+    strlen($largeMediaBase64) === 1048576
+        && $largeMediaRoundTrip->media_content($largeMediaName) === $largeMediaBytes,
+    'create()/from_array(): a normal megabyte-scale attachment payload is independent of PCRE engine limits'
+);
+unset($largeMediaBytes, $largeMediaBase64, $largeMediaPayload, $largeMediaCompiled, $largeMediaRoundTrip);
+
 $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAC0lEQVQImWNgAAIAAAUAAWJVMogAAAAASUVORK5CYII=', true);
 if (!is_string($png)) {
     throw new RuntimeException('test PNG fixture did not decode');
