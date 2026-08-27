@@ -1363,6 +1363,13 @@ if (in_array("$escapeName.json", scandir("$escapeRepo/adapters") ?: [], true)) {
 // reached from here — while `wp duo adapter-survey` drives it for real in
 // regress_plugin_adapter_source.php.
 $catalogSource = (string) file_get_contents(dirname(__DIR__, 4) . '/cli/src/Adapter/AdapterCatalog.php');
+check(
+    str_contains($catalogSource, 'Policy::adapter_library_context()')
+    && str_contains($catalogSource, 'AdapterSources::survey_library(')
+    && !str_contains($catalogSource, 'Policy::manifests_dir()')
+    && !str_contains($catalogSource, "rtrim(\$manifestDir, '/')"),
+    'the host catalog receives one explicit adapter library and never reconstructs flat manifest paths beside it'
+);
 preg_match('/private static function render_not_installed.*?\n    \}/s', $catalogSource, $notInstalledRenderer);
 check(
     isset($notInstalledRenderer[0])

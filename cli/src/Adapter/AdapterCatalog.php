@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 use Duo\AdapterRegistry;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\ManifestDispositions;
@@ -308,13 +309,13 @@ final class AdapterCatalog {
             return self::fail($t->getMessage());
         }
 
-        $manifestDir = Policy::manifests_dir();
-        if (!is_dir($manifestDir)) {
-            return self::fail("the agent manifest library '$manifestDir' is not a directory");
-        }
+        $library = Policy::adapter_library_context();
+        $libraryRoot = $library instanceof AdapterLibrary ? $library->root() : $library;
 
         try {
-            $survey = AdapterSources::survey($repo);
+            $survey = $library instanceof AdapterLibrary
+                ? AdapterSources::survey_library($library, $repo)
+                : AdapterSources::survey($repo);
         } catch (\Throwable $t) {
             // survey() reports rather than throws by construction, so reaching
             // here means the library itself is unreadable — an IO fault about
@@ -326,7 +327,10 @@ final class AdapterCatalog {
             'format' => self::FORMAT,
             'spec_version' => DUO_SPEC_VERSION,
             'command' => $verb,
-            'manifests_dir' => $manifestDir,
+            // Kept as a wire-field name for current consumers. Its value is
+            // the selected library root; logical package layouts do not have
+            // a directory containing a flat set of manifest files.
+            'manifests_dir' => $libraryRoot,
             'repo' => $repo,
             'sources' => $survey['sources'],
             'not_installed' => $survey['not_installed'],
@@ -388,7 +392,7 @@ final class AdapterCatalog {
                 }
                 if ($about === []) {
                     return self::fail(
-                        "no adapter named '$name' is installed in $manifestDir"
+                        "no adapter named '$name' is installed in $libraryRoot"
                         . ($repo === null
                             ? " (pass --repo=<site-repo> to include that repository's own adapters/ source)"
                             : " or in $repo/" . AdapterSources::SITE_DIR)
@@ -410,7 +414,7 @@ final class AdapterCatalog {
                 }
                 return 1;
             }
-            $report['adapter'] = self::inspect_row($row, $manifestDir, $repo, $survey['adapters']);
+            $report['adapter'] = self::inspect_row($row, $library, $repo, $survey['adapters']);
             // `inspect` reports one adapter, but exit 0 is a claim about the
             // whole run, so it holds to the same bar `list` and `doctor` do.
             // Three ways it does not:
@@ -508,7 +512,12 @@ final class AdapterCatalog {
      * @param list<array<string,mixed>> $adapters the whole survey, for the pinned-set load
      * @return array<string,mixed>
      */
-    private static function inspect_row(array $row, string $manifestDir, ?string $repo, array $adapters): array {
+    private static function inspect_row(
+        array $row,
+        string|AdapterLibrary $library,
+        ?string $repo,
+        array $adapters
+    ): array {
         $name = (string) $row['name'];
         $out = $row;
         $out['disposition'] = null;
@@ -521,7 +530,9 @@ final class AdapterCatalog {
 
         $dispositions = null;
         try {
-            $dispositions = ManifestDispositions::load($manifestDir);
+            $dispositions = $library instanceof AdapterLibrary
+                ? ManifestDispositions::load_library($library)
+                : ManifestDispositions::load($library);
         } catch (\Throwable $t) {
             $dispositions = null;
         }
@@ -537,7 +548,10 @@ final class AdapterCatalog {
         // registry that was never supposed to name it.
         if ($row['source'] === AdapterSources::SITE && $repo !== null) {
             try {
-                $out['disposition'] = AdapterSources::discover($manifestDir, $repo)->provenance($name);
+                $sources = $library instanceof AdapterLibrary
+                    ? AdapterSources::discover_library($library, $repo)
+                    : AdapterSources::discover($library, $repo);
+                $out['disposition'] = $sources->provenance($name);
             } catch (\Throwable $t) {
                 // discover() refuses whole-directory, so ANOTHER file in this
                 // source can make it throw. The refusal is already a row of its
@@ -555,9 +569,10 @@ final class AdapterCatalog {
                     continue;
                 }
                 try {
-                    $manifests[] = Canon::decode(Canon::read_file(
-                        rtrim($manifestDir, '/') . '/' . $adapter['name'] . '.json'
-                    ));
+                    // The survey row is the selected library's physical
+                    // answer. Reconstructing a flat path here would let the
+                    // reporting and execution paths inspect different bytes.
+                    $manifests[] = Canon::decode(Canon::read_file((string) $adapter['path']));
                 } catch (\Throwable $t) {
                     // Already reported as a refusal row by the survey.
                     continue;
@@ -572,7 +587,10 @@ final class AdapterCatalog {
             // gate only, which is exactly what the deferred list above says.
             $sources = [];
             try {
-                $sources = AdapterSources::discover($manifestDir, $repo)->diagnostics($manifests);
+                $discovered = $library instanceof AdapterLibrary
+                    ? AdapterSources::discover_library($library, $repo)
+                    : AdapterSources::discover($library, $repo);
+                $sources = $discovered->diagnostics($manifests);
             } catch (\Throwable $t) {
                 // discover() refuses WHOLE-DIRECTORY, so an unrelated file in
                 // this source makes it throw — already reported as its own
@@ -587,7 +605,11 @@ final class AdapterCatalog {
                     $manifests,
                     ['operation' => 'promote'],
                     null,
-                    $sources
+                    $sources,
+                    [],
+                    $library instanceof AdapterLibrary
+                        ? ManifestDispositions::platform_boundary_library($library)
+                        : ManifestDispositions::platform_boundary($library)
                 );
             } catch (\Throwable $t) {
                 $report = null;
