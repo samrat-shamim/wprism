@@ -12,7 +12,7 @@
       "retired_path": "adapter-packages/paid-memberships-pro/package/runtime/providers/paid-memberships-pro-cache.php",
       "physical_lines_removed": 233,
       "engine_primitive": "tables.<t>.invalidate[] {cache_group,cache_key}",
-      "proof": "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php",
+      "proof": "adapter-packages/paid-memberships-pro/tests/offline/regress_paid_memberships_pro_production_readiness.php",
       "reason": "The provider's product effect was one per-row WordPress object-cache entry deletion. The existing generic primitive performs that effect and proves the entry absent; the product regression independently observes the committed value through PMPro's native cache semantics."
     },
     {

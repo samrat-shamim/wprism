@@ -29,7 +29,8 @@ declare(strict_types=1);
  * Three machine-readable evidence records already exist and project into
  * nothing:
  *
- *   coverage breadth  adapter-packages/<slug>/evidence/production-readiness.json —
+ *   coverage breadth  adapter-packages/<slug>/evidence/production-readiness.json
+ *                     (core: platform/adapter-evidence/production-readiness.json) —
  *                     which of the 12 reviewed scenario families carry files
  *   exercise depth    the certification bundle's per-test pass map, reaching a
  *                     claim as `provenance.proof.bundle.exercised` +
@@ -292,7 +293,10 @@ function grade_coverage_breadth(?array $ledger, string $name): ?array {
         $exercised,
         $outstanding,
         $excluded,
-        'adapter-packages/' . $name . '/evidence/production-readiness.json: the reviewed scenario families '
+        ($name === 'core'
+            ? 'platform/adapter-evidence/production-readiness.json'
+            : 'adapter-packages/' . $name . '/evidence/production-readiness.json')
+        . ': the reviewed scenario families '
         . 'whose `covered` bucket names at least one evidence file, against the ledger\'s own taxonomy minus the '
         . 'families reviewed `not_applicable`'
     );
@@ -644,6 +648,7 @@ function grade_render(array $subjects, string $repo, ?AdapterLibrary $library = 
     $out .= "## The three axes\n\n";
     $out .= "| Axis | Unit | Where it comes from |\n|---|---|---|\n";
     $out .= '| Coverage breadth | one reviewed scenario family | `adapter-packages/*/evidence/production-readiness.json` '
+        . '(core: `platform/adapter-evidence/production-readiness.json`) '
         . "— the families whose `covered` bucket names evidence files, against that ledger's own 12-family "
         . "taxonomy minus the families reviewed `not_applicable` |\n";
     $out .= '| Exercise depth | one named test recorded passing | the certification bundle\'s per-test pass map, '

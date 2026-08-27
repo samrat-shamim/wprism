@@ -49,8 +49,8 @@
       "definition": "A plugin-owned provider that restricts raw table materialization to the reviewed module, invokes the plugin's public module/cache boundary, and returns success only after bounded database, native API and lookup-cache readback agrees. The provider receipt contains counts and hashes rather than authored values.",
       "evidence": [
         "adapter-packages/redirection/package/runtime/providers/redirection-state.php",
-        "sandbox/tests/offline/adapter/regress_redirection_adapter.php",
-        "sandbox/conformance/checks/redirection.sh"
+        "adapter-packages/redirection/tests/offline/regress_redirection_adapter.php",
+        "adapter-packages/redirection/tests/conformance/check.sh"
       ]
     },
     "structured_leaf_text_codec": {
@@ -203,8 +203,8 @@
           "remedy_phrase": "a verified module-flush provider",
           "closed_by": [
             "adapter-packages/redirection/package/runtime/providers/redirection-state.php",
-            "sandbox/tests/offline/adapter/regress_redirection_adapter.php",
-            "sandbox/conformance/checks/redirection.sh"
+            "adapter-packages/redirection/tests/offline/regress_redirection_adapter.php",
+            "adapter-packages/redirection/tests/conformance/check.sh"
           ]
         }
       ],
@@ -400,7 +400,7 @@
             "agent/src/Policy/ManifestGrammar.php",
             "agent/src/Apply/TypedTableMaterializer.php",
             "adapter-packages/paid-memberships-pro/package/manifest.json",
-            "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php",
+            "adapter-packages/paid-memberships-pro/tests/offline/regress_paid_memberships_pro_production_readiness.php",
             "sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php"
           ]
         }
