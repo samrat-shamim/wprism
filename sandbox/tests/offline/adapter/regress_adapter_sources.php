@@ -1347,6 +1347,12 @@ check(
     RepositoryCompiler::resolved_adapters($frozen) === RepositoryCompiler::resolved_adapters($overlay),
     'a frozen policy reconstructs identical adapter identity, source, and digests'
 );
+$frozenWithLibrary = Policy::from_snapshot($snapshot, $adapterLibrary);
+check(
+    RepositoryCompiler::resolved_adapters($frozenWithLibrary) === RepositoryCompiler::resolved_adapters($frozen)
+        && $frozenWithLibrary->adapter_library() === $adapterLibrary,
+    'the full frozen policy retains and uses its explicit adapter library while preserving adapter identity'
+);
 $frozenLibrarySources = AdapterSources::from_snapshot(
     $snapshot['adapter_sources'],
     $snapshot['manifests'],

@@ -376,7 +376,7 @@ final class Policy {
     }
 
     /** Refuse unexercised runtime versions before any policy/repository read. */
-    private static function assert_supported_platform(): void {
+    private static function assert_supported_platform(?AdapterLibrary $adapterLibrary = null): void {
         // Pure manifest/compiler contexts and the shared offline WP stubs may
         // expose path helpers without loading WordPress core. A real loaded
         // target defines WPINC as well as ABSPATH before wp-cli dispatch, so
@@ -384,7 +384,10 @@ final class Policy {
         if (!defined('ABSPATH') || !defined('WPINC') || !function_exists('get_bloginfo')) {
             return;
         }
-        PlatformCompatibility::assert_supported(ManifestDispositions::platform_boundary());
+        $platform = $adapterLibrary === null
+            ? ManifestDispositions::platform_boundary()
+            : ManifestDispositions::platform_boundary_library($adapterLibrary);
+        PlatformCompatibility::assert_supported($platform);
     }
 
     /**
@@ -684,9 +687,9 @@ final class Policy {
     }
 
     /** Reconstruct and fully validate a policy exported by export_snapshot(). */
-    public static function from_snapshot(array $snapshot): self {
+    public static function from_snapshot(array $snapshot, ?AdapterLibrary $adapterLibrary = null): self {
         self::assert_single_site();
-        self::assert_supported_platform();
+        self::assert_supported_platform($adapterLibrary);
         $keys = array_keys($snapshot);
         sort($keys, SORT_STRING);
         $snapshotFormat = $snapshot['format'] ?? null;
@@ -717,6 +720,7 @@ final class Policy {
         }
 
         $p = new self();
+        $p->adapterLibrary = $adapterLibrary;
         $p->site = $snapshot['site'];
         SitePolicyValidator::validate(
             $p->site,
@@ -752,7 +756,11 @@ final class Policy {
         // to disposition validation would demand an entry that cannot exist,
         // so one site-installed adapter would refuse every unrelated shipped
         // adapter along with itself — the exact failure DUO-3314 removes.
-        $p->adapterSources = AdapterSources::from_snapshot($snapshot['adapter_sources'], $p->manifests);
+        $p->adapterSources = AdapterSources::from_snapshot(
+            $snapshot['adapter_sources'],
+            $p->manifests,
+            $adapterLibrary
+        );
         PinResolver::validate_manifest_sources($pins, $p->adapterSources);
         $shipped = $p->adapterSources->shipped_manifests($p->manifests);
         $dispositions = $snapshot['dispositions'] ?? null;
