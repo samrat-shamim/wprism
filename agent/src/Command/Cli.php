@@ -3984,8 +3984,9 @@ final class Cli {
      * --repo=<path>
      * [--manifests=<dir>] : Adapter manifest library to resolve the pins
      *                        against, for a host driving a target whose
-     *                        library is not the agent's default. Must be an
-     *                        existing directory; restored after the command.
+     *                        library is not the agent's default. This is the
+     *                        explicit legacy flat-library reader; it never
+     *                        changes the process's production library.
      * [--format=<format>] : Output format. Accepts json (machine-readable,
      *                        versioned by the document's own "format" field —
      *                        this is the shape `duo assess` consumes, so treat
@@ -4002,12 +4003,6 @@ final class Cli {
         // the top of the file because the offline refusal suites load
         // Cli.php against pre-declared \Duo stubs.
         require_once __DIR__ . '/../Assess/AssessInventory.php';
-        // Restored unconditionally: --manifests is a per-invocation selector,
-        // and Policy::manifests_dir() reads this variable on every call, so a
-        // leaked value would silently repoint every later load in this
-        // process (the same save/restore RefreshPlan and ManifestValidate
-        // already perform around their own library switches).
-        $previousManifests = getenv('DUO_MANIFESTS_DIR');
         // Definite assignment before the boundary, not after it: every
         // failure path below leaves this function through WP_CLI, so the
         // renderer is unreachable with an empty document, and initializing
@@ -4015,6 +4010,7 @@ final class Cli {
         $document = [];
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('assess-inventory', '--repo');
+            $library = Policy::shipped_adapter_library();
             if (isset($assoc['manifests'])) {
                 $dir = (string) $assoc['manifests'];
                 if ($dir === '' || !is_dir($dir)) {
@@ -4026,7 +4022,7 @@ final class Cli {
                         'assess-inventory received a --manifests value that is not a directory'
                     );
                 }
-                putenv('DUO_MANIFESTS_DIR=' . $dir);
+                $library = AdapterLibrary::fromLegacyFlatDirectory($dir);
             }
             // `true` follows the read-only capability path `capabilities` and
             // `adapter-observe` already take: an assessment must be able to
@@ -4045,7 +4041,7 @@ final class Cli {
             // as the policy the surfaces are projected against, and named as
             // such in the document (`adoption`) so the reader knows this is a
             // preview of adoption, not a repository in force.
-            [$policy, $adoption] = AssessInventory::policy_for_assessment((string) $repo);
+            [$policy, $adoption] = AssessInventory::policy_for_assessment((string) $repo, $library);
             $document = AssessInventory::report(
                 $policy,
                 ['repo' => (string) $repo, 'adoption' => $adoption]
@@ -4053,10 +4049,6 @@ final class Cli {
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'assess-inventory');
             WP_CLI::error($t->getMessage());
-        } finally {
-            $previousManifests === false
-                ? putenv('DUO_MANIFESTS_DIR')
-                : putenv('DUO_MANIFESTS_DIR=' . $previousManifests);
         }
 
         if (($assoc['format'] ?? '') === 'json') {

@@ -101,8 +101,15 @@ final class AdapterLibrary
         );
     }
 
-    /** Read the deployed agent/adapter-library projection, never a neighboring source tree. */
-    public static function fromEmbeddedDirectory(string $directory): self
+    /**
+     * Read the deployed agent/adapter-library projection, never a neighboring
+     * source tree.
+     *
+     * The optional revocation path is the operator-owned control document.
+     * It deliberately sits outside the replaceable agent tree so an adoption
+     * cannot restore a revoked authority merely by replacing agent bytes.
+     */
+    public static function fromEmbeddedDirectory(string $directory, ?string $revocationsPath = null): self
     {
         $root = self::canonicalRoot($directory);
         self::assertAllowedEntries($root, ['adapters', 'platform'], 'embedded adapter library');
@@ -134,7 +141,8 @@ final class AdapterLibrary
             $root,
             $packageRoots,
             $platformRoot,
-            [$root, $adaptersRoot, $platformRoot]
+            [$root, $adaptersRoot, $platformRoot],
+            $revocationsPath
         );
     }
 
@@ -333,7 +341,8 @@ final class AdapterLibrary
         string $root,
         array $adapterRoots,
         string $platformRoot,
-        array $initialAnchors
+        array $initialAnchors,
+        ?string $operatorRevocationsPath = null
     ): self {
         self::assertAllowedEntries(
             $platformRoot,
@@ -372,9 +381,20 @@ final class AdapterLibrary
             $platformRoot . '/' . self::AUTHORITIES,
             'adapter authorities'
         );
-        $revocations = $platformRoot . '/' . self::REVOCATIONS;
-        if (self::nodeExists($revocations)) {
-            self::assertFile($root, $revocations, 'adapter revocations');
+        $platformRevocations = $platformRoot . '/' . self::REVOCATIONS;
+        if ($operatorRevocationsPath !== null && self::nodeExists($platformRevocations)) {
+            throw new \RuntimeException(
+                'duo: embedded platform adapter library may not carry operator revocations; '
+                . "the durable control path is $operatorRevocationsPath"
+            );
+        }
+        $revocations = $operatorRevocationsPath ?? $platformRevocations;
+        if ($operatorRevocationsPath === null) {
+            if (self::nodeExists($revocations)) {
+                self::assertFile($root, $revocations, 'adapter revocations');
+            }
+        } else {
+            $revocations = self::externalControlPath($operatorRevocationsPath, 'adapter revocations');
         }
 
         if (isset($adapterRoots['core'])) {
@@ -384,7 +404,7 @@ final class AdapterLibrary
         ksort($adapterRoots, SORT_STRING);
 
         $packages = [];
-        $anchors = array_merge($initialAnchors, [$coreRoot, $capabilitiesRoot]);
+        $anchors = array_merge($initialAnchors, [$coreRoot, $capabilitiesRoot, $revocations]);
         foreach ($adapterRoots as $slug => $packageRoot) {
             [$package, $packageAnchors] = self::logicalPackage($root, $slug, $packageRoot);
             if (isset($packages[$package->name()])) {
@@ -408,6 +428,25 @@ final class AdapterLibrary
         sort($anchors, SORT_STRING);
 
         return new self($root, $packages, $platform, $authorities, $revocations, $profiles, $anchors, $files);
+    }
+
+    /** Validate an explicitly selected operator file without requiring it to exist yet. */
+    private static function externalControlPath(string $path, string $label): string
+    {
+        if ($path === '' || str_contains($path, "\0") || !str_starts_with($path, '/')) {
+            throw new \RuntimeException("duo: $label control path is invalid: " . var_export($path, true));
+        }
+        if (is_link($path)) {
+            throw new \RuntimeException("duo: $label may not be a symlink: $path");
+        }
+        if (!file_exists($path)) {
+            return $path;
+        }
+        $canonical = realpath($path);
+        if ($canonical === false || !is_file($canonical) || !is_readable($canonical)) {
+            throw new \RuntimeException("duo: $label is not a readable regular file: $path");
+        }
+        return $canonical;
     }
 
     /**

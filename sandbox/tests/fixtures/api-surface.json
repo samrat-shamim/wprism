@@ -566,6 +566,14 @@
                             "name": "directory",
                             "type": "string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "revocationsPath",
+                            "type": "?string",
+                            "variadic": false
                         }
                     ],
                     "return_type": "Duo\\AdapterLibrary",
@@ -5300,6 +5308,14 @@
                             "has_default": false,
                             "name": "repo",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "adapterLibrary",
+                            "type": "?Duo\\AdapterLibrary",
                             "variadic": false
                         }
                     ],
@@ -18429,6 +18445,14 @@
                             "name": "repo",
                             "type": "string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "adapterLibrary",
+                            "type": "?Duo\\AdapterLibrary",
+                            "variadic": false
                         }
                     ],
                     "return_type": "bool",
@@ -18461,6 +18485,14 @@
                             "has_default": true,
                             "name": "lockPlan",
                             "type": "?array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "adapterLibrary",
+                            "type": "?Duo\\AdapterLibrary",
                             "variadic": false
                         }
                     ],
@@ -18526,6 +18558,14 @@
                             "has_default": true,
                             "name": "lockPlan",
                             "type": "?array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "adapterLibrary",
+                            "type": "?Duo\\AdapterLibrary",
                             "variadic": false
                         }
                     ],
@@ -42818,7 +42858,7 @@
                     "abstract": false,
                     "final": false,
                     "parameters": [],
-                    "return_type": "Duo\\AdapterLibrary|string",
+                    "return_type": "Duo\\AdapterLibrary",
                     "static": true,
                     "visibility": "public"
                 },
@@ -43708,14 +43748,6 @@
                     ],
                     "return_type": "?array",
                     "static": false,
-                    "visibility": "public"
-                },
-                "manifests_dir": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [],
-                    "return_type": "string",
-                    "static": true,
                     "visibility": "public"
                 },
                 "match_option_name_ref": {
@@ -44703,6 +44735,14 @@
                             "has_default": false,
                             "name": "repo",
                             "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "adapterLibrary",
+                            "type": "?Duo\\AdapterLibrary",
                             "variadic": false
                         }
                     ],

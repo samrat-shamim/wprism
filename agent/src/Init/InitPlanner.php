@@ -67,7 +67,12 @@ final class InitPlanner {
     public const CODE_LOCK_ARGUMENT = 'code-lock-b64';
 
     /** @param ?list<array<string,mixed>> $lockPlan @return array<string,mixed> */
-    public static function proposal(string $repo, bool $allowUnmanagedPlugins = false, ?array $lockPlan = null): array {
+    public static function proposal(
+        string $repo,
+        bool $allowUnmanagedPlugins = false,
+        ?array $lockPlan = null,
+        ?AdapterLibrary $adapterLibrary = null
+    ): array {
         $logicalRepo = InitRepositoryBoundary::normalize($repo);
         $rootBlocker = InitRepositoryBoundary::root_blocker($logicalRepo);
         if ($rootBlocker !== null) {
@@ -82,7 +87,8 @@ final class InitPlanner {
                 false,
                 false,
                 $allowUnmanagedPlugins,
-                $lockPlan
+                $lockPlan,
+                $adapterLibrary
             );
         } finally {
             if (!@chdir($binding['previous_cwd'])) {
@@ -99,7 +105,8 @@ final class InitPlanner {
         bool $ownsCaptureLock = false,
         bool $ownsInitAttempt = false,
         bool $allowUnmanagedPlugins = false,
-        ?array $lockPlan = null
+        ?array $lockPlan = null,
+        ?AdapterLibrary $adapterLibrary = null
     ): array {
         global $wpdb;
         if (!is_object($wpdb)) {
@@ -113,9 +120,9 @@ final class InitPlanner {
 
         $git = InitRepositoryBoundary::git_probe($repo);
         $ledger = InitSiteProbe::ledger();
-        $existing = self::existing_config($repo);
+        $existing = self::existing_config($repo, $adapterLibrary);
         $gitignoreIdentity = InitOwnedArtifacts::owned_file_boundary_identity($repo . '/.gitignore', '.gitignore');
-        $manifests = self::installed_manifests($repo);
+        $manifests = self::installed_manifests($repo, $adapterLibrary);
         $activePlugins = array_values(array_filter(
             (array) get_option('active_plugins', []),
             static fn($value): bool => is_string($value) && $value !== ''
@@ -218,7 +225,7 @@ final class InitPlanner {
         // elevates a signed site adapter: name-only discovery must never grant
         // authority, while a reviewed proposal must not remain permanently
         // "signed_unpinned" merely because the config does not exist yet.
-        [$policy, $pins] = self::load_selected_policy($selected, $repo);
+        [$policy, $pins] = self::load_selected_policy($selected, $repo, $adapterLibrary);
         $capabilities = $policy->capability_report(['operation' => 'capture']);
         foreach ($capabilities['blockers'] ?? [] as $blocker) {
             $unsupported[] = self::capability_blocker_row(is_array($blocker) ? $blocker : []);
@@ -686,8 +693,12 @@ final class InitPlanner {
      * @param list<string> $selected
      * @return array{0:Policy,1:list<array<string,string>>}
      */
-    private static function load_selected_policy(array $selected, string $repo): array {
-        $discovered = Policy::load(null, $selected, false, $repo);
+    private static function load_selected_policy(
+        array $selected,
+        string $repo,
+        ?AdapterLibrary $adapterLibrary = null
+    ): array {
+        $discovered = Policy::load(null, $selected, false, $repo, $adapterLibrary);
         $pins = [];
         foreach (RepositoryCompiler::resolved_adapters($discovered) as $row) {
             $pin = [
@@ -699,7 +710,7 @@ final class InitPlanner {
             }
             $pins[] = $pin;
         }
-        return [Policy::load(null, $pins, false, $repo), $pins];
+        return [Policy::load(null, $pins, false, $repo, $adapterLibrary), $pins];
     }
     /**
      * One capability blocker as an `unsupported` row.
@@ -952,12 +963,11 @@ final class InitPlanner {
         if ($profiles === null) {
             try {
                 // plan() already resolved the exact library while selecting its
-                // adapters. Reuse that physical boundary so profiles cannot be
-                // read from a second directory if DUO_MANIFESTS_DIR moves in
-                // the same process; the null path preserves this public pure
-                // helper's existing test/partial-load contract.
+                // adapters. Reuse that object so profiles cannot be joined to
+                // another physical inventory. The null path selects the one
+                // shipped library for this public pure helper.
                 $dispositions = $policy === null
-                    ? ManifestDispositions::load(Policy::manifests_dir())
+                    ? ManifestDispositions::load_library(Policy::shipped_adapter_library())
                     : ManifestDispositions::load_library($policy->adapter_library());
                 $profiles = $dispositions === null ? [] : $dispositions->profiles();
             } catch (\Throwable $t) {
@@ -1029,9 +1039,9 @@ final class InitPlanner {
     }
 
     /** @return array<string,array<string,mixed>> */
-    private static function installed_manifests(string $repo): array {
+    private static function installed_manifests(string $repo, ?AdapterLibrary $adapterLibrary = null): array {
         $out = [];
-        [$dir, $sources] = self::adapter_sources($repo);
+        [$dir, $sources] = self::adapter_sources($repo, $adapterLibrary);
         foreach ($sources->names() as $name) {
             $file = $sources->file($name, $dir);
             $manifest = Canon::decode(Canon::read_file($file));
@@ -1051,16 +1061,16 @@ final class InitPlanner {
      * previews the init proposal instead of the seed's own `core`-only pin set
      * (T7 grind A3).
      */
-    public static function is_adoption_seed(string $repo): bool {
+    public static function is_adoption_seed(string $repo, ?AdapterLibrary $adapterLibrary = null): bool {
         try {
-            return self::existing_config($repo)['mode'] === 'adoption-seed';
+            return self::existing_config($repo, $adapterLibrary)['mode'] === 'adoption-seed';
         } catch (\Throwable $t) {
             return false;
         }
     }
 
     /** @return array{mode:string,identity:string} */
-    private static function existing_config(string $repo): array {
+    private static function existing_config(string $repo, ?AdapterLibrary $adapterLibrary = null): array {
         $file = $repo . '/site.duo.json';
         if (is_link($file) || (file_exists($file) && !is_file($file))) {
             return ['mode' => 'unsafe', 'identity' => 'unsafe'];
@@ -1145,7 +1155,10 @@ final class InitPlanner {
             && is_array($comparable['policy'] ?? null)
             && is_array($comparable['policy']['scope'] ?? null)) {
             $scope = $comparable['policy']['scope'];
-            $stripped = self::without_pin_scope_rules($scope, self::pin_scope_rules($pinned, $repo, $seed));
+            $stripped = self::without_pin_scope_rules(
+                $scope,
+                self::pin_scope_rules($pinned, $repo, $seed, $adapterLibrary)
+            );
             // Only a set-aside that actually removed a rule may remove the
             // node it emptied. `"scope": {}` or `{"post_type": {}}` in the file
             // is not something either verb writes (writeScopeRules() runs only
@@ -1187,9 +1200,14 @@ final class InitPlanner {
      * @param array<string,mixed>  $seed   the literal adoption seed body
      * @return array<string,array<string,true>> kind => surface name => true
      */
-    private static function pin_scope_rules(array $pinned, string $repo, array $seed): array {
+    private static function pin_scope_rules(
+        array $pinned,
+        string $repo,
+        array $seed,
+        ?AdapterLibrary $adapterLibrary = null
+    ): array {
         try {
-            [$dir, $sources] = self::adapter_sources($repo);
+            [$dir, $sources] = self::adapter_sources($repo, $adapterLibrary);
         } catch (\Throwable $t) {
             return [];
         }
@@ -1220,12 +1238,9 @@ final class InitPlanner {
     }
 
     /** @return array{0:string,1:AdapterSources} */
-    private static function adapter_sources(string $repo): array {
-        $context = Policy::adapter_library_context();
-        if ($context instanceof AdapterLibrary) {
-            return [$context->root(), AdapterSources::discover_library($context, $repo)];
-        }
-        return [$context, AdapterSources::discover($context, $repo)];
+    private static function adapter_sources(string $repo, ?AdapterLibrary $adapterLibrary = null): array {
+        $library = $adapterLibrary ?? Policy::adapter_library_context();
+        return [$library->root(), AdapterSources::discover_library($library, $repo)];
     }
 
     /**

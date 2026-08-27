@@ -2146,7 +2146,7 @@ final class Providers {
      * would need its own branching and buy nothing over short, independently
      * readable methods.
      *
-     * The declared id resolves to <manifests_dir>/providers/<id>.php, which
+     * The declared id resolves through the declaring adapter package, which
      * must define \Duo\Providers\<CamelCase(id)>. A missing file is a
      * packaging fault, not an environment fact: the adapter claimed to ship
      * this code, so the engine says so rather than degrading to "capability

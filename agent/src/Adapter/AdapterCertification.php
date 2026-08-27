@@ -483,15 +483,10 @@ final class AdapterCertification {
      * it; the agent's verdict is identical, because the trust comes from the
      * signature and not from the channel.
      *
-     * It lives under the MANIFEST DIRECTORY rather than in the site repository
-     * because that is the only path the frozen verifier holds
-     * (`AdapterSources.php:4156` calls verifyFrozen() with
-     * `Policy::manifests_dir()` and nothing else), and reaching the frozen path
-     * is the entire point of the channel. RESIDUAL, stated rather than
-     * softened: `Adopt.php:149` tars `agent manifests recovery`, so re-adopting
-     * an agent over a site replaces this file along with the library. The
-     * remedy is to re-install it after an adopt, or to point
-     * `DUO_MANIFESTS_DIR` at a library the adoption tar does not overwrite.
+     * Installed agents resolve it from the operator-owned `duo-control`
+     * directory through AdapterLibrary::revocationsPath(), outside the
+     * replaceable agent projection. Source and explicit legacy libraries keep
+     * their own capabilities path for authoring and deterministic fixtures.
      */
     private const REVOCATIONS_RELATIVE = 'capabilities/adapter-revocations.json';
     /**

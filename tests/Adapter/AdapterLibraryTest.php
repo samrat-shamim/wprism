@@ -7,12 +7,14 @@ namespace Duo\Tests\Adapter;
 use Duo\AdapterCertification;
 use Duo\AdapterLibrary;
 use Duo\ManifestDispositions;
+use Duo\Policy;
 use Duo\Orchestrator\ContractAttestation;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
 require_once dirname(__DIR__, 2) . '/agent/src/Policy/AdapterLibrary.php';
 require_once dirname(__DIR__, 2) . '/agent/src/Policy/ManifestDispositions.php';
+require_once dirname(__DIR__, 2) . '/agent/src/Policy/Policy.php';
 require_once dirname(__DIR__, 2) . '/agent/src/Adapter/AdapterCertification.php';
 require_once dirname(__DIR__, 2) . '/cli/src/Contract/ContractAttestation.php';
 
@@ -30,10 +32,10 @@ final class AdapterLibraryTest extends TestCase
         $this->scratchRoots = [];
     }
 
-    public function testCurrentFlatLibraryIncludesRedirectionAndSortedPackages(): void
+    public function testCurrentSourceLibraryIncludesRedirectionAndSortedPackages(): void
     {
-        $root = dirname(__DIR__, 2) . '/manifests';
-        $library = AdapterLibrary::fromLegacyFlatDirectory($root);
+        $root = dirname(__DIR__, 2);
+        $library = AdapterLibrary::fromSourceTree($root);
         $names = array_map(static fn($package): string => $package->name(), $library->packages());
 
         $this->assertCount(17, $names);
@@ -45,47 +47,74 @@ final class AdapterLibraryTest extends TestCase
         $this->assertNotNull($redirection);
         $this->assertNull($redirection->interpreterPath());
         $this->assertSame(
-            realpath($root . '/providers/redirection-state.php'),
+            realpath($root . '/adapter-packages/redirection/package/runtime/providers/redirection-state.php'),
             $redirection->providerPath('redirection-state')
         );
         $this->assertSame([
-            realpath($root . '/dispositions/redirection.json'),
-            realpath($root . '/providers/redirection-state.php'),
-            realpath($root . '/redirection.json'),
+            realpath($root . '/adapter-packages/redirection/package/disposition.json'),
+            realpath($root . '/adapter-packages/redirection/package/manifest.json'),
+            realpath($root . '/adapter-packages/redirection/package/runtime/providers/redirection-state.php'),
         ], $redirection->shippablePaths());
-        $this->assertContains(realpath($root . '/providers'), $library->scanAnchors());
-        $this->assertContains(realpath($root . '/providers/redirection-state.php'), $library->scanFiles());
-        $this->assertSame($root . '/capabilities/adapter-revocations.json', $library->revocationsPath());
+        $this->assertContains(
+            realpath($root . '/adapter-packages/redirection/package/runtime/providers'),
+            $library->scanAnchors()
+        );
+        $this->assertContains(
+            realpath($root . '/adapter-packages/redirection/package/runtime/providers/redirection-state.php'),
+            $library->scanFiles()
+        );
+        $this->assertSame(
+            $root . '/platform/adapter-library/capabilities/adapter-revocations.json',
+            $library->revocationsPath()
+        );
         $this->assertNotContains($library->revocationsPath(), $library->scanFiles());
     }
 
     public function testTrustConsumersUseObjectPathsWithoutMovingCurrentValues(): void
     {
-        $root = dirname(__DIR__, 2) . '/manifests';
-        $library = AdapterLibrary::fromLegacyFlatDirectory($root);
-        $legacyDispositions = ManifestDispositions::load($root);
+        $root = dirname(__DIR__, 2);
+        $platformRoot = $root . '/platform/adapter-library';
+        $library = AdapterLibrary::fromSourceTree($root);
+        $dispositions = ManifestDispositions::load_library($library);
 
-        $this->assertNotNull($legacyDispositions);
+        $this->assertSame(64, strlen($dispositions->sha256()));
         $this->assertSame(
-            $legacyDispositions->sha256(),
-            ManifestDispositions::load_library($library)->sha256()
-        );
-        $this->assertSame(
-            ManifestDispositions::platform_boundary($root),
+            ManifestDispositions::platform_boundary($platformRoot),
             ManifestDispositions::platform_boundary_library($library)
         );
         $this->assertSame(
-            AdapterCertification::hasAuthorities($root),
+            AdapterCertification::hasAuthorities($platformRoot),
             AdapterCertification::hasAuthorities($library)
         );
         $this->assertSame(
-            AdapterCertification::revocation_channel($root),
+            AdapterCertification::revocation_channel($platformRoot),
             AdapterCertification::revocation_channel($library)
         );
         $this->assertSame(
-            ContractAttestation::currentPlatformDigest($root),
+            ContractAttestation::currentPlatformDigest($platformRoot),
             ContractAttestation::currentPlatformDigest($library)
         );
+    }
+
+    public function testProductionSelectionIgnoresTheRetiredProcessGlobalFlatPath(): void
+    {
+        $legacy = $this->fixture();
+        $previous = getenv('DUO_MANIFESTS_DIR');
+        putenv('DUO_MANIFESTS_DIR=' . $legacy);
+        try {
+            $library = Policy::adapter_library_context();
+        } finally {
+            $previous === false
+                ? putenv('DUO_MANIFESTS_DIR')
+                : putenv('DUO_MANIFESTS_DIR=' . $previous);
+        }
+
+        $this->assertInstanceOf(AdapterLibrary::class, $library);
+        $this->assertSame(realpath(dirname(__DIR__, 2)), $library->root());
+        $this->assertFalse(method_exists(Policy::class, 'manifests_dir'));
+        $policySource = (string) file_get_contents(dirname(__DIR__, 2) . '/agent/src/Policy/Policy.php');
+        $this->assertStringNotContainsString('DUO_MANIFESTS_DIR', $policySource);
+        $this->assertStringNotContainsString('fromLegacyFlatDirectory', $policySource);
     }
 
     public function testPackagePathsFollowDecodedRuntimeDeclarationsWithoutRewritingManifest(): void
@@ -245,6 +274,30 @@ final class AdapterLibraryTest extends TestCase
             $library->revocationsPath()
         );
         $this->assertNotContains($library->revocationsPath(), $library->scanFiles());
+    }
+
+    public function testEmbeddedFactoryCanBindDurableOperatorRevocationsOutsideAgentTree(): void
+    {
+        [$root] = $this->logicalFixture('embedded');
+        $control = $this->scratch('control') . '/adapter-revocations.json';
+        file_put_contents($control, "{}\n");
+
+        $library = AdapterLibrary::fromEmbeddedDirectory($root, $control);
+
+        $this->assertSame(realpath($control), $library->revocationsPath());
+        $this->assertContains(realpath($control), $library->scanFiles());
+        $this->assertContains(realpath($control), $library->scanAnchors());
+    }
+
+    public function testEmbeddedFactoryRefusesTwoRevocationAuthorities(): void
+    {
+        [$root, , $platformRoot] = $this->logicalFixture('embedded');
+        file_put_contents($platformRoot . '/capabilities/adapter-revocations.json', "{}\n");
+        $control = $this->scratch('control-empty') . '/adapter-revocations.json';
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('may not carry operator revocations');
+        AdapterLibrary::fromEmbeddedDirectory($root, $control);
     }
 
     public function testLogicalFactoriesDoNotSearchForAnotherLayout(): void

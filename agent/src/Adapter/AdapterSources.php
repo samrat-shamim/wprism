@@ -499,10 +499,8 @@ final class AdapterSources {
     /**
      * The manifest library this instance's SHIPPED origins were resolved
      * against. Kept because diagnostics() has to answer whether that library
-     * has a reviewed certification story at all, and re-asking
-     * Policy::manifests_dir() there would answer for whichever directory is
-     * current rather than the one this scan actually read — `--manifests`,
-     * DUO_MANIFESTS_DIR and discover()'s own argument each move it.
+     * has a reviewed certification story at all, using the same explicit
+     * directory or object that the scan actually read.
      */
     private string $manifestDir;
     /**
@@ -2542,11 +2540,9 @@ final class AdapterSources {
      * length and takes deliberately. An inventory of what is installed must
      * not be the command that executes it.
      *
-     * The shipped library is Policy::manifests_dir() rather than a parameter,
-     * matching every other product entry point into the catalog: one process
-     * has one shipped library, and the grammar verdict below resolves it
-     * through Policy::load() anyway, so a second directory here could only
-     * ever describe adapters the verdict was not about.
+     * The default shipped library is the closed object selected by Policy.
+     * Explicit authoring and test callers use survey_library(), so the scan
+     * and every grammar verdict always describe the same inventory object.
      *
      * The PLUGIN source is scanned here too, and it is the one source this
      * process can only report on when it IS the target — a bundled adapter
@@ -2569,7 +2565,7 @@ final class AdapterSources {
      * @return array{adapters:list<array<string,mixed>>, not_installed:list<array<string,mixed>>, refusals:list<array<string,mixed>>, sources:list<array<string,mixed>>}
      */
     public static function survey(?string $repo): array {
-        return self::survey_from(null, $repo);
+        return self::survey_from(Policy::shipped_adapter_library(), $repo);
     }
 
     /** Survey exactly the supplied closed shipped library inventory. */
@@ -2580,7 +2576,7 @@ final class AdapterSources {
     /**
      * @return array{adapters:list<array<string,mixed>>, not_installed:list<array<string,mixed>>, refusals:list<array<string,mixed>>, sources:list<array<string,mixed>>}
      */
-    private static function survey_from(?AdapterLibrary $adapterLibrary, ?string $repo): array {
+    private static function survey_from(AdapterLibrary $adapterLibrary, ?string $repo): array {
         // Lazily, at the one entry that needs them, for the reason the
         // AdapterCertification requires below give: this file is on the pure
         // loader path Policy::load() walks, and AdapterScan requires Policy,
@@ -2590,7 +2586,7 @@ final class AdapterSources {
         // CommandRefusalException to let the one typed refusal through.
         require_once __DIR__ . '/AdapterScan.php';
         require_once __DIR__ . '/../Kernel/CommandRefusal.php';
-        $manifestDir = $adapterLibrary === null ? Policy::manifests_dir() : $adapterLibrary->root();
+        $manifestDir = $adapterLibrary->root();
         $refusals = [];
         $scan = self::scan($manifestDir, $repo, true, $refusals, $adapterLibrary);
 
@@ -2645,10 +2641,8 @@ final class AdapterSources {
         // Loaded lazily for the reason the scan's own require gives: this file
         // is on the pure loader path, and AdapterCertification depends on it.
         require_once __DIR__ . '/AdapterCertification.php';
-        $shippedLibrary = $adapterLibrary ?? $manifestDir;
-        $revocations = $adapterLibrary === null
-            ? rtrim($manifestDir, '/') . '/capabilities/adapter-revocations.json'
-            : $adapterLibrary->revocationsPath();
+        $shippedLibrary = $adapterLibrary;
+        $revocations = $adapterLibrary->revocationsPath();
         if (file_exists($revocations) || is_link($revocations)) {
             try {
                 $inert = AdapterCertification::revocation_channel($shippedLibrary);
@@ -2688,9 +2682,7 @@ final class AdapterSources {
         $dispositions = null;
         if (class_exists(ManifestDispositions::class)) {
             try {
-                $dispositions = $adapterLibrary === null
-                    ? ManifestDispositions::load($manifestDir)
-                    : ManifestDispositions::load_library($adapterLibrary);
+                $dispositions = ManifestDispositions::load_library($adapterLibrary);
             } catch (\Throwable $t) {
                 $dispositions = null;
             }
@@ -2763,9 +2755,7 @@ final class AdapterSources {
         // reads nothing (AdapterScan::open()); the first row that actually
         // loads is what pays for the one scan, so a survey whose rows are all
         // answered without a load still costs none.
-        $library = $adapterLibrary === null
-            ? AdapterScan::open($blocking === [] ? $repo : null)
-            : AdapterScan::open_library($adapterLibrary, $blocking === [] ? $repo : null);
+        $library = AdapterScan::open_library($adapterLibrary, $blocking === [] ? $repo : null);
 
         $adapters = [];
         foreach ($scan['origins'] as $name => $origin) {
@@ -3625,8 +3615,8 @@ final class AdapterSources {
             if (is_string($declared) && $declared !== '') {
                 // Guarded like every other DUO-3314 assertion reachable from
                 // collect mode. A shipped manifest whose FILE name is a legal
-                // slug but whose DECLARED name is not is reachable through any
-                // DUO_MANIFESTS_DIR, and unguarded it made the catalog answer
+                // slug but whose DECLARED name is not is reachable through an
+                // explicit custom library, and unguarded it made the catalog answer
                 // two different ways about one library: `duo adapter list`
                 // worked, `duo adapter list --repo=...` died with exit 2,
                 // because only the second reaches this function.

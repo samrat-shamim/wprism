@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Init/InitPlanner.php';
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 // DUO-3504: pattern_groups() reads PATTERN_KEYS through this class's own
 // accessor rather than restating `option_patterns`, so it is required here in
 // its own right (rule 1) and not by way of Policy.php's transitive load.
@@ -124,7 +125,7 @@ final class AssessInventory {
         $survey = null;
         $surveyReason = null;
         try {
-            $survey = AdapterSources::survey($repo);
+            $survey = AdapterSources::survey_library($policy->adapter_library(), $repo);
         } catch (\Throwable $t) {
             $surveyReason = 'adapter_survey_unreadable';
         }
@@ -157,13 +158,14 @@ final class AssessInventory {
      *
      * @return array{0:Policy,1:?array<string,mixed>}
      */
-    public static function policy_for_assessment(string $repo): array {
-        $seedPolicy = Policy::load($repo, null, true);
-        if (!InitPlanner::is_adoption_seed($repo)) {
+    public static function policy_for_assessment(string $repo, ?AdapterLibrary $adapterLibrary = null): array {
+        $adapterLibrary ??= Policy::shipped_adapter_library();
+        $seedPolicy = Policy::load($repo, null, true, null, $adapterLibrary);
+        if (!InitPlanner::is_adoption_seed($repo, $adapterLibrary)) {
             return [$seedPolicy, null];
         }
         try {
-            $proposal = InitPlanner::proposal($repo, true);
+            $proposal = InitPlanner::proposal($repo, true, null, $adapterLibrary);
         } catch (\Throwable $t) {
             return [$seedPolicy, [
                 'mode' => 'seed',
@@ -198,7 +200,7 @@ final class AssessInventory {
             @rmdir($dir);
         });
         Canon::write_file($dir . '/site.duo.json', Canon::encode($config));
-        $policy = Policy::load($dir, null, true, $repo);
+        $policy = Policy::load($dir, null, true, $repo, $adapterLibrary);
         $leftLocal = [];
         foreach ((array) ($config['policy']['scope'] ?? []) as $kind => $rules) {
             foreach ((array) $rules as $name => $rule) {

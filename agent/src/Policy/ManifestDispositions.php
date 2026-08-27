@@ -73,8 +73,7 @@ final class ManifestDispositions {
     /**
      * The document-name grammar, which is AdapterSources::assert_name()'s
      * (`:3156-3157`) restated rather than called: this file is reachable from
-     * partially-loaded offline contexts that never include AdapterSources (the
-     * same reason manifests_dir() below does not hard-call Policy), and a
+     * partially-loaded offline contexts that never include AdapterSources, and a
      * `require` here would grow the load graph of every context that only
      * wanted an entry.
      *
@@ -544,7 +543,15 @@ final class ManifestDispositions {
      * @return array<string,mixed>
      */
     public static function platform_boundary(?string $dir = null): array {
-        $file = rtrim($dir ?? self::manifests_dir(), '/') . '/' . self::PLATFORM_RELATIVE;
+        if ($dir === null) {
+            if (!class_exists(Policy::class)) {
+                throw new \RuntimeException(
+                    'duo: the shipped adapter library must be selected explicitly when Policy is unavailable'
+                );
+            }
+            return self::platform_boundary_library(Policy::shipped_adapter_library());
+        }
+        $file = rtrim($dir, '/') . '/' . self::PLATFORM_RELATIVE;
         return self::platform_boundary_file($file);
     }
 
@@ -574,22 +581,6 @@ final class ManifestDispositions {
             throw new \RuntimeException("duo: $label platform version disagrees with the loaded agent");
         }
         return $platform;
-    }
-
-    /**
-     * Resolve the manifest library without requiring Policy to be loaded: this
-     * file is reachable from partially-loaded offline contexts that never
-     * include Policy.php, and a hard `Policy::` call there would fatal.
-     */
-    private static function manifests_dir(): string {
-        if (class_exists(Policy::class)) {
-            return Policy::manifests_dir();
-        }
-        $env = getenv('DUO_MANIFESTS_DIR');
-        if ($env && is_dir($env)) {
-            return $env;
-        }
-        return dirname(__DIR__, 3) . '/manifests';
     }
 
     /**
