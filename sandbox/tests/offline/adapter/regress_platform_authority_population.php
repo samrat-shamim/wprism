@@ -98,6 +98,7 @@ require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\Policy;
@@ -329,6 +330,7 @@ $root = sys_get_temp_dir() . '/duo-authority-population-' . bin2hex(random_bytes
 register_shutdown_function(static fn() => pop_remove_tree($root));
 
 $library = duo_cert_hermetic_library($repo, $root . '/library-projection');
+$adapterLibrary = AdapterLibrary::fromLegacyFlatDirectory($library);
 $site = $root . '/site';
 if (!mkdir($site . '/adapters', 0777, true)) {
     fwrite(STDERR, "FAIL: cannot create the scratch site repository at $site\n");
@@ -411,7 +413,7 @@ $revocationsPath = $library . '/capabilities/adapter-revocations.json';
 
 /** The one selector every consumer reaches; driving it is driving the product. */
 $authority = new ReflectionMethod(AdapterCertification::class, 'authority');
-$resolve = static fn(string $id): array => (array) $authority->invoke(null, $library, $id, $site);
+$resolve = static fn(string $id): array => (array) $authority->invoke(null, $adapterLibrary, $id, $site);
 $scope = new ReflectionMethod(AdapterCertification::class, 'assertAuthorityScope');
 $clock = new ReflectionProperty(AdapterCertification::class, 'testAuthorityClock');
 $setClock = static function (?string $instant) use ($clock): void {
@@ -593,8 +595,6 @@ pop_write_canon($site . '/site.duo.json', (object) [
 ]);
 
 $signSite = static fn(string $authorityId, string $secretPath): array => pop_run([
-    'env',
-    'DUO_MANIFESTS_DIR=' . $library,
     PHP_BINARY,
     $repo . '/scripts/adapter-certification.php',
     'sign-site',
@@ -611,7 +611,13 @@ duo_check(
     'the delegated vendor key certifies the adapter through `sign-site` (' . trim($vendorSign['stderr']) . ')'
 );
 $certificatePath = $site . '/adapters/certifications/' . $adapterName . '.json';
-$vendorVerified = AdapterCertification::verifyFile($library, $site, $adapterName, $adapterManifest, $certificatePath);
+$vendorVerified = AdapterCertification::verifyFile(
+    $adapterLibrary,
+    $site,
+    $adapterName,
+    $adapterManifest,
+    $certificatePath
+);
 duo_check_same(
     'certified',
     $vendorVerified['claim']['status'] ?? null,
@@ -640,8 +646,7 @@ echo "\n== step 5: the word an operator actually reads, projected from both root
 // Computed in two passes for the reason `duo adapter certify --pin` does it in
 // two: the digest folds the certificate in, so it cannot be known before the
 // certificate exists.
-putenv('DUO_MANIFESTS_DIR=' . $library);
-$pinRepository = static function (string $name) use ($site): string {
+$pinRepository = static function (string $name) use ($site, $adapterLibrary): string {
     // The pin is reset to its bare form first: a stale digest refuses the whole
     // repository at load (`PinResolver::validate_manifest_pins()`), and the
     // digest folds the CERTIFICATE in, so re-minting one always invalidates the
@@ -650,7 +655,7 @@ $pinRepository = static function (string $name) use ($site): string {
     $reset = Canon::decode(Canon::read_file($site . '/site.duo.json'));
     $reset['manifests'] = [['name' => $name, 'source' => 'site']];
     pop_write_canon($site . '/site.duo.json', $reset);
-    $policy = Policy::load($site);
+    $policy = Policy::load($site, adapterLibrary: $adapterLibrary);
     $digest = '';
     foreach (RepositoryCompiler::resolved_adapters($policy) as $row) {
         if ((string) $row['name'] === $name) {
@@ -663,8 +668,8 @@ $pinRepository = static function (string $name) use ($site): string {
 
     return $digest;
 };
-$surveyWord = static function (string $name) use ($site): ?string {
-    foreach (AdapterSources::survey($site)['adapters'] as $row) {
+$surveyWord = static function (string $name) use ($site, $adapterLibrary): ?string {
+    foreach (AdapterSources::survey_library($adapterLibrary, $site)['adapters'] as $row) {
         if (($row['name'] ?? null) === $name) {
             return $row['certification'] === null ? null : (string) $row['certification'];
         }
@@ -705,8 +710,6 @@ duo_check(
 
 $bundle = pop_write_bundle($root . '/bundle', $site, $adapterName, $adapterManifest);
 $platformSign = pop_run([
-    'env',
-    'DUO_MANIFESTS_DIR=' . $library,
     PHP_BINARY,
     $repo . '/scripts/adapter-certification.php',
     'sign',
@@ -723,7 +726,13 @@ duo_check(
     'the enrolled platform key certifies the same adapter from a reviewed-exercise bundle ('
     . trim($platformSign['stderr']) . ')'
 );
-$platformVerified = AdapterCertification::verifyFile($library, $site, $adapterName, $adapterManifest, $certificatePath);
+$platformVerified = AdapterCertification::verifyFile(
+    $adapterLibrary,
+    $site,
+    $adapterName,
+    $adapterManifest,
+    $certificatePath
+);
 $platformEnvelope = $platformVerified['envelope'];
 $platformRecordDigest = (string) ($platformVerified['disposition']['provenance']['proof']['authority']['record_sha256'] ?? '');
 duo_check_same(
@@ -816,7 +825,13 @@ duo_check(
 // would never print.
 $grown = ['claim' => ['status' => 'unread']];
 try {
-    $grown = AdapterCertification::verifyFile($library, $site, $adapterName, $adapterManifest, $certificatePath);
+    $grown = AdapterCertification::verifyFile(
+        $adapterLibrary,
+        $site,
+        $adapterName,
+        $adapterManifest,
+        $certificatePath
+    );
 } catch (Throwable $t) {
     $grown = ['claim' => ['status' => 'refused: ' . $t->getMessage()]];
 }
@@ -835,7 +850,12 @@ duo_check_same(
 );
 duo_check_same(
     'certified',
-    AdapterCertification::verifyFrozen($library, $adapterName, $adapterManifest, $platformEnvelope)['claim']['status'] ?? null,
+    AdapterCertification::verifyFrozen(
+        $adapterLibrary,
+        $adapterName,
+        $adapterManifest,
+        $platformEnvelope
+    )['claim']['status'] ?? null,
     'the FROZEN path answers the same way: a promoted site holding this snapshot is untouched by an enrollment '
     . 'it never saw'
 );
@@ -865,7 +885,13 @@ pop_run([
     '--secret-key-file=' . $secretFile($root . '/second-vendor.key', $secondVendorKey['secret']),
 ]);
 $identityMoved = (string) $refusal(
-    static fn() => AdapterCertification::verifyFile($library, $site, $adapterName, $adapterManifest, $certificatePath)
+    static fn() => AdapterCertification::verifyFile(
+        $adapterLibrary,
+        $site,
+        $adapterName,
+        $adapterManifest,
+        $certificatePath
+    )
 );
 duo_check(
     str_contains($identityMoved, "site adapter '$adapterName' certification authority/key/fingerprint/trust root")
@@ -888,7 +914,13 @@ echo "\n== step 8: the refusal matrix a delegated grant must have ==\n";
 // certificate would stop proving the producer still agrees with the verifier.
 $vendorSign = $signSite($vendorId, $vendorSecretPath);
 duo_check($vendorSign['exit'] === 0, 're-minted under the delegated vendor key (' . trim($vendorSign['stderr']) . ')');
-$vendorVerified = AdapterCertification::verifyFile($library, $site, $adapterName, $adapterManifest, $certificatePath);
+$vendorVerified = AdapterCertification::verifyFile(
+    $adapterLibrary,
+    $site,
+    $adapterName,
+    $adapterManifest,
+    $certificatePath
+);
 $vendorEnvelope = $vendorVerified['envelope'];
 $pinRepository($adapterName);
 duo_check_same(
@@ -909,8 +941,6 @@ duo_check(
 );
 pop_write_canon($site . '/adapters/acme-catalog.json', ['name' => 'acme-catalog'] + $adapterManifest);
 $outsideEndToEnd = pop_run([
-    'env',
-    'DUO_MANIFESTS_DIR=' . $library,
     PHP_BINARY,
     $repo . '/scripts/adapter-certification.php',
     'sign-site',
@@ -934,7 +964,7 @@ unlink($site . '/adapters/acme-catalog.json');
 $setClock('2027-01-01T00:00:00Z');
 $expiredTyped = null;
 try {
-    AdapterCertification::verifyFile($library, $site, $adapterName, $adapterManifest, $certificatePath);
+    AdapterCertification::verifyFile($adapterLibrary, $site, $adapterName, $adapterManifest, $certificatePath);
 } catch (Throwable $t) {
     $expiredTyped = $t;
 }
@@ -993,7 +1023,13 @@ $installRevocations(
     $secondVendorKey['secret']
 );
 $revokedDelegator = (string) $refusal(
-    static fn() => AdapterCertification::verifyFile($library, $site, $adapterName, $adapterManifest, $certificatePath)
+    static fn() => AdapterCertification::verifyFile(
+        $adapterLibrary,
+        $site,
+        $adapterName,
+        $adapterManifest,
+        $certificatePath
+    )
 );
 duo_check(
     str_contains($revokedDelegator, "authority key '$platformId' is revoked by the platform-signed revocation record"),
@@ -1002,7 +1038,12 @@ duo_check(
 );
 duo_check_same(
     'certified',
-    AdapterCertification::verifyFrozen($library, $adapterName, $adapterManifest, $vendorEnvelope)['claim']['status'] ?? null,
+    AdapterCertification::verifyFrozen(
+        $adapterLibrary,
+        $adapterName,
+        $adapterManifest,
+        $vendorEnvelope
+    )['claim']['status'] ?? null,
     'while the FROZEN path is unmoved by the delegator\'s revocation alone — a snapshot holds no delegation '
     . 'document, so an incident response that must reach PROMOTED sites names the DELEGATE\'s own fingerprint. '
     . 'That is what the drill below does'
@@ -1010,7 +1051,6 @@ duo_check_same(
 $installRevocations([], $secondVendorId, $secondVendorKey['secret']);
 
 $setClock(null);
-putenv('DUO_MANIFESTS_DIR');
 
 // ---------------------------------------------------------------------------
 echo "\n== step 9: THE REVOCATION DRILL on WP-1.4's rehearsal fleet ==\n";
