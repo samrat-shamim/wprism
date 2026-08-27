@@ -40,6 +40,9 @@ final class AdapterPackageValidator
         if ($package === null) {
             throw new RuntimeException("Adapter package '$slug' did not enter its own closed library");
         }
+        $capsule = $root . '/adapter-packages/' . $slug;
+        $checks = ['closed-library', 'manifest-grammar', 'reviewed-disposition', 'adapter-identity'];
+        self::dependencyBoundary($root, $capsule, $slug, $checks);
 
         $manifest = Canon::decode(Canon::read_file($package->manifestPath()));
         if (!is_array($manifest)) {
@@ -60,8 +63,6 @@ final class AdapterPackageValidator
             throw new RuntimeException("Adapter package '$slug' produced no identity row");
         }
 
-        $capsule = $root . '/adapter-packages/' . $slug;
-        $checks = ['closed-library', 'manifest-grammar', 'reviewed-disposition', 'adapter-identity'];
         self::syntax($capsule, $checks);
         $evidenceTests = self::evidence($root, $capsule, $slug, $manifest, $package->dispositionPath(), $checks);
 
@@ -73,6 +74,119 @@ final class AdapterPackageValidator
             'checks' => $checks,
             'evidence_tests' => $evidenceTests,
         ];
+    }
+
+    /** @param list<string> $checks */
+    private static function dependencyBoundary(string $root, string $capsule, string $slug, array &$checks): void
+    {
+        $agentSource = realpath($root . '/agent/src');
+        if ($agentSource === false || !is_dir($agentSource)) {
+            throw new RuntimeException("Adapter package '$slug' cannot resolve the repository agent/src contract");
+        }
+
+        $scanned = 0;
+        foreach ([$capsule . '/package/runtime', $capsule . '/tests'] as $boundaryRoot) {
+            if (!is_dir($boundaryRoot)) {
+                continue;
+            }
+            $tests = $boundaryRoot === $capsule . '/tests';
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($boundaryRoot, \FilesystemIterator::SKIP_DOTS)
+            );
+            foreach ($iterator as $entry) {
+                if (!$entry->isFile() || $entry->isLink()) {
+                    continue;
+                }
+                $path = $entry->getPathname();
+                if (!in_array($entry->getExtension(), ['json', 'php', 'sh'], true)) {
+                    continue;
+                }
+                $source = file_get_contents($path);
+                if ($source === false) {
+                    throw new RuntimeException("Adapter package '$slug' cannot read dependency source $path");
+                }
+                self::assertNoGlobalLibrarySelection($capsule, $path, $source, $tests, $slug);
+                self::assertRelativeAgentDependencies($root, $agentSource, $capsule, $path, $source, $tests, $slug);
+                $scanned++;
+            }
+        }
+        $checks[] = "dependency-boundary:$scanned";
+    }
+
+    private static function assertNoGlobalLibrarySelection(
+        string $capsule,
+        string $path,
+        string $source,
+        bool $tests,
+        string $slug
+    ): void {
+        foreach (preg_split('/\R/', $source) ?: [] as $offset => $line) {
+            $normalized = preg_replace(
+                '/DUO_[\'".\s]*MANIFESTS_DIR/',
+                'DUO_MANIFESTS_DIR',
+                $line
+            );
+            if (!is_string($normalized) || !str_contains($normalized, 'DUO_MANIFESTS_DIR')) {
+                continue;
+            }
+            if ($tests
+                && substr_count($normalized, 'DUO_MANIFESTS_DIR') === 1
+                && self::isNegativeTextAssertion($normalized, 'DUO_MANIFESTS_DIR')) {
+                continue;
+            }
+            $relative = substr($path, strlen($capsule) + 1);
+            throw new RuntimeException(
+                "Adapter package '$slug' selects a manifest library through DUO_MANIFESTS_DIR at "
+                . "$relative:" . ($offset + 1)
+            );
+        }
+    }
+
+    private static function assertRelativeAgentDependencies(
+        string $root,
+        string $agentSource,
+        string $capsule,
+        string $path,
+        string $source,
+        bool $tests,
+        string $slug
+    ): void {
+        foreach (preg_split('/\R/', $source) ?: [] as $offset => $line) {
+            preg_match_all(
+                '~(?<relative>(?:\.\./)+agent/src)(?:/|(?=[\'\"]))~',
+                $line,
+                $matches
+            );
+            foreach ($matches['relative'] ?? [] as $relativeAgent) {
+                if ($tests
+                    && substr_count($line, $relativeAgent) === 1
+                    && self::isNegativeTextAssertion($line, $relativeAgent)) {
+                    continue;
+                }
+                $resolved = realpath(dirname($path) . '/' . $relativeAgent);
+                if ($resolved === $agentSource) {
+                    continue;
+                }
+                $relative = substr($path, strlen($capsule) + 1);
+                $target = $resolved === false ? dirname($path) . '/' . $relativeAgent : $resolved;
+                throw new RuntimeException(
+                    "Adapter package '$slug' has a legacy relative agent dependency at $relative:"
+                    . ($offset + 1) . "; '$relativeAgent' does not resolve to $root/agent/src (resolved $target)"
+                );
+            }
+        }
+    }
+
+    private static function isNegativeTextAssertion(string $line, string $needle): bool
+    {
+        $quotedNeedle = preg_quote($needle, '~');
+        return preg_match(
+            '~!\s*str_(?:contains|starts_with|ends_with)\s*\([^;]*[\'\"][^\'\"]*' . $quotedNeedle
+                . '|str_(?:contains|starts_with|ends_with)\s*\([^;]*[\'\"][^\'\"]*' . $quotedNeedle
+                . '[^;]*\)\s*===\s*false'
+                . '|(?:^|[;&|]\s*)!\s*(?:grep|rg)\b[^;]*' . $quotedNeedle . '~D',
+            $line
+        ) === 1;
     }
 
     /** @param list<string> $checks */

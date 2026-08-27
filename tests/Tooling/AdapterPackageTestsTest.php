@@ -70,7 +70,134 @@ final class AdapterPackageTestsTest extends TestCase
         self::assertSame(['conformance-acf', 'exact-artifact-version-matrix'], $result['evidence_tests']);
         self::assertContains('closed-library', $result['checks']);
         self::assertContains('adapter-identity', $result['checks']);
+        self::assertNotEmpty(array_filter(
+            $result['checks'],
+            static fn(string $check): bool => str_starts_with($check, 'dependency-boundary:')
+        ));
         self::assertContains('evidence-wiring:2', $result['checks']);
+    }
+
+    /** @return iterable<string,array{0:string,1:string}> */
+    public static function processGlobalLibrarySelections(): iterable
+    {
+        yield 'runtime getenv' => [
+            'package/runtime/interpreters/acf.php',
+            "\ngetenv('DUO_MANIFESTS_DIR');\n",
+        ];
+        yield 'test putenv' => [
+            'tests/offline/regress_global_library.php',
+            "<?php putenv('DUO_MANIFESTS_DIR=/tmp/legacy');\n",
+        ];
+        yield 'shell assignment' => [
+            'tests/live/regress_global_library.sh',
+            "#!/usr/bin/env bash\nDUO_MANIFESTS_DIR=/tmp/legacy\n",
+        ];
+        yield 'test text outside a negative assertion' => [
+            'tests/offline/regress_global_library_text.php',
+            "<?php \$legacySelector = 'DUO_MANIFESTS_DIR';\n",
+        ];
+        yield 'selection beside a negative assertion' => [
+            'tests/offline/regress_global_library_mixed.php',
+            "<?php putenv('DUO_MANIFESTS_DIR=/tmp/legacy'); assert(!str_contains('', 'DUO_MANIFESTS_DIR'));\n",
+        ];
+        yield 'concatenated selector spelling' => [
+            'tests/offline/regress_global_library_concatenated.php',
+            "<?php getenv('DUO_' . 'MANIFESTS_DIR');\n",
+        ];
+    }
+
+    #[DataProvider('processGlobalLibrarySelections')]
+    public function testValidatorRejectsProcessGlobalLibrarySelection(string $relative, string $bytes): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/' . $relative;
+        if (is_file($path)) {
+            $bytes = (string) file_get_contents($path) . $bytes;
+        }
+        self::write($path, $bytes);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("selects a manifest library through DUO_MANIFESTS_DIR at $relative");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    /** @return iterable<string,array{0:string,1:string}> */
+    public static function staleRelativeAgentDependencies(): iterable
+    {
+        yield 'runtime PHP' => [
+            'package/runtime/interpreters/acf.php',
+            "\nrequire_once __DIR__ . '/../../agent/src/Kernel/Canon.php';\n",
+        ];
+        yield 'offline PHP' => [
+            'tests/offline/regress_stale_agent_path.php',
+            "<?php require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';\n",
+        ];
+        yield 'live shell' => [
+            'tests/live/regress_stale_agent_path.sh',
+            "#!/usr/bin/env bash\nSOURCE=../../agent/src/Kernel/Canon.php\n",
+        ];
+    }
+
+    #[DataProvider('staleRelativeAgentDependencies')]
+    public function testValidatorRejectsStaleRelativeAgentDependency(string $relative, string $bytes): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/' . $relative;
+        if (is_file($path)) {
+            $bytes = (string) file_get_contents($path) . $bytes;
+        }
+        self::write($path, $bytes);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("has a legacy relative agent dependency at $relative");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorAllowsNegativeAssertionsAndCorrectCapsuleRelativeTestDependencies(): void
+    {
+        $root = $this->validatorFixture();
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_dependency_boundary.php',
+            <<<'PHP'
+<?php
+$source = '';
+assert(!str_contains($source, 'DUO_MANIFESTS_DIR'));
+assert(!str_contains($source, '../../agent/src'));
+require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
+PHP
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertNotEmpty(array_filter(
+            $result['checks'],
+            static fn(string $check): bool => str_starts_with($check, 'dependency-boundary:')
+        ));
+    }
+
+    public function testValidatorDoesNotInspectSiblingCapsules(): void
+    {
+        $root = $this->validatorFixture();
+        $baseline = AdapterPackageValidator::validate($root, 'acf');
+        self::write(
+            $root . '/adapter-packages/broken/package/runtime/providers/broken.php',
+            "<?php getenv('DUO_MANIFESTS_DIR'); this is not PHP;\n"
+        );
+        self::write($root . '/adapter-packages/broken/package/manifest.json', "{not-json\n");
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame($baseline, $result);
+    }
+
+    public function testValidatorStillInspectsTheSharedPlatformContract(): void
+    {
+        $root = $this->validatorFixture();
+        self::assertTrue(unlink($root . '/platform/adapter-library/capabilities/adapter-authorities.json'));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('adapter authorities is not a readable regular file');
+        AdapterPackageValidator::validate($root, 'acf');
     }
 
     /** @return iterable<string,array{0:string}> */
@@ -364,6 +491,35 @@ final class AdapterPackageTestsTest extends TestCase
             self::makeDirectory($package . '/tests/offline');
         }
         return $package;
+    }
+
+    private function validatorFixture(): string
+    {
+        $repo = dirname(__DIR__, 2);
+        $root = $this->root . '/validator';
+        self::copyTree($repo . '/adapter-packages/acf', $root . '/adapter-packages/acf');
+        self::copyTree($repo . '/platform/adapter-library', $root . '/platform/adapter-library');
+        self::makeDirectory($root . '/agent/src');
+        self::write($root . '/agent/duo.php', (string) file_get_contents($repo . '/agent/duo.php'));
+        return $root;
+    }
+
+    private static function copyTree(string $source, string $destination): void
+    {
+        self::makeDirectory($destination);
+        foreach (scandir($source) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $from = $source . '/' . $entry;
+            $to = $destination . '/' . $entry;
+            if (is_dir($from) && !is_link($from)) {
+                self::copyTree($from, $to);
+                continue;
+            }
+            self::assertFalse(is_link($from));
+            self::write($to, (string) file_get_contents($from));
+        }
     }
 
     private static function write(string $path, string $bytes): void
