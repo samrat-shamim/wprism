@@ -41,10 +41,11 @@ name: duo-${DUO_PAIR}
 #                    always removed at close-gate, silently killing the
 #                    bind-mount source out from under any pair still using
 #                    it — the exact hazard this env var exists to close).
-#   DUO_MANIFESTS_SRC  same reasoning, for manifests/. (Not to be confused
-#                    with DUO_MANIFESTS_DIR below, the CONTAINER-side path
-#                    manifests/ is mounted TO — that one is fixed and
-#                    unaffected by any of this.)
+#   DUO_ADAPTER_PACKAGES_SRC
+#                    same reasoning, for adapter-packages/.
+#   DUO_PLATFORM_SRC same reasoning, for platform/. Together these two
+#                    source roots are the checked-in adapter library that the
+#                    source-mounted agent resolves without a runtime override.
 #   DUO_DB_HOST      which shared database server this pair's four services
 #                    resolve. Defaults below to duo-shared-db — db.yml's own
 #                    container_name — so a caller that sets nothing renders
@@ -54,11 +55,11 @@ name: duo-${DUO_PAIR}
 #                    server is sandbox/db.mysql.yml. The shipped platform
 #                    contract now claims MySQL 8.4 beside MariaDB 11 through
 #                    an engine-keyed map, with a PENDING note saying the live
-#                    proof has not run yet (manifests/capabilities/
-#                    platform.json), so such a pair is no longer refused on the
+#                    proof has not run yet (platform/adapter-library/
+#                    capabilities/platform.json), so such a pair is no longer refused on the
 #                    engine axis -- selecting it is how that proof is taken.
 #
-# DUO_AGENT_SRC/DUO_MANIFESTS_SRC/DUO_DB_HOST reach compose two ways at once, deliberately:
+# The three source roots and DUO_DB_HOST reach compose two ways at once, deliberately:
 # pair.sh's own subcommands get them via plain `export` (pair_compose_configure()),
 # but any OTHER script that invokes `pair.sh up` as a subprocess and then
 # makes its own separate `docker compose -f pair.yml ...` calls afterward
@@ -94,7 +95,6 @@ x-wp-env-base: &wp-env-base
   WORDPRESS_DB_USER: wordpress
   WORDPRESS_DB_PASSWORD: wordpress
   WORDPRESS_DB_HOST: ${DUO_DB_HOST:-duo-shared-db}
-  DUO_MANIFESTS_DIR: /duo-manifests
   # The sandbox deliberately shares this one exact bind root between the host
   # fixture process and uid 33 in the WordPress/CLI containers. Git otherwise
   # rejects a host-owned /siterepo as dubious before `duo init` can reach its
@@ -121,7 +121,8 @@ services:
       - wp1:/var/www/html
       - ${DUO_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/duo:ro
       - ${DUO_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ${DUO_MANIFESTS_SRC}:/duo-manifests:ro
+      - ${DUO_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ${DUO_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/${DUO_PAIR}1:/siterepo
       # The engine-keyed db-client shim (see bin/db-client-shim.sh's header for
       # the measured TLS default-mismatch it exists for). /usr/local/bin
@@ -162,7 +163,8 @@ services:
       - wp2:/var/www/html
       - ${DUO_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/duo:ro
       - ${DUO_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ${DUO_MANIFESTS_SRC}:/duo-manifests:ro
+      - ${DUO_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ${DUO_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/${DUO_PAIR}2:/siterepo
       # The engine-keyed db-client shim (see bin/db-client-shim.sh's header for
       # the measured TLS default-mismatch it exists for). /usr/local/bin

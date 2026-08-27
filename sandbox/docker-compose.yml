@@ -19,7 +19,6 @@ x-wp-env: &wp-env
   WORDPRESS_DB_USER: wordpress
   WORDPRESS_DB_PASSWORD: wordpress
   WORDPRESS_DB_NAME: wordpress
-  DUO_MANIFESTS_DIR: /duo-manifests
   WORDPRESS_CONFIG_EXTRA: |
     define('WP_ENVIRONMENT_TYPE', 'local');
 
@@ -40,7 +39,8 @@ services:
       - wpa:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/a:/siterepo
 
   cli-a:
@@ -69,7 +69,8 @@ services:
       - wpb:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/b:/siterepo
 
   cli-b:
@@ -103,7 +104,8 @@ services:
       - wpc:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/c:/siterepo
 
   cli-c:
@@ -138,7 +140,8 @@ services:
       - wpe1:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/e1:/siterepo
 
   cli-e1:
@@ -170,7 +173,8 @@ services:
       - wpe2:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/e2:/siterepo
 
   cli-e2:
@@ -202,7 +206,8 @@ services:
       - wpconf1:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/conf1:/siterepo
 
   cli-conf1:
@@ -234,7 +239,8 @@ services:
       - wpconf2:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/conf2:/siterepo
 
   cli-conf2:
@@ -266,7 +272,8 @@ services:
       - wpfx1:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/fx1:/siterepo
 
   cli-fx1:
@@ -298,7 +305,8 @@ services:
       - wpfx2:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/fx2:/siterepo
 
   cli-fx2:
@@ -339,7 +347,8 @@ services:
       - wpr1a1:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/r1a1:/siterepo
 
   cli-r1a1:
@@ -377,7 +386,8 @@ services:
       - wpr1a2:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/r1a2:/siterepo
 
   cli-r1a2:
@@ -422,7 +432,8 @@ services:
       - wpr1b1:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/r1b1:/siterepo
 
   cli-r1b1:
@@ -460,7 +471,8 @@ services:
       - wpr1b2:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/r1b2:/siterepo
 
   cli-r1b2:
@@ -515,7 +527,8 @@ services:
       - wpr1c1:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/r1c1:/siterepo
       # NEW, the point of this profile — see the block comment above: this
       # environment's OWN site-repo checkout's code/ tree, not a shared
@@ -557,7 +570,8 @@ services:
       - wpr1c2:/var/www/html
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/r1c2:/siterepo
       # per-env code source — see wp-r1c1's comment above (r1c2's own checkout).
       - ./siterepo/r1c2/code/wp-content/plugins/duo-agency-cpt:/var/www/html/wp-content/plugins/duo-agency-cpt:ro

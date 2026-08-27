@@ -47,7 +47,8 @@ for pair_path in "$SITE" "$OTHER_SITE" "$ORIGIN"; do
   fi
 done
 
-# The pair bind-mounts the checkout's agent/manifests and the scenario mutates
+# The pair bind-mounts the checkout's agent, adapter packages, and platform
+# library while the scenario mutates
 # disposable repositories below sandbox/.  A linked worktree has a separate
 # worktree git-dir but shares the primary checkout's common git-dir; starting
 # a live pair from it can therefore bind a checkout that disappears while the
@@ -56,8 +57,9 @@ done
 # Keep the invalid-name and pre-existing-root probes above first so they remain
 # cheap, side-effect-free diagnostics even from a dirty agent worktree.
 assert_clean_live_checkout() {
-  local checkout_root git_dir common_dir common_root env_file expected_agent expected_manifests
-  local mounted_agent mounted_manifests
+  local checkout_root git_dir common_dir common_root env_file
+  local expected_agent expected_packages expected_platform
+  local mounted_agent mounted_packages mounted_platform
   command -v git >/dev/null 2>&1 || fail 'required command is missing: git'
   checkout_root="$(cd "$REPO_ROOT" && pwd -P)"
   git_dir="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-dir 2>/dev/null)" \
@@ -72,17 +74,22 @@ assert_clean_live_checkout() {
     fail "refusing live mutation from a dirty checkout; use a clean primary or standalone exact-HEAD clone"
   fi
   expected_agent="$checkout_root/agent"
-  expected_manifests="$checkout_root/manifests"
+  expected_packages="$checkout_root/adapter-packages"
+  expected_platform="$checkout_root/platform"
   env_file="$checkout_root/sandbox/.env"
   if [ -e "$env_file" ]; then
     mounted_agent="$(sed -n 's/^DUO_AGENT_SRC=//p' "$env_file" | head -1)"
-    mounted_manifests="$(sed -n 's/^DUO_MANIFESTS_SRC=//p' "$env_file" | head -1)"
-    if [ "$mounted_agent" != "$expected_agent" ] || [ "$mounted_manifests" != "$expected_manifests" ]; then
+    mounted_packages="$(sed -n 's/^DUO_ADAPTER_PACKAGES_SRC=//p' "$env_file" | head -1)"
+    mounted_platform="$(sed -n 's/^DUO_PLATFORM_SRC=//p' "$env_file" | head -1)"
+    if [ "$mounted_agent" != "$expected_agent" ] \
+        || [ "$mounted_packages" != "$expected_packages" ] \
+        || [ "$mounted_platform" != "$expected_platform" ]; then
       fail "refusing live mutation with stale canonical mount registry $env_file; remove it or refresh pair.sh from the clean checkout"
     fi
   fi
   [ -d "$expected_agent" ] || fail "refusing live mutation: canonical agent mount source is absent: $expected_agent"
-  [ -d "$expected_manifests" ] || fail "refusing live mutation: canonical manifest mount source is absent: $expected_manifests"
+  [ -d "$expected_packages" ] || fail "refusing live mutation: canonical adapter-package mount source is absent: $expected_packages"
+  [ -d "$expected_platform" ] || fail "refusing live mutation: canonical platform mount source is absent: $expected_platform"
 }
 ENVS_FILE="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-envs.XXXXXX")"
 V1_INPUTS="$(mktemp -d "${TMPDIR:-/tmp}/duo-ecommerce-v1.XXXXXX")"

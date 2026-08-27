@@ -471,7 +471,7 @@ TARGET_TEE_UNCHANGED_HELPER_GOLDEN_HASH=d2dba3b69d1c9faba4ee697313197c02616d7686
 TARGET_ORDER_SNAPSHOT_HELPER_GOLDEN_HASH=7bfecd258305c19f28e31c9058ede01bfbc844479030369fc7e14f83d03bcfb8
 TARGET_ORDER_ABSENT_HELPER_GOLDEN_HASH=25473f5c9ff32ce4ae0834dcda96c10bd5eca04a4f0577254bbf63087ad7c99d
 DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH=bd7116812eb69a82f6f3cc8b3594955be85ce4983d9395645cbe79418dd286ba
-LIVE_CHECKOUT_HELPER_GOLDEN_HASH=72273ab8fa6e7ee1da62ee11bc029098a2215338153aaf7a0861f749bef704f5
+LIVE_CHECKOUT_HELPER_GOLDEN_HASH=14acd3e360a12129a103219551ccd46699d0a485d815c533d1b6bd5fc0006233
 DEPLOY_ARTIFACT_FILES_HELPER_GOLDEN_HASH=74c60dc1cd6c256058840f36863e0f14e8b84c994a97036642e6ba0bf3d53eb4
 NEW_DEPLOY_ARTIFACT_HELPER_GOLDEN_HASH=021e208799477388afb71a60c933bd8ceab7145a48485c7f319f9687a569ff1d
 PROMOTE_ARTIFACT_HELPER_GOLDEN_HASH=9fc8327f20d2796edeee613f0bbdb8db2208802f40b8aacd8aafd36a7710c15b
@@ -803,7 +803,8 @@ assert_helper_contracts live-checkout "$LIVE_CHECKOUT_HELPER_BLOCK" "$LIVE_CHECK
   '[ -f "$REPO_ROOT/.git" ]' 'live checkout guard does not reject a linked-worktree .git file' \
   'git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all' 'live checkout guard does not reject dirty source bytes' \
   'DUO_AGENT_SRC=' 'live checkout guard does not validate the canonical agent mount source' \
-  'DUO_MANIFESTS_SRC=' 'live checkout guard does not validate the canonical manifests mount source'
+  'DUO_ADAPTER_PACKAGES_SRC=' 'live checkout guard does not validate the canonical adapter-package mount source' \
+  'DUO_PLATFORM_SRC=' 'live checkout guard does not validate the canonical platform mount source'
 block_contains prelude "$PRELUDE_BLOCK" '[[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]]' 'invalid-name probe disappeared before live checkout mutation'
 block_contains prelude "$PRELUDE_BLOCK" 'for pair_path in "$SITE" "$OTHER_SITE" "$ORIGIN"; do' 'pre-existing-root probe disappeared before live checkout mutation'
 block_contains prelude "$PRELUDE_BLOCK" 'refusing to reuse pre-existing pair path' 'pre-existing-root refusal disappeared before live checkout mutation'

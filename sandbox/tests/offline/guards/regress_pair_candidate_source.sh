@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression — DUO-3377: pair.sh's exact-source gate for live evidence.
 #
-# DUO-3277 made every pair's agent/manifests bind mounts resolve to the
+# DUO-3277 made every pair's agent/adapter-packages/platform bind mounts resolve to the
 # CANONICAL checkout through git's own common-dir, so a persistent pair can
 # outlive the per-issue worktree that created it. The unintended consequence
 # this suite pins down: a live regression or conformance sweep launched from
@@ -25,7 +25,7 @@
 #     shared DB, the pair databases, the site-repo roots, and any container;
 #   - gate set to the source's own commit: proceeds (a source assertion, not
 #     a ban on worktrees);
-#   - uncommitted agent/manifests bytes: refusal, same fail-closed point;
+#   - uncommitted agent/adapter-packages/platform bytes: refusal, same fail-closed point;
 #   - `reset` (a sweep's first mutation) is gated ahead of DROP/CREATE;
 #   - `start` verifies the source BAKED into existing containers, not what
 #     canonical_root() resolves today, reading BOTH of them and refusing when
@@ -131,8 +131,8 @@ log="${DUO_PAIR_TEST_LOG:?}"
 {
   printf 'docker'
   for arg in "$@"; do printf ' <%s>' "$arg"; done
-  printf ' env[DUO_AGENT_SRC]=%s env[DUO_MANIFESTS_SRC]=%s\n' \
-    "${DUO_AGENT_SRC:-}" "${DUO_MANIFESTS_SRC:-}"
+  printf ' env[DUO_AGENT_SRC]=%s env[DUO_ADAPTER_PACKAGES_SRC]=%s env[DUO_PLATFORM_SRC]=%s\n' \
+    "${DUO_AGENT_SRC:-}" "${DUO_ADAPTER_PACKAGES_SRC:-}" "${DUO_PLATFORM_SRC:-}"
 } >> "$log"
 
 if [ "${1:-}" = inspect ]; then
@@ -215,13 +215,15 @@ build_fixture() { # build_fixture <label>
   FAKE_BIN="$CASE_ROOT/fake-bin"
   LOG="$CASE_ROOT/docker.log"
   OUTPUT="$CASE_ROOT/output.log"
-  mkdir -p "$CANONICAL/sandbox/bin" "$CANONICAL/agent" "$CANONICAL/manifests" "$FAKE_BIN"
+  mkdir -p "$CANONICAL/sandbox/bin" "$CANONICAL/agent" "$CANONICAL/adapter-packages" \
+    "$CANONICAL/platform" "$FAKE_BIN"
   write_fake_docker "$FAKE_BIN"
 
   copy_pair_launcher "$CANONICAL/sandbox/bin"
   chmod +x "$CANONICAL/sandbox/bin/pair.sh"
   printf 'canonical (stale) agent bytes\n' > "$CANONICAL/agent/duo.php"
-  printf '{"canonical":true}\n' > "$CANONICAL/manifests/demo.json"
+  printf '{"canonical":true}\n' > "$CANONICAL/adapter-packages/demo.json"
+  printf '{"platform":true}\n' > "$CANONICAL/platform/demo.json"
   git -C "$CANONICAL" init -q -b main .
   git_scratch "$CANONICAL" add -A
   git_scratch "$CANONICAL" commit -qm "canonical checkout state"
@@ -266,7 +268,7 @@ run_unset_gate_documents_stale_source_case() {
   build_fixture "$label"
 
   # Prior (pre-DUO-3377) behavior, byte for byte: the run succeeds against
-  # the canonical checkout's agent/manifests even though it was launched from
+  # the canonical checkout's agent/adapter-packages/platform even though it was launched from
   # a worktree sitting on a different commit. It is now at least legible —
   # the source path and HEAD are printed — but nothing refuses, which is the
   # contract for every persistent-pair workflow DUO-3277 protects.
@@ -279,7 +281,7 @@ run_unset_gate_documents_stale_source_case() {
     "$label mounted the worktree's own agent source"
   assert_file_contains "$LOG" '<up> <-d> <wp1> <wp2>' \
     "$label did not create the pair's web containers"
-  assert_file_contains "$OUTPUT" "mounted source: $CANONICAL/{agent,manifests}" \
+  assert_file_contains "$OUTPUT" "mounted source: $CANONICAL/{agent,adapter-packages,platform}" \
     "$label did not print the mounted source path"
   assert_file_contains "$OUTPUT" "source HEAD:    $SHA_CANONICAL" \
     "$label did not print the mounted source HEAD"
@@ -312,7 +314,7 @@ run_mismatch_refusal_case() {
     "$label did not print the expected candidate SHA"
   assert_file_contains "$OUTPUT" "actual mounted source HEAD:         $SHA_CANONICAL" \
     "$label did not print the actual mounted source HEAD"
-  assert_file_contains "$OUTPUT" "actual mounted source:              $CANONICAL/{agent,manifests}" \
+  assert_file_contains "$OUTPUT" "actual mounted source:              $CANONICAL/{agent,adapter-packages,platform}" \
     "$label did not print the actual mounted source path"
   assert_file_contains "$OUTPUT" 'DUO_SOURCE_ROOT=$(pwd -P) DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)' \
     "$label did not name the linked-worktree source remedy"
@@ -327,14 +329,16 @@ run_worktree_source_case() {
   SOURCE_OVERRIDE="$WORKTREE" run_pair "$SHA_CANDIDATE" up "$pair" 9911 9912 --headless \
     || { cat "$OUTPUT" >&2; fail "$label refused the exact clean candidate worktree"; }
 
-  assert_file_contains "$OUTPUT" "mounted source: $WORKTREE/{agent,manifests}" \
+  assert_file_contains "$OUTPUT" "mounted source: $WORKTREE/{agent,adapter-packages,platform}" \
     "$label did not report the selected worktree"
   assert_file_contains "$OUTPUT" "source HEAD:    $SHA_CANDIDATE" \
     "$label did not report the candidate worktree HEAD"
   assert_file_contains "$LOG" "env[DUO_AGENT_SRC]=$WORKTREE/agent" \
     "$label did not mount the candidate worktree agent"
-  assert_file_contains "$LOG" "env[DUO_MANIFESTS_SRC]=$WORKTREE/manifests" \
-    "$label did not mount the candidate worktree manifests"
+  assert_file_contains "$LOG" "env[DUO_ADAPTER_PACKAGES_SRC]=$WORKTREE/adapter-packages" \
+    "$label did not mount the candidate worktree adapter packages"
+  assert_file_contains "$LOG" "env[DUO_PLATFORM_SRC]=$WORKTREE/platform" \
+    "$label did not mount the candidate worktree platform library"
   assert_file_lacks "$LOG" "env[DUO_AGENT_SRC]=$CANONICAL/agent" \
     "$label silently fell back to the canonical checkout"
   pass "$label: an explicit exact worktree is mounted and verified without moving the canonical checkout"
@@ -365,7 +369,7 @@ run_dirty_source_refusal_case() {
   local label=dirty_source pair=dirtysrc
   build_fixture "$label"
   printf 'uncommitted edit\n' >> "$CANONICAL/agent/duo.php"
-  printf '{"untracked":true}\n' > "$CANONICAL/manifests/scratch.json"
+  printf '{"untracked":true}\n' > "$CANONICAL/adapter-packages/scratch.json"
 
   # Right commit, wrong bytes: the mount would carry edits no commit records,
   # so the evidence could never be reproduced from the SHA it claims.
@@ -377,16 +381,16 @@ run_dirty_source_refusal_case() {
     "$label did not name the dirty mount source"
   assert_file_contains "$OUTPUT" 'agent/duo.php' \
     "$label did not list the modified mounted file"
-  assert_file_contains "$OUTPUT" 'manifests/scratch.json' \
+  assert_file_contains "$OUTPUT" 'adapter-packages/scratch.json' \
     "$label did not list the untracked mounted file"
   # Every porcelain line carries the two-space indent, not just the first:
   # printf with one multi-line argument silently indents only line one.
   grep -qE '^  [ M?]{1,2} .*agent/duo\.php' "$OUTPUT" \
     || fail "$label did not indent the modified-file line"
-  grep -qE '^  [ M?]{1,2} .*manifests/scratch\.json' "$OUTPUT" \
+  grep -qE '^  [ M?]{1,2} .*adapter-packages/scratch\.json' "$OUTPUT" \
     || fail "$label did not indent the second dirty line (multi-line listing lost its indent)"
   assert_no_pair_mutation "$label" "$CASE_ROOT" "$pair"
-  pass "$label: uncommitted agent/manifests bytes refuse before any mutation"
+  pass "$label: uncommitted agent/adapter-packages/platform bytes refuse before any mutation"
 }
 
 run_dirt_scoped_to_mounts_case() {
@@ -399,10 +403,10 @@ run_dirt_scoped_to_mounts_case() {
   # itself writes sandbox/.env and sandbox/siterepo/ into it). Only the bytes
   # that get mounted decide the verdict, or the gate would be unusable.
   run_pair "$SHA_CANONICAL" up "$pair" 9911 9912 --headless \
-    || { cat "$OUTPUT" >&2; fail "$label refused over dirt outside the mounted agent/manifests trees"; }
+    || { cat "$OUTPUT" >&2; fail "$label refused over dirt outside the mounted agent/adapter-packages/platform trees"; }
   assert_file_contains "$OUTPUT" "mounted source is exactly $SHA_CANONICAL, clean" \
     "$label did not accept a checkout whose dirt is all outside the mounts"
-  pass "$label: dirtiness is scoped to the mounted agent/manifests trees"
+  pass "$label: dirtiness is scoped to the mounted agent/adapter-packages/platform trees"
 }
 
 run_reset_gate_case() {
@@ -462,7 +466,7 @@ run_start_baked_source_case() {
   # source is the baked path rather than the canonical one.
   run_pair "$SHA_CANDIDATE" start "$pair" \
     || { cat "$OUTPUT" >&2; fail "$label refused a start whose baked source IS the expected commit"; }
-  assert_file_contains "$OUTPUT" "mounted source: $WORKTREE/{agent,manifests}" \
+  assert_file_contains "$OUTPUT" "mounted source: $WORKTREE/{agent,adapter-packages,platform}" \
     "$label did not print the baked mount source on the accepted start"
   assert_file_contains "$LOG" "<-p> <duo-$pair> <-f> <pair.yml> <start>" \
     "$label did not resume the pair after the gate passed"
@@ -675,18 +679,20 @@ run_parallel_compose_source_pin_case() {
   done
 
   (
-    unset PAIR_SOURCE_ROOT DUO_AGENT_SRC DUO_MANIFESTS_SRC
+    unset PAIR_SOURCE_ROOT DUO_AGENT_SRC DUO_ADAPTER_PACKAGES_SRC DUO_PLATFORM_SRC
     export DUO_SOURCE_ROOT="$ROOT"
     # shellcheck source=../../../lib/pair_identity.sh
     source "$identity"
     pair_identity_export_source_mounts
     [ "$DUO_AGENT_SRC" = "$ROOT/agent" ]
-    [ "$DUO_MANIFESTS_SRC" = "$ROOT/manifests" ]
+    [ "$DUO_ADAPTER_PACKAGES_SRC" = "$ROOT/adapter-packages" ]
+    [ "$DUO_PLATFORM_SRC" = "$ROOT/platform" ]
     # Model a parallel teardown selecting canonical bytes in shared .env.
     # Compose gives these exported values precedence, so neither may move.
-    printf 'DUO_AGENT_SRC=/stale/agent\nDUO_MANIFESTS_SRC=/stale/manifests\n' > "$TMP/stale.env"
+    printf 'DUO_AGENT_SRC=/stale/agent\nDUO_ADAPTER_PACKAGES_SRC=/stale/adapter-packages\nDUO_PLATFORM_SRC=/stale/platform\n' > "$TMP/stale.env"
     [ "$DUO_AGENT_SRC" = "$ROOT/agent" ]
-    [ "$DUO_MANIFESTS_SRC" = "$ROOT/manifests" ]
+    [ "$DUO_ADAPTER_PACKAGES_SRC" = "$ROOT/adapter-packages" ]
+    [ "$DUO_PLATFORM_SRC" = "$ROOT/platform" ]
   ) || fail "$label: caller-local candidate mounts did not survive a stale shared environment record"
   pass "$label: common adapter evidence lanes keep candidate mounts process-local across parallel pair teardown"
 }
@@ -741,7 +747,7 @@ run_expected_match_case
 say "uncommitted mounted bytes: refusal before any mutation"
 run_dirty_source_refusal_case
 
-say "unrelated dirt outside agent/manifests: still proceeds"
+say "unrelated dirt outside agent/adapter-packages/platform: still proceeds"
 run_dirt_scoped_to_mounts_case
 
 say "reset is gated ahead of DROP/CREATE"

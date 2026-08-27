@@ -84,8 +84,8 @@ log="${DUO_PAIR_TEST_LOG:?}"
 {
   printf 'docker'
   for arg in "$@"; do printf ' <%s>' "$arg"; done
-  printf ' env[DUO_AGENT_SRC]=%s env[DUO_MANIFESTS_SRC]=%s\n' \
-    "${DUO_AGENT_SRC:-}" "${DUO_MANIFESTS_SRC:-}"
+  printf ' env[DUO_AGENT_SRC]=%s env[DUO_ADAPTER_PACKAGES_SRC]=%s env[DUO_PLATFORM_SRC]=%s\n' \
+    "${DUO_AGENT_SRC:-}" "${DUO_ADAPTER_PACKAGES_SRC:-}" "${DUO_PLATFORM_SRC:-}"
 } >> "$log"
 
 # The artifact-cache branch intentionally executes the real bounded shell
@@ -509,7 +509,8 @@ run_case() {
   assert_file_contains "$log" "$mount1" "$label did not probe wp1 nested MU mount"
   assert_file_contains "$log" "$mount2" "$label did not probe wp2 nested MU mount"
   assert_file_contains "$log" "env[DUO_AGENT_SRC]=$canonical_root/agent" "$label did not use the canonical agent bind source"
-  assert_file_contains "$log" "env[DUO_MANIFESTS_SRC]=$canonical_root/manifests" "$label did not use the canonical manifests bind source"
+  assert_file_contains "$log" "env[DUO_ADAPTER_PACKAGES_SRC]=$canonical_root/adapter-packages" "$label did not use the canonical adapter-package bind source"
+  assert_file_contains "$log" "env[DUO_PLATFORM_SRC]=$canonical_root/platform" "$label did not use the canonical platform bind source"
   local recipe_env="DUO_PAIR=$pair DUO_PORT1=9911 DUO_PORT2=9912 DUO_CLI_IMAGE=${DUO_CLI_IMAGE:-wordpress:cli-php8.3}"
   [ -z "$codebind" ] || recipe_env="$recipe_env DUO_CODEBIND_PLUGIN=$codebind"
   assert_file_contains "$output" "$recipe_env docker compose -p duo-$pair" \
