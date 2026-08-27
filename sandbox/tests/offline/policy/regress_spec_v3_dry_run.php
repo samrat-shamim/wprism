@@ -45,8 +45,11 @@
  * partition, and the estate is untouched: what moved is the reader count (one
  * shipped reader, now two) and the two assertions that recorded F2 as open. The
  * fixtures' verdicts AT THIS ENGINE did not move at all, because the rule is
- * gated at `spec_version: 3` and every fixture here declares DUO_SPEC_VERSION —
- * which is the flag-day invariant rather than a gap.
+ * gated at `spec_version: 3` and every fixture here declares DUO_SPEC_VERSION.
+ * The shipped library now straddles v2/v3: Paid Memberships Pro is the first
+ * reviewed post-flag consumer, so the measurements below distinguish the
+ * partition from feature-roster classification instead of assuming every
+ * shipped manifest predates the flag.
  * `sandbox/tests/offline/policy/regress_closed_top_level_keys.php` drives the
  * same shapes at a synthetic N+1 engine, where they refuse by name.
  *
@@ -66,13 +69,13 @@
  * WP-1.6 requires the union of top-level keys actually in use across
  * `manifests/*.json` to be MEASURED against the 33-key signer partition and
  * the difference ENUMERATED, never assumed. It is measured below and the
- * difference is three findings, each asserted rather than reconciled:
+ * difference is asserted rather than reconciled:
  *
  *   F1  30 of the 33 partition keys are in use across the 16 shipped
- *       manifests, and the union contains NOTHING the partition does not know.
- *       So rule V3-KEYS refuses zero shipped adapters — the flag day is
- *       clean for this rule, which is the fact the program was assuming. Two of
- *       the other three are channels admitted in the change that reads them:
+ *       manifests, whose 31-key union also contains `engine_features` through
+ *       the disjoint feature roster. So rule V3-KEYS refuses zero shipped
+ *       adapters while still proving the channel is classified. Two of the
+ *       three unused partition keys are channels admitted in the change that reads them:
  *       WP-4.6's `environment` (§ v3.5) and WP-4.3's `theme_version_range`
  *       (§ v3.3 resolution 1), declared by none of the 16.
  *   F2  RESOLVED by WP-4.3. The finding was that the third unused partition key
@@ -422,9 +425,16 @@ foreach ($unionKeys as $key) {
 }
 $report('partition keys no shipped manifest declares: ' . ($knownUnused === [] ? '(none)' : implode(', ', $knownUnused)));
 
-// F1 — the difference, enumerated in both directions.
-duo_check_same([], $unknownInUse, 'F1: no shipped manifest declares a top-level key the signer partition does not know');
-duo_check_same(30, count($unionKeys), 'F1: the in-use union is 30 keys');
+// F1 — the difference, enumerated in both directions. `engine_features` is
+// intentionally outside the closed partition: § v3.21 classifies feature keys
+// in the disjoint roster, preserving the rule that a manifest may use the
+// channel only when it declares the feature that claims it.
+duo_check_same(
+    ['engine_features'],
+    $unknownInUse,
+    'F1: the only shipped top-level key outside the signer partition is the feature channel, classified by its roster arm'
+);
+duo_check_same(31, count($unionKeys), 'F1: the in-use union is 31 keys — 30 partition keys plus the feature channel');
 // Three keys the partition admits and no shipped adapter declares, and they are
 // there for different reasons: `theme` predates the library's plugin-only
 // contents; `environment` is WP-4.6's narrowing channel and `theme_version_range`
@@ -675,13 +685,27 @@ $featureDeclarers = array_values(array_filter(
     array_keys($shipped),
     static fn(string $n): bool => array_key_exists('engine_features', $shipped[$n])
 ));
+$featureBreaks = array_values(array_filter(
+    $featureDeclarers,
+    static fn(string $n): bool => $validatorVerdict($shipped[$n]) !== null
+));
 
 $report('shipped manifests declaring `engine_features`: ' . count($featureDeclarers));
+$report('would-refuse under V3-FEAT at their declared versions: ' . count($featureBreaks));
 $report('shipped code reading `engine_features`: ' . ($featureReaders === [] ? '(none)' : implode(', ', $featureReaders)));
 $report('engine features this engine implements: '
     . implode(', ', \Duo\AdapterContractGrammar::implemented_features()));
 
-duo_check_same([], $featureDeclarers, 'V3-FEAT: no shipped manifest declares `engine_features`, so the channel starts empty and moves no digest');
+duo_check_same(
+    ['paid-memberships-pro'],
+    $featureDeclarers,
+    'V3-FEAT: PMPro is the first shipped declarer, paying one adapter identity change to consume a generic primitive'
+);
+duo_check_same(
+    [],
+    $featureBreaks,
+    'V3-FEAT: every shipped declarer is already at the feature channel version, so the current library has no channel refusal'
+);
 // THE FLIP (WP-4.2). This suite's header states that a rider landing a rule
 // moves the assertion that measured its absence and NOT the fixtures. This is
 // that assertion for V3-FEAT: the channel acquired exactly one shipped reader,
@@ -1203,7 +1227,7 @@ duo_check_same([], $collisions, 'V3-NS: no id_kind is claimed by two shipped ada
 echo "\nFLAG-DAY BREAK LIST (shipped library only)\n";
 $breakList = [
     'V3-KEYS  closed top-level key set' => count($shippedBreaks),
-    'V3-FEAT  engine_features channel' => count($featureDeclarers),
+    'V3-FEAT  engine_features channel' => count($featureBreaks),
     'V3-DISP  per-adapter dispositions' => count($missingEntry) + count($unsafeNames) + count($canonUnstable),
     'V3-AXIS  per-adapter environment narrowing' => 0,
     'V3-NS    namespace prefixing (as a REFUSAL)' => count($unprefixed['adapter name']) + count($unprefixed['tables.*.id_kind']),

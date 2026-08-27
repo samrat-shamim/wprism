@@ -263,7 +263,6 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** `tables` (15 keys)
 - **Declared fields:** `options` (138 keys), `option_namespaces` (1 rules), `option_patterns` (5 rules)
-- **Adapter hooks:** 1 provider, 1 structured action
 - **Deletions supported:** `table:pmpro_discount_codes_levels`, `table:pmpro_membership_levels_groups`, `table:pmpro_memberships_categories`, `table:pmpro_memberships_pages`
 - **Deletions unsupported:** table:pmpro_membership_levels, table:pmpro_discount_codes, table:pmpro_groups, runtime membership/payment state
 - **Exercised by:** `conformance-paid-memberships-pro`, `exact-artifact-version-matrix`

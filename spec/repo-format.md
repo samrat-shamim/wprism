@@ -767,13 +767,13 @@ authority on its rule***. `DUO_SPEC_VERSION` is `3` (`agent/duo.php:13`) and
 what it did and did not move.
 
 **What "v3 is in force" means, stated precisely, because it is easy to over-read.** It means the WIRE
-VERSION IS 3 and the acceptance window is therefore `{2, 3}`. It does NOT mean anything was re-stamped:
-every one of the 16 shipped manifests still declares `spec_version: 2`, every deployed repository still
-declares whatever its adopting agent wrote, and both keep loading — which is precisely why not one
-adapter digest, `manifest_hash`, content pin or compiled artifact moved on the flag day. A rule in this
-section gated at `spec_version: 3` is now REACHABLE through the product path, and it reaches exactly the
-documents that declare 3: today that is none of the shipped library and no repository that has not been
-deliberately migrated.
+VERSION IS 3 and the acceptance window is therefore `{2, 3}`. It did NOT restamp anything on the flag day:
+all 16 shipped manifests then remained at `spec_version: 2`, every deployed repository retained whatever
+its adopting agent wrote, and not one adapter digest, `manifest_hash`, content pin or compiled artifact
+moved because the defines changed. Per-adapter migration is the intended later path: Paid Memberships Pro
+is now the first shipped manifest deliberately stamped to 3, paying its own identity change to consume
+`invalidate-vocabulary/v1`; the other 15 remain at 2. A v3-gated rule therefore reaches only a document
+that deliberately opts into it, never the retained library or repository population as a side effect.
 
 Four rules were already in force before the bump — the acceptance window and the `engine_features`
 channel (§ v3.1, § v3.2), environment narrowing (§ v3.5) and authority record v2 (§ v3.7) — and that was
@@ -806,7 +806,7 @@ evidence before this line changes.
 | § | rule | rider | enforced today |
 |---|---|---|---|
 | v3.1 | N/N-1 acceptance window, per-section refusal by name | WP-4.2 / WP-4.12 | YES — {2, 3}, for a manifest AND for `site.duo.json`; floor gated at release |
-| v3.2 | `engine_features` declaration channel | WP-4.2 / WP-6.1 | YES, DECLARABLE, and USED — three implemented features, all since `spec_version: 3`; two of them post-v3 grammar sections that shipped with no bump; no shipped declarer |
+| v3.2 | `engine_features` declaration channel | WP-4.2 / WP-6.1 | YES, DECLARABLE, and USED — six implemented features; PMPro is the first shipped declarer, consuming the post-v3 invalidate vocabulary with no version bump |
 | v3.3 | closed top-level key set and its growth rule | WP-4.3 | YES at `spec_version: 3`, live through the product path since the flip; open at v2; one set, gated at release |
 | v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | LAYOUT yes — one document per subject; ADDRESSING no — still one whole-document hash |
 | v3.5 | per-adapter environment narrowing | WP-4.6 | YES at `spec_version: 3`; inert at v2 |
@@ -882,9 +882,10 @@ letter drops a plugin's authored rows out of canonical state.
 
 **Rider: WP-4.2. Enforced today: yes.** `AdapterContractGrammar::IMPLEMENTED_FEATURES` is the engine-owned
 vocabulary, `validate_adapter_contract()` refuses a declared name it does not carry, and register row R-19
-records what a name costs once one is declared. No shipped manifest declares the key — that is § v3.12's
-no-restamp rule, not an empty channel: the key is a v3-only section (§ v3.1), so it is declarable exactly
-when a manifest can declare `spec_version` 3, which is the flip.
+records what a name costs once one is declared. Paid Memberships Pro is the first shipped manifest to
+declare the key, using it to negotiate the generic invalidation verb that replaced its provider. The key
+is a v3-only section (§ v3.1), so every use is an explicit per-adapter migration rather than a silent read
+by an older manifest grammar.
 
 A manifest may declare `"engine_features": ["<feature>", …]`, a sorted, duplicate-free, non-empty list of
 the engine features its declarations depend on. An engine that implements every listed feature loads the
@@ -899,7 +900,7 @@ its name, the first `spec_version` its sections exist at, and the top-level keys
 constant in the engine, because a feature that is implemented while its section is unknown (or the
 reverse) is precisely the silent mis-read the channel exists to remove.
 
-This engine implements five features, and the first one is what the other four ride:
+This engine implements six features, and the first one is what the other five ride:
 
 - **`spec-window/v1`** — the acceptance window of § v3.1 and this channel itself, claiming the
   `engine_features` key from `spec_version` 3. It is a real entry, not a placeholder — the channel's own
@@ -935,6 +936,8 @@ stayed open beside it.
 - **`invalidate-vocabulary/v1`** (WP-6.2, § v3.15) — claims NO top-level key: it widens the
   `tables.<t>.invalidate[]` verb vocabulary with `{cache_group, cache_key}` inside a section that already
   exists, the row that shows a feature can stage a VALUE-vocabulary change without inventing a section.
+- **`structured-body-refs/v1`** (WP-6.5, § v3.20) — claims `body_refs` and admits the `json` post-body
+  mode under one feature, so a document cannot declare either inert half without the other.
 
 
 A feature need not claim a key at all. WP-6.2 is the worked example: `invalidate-vocabulary/v1` widens a
@@ -943,16 +946,9 @@ empty and § v3.3's partition does not move. The channel gates the value the sam
 section — declared-and-implemented admits it, declared-and-unimplemented refuses by feature name — which
 is what let a grammar change ship after the flip with nothing re-stamped (§ v3.15).
 
-This engine implements two features. **`spec-window/v1`** is the acceptance window of § v3.1 and this
-channel itself, claiming the `engine_features` key from `spec_version` 3. It is a real entry, not a
-placeholder — the channel's own requirement is that one feature the engine IMPLEMENTS exists on the day it
-ships, so that "declared and implemented admits the claimed key" is a path something walks rather than an
-argument about admissibility. That path is walked in
-`sandbox/tests/offline/policy/regress_spec_window.php` against a synthetic `spec_version` 3 engine, which
-is the only place it can be walked before the flip. **`invalidate-vocabulary/v1`** is § v3.15's, and it is
-the first to arrive through the channel rather than beside it. Because `spec-window/v1` is what claims the
-`engine_features` key, a manifest reaching any other feature declares BOTH names — the channel's own
-admission is not free, and that is the growth rule working rather than an awkwardness in it.
+PMPro is the first shipped adapter to walk that path: it declares both `spec-window/v1` and
+`invalidate-vocabulary/v1`, because the first claims the channel key and the second widens the value
+vocabulary. That paired declaration is the growth rule working, not redundant metadata.
 
 Feature names are engine-owned: an adapter may declare one, never mint one. A name nothing implements is
 refused as unimplemented rather than admitted as forward-looking — the honest-refusal posture, which is
@@ -1573,7 +1569,7 @@ adapter, which is the case the list exists to keep loading.
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
 
-- 16 adapter names, 18 `id_kind`s, 11 provider ids = 45 identities, all of which already pass the one
+- 16 adapter names, 18 `id_kind`s, 10 provider ids = 44 identities, all of which already pass the one
   shared grammar;
 - a bare `<vendor>-<name>` refusal would break **24** of them — the 6 adapter names carrying no hyphen at
   all (`acf`, `core`, `elementor`, `polylang`, `woocommerce`, `yoast`) and all 18 `id_kind`s, every one of
@@ -1581,9 +1577,9 @@ rule V3-NS, against the shipped library):
 - the other 10 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
   vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 16
   names and all 18 `id_kind`s;
-- all 11 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
-  convention is de facto in force. (#561 added the eleventh,
-  `the-events-calendar-category-colors`, which the same first-segment convention already covers.)
+- all 10 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
+  convention is de facto in force. (#561 added `the-events-calendar-category-colors`; WP-6.2 later retired
+  `paid-memberships-pro-cache` when the generic invalidation primitive absorbed its behavior.)
 
 **`id_kind` prefixing can never become a RULE, and v3 does not make it one.** The irreversibility register
 rules on this at R-17: captured state and `duo_map` rows embed the BARE kind, so a prefix rule introduced
@@ -1701,14 +1697,18 @@ substitutable for another:
 1. **Declarative sufficiency.** The engine-gap ledger shows a residual demand that still requires
    executable repair AFTER the declarative primitives land, and the `compatibility_shim` share of NEWLY
    authored adapters has fallen below a threshold stated in advance of the measurement. The baseline is
-   today's, measured over the shipped library: 11 of the 16 adapters name manifest-shipped hook code, and
-   that code is 16 files totalling 14,222 lines under `manifests/{interpreters,providers,regenerators}`.
+   today's, measured over the shipped library: 10 of the 16 adapters name manifest-shipped hook code, and
+   that code is 15 files totalling 13,989 lines under `manifests/{interpreters,providers,regenerators}`.
    The baseline more than doubled with #561 alone — one adapter reaching production-readiness added a TEC
    interpreter and a Category Colors provider and rewrote its regenerator. Polylang then added the sixteenth
    hook file and 1,828 lines through its reviewed production-readiness port — which is the condition arguing
    against itself, and is recorded here rather than smoothed away. The later reviewed empty-catalog
-   lifecycle correction added seven lines to that measured hook surface; this baseline is re-measured rather
-   than preserving a stale threshold.
+   lifecycle correction added seven lines to that measured hook surface. WP-6.2 then supplied the first
+   concrete reversal: PMPro moved its exact cache postcondition onto the generic invalidation primitive,
+   retiring one adapter and 233 provider lines from this surface. This baseline is re-measured rather than
+   preserving a stale threshold. The per-file ownership and absorption verdicts are reviewed in
+   `tools/adapter-executable-inventory.json`; `regress_spec_v3_document.php` refuses an omitted, stale,
+   mis-owned, or miscounted row.
 2. **Falsifiable effects.** Declared-effect verification is live and REFUSING, with a measured
    false-refusal rate on the shipped 16 below a stated threshold — because the compiled inventory is
    recovery's entire authority, and under-declaring `effects[]` is the cheapest way for an adapter to pass.
@@ -1747,13 +1747,14 @@ and `manifest_hash` for seven representative pin sets and compares them against
 `sandbox/tests/fixtures/spec-v3/pre-flag-identity.json` — a document captured from the tree BEFORE the
 defines moved, in the same change, and never regenerated since.
 
-- **No shipped manifest is re-stamped to `spec_version: 3`.** This is the central exclusion and the reason
-  the bump is survivable and reversible. Stamping moves every manifest's bytes, therefore every adapter
-  digest, therefore every `manifest_hash`, therefore every deployed site's
-  `compiled_artifact_manifest_mismatch` (`agent/src/Repository/CompiledArtifactReader.php:56`) and every
-  `site.duo.json` content pin — simultaneously, for zero capability gained on the day it is paid. The
-  shipped library stays at `spec_version: 2` inside the window (§ v3.1) and migrates one adapter at a
-  time, each moving only its own digest and only for the sites that pin it.
+- **No shipped manifest was re-stamped by the flag-day bump.** This was the central exclusion that made the
+  bump survivable and reversible. Stamping all manifests would have moved every adapter digest, every
+  `manifest_hash`, every deployed site's compiled artifact, and every `site.duo.json` content pin
+  simultaneously for zero capability gained on that day. The promised later path is now exercised once:
+  Paid Memberships Pro moved to `spec_version: 3` to consume `invalidate-vocabulary/v1`, retiring its
+  233-line provider and moving only its own digest and the sites that pin it. The other 15 shipped
+  manifests remain at 2 inside the window (§ v3.1). Operators recompile and re-pin PMPro; there is no
+  fallback to its retired provider.
 - **No DEPLOYED REPOSITORY is re-stamped either, and it does not need to be.** `site.duo.json`'s own
   `spec_version` is the same wire integer with a larger population — every site has one, and no site
   author chose it. It is judged against the window (§ v3.1), so a repository declaring `2` compiles
@@ -1794,27 +1795,26 @@ defines moved, in the same change, and never regenerated since.
   certificate already names, reusing `created_at` when a re-sign is byte-identical so an unchanged input
   mints nothing, and restoring `adapters/authorities.json` to its prior bytes if any signature fails.
 - **The executable lane does not open** (§ v3.11). Only its reservations ride.
-- **No new declarative primitive rides the bump.** Each is a v3-only section that stages through the
-  window the bump installs, one at a time — which is also the cheapest available proof that v3 was the
-  last flag day.
+- **No new declarative primitive rode the bump itself.** Each stages later through the window or feature
+  channel, one adapter at a time. PMPro's later invalidation migration is the worked product example: the
+  engine version did not move, while one adapter opted into a feature and paid one identity change.
 - **Nothing widens the platform boundary.** v3 makes a NARROWER environment declarable (§ v3.5); it never
   widens what the boundary CLAIMS. `site_mode: single-site` is unchanged.
 - **v2 acceptance is not retired.** Removing the old version on the day the window is installed would make
   v3 a flag day of exactly the kind this section exists to end. The window closes by a dated decision,
   gated on fleet telemetry showing no v2-declaring pinned manifests plus at least one grammar section
   shipped post-v3 through `engine_features` with no bump — the replacement mechanism proven before the
-  thing it replaces is retired. **The second half of that condition is MET**: `declaration_evidence`
-  shipped post-v3 through the channel with `DUO_SPEC_VERSION` unmoved (§ v3.13, WP-6.4). The first half is
-  fleet telemetry and is not, so the window stays open; what changed is that the condition is now one
-  measurement away from decidable rather than two.
+  thing it replaces is retired. **The second half of that condition is MET**, and PMPro is now a shipped
+  consumer of `invalidate-vocabulary/v1` with `DUO_SPEC_VERSION` unmoved (§ v3.15, WP-6.2). The first half
+  is fleet telemetry and is not met, so the window stays open.
 
 Rollback, until that dated decision, is the shipped atomic bundle swap run backwards: redeploying the
-prior `agent manifests recovery` archive restores the v2 agent AND the manifest library it shipped with,
-as one archive through the four atomic journal surfaces (`Adopt.php:322-350`), so there is no partial
-state to be in. It is clean because no manifest and no repository declares 3 and no SHIPPED digest moved,
-so every shipped pin matches and `platform.json` reverts to the bytes every pre-flag certificate signed
-over — those certificates verify again, and `regress_spec_migration_rehearsal.php` proves the round trip
-by driving an estate A→B→A and asserting the second state-A observation is byte-identical to the first.
+prior `agent manifests recovery` archive restores the v2 agent AND the v2 manifest library it shipped
+with, as one archive through the four atomic journal surfaces (`Adopt.php:322-350`), so there is no partial
+runtime/library state. The original flag-day rehearsal remains clean because its captured A/B estate
+predates later per-adapter restamps. A site that has adopted the current PMPro digest must instead restore
+or recompile against the old PMPro manifest as part of that bundle rollback; its current pin cannot match
+both identities, which is the explicit cost of the first act below.
 
 The one thing an operator must redo in each direction is certificates, and the two things that follow
 them: `duo adapter recertify` signs against whatever boundary is installed, so it is bidirectional by
@@ -1823,11 +1823,13 @@ an artifact recompiled AFTER the flip refuses until it is recompiled again. That
 crossed, not a defect in the rollback; an operator who declines the backward re-mint lands on
 `uncertified`, which is honest and non-blocking.
 
-**Exactly three acts make it lossy, and each is one-way for its own reason.** They are named here and
-forbidden by gate G3 in the runbook until a dated decision opens them:
+**Exactly three acts make it lossy, and each is one-way for its own reason.** They are named here. The
+first has now been taken deliberately by PMPro's engine-absorption migration; the second remains absent,
+and the third follows the certificate rollout described above:
 
-1. **The first shipped manifest stamped `spec_version: 3`.** The N-1 agent's window is {1, 2}, so it
-   refuses that manifest wholesale and any site pinning it cannot load until the pin is removed.
+1. **The first shipped manifest stamped `spec_version: 3` — now Paid Memberships Pro.** The N-1 agent's
+   window is {1, 2}, so it refuses that current manifest wholesale. A rollback must restore the prior
+   manifest and recompile/re-pin sites that adopted the new digest; copying only the old agent is invalid.
 2. **The first REPOSITORY re-stamped to `spec_version: 3`.** Same window, other carrier: the restored
    agent refuses to compile that repository at all. This act is the one a routine "tidy the version
    field" commit could perform by accident, which is why no verb performs it.
@@ -2021,8 +2023,10 @@ easiest to abuse — chasing per-plugin behaviour into the engine one verb at a 
 boundary text refuses. So a verb enters on TWO OR MORE INDEPENDENT DEMANDS in the engine-gap ledger and
 the shipped provider corpus, and on nothing less:
 
-- `manifests/providers/paid-memberships-pro-cache.php:92` drops
-  `wp_cache_delete(<level id>, 'pmpro_membership_level_meta')` — the id on the KEY side;
+- Paid Memberships Pro's former provider dropped
+  `wp_cache_delete(<level id>, 'pmpro_membership_level_meta')` — the id on the KEY side. Its shipped
+  declaration now lives at `tables.pmpro_membership_levels.invalidate` in
+  `manifests/paid-memberships-pro.json`;
 - `manifests/providers/woocommerce-product-lookups.php:1301` drops
   `wp_cache_delete('lookup_table', 'object_<product id>')` — the id on the GROUP side, in an unrelated
   plugin. It is the second demand that made the rule "`{id}` in either member" rather than a
@@ -2051,14 +2055,14 @@ manifest exists and which must reach the same verdict there as it did at load. `
 a feature by writing `engine_features` into its own policy object.
 
 **What it bought, measured.** Paid Memberships Pro's entire executable surface was one `actions[]` entry,
-one `providers[].source: "manifest"` row, and a provider whose whole product act is that
-`wp_cache_delete()` in a loop. All three are replaceable by one declarative line, which drops the adapter
-from `compatibility_shim` to `declarative_manifest` — G5 condition 1's "the answer is more declarative
-primitives" performed once, on a real adapter. The demonstration is a synthetic fixture derived from the
-shipped manifest's bytes at runtime and driven through the real `duo manifest-validate`
-(`sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php`); the shipped manifest is deliberately
-NOT re-stamped, because a byte under `manifests/` is adapter identity and moving it would cost every pin
-and certificate over that adapter for a point already proven.
+one `providers[].source: "manifest"` row, and a 233-line provider whose whole product act was that
+`wp_cache_delete()` in a loop plus its private verification projection. All three have been replaced by one
+declarative line, dropping the shipped adapter from `compatibility_shim` to `declarative_manifest` — G5
+condition 1's "the answer is more declarative primitives" performed once on a real adapter. The engine
+proves the exact cache entry absent, and the product regression then observes the committed value through a
+faithful PMPro API read (`sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php`).
+The migration intentionally re-stamps the adapter identity, so deployed artifacts must be recompiled and
+re-pinned; there is no fallback to the retired provider.
 
 ### v3.16 The reviewer tier: federating the `exercised` leg
 
@@ -2418,8 +2422,9 @@ the plugin instead of through `wp post create --post_content=…`.
 ### v3.21 The certificate ARM rides in the feature's roster row
 
 **Rider: WP-6.6. Enforced today: yes, for every manifest that declares an implemented engine feature.**
-`DUO_SPEC_VERSION` did not move; no shipped manifest declares a feature, so no adapter digest moves
-(AGENTS.md rule 2). Register row R-31.
+`DUO_SPEC_VERSION` did not move. PMPro now deliberately moves its own adapter digest as the first shipped
+feature consumer; adding the feature vocabulary itself still moved no unrelated adapter (AGENTS.md rule 2).
+Register row R-31.
 
 **What was measured.** § v3.2's channel admits a top-level key at LOAD. § v3.3's partition is what a
 SIGNER classifies with. Those were two different sets on purpose, and the gap between them was the whole

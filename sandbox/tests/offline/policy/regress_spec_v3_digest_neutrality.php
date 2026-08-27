@@ -39,27 +39,28 @@
  * Re-freezing the whole fixture at today's tree was the obvious repair and is
  * the wrong one: it would recompute both sides of the equality, which is the
  * tautology the paragraph above exists to forbid, and it would do it for all
- * 16 adapters to account for 3. So the moves are QUARANTINED instead, as
+ * 16 adapters to account for 4. So the moves are QUARANTINED instead, as
  * REVIEWED_MOVES below — literals, in this file, next to the fixture's own
  * pinned digest and edited under the same rule. What that buys, measured:
  *
- *   - 13 of the 16 adapter digests are still compared against untouched
+ *   - 12 of the 16 adapter digests are still compared against untouched
  *     pre-flag numbers, so the flag day's claim is still evidenced, not
  *     asserted;
- *   - the one pin set that contains none of `core`, `polylang`, or
- *     `the-events-calendar` (`duo-agency-cpt-only`) still holds its untouched
+ *   - the one pin set that contains none of `core`, `paid-memberships-pro`,
+ *     `polylang`, or `the-events-calendar` (`duo-agency-cpt-only`) still holds its untouched
  *     frozen manifest_hash,
  *     which is the flip-neutrality control a reviewed manifest edit cannot
  *     reach;
  *   - and each PART additionally asserts that the moved set is EXACTLY the
  *     reviewed one. A fourth adapter moving is a failure, not a re-pin.
  *
- * For those three adapters the across-the-flip measurement is genuinely gone —
+ * For those four adapters the across-the-flip measurement is genuinely gone —
  * stated plainly rather than papered over. What still covers them is PART 1's
- * second check, which holds for all 16: every shipped manifest still declares
- * `spec_version` 2. That no-restamp rule is the MECHANISM the flip's
- * neutrality rests on, and `manifest_rows()` folds no `define()` into a digest
- * row, so a re-stamp is the only way the flip could have moved one.
+ * second check: fifteen manifests still declare `spec_version` 2, while the
+ * one deliberate v3 consumer is named. That no-bulk-restamp rule is the
+ * MECHANISM the flip's neutrality rests on, and `manifest_rows()` folds no
+ * `define()` into a digest row; PMPro's later restamp is therefore isolated
+ * from the flag-day move rather than attributed to it.
  *
  * WHAT IS MEASURED
  * ----------------
@@ -133,8 +134,9 @@ const PRE_FLAG_FIXTURE_SHA256 = '05fcb8368979c6e270ecc71cb651680be317a6921d432d6
 
 /**
  * The reviewed post-flag overlays that have moved shipped identities since the
- * freeze: #561's core/TEC work and the Polylang production-readiness port,
- * measured on this tree, adapter by adapter.
+ * freeze: #561's core/TEC work, the Polylang production-readiness port, and
+ * PMPro's migration from a manifest provider to the generic row-cache-entry
+ * invalidation primitive, measured on this tree adapter by adapter.
  *
  * Every number here is an overlay ON TOP OF the frozen fixture, never a
  * replacement for it — the fixture keeps its pre-flag bytes and its pinned
@@ -147,12 +149,17 @@ const PRE_FLAG_FIXTURE_SHA256 = '05fcb8368979c6e270ecc71cb651680be317a6921d432d6
  * `duo-agency-cpt-only` is deliberately absent — it is the untouched control.
  */
 const REVIEWED_MOVES = [
-    'adapters' => ['core', 'polylang', 'the-events-calendar'],
+    'adapters' => ['core', 'paid-memberships-pro', 'polylang', 'the-events-calendar'],
     'adapter_digests' => [
         // manifests/core.json: the native rewrite action's declared effect set
         // widened to cover TEC's rewrite-listener option writes and the
         // autoload filters around them.
         'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
+        // PMPro deliberately moves to spec v3 to negotiate
+        // invalidate-vocabulary/v1, retires its manifest provider, and becomes
+        // a declarative adapter. This is a reviewed post-flip restamp, not a
+        // cost attributed to the flag-day define change.
+        'paid-memberships-pro' => '59e95f6f2089cb7b37787920ae62a9adbc83f6f7b4c673f611aa62fdb8fe2880',
         // The reviewed Polylang production-readiness port pins its 3.8.x
         // range, expanded authored surface, interpreter, manifest provider,
         // and per-subject disposition.
@@ -165,13 +172,14 @@ const REVIEWED_MOVES = [
     ],
     'manifest_bytes_sha256' => [
         'core' => 'a2f673cd4107e7b32cc6cfff6e84e7f6aca68b789234cbc8c686458fee4de5b3',
+        'paid-memberships-pro' => 'b2a27f37b6f27ad46a8e361144a5a45026b87b6393cb869711f4e455619ecb12',
         'polylang' => 'db7130aecf89217cdca8f6591f4481391f61ae84632478f89191bdda74b488d3',
         'the-events-calendar' => '0c72e83a62ba5d461d975fd5380f49eab139d5413edaade07f7f47e396d80729',
     ],
     'pin_sets' => [
-        'all-16' => 'b6cbc30ddc3c5ecf089ed0836294fb82a5b6f8f9017980c54610bd0e3c815bed',
+        'all-16' => '09f07e92b2f1d0ec9ccc1229d61e5d61682608e228de06e0285ab84cac951f44',
         'core+elementor+yoast+contact-form-7' => '52200323db9516a2eb7b5738540534aa58e9115c04fb3ddf0b182ea4089d27f9',
-        'core+paid-memberships-pro+code-snippets' => '9d89e59d838e145cbd64c6b172ad5634886bdae6ea027eb8f41e57bcd1b048dc',
+        'core+paid-memberships-pro+code-snippets' => '04d688883c993faa49f25b0bc28c33d4bbef34defac54ba8e24cc63a0eb10506',
         'core+polylang+the-events-calendar' => '1d26c4687a24e143c8a24045ba85b370bd6d3aad11b16898b4f13966ba76e6e6',
         'core+woocommerce+acf' => '247e7b9f084d050259130eee1d7bbb42aa1732dc9cd410df165a8c36a51f22b3',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
@@ -242,19 +250,24 @@ duo_check_same(
         . 'still evidence rather than an assertion about a re-frozen file'
 );
 
-// The declared versions, because the digest equality above is a CONSEQUENCE of
-// this and not independent evidence for it: had the library been re-stamped,
-// every digest would have moved and PART 1 would say so without saying why.
+// The flag-day rule is preserved as history, while the first deliberate
+// post-flag migration is named exactly. PMPro pays one digest/pin change to
+// negotiate a generic primitive; the remaining fifteen prove the bump itself
+// did not bulk-restamp the library.
 $declared = [];
 foreach ($names as $name) {
     $decoded = Canon::decode(Canon::read_file($manifestDir . '/' . $name . '.json'));
-    $declared[$decoded['spec_version'] ?? 'absent'] = true;
+    $declared[$name] = $decoded['spec_version'] ?? 'absent';
 }
 duo_check_same(
-    [DUO_SPEC_VERSION - 1 => true],
-    $declared,
-    'and the REASON, measured: every shipped manifest still declares spec_version ' . (DUO_SPEC_VERSION - 1)
-        . ' — the no-restamp rule (§ v3.12), which the acceptance window is what makes possible'
+    ['paid-memberships-pro'],
+    array_keys(array_filter($declared, static fn($version): bool => $version === DUO_SPEC_VERSION)),
+    'and exactly PMPro is deliberately stamped to the current spec to consume its gated primitive'
+);
+duo_check_same(
+    15,
+    count(array_filter($declared, static fn($version): bool => $version === DUO_SPEC_VERSION - 1)),
+    'while the other fifteen manifests retain the pre-flag version, preserving the no-bulk-restamp evidence'
 );
 
 // ---------------------------------------------------------------------------

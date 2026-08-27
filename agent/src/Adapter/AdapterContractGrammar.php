@@ -95,7 +95,7 @@ final class AdapterContractGrammar {
      * post_v1` demonstrates, which is declared by nothing across all 16 shipped
      * manifests.
      *
-     * After `spec-window/v1`, FOUR post-v3 features shipped through this
+     * After `spec-window/v1`, FIVE post-v3 features shipped through this
      * channel in one wave, and together they are the proof § v3.2's claim
      * holds — each staged a grammar change with `DUO_SPEC_VERSION` left at 3,
      * asserted by each one's own suite:
@@ -116,13 +116,16 @@ final class AdapterContractGrammar {
      *     vocabulary without claiming a new top-level key, and forcing it to
      *     invent one would put a section in the manifest bytes for the sake of
      *     the record's shape.
+     *   - `structured-body-refs/v1` (WP-6.5, § v3.20): claims `body_refs` and
+     *     admits the `json` post-body mode under one feature, so neither half
+     *     can be declared as an inert promise without the other.
      *
-     * All are keyed at `since` 3 and declared by no shipped manifest, so no
-     * adapter digest moves (AGENTS.md rule 2). The whole cost of each was one
-     * row in this constant plus its validating collaborator — the entire claim
-     * § v3.12 makes when it says the window may one day close: the replacement
-     * for a flag day has been walked, four times, before the flag day is
-     * retired.
+     * All are keyed at `since` 3. PMPro is now the first shipped consumer: it
+     * deliberately pays one adapter-identity change for
+     * `invalidate-vocabulary/v1`; the other feature additions moved no adapter
+     * digest (AGENTS.md rule 2). The engine's whole cost for each remains one
+     * roster row plus its validating collaborator — the replacement for a
+     * flag day has been walked repeatedly before the old window is retired.
      *
      * Feature names are ENGINE-OWNED: an adapter declares one, never mints one
      * (spec/repo-format.md § v3.2). A name is also permanent, which is why

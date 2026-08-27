@@ -143,26 +143,29 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * its disposition experimental -> certified, and widened manifests/core.json's
  * native rewrite action to declare TEC's rewrite-listener effects. The
  * reviewed Polylang production-readiness port then rewrote its manifest,
- * interpreter/provider set, and per-subject disposition. Rule 2 makes all
- * three fleet-visible BY DESIGN.
+ * interpreter/provider set, and per-subject disposition. PMPro's reviewed
+ * engine-absorption move later replaced its provider with the generic
+ * invalidate declaration and re-stamped that manifest at v3. Rule 2 makes all
+ * four fleet-visible BY DESIGN.
  *
- * The 13 frozen digests above are NOT regenerated — this is an overlay, and
- * PART 1 asserts the moved set is exactly these three. A fourth adapter is a
+ * The 12 frozen digests above are NOT regenerated — this is an overlay, and
+ * PART 1 asserts the moved set is exactly these four. A fifth adapter is a
  * tripwire failure, not a re-pin. That keeps the split's
  * own invariant ("relocating the reviewed source moved no identity") measured
  * against numbers captured before the relocation, on every adapter the
- * reviewed changes did not touch. Re-freezing all 16 to absorb 3 would have
- * retired the evidence for the other 13 to fix a red run.
+ * reviewed changes did not touch. Re-freezing all 16 to absorb 4 would have
+ * retired the evidence for the other 12 to fix a red run.
  */
-const SPLIT_REVIEWED_MOVED_ADAPTERS = ['core', 'polylang', 'the-events-calendar'];
+const SPLIT_REVIEWED_MOVED_ADAPTERS = ['core', 'paid-memberships-pro', 'polylang', 'the-events-calendar'];
 const SPLIT_REVIEWED_MOVED_DIGESTS = [
     'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
+    'paid-memberships-pro' => '59e95f6f2089cb7b37787920ae62a9adbc83f6f7b4c673f611aa62fdb8fe2880',
     'polylang' => '99d82ecc6402fda3a8d651d56ca07ae4a73836947ed5f2ecca11c0df4472e9a4',
     'the-events-calendar' => 'ae74bedeab559531758ac7a9268cad15ef37568471ceae5cab9353b93519cd78',
 ];
-const SPLIT_REVIEWED_MANIFEST_HASH = 'b6cbc30ddc3c5ecf089ed0836294fb82a5b6f8f9017980c54610bd0e3c815bed';
+const SPLIT_REVIEWED_MANIFEST_HASH = '09f07e92b2f1d0ec9ccc1229d61e5d61682608e228de06e0285ab84cac951f44';
 const SPLIT_REVIEWED_REGISTRY_SHA = 'f98de94d550375201697cd2e8c507f7b2f0941b9e92dab4bc85d77635ec10746';
-const SPLIT_REVIEWED_SNAPSHOT_SHA = '53dba29b5cb504c098146c98b757de93fb19c1afecd6c480efe814f7d8b3b005';
+const SPLIT_REVIEWED_SNAPSHOT_SHA = '03b0e963bff8444709d8f43db0873929983f5ab0eff7ee94b51846f135bed37a';
 
 putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
 $shippedRegistry = ManifestDispositions::load($manifestDir);
@@ -183,15 +186,15 @@ foreach (SPLIT_REVIEWED_MOVED_DIGESTS as $movedName => $movedDigest) {
 }
 ksort($expectedDigests, SORT_STRING);
 duo_check_same(
-    3,
+    4,
     count(SPLIT_REVIEWED_MOVED_ADAPTERS),
-    'the reviewed overlay names exactly three post-split adapters; a fourth identity move is a new reviewed re-pin, never a fixture refresh'
+    'the reviewed overlay names exactly four post-split adapters; a fifth identity move is a new reviewed re-pin, never a fixture refresh'
 );
 duo_check_same(
     $expectedDigests,
     $observed,
-    '13 OF THE 16 SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-split tree — the invariant the flag day '
-    . 'rests on; the other three carry the reviewed #561/Polylang edits and are re-pinned above'
+    '12 OF THE 16 SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-split tree — the invariant the flag day '
+    . 'rests on; the other four carry reviewed #561/Polylang/PMPro edits and are re-pinned above'
 );
 $movedNames = [];
 foreach ($observed as $name => $digest) {
@@ -208,8 +211,8 @@ duo_check_same(
 duo_check_same(
     SPLIT_REVIEWED_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
-    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved only with the three '
-    . 'reviewed manifests: a 16-pin site recompiles for #561/Polylang, not for the split'
+    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved only with the four '
+    . 'reviewed manifests: a 16-pin site recompiles for #561/Polylang/PMPro, not for the split'
 );
 duo_check(
     SPLIT_REVIEWED_MANIFEST_HASH !== SPLIT_FROZEN_MANIFEST_HASH

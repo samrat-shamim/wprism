@@ -51,6 +51,8 @@ function is_multisite(): bool {
 }
 
 $root = dirname(__DIR__, 4);
+require_once $root . '/sandbox/tests/lib/agent_version.php';
+duo_test_define_agent_versions();
 require $root . '/agent/src/Kernel/Canon.php';
 require $root . '/agent/src/Kernel/OptionState.php';
 require $root . '/agent/src/Kernel/Db.php';
@@ -75,10 +77,6 @@ use Duo\NativeActions;
 use Duo\Policy;
 use Duo\Providers;
 use Duo\RepositoryCompiler;
-
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
-}
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -892,7 +890,7 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         }
     }
 }
-check($providerCount === 10, "all ten shipped manifest-sourced providers were exercised (found $providerCount)");
+check($providerCount === 9, "all nine residual shipped manifest-sourced providers were exercised (found $providerCount)");
 
 // ======================================================================
 echo "\n== the two identity implementations agree over the REAL shipped library ==\n";
