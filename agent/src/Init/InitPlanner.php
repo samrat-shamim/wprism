@@ -955,8 +955,9 @@ final class InitPlanner {
                 // read from a second directory if DUO_MANIFESTS_DIR moves in
                 // the same process; the null path preserves this public pure
                 // helper's existing test/partial-load contract.
-                $dir = $policy === null ? Policy::manifests_dir() : $policy->adapter_library()->root();
-                $dispositions = ManifestDispositions::load($dir);
+                $dispositions = $policy === null
+                    ? ManifestDispositions::load(Policy::manifests_dir())
+                    : ManifestDispositions::load_library($policy->adapter_library());
                 $profiles = $dispositions === null ? [] : $dispositions->profiles();
             } catch (\Throwable $t) {
                 $profiles = [];
