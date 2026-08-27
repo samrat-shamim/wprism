@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 use Duo\AdapterContractGrammar;
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\AdapterSources;
 use Duo\Deletion;
@@ -420,10 +421,10 @@ final class AdapterDraft {
             if (str_starts_with($relative, AdapterSources::SITE_DIR . '/')) {
                 // The draft is INSTALLED, so the command that judges it is the
                 // one that reads the site source. `manifest-validate <dir>`
-                // would point DUO_MANIFESTS_DIR at the same adapters/ the
-                // --site half also scans, and the engine correctly refuses
-                // that as a site adapter shadowing a "shipped" one — a
-                // refusal about the invocation, not about the draft.
+                // would select that adapters/ directory as its explicit
+                // library while the --site half also scans it, and the engine
+                // correctly refuses the site adapter shadowing the selected
+                // library — a refusal about the invocation, not the draft.
                 echo "  duo adapter inspect $name --repo=$resolved\n";
                 echo "  duo adapter certify $resolved --name=$name --secret-key-file=<key> --pin\n";
             } else {
@@ -1596,10 +1597,10 @@ final class AdapterDraft {
         // WordPress default-option prefixes coverage also cannot attribute to
         // any active plugin (the T6 walk read a draft proposing `admin`,
         // `blog`, `avatar`… beside `wpforms`). DUO-3505 shrank that set but
-        // not to zero: `admin` and `blog` came from names manifests/core.json
-        // declares by name and coverage no longer reports them invisible at
+        // not to zero: `admin` and `blog` came from names the platform core
+        // package declares and coverage no longer reports them invisible at
         // all, while `avatar_default`, `upload_path` and their siblings sit
-        // outside core.json's 19 exact declarations, so they are genuinely
+        // outside that package's 19 exact declarations, so they are genuinely
         // undeclared and still noise in somebody else's adapter draft.
         // A prefix or table is kept when the operator's pattern matches it as
         // an option name would spell it (`<prefix>_`); an unscoped draft
@@ -3011,9 +3012,10 @@ final class AdapterDraft {
     }
 
     /**
-     * Load a throwaway one-candidate manifest through the REAL Policy::load(). The
-     * name equals the filename (DUO-3371), core is present, and DUO_MANIFESTS_DIR
-     * points at the temp library only for this load — nothing live is touched.
+     * Load a throwaway one-candidate package through the REAL Policy::load(). The
+     * name equals the package slug (DUO-3371), core is present, and the explicit
+     * AdapterLibrary object closes the temp inventory for this load only — nothing
+     * live or process-global is touched.
      *
      * @param array<string,mixed> $section
      * @return array{0:bool,1:?string}
@@ -3035,16 +3037,24 @@ final class AdapterDraft {
         // Apply the exact out-of-tree source boundary first so a manifest-code
         // provider cannot be misreported as liftable merely because the temp
         // file itself is loaded with shipped precedence.
-        $prev = getenv('DUO_MANIFESTS_DIR');
         try {
             AdapterSources::assert_out_of_tree_contract(
                 $manifest,
                 $checkName,
                 'adapters/' . $checkName . '.json'
             );
-            Canon::write_file($library . '/' . $checkName . '.json', Canon::encode($manifest));
-            putenv('DUO_MANIFESTS_DIR=' . $library);
-            $policy = Policy::load(null, [$checkName]);
+            $package = $library . '/adapter-packages/' . $checkName . '/package';
+            if (!is_dir($package) && !mkdir($package, 0700, true)) {
+                throw new \RuntimeException('adapter-draft: could not create the private proposal-check package');
+            }
+            Canon::write_file($package . '/manifest.json', Canon::encode($manifest));
+            Canon::write_file($package . '/disposition.json', Canon::encode(self::check_disposition($manifest)));
+            $adapterLibrary = AdapterLibrary::fromSourceTree($library);
+            // Grammar validity must not depend on the PHP/WordPress versions of
+            // the author's host. The third argument preserves this command's
+            // long-standing read-only grammar-only posture while the explicit
+            // library still exercises the real source/package/load boundary.
+            $policy = Policy::load(null, [$checkName], true, null, $adapterLibrary);
             foreach ((array) ($section['deletions'] ?? []) as $selector => $_) {
                 if (!is_string($selector) || !str_contains($selector, ':')) {
                     throw new \RuntimeException('duo: deletion proposal has an invalid selector');
@@ -3065,16 +3075,53 @@ final class AdapterDraft {
             return [true, 'grammar-valid — liftable into its live section by a human'];
         } catch (\Throwable $t) {
             return [false, $t->getMessage()];
-        } finally {
-            if ($prev === false) {
-                putenv('DUO_MANIFESTS_DIR');
-            } else {
-                putenv('DUO_MANIFESTS_DIR=' . $prev);
-            }
         }
     }
 
-    /** A temp manifest library carrying a minimal `core` for the throwaway loads. */
+    /** A reviewed-but-excluded disposition for the grammar-only candidate. */
+    private static function check_disposition(array $manifest): array {
+        $unsupported = [[
+            'operation' => 'promote',
+            'reason' => 'Proposal checks validate grammar only and make no product support claim.',
+            'surface' => 'production',
+        ]];
+        $defaultAuthored = [];
+        foreach ((array) ($manifest['tables'] ?? []) as $table => $rule) {
+            if (!is_string($table) || !is_array($rule)) {
+                continue;
+            }
+            if (($rule['class'] ?? null) === 'authored_typed_snapshot_post_v1') {
+                $unsupported[] = [
+                    'operation' => 'capture',
+                    'reason' => 'Intent-only table proposals remain unsupported until a human review.',
+                    'surface' => 'tables.' . $table,
+                ];
+            }
+            if (($rule['default_class'] ?? null) === 'authored') {
+                $defaultAuthored[] = [
+                    'table' => $table,
+                    'status' => 'unsupported',
+                    'reason' => 'Default-authored table ownership remains unratified in a proposal check.',
+                ];
+            }
+        }
+        return [
+            'capabilities' => [
+                'deletion_semantics' => ['supported' => [], 'unsupported' => ['all']],
+                'entity_sections' => [],
+                'field_sections' => [],
+                'lifecycle_phases' => [],
+                'operations' => ['test-only'],
+            ],
+            'default_authored_keyspaces' => $defaultAuthored,
+            'reason' => 'Throwaway proposal-check package; this is not a product support claim.',
+            'status' => 'excluded',
+            'supported_versions' => ['fixture' => true],
+            'unsupported' => $unsupported,
+        ];
+    }
+
+    /** A temp source library carrying platform-owned `core` for throwaway loads. */
     private static function make_tmp_library(): string {
         $dir = null;
         for ($attempt = 0; $attempt < 32; $attempt++) {
@@ -3088,13 +3135,22 @@ final class AdapterDraft {
             throw new \RuntimeException('adapter-draft: could not create a private proposal-check directory');
         }
         try {
-            Canon::write_file($dir . '/core.json', Canon::encode([
-                'name' => 'core',
-                'spec_version' => DUO_SPEC_VERSION,
-                'options' => (object) [],
-                'post_meta' => (object) [],
-                'term_meta' => (object) [],
-            ]));
+            $platform = $dir . '/platform/adapter-library';
+            foreach ([$dir . '/adapter-packages', $platform . '/core', $platform . '/capabilities'] as $path) {
+                if (!mkdir($path, 0700, true)) {
+                    throw new \RuntimeException("adapter-draft: could not create proposal-check source directory $path");
+                }
+            }
+            $source = dirname(__DIR__, 3) . '/platform/adapter-library';
+            foreach ([
+                'core/manifest.json',
+                'core/disposition.json',
+                'profiles.json',
+                'capabilities/platform.json',
+                'capabilities/adapter-authorities.json',
+            ] as $relative) {
+                Canon::write_file($platform . '/' . $relative, Canon::read_file($source . '/' . $relative));
+            }
         } catch (\Throwable $t) {
             self::rrmdir($dir);
             throw $t;
