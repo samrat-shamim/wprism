@@ -27,9 +27,10 @@ namespace Duo;
  * redacts it into a provider/capability-only refusal exactly as before, and a
  * migrating adapter's calls are a pure substitution.
  *
- * $wpdb defaults to the global (matching Db.php) and is injectable on the
- * trailing parameter only so an offline test can drive a fake; production
- * callers pass a SQL string and a context and nothing else.
+ * $wpdb defaults to the global (matching Db.php) and is injectable so an
+ * offline test can drive a fake. checked_get_results() additionally accepts
+ * one fixed caller-owned refusal sentence: migrated adapters retain their
+ * reviewed public diagnostics without reimplementing the checked read.
  */
 final class ProviderSdk {
     public static function checked_get_var(string $sql, string $context, $wpdb = null): mixed {
@@ -64,13 +65,18 @@ final class ProviderSdk {
         return $row;
     }
 
-    /** @return array<int,array<string,mixed>> */
-    public static function checked_get_results(string $sql, string $context, $wpdb = null): array {
+    /** @return list<array<string,mixed>> */
+    public static function checked_get_results(
+        string $sql,
+        string $context,
+        $wpdb = null,
+        ?string $failureMessage = null
+    ): array {
         $wpdb ??= $GLOBALS['wpdb'];
         $wpdb->last_error = '';
         $rows = $wpdb->get_results($sql, ARRAY_A);
-        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: provider checked read failed: $context");
+        if (!is_array($rows) || !array_is_list($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException($failureMessage ?? "duo: provider checked read failed: $context");
         }
         return $rows;
     }

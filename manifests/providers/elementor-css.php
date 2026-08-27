@@ -1,7 +1,7 @@
 <?php
 namespace Duo\Providers;
 
-use Duo\Policy;
+use Duo\ManifestProviderRuntime;
 use Duo\WpCliChildProcess;
 
 if (!class_exists(WpCliChildProcess::class, false)) {
@@ -25,9 +25,7 @@ if (!class_exists(WpCliChildProcess::class, false)) {
  * would then own forever and have to track across Elementor releases. What
  * this provider adds is identity, structured invocation, and receipts.
  */
-final class ElementorCss {
-    private Policy $policy;
-
+final class ElementorCss extends ManifestProviderRuntime {
     private const COMMAND = 'elementor flush-css --regenerate';
 
     private const REQUIRED_COLUMNS = [
@@ -52,78 +50,6 @@ final class ElementorCss {
      */
     private const RENDER_CACHE_META_KEYS = ['_elementor_element_cache', '_elementor_page_assets'];
 
-    public function __construct(Policy $policy) {
-        $this->policy = $policy;
-    }
-
-    /** @return array{id:string, plugin:string, version:string} */
-    public function identity(): array {
-        return [
-            'id' => 'elementor-css',
-            'plugin' => 'elementor/elementor.php',
-            'version' => '2.0.0',
-        ];
-    }
-
-    /**
-     * 600 seconds: regeneration is per-builder-document and compiles real
-     * stylesheets, so on a large site this is genuinely the slowest thing in
-     * the rebuild pass. The budget is a bound on what the receipt may claim,
-     * not a promise of preemption (Providers::invoke()'s own docblock is
-     * explicit about that limit).
-     */
-    public function capabilities(): array {
-        return [
-            'regenerate_css' => [
-                'args' => [],
-                'reads' => ['table:posts', 'table:postmeta'],
-                'writes' => ['table:postmeta', 'entity:elementor-generated-css'],
-                'scope' => 'site',
-                'idempotent' => true,
-                'timeout_seconds' => 600,
-                'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
-                    'reconcile' => true,
-                ],
-            ],
-        ];
-    }
-
-    /** @param array<string,mixed> $args */
-    public function invoke(string $capability, array $args): array {
-        return match ($capability) {
-            'regenerate_css' => $this->regenerate_css(),
-            default => throw new \RuntimeException(
-                "duo: Elementor CSS provider does not implement capability '$capability'"
-            ),
-        };
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function invoke_scoped(string $capability, array $args, array $operation): array {
-        $receipt = $this->invoke($capability, $args);
-        return [
-            'operation' => $operation,
-            'before' => $receipt['before'],
-            'after' => $receipt['after'],
-            'verified' => true,
-        ];
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function reconcile_scoped(string $capability, array $args, array $operation): array {
-        if ($capability !== 'regenerate_css') {
-            throw new \RuntimeException(
-                "duo: Elementor CSS provider does not implement capability '$capability'"
-            );
-        }
-        return [
-            'operation' => $operation,
-            'after' => $this->projection_summary($this->projection_detail(), true),
-            'verified' => true,
-        ];
-    }
-
     /**
      * Run Elementor's flush-css and prove the CSS cache actually moved.
      *
@@ -147,7 +73,7 @@ final class ElementorCss {
      *
      * @return array{before:array, after:array, verified:true}
      */
-    private function regenerate_css(): array {
+    protected function invoke_regenerate_css(array $args): array {
         if (!class_exists('\WP_CLI')) {
             throw new \RuntimeException(
                 "duo: Elementor CSS regeneration runs the plugin's own '" . self::COMMAND
@@ -211,6 +137,11 @@ final class ElementorCss {
             : 'regenerated';
 
         return ['before' => $before, 'after' => $after, 'verified' => true];
+    }
+
+    /** @return array<string,mixed> */
+    protected function reconcile_regenerate_css(array $args): array {
+        return $this->projection_summary($this->projection_detail(), true);
     }
 
     /**

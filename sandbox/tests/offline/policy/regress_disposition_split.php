@@ -142,32 +142,48 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * that capture: #561 rewrote manifests/the-events-calendar.json and promoted
  * its disposition experimental -> certified, and widened manifests/core.json's
  * native rewrite action to declare TEC's rewrite-listener effects. The
- * reviewed Polylang production-readiness port then rewrote its manifest,
- * interpreter/provider set, and per-subject disposition. WooCommerce's final
- * production-readiness review moves its manifest lint/compile declarations,
- * interpreter, disposition reason, and the source-audited WordPress 7.1
- * thumbnail-failure claim. The final co-install boundary also makes Yoast's
- * permalink-reindex trigger fleet-visible. Rule 2 makes all five visible BY DESIGN.
+ * reviewed Polylang and WooCommerce production-readiness ports then rewrote
+ * their manifests and executable sets, while Yoast gained Woo's permalink
+ * reindex trigger. PMPro's reviewed engine-absorption move later replaced its
+ * provider with generic invalidation; the manifest-provider runtime then moved
+ * eight more manifest identities.
+ * Rule 2 makes all ten fleet-visible BY DESIGN.
  *
- * The 11 frozen digests above are NOT regenerated — this is an overlay, and
- * PART 1 asserts the moved set is exactly these five. A sixth adapter is a
+ * The six unaffected frozen digests above are NOT regenerated — this is an overlay, and
+ * PART 1 asserts the moved set is exactly these ten. An eleventh adapter is a
  * tripwire failure, not a re-pin. That keeps the split's
  * own invariant ("relocating the reviewed source moved no identity") measured
  * against numbers captured before the relocation, on every adapter the
  * reviewed changes did not touch. Re-freezing all 16 to absorb 4 would have
  * retired the evidence for the other 12 to fix a red run.
  */
-const SPLIT_REVIEWED_MOVED_ADAPTERS = ['core', 'polylang', 'the-events-calendar', 'woocommerce', 'yoast'];
-const SPLIT_REVIEWED_MOVED_DIGESTS = [
-    'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
-    'polylang' => 'd55dab7dc1c78b0e245f6448762ceb79628b6e01b649bdfa8aa72ceb957d7c17',
-    'the-events-calendar' => '1096dc034e44b27085868cebf23efe6497f340fd8e506cd85122a696ddbbe1b1',
-    'woocommerce' => 'd0eb2e72f121649a4367a50ab59361efc5ca2a24e991c20cc43728f37e4bbfcf',
-    'yoast' => '389934c1b3638e4a93284eaaf3cee98a15eaeb76302f4f28b9f1cf1526504609',
+const SPLIT_REVIEWED_MOVED_ADAPTERS = [
+    'code-snippets',
+    'core',
+    'elementor',
+    'ninja-forms',
+    'paid-memberships-pro',
+    'polylang',
+    'the-events-calendar',
+    'woocommerce',
+    'yoast',
+    'yoast-duplicate-post',
 ];
-const SPLIT_REVIEWED_MANIFEST_HASH = '45285420196f8c427d5c203f5ac39fba075ce9642adc0a7924d1a45ef78fb12c';
+const SPLIT_REVIEWED_MOVED_DIGESTS = [
+    'code-snippets' => 'f4f235fcbb7349c3254fd91bebb0cc7922e02e113c898611963099ee2a60cb6b',
+    'core' => '2d72608ff976c3b050062c126128549f0711a84203ef28f17d594728afb18858',
+    'elementor' => '5b5a1791f24a44dc49e853db84c7027ed4af6791f6cba6ad111c941cb73b2752',
+    'ninja-forms' => 'd5be1f2b39fc535762c3e7553cfde5f750c426567e5e0893001cea5238e74176',
+    'paid-memberships-pro' => '59e95f6f2089cb7b37787920ae62a9adbc83f6f7b4c673f611aa62fdb8fe2880',
+    'polylang' => 'd79be83046ea30fabb0298225e60cb104d2d445d715651b8b104ab30b1c9742d',
+    'the-events-calendar' => '0a6d67877140db53304d041842f29c7707feab0248ded5cca8a5df992ef2148b',
+    'woocommerce' => 'fc23c5cf46e51afe6d8a5e19abff9cd8793aec0cb854e4cfd23be0fa7f073f9b',
+    'yoast' => '6c030625e5b8c2e8569adceca24c9e054c6bb0cf62d1ec7bcf6c22b5c84a2f80',
+    'yoast-duplicate-post' => '9c17439fc670eebbe216133abbe57dd0e9add20ccf8f1897c2f4445013c65e75',
+];
+const SPLIT_REVIEWED_MANIFEST_HASH = '41547ea08901dd1d804850db3485a2f712be0894525285ae6fdfb1f9bb5f16a1';
 const SPLIT_REVIEWED_REGISTRY_SHA = 'a9b7fdbb8d7c62e78ac8ca1c10a395aa0dc54079fb54cef2809c71babf395f2e';
-const SPLIT_REVIEWED_SNAPSHOT_SHA = '436b6aa8b17d631f8c0fc34ac8c93386c1510db72605cc78a3e254437ca1e379';
+const SPLIT_REVIEWED_SNAPSHOT_SHA = '783cc9483f6f45c5676f80e5987553292c69867f12297ec2b8e747d7d68f748f';
 
 putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
 $shippedRegistry = ManifestDispositions::load($manifestDir);
@@ -188,15 +204,15 @@ foreach (SPLIT_REVIEWED_MOVED_DIGESTS as $movedName => $movedDigest) {
 }
 ksort($expectedDigests, SORT_STRING);
 duo_check_same(
-    5,
+    10,
     count(SPLIT_REVIEWED_MOVED_ADAPTERS),
-    'the reviewed overlay names exactly five post-split adapters; a sixth identity move is a new reviewed re-pin, never a fixture refresh'
+    'the reviewed overlay names exactly ten post-split adapters; another identity move is a new reviewed re-pin, never a fixture refresh'
 );
 duo_check_same(
     $expectedDigests,
     $observed,
-    '11 OF THE 16 SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-split tree — the invariant the flag day '
-    . 'rests on; the other five carry the reviewed #561/Polylang/WooCommerce/Yoast edits and are re-pinned above'
+    '6 OF THE 16 SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-split tree — the invariant the flag day '
+    . 'rests on; the other ten carry reviewed post-split migrations and are re-pinned above'
 );
 $movedNames = [];
 foreach ($observed as $name => $digest) {
@@ -213,8 +229,8 @@ duo_check_same(
 duo_check_same(
     SPLIT_REVIEWED_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
-    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved only with the five '
-    . 'reviewed adapters: a 16-pin site recompiles for #561/Polylang/WooCommerce/Yoast, not for the split'
+    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved only with the ten '
+    . 'reviewed manifests, not because disposition storage split into per-subject files'
 );
 duo_check(
     SPLIT_REVIEWED_MANIFEST_HASH !== SPLIT_FROZEN_MANIFEST_HASH

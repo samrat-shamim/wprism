@@ -439,11 +439,10 @@ final class TypedTableMaterializer {
      * (WP-6.2), and PROVE it is gone.
      *
      * The readback is the whole point, and it is what makes the declarative
-     * verb equal in strength to the provider it replaces rather than a weaker
-     * imitation of it: `manifests/providers/paid-memberships-pro-cache.php`
-     * refuses with "cache invalidation left cached membership level id(s)"
-     * (:96-99) when an entry survives, and so does this. A `wp_cache_delete()`
-     * that quietly returns false against a backend that kept the value is
+     * verb equal in strength to the provider it replaced rather than a weaker
+     * imitation of it: the PMPro regression preserves the former provider's
+     * refusal when an entry survives, and this boundary supplies it. A
+     * `wp_cache_delete()` that quietly returns false against a backend that kept the value is
      * precisely the stale-read the declaration exists to prevent, so an
      * unverified delete would ship the bug in a shorter spelling.
      *

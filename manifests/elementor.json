@@ -1,6 +1,7 @@
 {
-  "spec_version": 2,
+  "spec_version": 3,
   "name": "elementor",
+  "engine_features": ["manifest-provider-runtime/v1", "spec-window/v1"],
   "option_autoload": "preserve",
   "plugin": "elementor/elementor.php",
   "version_range": {"min": "4.0.0", "max": "5.0.0"},
@@ -71,7 +72,21 @@
         "functions": ["delete_post_meta_by_key", "get_post_meta", "wp_cache_delete", "wp_upload_dir"],
         "classes": ["WP_CLI", "Elementor\\Plugin", "Elementor\\Core\\Files\\Manager"]
       },
-      "capabilities": ["regenerate_css"]
+      "capabilities": ["regenerate_css"],
+      "contracts": {
+        "regenerate_css": {
+          "args": {},
+          "reads": ["table:posts", "table:postmeta"],
+          "writes": ["table:postmeta", "entity:elementor-generated-css"],
+          "scope": "site",
+          "idempotent": true,
+          "timeout_seconds": 600,
+          "scoped": {
+            "operation_envelope": "duo-scoped-effect-operation/v1",
+            "reconcile": true
+          }
+        }
+      }
     }
   ],
   "actions": [

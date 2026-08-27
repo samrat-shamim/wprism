@@ -205,6 +205,7 @@ namespace Duo {
 }
 
 namespace {
+    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
     require_once dirname(__DIR__, 4) . '/manifests/providers/yoast-index.php';
 
     use Duo\Providers\YoastIndex;
@@ -220,7 +221,13 @@ namespace {
         $GLOBALS['yi_after_command'] = static function (): void {
             $GLOBALS['wpdb']->makeValid();
         };
-        return new YoastIndex(new \Duo\Policy());
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/yoast.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        return new YoastIndex($manifest['providers'][0]);
     }
 
     function yi_operation(): array {

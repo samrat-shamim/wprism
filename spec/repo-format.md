@@ -649,6 +649,7 @@ Extended manifest capabilities (spec v0.5):
 - A meta/option/user-meta rule may declare `"plain_data": true` when its value is native PHP scalar/array data with no id-bearing positions but with portable strings nested below the root. Capture recursively tokenizes those strings and apply recursively re-binds them before WordPress serialization. It is mutually exclusive with `ref`, `json_refs`, `key_refs`, `cast`, and `json_encoded`; `order_preserving` and the ordinary secret gate still compose. This is not an opaque escape hatch: `PlainData` has already rejected objects, references, recursion, excessive depth, and malformed serialization before the codec runs.
 - **Order-preserving values** (spec v0.15, task #123): a meta rule may declare `"order_preserving": true` for a value whose PHP array key order is semantically load-bearing — canonical JSON's own `ksort()`-at-every-level rule (the "Entity-per-file, deterministic serialization" line above) is only safe when no plugin reads a value's raw iteration order, and WooCommerce's variation-title generator (`WC_Product_Variation_Data_Store_CPT::read()`) reads the parent's `_product_attributes` array order directly — canonicalization was permanently reordering it on every applied target, a real (not timing-based) divergence. A declared value's key order — at every nesting level inside it, recursively — is captured and round-tripped exactly as WordPress held it, instead of being alphabetized; declaring it changes nothing else about the rule (it composes with `ref`/`json_refs`/`key_refs`/`cast` normally, applied to the fully-processed value). Scoped strictly to the declared value: every *other* key in the same document, including sibling meta keys, still sorts alphabetically as normal — this is not a document-wide behavior change. No apply-side changes were needed: `json_decode()` and `maybe_serialize()` never reorder keys on their own, so the ordinary decode → detokenize → re-serialize path was already order-preserving by construction — the capture-time `ksort()` was the only place order was ever lost. `manifests/woocommerce.json`'s `_product_attributes` is the first declared user.
 - **Structured rebuild actions and providers** (DUO-3338; supersedes the retired free-form `rebuilders` channel, whose command-string entries — including `wp eval` payloads — the engine now refuses at manifest load): the hooks apply deliberately skips are also what maintain plugin derived state (indexables, lookup tables, blanket caches), so a manifest declares the repair as data in a top-level `"actions"` list. Each entry is `{"kind": "native"|"provider", ..., "triggers"?: [...], "effects"?: [...]}` — `triggers` is the same exact canonical-surface grammar apply projects from authored work (`(post|term|table|option|entity):<name>`; absent = unscoped, selected for any non-empty surface set; an empty surface set — a read-only apply — fires nothing), and `effects` feeds the same bounded-reversibility inventory `rebuilders` entries fed (omitted = explicit irreversible fallback row). A `native` entry names an action from the engine's **closed vocabulary** (v1: `transient.delete`, args `{"name": <bounded string>}`, and argument-free `rewrite.flush`; both are WordPress-core semantics, identical for every adapter, executed by reviewed engine code with a checked-readback receipt). `rewrite.flush` reinitializes the loaded core rewrite runtime from the applied `permalink_structure` row and performs a soft database-only flush after `wp_loaded`; it never writes `.htaccess`/web.config and verifies the stored ordered rules against WordPress's own fresh read. Unknown action names, unknown arg keys, and mistyped args are refused at load, so a manifest can neither mint operations nor smuggle executable text through arguments. A `provider` entry names a capability of a provider declared in the SAME manifest's top-level `"providers"` list: `{"id", "version" (exact x.y.z), "source": "manifest"|"plugin", "plugin": <basename>, "capabilities": [...]}`. Provider ids are globally unique across pinned manifests (conflict = refusal; pin order never picks which code runs), and a provider's `plugin` must equal the manifest's own `plugin` claim when one exists, so the executable half stays inside the version window the declarative half was certified for. `source: "manifest"` resolves to `manifests/providers/<id>.php` defining `\Duo\Providers\<CamelCase(id)>` — the interpreter/regenerator trust boundary: provider code ships, versions, digest-binds, and pins with its manifest, never with the engine: its bytes join the per-adapter digest beside the interpreter's (`RepositoryCompiler::manifest_rows()` and the `CapabilityRegistry::adapter_digest()` mirror of it), so a changed provider file is a changed adapter rather than invisible drift behind a stable manifest digest. A manifest-shipped regenerator (`post_types.<type>.regen_dependency.regenerator` → `manifests/regenerators/<name>.php`) is bound into the same row on the same terms since DUO-3360 — one entry per distinct declared name, **sorted by name**: regenerator names are discovered by walking `post_types{}`, a JSON object whose key order canonical encoding normalizes away, so discovery order would let a semantically-void key reshuffle move a certified digest (unlike `providers[]`, a JSON array whose order is canonical content). Two regenerator implementations can no longer hide under one manifest revision. `source: "plugin"` is discovered from the installed plugin itself through the `duo_providers` registry filter and is trusted as part of that plugin; its file is deliberately not digest-bound (the installed plugin is its identity anchor, checked against `version_range`). Before the first target mutation, apply **negotiates** every provider its selected actions reach — contract shape (`identity()`, `capabilities()`, `invoke()`), exact identity match against the declaration, owning plugin installed+active+in range, capability advertised with a well-formed declaration (`args` schema, `reads`/`writes` surface summary, `scope: "site"|"entity"`, `idempotent` — required `true`, since apply's retry machinery re-fires the rebuild pass — and a `timeout_seconds` budget), and manifest args valid against the capability schema — and refuses with per-problem remediation on any miss, so a missing or incompatible capability fails before destructive writes, never after commit. Invocation returns a receipt whose `verified` must be exactly `true` on the strength of a value-level readback (command-success-only verification is refused); `scope: "entity"` capabilities receive an engine-assembled batch of `{kind, id}` rows for the triggering surfaces. An adapter that needs no executable semantics simply declares neither key and remains purely declarative.
+- **Manifest-owned provider runtime** (§ v3.22): a `source: "manifest"` provider may add `"contracts": {"<capability>": <capability declaration>}` when the manifest declares `manifest-provider-runtime/v1`. The map must be non-empty and its keys must exactly follow `capabilities[]`; plugin-sourced providers may not use it because independently shipped plugin code must still advertise its own executable contract. The provider class extends `Duo\ManifestProviderRuntime` and implements only protected `invoke_<capability>(array): array`, `reconcile_<capability>(array): array` when scoped reconciliation is declared, and `project_<capability>(array): array` when handler projection is declared. Core owns identity, advertising, public dispatch, scoped receipt construction, recovery routing, and the `before`/`after`/`verified: true` receipt floor. The manifest-owned file still owns plugin calls and value-level verification, and its bytes remain in adapter identity.
 - **Structured capability arguments and engine batch context** (DUO-3369, extending the two grammars above): a capability `args` entry declares `{"type": "bool"|"int"|"string"|"list<string>"|"list<object>", "required": <bool>}`, and `list<object>` additionally declares `"fields": {"<name>": {"type": "bool"|"int"|"string", "required": <bool>}}` — a closed, per-capability row vocabulary with **exactly one level of nesting**: a field may not itself be a list or an object, so there is no depth a reviewer cannot state and no free-form payload channel. Field names use the argument-name charset; unknown keys in a `fields` declaration, an empty `fields` map, and a `fields` map on a scalar-typed argument are refused at negotiation, and unknown fields, missing required fields, mistyped fields, and non-object rows are refused in VALUES. The one-level bound is enforced twice, deliberately: `Policy` refuses a nested manifest argument at LOAD (where no provider code exists yet — a manifest argument is a scalar, a list of scalars, or a list of flat objects whose own values are scalars), and negotiation refuses anything the capability's own field vocabulary does not admit. Separately, a `scope: "entity"` capability may declare the optional key `"context": [...]` over the closed channel vocabulary `deletions`, `reparents`, `retry`, `always_on_write` (duplicates refused, empty list refused, unknown names refused, and the key itself refused on `scope: "site"`, naming the declared channels). Declaring channels changes what rides under the reserved `entities` argument: the value becomes `{"entities": [...], "always_on_write"?: <bool>, "deletions"?: [...], "reparents"?: [...], "retry"?: <bool>}` carrying only the declared channels in that fixed order, so an undeclared channel is ABSENT rather than empty and "nothing happened" stays distinguishable from "never asked for". `deletions` rows are `{kind, uuid, id, post_type, parent_id, child_ids}` (see the parity paragraph below) for the tombstones this run APPLIED (`--with-deletes`), that a previous incomplete apply had already made absent, or that an earlier incomplete apply left a durable receipt for — never one this run merely PLANNED: the pre-mutation selection deliberately projects surfaces from planned tombstones (a capability has to negotiate before the mutation), but an apply without `--with-deletes` gates every delete off and its entities are all still present, so handing them over as tombstones would be indistinguishable from real ones. `id` is the target-local id the ledger still holds, `0` once the mapping is gone (the expected shape when a previous run applied the delete) or when the entity kind has no single row id at all. `reparents` rows are `{kind, uuid, id, root_id, old_parent_id, new_parent_id}`, one row per derived root, which is how a chained move's accumulated roots survive a scalar-only field grammar; the engine captures a reparent receipt for post types with a batch `regen_dependency` OR whose canonical surface a `reparents`-declaring capability in this run's selection triggers on, and the channel unions this run's captures with the durable `regen_reparent_context:<uuid>` markers an earlier incomplete apply left outstanding (the retry case has no fresh capture at all). `retry` is the apply's own incomplete-retry marker; `always_on_write` is a boolean flag stating the capability fired on an always-on basis, mirroring `regen_dependency`'s flag of the same name exactly — there the flag suppresses a per-candidate existence check on a write candidate the engine already had, and never creates candidates, so here too it never manufactures work (see bound (2)). **PARITY WITH THE REGENERATOR CHANNEL, closed by DUO-3342**: a `deletions` row now carries `{kind, uuid, id, post_type, parent_id, child_ids}` — the pre-delete inventory `capture_regen_delete_context()` takes, which the batch channel's own consumers use to keep deleted children out of the live batch. Three changes made it deliverable, and each is worth stating because each was a real bound: the capture's consumer gate now recognizes a `deletions`-declaring negotiated capability as a consumer in its own right (so the inventory is TAKEN for a provider-only manifest at all, exactly as DUO-3369's review widened the reparent capture); the durable `regen_delete_context:<uuid>` markers are unioned into the channel the way `reparents` unions its own, so an apply that committed the delete and failed before the repair re-delivers on the retry, with the durable row winning the collision because it carries the inventory a tombstone projection never had; and `child_ids` being a list was never the obstacle it read like — `Providers::FIELD_TYPES` bounds what a MANIFEST may declare as a capability argument, while a batch channel is engine-assembled and validated only as a list of rows. Every row carries all six keys, so `post_type: ""` / `parent_id: 0` / `child_ids: []` means "the engine took no inventory here" (a tombstone on a non-post surface, or one no consumer declared) and is distinguishable from an absent key. **Marker lifetime is owned by the dispatcher that declares the channel**: a durable delete/reparent marker is deleted only after the declaring capability returns `verified: true`, addressed by its own key and narrowed to that action's own triggers — so a failed or unverified invocation retains it, one adapter's receipt never retires another's evidence, and the next apply re-delivers. Ownership is decided RUN-INDEPENDENTLY, which matters because a sweep is destructive: the marker survives when a PINNED provider action triggers on its surface and this run's selection reached that surface not at all, and is swept (with a warning naming the marker and the unconsumed channel) when the selection did reach it and no negotiated capability wanted the channel, or when nothing pins a claimant. A pinned claimant whose capability this run negotiated as `scope: site` owns nothing — it can never receive a channel — while a scope this run could not observe keeps the marker rather than guessing. Consequences worth stating: markers of a pinned-but-deactivated plugin persist rather than decaying, and both keyspaces are therefore surfaced in `plan.regen_context` / `duo status` (which reports not-ok while one stands) so a held receipt is legible instead of silent. Exactly ONE capability may consume a given channel on a given `post:` surface — the clear is per-marker, not per-consumer, so a second consumer would lose the evidence its own retry depends on; negotiation refuses it, naming both claimants. The entity batch shares the batch channel's `regen_pending:<uuid>` retry vocabulary on the same terms: armed for each delivered post-kind entity before the call, cleared on a verified receipt, unioned back into the batch on a later run, and never handed an id the deletions projection says is gone. One post type may be claimed by only ONE dispatcher — a channel-declaring capability triggering on a post type that also declares an enabled batch `regen_dependency` is refused at negotiation, before any mutation, naming both claimants. **Byte-compatibility is a contract, not a courtesy**: a capability that declares no `context` and no `list<object>` argument negotiates to byte-identical declaration bytes and receives a byte-identical injected batch (the bare row list), frozen as literal bytes in `sandbox/tests/offline/adapter/regress_provider_contract.php` rather than asserted in prose.
 
   Four bounds stated so nobody re-derives them: (1) **execution context** — the retired channel launched each command in a fresh WP-CLI process; native actions and providers run in apply's own process, compensated by an unconditional object-cache flush immediately before the action loop (in-process runtime caches can hold pre-commit plugin models — the reproduced Polylang 3.8.6 class), with the plugin-CLI-invoking providers (elementor, yoast) still launching subprocesses as their implementation detail. (2) **`scope: "entity"` semantics** — the declaring action must carry explicit `post:`/`term:`/`table:` triggers (negotiation refuses unscoped declarations and triggers with no ledger-resolvable per-entity id, before any mutation), and a selection whose surfaces came only from deletions/retry-tombstones invokes nothing: the engine records an explicit skip receipt rather than handing the provider an empty batch it could "verify" — unless (DUO-3369) the capability declared an EVIDENCE channel (`deletions`, `reparents`, `retry`) that came back non-empty/true, since a deletion-only selection is real work for a capability that asked to be told about tombstones. `always_on_write` is not such a channel and never suppresses the skip: it mirrors `regen_dependency`'s flag, which suppresses a per-candidate existence check but never creates a candidate, so a capability declaring it still fires only when its entity batch or one of its evidence channels carries something. The skip receipt survives verbatim for a capability declaring no channels, and survives with each declared channel's own state named when none of them carried work (a row channel is empty, a flag channel false/absent, `always_on_write` a flag that is never work of its own). DUO-3342 made this the shipped path for a real repair: `manifests/woocommerce.json`'s `rebuild_product_lookups` is `scope: "entity"` and declares all four channels, replacing the batch `regen_dependency` that dispatched the same adapter code before. (3) **`verified` is the provider's own value-level claim**, structurally required and receipt-recorded; the engine's independent backstop for authored state is the post-apply canonical recapture (a provider that corrupts authored state and returns `verified: true` is caught there — regression-covered), while derived state has no second checker beyond the provider's own readback. The RECORDED half of that receipt is a **bounded public projection**, not the provider's bytes (DUO-3383): `before`/`after` reach `wp duo apply --format=json` through apply's `actions` rows, so `Providers::invoke()` projects them at the trust boundary and nothing downstream ever holds a raw provider value. A string over `RECEIPT_MAX_STRING_BYTES` (512), one bearing control bytes or invalid UTF-8, one the shared public-output sensitivity screen flags (`CommandRefusalException::containsSensitivePublicDetail()`, i.e. `Secrets::hard_match()` plus the credentialed-URI/query-secret/email/home-path shapes), a map key breaking the same rules under `RECEIPT_MAX_KEY_BYTES` (128), a container past `RECEIPT_MAX_DEPTH` (4) or `RECEIPT_MAX_ENTRIES` (128), and a whole value whose bounded projection still exceeds `RECEIPT_MAX_VALUE_BYTES` (8192) each publish as `<duo:receipt-witness/v1:<reason>:sha256:<digest>>` over the closed reason vocabulary `ambiguous|binary|control|deep|oversized|secret|wide`. The digest is canonical and taken over the RAW value at every level, including levels that do not publish, so the projection is injective at the PHP-value level: equal raw values publish equal bytes and unequal ones do not (up to JSON number encoding — `1.0` and `1` are distinct raw values that JSON renders identically when published verbatim; witnessed values keep the distinction in the digest), and `before === after` stays decidable from the published receipt without the plaintext — value-level verification is preserved, not weakened. The sensitivity and control screens are per-leaf and pattern-based over C0/DEL, the same scope as the shared refusal screen: split or encoded credentials and C1/zero-width/bidi codepoints are not detected — providers must not put credentials in receipts. A receipt carrying an object, a resource, or a non-finite number fails closed, since the engine will not summarize bytes an array walk cannot read. The human apply render never carried receipt values (it renders the `verified` warning line and its duration only) and the host reads the apply summary for artifact identity alone, so JSON is the single public receipt surface and this is its complete contract. (4) **negotiation GATES at apply and REPORTS at plan** (DUO-3339 closed the reporting half of this bound). The refusal is still apply's alone, still immediately before the first mutation, and still scoped to the actions that run's own work selects. `plan` and `status` additionally carry a `provider_problems` list — the identical problem rows, produced by the identical code (`Providers::negotiate()` IS `Providers::diagnose()`), over every provider capability the PINNED manifests declare. That set is deliberately WIDER than any one apply negotiates, so a report cannot go quiet merely because this revision touched nothing. The NARROWED half gates: `Policy::provider_readiness_blockers($selectedActions)` negotiates exactly the actions a plan's own work reaches and merges its rows into `adapter_dispositions`, which `duo status`'s exit code counts — so a provider this revision genuinely needs and cannot get does make status non-zero. `provider_problems` carries only the remainder (rows already reported as gating are dropped, so one fact is never stated twice) and is rendered and counted without flipping the exit code, since a capability this revision never reaches will not refuse this promotion. Scoped rows gate; wide rows report. Each row names the provider, its declaring manifest, its owning plugin, the problem code, expected, found, and a remediation. Plan-time diagnosis constructs the same provider objects apply does — a manifest-sourced provider's file is required and its class constructed, and plugin-sourced providers come off the duo_providers filter — so plan/status now execute provider constructors and identity()/capabilities(). No capability is invoked. A packaging fault (a manifest-sourced provider whose file or class is missing) still THROWS at apply and is REPORTED as a row at plan, under the code `provider_code_unavailable` — a reporting surface that died on one broken adapter would hide every other adapter's verdict behind it.
@@ -767,13 +768,15 @@ authority on its rule***. `DUO_SPEC_VERSION` is `3` (`agent/duo.php:13`) and
 what it did and did not move.
 
 **What "v3 is in force" means, stated precisely, because it is easy to over-read.** It means the WIRE
-VERSION IS 3 and the acceptance window is therefore `{2, 3}`. It does NOT mean anything was re-stamped:
-the 16 manifests that existed at the flip still declare `spec_version: 2`, while Redirection — authored
-after the flip — is the first shipped `spec_version: 3` adapter. Deployed repositories still declare
-whatever their adopting agent wrote, and both versions keep loading — which is precisely why not one existing
-adapter digest, `manifest_hash`, content pin or compiled artifact moved on the flag day. A rule in this
-section gated at `spec_version: 3` is now REACHABLE through the product path, and it reaches exactly the
-documents that declare 3: today that is Redirection plus any repository deliberately migrated.
+VERSION IS 3 and the acceptance window is therefore `{2, 3}`. It did NOT restamp anything on the flag day:
+all 16 shipped manifests then remained at `spec_version: 2`, every deployed repository retained whatever
+its adopting agent wrote, and not one adapter digest, `manifest_hash`, content pin or compiled artifact
+moved because the defines changed. Per-adapter migration is the intended later path: Paid Memberships Pro
+was the first shipped manifest deliberately stamped to 3, paying its own identity change to consume
+`invalidate-vocabulary/v1`; eight provider-bearing manifests later opt into
+`manifest-provider-runtime/v1`. Redirection was authored after the flip with v3 feature declarations in
+its first digest, leaving seven pre-flag manifests at 2. A v3-gated rule therefore reaches only a document
+that deliberately opts into it, never the retained library or repository population as a side effect.
 
 Four rules were already in force before the bump — the acceptance window and the `engine_features`
 channel (§ v3.1, § v3.2), environment narrowing (§ v3.5) and authority record v2 (§ v3.7) — and that was
@@ -806,7 +809,7 @@ evidence before this line changes.
 | § | rule | rider | enforced today |
 |---|---|---|---|
 | v3.1 | N/N-1 acceptance window, per-section refusal by name | WP-4.2 / WP-4.12 | YES — {2, 3}, for a manifest AND for `site.duo.json`; floor gated at release |
-| v3.2 | `engine_features` declaration channel | WP-4.2 / WP-6.1 | YES, DECLARABLE, and USED — three implemented features, all since `spec_version: 3`; two of them post-v3 grammar sections that shipped with no bump; no shipped declarer |
+| v3.2 | `engine_features` declaration channel | WP-4.2 / WP-6.1 | YES, DECLARABLE, and USED — seven implemented features; nine shipped declarers opt in per adapter with no engine version bump |
 | v3.3 | closed top-level key set and its growth rule | WP-4.3 | YES at `spec_version: 3`, live through the product path since the flip; open at v2; one set, gated at release |
 | v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | LAYOUT yes — one document per subject; ADDRESSING no — still one whole-document hash |
 | v3.5 | per-adapter environment narrowing | WP-4.6 | YES at `spec_version: 3`; inert at v2 |
@@ -820,6 +823,7 @@ evidence before this line changes.
 | v3.17 | a signing profile that accepts an author-written disposition | WP-5.3 | YES — `certify --ratification-file`, judged by the shipped disposition validator; the derivation stays the floor |
 | v3.18 | the evidence grade: computed beside the reviewed word | WP-5.4 | YES — three axes derived on every call into a byte-compared document; no wire member, no stored verdict, no shipped byte |
 | v3.19 | `duo-adapter-index/v1` — discovery and distribution over an unsigned pointer document | WP-5.6 | YES — three host verbs, digest-pinned resolution that never falls through, one transport (`file://`); nothing under `agent/` reads the format |
+| v3.22 | manifest-owned provider protocol in engine core | adapter absorption | YES — nine provider files declare contracts as data and retain only plugin semantics plus value-level verification |
 
 The flip itself — the two defines, the migration verbs, the cohorted rollout and the rollback rehearsal —
 is WP-4.12, is DONE, and § v3.12 is the record of what it deliberately left alone. The runbook that
@@ -882,9 +886,11 @@ letter drops a plugin's authored rows out of canonical state.
 
 **Rider: WP-4.2. Enforced today: yes.** `AdapterContractGrammar::IMPLEMENTED_FEATURES` is the engine-owned
 vocabulary, `validate_adapter_contract()` refuses a declared name it does not carry, and register row R-19
-records what a name costs once one is declared. Redirection is the first shipped manifest to declare the
-key; § v3.12's no-restamp rule still keeps every pre-existing adapter byte-identical. The key is a v3-only section (§ v3.1), so it is declarable exactly
-when a manifest can declare `spec_version` 3, which is the flip.
+records what a name costs once one is declared. Paid Memberships Pro is the first shipped manifest to
+declare the key, using it to negotiate the generic invalidation verb that replaced its provider. The key
+is a v3-only section (§ v3.1), so every use is an explicit per-adapter migration rather than a silent read
+by an older manifest grammar. Redirection was authored later with the channel and therefore moved no
+pre-existing adapter identity.
 
 A manifest may declare `"engine_features": ["<feature>", …]`, a sorted, duplicate-free, non-empty list of
 the engine features its declarations depend on. An engine that implements every listed feature loads the
@@ -899,7 +905,7 @@ its name, the first `spec_version` its sections exist at, and the top-level keys
 constant in the engine, because a feature that is implemented while its section is unknown (or the
 reverse) is precisely the silent mis-read the channel exists to remove.
 
-This engine implements seven features, and the first one is what the other six ride:
+This engine implements eight features, and the first one is what the other seven ride:
 
 - **`spec-window/v1`** — the acceptance window of § v3.1 and this channel itself, claiming the
   `engine_features` key from `spec_version` 3. It is a real entry, not a placeholder — the channel's own
@@ -939,6 +945,11 @@ each one closed and the coordinates that stayed open beside it.
 - **`invalidate-vocabulary/v1`** (WP-6.2, § v3.15) — claims NO top-level key: it widens the
   `tables.<t>.invalidate[]` verb vocabulary with `{cache_group, cache_key}` inside a section that already
   exists, the row that shows a feature can stage a VALUE-vocabulary change without inventing a section.
+- **`manifest-provider-runtime/v1`** (§ v3.22) — claims NO top-level key: it widens a manifest-sourced
+  `providers[]` row with a closed `contracts` map and moves identity, capability advertising, dispatch,
+  scoped receipt construction, recovery routing, and receipt-shape enforcement into engine core.
+- **`structured-body-refs/v1`** (WP-6.5, § v3.20) — claims `body_refs` and admits the `json` post-body
+  mode under one feature, so a document cannot declare either inert half without the other.
 
 
 A feature need not claim a key at all. WP-6.2 is the worked example: `invalidate-vocabulary/v1` widens a
@@ -946,6 +957,14 @@ VALUE vocabulary inside `tables.<t>.invalidate[]`, a section that already exists
 empty and § v3.3's partition does not move. The channel gates the value the same way it would gate a
 section — declared-and-implemented admits it, declared-and-unimplemented refuses by feature name — which
 is what let a grammar change ship after the flip with nothing re-stamped (§ v3.15).
+
+PMPro was the first shipped adapter to walk that path: it declares both `spec-window/v1` and
+`invalidate-vocabulary/v1`, because the first claims the channel key and the second widens the value
+vocabulary. Eight provider-bearing manifests now declare `spec-window/v1` and
+`manifest-provider-runtime/v1` for the same reason. Those paired declarations are the growth rule
+working, not redundant metadata. Redirection was authored with those runtime declarations plus
+`typed-column-codecs/v1` and `mixed-column-codecs/v1`, whose pairing similarly admits a measured mixed
+container without inventing a second top-level section.
 
 Feature names are engine-owned: an adapter may declare one, never mint one. A name nothing implements is
 refused as unimplemented rather than admitted as forward-looking — the honest-refusal posture, which is
@@ -1565,7 +1584,7 @@ adapter, which is the case the list exists to keep loading.
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
 
-- 17 adapter names, 20 `id_kind`s, 15 provider ids = 52 identities, all of which already pass the one
+- 17 adapter names, 20 `id_kind`s, 14 provider ids = 51 identities, all of which already pass the one
   shared grammar;
 - a bare `<vendor>-<name>` refusal would break **27** of them — the 7 adapter names carrying no hyphen at
   all (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 20 `id_kind`s, every one of
@@ -1573,8 +1592,9 @@ rule V3-NS, against the shipped library):
 - the other 10 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
   vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 17
   names; all 20 `id_kind`s remain governed by R-17 rather than that name list;
-- all 15 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
-  convention is de facto in force.
+- all 14 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
+  convention is de facto in force. (#561 added `the-events-calendar-category-colors`; WP-6.2 later retired
+  `paid-memberships-pro-cache` when generic invalidation absorbed it; Redirection adds one manifest provider.)
 
 **`id_kind` prefixing can never become a RULE, and v3 does not make it one.** The irreversibility register
 rules on this at R-17: captured state and `duo_map` rows embed the BARE kind, so a prefix rule introduced
@@ -1692,8 +1712,11 @@ substitutable for another:
 1. **Declarative sufficiency.** The engine-gap ledger shows a residual demand that still requires
    executable repair AFTER the declarative primitives land, and the `compatibility_shim` share of NEWLY
    authored adapters has fallen below a threshold stated in advance of the measurement. The baseline is
-   today's, measured over the shipped library: 12 of the 17 adapters name manifest-shipped hook code, and
-   that code is 21 files totalling 27,944 lines under `manifests/{interpreters,providers,regenerators}`.
+   the pre-absorption measurement over the shipped library: 11 of the 16 adapters named manifest-shipped hook
+   code, and that code was 20 files totalling 27,643 lines under
+   `manifests/{interpreters,providers,regenerators}`. After the engine absorptions below, the live baseline is
+   this: 11 of the 17 adapters name manifest-shipped hook code, and that code is 20 files totalling 26,958
+   lines under those directories; `tools/adapter-executable-inventory.json` records the generated inventory.
    The baseline more than doubled with #561 alone — one adapter reaching production-readiness added a TEC
    interpreter and a Category Colors provider and rewrote its regenerator. Polylang then added the sixteenth
    hook file and 1,828 lines through its reviewed production-readiness port — which is the condition arguing
@@ -1710,6 +1733,13 @@ substitutable for another:
    The inactive-Woo lifecycle correction added a net 194 lines for exact installed-root and native-file
    provenance plus a bounded stdin child that validates permalink bytes without preloading Woo's bare-required
    formatter into the activation process; the baseline moves because those executable bytes ship with the adapter.
+   WP-6.2 then supplied the concrete reversal: PMPro moved its exact cache postcondition onto the generic
+   invalidation primitive, retiring one adapter and 233 provider lines. The manifest-provider runtime removes
+   another 697 duplicated protocol/read-guard lines across nine providers while retaining their current plugin
+   semantics and verifiers. Against the current main baseline those two absorptions remove 930 shipped lines.
+   The per-file ownership and absorption verdicts are reviewed in
+   `tools/adapter-executable-inventory.json`; `regress_spec_v3_document.php` refuses an omitted, stale,
+   mis-owned, or miscounted row.
 2. **Falsifiable effects.** Declared-effect verification is live and REFUSING, with a measured
    false-refusal rate on the shipped 16 below a stated threshold — because the compiled inventory is
    recovery's entire authority, and under-declaring `effects[]` is the cheapest way for an adapter to pass.
@@ -1748,14 +1778,16 @@ and `manifest_hash` for seven representative pin sets and compares them against
 `sandbox/tests/fixtures/spec-v3/pre-flag-identity.json` — a document captured from the tree BEFORE the
 defines moved, in the same change, and never regenerated since.
 
-- **No pre-flag shipped manifest is re-stamped to `spec_version: 3`.** This is the central exclusion and the reason
-  the bump is survivable and reversible. Stamping moves every manifest's bytes, therefore every adapter
-  digest, therefore every `manifest_hash`, therefore every deployed site's
-  `compiled_artifact_manifest_mismatch` (`agent/src/Repository/CompiledArtifactReader.php:56`) and every
-  `site.duo.json` content pin — simultaneously, for zero capability gained on the day it is paid. The
-  original 16-manifest library stays at `spec_version: 2` inside the window (§ v3.1) and migrates one adapter at a
-  time, each moving only its own digest and only for the sites that pin it. Redirection was authored after
-  the flip and is the first shipped v3 manifest; no older adapter byte was changed to create that fact.
+- **No shipped manifest was re-stamped by the flag-day bump.** This was the central exclusion that made the
+  bump survivable and reversible. Stamping all manifests would have moved every adapter digest, every
+  `manifest_hash`, every deployed site's compiled artifact, and every `site.duo.json` content pin
+  simultaneously for zero capability gained on that day. The promised later path is now exercised per
+  adapter: Paid Memberships Pro moved to `spec_version: 3` to consume `invalidate-vocabulary/v1`, retiring
+  its 233-line provider; eight provider-bearing manifests later moved to consume
+  `manifest-provider-runtime/v1`. Redirection was authored after the flip at v3 rather than migrated.
+  Each migration moves only its own digest and the sites that pin it; the other seven pre-flag manifests remain
+  at 2 inside the window (§ v3.1). Operators recompile and re-pin
+  affected adapters; there is no fallback to old manifest/provider bytes.
 - **No DEPLOYED REPOSITORY is re-stamped either, and it does not need to be.** `site.duo.json`'s own
   `spec_version` is the same wire integer with a larger population — every site has one, and no site
   author chose it. It is judged against the window (§ v3.1), so a repository declaring `2` compiles
@@ -1796,27 +1828,26 @@ defines moved, in the same change, and never regenerated since.
   certificate already names, reusing `created_at` when a re-sign is byte-identical so an unchanged input
   mints nothing, and restoring `adapters/authorities.json` to its prior bytes if any signature fails.
 - **The executable lane does not open** (§ v3.11). Only its reservations ride.
-- **No new declarative primitive rides the bump.** Each is a v3-only section that stages through the
-  window the bump installs, one at a time — which is also the cheapest available proof that v3 was the
-  last flag day.
+- **No new declarative primitive rode the bump itself.** Each stages later through the window or feature
+  channel, one adapter at a time. PMPro's later invalidation migration is the worked product example: the
+  engine version did not move, while one adapter opted into a feature and paid one identity change.
 - **Nothing widens the platform boundary.** v3 makes a NARROWER environment declarable (§ v3.5); it never
   widens what the boundary CLAIMS. `site_mode: single-site` is unchanged.
 - **v2 acceptance is not retired.** Removing the old version on the day the window is installed would make
   v3 a flag day of exactly the kind this section exists to end. The window closes by a dated decision,
   gated on fleet telemetry showing no v2-declaring pinned manifests plus at least one grammar section
   shipped post-v3 through `engine_features` with no bump — the replacement mechanism proven before the
-  thing it replaces is retired. **The second half of that condition is MET**: `declaration_evidence`
-  shipped post-v3 through the channel with `DUO_SPEC_VERSION` unmoved (§ v3.13, WP-6.4). The first half is
-  fleet telemetry and is not, so the window stays open; what changed is that the condition is now one
-  measurement away from decidable rather than two.
+  thing it replaces is retired. **The second half of that condition is MET**, and PMPro is now a shipped
+  consumer of `invalidate-vocabulary/v1` with `DUO_SPEC_VERSION` unmoved (§ v3.15, WP-6.2). The first half
+  is fleet telemetry and is not met, so the window stays open.
 
 Rollback, until that dated decision, is the shipped atomic bundle swap run backwards: redeploying the
-prior `agent manifests recovery` archive restores the v2 agent AND the manifest library it shipped with,
-as one archive through the four atomic journal surfaces (`Adopt.php:322-350`), so there is no partial
-state to be in. It is clean because no manifest and no repository declares 3 and no SHIPPED digest moved,
-so every shipped pin matches and `platform.json` reverts to the bytes every pre-flag certificate signed
-over — those certificates verify again, and `regress_spec_migration_rehearsal.php` proves the round trip
-by driving an estate A→B→A and asserting the second state-A observation is byte-identical to the first.
+prior `agent manifests recovery` archive restores the v2 agent AND the v2 manifest library it shipped
+with, as one archive through the four atomic journal surfaces (`Adopt.php:322-350`), so there is no partial
+runtime/library state. The original flag-day rehearsal remains clean because its captured A/B estate
+predates later per-adapter restamps. A site that has adopted the current PMPro digest must instead restore
+or recompile against the old PMPro manifest as part of that bundle rollback; its current pin cannot match
+both identities, which is the explicit cost of the first act below.
 
 The one thing an operator must redo in each direction is certificates, and the two things that follow
 them: `duo adapter recertify` signs against whatever boundary is installed, so it is bidirectional by
@@ -1825,11 +1856,13 @@ an artifact recompiled AFTER the flip refuses until it is recompiled again. That
 crossed, not a defect in the rollback; an operator who declines the backward re-mint lands on
 `uncertified`, which is honest and non-blocking.
 
-**Exactly three acts make it lossy, and each is one-way for its own reason.** They are named here and
-forbidden by gate G3 in the runbook until a dated decision opens them:
+**Exactly three acts make it lossy, and each is one-way for its own reason.** They are named here. The
+first has now been taken deliberately by PMPro's engine-absorption migration; the second remains absent,
+and the third follows the certificate rollout described above:
 
-1. **The first shipped manifest stamped `spec_version: 3`.** The N-1 agent's window is {1, 2}, so it
-   refuses that manifest wholesale and any site pinning it cannot load until the pin is removed.
+1. **The first shipped manifest stamped `spec_version: 3` — now Paid Memberships Pro.** The N-1 agent's
+   window is {1, 2}, so it refuses that current manifest wholesale. A rollback must restore the prior
+   manifest and recompile/re-pin sites that adopted the new digest; copying only the old agent is invalid.
 2. **The first REPOSITORY re-stamped to `spec_version: 3`.** Same window, other carrier: the restored
    agent refuses to compile that repository at all. This act is the one a routine "tidy the version
    field" commit could perform by accident, which is why no verb performs it.
@@ -2021,8 +2054,10 @@ easiest to abuse — chasing per-plugin behaviour into the engine one verb at a 
 boundary text refuses. So a verb enters on TWO OR MORE INDEPENDENT DEMANDS in the engine-gap ledger and
 the shipped provider corpus, and on nothing less:
 
-- `manifests/providers/paid-memberships-pro-cache.php:92` drops
-  `wp_cache_delete(<level id>, 'pmpro_membership_level_meta')` — the id on the KEY side;
+- Paid Memberships Pro's former provider dropped
+  `wp_cache_delete(<level id>, 'pmpro_membership_level_meta')` — the id on the KEY side. Its shipped
+  declaration now lives at `tables.pmpro_membership_levels.invalidate` in
+  `manifests/paid-memberships-pro.json`;
 - `manifests/providers/woocommerce-product-lookups.php:1301` drops
   `wp_cache_delete('lookup_table', 'object_<product id>')` — the id on the GROUP side, in an unrelated
   plugin. It is the second demand that made the rule "`{id}` in either member" rather than a
@@ -2051,14 +2086,14 @@ manifest exists and which must reach the same verdict there as it did at load. `
 a feature by writing `engine_features` into its own policy object.
 
 **What it bought, measured.** Paid Memberships Pro's entire executable surface was one `actions[]` entry,
-one `providers[].source: "manifest"` row, and a provider whose whole product act is that
-`wp_cache_delete()` in a loop. All three are replaceable by one declarative line, which drops the adapter
-from `compatibility_shim` to `declarative_manifest` — G5 condition 1's "the answer is more declarative
-primitives" performed once, on a real adapter. The demonstration is a synthetic fixture derived from the
-shipped manifest's bytes at runtime and driven through the real `duo manifest-validate`
-(`sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php`); the shipped manifest is deliberately
-NOT re-stamped, because a byte under `manifests/` is adapter identity and moving it would cost every pin
-and certificate over that adapter for a point already proven.
+one `providers[].source: "manifest"` row, and a 233-line provider whose whole product act was that
+`wp_cache_delete()` in a loop plus its private verification projection. All three have been replaced by one
+declarative line, dropping the shipped adapter from `compatibility_shim` to `declarative_manifest` — G5
+condition 1's "the answer is more declarative primitives" performed once on a real adapter. The engine
+proves the exact cache entry absent, and the product regression then observes the committed value through a
+faithful PMPro API read (`sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php`).
+The migration intentionally re-stamps the adapter identity, so deployed artifacts must be recompiled and
+re-pinned; there is no fallback to the retired provider.
 
 ### v3.16 The reviewer tier: federating the `exercised` leg
 
@@ -2418,9 +2453,10 @@ the plugin instead of through `wp post create --post_content=…`.
 ### v3.21 The certificate ARM rides in the feature's roster row
 
 **Rider: WP-6.6. Enforced today: yes, for every manifest that declares an implemented engine feature.**
-`DUO_SPEC_VERSION` did not move. The 16 pre-feature manifests remain byte-identical; newly authored
-Redirection is the first shipped feature declarer and its initial digest includes the roster-backed keys
-(AGENTS.md rule 2). Register row R-31.
+`DUO_SPEC_VERSION` did not move. PMPro now deliberately moves its own adapter digest as the first shipped
+feature consumer; adding the feature vocabulary itself still moved no unrelated adapter (AGENTS.md rule 2).
+Redirection was later authored with roster-backed keys in its initial digest, again moving no unrelated
+adapter. Register row R-31.
 
 **What was measured.** § v3.2's channel admits a top-level key at LOAD. § v3.3's partition is what a
 SIGNER classifies with. Those were two different sets on purpose, and the gap between them was the whole
@@ -2493,6 +2529,41 @@ answer learned that the sections exist and had to open three engine files to lea
 one — and could learn nowhere at all whether a certificate would cover it. `feature_section_grammars()`
 refuses a claimed key it cannot describe, so the document cannot go quiet about a section authors are
 expected to write.
+
+### v3.22 `manifest-provider-runtime/v1` — core owns the manifest-provider protocol
+
+**Enforced today: yes, for a `source: "manifest"` provider whose manifest declares the feature.**
+`DUO_SPEC_VERSION` remains 3. This feature claims no top-level key; it widens the existing
+`providers[]` row with `contracts`, so the `providers` certificate classification does not move.
+
+The duplication this removes is protocol, not plugin behavior. A declaration may carry
+`"contracts": {"<capability>": <contract>}` only when it is manifest-sourced and the manifest declares
+both `spec-window/v1` and `manifest-provider-runtime/v1`. The map is non-empty, follows the
+`capabilities[]` list exactly and in order, and every value passes the same capability/scoped validators
+used during live provider negotiation. A plugin-sourced provider cannot declare `contracts`: its code is
+independently shipped and must continue to advertise its own identity and capabilities.
+
+The manifest-owned class extends `Duo\ManifestProviderRuntime`. Core then supplies final
+`identity()`, `capabilities()`, `invoke()`, `invoke_scoped()`, and `reconcile_scoped()` methods. The
+behavior file supplies protected `invoke_<capability>(array): array` and, where declared,
+`reconcile_<capability>(array): array` and `project_<capability>(array): array`. Construction refuses a
+missing or malformed handler before mutation. Invocation refuses a receipt without `before`, `after`, and
+literal `verified: true`; scoped invocation uses the closed `invoke_after: receipt|reconcile` and
+`receipt_projection: handler` vocabularies.
+
+The boundary is intentional: core owns identity, contract validation, advertising, dispatch, scoped
+receipt construction, recovery routing, and the receipt-shape floor. The digest-bound behavior file still
+owns plugin API calls, plugin storage/topology knowledge, and the value-level postcondition. Moving those
+semantics into core would create plugin-name branches under `agent/src`; the future optimization is for
+the plugin itself to ship the same negotiated capability through `source: "plugin"`.
+
+The shipped migration covers nine provider files across eight adapters and removes 697 physical lines of
+duplicated protocol and checked-read mechanics without deleting their native effects or verifiers. Together
+with PMPro's earlier 233-line whole-file absorption, the executable inventory is now 19 files and 26,713 lines. Exact per-file
+before/after measurements and the residual ownership verdict are in
+`tools/adapter-executable-inventory.json`; the closed runtime contract is exercised by
+`sandbox/tests/offline/adapter/regress_actions_providers.php` and each provider retains its product
+regression.
 
 ## Ledger tables (per environment, never in the repo)
 

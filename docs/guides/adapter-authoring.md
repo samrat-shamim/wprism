@@ -780,20 +780,23 @@ post/option bodies; `structured-evidence/v1` claims `declaration_evidence`
 and every target's HEAD a top-level key the same manifest declares; it is where
 a ratified `duo adapter-draft` proposal's evidence goes instead of being
 deleted with the `_draft` sidecar, and `notes` is unaffected and keeps whatever
-it already carries; and `invalidate-vocabulary/v1` claims no key at all — it
+it already carries; `manifest-provider-runtime/v1` claims no key and moves
+manifest-owned identity, capability advertising, dispatch, scoped receipts,
+and recovery routing into the engine-owned provider runtime; and
+`invalidate-vocabulary/v1` claims no key at all — it
 widens a value vocabulary inside a section that already exists, legitimate
 under § v3.3's growth rule. A record whose addressed `declaration_evidence` is
 later deleted refuses at load, which is the point.
 
-**Before declaring any of the seven**, verify that the adapter actually uses
-the primitive and declare `spec-window/v1` with it, because that feature admits
-the `engine_features` channel itself. The signer reads each feature's reviewed
-`entity`, `field`, or `non_surface` arm from the same
-`IMPLEMENTED_FEATURES` row as the loader, so a recognised claimed section is
-certifiable; an unknown feature, a missing gate, or a key with no arm refuses
-by name. A value-only feature such as `mixed-column-codecs/v1` adds no surface
-of its own—the `column_codecs` field surface remains owned by
-`typed-column-codecs/v1`.
+**Before declaring any of the eight**, verify that the adapter actually uses
+the primitive and know that the declaration moves this adapter's manifest bytes,
+digest, and pins. Declare `spec-window/v1` with it because that feature admits
+the `engine_features` channel itself. The signer classifies feature-claimed keys
+from the same roster row that admits them (§ v3.21), so a recognised claimed
+section is certifiable and an unknown feature, missing gate, or key with no arm
+refuses by name. Value-vocabulary features add no certificate surface of their
+own: `mixed-column-codecs/v1` leaves the surface owned by
+`typed-column-codecs/v1`, while `manifest-provider-runtime/v1` claims no state.
 
 `top_level_keys` is the signer's own closed partition of
 manifest top-level keys — the set that decides whether an adapter can be
@@ -978,11 +981,6 @@ artifact or credential, permission to exercise an external server/CDN/service,
 destructive deletion authority, a production-only mutation, or two plausible
 product meanings whose choice changes what Duo will overwrite. “I have not
 read enough plugin code yet” is not an escalation reason.
-
-The worked transcript for this contract is
-[`docs/agents/redirection-adapter-authoring-exercise.md`](../agents/redirection-adapter-authoring-exercise.md).
-It starts from one user instruction, selects exact Redirection 5.9.0, and
-requires no further user decision.
 
 **The target needs Git before step 1 runs.** `wp duo init` refuses
 `unsupported: repository git — Git is unavailable on the target that owns the

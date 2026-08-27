@@ -251,19 +251,17 @@ that reached step 6 holds an artifact recompiled against the post-flip
 artifact refuses until it is recompiled once more, or the pre-flip one is
 restored. This is why step 4 of the rollback list below is not optional.
 
-**Three acts make that lossy, and they do not carry the same rule.** Acts 1 and
-2 are **forbidden outright** until G3 is opened — nothing in this runbook
-performs them and no verb offers to. Act 3 is different: it is the act this
-runbook *schedules*, at step 5, and therefore **authorising the first cohort's
-step 5 IS the act of opening G3.** Take that decision explicitly and write the
-date next to it. The point of naming G3 as its own gate is that the window must
-never close as the side effect of the first PR after the bump; a runbook that
-listed step 5 as routine would have closed it on a Tuesday, which is precisely
-what this gate exists to prevent.
+**Three acts make that lossy, and they do not carry the same rule.** The
+flag-day itself performed neither act 1 nor act 2. Paid Memberships Pro became
+the first deliberate act-1 migration; eight provider-bearing manifests later
+followed to use `manifest-provider-runtime/v1`. Each affected adapter therefore
+requires its own recompile/re-pin. Act 2 remains absent. Act 3 is the act this
+runbook schedules at step 5, and authorising that cohort remains an explicit
+certificate-rollout decision rather than a side effect of the version bump.
 
 | # | Act | Why it is one-way |
 |---|---|---|
-| 1 | The first shipped manifest stamped `spec_version: 3` | The v2 agent's window is `{1, 2}`. It refuses that manifest wholesale, and any site pinning it cannot load until the pin is removed. |
+| 1 | The first shipped manifest stamped `spec_version: 3` — now Paid Memberships Pro | The v2 agent's window is `{1, 2}`. It refuses the current PMPro manifest wholesale; rollback must restore the prior manifest bytes and recompile/re-pin sites that adopted the new digest, never copy only the old agent. |
 | 2 | The first **repository** re-stamped to `spec_version: 3` | Same window, other carrier: the restored agent refuses to compile that repository at all. No verb performs this act — `release --spec-v3` deliberately does not — precisely because a routine "tidy the version field" commit could otherwise perform it by accident. |
 | 3 | The first certificate **re-signed** after the bump — i.e. running step 5 | Be precise about what this is **not**: the `/v2` statement wire already ships and is already in the field, so the wire generation strands nothing. What strands the rollback is the **platform binding** — a re-signed certificate binds `spec_version: 3`, and the restored v2 agent raises `StalePlatformSiteAdapterCertificate` against it exactly as the v3 agent did against the old one. The re-sign also **overwrites** `adapters/certifications/<name>.json`, so the certificate the rollback target could have verified is gone. |
 
@@ -273,14 +271,15 @@ backwards.** `recertify` signs against whatever boundary is installed, in either
 direction, so after a rollback you run the preflight and then `recertify`
 again, exactly as you did going forward. An operator who declines lands on
 `uncertified` — honest, non-blocking, and reversible whenever they find the key.
-Acts 1 and 2 have no symmetric remedy at all: the restored v2 agent refuses a
-v3-stamped manifest and a v3-stamped repository outright, and the only way back
-is to un-stamp them.
+Acts 1 and 2 have no symmetric certificate-style remedy: the restored v2 agent
+refuses a v3-stamped manifest and a v3-stamped repository outright. The PMPro
+rollback is therefore a bundle rollback to its prior manifest plus ordinary
+recompile/re-pin, not a compatibility fallback.
 
-So the practical rule for a cohort is: **the window is open until you run step
-5, and after step 5 a rollback costs one more `recertify`.** Plan the cohort
-so that step 4's post-verify happens *before* step 5, because step 4 is the
-last point at which rollback is free.
+So the practical certificate rule for a cohort is: **after step 5 a rollback
+costs one more `recertify`.** Plan the cohort so that step 4's post-verify
+happens before step 5. Separately, any site pinning one of the deliberately
+migrated v3 adapters already owes the bundle-and-repin rollback described above.
 
 ---
 

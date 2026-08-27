@@ -13,19 +13,22 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 // Required here for the same reason as the two above: every caller of this
 // file loads it directly, so it cannot assume someone else loaded the observer.
 require_once __DIR__ . '/ProviderSurfaces.php';
+require_once __DIR__ . '/ManifestProviderRuntime.php';
 
 /**
- * Plugin-owned provider contract: discovery, negotiation, and invocation of
- * executable semantics the engine deliberately does not own.
+ * Provider contract: discovery, negotiation, and invocation of executable
+ * plugin semantics the engine deliberately does not own.
  *
  * The boundary doctrine's fourth extension surface
  * (docs/adapter-boundary.md, "Plugin-owned provider") is what this file
- * implements literally. A provider supplies behavior the plugin already owns;
- * the engine holds only the loading contract, the negotiation gate, and the
- * receipt/verification posture. Nothing here dispatches on a plugin name, and
- * nothing here reads a command string out of manifest data: a manifest names
- * an id, a capability, and typed arguments, and the code that runs ships with
- * the plugin or its adapter package.
+ * implements literally. A provider supplies behavior the plugin already owns.
+ * For plugin-sourced providers, the engine owns loading and negotiation while
+ * independently shipped code advertises the contract. For manifest-sourced
+ * v3 providers, ManifestProviderRuntime also owns identity, advertising,
+ * dispatch, scoped receipts, and recovery routing from declarative contracts.
+ * Nothing here dispatches on a plugin name or executes a manifest-supplied
+ * command string; the remaining behavior code contains native calls and
+ * value-level postconditions only.
  *
  * Negotiation happens before the first target mutation, by construction of
  * where Apply calls it. That ordering is the doctrine's "capability
@@ -2178,6 +2181,26 @@ final class Providers {
                 . 'capabilities(): array, and invoke(string $capability, array $args): array'
             );
         }
+        if (array_key_exists('contracts', $declaration)) {
+            if (!is_subclass_of($class, ManifestProviderRuntime::class)) {
+                throw new ProviderPackagingException(
+                    $id,
+                    $manifest,
+                    "duo: provider file $file must extend " . ManifestProviderRuntime::class
+                    . " when manifest '$manifest' declares providers[].contracts"
+                );
+            }
+            try {
+                return new $class($declaration);
+            } catch (\Throwable $failure) {
+                throw new ProviderPackagingException(
+                    $id,
+                    $manifest,
+                    "duo: provider file $file does not satisfy its declarative runtime contract — "
+                    . $failure->getMessage()
+                );
+            }
+        }
         return new $class($policy);
     }
 
@@ -2534,7 +2557,7 @@ final class Providers {
      * claim the engine would otherwise silently ignore while the operator
      * believes deletion evidence was being delivered.
      */
-    private static function validate_capability_declaration(array $decl, string $where): void {
+    public static function validate_capability_declaration(array $decl, string $where): void {
         $keys = array_keys($decl);
         sort($keys, SORT_STRING);
         $required = ['args', 'idempotent', 'reads', 'scope', 'timeout_seconds', 'writes'];
@@ -2667,19 +2690,35 @@ final class Providers {
      *
      * @param array<string,mixed> $decl
      */
-    private static function validate_scoped_capability_declaration(array $decl, string $where): void {
+    public static function validate_scoped_capability_declaration(array $decl, string $where): void {
         $scoped = $decl['scoped'] ?? null;
         if (!is_array($scoped) || (array_is_list($scoped) && $scoped !== [])) {
             throw new \RuntimeException("$where.scoped must declare the operation-bound recovery contract");
         }
         $keys = array_keys($scoped);
         sort($keys, SORT_STRING);
-        if ($keys !== ['operation_envelope', 'reconcile']
+        $required = ['operation_envelope', 'reconcile'];
+        $optional = ['invoke_after', 'receipt_projection'];
+        $missing = array_diff($required, $keys);
+        $unknown = array_diff($keys, $required, $optional);
+        if ($missing !== [] || $unknown !== []
             || ($scoped['operation_envelope'] ?? null) !== self::SCOPED_OPERATION_FORMAT
             || ($scoped['reconcile'] ?? null) !== true) {
             throw new \RuntimeException(
                 "$where.scoped must declare exactly operation_envelope: " . self::SCOPED_OPERATION_FORMAT
-                . ' and reconcile: true'
+                . ' and reconcile: true (optional: invoke_after, receipt_projection)'
+            );
+        }
+        if (array_key_exists('invoke_after', $scoped)
+            && !in_array($scoped['invoke_after'], ['receipt', 'reconcile'], true)) {
+            throw new \RuntimeException(
+                "$where.scoped.invoke_after must be \"receipt\" or \"reconcile\""
+            );
+        }
+        if (array_key_exists('receipt_projection', $scoped)
+            && $scoped['receipt_projection'] !== 'handler') {
+            throw new \RuntimeException(
+                "$where.scoped.receipt_projection must be \"handler\" when declared"
             );
         }
     }

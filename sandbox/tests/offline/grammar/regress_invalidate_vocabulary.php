@@ -24,9 +24,10 @@
  * WHAT EACH PART PROVES
  * ---------------------
  *   PART 1 — the ADMISSION RULE. The two independent demands for
- *   `{cache_group, cache_key}` are still in the shipped provider corpus, in two
- *   unrelated plugins and on two different sides of the entry (key-side id,
- *   group-side id). The single-demand shape is still single-demand, is still
+ *   `{cache_group, cache_key}` remain live in two unrelated shipped adapters
+ *   and on two different sides of the entry: PMPro now consumes the admitted
+ *   key-side verb declaratively, while Woo still carries the group-side demand
+ *   in its provider. The single-demand shape is still single-demand, is still
  *   refused, and is still RECORDED in tools/engine-gaps.json — the ledger stays
  *   honest about what the boundary costs rather than forgetting the shapes it
  *   turned away.
@@ -46,19 +47,12 @@
  *   declaration equal in strength to the provider it replaces rather than a
  *   weaker imitation of it.
  *
- *   PART 5 — THE ACCEPTANCE, through the real product path. A synthetic fixture
- *   derived from the shipped `manifests/paid-memberships-pro.json` bytes drops
- *   BOTH its `actions[]` and its `providers[]` — that adapter's entire
- *   executable surface — in exchange for one declarative line, and `duo
- *   manifest-validate` reports `[ok]`. Its `tier_decision()` drops from
- *   `compatibility_shim` to `declarative_manifest`.
- *
- *   The shipped manifest is NEVER edited, and PART 5 asserts that: a byte under
- *   `manifests/` is adapter identity (AGENTS.md rule 2), so restamping PMPro to
- *   make a point would move its digest, every `site.duo.json` content pin over
- *   it, and every certificate — a fleet-visible change for no product reason.
- *   The fixture is derived from those bytes at runtime instead, which also means
- *   the demonstration cannot rot away from the adapter it is about.
+ *   PART 5 — THE ACCEPTANCE, through the real product path. The shipped PMPro
+ *   manifest has dropped BOTH its `actions[]` and its `providers[]` — that
+ *   adapter's entire executable surface — in exchange for one declarative line,
+ *   and `duo manifest-validate` reports `[ok]`. Its `tier_decision()` is now
+ *   `declarative_manifest`. This is intentionally fleet-visible product work:
+ *   the changed manifest digest requires the ordinary recompile-and-repin flow.
  */
 declare(strict_types=1);
 
@@ -124,18 +118,29 @@ $refuses = static function (array $entries, string $needle, string $label) use (
 // PART 1 — the admission rule: two independent demands, and the ledger
 // =====================================================================
 
-$pmproProvider = (string) file_get_contents($repo . '/manifests/providers/paid-memberships-pro-cache.php');
+$pmproManifest = json_decode(
+    (string) file_get_contents($repo . '/manifests/paid-memberships-pro.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
 $wooProvider = (string) file_get_contents($repo . '/manifests/providers/woocommerce-product-lookups.php');
 $snippetsProvider = (string) file_get_contents($repo . '/manifests/providers/code-snippets-state.php');
 
-// DEMAND 1: the id on the KEY side. PMPro's provider is this call in a loop and
-// nothing else that touches the object cache, which is why PART 5 can retire the
-// whole provider rather than only part of it.
+// DEMAND 1: the id on the KEY side. PMPro now consumes the admitted primitive
+// directly, proving the verb has a shipped product owner after its compatibility
+// provider is removed rather than surviving only as unused engine vocabulary.
+duo_check_same(
+    [['cache_group' => 'pmpro_membership_level_meta', 'cache_key' => '{id}']],
+    $pmproManifest['tables']['pmpro_membership_levels']['invalidate'] ?? null,
+    'DEMAND 1 is still in the tree as a shipped declarative consumer: Paid Memberships Pro drops the '
+        . "current row id from 'pmpro_membership_level_meta' — the id on the KEY side"
+);
 duo_check(
-    str_contains($pmproProvider, "wp_cache_delete(\$id, self::CACHE_GROUP)")
-        && str_contains($pmproProvider, "private const CACHE_GROUP = 'pmpro_membership_level_meta'"),
-    'DEMAND 1 is still in the tree: manifests/providers/paid-memberships-pro-cache.php drops '
-        . "wp_cache_delete(<row id>, 'pmpro_membership_level_meta') — the id on the KEY side"
+    !isset($pmproManifest['providers'])
+        && !isset($pmproManifest['actions'])
+        && !is_file($repo . '/manifests/providers/paid-memberships-pro-cache.php'),
+    'and the PMPro compatibility provider is actually retired rather than left digest-bound beside its replacement'
 );
 
 // DEMAND 2: the id on the GROUP side, in an unrelated plugin. This is what makes
@@ -412,8 +417,9 @@ duo_check_same(
 );
 
 // The readback is what makes the declaration as strong as the provider it
-// replaces. paid-memberships-pro-cache.php:96-99 refuses when an entry survives;
-// so does this, rather than reporting success for a delete the backend ignored.
+// replaces. The retired paid-memberships-pro-cache provider refused when an
+// entry survived; so does this, rather than reporting success for a delete the
+// backend ignored.
 $cacheDeletes = [];
 $survives = new TypedTableMaterializer(
     static fn(): array => [],
@@ -443,40 +449,20 @@ duo_check_throws(
 // PART 5 — THE ACCEPTANCE, through the real product path
 // =====================================================================
 
-$shippedPath = $repo . '/manifests/paid-memberships-pro.json';
-$shippedBytes = (string) file_get_contents($shippedPath);
-$shipped = json_decode($shippedBytes, true, 512, JSON_THROW_ON_ERROR);
-
-duo_check_same(
-    ['tier_basis' => 'providers[0] source "manifest" (id \'paid-memberships-pro-cache\')',
-     'trust_tier' => 'compatibility_shim'],
-    AdapterSources::tier_decision($shipped),
-    'THE BASELINE: the SHIPPED PMPro manifest is `compatibility_shim`, and the basis names the one provider '
-        . 'row that puts it there'
-);
-
-// Derived from the shipped bytes at runtime rather than copied into this file:
-// the demonstration cannot drift away from the adapter it is about, and no byte
-// under manifests/ moves (AGENTS.md rule 2).
-$synthetic = $shipped;
-unset($synthetic['providers'], $synthetic['actions']);
-$synthetic['name'] = 'duotest-pmpro-levels';
-$synthetic['spec_version'] = 3;
-// Both names, and that is § v3.3's growth rule rather than boilerplate: the
-// `engine_features` KEY is itself admitted only because `spec-window/v1` claims
-// it, so declaring the channel is how a manifest reaches any feature at all.
-$synthetic['engine_features'] = ['invalidate-vocabulary/v1', 'spec-window/v1'];
-$synthetic['tables']['pmpro_membership_levels']['invalidate'] = [
-    ['cache_group' => 'pmpro_membership_level_meta', 'cache_key' => '{id}'],
-];
+$shipped = $pmproManifest;
 
 duo_check_same(
     ['tier_basis' => 'no interpreter, regenerator, provider, or native action is declared',
      'trust_tier' => 'declarative_manifest'],
-    AdapterSources::tier_decision($synthetic),
-    'THE ACCEPTANCE: with its cache invalidation expressed declaratively, PMPro\'s whole executable surface '
+    AdapterSources::tier_decision($shipped),
+    'THE ACCEPTANCE: with its cache invalidation expressed declaratively, shipped PMPro\'s whole executable surface '
         . '— one action, one provider, one wp_cache_delete() loop — is gone and the tier DROPS from '
         . 'compatibility_shim to declarative_manifest'
+);
+duo_check_same(
+    ['invalidate-vocabulary/v1', 'spec-window/v1'],
+    $shipped['engine_features'] ?? null,
+    'the shipped adapter explicitly negotiates the post-v3 invalidate vocabulary before using it'
 );
 
 $scratch = sys_get_temp_dir() . '/duo_regress_invalidate_vocab_' . bin2hex(random_bytes(4));
@@ -487,7 +473,7 @@ register_shutdown_function(static function () use ($scratch): void {
     }
     @rmdir($scratch);
 });
-Canon::write_file($scratch . '/duotest-pmpro-levels.json', Canon::encode($synthetic));
+Canon::write_file($scratch . '/paid-memberships-pro.json', Canon::encode($shipped));
 
 $cmd = implode(' ', array_map('escapeshellarg', [PHP_BINARY, $repo . '/cli/duo', 'manifest-validate', $scratch]));
 $pipes = [];
@@ -500,24 +486,21 @@ if (is_resource($proc)) {
     proc_close($proc);
 }
 duo_check(
-    str_contains($stdout, '[ok] duotest-pmpro-levels'),
-    'AND IT LOADS THROUGH THE PRODUCT PATH: the real `duo manifest-validate` reports [ok] for the synthetic '
-        . 'declarative PMPro — the verb is reachable by an adapter author, not only by this suite'
+    str_contains($stdout, '[ok] paid-memberships-pro'),
+    'AND IT LOADS THROUGH THE PRODUCT PATH: the real `duo manifest-validate` reports [ok] for the shipped '
+        . 'declarative PMPro — the migration is reachable by the product, not only by this suite'
 );
-if (!str_contains($stdout, '[ok] duotest-pmpro-levels')) {
+if (!str_contains($stdout, '[ok] paid-memberships-pro')) {
     duo_check_detail('stdout: ' . substr($stdout, 0, 1200));
     duo_check_detail('stderr: ' . substr($stderr, 0, 600));
 }
 
-// The demonstration must not have leaked into shipped identity.
 duo_check(
-    (string) file_get_contents($shippedPath) === $shippedBytes
-        && ($shipped['providers'][0]['source'] ?? null) === 'manifest'
-        && !array_key_exists('engine_features', $shipped)
-        && !array_key_exists('invalidate', $shipped['tables']['pmpro_membership_levels']),
-    'AND THE SHIPPED MANIFEST IS UNTOUCHED: still one `source: "manifest"` provider, no engine_features, no '
-        . 'invalidate. Restamping it to make this point would move its adapter digest, every site.duo.json '
-        . 'content pin over it, and every certificate (AGENTS.md rule 2) — for no product reason'
+    !array_key_exists('providers', $shipped)
+        && !array_key_exists('actions', $shipped)
+        && ($shipped['spec_version'] ?? null) === 3,
+    'AND THE SHIPPED IDENTITY STATES THE NEW BOUNDARY: no executable declaration remains and spec v3 carries '
+        . 'the feature-gated declarative verb. Operators recompile and re-pin this intentional digest change'
 );
 
 duo_check_summary('regress_invalidate_vocabulary');

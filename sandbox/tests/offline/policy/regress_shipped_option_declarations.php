@@ -49,7 +49,7 @@ declare(strict_types=1);
  * and the script exits 1.
  */
 
-define('DUO_SPEC_VERSION', 2);
+define('DUO_SPEC_VERSION', 3);
 
 require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';

@@ -139,6 +139,7 @@ return [
     'Duo\\LintTrustGate' => 'src/Review/LintTrustGate.php',
     'Duo\\ManifestDispositions' => 'src/Policy/ManifestDispositions.php',
     'Duo\\ManifestGrammar' => 'src/Policy/ManifestGrammar.php',
+    'Duo\\ManifestProviderRuntime' => 'src/Adapter/ManifestProviderRuntime.php',
     'Duo\\ManifestValidator' => 'src/Policy/ManifestValidator.php',
     'Duo\\MediaCapture' => 'src/Capture/MediaCapture.php',
     'Duo\\MediaPayloadAuthority' => 'src/Kernel/MediaPayloadAuthority.php',

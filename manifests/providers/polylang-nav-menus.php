@@ -1,7 +1,7 @@
 <?php
 namespace Duo\Providers;
 
-use Duo\Policy;
+use Duo\ManifestProviderRuntime;
 use Duo\WpCliChildProcess;
 
 if (!class_exists(WpCliChildProcess::class, false)) {
@@ -19,7 +19,7 @@ if (!class_exists(WpCliChildProcess::class, false)) {
  * This provider models those bounded plugin-owned effects; core's separate
  * `rewrite.flush` action owns WordPress rewrite regeneration.
  */
-final class PolylangNavMenus {
+final class PolylangNavMenus extends ManifestProviderRuntime {
     private const LANGUAGE_SLUG_MAX_BYTES = 200;
     private const THEME_COMPONENT_MAX_BYTES = 764;
     private const NAV_LOCATION_MAX_BYTES = 764;
@@ -30,57 +30,8 @@ final class PolylangNavMenus {
     private const CATALOG_MAX_ROWS = 10000;
     private const CATALOG_MAX_TOTAL_BYTES = 16777216;
     private const CATALOG_CHILD_PREFIX = 'DUO_PLL_NATIVE:';
-    private Policy $policy;
-
-    public function __construct(Policy $policy) {
-        $this->policy = $policy;
-    }
-
-    /** @return array{id:string, plugin:string, version:string} */
-    public function identity(): array {
-        return [
-            'id' => 'polylang-nav-menus',
-            'plugin' => 'polylang/polylang.php',
-            'version' => '2.0.0',
-        ];
-    }
-
-    public function capabilities(): array {
-        return [
-            'synchronize_runtime' => [
-                'args' => [],
-                'reads' => [
-                    'option:polylang',
-                    'option:stylesheet',
-                    'option:default_category',
-                    'term:language',
-                    'entity:nav-menu',
-                ],
-                'writes' => [
-                    'entity:theme-mods-nav-menu-locations',
-                    'option:default_category',
-                ],
-                'scope' => 'site',
-                'idempotent' => true,
-                // The provider projection is deliberately bounded; the
-                // engine-owned rewrite action has its own contract.
-                'timeout_seconds' => 120,
-                'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
-                    'reconcile' => true,
-                ],
-            ],
-        ];
-    }
-
-    /** @param array<string,mixed> $args */
-    public function invoke(string $capability, array $args): array {
-        if ($capability !== 'synchronize_runtime') {
-            throw new \RuntimeException(
-                "duo: Polylang runtime provider does not implement capability '$capability'"
-            );
-        }
-
+    /** @return array{before:array<string,mixed>,after:array<string,mixed>,verified:true} */
+    protected function invoke_synchronize_runtime(array $args): array {
         $this->assert_runtime();
         $this->purge_polylang_language_cache();
         $configuration = $this->configuration();
@@ -100,34 +51,14 @@ final class PolylangNavMenus {
         ];
     }
 
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function invoke_scoped(string $capability, array $args, array $operation): array {
-        $receipt = $this->invoke($capability, $args);
-        return [
-            'operation' => $operation,
-            'before' => $receipt['before'],
-            'after' => $receipt['after'],
-            'verified' => true,
-        ];
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function reconcile_scoped(string $capability, array $args, array $operation): array {
-        if ($capability !== 'synchronize_runtime') {
-            throw new \RuntimeException(
-                "duo: Polylang runtime provider does not implement capability '$capability'"
-            );
-        }
+    /** @return array<string,mixed> */
+    protected function reconcile_synchronize_runtime(array $args): array {
         $this->assert_runtime();
         $this->purge_polylang_language_cache();
         $configuration = $this->configuration();
         $nativeCatalogs = $this->verify_fresh_native_catalogs();
-        return [
-            'operation' => $operation,
-            'after' => $this->observe(true, $configuration) + [
-                'native_catalogs_hash' => $nativeCatalogs,
-            ],
-            'verified' => true,
+        return $this->observe(true, $configuration) + [
+            'native_catalogs_hash' => $nativeCatalogs,
         ];
     }
 

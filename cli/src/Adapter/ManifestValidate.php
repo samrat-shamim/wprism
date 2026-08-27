@@ -684,7 +684,8 @@ final class ManifestValidate {
                 'patterns' => 'A NAMED SUBSET — the bounded patterns the engine keeps as named constants.',
                 'not_included' => [
                     'key vocabularies: which KEYS a surface admits (an actions[] entry\'s allowed keys, the exact '
-                        . 'five a providers[] entry requires, the invalidate key set, a table declaration\'s '
+                        . 'five a providers[] entry requires plus its optional contracts/requires keys, the '
+                        . 'invalidate key set, a table declaration\'s '
                         . 'sections) are equally closed and equally refused, and none is published — several are a '
                         . 'function of a sibling value (an action\'s legal keys depend on its kind), so there is no '
                         . 'flat set to publish',

@@ -5,7 +5,7 @@ declare(strict_types=1);
 // fixture. The live conformance suite proves behavior; this fast test keeps a
 // future option/table addition from becoming invisible by accident.
 
-define('DUO_SPEC_VERSION', 2);
+define('DUO_SPEC_VERSION', 3);
 require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
 require dirname(__DIR__, 4) . '/agent/src/Code/Code.php';
@@ -1050,7 +1050,7 @@ woo_ok(
 );
 
 // Receipt identities are a three-way contract: the manifest is the shipped
-// declaration, provider identity() is the executable authority, and this
+// declaration, the provider runtime exposes the negotiated identity, and this
 // conformance check is the observed receipt expectation. Keep the exact
 // versions here so a one-sided bump cannot hide behind a green offline suite.
 $expectedWooProviderContracts = [
@@ -1068,8 +1068,10 @@ $expectedWooProviderContracts = [
     ],
 ];
 $manifestWooProviderRows = [];
+$manifestWooProviderDeclarations = [];
 foreach ((array) ($manifest['providers'] ?? []) as $provider) {
     if (is_array($provider) && isset($provider['id'], $provider['version'])) {
+        $manifestWooProviderDeclarations[(string) $provider['id']] = $provider;
         $manifestWooProviderRows[(string) $provider['id']] = [
             'plugin' => (string) ($provider['plugin'] ?? ''),
             'version' => (string) $provider['version'],
@@ -1089,7 +1091,10 @@ foreach ($expectedWooProviderContracts as $providerId => $contract) {
 foreach ($expectedWooProviderContracts as $providerId => $contract) {
     require_once $root . "/manifests/providers/$providerId.php";
     $providerClass = $contract['class'];
-    $identity = (new $providerClass($policy))->identity();
+    $declaration = $manifestWooProviderDeclarations[$providerId] ?? null;
+    woo_ok(is_array($declaration), "$providerId retains its complete manifest declaration");
+    $runtimeArgument = isset($declaration['contracts']) ? $declaration : $policy;
+    $identity = (new $providerClass($runtimeArgument))->identity();
     woo_ok(
         $identity === [
             'id' => $providerId,

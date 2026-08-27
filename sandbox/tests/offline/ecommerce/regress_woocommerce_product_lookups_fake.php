@@ -2207,9 +2207,24 @@ namespace {
     require dirname(__DIR__, 4) . '/agent/src/Adapter/Providers.php';
     require dirname(__DIR__, 4) . '/manifests/providers/woocommerce-product-lookups.php';
 
-    $reflection = new \ReflectionClass(\Duo\Policy::class);
-    $policy = $reflection->newInstanceWithoutConstructor();
-    $adapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+    $manifest = json_decode(
+        (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/woocommerce.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $productProviderDeclaration = null;
+    foreach ((array) ($manifest['providers'] ?? []) as $providerDeclaration) {
+        if (is_array($providerDeclaration)
+            && ($providerDeclaration['id'] ?? null) === 'woocommerce-product-lookups') {
+            $productProviderDeclaration = $providerDeclaration;
+            break;
+        }
+    }
+    if (!is_array($productProviderDeclaration)) {
+        throw new \RuntimeException('WooCommerce product lookup provider declaration is absent');
+    }
+    $adapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
     // These are the real WordPress/WooCommerce filter seams. Keep the args
     // filters identity-preserving so the registration assertions below pin
     // Woo's exact defaults; make the public object filter visibly change its
@@ -4250,7 +4265,7 @@ namespace {
         && !str_contains($lookupOversizeMessage, $lookupSecret),
         'oversized lookup scalars refuse without entering receipts or diagnostics');
 
-    $schemaAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+    $schemaAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
     $schemaObserver = new \ReflectionMethod($schemaAdapter, 'observe_lookup_state');
     $wpdb->lookupColumnDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS + [
         'extension_secret' => 'longtext',
@@ -4275,7 +4290,7 @@ namespace {
     $wpdb->lookupColumnDeclarations = $badTypeDeclarations;
     $badTypeMessage = '';
     try {
-        $badTypeAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        $badTypeAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
         (new \ReflectionMethod($badTypeAdapter, 'observe_lookup_state'))->invoke($badTypeAdapter, [13]);
     } catch (\Throwable $failure) {
         $badTypeMessage = $failure->getMessage();
@@ -4287,7 +4302,7 @@ namespace {
     unset($wpdb->lookupColumnDeclarations['tax_class']);
     $missingCoreMessage = '';
     try {
-        $missingCoreAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        $missingCoreAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
         (new \ReflectionMethod($missingCoreAdapter, 'observe_lookup_state'))->invoke($missingCoreAdapter, [13]);
     } catch (\Throwable $failure) {
         $missingCoreMessage = $failure->getMessage();
@@ -4304,7 +4319,7 @@ namespace {
     $wpdb->lookupSchemaRowsOverride[] = ['Field' => 'product_id', 'Type' => 'bigint(20)'];
     $duplicateSchemaMessage = '';
     try {
-        $duplicateSchemaAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        $duplicateSchemaAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
         (new \ReflectionMethod($duplicateSchemaAdapter, 'observe_lookup_state'))->invoke($duplicateSchemaAdapter, [13]);
     } catch (\Throwable $failure) {
         $duplicateSchemaMessage = $failure->getMessage();
@@ -4321,7 +4336,7 @@ namespace {
     $fakeVisibilityQueries = [];
     $oversizedSchemaMessage = '';
     try {
-        $oversizedSchemaAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        $oversizedSchemaAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
         (new \ReflectionMethod($oversizedSchemaAdapter, 'observe_lookup_state'))->invoke($oversizedSchemaAdapter, [13]);
     } catch (\Throwable $failure) {
         $oversizedSchemaMessage = $failure->getMessage();
@@ -4338,7 +4353,7 @@ namespace {
     $wpdb->failReadContaining = 'information_schema.COLUMNS';
     $schemaReadMessage = '';
     try {
-        $schemaReadAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        $schemaReadAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
         (new \ReflectionMethod($schemaReadAdapter, 'observe_lookup_state'))->invoke($schemaReadAdapter, [13]);
     } catch (\Throwable $failure) {
         $schemaReadMessage = $failure->getMessage();
@@ -4352,7 +4367,7 @@ namespace {
     $wpdb->prefix = 'wp_bad`identifier_';
     $badTableMessage = '';
     try {
-        $badTableAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        $badTableAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
         (new \ReflectionMethod($badTableAdapter, 'observe_lookup_state'))->invoke($badTableAdapter, [13]);
     } catch (\Throwable $failure) {
         $badTableMessage = $failure->getMessage();

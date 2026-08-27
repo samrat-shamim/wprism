@@ -45,8 +45,11 @@
  * partition, and the estate is untouched: what moved is the reader count (one
  * shipped reader, now two) and the two assertions that recorded F2 as open. The
  * fixtures' verdicts AT THIS ENGINE did not move at all, because the rule is
- * gated at `spec_version: 3` and every fixture here declares DUO_SPEC_VERSION —
- * which is the flag-day invariant rather than a gap.
+ * gated at `spec_version: 3` and every fixture here declares DUO_SPEC_VERSION.
+ * The shipped library now straddles v2/v3: reviewed post-flag consumers opt in
+ * per adapter, so the measurements below distinguish the
+ * partition from feature-roster classification instead of assuming every
+ * shipped manifest predates the flag.
  * `sandbox/tests/offline/policy/regress_closed_top_level_keys.php` drives the
  * same shapes at a synthetic N+1 engine, where they refuse by name.
  *
@@ -64,14 +67,14 @@
  * WP-1.6 requires the union of top-level keys actually in use across
  * `manifests/*.json` to be MEASURED against the 33-key signer partition and
  * the difference ENUMERATED, never assumed. It is measured below and the
- * difference is three findings, each asserted rather than reconciled:
+ * difference is asserted rather than reconciled:
  *
  *   F1  All 33 signer-partition keys are in use across the 17 shipped
  *       manifests. Redirection also declares the three keys carried by the
- *       feature roster rather than that older partition; its signer verdict is
- *       still clean because § v3.21 classifies those keys with their features.
- *       Two of the three unused partition keys are channels admitted in the
- *       change that reads them:
+ *       feature roster rather than that partition; its signer verdict is still
+ *       clean because § v3.21 classifies those keys with their features. Two of
+ *       the three previously unused partition keys were channels admitted in
+ *       the change that reads them:
  *       WP-4.6's `environment` (§ v3.5) and WP-4.3's `theme_version_range`
  *       (§ v3.3 resolution 1), declared by none of the 17.
  *   F2  RESOLVED by WP-4.3. The finding was that the third unused partition key
@@ -431,9 +434,9 @@ foreach ($unionKeys as $key) {
 }
 $report('partition keys no shipped manifest declares: ' . ($knownUnused === [] ? '(none)' : implode(', ', $knownUnused)));
 
-// F1 — the difference, enumerated in both directions. Redirection is the
-// first shipped v3 adapter, so its feature-claimed keys deliberately sit in
-// § v3.21's roster rather than duplicating the older signer partition.
+// F1 — the difference, enumerated in both directions. Redirection's
+// feature-claimed keys deliberately sit in § v3.21's roster rather than
+// duplicating the signer partition.
 duo_check_same(
     ['column_codecs', 'declaration_evidence', 'engine_features'],
     $unknownInUse,
@@ -695,20 +698,41 @@ $featureDeclarers = array_values(array_filter(
     array_keys($shipped),
     static fn(string $n): bool => array_key_exists('engine_features', $shipped[$n])
 ));
+$featureBreaks = array_values(array_filter(
+    $featureDeclarers,
+    static fn(string $n): bool => $validatorVerdict($shipped[$n]) !== null
+));
 
 $report('shipped manifests declaring `engine_features`: ' . count($featureDeclarers));
+$report('would-refuse under V3-FEAT at their declared versions: ' . count($featureBreaks));
 $report('shipped code reading `engine_features`: ' . ($featureReaders === [] ? '(none)' : implode(', ', $featureReaders)));
 $report('engine features this engine implements: '
     . implode(', ', \Duo\AdapterContractGrammar::implemented_features()));
 
 duo_check_same(
-    ['redirection'],
+    [
+        'code-snippets',
+        'elementor',
+        'ninja-forms',
+        'paid-memberships-pro',
+        'polylang',
+        'redirection',
+        'the-events-calendar',
+        'woocommerce',
+        'yoast',
+        'yoast-duplicate-post',
+    ],
     $featureDeclarers,
-    'V3-FEAT: Redirection is the first shipped manifest to exercise the post-v3 feature channel'
+    'V3-FEAT: every feature consumer declares what it consumes and existing adapters pay only their own identity change'
+);
+duo_check_same(
+    [],
+    $featureBreaks,
+    'V3-FEAT: every shipped declarer is already at the feature channel version, so the current library has no channel refusal'
 );
 // THE FLIP (WP-4.2). This suite's header states that a rider landing a rule
 // moves the assertion that measured its absence and NOT the fixtures. This is
-// that assertion for V3-FEAT: the channel acquired exactly one shipped reader,
+// that assertion for V3-FEAT: the channel acquired shipped readers,
 // the grammar that owns the vocabulary, and `fixture:engine-features` below is
 // unchanged.
 // WP-6.2 added the SECOND reader, and the pair is the shape the channel is
@@ -743,6 +767,7 @@ duo_check_same(
 // unimplemented name.
 duo_check_same(
     [
+        'agent/src/Adapter/ActionProviderGrammar.php',
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Grammar/ColumnCodecGrammar.php',
@@ -751,7 +776,8 @@ duo_check_same(
     ],
     $featureReaders,
     'V3-FEAT: the channel has exactly one shipped OWNER — the contract grammar, which holds the vocabulary and '
-        . 'refuses an unimplemented name — beside three gate readers (body mode, column framing, invalidate verbs) that ask only '
+        . 'refuses an unimplemented name — beside four gate readers (provider contracts, body mode, column framing, '
+        . 'invalidate verbs) that ask only '
         . 'whether THIS document declared the feature their gated declaration needs, and one publisher that '
         . 'refuses nothing'
 );
@@ -760,8 +786,8 @@ duo_check_same(
 // a vocabulary of one is a special case that happens to satisfy the channel's
 // requirement, and a vocabulary of two is a set the refusal enumerates, the
 // author declares from, and register row R-19 projects. WP-6.5 made it six;
-// the Redirection authoring exercise makes it seven with a value-vocabulary
-// feature that claims no additional top-level section,
+// manifest-provider-runtime/v1 made it seven, and Redirection's measured mixed
+// column demand makes it eight; neither claims an additional top-level section,
 // and the count is now evidence for a different claim than the one it started
 // as: § v3.12 asks for "at least one grammar section shipped post-v3 through
 // engine_features with no version bump" before the window may ever close, and
@@ -770,6 +796,7 @@ duo_check_same(
     [
         'attr-id-codecs/v1',
         'invalidate-vocabulary/v1',
+        'manifest-provider-runtime/v1',
         'mixed-column-codecs/v1',
         'spec-window/v1',
         'structured-body-refs/v1',
@@ -1169,7 +1196,7 @@ duo_check_same(
 duo_check_same(
     [],
     $unprefixed['providers[].id'],
-    'V3-NS: all 15 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the convention is de facto in force'
+    'V3-NS: all 14 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the convention is de facto in force'
 );
 
 // The consequence for WP-4.10's design, measured rather than argued: a shape
@@ -1218,7 +1245,7 @@ foreach (array_merge(array_keys($shipped), array_keys($idKinds), array_keys($pro
         $grammarRefusals[(string) $identity] = $e->getMessage();
     }
 }
-duo_check_same([], $grammarRefusals, 'V3-NS: every shipped identity already passes AdapterSources::assert_name(), so the namespace rule layers over one grammar');
+duo_check_same([], $grammarRefusals, 'V3-NS: all 51 shipped identities already pass AdapterSources::assert_name(), so the namespace rule layers over one grammar');
 
 // id_kind collisions are the correctness reason the namespace exists at all.
 $collisions = array_values(array_filter(array_keys($idKinds), static fn(string $k): bool => count(array_unique($idKinds[$k])) > 1));
@@ -1231,10 +1258,7 @@ duo_check_same([], $collisions, 'V3-NS: no id_kind is claimed by two shipped ada
 echo "\nFLAG-DAY BREAK LIST (shipped library only)\n";
 $breakList = [
     'V3-KEYS  closed top-level key set' => count($shippedBreaks),
-    // A declaration is no longer a break: the live v3 grammar admits every
-    // feature Redirection names. The declarer count above is a channel-use
-    // measurement, not a would-refuse count.
-    'V3-FEAT  engine_features channel' => 0,
+    'V3-FEAT  engine_features channel' => count($featureBreaks),
     'V3-DISP  per-adapter dispositions' => count($missingEntry) + count($unsafeNames) + count($canonUnstable),
     'V3-AXIS  per-adapter environment narrowing' => 0,
     'V3-NS    namespace prefixing (as a REFUSAL)' => count($unprefixed['adapter name']) + count($unprefixed['tables.*.id_kind']),

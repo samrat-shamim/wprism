@@ -1,14 +1,12 @@
 {
-  "actions": [
-    {"kind": "provider", "provider": "paid-memberships-pro-cache", "capability": "clear_level_meta_caches", "args": {}}
-  ],
   "deletions": {
     "table:pmpro_discount_codes_levels": {"cascades": [], "guards": []},
     "table:pmpro_membership_levels_groups": {"cascades": [], "guards": []},
     "table:pmpro_memberships_categories": {"cascades": [], "guards": []},
     "table:pmpro_memberships_pages": {"cascades": [], "guards": []}
   },
-  "spec_version": 2,
+  "engine_features": ["invalidate-vocabulary/v1", "spec-window/v1"],
+  "spec_version": 3,
   "name": "paid-memberships-pro",
   "plugin": "paid-memberships-pro/paid-memberships-pro.php",
   "version_range": {
@@ -33,7 +31,7 @@
     "DUO-3235 (both engine gaps from this round now closed): pmpro_membership_levelmeta and pmpro_memberships_pages are real declarations below, no longer honest-intent markers. Re-DESCRIBE'd live against the SAME 3.8.3 tag on a fresh sandbox pair before writing these (empirics before classification, not trusting the earlier notes' memory): pmpro_membership_levelmeta is meta_id(PK,auto_increment)/pmpro_membership_level_id/meta_key/meta_value — exactly as this file's own earlier note recorded, now declared with the new `id_column` field (agent/src/Repository/Snapshot.php's assert_meta_schema()/capture_meta_rows()/reconcile_meta() previously hardcoded the literal string 'id' at THREE call sites, not just the one that happened to throw first — see Snapshot.php's own docblock). pmpro_memberships_pages carries a THIRD live column beyond the composite PK that this file's earlier note never mentioned: `modified TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()` — an auto-maintained MySQL column, never authored, classified runtime below (accounted for via an ordinary `columns{}` entry — the new identity.mode=composite_ref schema assertion still enforces 'every live column classified,' same as every other row table). `pmpro_memberships_categories` shares the identical 3-column shape (membership_id/category_id/modified, DESCRIBE'd live) and is now structurally capturable via the same composite_ref grammar in principle — left as the honest-intent marker anyway, matching this file's own `pmpro_discount_codes`/`pmpro_groups` precedent just above: not attempted with real content this round (no category-restriction fact was seeded), so not claimed. `pmpro_discount_codes_levels` is a DIFFERENT, harder case even now: composite `(code_id, level_id)` PK PLUS nine real pricing-override columns (initial_payment/billing_amount/cycle_number/cycle_period/billing_limit/trial_amount/trial_limit/expiration_number/expiration_period, DESCRIBE'd live) — composite_ref's grammar has a place for genuine extra authored columns on a composite-identity table (finalize_composite_row() upserts them), but again unexercised with real content this round, so it stays a marker too.",
     "DUO-3232: every exact env-classified option below carries the mandatory `required` flag (Policy::validate_env_options()). Payment selection, sandbox/live mode, credentials, webhook/connect identifiers, anti-spam credentials, license state, URL/SSL state, and optional integration switches are all target-owned. They are `required: false` because PMPro supports free levels and multiple mutually-exclusive gateways: no unconditional manifest rule can honestly require one gateway's values on every target. A configured operator can provision the selected target gateway through env-set; an unconfigured free-level site remains valid.",
     "Production-readiness closure 2026-08-23: the admitted range is the two inspected official tags 3.8.2 and 3.8.3, whose PMPro table schema is byte-identical; exact clean installs and the supported in-place 3.8.2-to-3.8.3 upgrade are exercised from SHA-256-pinned upstream archives. Official adjacent tags 3.8.1 and 3.8.4 are refusal fixtures. Five former intent-only tables are now real declarations: discount codes use their plugin-enforced unique code as natural identity; groups and the level-group edge keep mapped surrogate identity because PMPro permits duplicate names and the edge has its own id; discount-level and category restrictions use composite references. Parent level, discount-code, and group deletion stays unsupported because PMPro runtime memberships/orders/uses and extension-owned references make the reverse-reference boundary open; only the four pure authored edge rows have positive deletion authority.",
-    "The membership-level EAV keyspace is closed to the five keys written or consumed by the exact free artifact: confirmation_in_email, membership_account_message, enable_avatars, stripe_product_id, and stripe_product_id_sandbox. The first three are authored; the Stripe product ids are environment-owned remote identifiers and never enter canonical state. A later core or add-on key refuses at the keyspace gate rather than inheriting an authored default. Provider paid-memberships-pro-cache clears and independently reads back the exact PMPro object-cache group used by get_metadata() after SQL materialization, including persistent object-cache installations; it does not flush unrelated cache groups.",
+    "The membership-level EAV keyspace is closed to the five keys written or consumed by the exact free artifact: confirmation_in_email, membership_account_message, enable_avatars, stripe_product_id, and stripe_product_id_sandbox. The first three are authored; the Stripe product ids are environment-owned remote identifiers and never enter canonical state. A later core or add-on key refuses at the keyspace gate rather than inheriting an authored default. WP-6.2's row_cache_entry_invalidation primitive replaces the retired paid-memberships-pro-cache provider: after materialization the engine drops and independently proves absent exactly the current level's entry in pmpro_membership_level_meta, including on persistent object-cache installations; it does not flush unrelated cache groups.",
     "PMPro's pmpro_user_fields_settings option stores nested stdClass objects. Duo's portable-state contract intentionally rejects PHP object payloads, and there is no plugin API that losslessly exports and imports that graph as plain data at these tags. That optional custom-checkout-field surface remains a loud unsupported boundary, as do add-on-created options/tables/meta. Every credential and remote integration identifier named by the exact free artifacts is explicitly environment-owned so capture can proceed on a configured payment site without copying or logging those values; core email-template option patterns are bounded to the artifact's exact built-in template slugs so add-on templates still refuse."
   ],
   "options": {
@@ -187,24 +185,6 @@
     {"class": "runtime", "match": "^pmpro_upgrade_"}
   ],
   "post_meta": {},
-  "providers": [
-    {
-      "id": "paid-memberships-pro-cache",
-      "version": "1.0.0",
-      "source": "manifest",
-      "plugin": "paid-memberships-pro/paid-memberships-pro.php",
-      "requires": {
-        "functions": [
-          "get_pmpro_membership_level_meta",
-          "is_multisite",
-          "maybe_serialize",
-          "wp_cache_delete",
-          "wp_cache_get"
-        ]
-      },
-      "capabilities": ["clear_level_meta_caches"]
-    }
-  ],
   "tables": {
     "pmpro_discount_codes": {
       "class": "authored_snapshot",
@@ -293,6 +273,9 @@
         "trial_limit": {"class": "authored", "lint_ok": true}
       },
       "id_kind": "pmpro_level",
+      "invalidate": [
+        {"cache_group": "pmpro_membership_level_meta", "cache_key": "{id}"}
+      ],
       "pk": "id",
       "refs": [],
       "slug_column": "name"

@@ -348,18 +348,31 @@ foreach ($library as $name => $manifest) {
 $report('shipped library: ' . count($library) . ' manifests, declared spec_versions {'
     . implode(', ', array_map('strval', array_keys($declaredVersions))) . '}');
 duo_check_same([], $refused, 'every one of the ' . count($library) . ' shipped manifests still passes the contract grammar — the window refuses none of the library');
-// WP-4.12: the library sits at N-1, not at N. That is the whole no-restamp
-// rule (§ v3.12) expressed as a measurement — the flip moved the ENGINE and
-// left every manifest byte alone, which is why not one adapter digest moved
-// and why the window had to exist before the bump rather than with it.
+// WP-4.12 moved the engine and left the library alone. Later per-adapter
+// migrations independently opt into features; this provider-runtime slice
+// moves eight more manifests to N without bulk-restamping the remaining seven.
 duo_check_same(
     [($N - 1) => true, $N => true],
     $declaredVersions,
-    'the 16 pre-flag manifests remain at spec_version ' . ($N - 1) . ', while newly authored Redirection '
-        . 'uses the live v' . $N . ' feature channel'
+    'and the shipped library exercises both admitted versions after deliberate per-adapter migrations'
 );
 $declarers = array_keys(array_filter($library, static fn(array $m): bool => array_key_exists('engine_features', $m)));
-duo_check_same(['redirection'], $declarers, 'Redirection is the first shipped manifest to declare `engine_features`; the 16 pre-flag adapters remain byte-identical');
+duo_check_same(
+    [
+        'code-snippets',
+        'elementor',
+        'ninja-forms',
+        'paid-memberships-pro',
+        'polylang',
+        'redirection',
+        'the-events-calendar',
+        'woocommerce',
+        'yoast',
+        'yoast-duplicate-post',
+    ],
+    $declarers,
+    'each shipped feature consumer opts in at N without an engine version bump or a library-wide restamp'
+);
 
 echo "\nPART 2 — a synthetic N+1 engine: the channel's admitting half\n";
 

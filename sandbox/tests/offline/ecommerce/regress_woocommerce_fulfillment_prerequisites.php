@@ -23,7 +23,8 @@ namespace Automattic\WooCommerce\Internal\Utilities {
 }
 
 namespace {
-    define('DUO_SPEC_VERSION', 2);
+    require_once __DIR__ . '/../../lib/agent_version.php';
+    duo_test_define_agent_versions();
     define('ABSPATH', __DIR__ . '/../../../../sandbox/tmp/fulfillment-wordpress/');
     define('WP_PLUGIN_DIR', ABSPATH . 'wp-content/plugins');
 

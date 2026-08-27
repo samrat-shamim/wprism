@@ -590,11 +590,11 @@ final class ManifestGrammar {
      * provider corpus, and nothing less.
      *
      * `{cache_group, cache_key}` has exactly two, in two unrelated plugins:
-     *   - `manifests/providers/paid-memberships-pro-cache.php:92` —
-     *     `wp_cache_delete($levelId, 'pmpro_membership_level_meta')`, the id on
-     *     the KEY side. That provider's whole product act is this one call in a
-     *     loop, which is why PMPro is the adapter WP-6.2 shows dropping out of
-     *     `compatibility_shim`.
+     *   - `manifests/paid-memberships-pro.json` declares the key-side demand
+     *     that its retired provider expressed as `wp_cache_delete($levelId,
+     *     'pmpro_membership_level_meta')`. The provider's whole product act was
+     *     that call in a loop, which is why PMPro could drop out of
+     *     `compatibility_shim` without moving plugin semantics into the engine.
      *   - `manifests/providers/woocommerce-product-lookups.php:1301` —
      *     `wp_cache_delete('lookup_table', 'object_' . $id)`, the id on the
      *     GROUP side. Two spellings of one primitive, which is what makes the

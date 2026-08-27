@@ -51,6 +51,8 @@ function is_multisite(): bool {
 }
 
 $root = dirname(__DIR__, 4);
+require_once $root . '/sandbox/tests/lib/agent_version.php';
+duo_test_define_agent_versions();
 require $root . '/agent/src/Kernel/Canon.php';
 require $root . '/agent/src/Kernel/OptionState.php';
 require $root . '/agent/src/Kernel/Db.php';
@@ -75,9 +77,6 @@ use Duo\NativeActions;
 use Duo\Policy;
 use Duo\Providers;
 use Duo\RepositoryCompiler;
-
-require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -534,6 +533,105 @@ $m['providers'][] = $m['providers'][0];
 refuse_probe($m, "declares provider id 'probe-cache-offline' more than once", 'one manifest declaring the same provider id twice is refused');
 
 // ======================================================================
+echo "\n== providers: v3 manifest runtime moves protocol mechanics into core ==\n";
+
+$contract = [
+    'args' => [],
+    'reads' => ['option:probe_option'],
+    'writes' => ['option:probe_option'],
+    'scope' => 'site',
+    'idempotent' => true,
+    'timeout_seconds' => 30,
+    'scoped' => [
+        'operation_envelope' => Providers::SCOPED_OPERATION_FORMAT,
+        'reconcile' => true,
+        'invoke_after' => 'reconcile',
+    ],
+];
+$runtimeManifest = probe_manifest(['engine_features' => [
+    \Duo\ManifestProviderRuntime::FEATURE,
+    'spec-window/v1',
+]]);
+$runtimeManifest['providers'][0]['capabilities'] = ['flush'];
+$runtimeManifest['providers'][0]['contracts'] = ['flush' => $contract];
+$runtimePolicy = load_probe($runtimeManifest);
+$runtimeDeclaration = $runtimePolicy->provider_declarations()['probe-cache-offline'];
+check(
+    ($runtimeDeclaration['contracts']['flush'] ?? null) === $contract,
+    'a feature-gated manifest capability contract is validated at load and reaches the runtime byte-for-byte'
+);
+
+$m = $runtimeManifest;
+$m['engine_features'] = ['spec-window/v1'];
+refuse_probe(
+    $m,
+    "requires engine feature 'manifest-provider-runtime/v1'",
+    'a contracts map without the runtime feature refuses by feature name instead of loading as inert metadata'
+);
+$m = $runtimeManifest;
+$m['providers'][0]['source'] = 'plugin';
+refuse_probe(
+    $m,
+    'contracts is only valid for source: manifest',
+    'plugin-sourced providers keep independent identity/capability negotiation and cannot borrow manifest runtime metadata'
+);
+$m = $runtimeManifest;
+$m['providers'][0]['capabilities'][] = 'warm';
+refuse_probe(
+    $m,
+    'contracts keys must exactly follow capabilities',
+    'every advertised capability needs exactly one declarative runtime contract in the same order'
+);
+$m = $runtimeManifest;
+$m['providers'][0]['contracts']['flush']['timeout_seconds'] = 0;
+refuse_probe(
+    $m,
+    'timeout_seconds must be a positive integer',
+    'declarative contracts use the live negotiation grammar at manifest load, not a weaker duplicate validator'
+);
+$m = $runtimeManifest;
+$m['providers'][0]['contracts']['flush']['scoped']['invoke_after'] = 'trust-me';
+refuse_probe(
+    $m,
+    'invoke_after must be "receipt" or "reconcile"',
+    'the scoped-after strategy is a closed engine vocabulary rather than an adapter-authored callback name'
+);
+
+$runtime = new class($runtimeDeclaration) extends \Duo\ManifestProviderRuntime {
+    protected function invoke_flush(array $args): array {
+        return ['before' => ['state' => 'before'], 'after' => ['state' => 'invoke'], 'verified' => true];
+    }
+
+    protected function reconcile_flush(array $args): array {
+        return ['state' => 'reconciled'];
+    }
+};
+check(
+    $runtime->identity() === [
+        'id' => 'probe-cache-offline',
+        'plugin' => 'probe/probe.php',
+        'version' => '1.0.0',
+    ] && $runtime->capabilities() === ['flush' => $contract],
+    'core derives manifest-provider identity and advertised capabilities from the validated declaration'
+);
+$runtimeOperation = ['operation_id' => 'probe-operation'];
+$runtimeReceipt = $runtime->invoke_scoped('flush', [], $runtimeOperation);
+check(
+    $runtimeReceipt === [
+        'operation' => $runtimeOperation,
+        'before' => ['state' => 'before'],
+        'after' => ['state' => 'reconciled'],
+        'verified' => true,
+    ],
+    'core owns capability dispatch, scoped receipt construction, and the declared fresh-reconcile strategy'
+);
+expect_throw(
+    static fn() => new class($runtimeDeclaration) extends \Duo\ManifestProviderRuntime {},
+    'requires protected invoke_flush(array): array',
+    'a missing behavior method is a construction-time packaging failure, before any provider mutation can run'
+);
+
+// ======================================================================
 echo "\n== providers: the optional `requires` contract, closed on every axis (DUO-3317) ==\n";
 
 // A well-formed requires block loads and travels to negotiation intact.
@@ -706,7 +804,8 @@ foreach ($wpCliProviderFiles as $providerFile => $providerClass) {
             '-d',
             'display_errors=stderr',
             '-r',
-            'require $argv[1]; if (!class_exists("Duo\\\\WpCliChildProcess", false) || !class_exists($argv[2], false)) { exit(1); }',
+            'require $argv[1]; require $argv[2]; if (!class_exists("Duo\\\\WpCliChildProcess", false) || !class_exists($argv[3], false)) { exit(1); }',
+            $root . '/agent/src/Adapter/ManifestProviderRuntime.php',
             $shipped . '/providers/' . $providerFile,
             $providerClass,
         ],
@@ -883,7 +982,12 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         }
         // Constructing offline must not reach WordPress: negotiation
         // instantiates before it knows whether the environment can answer.
-        $instance = new $class($shippedPolicy);
+        // Contract-migrated providers receive their declaration through the
+        // core runtime; legacy manifest providers retain the Policy constructor
+        // until their product semantics are migrated independently.
+        $instance = array_key_exists('contracts', $declaration)
+            ? new $class($declaration)
+            : new $class($shippedPolicy);
         $identity = $instance->identity();
         ksort($identity, SORT_STRING);
         check(
@@ -917,7 +1021,7 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         }
     }
 }
-check($providerCount === 14, "all fourteen shipped manifest-sourced providers were exercised (found $providerCount)");
+check($providerCount === 13, "all thirteen shipped manifest-sourced providers were exercised (found $providerCount)");
 
 // ======================================================================
 echo "\n== the two identity implementations agree over the REAL shipped library ==\n";

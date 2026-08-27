@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Duo\Providers;
 
-use Duo\Policy;
+use Duo\ManifestProviderRuntime;
 
 /**
  * Redirection 5.9.0 WordPress-module cache repair and native readback proof.
@@ -15,71 +15,15 @@ use Duo\Policy;
  * refused here because the manifest claims only the database-backed WordPress
  * module whose flush operation is deliberately empty in modules/wordpress.php.
  */
-final class RedirectionState {
-    private Policy $policy;
-
-    public function __construct(Policy $policy) {
-        $this->policy = $policy;
-    }
-
-    /** @return array{id:string,plugin:string,version:string} */
-    public function identity(): array {
-        return [
-            'id' => 'redirection-state',
-            'plugin' => 'redirection/redirection.php',
-            'version' => '1.0.0',
-        ];
-    }
-
-    /** @return array<string,array<string,mixed>> */
-    public function capabilities(): array {
-        return [
-            'rebuild_redirect_state' => [
-                'args' => [],
-                'reads' => [
-                    'table:redirection_groups',
-                    'table:redirection_items',
-                    'option:redirection_options',
-                ],
-                'writes' => [
-                    'option:redirection_options',
-                    'entity:redirection-object-cache',
-                ],
-                'scope' => 'site',
-                'idempotent' => true,
-                'timeout_seconds' => 60,
-                'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
-                    'reconcile' => true,
-                ],
-            ],
-        ];
-    }
-
+final class RedirectionState extends ManifestProviderRuntime {
     /** @param array<string,mixed> $args */
-    public function invoke(string $capability, array $args): array {
-        if ($capability !== 'rebuild_redirect_state') {
-            throw new \RuntimeException(
-                "duo: Redirection state provider does not implement capability '$capability'"
-            );
-        }
+    protected function invoke_rebuild_redirect_state(array $args): array {
         return $this->rebuild_redirect_state();
     }
 
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function invoke_scoped(string $capability, array $args, array $operation): array {
-        $receipt = $this->invoke($capability, $args);
-        return [
-            'operation' => $operation,
-            'before' => $receipt['before'],
-            'after' => $this->postcondition(true),
-            'verified' => true,
-        ];
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function reconcile_scoped(string $capability, array $args, array $operation): array {
-        return $this->invoke_scoped($capability, $args, $operation);
+    /** @param array<string,mixed> $args @return array<string,mixed> */
+    protected function reconcile_rebuild_redirect_state(array $args): array {
+        return $this->rebuild_redirect_state()['after'];
     }
 
     /** @return array{before:array<string,mixed>,after:array<string,mixed>,verified:true} */

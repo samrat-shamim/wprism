@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Duo\Providers;
 
-use Duo\Policy;
+use Duo\ManifestProviderRuntime;
 
 /**
  * Code Snippets 3.9.5/3.9.6 cache and optional flat-file repair.
@@ -16,76 +16,9 @@ use Duo\Policy;
  * hashed flat-file projection, rebuilds it through the plugin's own public
  * classes, and verifies DB/API/file agreement before returning a receipt.
  */
-final class CodeSnippetsState {
-    private Policy $policy;
-
-    public function __construct(Policy $policy) {
-        $this->policy = $policy;
-    }
-
-    /** @return array{id:string, plugin:string, version:string} */
-    public function identity(): array {
-        return [
-            'id' => 'code-snippets-state',
-            'plugin' => 'code-snippets/code-snippets.php',
-            'version' => '1.0.0',
-        ];
-    }
-
-    public function capabilities(): array {
-        return [
-            'rebuild_snippet_state' => [
-                'args' => [],
-                'reads' => ['table:snippets', 'option:code_snippets_settings'],
-                'writes' => ['entity:code-snippets-cache', 'entity:code-snippets-flat-files'],
-                'scope' => 'site',
-                'idempotent' => true,
-                'timeout_seconds' => 60,
-                'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
-                    'reconcile' => true,
-                ],
-            ],
-        ];
-    }
-
-    /** @param array<string,mixed> $args */
-    public function invoke(string $capability, array $args): array {
-        if ($capability !== 'rebuild_snippet_state') {
-            throw new \RuntimeException(
-                "duo: Code Snippets state provider does not implement capability '$capability'"
-            );
-        }
-        return $this->rebuild_snippet_state();
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function invoke_scoped(string $capability, array $args, array $operation): array {
-        $receipt = $this->invoke($capability, $args);
-        return [
-            'operation' => $operation,
-            'before' => $receipt['before'],
-            'after' => $this->postcondition(true),
-            'verified' => true,
-        ];
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function reconcile_scoped(string $capability, array $args, array $operation): array {
-        if ($capability !== 'rebuild_snippet_state') {
-            throw new \RuntimeException(
-                "duo: Code Snippets state provider does not implement capability '$capability'"
-            );
-        }
-        return [
-            'operation' => $operation,
-            'after' => $this->postcondition(true),
-            'verified' => true,
-        ];
-    }
-
+final class CodeSnippetsState extends ManifestProviderRuntime {
     /** @return array{before:array<string,mixed>,after:array<string,mixed>,verified:true} */
-    private function rebuild_snippet_state(): array {
+    protected function invoke_rebuild_snippet_state(array $args): array {
         $this->assert_runtime_contract();
         $before = $this->postcondition(false);
         $table = $this->table_name();
@@ -109,6 +42,11 @@ final class CodeSnippetsState {
         $after = $this->postcondition(true);
 
         return ['before' => $before, 'after' => $after, 'verified' => true];
+    }
+
+    /** @return array<string,mixed> */
+    protected function reconcile_rebuild_snippet_state(array $args): array {
+        return $this->postcondition(true);
     }
 
     private function assert_runtime_contract(): void {

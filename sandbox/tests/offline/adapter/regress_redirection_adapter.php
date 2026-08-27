@@ -239,18 +239,10 @@ namespace {
     }
 }
 
-namespace Duo {
-    final class Policy {}
-
-    final class Providers {
-        public const SCOPED_OPERATION_FORMAT = 'duo-scoped-effect-operation/v1';
-    }
-}
-
 namespace {
+    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
     require_once dirname(__DIR__, 4) . '/manifests/providers/redirection-state.php';
 
-    use Duo\Policy;
     use Duo\Providers\RedirectionState;
 
     $root = dirname(__DIR__, 4);
@@ -266,7 +258,7 @@ namespace {
     duo_check_same(['max' => '5.9.1', 'min' => '5.9.0'], $manifest['version_range'] ?? null,
         'A1: the manifest admits only the one exact exercised release');
     duo_check_same(
-        ['mixed-column-codecs/v1', 'spec-window/v1', 'structured-evidence/v1', 'typed-column-codecs/v1'],
+        ['manifest-provider-runtime/v1', 'mixed-column-codecs/v1', 'spec-window/v1', 'structured-evidence/v1', 'typed-column-codecs/v1'],
         $manifest['engine_features'] ?? null,
         'A2: the mixed codec and every v3 section are feature-gated'
     );
@@ -327,7 +319,7 @@ namespace {
         && str_contains($matrixSeed, 'all(. == true)'),
         'A9: exact-version target completes and verifies the same native onboarding before table reset');
 
-    $provider = new RedirectionState(new Policy());
+    $provider = new RedirectionState($manifest['providers'][0]);
     duo_check_same(
         ['id' => 'redirection-state', 'plugin' => 'redirection/redirection.php', 'version' => '1.0.0'],
         $provider->identity(),

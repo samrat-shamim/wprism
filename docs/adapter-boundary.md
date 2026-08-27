@@ -119,11 +119,19 @@ Plugins cannot add arbitrary native-action names or smuggle executable strings
 through action arguments. A genuinely plugin-specific operation belongs in a
 provider.
 
-### 4. Plugin-owned provider
+### 4. Executable provider behavior
 
-A provider supplies executable semantics the plugin already owns. It is loaded
-from the plugin itself or from an independently distributed, versioned adapter
-package—not copied into Duo core.
+A provider supplies executable semantics that remain plugin-specific. Two code
+ownership paths share one engine-owned negotiation and receipt contract:
+
+- `source: "plugin"` is loaded from the installed plugin and independently
+  advertises identity and capabilities. This is the preferred cooperation path.
+- `source: "manifest"` ships only the irreducible behavior module with the
+  adapter. A v3 manifest declaring `manifest-provider-runtime/v1` carries the
+  identity and capability contracts as data; engine core owns their validation,
+  advertising, dispatch, scoped receipt construction, recovery routing, and
+  receipt-shape enforcement. The behavior module owns only plugin API calls and
+  the value-level postcondition that proves them.
 
 The provider contract must define:
 
@@ -135,9 +143,10 @@ The provider contract must define:
 - receipts sufficient for recovery; and
 - value-level verification, not command-success-only verification.
 
-Duo's provider SDK may offer generic facilities such as checked database reads,
-canonical codecs, scoped context, heartbeat, receipts, and error mapping. It
-must not become a second home for plugin APIs or business rules.
+Duo's provider SDK and manifest runtime may offer generic facilities such as
+checked database reads, canonical codecs, scoped context, heartbeat, receipts,
+dispatch, and error mapping. They must not become a second home for plugin APIs
+or business rules.
 
 ### 5. Compatibility shim
 
@@ -153,8 +162,9 @@ The trust decision depends on what is installed:
 
 - a data-only manifest receives declarative authority only;
 - a native action invokes reviewed generic engine behavior;
-- a provider is executable code trusted as part of the installed plugin or
-  adapter package; and
+- a plugin provider is executable code trusted as part of the installed plugin;
+- a manifest-owned behavior module is digest-bound adapter code executed only
+  through its declared engine-owned contract; and
 - a compatibility shim is executable and explicitly reported as exceptional.
 
 Certification is evidence about supported behavior, not a substitute for the

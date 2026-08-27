@@ -1,7 +1,7 @@
 <?php
 namespace Duo\Providers;
 
-use Duo\Policy;
+use Duo\ManifestProviderRuntime;
 
 /**
  * WooCommerce 11.x blanket cache-invalidation provider.
@@ -21,96 +21,19 @@ use Duo\Policy;
  * action's `args.groups` does), and it does not reimplement invalidation
  * (WC_Cache_Helper does).
  */
-final class WoocommerceCache {
-    private Policy $policy;
-
-    public function __construct(Policy $policy) {
-        $this->policy = $policy;
-    }
-
-    /** @return array{id:string, plugin:string, version:string} */
-    public function identity(): array {
-        return [
-            'id' => 'woocommerce-cache',
-            'plugin' => 'woocommerce/woocommerce.php',
-            'version' => '1.0.0',
-        ];
-    }
-
-    /**
-     * `reads`/`writes` are the capability-level summary in the canonical
-     * surface vocabulary; the exact restorable/irreversible boundary of what
-     * one invocation touches is carried more precisely by the declaring
-     * action's own `effects` list (the transient option rows, the three cache
-     * namespaces, and every transient hook Woo fires), which is what recovery
-     * reconciles against.
-     *
-     * 60 seconds is generous for what this is: a bounded number of cache-group
-     * version bumps plus one transient read, all of them single-row option
-     * writes. An invocation approaching that budget means something other than
-     * cache invalidation is happening.
-     */
-    public function capabilities(): array {
-        return [
-            'invalidate_cache_groups' => [
-                'args' => [
-                    'groups' => ['type' => 'list<string>', 'required' => true],
-                ],
-                'reads' => ['entity:woocommerce-shipping-transient-version'],
-                'writes' => [
-                    'entity:woocommerce-cache-groups',
-                    'entity:woocommerce-shipping-transient-version',
-                ],
-                'scope' => 'site',
-                'idempotent' => true,
-                'timeout_seconds' => 60,
-                'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
-                    'reconcile' => true,
-                ],
-            ],
-        ];
-    }
-
+final class WoocommerceCache extends ManifestProviderRuntime {
     /** @param array<string,mixed> $args */
-    public function invoke(string $capability, array $args): array {
-        return match ($capability) {
-            'invalidate_cache_groups' => $this->invalidate_cache_groups(
-                array_map('strval', (array) ($args['groups'] ?? []))
-            ),
-            default => throw new \RuntimeException(
-                "duo: WooCommerce cache provider does not implement capability '$capability'"
-            ),
-        };
+    protected function invoke_invalidate_cache_groups(array $args): array {
+        return $this->invalidate_cache_groups(
+            array_map('strval', (array) ($args['groups'] ?? []))
+        );
     }
 
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function invoke_scoped(string $capability, array $args, array $operation): array {
-        $receipt = $this->invoke($capability, $args);
-        return [
-            'operation' => $operation,
-            'before' => $receipt['before'],
-            'after' => $this->scoped_postcondition(
-                array_map('strval', (array) ($args['groups'] ?? []))
-            ),
-            'verified' => true,
-        ];
-    }
-
-    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
-    public function reconcile_scoped(string $capability, array $args, array $operation): array {
-        if ($capability !== 'invalidate_cache_groups') {
-            throw new \RuntimeException(
-                "duo: WooCommerce cache provider does not implement capability '$capability'"
-            );
-        }
-        return [
-            'operation' => $operation,
-            'after' => $this->scoped_postcondition(
-                array_map('strval', (array) ($args['groups'] ?? []))
-            ),
-            'verified' => true,
-        ];
+    /** @param array<string,mixed> $args @return array<string,mixed> */
+    protected function reconcile_invalidate_cache_groups(array $args): array {
+        return $this->scoped_postcondition(
+            array_map('strval', (array) ($args['groups'] ?? []))
+        );
     }
 
     /** @param list<string> $groups @return array{groups:list<string>,shipping_transient_version:?string} */
