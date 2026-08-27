@@ -115,12 +115,17 @@ require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ArtifactPolicyIdentity.php';
 
 use Duo\ArtifactPolicyIdentity;
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\ManifestDispositions;
 use Duo\Policy;
 
 $repo = dirname(__DIR__, 4);
-$manifestDir = $repo . '/manifests';
+$adapterLibrary = AdapterLibrary::fromSourceTree($repo);
+$manifestPath = static function (string $name) use ($adapterLibrary): string {
+    return $adapterLibrary->package($name)?->manifestPath()
+        ?? throw new RuntimeException("shipped adapter package '$name' is absent");
+};
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/pre-flag-identity.json';
 
 /**
@@ -232,14 +237,12 @@ duo_check_same(
         . 'engine, which is what makes the comparison below a measurement across the flip and not within it'
 );
 
-putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
-
 // ---------------------------------------------------------------------------
 echo "\nPART 1 — all 16 adapter digests, across the flip\n";
 // ---------------------------------------------------------------------------
 $names = array_keys((array) $frozen['adapter_digests']);
 sort($names, SORT_STRING);
-$policyAll = Policy::load(null, $names);
+$policyAll = Policy::load(null, $names, adapterLibrary: $adapterLibrary);
 $observed = [];
 foreach (ArtifactPolicyIdentity::resolved_adapters($policyAll) as $row) {
     $observed[(string) $row['name']] = (string) $row['digest'];
@@ -282,7 +285,7 @@ duo_check_same(
 // the remaining seven prove the bump itself did not bulk-restamp the library.
 $declared = [];
 foreach ($names as $name) {
-    $decoded = Canon::decode(Canon::read_file($manifestDir . '/' . $name . '.json'));
+    $decoded = Canon::decode(Canon::read_file($manifestPath($name)));
     $declared[$name] = $decoded['spec_version'] ?? 'absent';
 }
 duo_check_same(
@@ -316,7 +319,7 @@ echo "\nPART 2 — manifest_hash for seven representative pin sets\n";
 $disjointSets = [];
 foreach ((array) $frozen['pin_sets'] as $label => $expected) {
     $pins = (array) $expected['pins'];
-    $policy = Policy::load(null, $pins);
+    $policy = Policy::load(null, $pins, adapterLibrary: $adapterLibrary);
     $touched = array_values(array_intersect($pins, REVIEWED_MOVES['adapters']));
     if ($touched === []) {
         $disjointSets[] = $label;
@@ -363,7 +366,7 @@ echo "\nPART 3 — the reviewed registry, and the manifest file bytes upstream o
 // the reviewed act — not evidence that the flag day disturbed a host contract.
 duo_check_same(
     REVIEWED_MOVES['registry_sha256'],
-    ManifestDispositions::load($manifestDir)->sha256(),
+    ManifestDispositions::load_library($adapterLibrary)->sha256(),
     'registry_sha256 — the whole-document hash every host contract pins (ContractProjection) — carries #561\'s '
         . 'experimental -> certified promotion of the-events-calendar plus Polylang and WooCommerce review; it '
         . 'is pinned here as a literal, so the next claim edit is a visible re-pin rather than a silent one'
@@ -376,7 +379,7 @@ duo_check(
 $fileHashes = [];
 $movedFiles = [];
 foreach ((array) $frozen['manifest_bytes_sha256'] as $name => $frozenBytes) {
-    $fileHashes[$name] = hash_file('sha256', $manifestDir . '/' . $name . '.json');
+    $fileHashes[$name] = hash_file('sha256', $manifestPath($name));
     if ($fileHashes[$name] !== (string) $frozenBytes) {
         $movedFiles[] = $name;
     }
@@ -473,7 +476,7 @@ if (!mkdir($scratch . '/capabilities', 0777, true) && !is_dir($scratch . '/capab
 // AGENTS.md rule 8 binds to the defines. Everything else — every compatibility
 // axis, every note — is copied byte for byte, so the refusal below can only be
 // about the version disagreement.
-$platform = Canon::decode(Canon::read_file($manifestDir . '/capabilities/platform.json'));
+$platform = Canon::decode(Canon::read_file($adapterLibrary->platformBoundaryPath()));
 $platform['platform']['spec_version'] = DUO_SPEC_VERSION - 1;
 $platform['platform']['agent_version'] = '0.5.0';
 Canon::write_file($scratch . '/capabilities/platform.json', Canon::encode($platform));
@@ -500,7 +503,7 @@ duo_check(
 // The same refusal from the OTHER direction of the same equality: a library
 // whose spec_version agrees but whose agent_version does not. Both members are
 // checked, and a suite that only moved one would leave half the gate unproven.
-$agentOnly = Canon::decode(Canon::read_file($manifestDir . '/capabilities/platform.json'));
+$agentOnly = Canon::decode(Canon::read_file($adapterLibrary->platformBoundaryPath()));
 $agentOnly['platform']['agent_version'] = '0.5.0';
 Canon::write_file($scratch . '/capabilities/platform.json', Canon::encode($agentOnly));
 $agentMixed = null;
@@ -519,7 +522,7 @@ duo_check(
 // property of the scratch directory: the same copy, unmutated, LOADS.
 Canon::write_file(
     $scratch . '/capabilities/platform.json',
-    Canon::read_file($manifestDir . '/capabilities/platform.json')
+    Canon::read_file($adapterLibrary->platformBoundaryPath())
 );
 $restored = ManifestDispositions::platform_boundary($scratch);
 duo_check_same(

@@ -159,13 +159,13 @@ $check_throws(
 // \Duo\Policy::class as a symbol needs the class defined) -- required here
 // for exactly that, and for nothing else this suite still deliberately
 // avoids requiring (RepositoryCompiler.php is never required in this file).
-require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
-require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
-require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/manifest_fixtures.php';
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 0);
 }
-putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 // Policy::load() itself calls PinResolver::validate_manifest_pins()
 // internally as part of loading 'm' (no digest pins here, so it already
 // takes the early-return branch without incident) -- if that branch broke,
@@ -176,7 +176,7 @@ putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 // but to pin the failure to this one function specifically, with a named
 // assertion message, rather than an unattributed crash somewhere inside
 // load()'s much larger body.
-$policy = Policy::load(null, ['m']);
+$policy = manifest_fixture_policy_load($fixtureDir, null, ['m']);
 try {
     // No pin carries a digest, so this must return WITHOUT ever reaching
     // RepositoryCompiler::resolved_adapters() -- proven by this file never

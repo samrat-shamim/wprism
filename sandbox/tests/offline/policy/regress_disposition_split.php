@@ -73,13 +73,17 @@ require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ArtifactPolicyIdentity.php';
 
 use Duo\ArtifactPolicyIdentity;
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\ManifestDispositions;
 use Duo\Policy;
 
 $repo = dirname(__DIR__, 4);
-$manifestDir = $repo . '/manifests';
-$subjectDir = $manifestDir . '/' . ManifestDispositions::DIRECTORY;
+$adapterLibrary = AdapterLibrary::fromSourceTree($repo);
+$manifestPath = static function (string $name) use ($adapterLibrary): string {
+    return $adapterLibrary->package($name)?->manifestPath()
+        ?? throw new RuntimeException("shipped adapter package '$name' is absent");
+};
 
 /**
  * One stable scratch root under sandbox/tmp (AGENTS.md rule 3), cleared before
@@ -185,14 +189,13 @@ const SPLIT_REVIEWED_MANIFEST_HASH = '41547ea08901dd1d804850db3485a2f712be089452
 const SPLIT_REVIEWED_REGISTRY_SHA = 'a9b7fdbb8d7c62e78ac8ca1c10a395aa0dc54079fb54cef2809c71babf395f2e';
 const SPLIT_REVIEWED_SNAPSHOT_SHA = '783cc9483f6f45c5676f80e5987553292c69867f12297ec2b8e747d7d68f748f';
 
-putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
-$shippedRegistry = ManifestDispositions::load($manifestDir);
+$shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 duo_check(
     $shippedRegistry instanceof ManifestDispositions,
     'the shipped library loads its reviewed claim source from the per-subject directory'
 );
 $shippedNames = array_keys($frozenDigests);
-$shippedPolicy = Policy::load(null, $shippedNames);
+$shippedPolicy = Policy::load(null, $shippedNames, adapterLibrary: $adapterLibrary);
 $observed = [];
 foreach (ArtifactPolicyIdentity::resolved_adapters($shippedPolicy) as $row) {
     $observed[(string) $row['name']] = (string) $row['digest'];
@@ -257,10 +260,10 @@ duo_check_same(
 // Taken over a ONE-PIN policy because a snapshot's manifest list is checked
 // against the site's own pins (Policy.php:653-655), and the 16-pin policy above
 // was loaded without a site file to state them.
-$corePolicy = Policy::load(null, ['core']);
+$corePolicy = Policy::load(null, ['core'], adapterLibrary: $adapterLibrary);
 duo_check_same(
     ArtifactPolicyIdentity::manifest_hash($corePolicy),
-    ArtifactPolicyIdentity::manifest_hash(Policy::from_snapshot($corePolicy->export_snapshot())),
+    ArtifactPolicyIdentity::manifest_hash(Policy::from_snapshot($corePolicy->export_snapshot(), $adapterLibrary)),
     'and the v6 snapshot round trip reproduces manifest_hash, so from_snapshot() reads the reassembled document the '
     . 'way it read the monolith'
 );
@@ -290,7 +293,11 @@ $walk = static function ($value, string $path) use (&$walk, &$numberMembers, &$n
         $nonAsciiMembers[] = $path;
     }
 };
-foreach (glob($subjectDir . '/*.json') ?: [] as $document) {
+$reviewedDocuments = [$adapterLibrary->profilesPath()];
+foreach ($adapterLibrary->packages() as $package) {
+    $reviewedDocuments[] = $package->dispositionPath();
+}
+foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
@@ -317,24 +324,24 @@ duo_check_same(
  * @param array<string,mixed> $manifest
  * @param array<string,mixed> $entry
  */
-$probeLibrary = static function (string $label, array $manifest, array $entry) use ($scratchRoot, $manifestDir): string {
+$probeLibrary = static function (string $label, array $manifest, array $entry) use ($scratchRoot, $adapterLibrary): AdapterLibrary {
     $dir = $scratchRoot . '/' . $label . '/manifests';
-    if (!is_dir($dir . '/capabilities') && !mkdir($dir . '/capabilities', 0777, true)) {
-        throw new RuntimeException("cannot create the probe library at $dir");
-    }
-    if (!is_dir($dir . '/dispositions') && !mkdir($dir . '/dispositions', 0777, true)) {
-        throw new RuntimeException("cannot create the probe disposition directory at $dir");
+    foreach (['capabilities', 'dispositions', 'interpreters', 'providers', 'regenerators'] as $relative) {
+        if (!is_dir("$dir/$relative") && !mkdir("$dir/$relative", 0777, true)) {
+            throw new RuntimeException("cannot create the probe library at $dir/$relative");
+        }
     }
     Canon::write_file($dir . '/' . $manifest['name'] . '.json', Canon::encode($manifest));
     Canon::write_file($dir . '/dispositions/' . $manifest['name'] . '.json', Canon::encode($entry));
-    copy($manifestDir . '/capabilities/platform.json', $dir . '/capabilities/platform.json');
-    return $dir;
+    Canon::write_file($dir . '/dispositions/profiles.json', "{}\n");
+    copy($adapterLibrary->platformBoundaryPath(), $dir . '/capabilities/platform.json');
+    copy($adapterLibrary->authoritiesPath(), $dir . '/capabilities/adapter-authorities.json');
+    return AdapterLibrary::fromLegacyFlatDirectory($dir);
 };
 
 /** That library's one adapter digest, taken exactly as a repository pin takes it. */
-$probeDigest = static function (string $dir, string $name): string {
-    putenv("DUO_MANIFESTS_DIR=$dir");
-    $rows = ArtifactPolicyIdentity::resolved_adapters(Policy::load(null, [$name]));
+$probeDigest = static function (AdapterLibrary $library, string $name): string {
+    $rows = ArtifactPolicyIdentity::resolved_adapters(Policy::load(null, [$name], adapterLibrary: $library));
     return (string) $rows[0]['digest'];
 };
 
@@ -452,11 +459,14 @@ duo_check(
 // ---------------------------------------------------------------------------
 echo "\nPART 3 — THE REFUSALS: every rule fires from the split form, in its own wording\n";
 // ---------------------------------------------------------------------------
-$coreManifest = Canon::decode(Canon::read_file($manifestDir . '/core.json'));
-$coreEntry = Canon::decode(Canon::read_file($subjectDir . '/core.json'));
+$coreManifest = Canon::decode(Canon::read_file($manifestPath('core')));
+$coreEntry = Canon::decode(Canon::read_file(
+    $adapterLibrary->package('core')?->dispositionPath()
+        ?? throw new RuntimeException("shipped adapter package 'core' is absent")
+));
 
 /** A one-subject library whose reviewed documents are written by $publish. */
-$reviewedLibrary = static function (string $label, callable $publish) use ($scratchRoot, $manifestDir): string {
+$reviewedLibrary = static function (string $label, callable $publish) use ($scratchRoot, $adapterLibrary, $manifestPath): string {
     $dir = $scratchRoot . '/' . $label . '/manifests';
     if (!is_dir($dir . '/capabilities') && !mkdir($dir . '/capabilities', 0777, true)) {
         throw new RuntimeException("cannot create the probe library at $dir");
@@ -464,8 +474,8 @@ $reviewedLibrary = static function (string $label, callable $publish) use ($scra
     if (!is_dir($dir . '/dispositions') && !mkdir($dir . '/dispositions', 0777, true)) {
         throw new RuntimeException("cannot create the probe disposition directory at $dir");
     }
-    copy($manifestDir . '/core.json', $dir . '/core.json');
-    copy($manifestDir . '/capabilities/platform.json', $dir . '/capabilities/platform.json');
+    copy($manifestPath('core'), $dir . '/core.json');
+    copy($adapterLibrary->platformBoundaryPath(), $dir . '/capabilities/platform.json');
     $publish($dir . '/dispositions');
     return $dir;
 };
@@ -612,9 +622,9 @@ duo_check_same(
     }),
     'a profile naming a subject the directory does not declare refuses at load, in the profile rule wording'
 );
-$goodProfile = $reviewedLibrary('good-profile', static function (string $documents) use ($coreEntry, $repo): void {
+$goodProfile = $reviewedLibrary('good-profile', static function (string $documents) use ($coreEntry, $adapterLibrary): void {
     Canon::write_file($documents . '/core.json', Canon::encode($coreEntry));
-    copy($repo . '/manifests/dispositions/profiles.json', $documents . '/profiles.json');
+    copy($adapterLibrary->profilesPath(), $documents . '/profiles.json');
 });
 duo_check_same(
     ['fse'],
@@ -684,5 +694,4 @@ duo_check(
     . 'this library refuses everywhere else'
 );
 
-putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
 duo_check_summary('disposition split');

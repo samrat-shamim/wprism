@@ -150,7 +150,7 @@ $snapshot = FrozenPolicy::envelope([manifest_a()], $baseSite + [
     'spec_version' => DUO_SPEC_VERSION,
 ]);
 try {
-    Policy::from_snapshot($snapshot);
+    manifest_fixture_policy_from_snapshot($snapshot);
     $check(true, 'Policy::from_snapshot() reaches the extracted site validator');
 } catch (Throwable $e) {
     $check(false, 'Policy::from_snapshot() reaches the extracted site validator (threw: ' . $e->getMessage() . ')');
@@ -162,28 +162,14 @@ mkdir($manifests, 0777, true);
 manifest_fixture_code($manifests);
 Canon::write_file($root . '/site.duo.json', Canon::encode($snapshot['site']));
 Canon::write_file($manifests . '/a.json', Canon::encode(manifest_a()));
-$previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
-putenv("DUO_MANIFESTS_DIR=$manifests");
+$adapterLibrary = manifest_fixture_adapter_library($manifests);
 try {
-    Policy::load($root);
+    Policy::load($root, adapterLibrary: $adapterLibrary);
     $check(true, 'Policy::load() reaches the extracted site validator');
 } catch (Throwable $e) {
     $check(false, 'Policy::load() reaches the extracted site validator (threw: ' . $e->getMessage() . ')');
 }
-if ($previousManifestsDir === false) {
-    putenv('DUO_MANIFESTS_DIR');
-} else {
-    putenv("DUO_MANIFESTS_DIR=$previousManifestsDir");
-}
-foreach (glob($manifests . '/*') ?: [] as $file) {
-    if (is_file($file)) {
-        unlink($file);
-    }
-}
-manifest_fixture_code_cleanup($manifests);
-rmdir($manifests);
-unlink($root . '/site.duo.json');
-rmdir($root);
+manifest_fixture_remove_tree($root);
 
 if ($failures) {
     echo "\n" . count($failures) . " failure(s):\n";

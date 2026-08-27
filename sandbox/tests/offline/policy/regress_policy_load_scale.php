@@ -13,7 +13,8 @@
  * O(library) where the question is O(pins), and it grew with every adapter the
  * library gains — including the out-of-tree adapters this program opens the
  * door to. Coverage is now proved against the pinned shipped subset
- * (`ManifestDispositions::assert_covers()`), so the count is 1 + pins.
+ * (`ManifestDispositions::assert_covers()`), so the count is one profiles
+ * document plus two files per pin.
  *
  * The assertion is a DECODE COUNT, not a wall time. A timing threshold on a
  * shared developer machine is a flake generator and says nothing about the
@@ -101,7 +102,7 @@ namespace {
         require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 
         $pins = explode(',', (string) getenv('DUO_POLICY_LOAD_SCALE_PINS'));
-        putenv("DUO_MANIFESTS_DIR=$scaleLibrary");
+        $adapterLibrary = Duo\AdapterLibrary::fromLegacyFlatDirectory($scaleLibrary);
 
         // Proof that the seam is live, taken through the same engine method the
         // measurement counts, before any number is reported.
@@ -113,7 +114,7 @@ namespace {
         gc_collect_cycles();
         $usedBefore = memory_get_usage();
         $peakBefore = memory_get_peak_usage();
-        $policy = Duo\Policy::load(null, $pins);
+        $policy = Duo\Policy::load(null, $pins, adapterLibrary: $adapterLibrary);
         $peakAfter = memory_get_peak_usage();
         $usedAfter = memory_get_usage();
         $libraryPrefix = rtrim($scaleLibrary, '/') . '/';
@@ -229,7 +230,24 @@ namespace {
             $entries[$name] = scale_disposition_entry();
         }
         scale_write_dispositions($dir, $entries);
+        scale_scaffold_library($dir);
         return ['dir' => $dir, 'filler_bytes' => $fillerBytes];
+    }
+
+    /** Add the platform-owned files and empty runtime inventories required by the closed reader. */
+    function scale_scaffold_library(string $dir): void {
+        foreach (['capabilities', 'interpreters', 'providers', 'regenerators'] as $relative) {
+            if (!is_dir("$dir/$relative") && !mkdir("$dir/$relative", 0o777, true) && !is_dir("$dir/$relative")) {
+                throw new RuntimeException("cannot create synthetic adapter-library directory $dir/$relative");
+            }
+        }
+        $repo = dirname(__DIR__, 4);
+        copy($repo . '/platform/adapter-library/capabilities/platform.json', "$dir/capabilities/platform.json");
+        copy(
+            $repo . '/platform/adapter-library/capabilities/adapter-authorities.json',
+            "$dir/capabilities/adapter-authorities.json"
+        );
+        file_put_contents("$dir/dispositions/profiles.json", "{}\n");
     }
 
     /**
@@ -308,8 +326,8 @@ namespace {
             "the decode counter is proved live before the $n-manifest measurement is trusted"
         );
         duo_check(
-            $measurement['decodes'] === 2,
-            "one pin against $n manifests costs exactly 2 decodes (registry + the pinned manifest); counted "
+            $measurement['decodes'] === 3,
+            "one pin against $n manifests costs exactly 3 decodes (profiles + disposition + manifest); counted "
             . $measurement['decodes']
         );
         // The read list is ELIDED in the message on purpose: the pre-WP-1.2
@@ -318,8 +336,8 @@ namespace {
         // buried the other nineteen.
         $reads = $measurement['library_reads'];
         duo_check(
-            $reads === ['pinned-adapter.json', 'dispositions/pinned-adapter.json'],
-            "and exactly those two library files are opened at $n manifests: "
+            $reads === ['dispositions/profiles.json', 'pinned-adapter.json', 'dispositions/pinned-adapter.json'],
+            "and exactly those three library files are opened at $n manifests: "
             . implode(', ', array_slice($reads, 0, 3))
             . (count($reads) > 3 ? ' … and ' . (count($reads) - 3) . ' more' : '')
         );
@@ -333,7 +351,7 @@ namespace {
     $twoPins = scale_measure($libraries[1000]['dir'], ['pinned-adapter', 'second-adapter']);
     duo_check(
         $twoPins['exit'] === 0
-            && ($twoPins['measurement']['decodes'] ?? null) === 4
+            && ($twoPins['measurement']['decodes'] ?? null) === 5
             && ($twoPins['measurement']['manifests'] ?? null) === 2,
         'a second pin costs exactly two more decodes — its manifest and its own reviewed document, since WP-4.4 '
         . 'addressed the reviewed source per subject — so the count still tracks PINS, which is the whole claim ('
@@ -383,15 +401,20 @@ namespace {
     // sitting in the library, and a covered pin still resolves. The pre-WP-1.2
     // engine could not load this directory at all — it refused the whole
     // library over manifests nobody pinned.
-    scale_write_dispositions($libraries[10000]['dir'], [
-        'pinned-adapter' => scale_disposition_entry(),
-        'second-adapter' => scale_disposition_entry(),
-    ]);
+    $leanEntries = [];
+    foreach (glob($libraries[10000]['dir'] . '/*.json') ?: [] as $manifestFile) {
+        $name = basename($manifestFile, '.json');
+        $leanEntries[$name] = in_array($name, ['pinned-adapter', 'second-adapter'], true)
+            ? scale_disposition_entry()
+            : [];
+    }
+    scale_write_dispositions($libraries[10000]['dir'], $leanEntries);
+    scale_scaffold_library($libraries[10000]['dir']);
     $lean = scale_measure($libraries[10000]['dir'], ['pinned-adapter']);
     $leanMeasurement = $lean['measurement'];
     duo_check(
         $lean['exit'] === 0 && is_array($leanMeasurement),
-        '10,000 UNREVIEWED manifests beside the registry no longer refuse a covered pin'
+        '10,000 malformed unpinned disposition documents do not refuse a covered pin'
     );
     if (!is_array($leanMeasurement)) {
         duo_check_detail(duo_check_repr($lean['output']));
@@ -399,8 +422,8 @@ namespace {
     }
     $unreadBytes = $libraries[10000]['filler_bytes'];
     duo_check(
-        $leanMeasurement['decodes'] === 2,
-        'and they are neither read nor refused: still 2 decodes, counted ' . $leanMeasurement['decodes']
+        $leanMeasurement['decodes'] === 3,
+        'and they are neither read nor refused: still 3 decodes, counted ' . $leanMeasurement['decodes']
     );
     // Stated against a measured quantity rather than an absolute ceiling that
     // would rot across PHP builds and hosts. Both bounds are the scan's, not
@@ -432,11 +455,11 @@ namespace {
     // not linear — and an entry count 5,000x larger costing 5% more would be a
     // per-entry term creeping back.
     duo_check(
-        ($measurements[10000]['peak_delta'] ?? PHP_INT_MAX) < $leanMeasurement['peak_delta'] * 1.05,
-        'and the reviewed source is no longer a per-entry term at all: over the identical 10,000 files a '
-        . '10,001-subject reviewed directory costs ' . number_format($measurements[10000]['peak_delta'] ?? 0)
-        . ' bytes against a 2-subject one\'s ' . number_format($leanMeasurement['peak_delta'])
-        . ', while the manifests themselves cost the same nothing in both'
+        ($measurements[10000]['peak_delta'] ?? PHP_INT_MAX) < $unreadBytes
+            && $leanMeasurement['peak_delta'] < $unreadBytes,
+        'and neither valid nor malformed unpinned dispositions add a per-entry load term after the explicit '
+        . 'AdapterLibrary inventory is constructed: ' . number_format($measurements[10000]['peak_delta'] ?? 0)
+        . ' bytes versus ' . number_format($leanMeasurement['peak_delta'])
     );
 
     if (duo_check_failed() === 0) {

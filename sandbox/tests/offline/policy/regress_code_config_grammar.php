@@ -96,13 +96,13 @@ $frozenSnapshot = static function (array $manifests, ?array $code = null): array
 };
 
 $snapshotManifests = [manifest_a(), manifest_b()];
-$snapshotPolicy = Policy::from_snapshot($frozenSnapshot($snapshotManifests, $validCode));
+$snapshotPolicy = manifest_fixture_policy_from_snapshot($frozenSnapshot($snapshotManifests, $validCode));
 $check(
     $snapshotPolicy->code_config() === $validCode,
     'Policy::from_snapshot() reaches CodeConfigGrammar and preserves the valid code config'
 );
 $assertThrows(
-    static fn() => Policy::from_snapshot($frozenSnapshot($snapshotManifests, ['format' => 1, 'layout' => 'custom', 'source' => 'code/wp-content'])),
+    static fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot($snapshotManifests, ['format' => 1, 'layout' => 'custom', 'source' => 'code/wp-content'])),
     'duo: frozen site.duo.json code declaration is invalid:',
     'Policy::from_snapshot() preserves the extracted grammar refusal'
 );
@@ -119,9 +119,8 @@ Canon::write_file($loadRoot . '/site.duo.json', Canon::encode([
 ]));
 Canon::write_file($loadManifests . '/a.json', Canon::encode($snapshotManifests[0]));
 Canon::write_file($loadManifests . '/b.json', Canon::encode($snapshotManifests[1]));
-$previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
-putenv("DUO_MANIFESTS_DIR=$loadManifests");
-$livePolicy = Policy::load($loadRoot);
+$adapterLibrary = manifest_fixture_adapter_library($loadManifests);
+$livePolicy = Policy::load($loadRoot, adapterLibrary: $adapterLibrary);
 $check(
     $livePolicy->code_config() === $validCode,
     'Policy::load() reaches CodeConfigGrammar and preserves the valid code config'
@@ -133,24 +132,11 @@ Canon::write_file($loadRoot . '/site.duo.json', Canon::encode([
     'spec_version' => DUO_SPEC_VERSION,
 ]));
 $assertThrows(
-    static fn() => Policy::load($loadRoot),
+    static fn() => Policy::load($loadRoot, adapterLibrary: $adapterLibrary),
     'duo: site.duo.json code declaration is invalid:',
     'Policy::load() preserves the extracted grammar refusal'
 );
-if ($previousManifestsDir === false) {
-    putenv('DUO_MANIFESTS_DIR');
-} else {
-    putenv("DUO_MANIFESTS_DIR=$previousManifestsDir");
-}
-foreach (glob($loadManifests . '/*') ?: [] as $file) {
-    if (is_file($file)) {
-        @unlink($file);
-    }
-}
-manifest_fixture_code_cleanup($loadManifests);
-@rmdir($loadManifests);
-@unlink($loadRoot . '/site.duo.json');
-@rmdir($loadRoot);
+manifest_fixture_remove_tree($loadRoot);
 
 $policySource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Policy/Policy.php');
 $sitePolicyValidatorSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Policy/SitePolicyValidator.php');

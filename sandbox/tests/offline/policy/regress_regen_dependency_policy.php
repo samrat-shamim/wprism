@@ -4,8 +4,8 @@
  * DUO-3234's Policy.php-side wiring: regen_dependency() declaration
  * lookup, validate_regen_dependencies() load-time shape checking, and
  * regenerators() manifest-shipped-PHP loading (the interpreter()-mirrored
- * trust boundary). Uses a FAKE fixture manifest + fake regenerator via
- * DUO_MANIFESTS_DIR, never the real manifests/the-events-calendar.json or
+ * trust boundary). Uses an explicit FAKE flat adapter library containing a
+ * fixture manifest + fake regenerator, never the real package payload or
  * manifests/regenerators/the-events-calendar.php — this file proves the
  * MECHANISM works, independent of whether TEC's real classes are
  * available (they can't be: no WordPress bootstrap here at all).
@@ -53,25 +53,10 @@ final class FakeRegen {
 PHP
 );
 
-// A "-" and "_" in the declared name must both CamelCase correctly —
-// exercising the exact str_replace/ucwords transform regenerators() uses
-// (mirrors interpreters()' own transform, unit-proven here for this new
-// call site rather than assumed to behave identically).
-file_put_contents($fixtureDir . '/regenerators/two-word_name.php', <<<'PHP'
-<?php
-namespace Duo\Regenerators;
-final class TwoWordName {
-    public function __construct($policy) {}
-    public function regenerate(int $localId): void {}
-}
-PHP
-);
-
-putenv("DUO_MANIFESTS_DIR=$fixtureDir");
-
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require __DIR__ . '/manifest_fixtures.php';
 
 use Duo\Policy;
 
@@ -129,7 +114,7 @@ write_manifest($fixtureDir, 'a', [
         ],
     ],
 ]);
-$policy = Policy::load(null, ['a']);
+$policy = manifest_fixture_policy_load($fixtureDir, null, ['a']);
 $decl = $policy->regen_dependency('widget');
 check($decl !== null, 'declared post type returns a non-null decl');
 check(($decl['regenerator'] ?? null) === 'fake-regen', 'decl.regenerator round-trips');
@@ -153,7 +138,7 @@ write_manifest($fixtureDir, 'relations', [
         'duo_isolated' => [],
     ],
 ]);
-$relationPolicy = Policy::load(null, ['relations']);
+$relationPolicy = manifest_fixture_policy_load($fixtureDir, null, ['relations']);
 $hasRelationApi = method_exists($relationPolicy, 'child_post_types')
     && method_exists($relationPolicy, 'parent_post_types')
     && method_exists($relationPolicy, 'post_type_relation_closure');
@@ -187,7 +172,7 @@ write_manifest($fixtureDir, 'relation-invalid-shape', [
         'duo_child' => [],
     ],
 ]);
-check_throws(fn() => Policy::load(null, ['relation-invalid-shape']), 'children',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['relation-invalid-shape']), 'children',
     'a scalar children declaration refuses at manifest load');
 
 write_manifest($fixtureDir, 'relation-missing-child', [
@@ -197,7 +182,7 @@ write_manifest($fixtureDir, 'relation-missing-child', [
         'duo_parent' => ['children' => ['duo_missing_child']],
     ],
 ]);
-check_throws(fn() => Policy::load(null, ['relation-missing-child']), 'duo_missing_child',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['relation-missing-child']), 'duo_missing_child',
     'a child type absent from post_types refuses at manifest load');
 
 write_manifest($fixtureDir, 'relation-duplicate-child', [
@@ -208,7 +193,7 @@ write_manifest($fixtureDir, 'relation-duplicate-child', [
         'duo_child' => [],
     ],
 ]);
-check_throws(fn() => Policy::load(null, ['relation-duplicate-child']), 'duo_child',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['relation-duplicate-child']), 'duo_child',
     'a duplicate child in one parent declaration refuses at manifest load');
 
 write_manifest($fixtureDir, 'relation-self-child', [
@@ -218,7 +203,7 @@ write_manifest($fixtureDir, 'relation-self-child', [
         'duo_parent' => ['children' => ['duo_parent']],
     ],
 ]);
-check_throws(fn() => Policy::load(null, ['relation-self-child']), 'duo_parent',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['relation-self-child']), 'duo_parent',
     'a post type cannot declare itself as a child');
 
 // ======================================================================
@@ -229,30 +214,39 @@ write_manifest($fixtureDir, 'b', [
     'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['verify' => ['table' => 't', 'column' => 'c']]]], // missing regenerator
 ]);
-check_throws(fn() => Policy::load(null, ['b']), "needs a non-empty string 'regenerator'", 'missing regenerator key refuses at load()');
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['b']), 'has no string regenerator',
+    'the closed library refuses a missing regenerator declaration before policy load');
+unlink($fixtureDir . '/b.json');
+unlink($fixtureDir . '/dispositions/b.json');
 
 write_manifest($fixtureDir, 'c', [
     'name' => 'c',
     'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'x', 'verify' => ['table' => 't']]]], // missing column
 ]);
-check_throws(fn() => Policy::load(null, ['c']), 'verify: {table:', 'missing verify.column refuses at load()');
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['c']), 'verify: {table:', 'missing verify.column refuses at load()');
+unlink($fixtureDir . '/c.json');
+unlink($fixtureDir . '/dispositions/c.json');
+unlink($fixtureDir . '/regenerators/x.php');
 
 write_manifest($fixtureDir, 'd', [
     'name' => 'd',
     'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => '', 'verify' => ['table' => 't', 'column' => 'c']]]], // empty regenerator
 ]);
-check_throws(fn() => Policy::load(null, ['d']), "needs a non-empty string 'regenerator'", 'empty-string regenerator refuses at load()');
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['d']), 'is not a canonical lowercase ASCII slug',
+    'the closed library refuses an empty regenerator declaration before policy load');
+unlink($fixtureDir . '/d.json');
+unlink($fixtureDir . '/dispositions/d.json');
 
 // A well-formed declaration must load cleanly (no false-positive refusal).
 write_manifest($fixtureDir, 'e', [
     'name' => 'e',
     'spec_version' => DUO_SPEC_VERSION,
-    'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'fake-regen', 'verify' => ['table' => 't', 'column' => 'c']]]],
+    'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'fixture-regen', 'verify' => ['table' => 't', 'column' => 'c']]]],
 ]);
 try {
-    Policy::load(null, ['e']);
+    manifest_fixture_policy_load($fixtureDir, null, ['e']);
     check(true, 'a well-formed regen_dependency declaration loads without error');
 } catch (\Throwable $t) {
     check(false, 'a well-formed regen_dependency declaration loads without error (threw: ' . $t->getMessage() . ')');
@@ -262,44 +256,44 @@ write_manifest($fixtureDir, 'i', [
     'name' => 'i',
     'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => [
-        'regenerator' => 'fake-regen',
+        'regenerator' => 'i-regen',
         'verify' => ['table' => 't', 'column' => 'c'],
         'batch' => ['enabled' => true],
         'refresh' => ['enabled' => true],
     ]]],
 ]);
-check_throws(fn() => Policy::load(null, ['i']), 'cannot declare both',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['i']), 'cannot declare both',
     'ambiguous batch+refresh declarations refuse at load()');
 
 write_manifest($fixtureDir, 'j', [
     'name' => 'j',
     'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => [
-        'regenerator' => 'fake-regen',
+        'regenerator' => 'j-regen',
         'verify' => ['table' => 't', 'column' => 'c'],
         'batch' => ['enabled' => true, 'typo' => true],
     ]]],
 ]);
-check_throws(fn() => Policy::load(null, ['j']), 'contains unknown key(s): typo',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['j']), 'contains unknown key(s): typo',
     'unknown batch configuration keys refuse at load()');
 
 write_manifest($fixtureDir, 'k', [
     'name' => 'k',
     'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => [
-        'regenerator' => 'fake-regen',
+        'regenerator' => 'k-regen',
         'verify' => ['table' => 't', 'column' => 'c'],
         'always_on_write' => true,
         'batch' => ['enabled' => true],
     ]]],
 ]);
-check_throws(fn() => Policy::load(null, ['k']), 'always_on_write is ambiguous',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['k']), 'always_on_write is ambiguous',
     'top-level always_on_write beside batch refuses at load()');
 
 // ======================================================================
 echo "\n== regenerators() — manifest-shipped-PHP loading ==\n";
 
-$policy = Policy::load(null, ['e']);
+$policy = manifest_fixture_policy_load($fixtureDir, null, ['a']);
 $regens = $policy->regenerators();
 check(isset($regens['fake-regen']), 'declared regenerator name is loaded and keyed correctly');
 check(get_class($regens['fake-regen']) === 'Duo\\Regenerators\\FakeRegen', 'CamelCase class-name transform matches the real class (hyphenated name)');
@@ -311,7 +305,19 @@ write_manifest($fixtureDir, 'f', [
     'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'two-word_name', 'verify' => ['table' => 't', 'column' => 'c']]]],
 ]);
-$policy2 = Policy::load(null, ['f']);
+// A "-" and "_" in the declared name must both CamelCase correctly. Create
+// it only after its owner exists: the explicit library refuses orphaned hook
+// bytes before Policy sees a pin.
+file_put_contents($fixtureDir . '/regenerators/two-word_name.php', <<<'PHP'
+<?php
+namespace Duo\Regenerators;
+final class TwoWordName {
+    public function __construct($policy) {}
+    public function regenerate(int $localId): void {}
+}
+PHP
+);
+$policy2 = manifest_fixture_policy_load($fixtureDir, null, ['f']);
 $regens2 = $policy2->regenerators();
 check(isset($regens2['two-word_name']) && get_class($regens2['two-word_name']) === 'Duo\\Regenerators\\TwoWordName',
     'a name mixing hyphen AND underscore CamelCases correctly (two-word_name -> TwoWordName), matching the file it resolves to');
@@ -321,9 +327,11 @@ write_manifest($fixtureDir, 'g', [
     'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'does-not-exist', 'verify' => ['table' => 't', 'column' => 'c']]]],
 ]);
-$policy3 = Policy::load(null, ['g']);
-check_throws(fn() => $policy3->regenerators(), 'but ' . $fixtureDir . '/regenerators/does-not-exist.php is missing',
-    'a regenerator name with no matching file throws, naming the exact missing path');
+manifest_fixture_adapter_library($fixtureDir);
+unlink($fixtureDir . '/regenerators/does-not-exist.php');
+check_throws(fn() => \Duo\AdapterLibrary::fromLegacyFlatDirectory($fixtureDir), 'missing=[does-not-exist]',
+    'the closed adapter library refuses a declared regenerator with no matching file');
+file_put_contents($fixtureDir . '/regenerators/does-not-exist.php', "<?php\n");
 
 // A regenerator file that exists but doesn't define the right class/method.
 file_put_contents($fixtureDir . '/regenerators/broken.php', "<?php\nnamespace Duo\\Regenerators;\nfinal class Broken {}\n");
@@ -332,7 +340,7 @@ write_manifest($fixtureDir, 'h', [
     'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'broken', 'verify' => ['table' => 't', 'column' => 'c']]]],
 ]);
-$policy4 = Policy::load(null, ['h']);
+$policy4 = manifest_fixture_policy_load($fixtureDir, null, ['h']);
 check_throws(fn() => $policy4->regenerators(), 'must define', 'a regenerator file missing regenerate() throws a clear contract-violation message');
 
 // The load-time calls must target the extracted pure grammar directly. Keep

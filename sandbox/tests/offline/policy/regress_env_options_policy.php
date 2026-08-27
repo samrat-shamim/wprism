@@ -4,7 +4,7 @@
  * DUO-3232's Policy.php-side wiring: validate_env_options()'s mandatory-
  * `required`-boolean load-time gate and env_options()'s enumeration
  * (merge precedence, ksort, with_option_autoload() wiring). Uses FAKE
- * fixture manifests via DUO_MANIFESTS_DIR, never the real shipped
+ * fixture manifests through one explicit flat AdapterLibrary, never the real shipped
  * manifests — this file proves the MECHANISM works in isolation.
  *
  * What this file deliberately does NOT test:
@@ -29,11 +29,10 @@ register_shutdown_function(function () use ($fixtureDir) {
     }
     rmdir($fixtureDir);
 });
-putenv("DUO_MANIFESTS_DIR=$fixtureDir");
-
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require __DIR__ . '/manifest_fixtures.php';
 
 use Duo\Policy;
 
@@ -83,7 +82,7 @@ write_manifest($fixtureDir, 'a', [
     'spec_version' => DUO_SPEC_VERSION,
     'options' => ['api_key' => ['class' => 'env']], // missing required entirely
 ]);
-check_throws(fn() => Policy::load(null, ['a']), 'options.api_key.class="env" needs an explicit boolean',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['a']), 'options.api_key.class="env" needs an explicit boolean',
     'missing required key refuses at load()');
 
 write_manifest($fixtureDir, 'b', [
@@ -91,7 +90,7 @@ write_manifest($fixtureDir, 'b', [
     'spec_version' => DUO_SPEC_VERSION,
     'options' => ['api_key' => ['class' => 'env', 'required' => 'true']], // string, not bool
 ]);
-check_throws(fn() => Policy::load(null, ['b']), 'options.api_key.class="env" needs an explicit boolean',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['b']), 'options.api_key.class="env" needs an explicit boolean',
     'string "true" (not a real bool) refuses at load()');
 
 write_manifest($fixtureDir, 'c', [
@@ -99,7 +98,7 @@ write_manifest($fixtureDir, 'c', [
     'spec_version' => DUO_SPEC_VERSION,
     'options' => ['api_key' => ['class' => 'env', 'required' => 1]], // int, not bool
 ]);
-check_throws(fn() => Policy::load(null, ['c']), 'options.api_key.class="env" needs an explicit boolean',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['c']), 'options.api_key.class="env" needs an explicit boolean',
     'int 1 (not a real bool) refuses at load()');
 
 // Non-env classes never need 'required' — the gate is scoped to class:"env"
@@ -113,7 +112,7 @@ write_manifest($fixtureDir, 'd', [
     ],
 ]);
 try {
-    Policy::load(null, ['d']);
+    manifest_fixture_policy_load($fixtureDir, null, ['d']);
     check(true, 'non-env classes never require the required flag');
 } catch (\Throwable $t) {
     check(false, 'non-env classes never require the required flag (threw: ' . $t->getMessage() . ')');
@@ -130,7 +129,7 @@ write_manifest($fixtureDir, 'e', [
     ],
 ]);
 try {
-    Policy::load(null, ['e']);
+    manifest_fixture_policy_load($fixtureDir, null, ['e']);
     check(true, 'a well-formed mix of required:true/required:false/non-env options loads without error');
 } catch (\Throwable $t) {
     check(false, 'a well-formed mix loads without error (threw: ' . $t->getMessage() . ')');
@@ -139,7 +138,7 @@ try {
 // ======================================================================
 echo "\n== env_options() — enumeration, merge, ksort ==\n";
 
-$policy = Policy::load(null, ['e']);
+$policy = manifest_fixture_policy_load($fixtureDir, null, ['e']);
 $envOpts = $policy->env_options();
 check(count($envOpts) === 2, 'env_options() returns exactly the 2 class="env" rules, excluding the runtime one');
 check(($envOpts['gateway_key']['required'] ?? null) === true, 'required:true round-trips exactly (strict ===, not merely truthy)');
@@ -160,7 +159,7 @@ write_manifest($fixtureDir, 'f', [
         'overrides_default' => ['class' => 'env', 'required' => true, 'autoload' => 'no'],
     ],
 ]);
-$policyF = Policy::load(null, ['f']);
+$policyF = manifest_fixture_policy_load($fixtureDir, null, ['f']);
 $envOptsF = $policyF->env_options();
 check(($envOptsF['inherits_default']['autoload'] ?? null) === 'preserve',
     "a rule with no own 'autoload' inherits the manifest's option_autoload default");
@@ -182,10 +181,10 @@ write_manifest($fixtureDir, 'g2', [
     'spec_version' => DUO_SPEC_VERSION,
     'options' => ['shared_name' => ['class' => 'env', 'required' => false], 'only_in_g2' => ['class' => 'env', 'required' => false]],
 ]);
-check_throws(fn() => Policy::load(null, ['g1', 'g2']),
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['g1', 'g2']),
     "manifests 'g1' and 'g2' declare contradictory rules for options.shared_name",
     'same-class env declarations with different required contracts refuse at load');
-check_throws(fn() => Policy::load(null, ['g2', 'g1']),
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['g2', 'g1']),
     'Add an explicit site.duo.json policy.options.shared_name override',
     'refusal is pin-order independent and names the explicit site-policy resolution path');
 
@@ -202,7 +201,7 @@ write_manifest($fixtureDir, 'g4', [
     'spec_version' => DUO_SPEC_VERSION,
     'options' => ['shared_name' => ['class' => 'env', 'required' => false], 'only_in_g4' => ['class' => 'env', 'required' => false]],
 ]);
-$policyG = Policy::load(null, ['g3', 'g4']);
+$policyG = manifest_fixture_policy_load($fixtureDir, null, ['g3', 'g4']);
 $envOptsG = $policyG->env_options();
 check(count($envOptsG) === 3, 'identical declarations dedupe while non-colliding names from both manifests survive');
 check(($policyG->option_rule_details('shared_name')['source'] ?? null) === 'g3',
@@ -215,8 +214,12 @@ check(isset($envOptsG['only_in_g3']) && isset($envOptsG['only_in_g4']),
 // A checked-in site policy override is authored intent about the collision,
 // so it bypasses the manifest contradiction gate and wins in both lookup
 // shapes on a fresh Policy::load() with no capture-time memory.
-$repo = "$fixtureDir/site-override";
+$repo = $fixtureDir . '-site-override';
 mkdir($repo, 0777, true);
+register_shutdown_function(static function () use ($repo): void {
+    @unlink("$repo/site.duo.json");
+    @rmdir($repo);
+});
 file_put_contents("$repo/site.duo.json", json_encode([
     'manifests' => ['g1', 'g2'],
     'policy' => [
@@ -225,7 +228,7 @@ file_put_contents("$repo/site.duo.json", json_encode([
         ],
     ],
 ], JSON_PRETTY_PRINT));
-$resolved = Policy::load($repo);
+$resolved = manifest_fixture_policy_load($fixtureDir, $repo);
 $resolvedDetails = $resolved->option_rule_details('shared_name');
 check(($resolvedDetails['source'] ?? null) === 'site.duo.json',
     'an explicit site policy override resolves the synthetic contradiction on a fresh load');

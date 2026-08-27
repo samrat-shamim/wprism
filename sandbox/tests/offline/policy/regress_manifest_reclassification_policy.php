@@ -4,7 +4,7 @@
  * DUO-3249's Policy.php-side wiring: rule_details()'s core-yields-to-
  * plugin precedence, authored_options()'s reclassification-away
  * reconciliation pass, and active_reclassifications()'s plan-visible
- * reporting. Uses FAKE fixture manifests via DUO_MANIFESTS_DIR (one named
+ * reporting. Uses an explicit FAKE flat adapter library (one manifest named
  * literally "core", to exercise the exact structural-recognition path the
  * fix depends on), never the real manifests/core.json or
  * manifests/polylang.json — this file proves the MECHANISM works in
@@ -33,11 +33,10 @@ register_shutdown_function(function () use ($fixtureDir) {
     }
     rmdir($fixtureDir);
 });
-putenv("DUO_MANIFESTS_DIR=$fixtureDir");
-
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require __DIR__ . '/manifest_fixtures.php';
 
 use Duo\Policy;
 
@@ -98,7 +97,7 @@ write_manifest($fixtureDir, 'plugin', [
 // ======================================================================
 echo "\n== core alone: unaffected ==\n";
 
-$core = Policy::load(null, ['core']);
+$core = manifest_fixture_policy_load($fixtureDir, null, ['core']);
 $d = $core->option_rule_details('default_category');
 check(($d['rule']['class'] ?? null) === 'authored', 'default_category stays authored with core alone');
 check(($d['source'] ?? null) === 'core', 'source is core with core alone');
@@ -108,7 +107,7 @@ check($core->active_reclassifications() === [], 'active_reclassifications() is e
 // ======================================================================
 echo "\n== core + plugin, pinned core FIRST (the universal shipped convention) ==\n";
 
-$both = Policy::load(null, ['core', 'plugin']);
+$both = manifest_fixture_policy_load($fixtureDir, null, ['core', 'plugin']);
 $d = $both->option_rule_details('default_category');
 check(($d['rule']['class'] ?? null) === 'derived', "plugin's reclassification wins over core's own declaration (core pinned first)");
 check(($d['source'] ?? null) === 'plugin', 'source is the plugin manifest, not core');
@@ -126,7 +125,7 @@ echo "\n== core + plugin, pinned REVERSED (plugin first, core last) — must be 
 // walk would already (accidentally) get this one right, masking the bug
 // that only shows up in the universal core-first convention tested above.
 
-$reversed = Policy::load(null, ['plugin', 'core']);
+$reversed = manifest_fixture_policy_load($fixtureDir, null, ['plugin', 'core']);
 $d = $reversed->option_rule_details('default_category');
 check(($d['rule']['class'] ?? null) === 'derived', 'plugin still wins with reversed pin order');
 check(($d['source'] ?? null) === 'plugin', 'source is still the plugin manifest with reversed pin order');
@@ -149,7 +148,7 @@ write_manifest($fixtureDir, 'agree', [
     'option_autoload' => 'preserve',
     'options' => ['default_category' => ['class' => 'authored', 'ref' => 'term']],
 ]);
-$agreeing = Policy::load(null, ['core', 'agree']);
+$agreeing = manifest_fixture_policy_load($fixtureDir, null, ['core', 'agree']);
 check($agreeing->active_reclassifications() === [], 'no reclassification reported when the plugin agrees with core\'s own class');
 
 // ======================================================================
@@ -166,7 +165,7 @@ write_manifest($fixtureDir, 'p2', [
     'spec_version' => DUO_SPEC_VERSION,
     'options' => ['shared_name' => ['class' => 'runtime']],
 ]);
-check_throws(fn() => Policy::load(null, ['p1', 'p2']), 'contradictory rules for options.shared_name',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['p1', 'p2']), 'contradictory rules for options.shared_name',
     'two non-core manifests with different classes refuse instead of selecting a pin-order winner');
 
 write_manifest($fixtureDir, 'p3', [
@@ -179,7 +178,7 @@ write_manifest($fixtureDir, 'p4', [
     'spec_version' => DUO_SPEC_VERSION,
     'options' => ['shared_name' => ['class' => 'runtime']],
 ]);
-$identical = Policy::load(null, ['p3', 'p4']);
+$identical = manifest_fixture_policy_load($fixtureDir, null, ['p3', 'p4']);
 $d = $identical->option_rule_details('shared_name');
 check(($d['source'] ?? null) === 'p3', 'identical non-core declarations dedupe and direct lookup uses the first pin');
 
@@ -195,7 +194,7 @@ write_manifest($fixtureDir, 'p6', [
     'option_autoload' => 'preserve',
     'options' => ['shared_authored' => ['class' => 'authored', 'ref' => 'post']],
 ]);
-$identicalAuthored = Policy::load(null, ['p5', 'p6']);
+$identicalAuthored = manifest_fixture_policy_load($fixtureDir, null, ['p5', 'p6']);
 check(($identicalAuthored->option_rule_details('shared_authored')['source'] ?? null) === 'p5',
     'identical authored declarations use the first direct-lookup winner');
 check(isset($identicalAuthored->authored_options()['shared_authored']),
@@ -225,7 +224,7 @@ write_manifest($fixtureDir, 'p8', [
         ],
     ],
 ]);
-$identicalSubkeys = Policy::load(null, ['p7', 'p8']);
+$identicalSubkeys = manifest_fixture_policy_load($fixtureDir, null, ['p7', 'p8']);
 check(($identicalSubkeys->option_rule_details('shared_subkeys')['source'] ?? null) === 'p7',
     'identical sub-key declarations use the first direct-lookup winner');
 check(isset($identicalSubkeys->sub_keyed_options()['shared_subkeys']),
