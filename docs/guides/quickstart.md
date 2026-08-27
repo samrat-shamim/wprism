@@ -51,12 +51,13 @@ DUO_CLI="$PWD/cli/duo"
   --wp-path=/var/www/html --repo-path=/home/deploy/site-repo
 ```
 
-`connect` performs exactly three read-only native checks: transport
+`connect` performs exactly three native inspection checks: transport
 reachability, `wp core is-installed`, and single-site topology. Only after all
 three pass does it create the dedicated Git root, the same minimal seed
 adoption uses, the complete `.gitignore` boundary, and a mode-`0600`, untracked
-`.duo-envs.json`. A failed probe creates no workspace and changes no target
-byte.
+`.duo-envs.json`. A failed probe creates no workspace. Duo issues no explicit
+target mutation, but the topology check uses `wp eval`: it boots WordPress, so
+site startup code may run and may have its own effects.
 
 Now enter the workspace and run the composed flow:
 
@@ -85,6 +86,15 @@ successful init and prints the resumable command:
 
 That continuation performs only the repository handoff; it does not repeat
 adopt, assess, or init.
+
+The checkout makes the initialized revision reviewable locally; it does not
+redirect the live environment. `duo capture production` always writes to
+production's configured target `repo_path`, not whichever local branch is
+checked out. Inspect with `"$DUO_CLI" assess production` next. Before capturing
+feature work, point or materialize the target environment to that feature
+branch as described in [daily-workflow.md](daily-workflow.md); preview
+materialization additionally requires the two provider-backed entries shown in
+[release.md](release.md#create-a-preview).
 
 On a Docker or local target whose control plane already carries the agent,
 `duo assess` is the very first Duo command you run. [assess.md](assess.md) is

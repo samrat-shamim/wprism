@@ -231,6 +231,10 @@ final class DriverCapabilityReport {
                 DriverCapability::ATTACH, DriverCapability::BOOTSTRAP,
                 DriverCapability::CODE_TRANSFER, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
             ],
+            // A resumed handoff runs only target Git over captureRaw(). It
+            // must remain usable after init even on a control plane, such as
+            // Docker, that cannot deliver the agent itself.
+            'onboard-handoff' => [DriverCapability::ATTACH, DriverCapability::RAW_CONTROL],
             'deploy' => [
                 DriverCapability::ATTACH, DriverCapability::CODE_MATERIALIZE,
                 DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,

@@ -1725,7 +1725,10 @@ function main(array $argv): int {
     }
 
     try {
-        $driverReport = EnvironmentCommandPreflight::capabilityReport($transport, $verb);
+        $capabilityOperation = $verb === 'onboard' && in_array('--handoff-only', $extra, true)
+            ? 'onboard-handoff'
+            : $verb;
+        $driverReport = EnvironmentCommandPreflight::capabilityReport($transport, $capabilityOperation);
     } catch (\Throwable $e) {
         if ($jsonRefusal) {
             return render_agent_refusal_json(

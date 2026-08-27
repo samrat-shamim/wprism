@@ -30,7 +30,8 @@ final class IdealOnboardingTransport extends Transport {
     public function __construct(
         private bool $singleSite = true,
         string $repoPath = '/srv/duo',
-        private bool $executeRaw = false
+        private bool $executeRaw = false,
+        private ?Closure $afterRaw = null
     ) {
         parent::__construct('production', ['repo_path' => $repoPath]);
     }
@@ -42,7 +43,11 @@ final class IdealOnboardingTransport extends Transport {
     public function captureRaw(string $script): array {
         $this->rawCalls[] = $script;
         if ($this->executeRaw) {
-            return self::process(['bash', '-c', $script]);
+            $result = self::process(['bash', '-c', $script]);
+            if ($this->afterRaw !== null) {
+                ($this->afterRaw)($script, $result);
+            }
+            return $result;
         }
         return ['exit' => 0, 'stdout' => "duo-connect-ready\n", 'stderr' => ''];
     }
@@ -83,7 +88,65 @@ function ideal_demo_session(string $root, string $name, int $sourcePort, int $ta
         'runtime_before' => '',
         'last_applied_revision' => '',
         'pending_revision' => null,
+        'owned_paths' => [
+            'source_repo' => null,
+            'target_repo' => null,
+            'origin' => null,
+            'compose_env_file' => null,
+        ],
     ];
+}
+
+/** @return array{dev:string,ino:string,type:string} */
+function ideal_path_identity(string $path): array {
+    $stat = lstat($path);
+    if (!is_array($stat)) {
+        throw new RuntimeException("could not identify fixture path $path");
+    }
+    return ['dev' => (string) $stat['dev'], 'ino' => (string) $stat['ino'], 'type' => is_dir($path) ? 'directory' : 'file'];
+}
+
+/** @param array<string,mixed> $session @param list<string> $fields @return array<string,mixed> */
+function own_ideal_demo_paths(array $session, array $fields): array {
+    foreach ($fields as $field) {
+        $session['owned_paths'][$field] = ideal_path_identity((string) $session[$field]);
+    }
+    return $session;
+}
+
+/** @return array{driver:IdealOnboardingTransport,target:string,remote:string,workspace:string} */
+function ideal_handoff_fixture(string $tmp, string $label, ?Closure $afterRaw = null, string $branch = 'develop'): array {
+    $target = $tmp . '/' . $label . '-target';
+    $remote = $tmp . '/' . $label . '-remote.git';
+    $workspace = $tmp . '/' . $label . '-workspace';
+    foreach ([$target, $target . '/code', $target . '/state', $target . '/media'] as $directory) {
+        mkdir($directory, 0700);
+    }
+    file_put_contents($target . '/site.duo.json', Adopt::repositorySeedBytes());
+    file_put_contents($target . '/.gitignore', Adopt::repositoryGitignoreBytes());
+    file_put_contents($target . '/code/plugin.php', "<?php\n");
+    file_put_contents($target . '/state/baseline.json', "{}\n");
+    file_put_contents($target . '/media/README.md', "managed media fixture\n");
+    foreach ([
+        ['git', 'init', '--initial-branch=' . $branch, $target],
+        ['git', 'init', '--bare', '--initial-branch=main', $remote],
+    ] as $command) {
+        $result = IdealOnboardingTransport::process($command);
+        if ($result['exit'] !== 0) {
+            throw new RuntimeException('could not prepare handoff fixture: ' . trim($result['stderr']));
+        }
+    }
+    $driver = new IdealOnboardingTransport(true, $target, true, $afterRaw);
+    ob_start();
+    $exit = ConnectCommand::run([
+        'production', '--workspace=' . $workspace, '--transport=local',
+        '--wp-path=/var/www/html', '--repo-path=' . $target,
+    ], dirname(__DIR__, 4), static fn(string $name, array $config): EnvironmentDriver => $driver);
+    ob_end_clean();
+    if ($exit !== 0) {
+        throw new RuntimeException("could not connect handoff fixture $label");
+    }
+    return ['driver' => $driver, 'target' => $target, 'remote' => $remote, 'workspace' => $workspace];
 }
 
 /** @param array<string,mixed> $session */
@@ -121,11 +184,11 @@ $connectExit = ConnectCommand::run([
     '--wp-path=/var/www/html', '--repo-path=/srv/duo',
 ], dirname(__DIR__, 4), $factory, $gitRunner);
 $connectOutput = (string) ob_get_clean();
-duo_check_same(0, $connectExit, 'connect succeeds after three read-only native probes');
+duo_check_same(0, $connectExit, 'connect succeeds after three native inspection probes');
 duo_check_same(Adopt::repositorySeedBytes(), (string) file_get_contents($workspace . '/site.duo.json'), 'connect and target adoption share one seed byte source');
 duo_check_same(Adopt::repositoryGitignoreBytes(), (string) file_get_contents($workspace . '/.gitignore'), 'connect publishes the target-compatible local-artifact ignore boundary');
 duo_check((fileperms($workspace . '/.duo-envs.json') & 0777) === 0600, 'the privileged machine-local registry is owner-only');
-duo_check(str_contains($connectOutput, 'no target bytes were changed') && str_contains($connectOutput, 'onboard'), 'connect reports its read-only boundary and one next command');
+duo_check(str_contains($connectOutput, 'no explicit mutation') && str_contains($connectOutput, 'site startup code may have run') && str_contains($connectOutput, 'onboard'), 'connect reports the honest WordPress-bootstrap boundary and one next command');
 duo_check_same(['echo duo-connect-ready'], $probeTransport->rawCalls, 'connect makes only its declared transport reachability probe');
 duo_check_same(
     [['core', 'is-installed'], ['eval', 'echo is_multisite() ? "multisite" : "single-site";']],
@@ -154,6 +217,24 @@ ob_end_clean();
 duo_check_same(1, $traversalExit, 'connect refuses a missing-parent traversal before staging');
 duo_check(is_dir($sentinelRepo . '/.git') && is_file($sentinelRepo . '/sentinel'), 'a refused workspace cannot clean up an existing parent repository');
 
+$localParent = $tmp . '/local-target-parent';
+mkdir($localParent, 0700);
+$overlaps = [
+    [$tmp . '/same-boundary', $tmp . '/same-boundary', 'equal'],
+    [$localParent . '/workspace', $localParent, 'workspace inside target'],
+    [$tmp . '/workspace-parent', $tmp . '/workspace-parent/target', 'target inside workspace'],
+];
+foreach ($overlaps as [$overlapWorkspace, $overlapRepo, $label]) {
+    ob_start();
+    $overlapExit = ConnectCommand::run([
+        'production', '--workspace=' . $overlapWorkspace, '--transport=local',
+        '--wp-path=/var/www/html', '--repo-path=' . $overlapRepo,
+    ], dirname(__DIR__, 4), $factory, $gitRunner);
+    ob_end_clean();
+    duo_check_same(1, $overlapExit, "connect refuses $label local workspace/repo boundaries");
+    duo_check(!file_exists($overlapWorkspace), "connect publishes no workspace for $label boundaries");
+}
+
 $blockedWorkspace = $tmp . '/multisite';
 ob_start();
 $blockedExit = ConnectCommand::run([
@@ -162,7 +243,7 @@ $blockedExit = ConnectCommand::run([
 ], dirname(__DIR__, 4), static fn(string $name, array $config): EnvironmentDriver => new IdealOnboardingTransport(false), $gitRunner);
 ob_end_clean();
 duo_check_same(1, $blockedExit, 'connect refuses unsupported topology');
-duo_check(!file_exists($blockedWorkspace), 'a failed read-only probe creates no workspace');
+duo_check(!file_exists($blockedWorkspace), 'a failed inspection probe creates no workspace');
 
 $originalCwd = getcwd();
 chdir($workspace);
@@ -306,6 +387,171 @@ duo_check_same('develop', trim($workspaceBranch['stdout']), 'the connected works
 duo_check(is_file($handoffWorkspace . '/code/plugin.php'), 'checkout materializes the initialized target payload locally');
 duo_check(is_file($handoffWorkspace . '/.duo-envs.json'), 'checkout preserves the ignored machine-local environment registry');
 duo_check(str_contains($handoffOutput, 'Published the initialized target baseline'), 'onboard reports the completed automated handoff');
+duo_check(str_contains($handoffOutput, ' assess ') && str_contains($handoffOutput, 'Capture always writes to the target repo_path'), 'onboard recommends a command whose target-worktree effect is explicit');
+
+$tagFixture = ideal_handoff_fixture($tmp, 'tag-only');
+$tagSource = $tmp . '/tag-source';
+IdealOnboardingTransport::process(['git', 'init', '--initial-branch=main', $tagSource]);
+file_put_contents($tagSource . '/tagged', "tagged\n");
+foreach ([
+    ['git', '-C', $tagSource, 'add', 'tagged'],
+    ['git', '-C', $tagSource, '-c', 'user.name=test', '-c', 'user.email=test@example.test', 'commit', '-m', 'tag only'],
+    ['git', '-C', $tagSource, 'tag', 'v1'],
+    ['git', '-C', $tagSource, 'push', $tagFixture['remote'], 'refs/tags/v1'],
+] as $command) {
+    $result = IdealOnboardingTransport::process($command);
+    if ($result['exit'] !== 0) {
+        throw new RuntimeException('could not prepare tag-only remote: ' . trim($result['stderr']));
+    }
+}
+$tagMutations = [];
+$tagCwd = getcwd();
+chdir($tagFixture['workspace']);
+ob_start();
+$tagExit = OnboardCommand::run(
+    $tagFixture['driver'],
+    ['--git-url=' . $tagFixture['remote']],
+    dirname(__DIR__, 4),
+    [
+        'adopt' => static function () use (&$tagMutations): int { $tagMutations[] = 'adopt'; return 0; },
+        'assess' => static function () use (&$tagMutations): int { $tagMutations[] = 'assess'; return 0; },
+        'init' => static function () use (&$tagMutations): int { $tagMutations[] = 'init'; return 0; },
+    ]
+);
+ob_end_clean();
+if (is_string($tagCwd)) {
+    chdir($tagCwd);
+}
+duo_check_same(1, $tagExit, 'onboard refuses a tag-only remote as nonempty');
+duo_check_same([], $tagMutations, 'a tag-only remote refuses before adopt, assess, or init');
+
+$commitFixture = ideal_handoff_fixture($tmp, 'local-commit');
+foreach ([
+    ['git', '-C', $commitFixture['workspace'], 'add', 'site.duo.json', '.gitignore'],
+    ['git', '-C', $commitFixture['workspace'], '-c', 'user.name=test', '-c', 'user.email=test@example.test', 'commit', '-m', 'local work'],
+] as $command) {
+    $result = IdealOnboardingTransport::process($command);
+    if ($result['exit'] !== 0) {
+        throw new RuntimeException('could not prepare local-work refusal: ' . trim($result['stderr']));
+    }
+}
+$localCommit = trim(IdealOnboardingTransport::process(['git', '-C', $commitFixture['workspace'], 'rev-parse', 'HEAD'])['stdout']);
+$commitCwd = getcwd();
+chdir($commitFixture['workspace']);
+ob_start();
+$commitExit = OnboardCommand::run(
+    $commitFixture['driver'],
+    ['--handoff-only', '--git-url=' . $commitFixture['remote']],
+    dirname(__DIR__, 4)
+);
+ob_end_clean();
+if (is_string($commitCwd)) {
+    chdir($commitCwd);
+}
+duo_check_same(1, $commitExit, 'handoff refuses a controller workspace with local Git work');
+duo_check_same($localCommit, trim(IdealOnboardingTransport::process(['git', '-C', $commitFixture['workspace'], 'rev-parse', 'HEAD'])['stdout']), 'handoff refusal preserves the controller commit and visible branch');
+duo_check(IdealOnboardingTransport::process(['git', '-C', $commitFixture['target'], 'rev-parse', '--verify', 'HEAD'])['exit'] !== 0, 'controller-work refusal occurs before a target commit');
+
+$corrected = ideal_handoff_fixture($tmp, 'corrected-url', null, 'main');
+$correctedCwd = getcwd();
+chdir($corrected['workspace']);
+ob_start();
+$badUrlExit = OnboardCommand::run(
+    $corrected['driver'],
+    ['--handoff-only', '--git-url=' . $tmp . '/missing-corrected.git'],
+    dirname(__DIR__, 4)
+);
+ob_end_clean();
+$targetRemotesAfterBadUrl = IdealOnboardingTransport::process(['git', '-C', $corrected['target'], 'remote']);
+ob_start();
+$correctedExit = OnboardCommand::run(
+    $corrected['driver'],
+    ['--handoff-only', '--git-url=' . $corrected['remote']],
+    dirname(__DIR__, 4)
+);
+ob_end_clean();
+if (is_string($correctedCwd)) {
+    chdir($correctedCwd);
+}
+duo_check_same(1, $badUrlExit, 'handoff-only reports an unreachable first URL');
+duo_check_same('', trim($targetRemotesAfterBadUrl['stdout']), 'an unreachable URL is not persisted as target origin');
+duo_check_same(0, $correctedExit, 'handoff-only accepts a corrected reachable URL without repeating initialization');
+duo_check_same('main', trim(IdealOnboardingTransport::process(['git', '-C', $corrected['workspace'], 'branch', '--show-current'])['stdout']), 'handoff supports the connect-default branch without force-resetting an existing ref');
+
+$pushUrlFixture = ideal_handoff_fixture($tmp, 'push-url');
+$wrongPushRemote = $tmp . '/wrong-push.git';
+IdealOnboardingTransport::process(['git', 'init', '--bare', '--initial-branch=main', $wrongPushRemote]);
+foreach ([
+    ['git', '-C', $pushUrlFixture['target'], 'remote', 'add', 'origin', $pushUrlFixture['remote']],
+    ['git', '-C', $pushUrlFixture['target'], 'remote', 'set-url', '--push', 'origin', $wrongPushRemote],
+] as $command) {
+    $result = IdealOnboardingTransport::process($command);
+    if ($result['exit'] !== 0) {
+        throw new RuntimeException('could not prepare divergent push URL: ' . trim($result['stderr']));
+    }
+}
+$pushUrlCwd = getcwd();
+chdir($pushUrlFixture['workspace']);
+ob_start();
+$pushUrlExit = OnboardCommand::run(
+    $pushUrlFixture['driver'],
+    ['--handoff-only', '--git-url=' . $pushUrlFixture['remote']],
+    dirname(__DIR__, 4)
+);
+ob_end_clean();
+if (is_string($pushUrlCwd)) {
+    chdir($pushUrlCwd);
+}
+duo_check_same(1, $pushUrlExit, 'handoff refuses a target origin with a divergent push URL');
+duo_check_same('', trim(IdealOnboardingTransport::process(['git', '--git-dir=' . $pushUrlFixture['remote'], 'for-each-ref', '--format=%(refname)'])['stdout']), 'divergent push URL refusal leaves the reviewed remote empty');
+duo_check_same('', trim(IdealOnboardingTransport::process(['git', '--git-dir=' . $wrongPushRemote, 'for-each-ref', '--format=%(refname)'])['stdout']), 'divergent push URL refusal discloses nothing to the alternate remote');
+
+$raceTarget = $tmp . '/receipt-race-target';
+$raceRemote = $tmp . '/receipt-race-remote.git';
+$raceInjected = false;
+$raceHook = static function (string $script, array $result) use ($raceTarget, $raceRemote, &$raceInjected): void {
+    if ($raceInjected || !str_contains($result['stdout'], 'DUO_HANDOFF ')) {
+        return;
+    }
+    $raceInjected = true;
+    file_put_contents($raceTarget . '/code/race.php', "<?php // raced\n");
+    foreach ([
+        ['git', '-C', $raceTarget, 'add', 'code/race.php'],
+        ['git', '-C', $raceTarget, '-c', 'user.name=race', '-c', 'user.email=race@example.test', 'commit', '-m', 'race remote'],
+        ['git', '-C', $raceTarget, 'push', '--force', $raceRemote, 'HEAD:refs/heads/develop'],
+    ] as $command) {
+        $changed = IdealOnboardingTransport::process($command);
+        if ($changed['exit'] !== 0) {
+            throw new RuntimeException('could not advance race remote: ' . trim($changed['stderr']));
+        }
+    }
+};
+$raceFixture = ideal_handoff_fixture($tmp, 'receipt-race', $raceHook);
+$raceCwd = getcwd();
+chdir($raceFixture['workspace']);
+ob_start();
+$raceExit = OnboardCommand::run(
+    $raceFixture['driver'],
+    ['--handoff-only', '--git-url=' . $raceFixture['remote']],
+    dirname(__DIR__, 4)
+);
+ob_end_clean();
+$raceSeed = file_get_contents($raceFixture['workspace'] . '/site.duo.json');
+$raceBranch = IdealOnboardingTransport::process(['git', '-C', $raceFixture['workspace'], 'symbolic-ref', '--short', 'HEAD']);
+ob_start();
+$raceRetry = OnboardCommand::run(
+    $raceFixture['driver'],
+    ['--handoff-only', '--git-url=' . $raceFixture['remote']],
+    dirname(__DIR__, 4)
+);
+ob_end_clean();
+if (is_string($raceCwd)) {
+    chdir($raceCwd);
+}
+duo_check_same(1, $raceExit, 'handoff refuses a branch that moved after the target receipt');
+duo_check_same(Adopt::repositorySeedBytes(), $raceSeed, 'receipt race refuses before moving the local generated boundary');
+duo_check_same('main', trim($raceBranch['stdout']), 'receipt race leaves the controller on its original unborn branch');
+duo_check_same(0, $raceRetry, 'handoff retry completes against the new exact target receipt');
 
 [$initArgs, $gitUrl, $handoffOnly] = OnboardCommand::options(['--yes', '--git-url=https://example.test/repo.git']);
 duo_check_same(['--yes'], $initArgs, 'onboard forwards init flags unchanged');
@@ -374,6 +620,17 @@ $docker = new DockerTransport('demo-source', [
 $wpCommand = new ReflectionMethod(DockerTransport::class, 'wpCommand');
 $wire = (string) $wpCommand->invoke($docker, ['duo', 'capture']);
 duo_check(str_contains($wire, "'compose' '--env-file' '" . $envFile . "' '-f' '/tmp/pair.yml'"), 'demo registry pins Compose interpolation through an explicit machine-local env file');
+duo_check(!$docker->capabilityReport('onboard')->ready(), 'Docker still refuses the adoption composition it cannot deliver');
+duo_check($docker->capabilityReport('onboard-handoff')->ready(), 'Docker permits a post-init Git-only handoff over raw control');
+$dockerHandoffCli = HostProcess::run([
+    dirname(__DIR__, 4) . '/cli/duo',
+    'onboard',
+    'demo-source',
+    '--handoff-only',
+    '--git-url=' . $tmp . '/docker-handoff.git',
+], $tmp . '/docker-workspace');
+duo_check_same(1, $dockerHandoffCli['exit'], 'Docker handoff-only reaches its target Git operation and reports the fixture failure');
+duo_check(!str_contains($dockerHandoffCli['stderr'], 'driver does not support'), 'Docker handoff-only is not rejected by adoption-only capabilities');
 
 $demo = DemoCommand::options('start', ['--scenario=woocommerce', '--name=shopdemo', '--source-port=9100', '--target-port=9101']);
 duo_check_same('shopdemo', $demo['name'], 'demo accepts an isolated pair name');
@@ -394,12 +651,28 @@ $largeProcess = HostProcess::run([
 duo_check_same(0, $largeProcess['exit'], 'the shared host process runner completes with a full stderr pipe');
 duo_check_same('ok', $largeProcess['stdout'], 'the shared runner preserves stdout while draining stderr concurrently');
 duo_check_same(200000, strlen($largeProcess['stderr']), 'the shared runner drains the entire adversarial stderr payload');
+$oversizedProcess = HostProcess::run(
+    [PHP_BINARY, '-r', 'fwrite(STDOUT, str_repeat("x", 200000));'],
+    null,
+    [],
+    false,
+    5000,
+    65536
+);
+duo_check_same(125, $oversizedProcess['exit'], 'the shared runner terminates output beyond its explicit capture budget');
+duo_check_same('', $oversizedProcess['stdout'], 'oversized child output is not returned to the command boundary');
+$timedProcess = HostProcess::run([PHP_BINARY, '-r', 'sleep(5);'], null, [], false, 100, 65536);
+duo_check_same(124, $timedProcess['exit'], 'the shared runner terminates a child that exceeds its deadline');
+duo_check(str_contains($timedProcess['stderr'], 'timed out'), 'the shared runner reports its own bounded timeout diagnostic');
 
 $faultRoot = $tmp . '/fault-demo-root';
 foreach ([$faultRoot, $faultRoot . '/sandbox', $faultRoot . '/sandbox/bin', $faultRoot . '/sandbox/tmp', $faultRoot . '/sandbox/siterepo'] as $directory) {
     mkdir($directory, 0700);
 }
-file_put_contents($faultRoot . '/sandbox/bin/pair.sh', "#!/usr/bin/env bash\nexit 0\n");
+$faultPairScript = "#!/usr/bin/env bash\nset -eu\nif [ \"\$1\" = up ]; then mkdir -p "
+    . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"1 "
+    . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"2; fi\nexit 0\n";
+file_put_contents($faultRoot . '/sandbox/bin/pair.sh', $faultPairScript);
 file_put_contents($faultRoot . '/sandbox/pair.yml', "services: {}\n");
 file_put_contents($faultRoot . '/tracked', "fixture\n");
 foreach ([
@@ -450,6 +723,7 @@ foreach (['source_repo', 'target_repo', 'origin'] as $field) {
     mkdir((string) $starting[$field], 0700, true);
 }
 file_put_contents((string) $starting['compose_env_file'], "DUO_PAIR=startingdemo\n");
+$starting = own_ideal_demo_paths($starting, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
 write_ideal_demo_session($starting);
 ob_start();
 $startingStop = DemoCommand::run(['stop', '--name=startingdemo'], $faultRoot);
@@ -458,6 +732,50 @@ duo_check_same(0, $startingStop, 'demo stop resumes cleanup from a provisional s
 foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file', 'state_file'] as $field) {
     duo_check(!file_exists((string) $starting[$field]), "resumed demo stop removes owned $field");
 }
+
+$replaced = ideal_demo_session($faultRoot, 'replacedemo', 9222, 9223);
+foreach (['source_repo', 'target_repo', 'origin'] as $field) {
+    mkdir((string) $replaced[$field], 0700, true);
+}
+file_put_contents((string) $replaced['compose_env_file'], "DUO_PAIR=replacedemo\n");
+$replaced = own_ideal_demo_paths($replaced, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
+write_ideal_demo_session($replaced);
+$ownedSource = $replaced['source_repo'] . '.owned';
+rename((string) $replaced['source_repo'], $ownedSource);
+mkdir((string) $replaced['source_repo'], 0700);
+file_put_contents($replaced['source_repo'] . '/foreign', "retain\n");
+ob_start();
+$replacementStop = DemoCommand::run(['stop', '--name=replacedemo'], $faultRoot);
+ob_end_clean();
+duo_check_same(1, $replacementStop, 'demo stop refuses a replacement tree before pair handback or deletion');
+duo_check(is_file($replaced['source_repo'] . '/foreign') && is_file((string) $replaced['state_file']), 'replacement-tree refusal retains both foreign bytes and cleanup authority');
+unlink($replaced['source_repo'] . '/foreign');
+rmdir((string) $replaced['source_repo']);
+rename($ownedSource, (string) $replaced['source_repo']);
+ob_start();
+$replacementRetry = DemoCommand::run(['stop', '--name=replacedemo'], $faultRoot);
+ob_end_clean();
+duo_check_same(0, $replacementRetry, 'restoring the recorded tree identity makes cleanup resumable');
+
+$blockedDelete = ideal_demo_session($faultRoot, 'blockeddelete', 9224, 9225);
+foreach (['source_repo', 'target_repo', 'origin'] as $field) {
+    mkdir((string) $blockedDelete[$field], 0700, true);
+}
+file_put_contents($blockedDelete['source_repo'] . '/locked', "retain\n");
+file_put_contents((string) $blockedDelete['compose_env_file'], "DUO_PAIR=blockeddelete\n");
+$blockedDelete = own_ideal_demo_paths($blockedDelete, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
+write_ideal_demo_session($blockedDelete);
+chmod((string) $blockedDelete['source_repo'], 0500);
+ob_start();
+$blockedStop = DemoCommand::run(['stop', '--name=blockeddelete'], $faultRoot);
+ob_end_clean();
+duo_check_same(1, $blockedStop, 'demo stop reports an owned-tree deletion failure');
+duo_check(is_file((string) $blockedDelete['state_file']), 'failed owned-tree deletion retains the resumable session');
+chmod((string) $blockedDelete['source_repo'], 0700);
+ob_start();
+$blockedRetry = DemoCommand::run(['stop', '--name=blockeddelete'], $faultRoot);
+ob_end_clean();
+duo_check_same(0, $blockedRetry, 'demo stop resumes after the owned-tree deletion condition is repaired');
 
 $retryRoot = $tmp . '/retry-demo-root';
 foreach ([
@@ -505,6 +823,7 @@ $initialHead = IdealOnboardingTransport::process(['git', '-C', $retry['source_re
 $retry['phase'] = 'ready';
 $retry['runtime_before'] = '{"items":1}';
 $retry['last_applied_revision'] = trim($initialHead['stdout']);
+$retry = own_ideal_demo_paths($retry, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
 write_ideal_demo_session($retry);
 file_put_contents($retry['source_repo'] . '/managed.txt', "changed\n");
 $originalPath = getenv('PATH');

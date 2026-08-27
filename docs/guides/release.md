@@ -21,10 +21,51 @@ authorization in front and verification behind.
 
 ## Create a preview
 
-First configure an `environment_provider` in the machine-local
-`.duo-envs.json` and verify it with `duo env provider-check <env>`. Duo
-orchestrates that provider; it does not supply preview hosting. The exact
-registry shape and capability contract are in the
+Preview is not available from the one-entry registry `duo connect` creates.
+Duo orchestrates hosting; it does not supply it. Configure both the source and
+target transports and both `environment_provider` blocks in the machine-local
+`.duo-envs.json`. This complete schematic is loadable after replacing its
+host/path values with real ones:
+
+```json
+{
+  "envs": {
+    "production": {
+      "transport": "ssh",
+      "host": "deploy@production.example.com",
+      "wp_path": "/var/www/html",
+      "repo_path": "/srv/duo-production",
+      "environment_provider": {
+        "command": ["/opt/acme/duo-env-provider", "/etc/duo/production.json"],
+        "timeout_seconds": 30
+      }
+    },
+    "preview": {
+      "transport": "ssh",
+      "host": "deploy@preview-control.example.com",
+      "wp_path": "/var/www/html",
+      "repo_path": "/srv/duo-preview",
+      "environment_provider": {
+        "command": ["/opt/acme/duo-env-provider", "/etc/duo/preview.json"],
+        "timeout_seconds": 30
+      }
+    }
+  }
+}
+```
+
+The production provider must supply the snapshot-set capabilities; the
+preview provider must supply inspect/create/destroy, snapshot restore,
+repository materialization, mutation-fence, URL, receipt, and (for `--ttl`)
+TTL capabilities. Check both configurations without mutation before creating
+anything:
+
+```sh
+duo env provider-check production
+duo env provider-check preview
+```
+
+The exact capability sets and refusal contract are in the
 [branch-environment provider protocol](../branch-environment-provider.md).
 
 ```sh

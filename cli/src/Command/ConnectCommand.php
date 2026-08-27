@@ -10,7 +10,7 @@ require_once __DIR__ . '/../Transport/DockerTransport.php';
 require_once __DIR__ . '/../Transport/SshTransport.php';
 require_once __DIR__ . '/HostProcess.php';
 
-/** Create the local half of a Duo relationship after native read-only probes. */
+/** Create the local half of a Duo relationship after native inspection probes. */
 final class ConnectCommand {
     /**
      * @param list<string> $args everything after `connect`
@@ -36,7 +36,8 @@ final class ConnectCommand {
         }
 
         $cli = realpath($sourceRoot . '/cli/duo') ?: $sourceRoot . '/cli/duo';
-        echo "Connected read-only: WordPress is reachable and single-site; no target bytes were changed.\n";
+        echo "Connected after inspection: WordPress is reachable and single-site.\n";
+        echo "Duo issued no explicit mutation, but topology inspection bootstrapped WordPress and site startup code may have run.\n";
         echo "Workspace: {$request['workspace']}\n";
         echo "Next:\n";
         echo '  cd ' . escapeshellarg($request['workspace']) . "\n";
@@ -113,6 +114,7 @@ final class ConnectCommand {
             }
         }
         if ($transport === 'local') {
+            self::assertDisjointLocalBoundaries($workspace, (string) $config['repo_path']);
             // Selecting a local target is the explicit machine-local opt-in
             // LocalTransport requires before adoption can bootstrap it.
             $config['bootstrap'] = ['format' => LocalTransport::BOOTSTRAP_FORMAT];
@@ -230,5 +232,37 @@ final class ConnectCommand {
             throw new \RuntimeException("$flag file not found or unreadable: $path");
         }
         return $resolved;
+    }
+
+    private static function assertDisjointLocalBoundaries(string $workspace, string $repoPath): void {
+        $workspaceBoundary = self::physicalBoundary($workspace);
+        $repoBoundary = self::physicalBoundary($repoPath);
+        if ($workspaceBoundary === $repoBoundary
+            || str_starts_with($workspaceBoundary, $repoBoundary . '/')
+            || str_starts_with($repoBoundary, $workspaceBoundary . '/')) {
+            throw new \RuntimeException('local --workspace and --repo-path must be disjoint, non-nested paths');
+        }
+    }
+
+    private static function physicalBoundary(string $path): string {
+        if (!str_starts_with($path, '/') || preg_match('/[\x00-\x1f\x7f]/', $path) === 1) {
+            throw new \RuntimeException('local path boundaries must be absolute and normalized');
+        }
+        $segments = explode('/', substr($path, 1));
+        if ($path === '/' || $path !== rtrim($path, '/')
+            || array_filter($segments, static fn(string $part): bool => $part === '' || $part === '.' || $part === '..') !== []) {
+            throw new \RuntimeException('local path boundaries must be absolute and normalized');
+        }
+        $suffix = [];
+        $cursor = rtrim($path, '/');
+        while (($resolved = realpath($cursor)) === false) {
+            $parent = dirname($cursor);
+            if ($parent === $cursor) {
+                throw new \RuntimeException('local path boundary has no existing physical ancestor');
+            }
+            array_unshift($suffix, basename($cursor));
+            $cursor = $parent;
+        }
+        return rtrim($resolved, '/') . ($suffix === [] ? '' : '/' . implode('/', $suffix));
     }
 }

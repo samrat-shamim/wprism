@@ -56,7 +56,7 @@ cli/duo demo stop
 catalog change; `refusal` proves a caller cannot replace the registry's trusted
 target binding. For a
 real site, `duo connect` creates the local repository/registry only after
-native read-only reachability, WordPress and topology probes, and `duo
+native reachability, WordPress and topology inspection probes, and `duo
 onboard` composes adopt → assess → init without a handwritten seed:
 
 ```sh

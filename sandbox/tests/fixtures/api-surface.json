@@ -31009,6 +31009,22 @@
                             "name": "passthrough",
                             "type": "bool",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::DEFAULT_TIMEOUT_MILLISECONDS",
+                            "has_default": true,
+                            "name": "timeoutMilliseconds",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::DEFAULT_OUTPUT_LIMIT_BYTES",
+                            "has_default": true,
+                            "name": "outputLimitBytes",
+                            "type": "int",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",

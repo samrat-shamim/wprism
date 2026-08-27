@@ -112,11 +112,15 @@ final class DemoCommand {
                 throw new \RuntimeException('pair startup failed');
             }
             self::writeComposeEnv($session, $sourceRoot);
+            $session = self::recordOwnedPaths($session, ['source_repo', 'target_repo', 'compose_env_file']);
+            self::replaceSession($session);
             if ($phaseHook !== null) {
                 $phaseHook('compose_env_published');
             }
             self::installWooCommerce($session, $sourceRoot);
             self::prepareSourceRepository($session);
+            $session = self::recordOwnedPaths($session, ['origin']);
+            self::replaceSession($session);
             self::seedSourceCatalog($session);
             self::runDuo($session, $sourceRoot, $session['source_repo'], ['capture', 'demo-source'], true);
             self::git($session['source_repo'], ['add', '-A']);
@@ -139,12 +143,22 @@ final class DemoCommand {
             $session['phase'] = 'ready';
             self::replaceSession($session);
         } catch (\Throwable $error) {
+            try {
+                self::assertOwnedSessionPaths($sourceRoot, $session);
+            } catch (\Throwable $ownership) {
+                throw new \RuntimeException(
+                    $error->getMessage() . '; cleanup ownership changed: ' . $ownership->getMessage()
+                    . '; session retained for review'
+                );
+            }
             if (self::destroyPair($sourceRoot, $options['name'], false) !== 0) {
                 throw new \RuntimeException(
                     $error->getMessage() . '; pair teardown failed; run `'
                     . self::demoCli($sourceRoot) . " demo stop --name={$options['name']}` to resume cleanup"
                 );
             }
+            $session['phase'] = 'stopping';
+            self::replaceSession($session);
             self::cleanupOwnedSession($sourceRoot, $session);
             throw $error;
         }
@@ -271,10 +285,13 @@ final class DemoCommand {
 
     private static function stop(string $sourceRoot, string $name): int {
         $session = self::readSession($sourceRoot, $name);
+        self::assertOwnedSessionPaths($sourceRoot, $session);
         $exit = self::destroyPair($sourceRoot, $name, true);
         if ($exit !== 0) {
             throw new \RuntimeException('pair teardown failed; repositories were retained for diagnosis');
         }
+        $session['phase'] = 'stopping';
+        self::replaceSession($session);
         self::cleanupOwnedSession($sourceRoot, $session);
         echo "Removed demo '$name': containers, volumes, databases, and its three disposable repositories.\n";
         return 0;
@@ -299,6 +316,12 @@ final class DemoCommand {
             'runtime_before' => '',
             'last_applied_revision' => '',
             'pending_revision' => null,
+            'owned_paths' => [
+                'source_repo' => null,
+                'target_repo' => null,
+                'origin' => null,
+                'compose_env_file' => null,
+            ],
         ];
     }
 
@@ -538,14 +561,15 @@ final class DemoCommand {
                 throw new \RuntimeException("demo '$name' session does not authorize its $field path");
             }
         }
-        if (!in_array($data['phase'] ?? null, ['starting', 'ready'], true)
+        if (!in_array($data['phase'] ?? null, ['starting', 'ready', 'stopping'], true)
             || !is_string($data['runtime_before'] ?? null)
             || !is_string($data['last_applied_revision'] ?? null)
             || (($data['last_applied_revision'] ?? '') !== ''
                 && preg_match('/^[a-f0-9]{40}$/D', (string) $data['last_applied_revision']) !== 1)
             || (!is_null($data['pending_revision'] ?? null)
                 && (!is_string($data['pending_revision'])
-                    || preg_match('/^[a-f0-9]{40}$/D', $data['pending_revision']) !== 1))) {
+                    || preg_match('/^[a-f0-9]{40}$/D', $data['pending_revision']) !== 1))
+            || !self::validOwnedPaths($data['owned_paths'] ?? null)) {
             throw new \RuntimeException("demo '$name' session lifecycle state is malformed");
         }
         return $data;
@@ -603,18 +627,32 @@ final class DemoCommand {
 
     /** @param array<string,mixed> $session */
     private static function cleanupOwnedSession(string $sourceRoot, array $session): void {
+        self::assertOwnedSessionPaths($sourceRoot, $session);
         $derived = self::sessionShape($sourceRoot, [
             'name' => $session['name'],
             'source_port' => $session['source_port'],
             'target_port' => $session['target_port'],
         ]);
-        foreach ([$derived['source_repo'], $derived['target_repo'], $derived['origin']] as $path) {
-            self::removeTree((string) $path);
+        foreach (['source_repo', 'target_repo', 'origin'] as $field) {
+            $path = (string) $derived[$field];
+            $recorded = $session['owned_paths'][$field] ?? null;
+            if ($recorded !== null && self::pathIdentity((string) $path) !== $recorded) {
+                throw new \RuntimeException("owned demo path changed before deletion: $path");
+            }
+            self::removeTree($path);
+            $session['owned_paths'][$field] = null;
+            self::replaceSession($session);
         }
         $env = (string) $derived['compose_env_file'];
+        $envIdentity = $session['owned_paths']['compose_env_file'] ?? null;
+        if ($envIdentity !== null && $envIdentity !== self::pathIdentity($env)) {
+            throw new \RuntimeException("owned demo environment changed before deletion: $env");
+        }
         if (is_file($env) && !is_link($env) && !unlink($env)) {
             throw new \RuntimeException("could not remove owned demo environment file $env");
         }
+        $session['owned_paths']['compose_env_file'] = null;
+        self::replaceSession($session);
         $state = (string) $derived['state_file'];
         if (is_file($state) && !is_link($state) && !unlink($state)) {
             throw new \RuntimeException("could not remove owned demo session $state");
@@ -626,7 +664,9 @@ final class DemoCommand {
             return;
         }
         if (is_link($root) || is_file($root)) {
-            unlink($root);
+            if (!@unlink($root)) {
+                throw new \RuntimeException("could not remove owned demo path $root");
+            }
             return;
         }
         $iterator = new \RecursiveIteratorIterator(
@@ -635,9 +675,84 @@ final class DemoCommand {
         );
         foreach ($iterator as $entry) {
             $path = $entry->getPathname();
-            $entry->isDir() && !$entry->isLink() ? rmdir($path) : unlink($path);
+            $removed = $entry->isDir() && !$entry->isLink() ? @rmdir($path) : @unlink($path);
+            if (!$removed) {
+                throw new \RuntimeException("could not remove owned demo path $path");
+            }
         }
-        rmdir($root);
+        if (!@rmdir($root)) {
+            throw new \RuntimeException("could not remove owned demo path $root");
+        }
+    }
+
+    /** @param array<string,mixed> $session @param list<string> $fields @return array<string,mixed> */
+    private static function recordOwnedPaths(array $session, array $fields): array {
+        foreach ($fields as $field) {
+            $path = (string) ($session[$field] ?? '');
+            if ($path === '' || !file_exists($path) || is_link($path)) {
+                throw new \RuntimeException("demo did not acquire an ordinary $field path");
+            }
+            $identity = self::pathIdentity($path);
+            $recorded = $session['owned_paths'][$field] ?? null;
+            if ($recorded !== null && $recorded !== $identity) {
+                throw new \RuntimeException("demo $field identity changed while setup was active");
+            }
+            $session['owned_paths'][$field] = $identity;
+        }
+        return $session;
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function assertOwnedSessionPaths(string $sourceRoot, array $session): void {
+        $derived = self::sessionShape($sourceRoot, [
+            'name' => $session['name'],
+            'source_port' => $session['source_port'],
+            'target_port' => $session['target_port'],
+        ]);
+        foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file'] as $field) {
+            $path = (string) $derived[$field];
+            $recorded = $session['owned_paths'][$field] ?? null;
+            if ($recorded === null) {
+                if (file_exists($path) || is_link($path)) {
+                    throw new \RuntimeException("unrecorded demo $field path exists and was retained: $path");
+                }
+                continue;
+            }
+            if (is_link($path) || !file_exists($path) || self::pathIdentity($path) !== $recorded) {
+                throw new \RuntimeException("demo $field identity changed and was retained: $path");
+            }
+        }
+    }
+
+    /** @return array{dev:string,ino:string,type:string} */
+    private static function pathIdentity(string $path): array {
+        $stat = lstat($path);
+        if (!is_array($stat) || is_link($path) || (!is_dir($path) && !is_file($path))) {
+            throw new \RuntimeException("demo path is not an ordinary file or directory: $path");
+        }
+        return [
+            'dev' => (string) $stat['dev'],
+            'ino' => (string) $stat['ino'],
+            'type' => is_dir($path) ? 'directory' : 'file',
+        ];
+    }
+
+    private static function validOwnedPaths(mixed $owned): bool {
+        if (!is_array($owned) || array_keys($owned) !== ['source_repo', 'target_repo', 'origin', 'compose_env_file']) {
+            return false;
+        }
+        foreach ($owned as $field => $identity) {
+            if ($identity === null) {
+                continue;
+            }
+            if (!is_array($identity) || array_keys($identity) !== ['dev', 'ino', 'type']
+                || preg_match('/^[0-9]+$/D', $identity['dev'] ?? '') !== 1
+                || preg_match('/^[0-9]+$/D', $identity['ino'] ?? '') !== 1
+                || ($identity['type'] ?? null) !== ($field === 'compose_env_file' ? 'file' : 'directory')) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static function requireTools(array $tools): void {

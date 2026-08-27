@@ -165,7 +165,7 @@ final class OnboardCommand {
     ): void {
         self::assertLocalBoundary($workspace);
         self::assertLocalOrigin($workspace, $gitUrl);
-        $local = HostProcess::run(['git', 'ls-remote', '--heads', $gitUrl]);
+        $local = HostProcess::run(['git', 'ls-remote', $gitUrl]);
         if ($local['exit'] !== 0) {
             throw new \RuntimeException('controller cannot authenticate to the Git remote: ' . trim($local['stderr']));
         }
@@ -173,7 +173,7 @@ final class OnboardCommand {
             throw new \RuntimeException('Git remote is not empty; use a new empty remote for initial publication');
         }
         $q = static fn(string $value): string => escapeshellarg($value);
-        $target = $driver->captureRaw('git ls-remote --heads ' . $q($gitUrl));
+        $target = $driver->captureRaw('git ls-remote ' . $q($gitUrl));
         if ($target['exit'] !== 0) {
             throw new \RuntimeException('target cannot authenticate to the Git remote: ' . trim($target['stderr']));
         }
@@ -188,6 +188,7 @@ final class OnboardCommand {
         string $gitUrl
     ): string {
         self::assertLocalBoundary($workspace);
+        $initialBranch = self::assertPristineLocalCheckout($workspace);
         self::assertLocalOrigin($workspace, $gitUrl);
         $repo = $driver->repoPath();
         $q = static fn(string $value): string => escapeshellarg($value);
@@ -196,18 +197,23 @@ final class OnboardCommand {
             . 'branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD) || '
             . '{ echo "target Git worktree has detached HEAD" >&2; exit 1; }; '
             . 'git check-ref-format --branch "$branch" >/dev/null; '
+            . 'origin_missing=0; if git -C "$repo" remote get-url origin >/dev/null 2>&1; then '
+            . 'test "$(git -C "$repo" remote get-url --all origin)" = "$url" || '
+            . '{ echo "target origin URL does not match --git-url" >&2; exit 1; }; '
+            . 'test "$(git -C "$repo" remote get-url --push --all origin)" = "$url" || '
+            . '{ echo "target origin push URL does not match --git-url" >&2; exit 1; }; '
+            . 'else origin_missing=1; fi; '
+            . 'remote=$(git -C "$repo" ls-remote "$url" "refs/heads/$branch"); '
             . 'git -C "$repo" add .gitignore site.duo.json code state media; '
             . 'if ! git -C "$repo" diff --cached --quiet; then '
             . 'git -C "$repo" -c user.name=duo -c user.email=duo@example.test commit -m "duo: initial managed baseline"; fi; '
             . 'head=$(git -C "$repo" rev-parse HEAD); '
-            . 'if git -C "$repo" remote get-url origin >/dev/null 2>&1; then '
-            . 'test "$(git -C "$repo" remote get-url origin)" = "$url" || '
-            . '{ echo "target origin URL does not match --git-url" >&2; exit 1; }; '
-            . 'else git -C "$repo" remote add origin "$url"; fi; '
-            . 'remote=$(git -C "$repo" ls-remote --heads origin "refs/heads/$branch"); '
             . 'if [ -n "$remote" ] && [ "${remote%%[[:space:]]*}" != "$head" ]; then '
             . 'echo "remote branch $branch is not the initialized target revision" >&2; exit 1; fi; '
-            . 'git -C "$repo" push -u origin "HEAD:refs/heads/$branch"; '
+            . 'git -C "$repo" push "$url" "HEAD:refs/heads/$branch"; '
+            . 'if [ "$origin_missing" -eq 1 ]; then git -C "$repo" remote add origin "$url"; fi; '
+            . 'git -C "$repo" fetch origin "$branch"; '
+            . 'git -C "$repo" branch --set-upstream-to="origin/$branch" "$branch" >/dev/null; '
             . 'printf "DUO_HANDOFF %s %s\\n" "$branch" "$head"';
         $target = $driver->captureRaw($script);
         if ($target['exit'] !== 0) {
@@ -220,9 +226,17 @@ final class OnboardCommand {
         $revision = $published[2];
 
         self::ensureLocalOrigin($workspace, $gitUrl);
-        $fetch = HostProcess::run(['git', '-C', $workspace, 'fetch', 'origin', $branch]);
+        $remoteRef = 'refs/remotes/origin/' . $branch;
+        $fetch = HostProcess::run([
+            'git', '-C', $workspace, 'fetch', '--no-tags', 'origin',
+            '+refs/heads/' . $branch . ':' . $remoteRef,
+        ]);
         if ($fetch['exit'] !== 0) {
             throw new \RuntimeException('local Git fetch failed: ' . trim($fetch['stderr']));
+        }
+        $fetched = HostProcess::run(['git', '-C', $workspace, 'rev-parse', '--verify', $remoteRef]);
+        if ($fetched['exit'] !== 0 || trim($fetched['stdout']) !== $revision) {
+            throw new \RuntimeException('fetched branch moved after the target publication receipt; local boundary was not changed');
         }
 
         self::assertLocalBoundary($workspace);
@@ -240,7 +254,7 @@ final class OnboardCommand {
                 $moved[$path] = $backup;
             }
             $checkout = HostProcess::run(
-                ['git', '-C', $workspace, 'checkout', '-B', $branch, '--track', 'origin/' . $branch]
+                ['git', '-C', $workspace, 'checkout', '-b', $branch, '--track', $remoteRef]
             );
             if ($checkout['exit'] !== 0) {
                 throw new \RuntimeException('local Git checkout failed: ' . trim($checkout['stderr']));
@@ -250,10 +264,12 @@ final class OnboardCommand {
                 throw new \RuntimeException('local checkout does not match the target publication receipt');
             }
         } catch (\Throwable $error) {
-            foreach (array_reverse($moved, true) as $path => $backup) {
-                if (!file_exists($path) && !is_link($path) && is_file($backup) && !is_link($backup)) {
-                    rename($backup, $path);
-                }
+            try {
+                self::restorePristineCheckout($workspace, $initialBranch, $branch, $moved);
+            } catch (\Throwable $rollback) {
+                throw new \RuntimeException(
+                    $error->getMessage() . '; local checkout rollback failed: ' . $rollback->getMessage()
+                );
             }
             throw $error;
         }
@@ -268,6 +284,61 @@ final class OnboardCommand {
     private static function assertLocalBoundary(string $workspace): void {
         self::assertGeneratedFile($workspace . '/site.duo.json', Adopt::repositorySeedBytes());
         self::assertGeneratedFile($workspace . '/.gitignore', Adopt::repositoryGitignoreBytes());
+    }
+
+    private static function assertPristineLocalCheckout(string $workspace): string {
+        if (is_link($workspace . '/.git') || !is_dir($workspace . '/.git')
+            || is_link($workspace . '/.duo-envs.json') || !is_file($workspace . '/.duo-envs.json')) {
+            throw new \RuntimeException('local workspace control boundary is not ordinary');
+        }
+        $entries = array_values(array_diff(scandir($workspace) ?: [], ['.', '..']));
+        sort($entries, SORT_STRING);
+        if ($entries !== ['.duo-envs.json', '.git', '.gitignore', 'site.duo.json']) {
+            throw new \RuntimeException('local workspace changed before handoff; expected only connect-generated entries');
+        }
+        $head = HostProcess::run(['git', '-C', $workspace, 'rev-parse', '--verify', 'HEAD']);
+        $heads = HostProcess::run(['git', '-C', $workspace, 'for-each-ref', '--format=%(refname)', 'refs/heads']);
+        $index = HostProcess::run(['git', '-C', $workspace, 'ls-files']);
+        $branch = HostProcess::run(['git', '-C', $workspace, 'symbolic-ref', '--quiet', '--short', 'HEAD']);
+        if ($head['exit'] === 0 || $heads['exit'] !== 0 || trim($heads['stdout']) !== ''
+            || $index['exit'] !== 0 || trim($index['stdout']) !== ''
+            || $branch['exit'] !== 0 || trim($branch['stdout']) === '') {
+            throw new \RuntimeException('local workspace Git state is no longer the empty connect boundary');
+        }
+        return trim($branch['stdout']);
+    }
+
+    /** @param array<string,string> $backups */
+    private static function restorePristineCheckout(
+        string $workspace,
+        string $initialBranch,
+        string $publishedBranch,
+        array $backups
+    ): void {
+        foreach ([
+            ['git', '-C', $workspace, 'symbolic-ref', 'HEAD', 'refs/heads/' . $initialBranch],
+            ['git', '-C', $workspace, 'read-tree', '--empty'],
+            ['git', '-C', $workspace, 'clean', '-fdx', '-e', '.duo-envs.json', '-e', '.gitignore', '-e', 'site.duo.json'],
+            ['git', '-C', $workspace, 'update-ref', '-d', 'refs/heads/' . $publishedBranch],
+        ] as $command) {
+            $result = HostProcess::run($command);
+            if ($result['exit'] !== 0) {
+                throw new \RuntimeException(trim($result['stderr']) ?: 'Git could not restore the empty workspace');
+            }
+        }
+        foreach ($backups as $path => $backup) {
+            if (is_link($path) || (file_exists($path) && !is_file($path))) {
+                throw new \RuntimeException("checked-out boundary is not an ordinary file: $path");
+            }
+            if (is_file($path) && !unlink($path)) {
+                throw new \RuntimeException("could not remove checked-out boundary: $path");
+            }
+            if (!is_file($backup) || is_link($backup) || !rename($backup, $path)) {
+                throw new \RuntimeException("could not restore generated boundary: $path");
+            }
+        }
+        self::assertLocalBoundary($workspace);
+        self::assertPristineLocalCheckout($workspace);
     }
 
     private static function assertLocalOrigin(string $workspace, string $gitUrl): void {
@@ -304,9 +375,11 @@ final class OnboardCommand {
     ): void {
         $cli = realpath($sourceRoot . '/cli/duo') ?: $sourceRoot . '/cli/duo';
         echo "Published the initialized target baseline and checked out branch $branch in this workspace.\n";
-        echo "Next: create a feature branch and capture reviewed changes with:\n";
-        echo '  ' . escapeshellarg($cli) . ' capture ' . escapeshellarg($driver->name()) . "\n";
-        echo "A disposable preview additionally requires a configured environment provider; see docs/guides/release.md.\n";
+        echo "Next: inspect the initialized target through the configured environment:\n";
+        echo '  ' . escapeshellarg($cli) . ' assess ' . escapeshellarg($driver->name()) . "\n";
+        echo "Capture always writes to the target repo_path ({$driver->repoPath()}), not this local checkout.\n";
+        echo "Before feature-branch capture, point or materialize the target to that branch; see docs/guides/daily-workflow.md.\n";
+        echo "Disposable preview creation additionally requires two configured environments and providers; see docs/guides/release.md.\n";
     }
 
     private static function assertGeneratedFile(string $path, string $expected): void {

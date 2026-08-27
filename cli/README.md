@@ -89,10 +89,11 @@ loop. It uses the same pair budget and digest-pinned artifact resolver as the
 live test estate; `demo stop` removes only the named demo's pair resources and
 repositories.
 
-`duo connect` is target-read-only. It checks raw reachability, installed
-WordPress, and single-site topology before creating a dedicated local Git
+`duo connect` issues no explicit mutation. It checks raw reachability,
+installed WordPress, and single-site topology before creating a dedicated local Git
 root containing the shared adoption seed and a mode-`0600`, ignored
-`.duo-envs.json`. `duo onboard` then composes the existing `adopt`, `assess`,
+`.duo-envs.json`; topology inspection boots WordPress, so site startup code may
+have its own effects. `duo onboard` then composes the existing `adopt`, `assess`,
 and `init` gates in that order. `--git-url` must be empty and accessible with
 Git credentials from both controller and target; Duo preflights both before
 target mutation, publishes the target's current branch, and replaces only

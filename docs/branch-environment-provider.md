@@ -32,14 +32,22 @@ The `environment_provider` block is privileged host configuration. It is accepte
 
 ```json
 {
-  "<env>": {
-    "environment_provider": {
-      "command": ["/absolute/path/to/provider", "/absolute/path/to/config.json"],
-      "timeout_seconds": 30
+  "envs": {
+    "<env>": {
+      "transport": "local",
+      "wp_path": "/absolute/path/to/wordpress",
+      "repo_path": "/absolute/path/to/site-repo",
+      "environment_provider": {
+        "command": ["/absolute/path/to/provider", "/absolute/path/to/config.json"],
+        "timeout_seconds": 30
+      }
     }
   }
 }
 ```
+
+This is a complete one-environment local registry shape; use the required transport
+keys for SSH or Docker instead when that is how the environment is reached.
 
 * the object's key set is exactly `{command, timeout_seconds}`;
 * `command` is a non-empty argv **list** — it is executed with `bypass_shell`, so
