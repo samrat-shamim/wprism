@@ -82,8 +82,8 @@ declare(strict_types=1);
  *      failure this refuses is an omission rather than a disagreement: a
  *      feature-claimed key with no arm loads on every site and is unsignable by
  *      both profiles, which is what `sandbox/fixtures/wpforms-lite/` measured;
- *   9. the § v3.9 grandfather list is declared under `agent/src` — never under
- *      `manifests/`, where rule 2 would make it an adapter-digest input — and
+ *   9. the § v3.9 grandfather list is declared under `agent/src` — never inside
+ *      an adapter package, where platform policy would become adapter-owned identity — and
  *      its membership equals the shipped library exactly (row R-27);
  *  10. the register is continuous: R-01 … R-NN with every id spent exactly once
  *      (an id nobody can account for reads as a row somebody deleted).
@@ -119,6 +119,7 @@ $repo = $wsRoot !== null && $wsRoot !== '' ? $wsRoot : dirname(__DIR__);
 
 require_once $repo . '/agent/src/Adapter/AdapterCertification.php';
 require_once $repo . '/agent/src/Adapter/IdentityNamespaces.php';
+require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 require_once $repo . '/agent/src/Kernel/ReferenceKindGrammar.php';
 require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
 require_once $repo . '/cli/src/Contract/ContractAttestation.php';
@@ -146,6 +147,7 @@ if (!defined('DUO_SPEC_VERSION')) {
 
 use Duo\AdapterCertification;
 use Duo\AdapterContractGrammar;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\IdentityNamespaces;
@@ -718,7 +720,7 @@ function ws_assert_feature_key_arms(): void {
 /**
  * Gate 6 (WP-4.8, spec § v3.7 change (d)): the SHIPPED authorities document.
  *
- * `manifests/capabilities/adapter-authorities.json` is the platform trust root
+ * `platform/adapter-library/capabilities/adapter-authorities.json` is the platform trust root
  * — the one file in this repository whose contents decide what a stranger's
  * key may certify on every managed site. It has exactly two legal states and
  * this gate refuses everything else:
@@ -737,7 +739,7 @@ function ws_assert_feature_key_arms(): void {
  * an unsigned or tampered one before it can reach a site.
  */
 function ws_assert_shipped_authorities(string $repo): void {
-    $relative = 'manifests/capabilities/adapter-authorities.json';
+    $relative = 'platform/adapter-library/capabilities/adapter-authorities.json';
     $raw = @file_get_contents($repo . '/' . $relative);
     if ($raw === false) {
         ws_fail("$relative is missing; it is the platform trust root and its absence is not an empty root");
@@ -769,28 +771,20 @@ function ws_assert_shipped_authorities(string $repo): void {
 }
 
 /**
- * The shipped library's own identities, read off `manifests/*.json`.
- *
- * `dispositions.json` is the reviewed claim source, not an adapter, and the
- * `capabilities/` documents live one directory down, so the flat glob is
- * already exactly the adapter set. The declared `name` is preferred over the
- * basename only to say out loud that they are the same value —
- * `AdapterSources::assert_declared_name()` refuses a manifest where they
- * disagree, so a disagreement here would be an engine bug, not a data one.
+ * The shipped library's own identities, read from its closed packages.
  *
  * @return array{names:list<string>, id_kinds:list<string>}
  */
 function ws_shipped_identities(string $repo): array {
     $names = [];
     $kinds = [];
-    foreach (glob($repo . '/manifests/*.json') ?: [] as $file) {
-        $base = basename($file, '.json');
-        if ($base === 'dispositions') {
-            continue;
-        }
+    $library = AdapterLibrary::fromSourceTree($repo);
+    foreach ($library->packages() as $package) {
+        $file = $package->manifestPath();
+        $base = $package->name();
         $decoded = json_decode((string) file_get_contents($file), true);
         if (!is_array($decoded)) {
-            ws_fail("manifests/$base.json does not decode as an object; row R-27 enumerates it");
+            ws_fail("adapter package $base manifest does not decode as an object; row R-27 enumerates it");
         }
         $names[] = is_string($decoded['name'] ?? null) ? (string) $decoded['name'] : $base;
         foreach ((array) ($decoded['tables'] ?? []) as $table) {
@@ -811,11 +805,10 @@ function ws_shipped_identities(string $repo): array {
  * with its exact membership.
  *
  * Two halves, and the LOCATION half is the one that is easy to lose. A
- * reserved-name list under `manifests/` would be folded into every adapter's
- * `digest` by `ArtifactPolicyIdentity::manifest_rows()` (AGENTS.md rule 2), so
- * adding the seventeenth shipped adapter would invalidate every pin and every
- * certificate in the fleet for the other sixteen. In `agent/src` it moves no
- * digest at all. The check is reflection over the class rather than a path
+ * reserved-name list inside an adapter package would make a platform-global
+ * admission rule adapter-owned identity, coupling an engine policy edit to one
+ * adapter's release and digest. In `agent/src` it moves no adapter identity at
+ * all. The check is reflection over the class rather than a path
  * literal, because a path literal is a claim about where a file was, not about
  * where the constants a refusal reads actually live.
  *
@@ -1232,7 +1225,8 @@ function ws_rows(): array {
             . 'that reason; the platform root bound the whole record until WP-4.8, justified by a premise '
             . 'ENROLLMENT FALSIFIES — that the shipped file never grows under an operator\'s hand. It was '
             . 'changeable only because the platform root has never signed a certificate: '
-            . '`manifests/capabilities/adapter-authorities.json` is `{"keys": {}}`, and gate 6 below '
+            . '`platform/adapter-library/capabilities/adapter-authorities.json` is `{"keys": {}}`, '
+            . 'and gate 6 below '
             . 'refuses a populated one that does not verify. Going the other way — widening either root '
             . 'back to whole-record binding — would invalidate every certificate in the field at the next '
             . 'enrollment, silently.',
@@ -1597,8 +1591,8 @@ function ws_rows(): array {
             . ws_set($sets, 'REVOCATION_STATEMENT_KEYS') . ', each entry '
             . ws_set($sets, 'REVOCATION_ENTRY_KEYS') . ', under domain `'
             . ws_bytes((string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_REVOCATION'))
-            . '`. It is installed at `capabilities/adapter-revocations.json` in the agent\'s MANIFEST '
-            . 'LIBRARY — the only path frozen verification holds — is signed by a key the shipped '
+            . '`. It is installed at `WPMU_PLUGIN_DIR/duo-control/adapter-revocations.json`, outside '
+            . 'the replaceable agent and its embedded adapter library, is signed by a key the shipped '
             . 'platform root carries, and ships ABSENT. An entry binds `fingerprint` = '
             . '`sha256(public_key)`, never the key id. The signer\'s own window is deliberately not '
             . 'applied; its `issued_at` IS, as the anchor that stops a backwards clock reading an '
@@ -1618,15 +1612,11 @@ function ws_rows(): array {
             . 'agent already reads it that way, so a future "absent means refuse" would brick every site '
             . 'that never installed one. And the reachability itself is one-way: this is the only channel '
             . 'that reaches an already-frozen snapshot for a site-rooted key, so removing it restores a '
-            . 'gap for every vendor key already federated by copy, silently. And its LOCATION is a '
-            . 'residual with a name: the manifest library is inside the adoption tar, so `duo adopt` '
-            . 'replaces the library and takes any installed revocation document with it — absence means '
-            . '"nothing is revoked", so the erasure is SILENT. Re-install it after an adopt, or point '
-            . '`DUO_MANIFESTS_DIR` at a library the tar does not overwrite. A detector (recording the '
-            . 'installed digest where adopt does not overwrite, and a diagnostic row when a '
-            . 'previously-present document disappears) is deferred: it needs durable state outside the '
-            . 'library, which is its own decision about where an agent may keep memory a re-adopt cannot '
-            . 'reach.',
+            . 'gap for every vendor key already federated by copy, silently. Its LOCATION is equally '
+            . 'permanent: the operator-owned `duo-control/` sibling survives replacement of `duo/`, so '
+            . 'absence cannot be manufactured by an adoption. The flat-library cutover retires an old '
+            . '`manifests/capabilities/adapter-revocations.json` only after a byte-identical durable copy '
+            . 'already exists; otherwise bootstrap and adoption refuse before moving either library.',
         'reserved' => 'The signer\'s window is unapplied ON PURPOSE and that is not an oversight to fix '
             . 'later: applying it would let a lapsed window RESURRECT the exact identities this document '
             . 'exists to burn. A future per-certificate revocation still needs R-06\'s missing '
@@ -1663,7 +1653,7 @@ function ws_rows(): array {
             . implode('`, `', IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . '`) and '
             . count(IdentityNamespaces::GRANDFATHERED_ID_KINDS) . ' `id_kind`s (`'
             . implode('`, `', IdentityNamespaces::GRANDFATHERED_ID_KINDS) . '`), living in `agent/src` and '
-            . 'never under `manifests/`. Gate 9 below asserts both halves. Ownership of a namespace is the '
+            . 'never inside an adapter package. Gate 9 below asserts both halves. Ownership of a namespace is the '
             . "authority record's, not this list's: `adapter_names: [\"<vendor>-*\"]` (R-20) is what decides "
             . 'which names a key may certify — except that no non-platform grant may reach a name on this '
             . 'list through a pattern (R-22). The grandfather exemption is the NAME\'s alone: a '
@@ -1717,8 +1707,8 @@ function ws_rows(): array {
             . 'member entirely: `branchable_state`, `plugin_execution`, every `note`, every `min`/`max`, '
             . 'and `wordpress`\'s derived `last_verified`.',
         'permanent' => 'The v1 statement bound `Canon::encode()` of the WHOLE platform record, so every '
-            . 'agent release withdrew every certificate in the field — `manifests/capabilities/'
-            . 'platform.json` restates both `define()`s (AGENTS.md rule 8), so a patch release that moved '
+            . 'agent release withdrew every certificate in the field — `platform/adapter-library/'
+            . 'capabilities/platform.json` restates both `define()`s (AGENTS.md rule 8), so a patch release that moved '
             . 'no axis anyone exercised still moved those bytes. Undoing this — widening back to the '
             . 'whole record, or binding `min`/`max` — restores that behaviour silently, because it is not '
             . 'a refusal anyone sees until the next release. Narrowing further is equally one-way: a cell '
@@ -2344,8 +2334,8 @@ function ws_build(string $repo): string {
     $out .= "   one gate whose failure mode is an OMISSION rather than a disagreement: a feature-claimed\n";
     $out .= "   key with no arm loads on every site and is unsignable by both profiles.\n\n";
     $out .= "10. **The § v3.9 grandfather list is in its place and is still closed.** Its constants are\n";
-    $out .= "    declared under `agent/src` — never under `manifests/`, where AGENTS.md rule 2 would fold\n";
-    $out .= '    them into every adapter digest — and their membership equals the shipped library exactly: '
+    $out .= "    declared under `agent/src` — never inside an adapter-owned package payload — and their\n";
+    $out .= '    membership equals the shipped library exactly: '
         . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . " adapter\n";
     $out .= '    names and ' . count(IdentityNamespaces::GRANDFATHERED_ID_KINDS)
         . " `id_kind`s, in both directions, so a seventeenth unprefixed name is a reviewed\n";

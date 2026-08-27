@@ -33,11 +33,10 @@ use PHPUnit\Framework\TestCase;
  *     from an absence into a bounded presence; the ratchet is the same one, and
  *     it is the one class of claim nothing else would contradict).
  *
- * The fixture is a real copy of `agent/`, `cli/`, `recovery/`, `docs/` and
- * `manifests/` (everything --root reads — the last one because gate 6 checks
- * the shipped platform trust root) built once for the class; each case restores
+ * The fixture is a real copy of `agent/`, `cli/`, `recovery/`, `docs/`,
+ * `adapter-packages/`, and `platform/` (everything --root reads) built once for the class; each case restores
  * the file it edited. Mutating in place under the repo is not an option —
- * AGENTS.md rule 3 forbids scratch under agent/ and manifests/, and pair.sh
+ * AGENTS.md rule 3 forbids scratch under shipped source roots, and pair.sh
  * refuses on an untracked file there.
  */
 final class WireSurfaceTest extends TestCase
@@ -57,7 +56,7 @@ final class WireSurfaceTest extends TestCase
         if (!mkdir($fixture, 0700) && !is_dir($fixture)) {
             self::fail("could not create the fixture root at $fixture");
         }
-        foreach (['agent', 'cli', 'recovery', 'docs', 'manifests'] as $tree) {
+        foreach (['agent', 'cli', 'recovery', 'docs', 'adapter-packages', 'platform'] as $tree) {
             $status = 0;
             $output = [];
             exec(
@@ -239,7 +238,7 @@ final class WireSurfaceTest extends TestCase
     }
 
     /**
-     * Gate 6, and it is the reason `manifests/` joined the fixture: the shipped
+     * Gate 6, and it is the reason `platform/` joined the fixture: the shipped
      * platform trust root has exactly two legal states, and a populated one
      * that does not verify must never reach a site. Register row R-08 rests on
      * that file being empty, so this is that gate under an argument rather than
@@ -248,7 +247,7 @@ final class WireSurfaceTest extends TestCase
     public function testAPopulatedUnsignedPlatformTrustRootFailsTheShippedAuthoritiesGate(): void
     {
         $result = self::withMutation(
-            'manifests/capabilities/adapter-authorities.json',
+            'platform/adapter-library/capabilities/adapter-authorities.json',
             static fn(string $source): string => json_encode([
                 'format' => 'duo-adapter-authorities/v1',
                 'keys' => ['acme-000000000000' => [
@@ -269,21 +268,31 @@ final class WireSurfaceTest extends TestCase
      * Gate 7 (WP-4.10, spec § v3.9), membership half. The grandfather list is
      * CLOSED, which means nothing about it unless a library the list does not
      * match is refused: a seventeenth shipped adapter must not be able to
-     * arrive by dropping a file in `manifests/`, because each unprefixed name
+     * arrive by dropping a package in `adapter-packages/`, because each unprefixed name
      * admitted is one more identity handed to the shipped library permanently.
      */
     public function testASeventeenthShippedAdapterNameFailsTheGrandfatherListGate(): void
     {
-        $path = (string) self::$fixture . '/manifests/zeta.json';
-        $source = (string) file_get_contents((string) self::$fixture . '/manifests/duo-agency-cpt.json');
+        $package = (string) self::$fixture . '/adapter-packages/zeta/package';
+        self::assertTrue(mkdir($package, 0700, true));
+        $source = (string) file_get_contents(
+            (string) self::$fixture . '/adapter-packages/duo-agency-cpt/package/manifest.json'
+        );
         $decoded = json_decode($source, true);
         self::assertIsArray($decoded, 'the fixture manifest did not decode');
         $decoded['name'] = 'zeta';
-        file_put_contents($path, json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        file_put_contents($package . '/manifest.json', json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        copy(
+            (string) self::$fixture . '/adapter-packages/duo-agency-cpt/package/disposition.json',
+            $package . '/disposition.json'
+        );
         try {
             $result = self::invoke(['--check', '--root=' . self::$fixture]);
         } finally {
-            unlink($path);
+            unlink($package . '/manifest.json');
+            unlink($package . '/disposition.json');
+            rmdir($package);
+            rmdir(dirname($package));
         }
         self::assertSame(1, $result['status'], 'an unlisted shipped adapter name must fail the register check');
         self::assertStringContainsString('unlisted [zeta]', $result['stderr']);
@@ -291,22 +300,21 @@ final class WireSurfaceTest extends TestCase
     }
 
     /**
-     * Gate 7, location half. AGENTS.md rule 2 is the whole reason the list is
-     * agent code: under `manifests/` it would be folded into every adapter's
-     * digest, so admitting the seventeenth adapter would invalidate the other
-     * sixteen's pins and certificates. The realistic way that regresses is a
+     * Gate 7, location half. The list is agent code because putting a
+     * platform-global admission rule inside one adapter package would make
+     * engine policy adapter-owned identity. The realistic way that regresses is a
      * hoist plus a loader left behind, which is exactly what this mutates.
      */
     public function testHoistingTheGrandfatherListOutOfAgentSrcFailsTheGate(): void
     {
         $fixture = (string) self::$fixture;
         $relative = 'agent/src/Adapter/IdentityNamespaces.php';
-        $hoisted = $fixture . '/manifests/IdentityNamespaces.php';
+        $hoisted = $fixture . '/platform/IdentityNamespaces.php';
         $original = (string) file_get_contents($fixture . '/' . $relative);
         file_put_contents($hoisted, $original);
         file_put_contents(
             $fixture . '/' . $relative,
-            "<?php\ndeclare(strict_types=1);\nrequire_once __DIR__ . '/../../../manifests/IdentityNamespaces.php';\n"
+            "<?php\ndeclare(strict_types=1);\nrequire_once __DIR__ . '/../../../platform/IdentityNamespaces.php';\n"
         );
         try {
             $result = self::invoke(['--check', '--root=' . $fixture]);
