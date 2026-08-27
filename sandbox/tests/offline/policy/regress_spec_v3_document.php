@@ -224,11 +224,12 @@ duo_check_same(
         'agent/src/Adapter/ActionProviderGrammar.php',
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
+        'agent/src/Grammar/ColumnCodecGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
         'cli/src/Adapter/ManifestValidate.php',
     ],
     $featureReaders,
-    'v3.2 ENFORCED: the channel has one shipped OWNER beside three gate readers that each consume one gated '
+    'v3.2 ENFORCED: the channel has one shipped OWNER beside four gate readers that each consume one gated '
         . 'declaration and one publisher that consumes none'
 );
 // WP-6.4 moved this from one name to two, and the second is the assertion
@@ -237,8 +238,10 @@ duo_check_same(
 // admissibility. `structured-evidence/v1` claims `declaration_evidence`, a
 // section that did not exist when v3 was cut and that shipped with
 // DUO_SPEC_VERSION unmoved (§ v3.14) — so the channel is a walked path.
-// WP-6.5 made it six; manifest-provider-runtime/v1 makes it seven while
-// claiming no new top-level section.
+// WP-6.5 made it six; manifest-provider-runtime/v1 made it seven, and the
+// Redirection demand makes it eight with another value-only feature. Neither
+// new feature claims a top-level section; the fifth section-claiming name
+// remains `body_refs`
 // (§ v3.20) — another section that did not exist when v3 was cut, shipped with
 // DUO_SPEC_VERSION unmoved.
 duo_check_same(
@@ -246,6 +249,7 @@ duo_check_same(
         'attr-id-codecs/v1',
         'invalidate-vocabulary/v1',
         'manifest-provider-runtime/v1',
+        'mixed-column-codecs/v1',
         'spec-window/v1',
         'structured-body-refs/v1',
         'structured-evidence/v1',
@@ -648,14 +652,15 @@ duo_check_same(
         'ninja-forms',
         'paid-memberships-pro',
         'polylang',
+        'redirection',
         'the-events-calendar',
         'woocommerce',
         'yoast',
         'yoast-duplicate-post',
     ],
     array_keys(array_filter($declaredVersions, static fn($version): bool => $version === $specVersion)),
-    'only deliberately feature-migrated manifests are stamped to v' . $specVersion
-        . ' — each is a reviewed identity change, not a bulk restamp'
+    'only feature-consuming manifests are stamped to v' . $specVersion
+        . ' — each existing adapter paid a reviewed identity change, while Redirection was authored at v3'
 );
 duo_check_same(
     7,
@@ -838,7 +843,7 @@ duo_check(
     . number_format($lineCount) . ' lines, ' . number_format($byteCount) . ' bytes'
 );
 duo_check_same(
-    16,
+    17,
     $entryCount,
     'and the entry count the subsection states for the monolith it replaced is the number of subject documents now'
 );

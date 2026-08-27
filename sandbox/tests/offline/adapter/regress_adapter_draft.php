@@ -281,6 +281,14 @@ echo "\n== 3. per-proposer evidence / confidence / questions ==\n";
     check($tbl !== null && $tbl['status'] === 'proposal' && $tbl['confidence'] > 0 && $tbl['confidence'] <= 1, 'typed-table candidate is a proposal with a bounded confidence');
     check($tbl && ($tbl['evidence'][0]['locator'] ?? '') === 'columns', 'typed-table evidence names the columns locator');
     check($tbl && H::json_has($tbl['questions'], 'SHOW COLUMNS'), 'typed-table defers column TYPES/PK to a live question');
+    check($tbl && H::json_has($tbl['questions'], 'activation is not proof that native onboarding completed')
+        && H::json_has($tbl['questions'], 'public admin, API, or CLI setup path')
+        && H::json_has($tbl['questions'], 'never raw SQL'),
+        'typed-table draft requires native onboarding readiness before inventory or probe evidence is trusted');
+    check($tbl && H::json_has($tbl['questions'], 'storage framing is not a schema fact')
+        && H::json_has($tbl['questions'], 'every native writer variant')
+        && H::json_has($tbl['questions'], 'intentionally reads no row values'),
+        'typed-table draft names the native-writer framing exercise that a rowless schema probe cannot answer');
     check($tbl && ($tbl['candidate']['identity']['mode'] ?? '') === 'natural_key', 'natural-key proposer detected the distinct-value column as an identity candidate');
     check($tbl && H::json_has($tbl['questions'], 'natural-key uniqueness'), 'natural-key uniqueness is deferred to a live question');
 

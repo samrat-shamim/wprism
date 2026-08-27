@@ -1,9 +1,9 @@
 {
   "format": "duo-adapter-executable-inventory/v1",
   "measurement": {
-    "adapter_count": 10,
-    "file_count": 19,
-    "physical_lines": 26713,
+    "adapter_count": 11,
+    "file_count": 20,
+    "physical_lines": 26958,
     "scope": "Every PHP file under manifests/interpreters, manifests/providers, and manifests/regenerators, measured as LF-delimited physical lines."
   },
   "absorbed": [
@@ -143,6 +143,16 @@
       "ownership": "plugin_lifecycle_semantics_after_engine_protocol_absorption",
       "engine_absorption": "retain_adapter_code",
       "plugin_cooperation": "Polylang should expose this synchronization as a negotiated plugin provider rather than requiring Duo to reproduce hook ordering."
+    },
+    {
+      "adapter": "redirection",
+      "kind": "provider",
+      "path": "manifests/providers/redirection-state.php",
+      "physical_lines": 245,
+      "responsibility": "Implement and verify Redirection WordPress-module rule visibility and cache-generation semantics behind the engine-owned manifest-provider protocol.",
+      "ownership": "plugin_derived_state_and_server_module_semantics_after_engine_protocol_absorption",
+      "engine_absorption": "retain_adapter_code",
+      "plugin_cooperation": "Redirection should expose a bounded rule-cache synchronization and readback API. Core cannot own its module vocabulary, generation option, or lookup-cache semantics."
     },
     {
       "adapter": "the-events-calendar",

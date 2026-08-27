@@ -384,6 +384,22 @@ duo_check_same(
     $declaredVersions,
     'and the library exercises both admitted versions through deliberate per-adapter feature migrations'
 );
+duo_check_same(
+    [
+        'code-snippets',
+        'elementor',
+        'ninja-forms',
+        'paid-memberships-pro',
+        'polylang',
+        'redirection',
+        'the-events-calendar',
+        'woocommerce',
+        'yoast',
+        'yoast-duplicate-post',
+    ],
+    array_keys(array_filter($library, static fn(array $m): bool => ($m['spec_version'] ?? null) === $N)),
+    'only reviewed feature consumers exercise the closed-key gate in the shipped library'
+);
 
 // The union in use against the partition, in both directions. Feature-claimed
 // keys deliberately sit beside the partition so they are admitted only for a
@@ -400,9 +416,9 @@ $unionKeys = array_keys($union);
 sort($unionKeys, SORT_STRING);
 $outsidePartition = array_values(array_diff($unionKeys, $shipped['partition']));
 duo_check_same(
-    ['engine_features'],
+    ['column_codecs', 'declaration_evidence', 'engine_features'],
     $outsidePartition,
-    'the only shipped key outside the partition is the feature channel, classified by its disjoint roster arm'
+    'the shipped keys outside the signer partition are exactly the feature-claimed sections'
 );
 $unadmitted = [];
 foreach ($library as $name => $manifest) {

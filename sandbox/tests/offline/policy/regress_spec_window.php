@@ -364,6 +364,7 @@ duo_check_same(
         'ninja-forms',
         'paid-memberships-pro',
         'polylang',
+        'redirection',
         'the-events-calendar',
         'woocommerce',
         'yoast',

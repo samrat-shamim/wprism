@@ -174,9 +174,9 @@ foreach ((array) $lock['plugins'] as $slug => $block) {
 // 6.17.1, so it is a bisection RESULT and the loops below reproduce it like any
 // other certified block. wpforms-lite is the last exercise-only block.
 duo_check_same(
-    14,
+    15,
     count($bisectionShaped),
-    '14 of the 15 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
+    '15 of the 16 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
 );
 duo_check_same(
     ['wpforms-lite'],

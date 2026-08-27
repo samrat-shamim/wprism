@@ -1859,9 +1859,9 @@ function ws_rows(): array {
             . implode(', ', $answeredRow) . '}`, every member a non-empty string '
             . '(spec/repo-format.md § v3.13). A target\'s HEAD must be a top-level key the same manifest '
             . 'declares, which is the whole difference between this and a note that mentions a section: a '
-            . 'record for a deleted section refuses at load. No shipped manifest declares it — adopting it '
-            . 'in the 16 would move all 16 adapter digests for a documentation change (AGENTS.md rule 2) — '
-            . 'so `notes` keeps everything it carries and this is a sibling, never a migration.',
+            . 'record for a deleted section refuses at load. Redirection is the first shipped declarer; adding '
+            . 'it moved only that new adapter\'s own digest, while the pre-existing 16 stayed byte-identical '
+            . '(AGENTS.md rule 2). `notes` keeps everything it carries and this remains a sibling, never a migration.',
         'permanent' => 'The section name and every row member are inside the manifest bytes '
             . '`ArtifactPolicyIdentity::manifest_rows()` folds into the adapter `digest`, reached through '
             . 'the same door R-19 records for the feature name that admits them: renaming a member moves '

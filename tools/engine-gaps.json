@@ -43,6 +43,16 @@
       "status": "open",
       "definition": "Direct writes bypass the side effects a plugin's own save path performs (cache drops, rewrite flushes, execution-file rebuilds). Apply cannot be claimed on a plugin with such a side effect until a provider both performs it and PROVES it, because an exit code proves only that something ran."
     },
+    "verified_module_flush_provider": {
+      "title": "a verified plugin-module flush and native readback provider",
+      "status": "shipped",
+      "definition": "A plugin-owned provider that restricts raw table materialization to the reviewed module, invokes the plugin's public module/cache boundary, and returns success only after bounded database, native API and lookup-cache readback agrees. The provider receipt contains counts and hashes rather than authored values.",
+      "evidence": [
+        "manifests/providers/redirection-state.php",
+        "sandbox/tests/offline/adapter/regress_redirection_adapter.php",
+        "sandbox/conformance/checks/redirection.sh"
+      ]
+    },
     "structured_leaf_text_codec": {
       "title": "an explicit structured-leaf text codec independent of fake reference paths",
       "status": "open",
@@ -171,14 +181,14 @@
         "5.9.0"
       ],
       "probed_on": "2026-08-22",
-      "disposition": "rejected",
+      "disposition": "closed",
       "blocked_adapters": [
         "redirection"
       ],
       "coordinates": [
         {
           "coordinate": "tables.redirection_items.columns.action_data",
-          "cannot_represent": "`redirection_items.action_data` can be a PHP-serialized array containing a target URL. Typed-table authored strings currently pass through `tokenize_text()` as opaque bytes. Replacing a source URL can change its byte length without updating PHP serialization length prefixes, producing invalid data on capture.",
+          "cannot_represent": "`redirection_items.action_data` is a native storage union: plain target URL text, a PHP-serialized conditional map containing target URLs, or SQL NULL. Treating every value as opaque text corrupts PHP serialization length prefixes after tokenization; treating every value as serialized refuses valid plain and NULL actions.",
           "primitive_required": "serialized_column_codec",
           "remedy_phrase": "structured typed-table column codecs that decode, tokenize string leaves, and re-encode canonical PHP serialization",
           "closed_by": [
@@ -189,11 +199,16 @@
         {
           "coordinate": "providers.redirection-module-flush",
           "cannot_represent": "Group/item raw writes also bypass `Red_Module::flush()`, so generated module state needs a bounded postcondition rather than an exit-code-only callback.",
-          "primitive_required": "verified_provider_postcondition",
-          "remedy_phrase": "a verified module-flush provider"
+          "primitive_required": "verified_module_flush_provider",
+          "remedy_phrase": "a verified module-flush provider",
+          "closed_by": [
+            "manifests/providers/redirection-state.php",
+            "sandbox/tests/offline/adapter/regress_redirection_adapter.php",
+            "sandbox/conformance/checks/redirection.sh"
+          ]
         }
       ],
-      "closing": "The `action_data` coordinate closed in WP-6.1 — `sandbox/tests/offline/grammar/regress_column_codec_grammar.php` authors this candidate end to end as a `column_codecs` fixture adapter that validates, captures and round-trips. Capture is therefore representable; the module-flush postcondition is not, so no Redirection manifest is shipped and none would claim apply if it were."
+      "closing": "Closed by the 2026-08-27 one-prompt authoring exercise. `mixed-column-codecs/v1` represents the measured plain/serialized/NULL action_data union without changing strict `php_serialized` semantics. The exact 5.9.0 provider restricts state to the WordPress module, advances the native cache generation when enabled, and proves database/API/lookup convergence with value-free receipts. Offline mutation tests and the hostile-target live conformance exercise cover malformed framing, stale APIs, unsupported modules, cache repair, divergent identities, real HTTP behavior, conflicts, retry and recapture."
     },
     {
       "id": "custom-post-type-ui",

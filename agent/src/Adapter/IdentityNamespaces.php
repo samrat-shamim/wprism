@@ -35,10 +35,10 @@ namespace Duo;
  * ------------------------------------------------
  * Measured against the shipped library by
  * `sandbox/tests/offline/policy/regress_spec_v3_dry_run.php` (rule V3-NS):
- * 16 adapter names + 18 `id_kind`s + 10 provider ids = 44 identities, every one
+ * 17 adapter names + 20 `id_kind`s + 11 provider ids = 48 identities, every one
  * of which already passes the one shared grammar. A bare `<vendor>-<name>`
- * SHAPE test would refuse 24 of them — the 6 names carrying no hyphen at all
- * (`acf`, `core`, `elementor`, `polylang`, `woocommerce`, `yoast`) and all 18
+ * SHAPE test would refuse 27 of them — the 7 names carrying no hyphen at all
+ * (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 20
  * `id_kind`s, every one of which is underscore-separated. Worse in the other
  * direction: the remaining 10 names ARE hyphen-shaped without being
  * vendor-prefixed — `the-events-calendar` is not vendor `the` — so a shape test
@@ -74,9 +74,9 @@ namespace Duo;
  */
 final class IdentityNamespaces {
     /**
-     * The 16 shipped adapter names, enumerated because shape cannot recognise
+     * The 17 shipped adapter names, enumerated because shape cannot recognise
      * them (see the header). `duo-agency-cpt` is on the list for the same
-     * reason as the other 15 — it is a name the shipped library declares — and
+     * reason as the other 16 — it is a name the shipped library declares — and
      * its `excluded` disposition is a claim about capability, not about
      * identity.
      *
@@ -97,6 +97,7 @@ final class IdentityNamespaces {
         'ninja-forms',
         'paid-memberships-pro',
         'polylang',
+        'redirection',
         'the-events-calendar',
         'woocommerce',
         'wps-hide-login',
@@ -105,8 +106,8 @@ final class IdentityNamespaces {
     ];
 
     /**
-     * The 18 shipped `tables.<t>.id_kind` values — the permanent floor R-17
-     * describes, recorded so that a nineteenth shipped kind is a reviewed edit
+     * The 20 shipped `tables.<t>.id_kind` values — the permanent floor R-17
+     * describes, recorded so that a twenty-first shipped kind is a reviewed edit
      * here rather than a value that appeared in a manifest. Every one is
      * underscore-separated, which is precisely why the hyphen form can never
      * be imposed on this space retroactively.
@@ -126,6 +127,8 @@ final class IdentityNamespaces {
         'pmpro_level',
         'pmpro_level_group',
         'pmpro_restrict',
+        'red_group',
+        'red_item',
         'wc_tax_class',
         'wc_tax_loc',
         'wc_tax_rate',

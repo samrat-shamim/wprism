@@ -2201,6 +2201,13 @@ regress-wpforms-lite-adapter:
 regress-rank-math-adapter:
 	php sandbox/tests/offline/adapter/regress_rank_math_adapter.php
 
+# Redirection 5.9.0 authored through the customer workflow, then graduated to
+# a shipped manifest: mixed action_data framing, mapped group/item references,
+# closed option subkeys, WordPress-module refusal boundary, and verified native
+# API/cache convergence through the provider.
+regress-redirection-adapter:
+	php sandbox/tests/offline/adapter/regress_redirection_adapter.php
+
 # The `taxonomy_delete_scope_exercise` primitive, run rather than asserted: the
 # adversarial matrix tools/engine-gaps.json demands before a post-type adapter
 # carrying an authored taxonomy may claim a deletion selector. Four cases over

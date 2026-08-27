@@ -213,7 +213,7 @@ const REVIEWED_MOVES = [
     // The reviewed claim source is one document per subject, so promoting TEC
     // and certifying Polylang plus WooCommerce move the whole-registry address
     // every host pins.
-    'registry_sha256' => '49c84c27e199e198ac4452d52177fd732d7b1c33110e75a3d74a6a463be1a3f8',
+    'registry_sha256' => 'a9b7fdbb8d7c62e78ac8ca1c10a395aa0dc54079fb54cef2809c71babf395f2e',
 ];
 
 duo_check(is_file($fixturePath), 'the frozen pre-flag identity fixture is in the tree');

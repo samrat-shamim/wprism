@@ -1,0 +1,66 @@
+{
+    "capabilities": {
+        "deletion_semantics": {
+            "supported": [],
+            "unsupported": [
+                "table:redirection_groups",
+                "table:redirection_items"
+            ]
+        },
+        "entity_sections": [
+            "tables"
+        ],
+        "field_sections": [
+            "column_codecs",
+            "options"
+        ],
+        "lifecycle_phases": [
+            "retire",
+            "activate",
+            "verify"
+        ],
+        "operations": [
+            "capture",
+            "compile",
+            "plan",
+            "deploy",
+            "apply",
+            "recapture",
+            "render-api"
+        ]
+    },
+    "default_authored_keyspaces": [],
+    "evidence": {
+        "bundle_schema": "duo-subject-certification-bundle/v1",
+        "tests": [
+            "conformance-redirection",
+            "exact-artifact-version-matrix"
+        ]
+    },
+    "reason": "Certified for exact Redirection 5.9.0 on single-site WordPress in WordPress-module mode with divergent mapped group/item identities, plain/serialized/NULL action payloads, ordinary, regex, conditional and error rules, native HTTP behavior, closed portable option subkeys, hostile persistent-cache convergence through a verified provider, request-log preservation, conflict/idempotence, lifecycle recovery, unsupported deletion and server-module refusal, and official 5.8.1 below-range evidence.",
+    "status": "certified",
+    "supported_versions": {
+        "plugin": "redirection/redirection.php",
+        "range": {
+            "max": "5.9.1",
+            "min": "5.9.0"
+        }
+    },
+    "unsupported": [
+        {
+            "operation": "all",
+            "reason": "Apache and Nginx groups own environment-specific server files. The provider refuses every module_id other than the database-backed WordPress module before effects.",
+            "surface": "tables.redirection_groups.module_id"
+        },
+        {
+            "operation": "delete",
+            "reason": "Redirect sources can be operationally referenced outside WordPress, and group deletion cascades through items. No complete reverse-reference declaration exists, so both row deletions remain loud.",
+            "surface": "tables.redirection_groups,tables.redirection_items"
+        },
+        {
+            "operation": "all",
+            "reason": "Duo v1 and the provider are certified for single-site tables only.",
+            "surface": "multisite"
+        }
+    ]
+}

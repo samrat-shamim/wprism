@@ -1,0 +1,194 @@
+{
+  "actions": [
+    {
+      "args": {},
+      "capability": "rebuild_redirect_state",
+      "effects": [
+        {"id": "redirection-options", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "redirection_options"}},
+        {"id": "redirection-object-cache", "kind": "cache", "mode": "irreversible", "selector": {"scope": "external", "type": "namespace", "value": "redirection"}}
+      ],
+      "kind": "provider",
+      "provider": "redirection-state",
+      "triggers": ["option:redirection_options", "table:redirection_groups", "table:redirection_items"]
+    }
+  ],
+  "column_codecs": {
+    "redirection_items": {
+      "action_data": {"container": "php_serialized_or_text", "leaves": "text"}
+    }
+  },
+  "declaration_evidence": {
+    "options.redirection_options": {
+      "evidence": [
+        {
+          "locator": "models/options.php Red_Options::IMPORT_EXPORT_KEYS and Red_Options::get_default_options()",
+          "observation": "Redirection 5.9.0 publishes an exact portable import/export key list inside its native options API. Every persisted sibling in the same closed object was classified separately; monitor_post is a local redirection_groups id and is therefore a typed red_group reference rather than copied as a number.",
+          "source": "official Redirection 5.9.0 artifact and dogfood pair redauth, 2026-08-27"
+        }
+      ]
+    },
+    "tables.redirection_groups": {
+      "evidence": [
+        {
+          "locator": "database/schema/latest.php, models/group.php, and wp duo adapter-probe",
+          "observation": "The native group API authored three WordPress-module groups with divergent auto-increment ids. Names are editable and not unique, so ids require mapped identity; name, tracking, module_id, status and position are the persisted rule-group definition.",
+          "source": "official Redirection 5.9.0 artifact and dogfood pair redauth, 2026-08-27"
+        }
+      ]
+    },
+    "tables.redirection_items": {
+      "evidence": [
+        {
+          "locator": "models/redirect/redirect.php, redirect-sanitizer.php, four native Red_Item::create() calls, and real HTTP requests",
+          "observation": "Ordinary and regex redirects stored action_data as a plain URL, a language condition stored a canonical PHP-serialized map of target URLs, and an error action stored NULL in the same mediumtext column. last_count and last_access changed under traffic while the remaining columns defined rule behavior; group_id references the mapped group row.",
+          "source": "official Redirection 5.9.0 artifact and dogfood pair redauth, 2026-08-27"
+        }
+      ]
+    }
+  },
+  "engine_features": [
+    "manifest-provider-runtime/v1",
+    "mixed-column-codecs/v1",
+    "spec-window/v1",
+    "structured-evidence/v1",
+    "typed-column-codecs/v1"
+  ],
+  "name": "redirection",
+  "notes": [
+    "Adapter-authoring exercise 2026-08-27: Redirection was selected from the unsupported-candidate ledger after its official WordPress.org listing reported more than two million active installations. The exact official 5.9.0 artifact SHA-256 is b6dd341a6b383440cbb1d5647fa59a82fc5e48afe2165539284c56edaf066842; official 5.8.1 SHA-256 6256d0829120a6661da5e6698cab5f3ead6a830c6d67e4a89a064649fb59ef79 is the below-range refusal control, not inferred support.",
+    "The supported profile is single-site Redirection 5.9.0 using only WordPress module id 1. Apache and Nginx groups generate target server files and are refused by the provider before effects; the adapter does not carry modules/location, REST routing, IP proxy/header trust, canonical-domain aliases, relocation, plugin token, database migration markers, update notices, or UI selection history.",
+    "redirection_groups and redirection_items both use mapped identity because neither schema has a stable unique natural key. Group names can legally duplicate; item sources can legally duplicate and ordering decides the winner. redirection_items.group_id is rewritten through the same red_group ledger. The activation-created default groups therefore require the ordinary explicit tables adoption authority on a fresh target instead of an unsafe name guess.",
+    "redirection_items.action_data is a measured tagged union, not a serialized column: plain target URL string, canonical PHP-serialized matcher map, or SQL NULL depending on the native matcher/action. php_serialized_or_text is feature-gated so an older engine refuses the adapter rather than treating arbitrary bytes as serialization or changing php_serialized/v1 semantics.",
+    "redirection_logs and redirection_404 are request history. redirection_items.last_count and last_access are mutable hit telemetry. They stay target-local and are excluded from capture. Deletion is deliberately unsupported: item URLs can be operationally referenced outside WordPress and group deletion cascades through items without a complete reverse-reference grammar.",
+    "The provider restricts every group to WordPress_Module::MODULE_ID, calls the plugin's public module flush boundary, rotates Redirection's own cache_key when caching is enabled, resets its in-process cache, and proves database/API/lookup convergence for every row. Its receipt contains counts, hashes, cache-enabled state, and the generation number only; it carries no redirect URLs, matcher payloads, tokens, IP addresses, or request logs.",
+    "Only the exact official 5.9.0 release was exercised end to end, so the version interval is [5.9.0, 5.9.1). No compatibility is inferred from the neighboring 5.8.1 artifact or from matching table names."
+  ],
+  "option_autoload": "preserve",
+  "option_namespaces": [
+    {"match": "^redirection(?:_|$)"}
+  ],
+  "options": {
+    "redirection_options": {
+      "class": "env",
+      "closed_sub_keys": true,
+      "required": true,
+      "sub_keys": {
+        "aliases": {"class": "env", "native_default_completion": true},
+        "associated_redirect": {"class": "authored"},
+        "auto_target": {"class": "authored"},
+        "cache_key": {"class": "derived"},
+        "database": {"class": "runtime", "native_default_completion": true},
+        "database_stage": {"class": "runtime", "native_default_completion": true},
+        "expire_404": {"class": "authored", "lint_ok": true},
+        "expire_redirect": {"class": "authored", "lint_ok": true},
+        "flag_case": {"class": "authored", "lint_ok": true},
+        "flag_query": {"class": "authored"},
+        "flag_regex": {"class": "authored", "lint_ok": true},
+        "flag_trailing": {"class": "authored", "lint_ok": true},
+        "headers": {"class": "authored", "plain_data": true},
+        "https": {"class": "authored", "lint_ok": true},
+        "ip_headers": {"class": "env", "native_default_completion": true},
+        "ip_logging": {"class": "authored", "lint_ok": true},
+        "ip_proxy": {"class": "env", "native_default_completion": true},
+        "last_group_id": {"class": "runtime", "native_default_completion": true},
+        "location": {"class": "env", "native_default_completion": true},
+        "log_external": {"class": "authored", "lint_ok": true},
+        "log_header": {"class": "authored", "lint_ok": true},
+        "modules": {"class": "env", "native_default_completion": true},
+        "monitor_post": {"class": "authored", "ref": "red_group"},
+        "monitor_types": {"class": "authored"},
+        "permalinks": {"class": "authored", "plain_data": true},
+        "plugin_update": {"class": "authored"},
+        "preferred_domain": {"class": "env", "native_default_completion": true},
+        "redirect_cache": {"class": "authored", "lint_ok": true},
+        "relocate": {"class": "env", "native_default_completion": true},
+        "rest_api": {"class": "env", "native_default_completion": true},
+        "support": {"class": "authored", "lint_ok": true},
+        "token": {"class": "env", "native_default_completion": true},
+        "track_hits": {"class": "authored", "lint_ok": true},
+        "update_notice": {"class": "runtime", "native_default_completion": true}
+      }
+    },
+    "redirection_version": {"class": "runtime"}
+  },
+  "plugin": "redirection/redirection.php",
+  "providers": [
+    {
+      "capabilities": ["rebuild_redirect_state"],
+      "contracts": {
+        "rebuild_redirect_state": {
+          "args": {},
+          "idempotent": true,
+          "reads": [
+            "table:redirection_groups",
+            "table:redirection_items",
+            "option:redirection_options"
+          ],
+          "scope": "site",
+          "scoped": {
+            "operation_envelope": "duo-scoped-effect-operation/v1",
+            "reconcile": true
+          },
+          "timeout_seconds": 60,
+          "writes": [
+            "option:redirection_options",
+            "entity:redirection-object-cache"
+          ]
+        }
+      },
+      "id": "redirection-state",
+      "plugin": "redirection/redirection.php",
+      "requires": {
+        "classes": ["Red_Action", "Red_Group", "Red_Item", "Red_Match", "Red_Module", "Red_Options", "Redirect_Cache", "WordPress_Module"]
+      },
+      "source": "manifest",
+      "version": "1.0.0"
+    }
+  ],
+  "spec_version": 3,
+  "tables": {
+    "redirection_404": {"class": "runtime"},
+    "redirection_groups": {
+      "class": "authored_snapshot",
+      "columns": {
+        "module_id": {"class": "authored", "lint_ok": true},
+        "name": {"class": "authored"},
+        "position": {"class": "authored", "lint_ok": true},
+        "status": {"class": "authored"},
+        "tracking": {"class": "authored", "lint_ok": true}
+      },
+      "id_kind": "red_group",
+      "identity": {"mode": "mapped"},
+      "pk": "id",
+      "refs": [],
+      "slug_column": "name"
+    },
+    "redirection_items": {
+      "class": "authored_snapshot",
+      "columns": {
+        "action_code": {"class": "authored", "lint_ok": true},
+        "action_data": {"class": "authored"},
+        "action_type": {"class": "authored"},
+        "last_access": {"class": "runtime"},
+        "last_count": {"class": "runtime"},
+        "match_data": {"class": "authored"},
+        "match_type": {"class": "authored"},
+        "match_url": {"class": "authored"},
+        "position": {"class": "authored", "lint_ok": true},
+        "regex": {"class": "authored", "lint_ok": true},
+        "status": {"class": "authored"},
+        "title": {"class": "authored"},
+        "url": {"class": "authored"}
+      },
+      "id_kind": "red_item",
+      "identity": {"mode": "mapped"},
+      "pk": "id",
+      "refs": [
+        {"column": "group_id", "kind": "red_group", "table": "redirection_groups"}
+      ],
+      "slug_column": "url"
+    },
+    "redirection_logs": {"class": "runtime"}
+  },
+  "version_range": {"max": "5.9.1", "min": "5.9.0"}
+}

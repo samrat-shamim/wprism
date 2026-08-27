@@ -770,6 +770,8 @@ editing this paragraph. Seven are implemented as of this engine: `spec-window/v1
 claims `engine_features` itself, so declaring it is what lets you declare the
 list at all; `attr-id-codecs/v1` claims `attr_id_codecs`, the byte-exact
 block-attribute codec; `typed-column-codecs/v1` claims `column_codecs`;
+`mixed-column-codecs/v1` admits the measured plain/serialized/NULL container
+inside that section without claiming a second top-level key;
 `structured-body-refs/v1` claims `body_refs`, a declared path grammar into JSON
 post/option bodies; `structured-evidence/v1` claims `declaration_evidence`
 (`spec/repo-format.md` § v3.14) — an object keyed by TARGET, each record
@@ -786,12 +788,15 @@ widens a value vocabulary inside a section that already exists, legitimate
 under § v3.3's growth rule. A record whose addressed `declaration_evidence` is
 later deleted refuses at load, which is the point.
 
-**Before declaring any of the seven**, know that the declaration moves this
-adapter's manifest bytes and therefore its digest and pins. The signer classifies
-feature-claimed keys from the same roster row that admits them (§ v3.21), so a
-declared feature is certifiable when its ordinary disposition/evidence contract
-is satisfied; a value-vocabulary feature such as
-`manifest-provider-runtime/v1` claims no additional certificate surface.
+**Before declaring any of the eight**, verify that the adapter actually uses
+the primitive and know that the declaration moves this adapter's manifest bytes,
+digest, and pins. Declare `spec-window/v1` with it because that feature admits
+the `engine_features` channel itself. The signer classifies feature-claimed keys
+from the same roster row that admits them (§ v3.21), so a recognised claimed
+section is certifiable and an unknown feature, missing gate, or key with no arm
+refuses by name. Value-vocabulary features add no certificate surface of their
+own: `mixed-column-codecs/v1` leaves the surface owned by
+`typed-column-codecs/v1`, while `manifest-provider-runtime/v1` claims no state.
 
 `top_level_keys` is the signer's own closed partition of
 manifest top-level keys — the set that decides whether an adapter can be
@@ -846,10 +851,18 @@ plugin faithfully.
    decoded scalar/array rule with nested strings but no id positions. Both
    re-serialize after tokenization so PHP length prefixes remain correct;
    opaque `verbatim` bytes deliberately do not re-bind.
-5. Exercise activation, one real admin save, one front-end read, an update, and
-   a deletion before declaring the option/table inventory complete. Compare the
-   plugin's own import/export allowlist when it has one; it is strong evidence
-   for portable subkeys, not proof of every other surface.
+5. Exercise activation, complete the plugin's documented onboarding, then make
+   one real admin save, one front-end read, an update, and a deletion before
+   declaring the option/table inventory complete. Activation is not proof of
+   readiness: some plugins intentionally defer table creation or schema
+   upgrades to an admin/API/CLI setup step. Verify the plugin's expected tables
+   and readiness marker through its public lifecycle before observation,
+   coverage or probe; never manufacture them with raw SQL. Compare the plugin's
+   own import/export allowlist when it has one; it is strong evidence for
+   portable subkeys, not proof of every other surface. If a reusable harness
+   clears uploads with `wp site empty --uploads`, recreate and verify the
+   ordinary WordPress uploads root through `wp_mkdir_p` before apply; apply is
+   right to refuse a missing or symlinked production root.
 6. Trace the plugin hooks skipped by Duo's direct writes. Cache invalidation,
    generated files, rewrite flushes, index tables, and type registration need a
    bounded provider with value-level verification or an explicit unsupported
@@ -865,6 +878,23 @@ plugin faithfully.
    declaration; capture must refuse multiple owners independent of pin order.
    Preserve target-only queue jobs and plugin state through apply, then prove a
    repeat plan is unchanged and inspect real front-end output.
+9. When a hostile target needs local mapped identities before first apply,
+   never mint them by capturing against the source repository: its canonical
+   UUIDs have no target ledger yet. Use a disposable policy root narrowed to
+   the adapter plus the core manifest grammar required for platform options;
+   omitting core makes capture correctly refuse to guess `active_plugins`
+   storage semantics. Keep core entity scope empty and explicitly leave both
+   the default category and its `default_category` reference runtime. Remember
+   that capture still audits global WordPress state; either give every other
+   unrelated live surface an explicit runtime disposition, or quiesce it
+   through native APIs and restore it exactly on both success and failure. A
+   default category or widget must not acquire an identity merely because the
+   fixture needed a target-only custom-table row. Run this minting capture with
+   `--out=<disposable-state>`: output-only capture commits new identity maps but
+   skips canonical state-hash and media publication. Without `--out`, the
+   disposable projection becomes the target's three-way base and the real
+   first apply can correctly report a false-for-the-scenario conflict as soon
+   as quiesced global state is restored.
 
 ### Getting the harness those tests need
 
@@ -928,6 +958,29 @@ pattern, or a compatibility fallback. Record the required generic primitive in
 [the limitation ledger](adapter-authoring-limitations.md).
 
 ## The authoring loop
+
+### The one-prompt coding-agent contract
+
+A normal user prompt can be as short as: “Author and production-harden an
+adapter for `<plugin>` from the exact installed release.” The coding agent
+should complete the loop without asking the user to classify individual keys.
+It owns the reversible evidence work: inspect the official artifact, complete
+and verify the plugin's public onboarding lifecycle, exercise every reachable
+native writer, run observation/coverage/probe/draft, ratify the smallest
+defensible manifest, add adversarial offline and live tests, and run the
+repository gates. It records commands, visible outputs, corrections and
+assumptions; it does not record private chain-of-thought.
+
+Continue autonomously when a command already supplies a typed recovery. In
+particular, narrow an over-broad or under-broad `--match`, use `--force` after
+the create-only draft output names that remedy, seed representative rows when
+a probe reports an empty keyspace, and keep an unsupported surface
+runtime/env or outside the disposition. Escalate only when progress needs new
+authority or information the repository and target cannot supply: a paid
+artifact or credential, permission to exercise an external server/CDN/service,
+destructive deletion authority, a production-only mutation, or two plausible
+product meanings whose choice changes what Duo will overwrite. “I have not
+read enough plugin code yet” is not an escalation reason.
 
 **The target needs Git before step 1 runs.** `wp duo init` refuses
 `unsupported: repository git — Git is unavailable on the target that owns the
@@ -1071,6 +1124,19 @@ own review questions in a very large draft. A later scoped `--force` drops
 unchanged, unratified machine proposals that no longer match while preserving
 ratified or edited candidates.
 
+The filter is applied to the names the input document actually contains. For
+an undeclared table that is the unprefixed logical table name. For invisible
+options, coverage intentionally publishes an ownership **prefix** such as
+`redirection`, not every option name beneath it. Therefore an exact-looking
+filter such as `^(redirection_options|redirection_(groups|items))$` can select
+the tables and honestly select no option proposal. Inspect `_draft.seed` and
+the candidate counts; if the plugin option family is missing, rerun against
+the reported prefix (for example `^redirection`) with `--force`. A pre-existing
+output refuses with `draft_output_exists` instead of guessing whether to
+overwrite human edits; that named refusal is sufficient authority for the
+coding agent to retry with `--force`, because regeneration preserves edited or
+ratified candidates.
+
 Why `--seed` earns its place: the offline proposers read `state/**`, so they
 can only see surfaces Duo **already captures** — and the surfaces you are
 writing an adapter *for* are exactly the ones it does not. An option prefix
@@ -1147,6 +1213,20 @@ disagreement is stated beside it — the probe declares `authority: false`, and
 vocabulary, so it cannot classify anything on your behalf. Read the rows, then
 ratify by hand. The document never carries a row value: enum/set member lists
 are reduced to their base type word for the same reason.
+
+The probe is intentionally rowless, so it cannot answer a different question:
+how values inside a text/blob column are framed. `SHOW COLUMNS` may say
+`mediumtext` while native writers store a plain string for one action, a PHP
+serialized map for another, and SQL `NULL` for a third. Exercise every native
+writer variant in the admitted release and compare the raw stored bytes with
+the plugin API's readback. Declare strict `php_serialized` only when every
+authored value is one canonical serialized container. When one column is the
+measured plain/serialized/NULL union, declare
+`{"container":"php_serialized_or_text","leaves":"text"}` and the explicit
+`mixed-column-codecs/v1` feature; malformed serialized-looking bytes and
+non-string/non-NULL values must refuse. Redirection 5.9.0 is the reference
+manifest and `regress_column_codec_grammar.php` is the mutation proof. Never
+infer a codec from the first populated row or from the SQL type.
 
 For a natural key, uniqueness is a **source and hostile-target invariant**, not
 one source-side probe result. Populate the candidate key, probe it, then create

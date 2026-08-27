@@ -13,8 +13,9 @@ require_once __DIR__ . '/../Kernel/Secrets.php';
  *
  * WHAT WAS MISSING, MEASURED. `tools/engine-gaps.json` records the demand as
  * the primitive `serialized_column_codec`, blocked candidate Redirection 5.9.0,
- * coordinate `tables.redirection_items.columns.action_data`: that column holds
- * a PHP-serialized array containing a target URL, and an authored typed-table
+ * coordinate `tables.redirection_items.columns.action_data`: one native action
+ * stores a PHP-serialized array containing target URLs, while other native
+ * actions store a plain URL or NULL in the same column. An authored typed-table
  * column reaches capture through `TypedTableCapture`'s
  * `$tokens->tokenize_text($value)` — the RAW STORAGE BYTES. Substituting
  * `https://source.example/go` with `{{site_url}}/go` inside those bytes leaves
@@ -51,7 +52,8 @@ require_once __DIR__ . '/../Kernel/Secrets.php';
  *     refused BY KEY through the closed top-level key set (§ v3.3);
  *   - an engine without the feature meeting a manifest that declares it refuses
  *     BY FEATURE NAME.
- * No shipped manifest declares either, so no adapter digest moves (rule 2).
+ * Redirection is the first shipped manifest to declare both codec features;
+ * no pre-existing adapter digest moves (rule 2).
  *
  * THE IDENTITY ROUND-TRIP PRECONDITION, which is the load-bearing rule here.
  * Before any substitution, the codec re-encodes what it decoded and requires the
@@ -67,12 +69,22 @@ final class ColumnCodecGrammar {
     /**
      * The closed `container` vocabulary: how the column's bytes are framed.
      *
-     * One value, because one storage framing has measured demand. It is
-     * engine-owned for the reason ManifestGrammar::TABLE_CLASSES gives: only
-     * the engine can act on a container, so a new one is an engine change with
-     * its own feature name, never a manifest declaration.
+     * The original strict serialized container and Redirection's explicitly
+     * feature-gated serialized-or-text union. They are engine-owned for the
+     * reason ManifestGrammar::TABLE_CLASSES gives: only the engine can act on
+     * a container, so a new one is an engine change with its own feature name,
+     * never a manifest declaration.
      */
-    private const CONTAINERS = ['php_serialized'];
+    private const CONTAINERS = ['php_serialized', 'php_serialized_or_text'];
+
+    /**
+     * Redirection 5.9.0 measured the first mixed-framing demand: the same
+     * `action_data` column stores a plain URL, a serialized conditional map,
+     * or NULL according to matcher/action type. The v1 codec correctly refuses
+     * either scalar shape, so widening it silently would change an already
+     * named feature. This value-vocabulary feature stages the explicit union.
+     */
+    public const MIXED_FEATURE = 'mixed-column-codecs/v1';
 
     /**
      * The closed `leaves` vocabulary: what the codec does to the decoded
@@ -205,7 +217,8 @@ final class ColumnCodecGrammar {
                     "$where." . (string) $column,
                     is_array($decl['columns'] ?? null) ? $decl['columns'] : [],
                     $identityColumns,
-                    $slugColumn
+                    $slugColumn,
+                    $manifest
                 );
             }
         }
@@ -221,7 +234,8 @@ final class ColumnCodecGrammar {
         string $where,
         array $columnRules,
         array $identityColumns,
-        ?string $slugColumn
+        ?string $slugColumn,
+        array $manifest
     ): void {
         $rule = $columnRules[$column] ?? null;
         if (!is_array($rule) || ($rule['class'] ?? null) !== 'authored') {
@@ -266,6 +280,15 @@ final class ColumnCodecGrammar {
                 . 'an engine change with its own engine feature, not a manifest declaration'
             );
         }
+        if ($codec['container'] === 'php_serialized_or_text'
+            && !in_array(self::MIXED_FEATURE, (array) ($manifest['engine_features'] ?? []), true)) {
+            throw new \RuntimeException(
+                "duo: $where declares container='php_serialized_or_text', which the engine feature '"
+                . self::MIXED_FEATURE . "' gates — declare it in this manifest's top-level \"engine_features\" "
+                . 'list. An engine that does not implement the feature refuses the adapter by feature name '
+                . 'instead of treating a scalar as serialized bytes or a serialized map as opaque text'
+            );
+        }
         if (!in_array($codec['leaves'], self::LEAVES, true)) {
             throw new \RuntimeException(
                 "duo: $where declares leaves=" . var_export($codec['leaves'], true)
@@ -308,14 +331,28 @@ final class ColumnCodecGrammar {
      *
      * @param array{container:string,leaves:string} $codec
      */
-    public static function capture_value(mixed $raw, array $codec, object $tokens, string $where): string {
+    public static function capture_value(mixed $raw, array $codec, object $tokens, string $where): mixed {
         $decoded = self::decode($raw, $codec, $where, 'captured');
+        if ($decoded['kind'] === 'null') {
+            return null;
+        }
+        if ($decoded['kind'] === 'text') {
+            $label = Secrets::hard_match_deep($decoded['value']);
+            if ($label !== null) {
+                throw new \RuntimeException(
+                    "duo: secret guard tripped — $where contains a $label but is classified authored; refusing "
+                    . "to capture it into state/.\nIf this is really a secret, reclassify the column "
+                    . 'runtime/derived/env instead of authored.'
+                );
+            }
+            return $tokens->tokenize_text($decoded['value']);
+        }
         // The secret gate runs on the DECODED value, matching the attached-meta
         // plain_data path (TypedTableCapture.php:282): a credential nested three
         // levels inside a serialized container is the case Secrets::
         // hard_match_deep() exists for, and screening the raw framing bytes
         // instead would only ever see the outer string.
-        $label = Secrets::hard_match_deep($decoded);
+        $label = Secrets::hard_match_deep($decoded['value']);
         if ($label !== null) {
             throw new \RuntimeException(
                 "duo: secret guard tripped — $where decodes to a value containing a $label but is classified "
@@ -323,7 +360,7 @@ final class ColumnCodecGrammar {
                 . 'If this is really a secret, reclassify the column runtime/derived/env instead of authored.'
             );
         }
-        return serialize($tokens->plain_data_capture($decoded));
+        return serialize($tokens->plain_data_capture($decoded['value']));
     }
 
     /**
@@ -331,9 +368,15 @@ final class ColumnCodecGrammar {
      *
      * @param array{container:string,leaves:string} $codec
      */
-    public static function apply_value(mixed $canonical, array $codec, object $tokens, string $where): string {
+    public static function apply_value(mixed $canonical, array $codec, object $tokens, string $where): mixed {
         $decoded = self::decode($canonical, $codec, $where, 'authored');
-        return serialize($tokens->plain_data_apply($decoded));
+        if ($decoded['kind'] === 'null') {
+            return null;
+        }
+        if ($decoded['kind'] === 'text') {
+            return $tokens->detokenize_text($decoded['value']);
+        }
+        return serialize($tokens->plain_data_apply($decoded['value']));
     }
 
     /**
@@ -354,10 +397,13 @@ final class ColumnCodecGrammar {
      * believes something about the data that is not true.
      *
      * @param array{container:string,leaves:string} $codec
-     * @return array<mixed>
+     * @return array{kind:'container',value:array<mixed>}|array{kind:'text',value:string}|array{kind:'null',value:null}
      */
     private static function decode(mixed $bytes, array $codec, string $where, string $side): array {
         $container = (string) $codec['container'];
+        if ($container === 'php_serialized_or_text' && $bytes === null) {
+            return ['kind' => 'null', 'value' => null];
+        }
         if (!is_string($bytes)) {
             // Refused rather than coerced. A codec is a claim about how a
             // column's BYTES are framed, and a column holding an integer or a
@@ -369,6 +415,9 @@ final class ColumnCodecGrammar {
             );
         }
         $decoded = PlainData::decode($bytes, $where);
+        if ($container === 'php_serialized_or_text' && is_string($decoded) && $decoded === $bytes) {
+            return ['kind' => 'text', 'value' => $decoded];
+        }
         $reencoded = is_object($decoded) ? null : @serialize($decoded);
         if ($reencoded !== $bytes) {
             throw new \RuntimeException(
@@ -385,6 +434,6 @@ final class ColumnCodecGrammar {
                 . 'container; a scalar column is already tokenized correctly without one'
             );
         }
-        return $decoded;
+        return ['kind' => 'container', 'value' => $decoded];
     }
 }

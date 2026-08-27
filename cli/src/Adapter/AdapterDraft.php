@@ -1466,12 +1466,31 @@ final class AdapterDraft {
             // incoming evidence row answers, so the two halves of the seam
             // cannot drift into two different vocabularies for one question.
             $questions = [
+                // A schema observation after activation can still describe a
+                // half-installed plugin. Redirection 5.9.0 registers a public
+                // database installer and intentionally leaves its four tables
+                // absent after activation alone. Inventory is representative
+                // only after the plugin's real onboarding path has reached its
+                // own ready state, never after a harness creates tables directly.
+                'activation is not proof that native onboarding completed: confirm the plugin\'s documented '
+                . 'setup lifecycle ran and every expected storage surface exists before inventory/probe; use a '
+                . 'public admin, API, or CLI setup path, never raw SQL',
                 self::live_question(
                     'table_schema',
                     'column TYPES, the real PRIMARY KEY, and nullability are live facts (SHOW COLUMNS) — deferred; '
                     . 'confirm against a live target before ratifying'
                     . ($pk !== null ? " (pk='$pk' is a structural guess)" : ' (no PK inferable offline)')
                 ),
+                // SHOW COLUMNS answers the storage TYPE, not the framing of
+                // values a plugin writes into it. Redirection 5.9.0 proved the
+                // distinction is load-bearing: one mediumtext column holds a
+                // plain URL, a serialized conditional map, or NULL depending
+                // on the native matcher/action. A rowless probe intentionally
+                // cannot expose any of those bytes, so this remains a named
+                // authoring exercise rather than false schema evidence.
+                'storage framing is not a schema fact: exercise every native writer variant for text/blob '
+                . 'columns and classify plain text, JSON, PHP serialization, NULL, and mixed framing before '
+                . 'ratifying column codecs; `wp duo adapter-probe` intentionally reads no row values',
                 // lock_index() resolves the covering index by FIRST column and
                 // compares a meta_key length against Sub_part
                 // (agent/src/Delete/DeleteGuardEvaluator.php:445-456). Neither
@@ -1681,6 +1700,9 @@ final class AdapterDraft {
                         . ($owner === null ? '' : ", probably owned by the active plugin '$owner'"),
                 ]],
                 'questions' => [
+                    'activation is not proof that native onboarding completed: confirm the plugin\'s documented '
+                    . 'setup lifecycle ran and every expected storage surface exists before inventory/probe; use a '
+                    . 'public admin, API, or CLI setup path, never raw SQL',
                     "class 'runtime' is the SAFE default: it declares the table VISIBLE and excluded, which "
                     . 'is what stops it reading `unclassified / block` in assess. If this table holds '
                     . 'authored configuration, promote it to a typed authored class — and then its columns, '

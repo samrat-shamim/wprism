@@ -161,7 +161,7 @@ foreach ($shipped as $name => $manifest) {
         $movedClaims[] = $name;
     }
 }
-duo_check_same(16, count($shipped), 'the shipped library is the 16 adapters this claim is measured over');
+duo_check_same(17, count($shipped), 'the shipped library is the 17 adapters this claim is measured over');
 duo_check_same([], $declaringShipped, 'no shipped adapter declares the narrowing channel, so WP-4.6 moves no shipped manifest byte and no adapter digest');
 duo_check_same(
     [],

@@ -7,9 +7,9 @@
 # backed by real evidence at ITS OWN edges, not just the one version every
 # other fixture happens to exercise.
 #
-# First fourteen real plugins: ACF, Advanced Editor Tools, Classic Editor,
+# First fifteen real plugins: ACF, Advanced Editor Tools, Classic Editor,
 # Code Snippets, Contact Form 7, Elementor, Ninja Forms, Paid Memberships Pro, Polylang,
-# The Events Calendar,
+# Redirection, The Events Calendar,
 # WooCommerce, WPS Hide Login, Yoast Duplicate Post, and Yoast SEO. ACF proved the artifact-sourcing
 # mechanism itself; the others
 # prove the matrix accepts genuinely different
@@ -19,7 +19,8 @@
 # For EACH boundary version (ACF 6.0.0/6.8.7; Advanced Editor Tools 5.9.2;
 # Classic Editor 1.7.0; Code Snippets 3.9.5/3.9.6; CF7 6.0/6.1.7; Elementor 4.0.0/4.2.3; Ninja Forms
 # 3.4.34.2/3.14.11; PMPro 3.8.2/3.8.3 (with adjacent official-tag refusals);
-# Polylang 3.8/3.8.7; The Events Calendar 6.17.2/6.17.3;
+# Polylang 3.8/3.8.7; Redirection 5.9.0 (with 5.8.1 below-range refusal);
+# The Events Calendar 6.17.2/6.17.3;
 # WooCommerce 11.0.0/11.0.1 (including a populated in-place upgrade); Yoast SEO
 # 28.0/28.3 — all real
 # wp.org releases except PMPro's official upstream GitHub tags, never invented): fresh state, install ONLY from
@@ -68,14 +69,14 @@ VMATRIX_MANIFEST="${VMATRIX_MANIFEST:-}"
 jq -e '.evidence.tests | index("exact-artifact-version-matrix") != null' \
   "../manifests/dispositions/$VMATRIX_MANIFEST.json" >/dev/null \
   || fail "manifest '$VMATRIX_MANIFEST' does not declare exact-artifact-version-matrix evidence"
-# The WooCommerce leg is production-readiness evidence over shipped
-# manifest/provider bytes. pair.sh otherwise resolves a linked worktree to
+# The WooCommerce and Redirection legs are production-readiness evidence over
+# shipped manifest/provider bytes. pair.sh otherwise resolves a linked worktree to
 # its canonical checkout, which can make a green boundary matrix about a
 # different commit. Require the candidate SHA and mount this script's own
 # physical checkout before reset can mutate either disposable database.
-if [ "$VMATRIX_MANIFEST" = woocommerce ]; then
+if [ "$VMATRIX_MANIFEST" = woocommerce ] || [ "$VMATRIX_MANIFEST" = redirection ]; then
   [ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] \
-    || fail 'WooCommerce version-matrix evidence requires DUO_EXPECTED_SOURCE_SHA'
+    || fail "$VMATRIX_MANIFEST version-matrix evidence requires DUO_EXPECTED_SOURCE_SHA"
   export DUO_SOURCE_ROOT="$(cd .. && pwd -P)"
 fi
 VMATRIX_CASES=0
@@ -188,6 +189,7 @@ pass "pair up"
 . tests/certify/matrix.d/wps-hide-login.sh
 . tests/certify/matrix.d/yoast-duplicate-post.sh
 . tests/certify/matrix.d/the-events-calendar.sh
+. tests/certify/matrix.d/redirection.sh
 
 reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # core/theme installed and the site "installed" (unlike `pair.sh reset`,
@@ -232,6 +234,19 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # native metadata". All uploads are disposable boundary-fixture content, so
   # use WP-CLI's bounded native cleanup instead of a plugin filename glob.
   "$cli" site empty --yes --uploads >/dev/null
+  # `site empty --uploads` can remove the uploads root itself. A later apply
+  # treats that as an invalid production filesystem boundary rather than
+  # silently inventing it, so reset must restore the ordinary WordPress
+  # premise explicitly before any exact-version case begins.
+  "$cli" eval '
+    $upload = wp_get_upload_dir();
+    $root = (string) ($upload["basedir"] ?? "");
+    if ($root === "" || is_link($root)
+        || (!is_dir($root) && !wp_mkdir_p($root))
+        || !is_dir($root) || is_link($root)) {
+      throw new RuntimeException("version-matrix reset could not restore uploads root");
+    }
+  ' >/dev/null
   # site empty can leave default_category pointing at a term it deleted. A
   # later plugin installer may reuse that numeric id for another taxonomy
   # (WooCommerce product_visibility exposed this), turning harmless stale
@@ -277,7 +292,7 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
     }
   ' >/dev/null
   local plugin
-  for plugin in advanced-custom-fields classic-editor code-snippets contact-form-7 duplicate-post elementor ninja-forms paid-memberships-pro polylang the-events-calendar tinymce-advanced woocommerce wordpress-seo wps-hide-login; do
+  for plugin in advanced-custom-fields classic-editor code-snippets contact-form-7 duplicate-post elementor ninja-forms paid-memberships-pro polylang redirection the-events-calendar tinymce-advanced woocommerce wordpress-seo wps-hide-login; do
     "$cli" plugin deactivate "$plugin" >/dev/null 2>&1 || true
     "$cli" plugin delete "$plugin" >/dev/null 2>&1 || true
   done
@@ -298,6 +313,13 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
       'wps-hide-login-target-rewrite-hash', 'wps-hide-login-target-runtime-probe',
       'wpcf7'
     );
+  " >/dev/null
+  # Redirection deliberately retains its authored tables and settings on
+  # ordinary plugin deletion. Each exact-artifact case must execute the
+  # selected release's own installer against an empty plugin schema.
+  "$cli" db query "
+    DROP TABLE IF EXISTS wp_redirection_404, wp_redirection_groups, wp_redirection_items, wp_redirection_logs;
+    DELETE FROM wp_options WHERE option_name LIKE 'redirection%';
   " >/dev/null
   # Yoast Duplicate Post retains its settings, original-link meta, and role
   # capability on ordinary deletion. Matrix cases must begin at activation.
@@ -443,6 +465,87 @@ run_elementor_command() {
 # Repeating the same bytes under artificial min/max labels would add runtime,
 # not evidence; certify the one admitted artifact once and pair it with an
 # adjacent official-release refusal below.
+if [ "$VMATRIX_MANIFEST" = redirection ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
+REDIRECTION_VERSION=5.9.0
+say "boundary: redirection $REDIRECTION_VERSION (only admitted patch)"
+
+reset_env wp1
+reset_env wp2
+reset_case_repositories
+
+say "fetch + verify redirection $REDIRECTION_VERSION (digest-checked artifact only)"
+REDIRECTION_ARTIFACT_1=$(fetch_artifact redirection "$REDIRECTION_VERSION" cli1)
+REDIRECTION_ARTIFACT_2=$(fetch_artifact redirection "$REDIRECTION_VERSION" cli2)
+wp1 plugin install "$REDIRECTION_ARTIFACT_1" --activate >/dev/null
+[ "$(wp1 plugin get redirection --field=version)" = "$REDIRECTION_VERSION" ] \
+  || fail "side 1 did not install exact redirection $REDIRECTION_VERSION"
+
+printf '%s\n' '{' \
+  '  "manifests": ["core", "redirection"],' \
+  '  "policy": {' \
+  '    "options": {},' \
+  '    "post_meta": {},' \
+  '    "post_types": ["post", "page", "attachment"],' \
+  '    "taxonomies": ["category", "post_tag"]' \
+  '  },' \
+  '  "spec_version": 3' \
+  '}' > "siterepo/${PAIR}1/site.duo.json"
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: Redirection $REDIRECTION_VERSION exact-boundary certification"
+"${GIT1[@]}" push -qu origin main
+
+seed_redirection_content
+wp1 duo capture --repo=/siterepo
+wp1 duo lint --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: Redirection $REDIRECTION_VERSION mixed rule graph"
+"${GIT1[@]}" push -q origin main
+
+clone_case_target
+wp2 plugin install "$REDIRECTION_ARTIFACT_2" >/dev/null
+[ "$(wp2 plugin get redirection --field=version)" = "$REDIRECTION_VERSION" ] \
+  || fail "side 2 did not install exact redirection $REDIRECTION_VERSION"
+wp2 duo deploy --repo=/siterepo
+prepare_redirection_boundary_target
+REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+  || fail "apply canary not clean at redirection $REDIRECTION_VERSION"
+check_redirection_boundary_content
+
+wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+REDIRECTION_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+rm -rf "siterepo/${PAIR}2/.tmp-final"
+[ -z "$REDIRECTION_DIFF" ] \
+  || fail "byte-identity broken at redirection $REDIRECTION_VERSION: $REDIRECTION_DIFF"
+pass "Redirection $REDIRECTION_VERSION deploys, behaves natively, and recaptures byte-identically"
+
+say 'negative control: official redirection 5.8.1 must refuse below the exact contract'
+NEGATIVE_BEFORE=$(wp1 eval 'global $wpdb; echo hash("sha256",wp_json_encode([$wpdb->get_results("SELECT * FROM {$wpdb->prefix}redirection_groups ORDER BY id",ARRAY_A),$wpdb->get_results("SELECT * FROM {$wpdb->prefix}redirection_items ORDER BY id",ARRAY_A),get_option("redirection_options")],JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));')
+wp1 plugin deactivate redirection >/dev/null
+wp1 plugin delete redirection >/dev/null
+REDIRECTION_OLD=$(fetch_artifact redirection 5.8.1 cli1)
+wp1 plugin install "$REDIRECTION_OLD" >/dev/null
+[ "$(wp1 plugin get redirection --field=version)" = 5.8.1 ] \
+  || fail 'Redirection negative control did not install exact 5.8.1'
+NEGATIVE_RC=0
+NEGATIVE_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1) || NEGATIVE_RC=$?
+require_duo_answered 'Redirection 5.8.1 outside-range deploy' human "$NEGATIVE_OUT"
+[ "$NEGATIVE_RC" -ne 0 ] && grep -Eq 'outside_version_range|outside the .* declared version_range' <<<"$NEGATIVE_OUT" \
+  && grep -q '5.8.1' <<<"$NEGATIVE_OUT" \
+  || fail "Redirection 5.8.1 refused for the wrong reason: $NEGATIVE_OUT"
+wp1 plugin is-active redirection >/dev/null 2>&1 \
+  && fail 'outside-range Redirection 5.8.1 was activated before refusal'
+NEGATIVE_AFTER=$(wp1 eval 'global $wpdb; echo hash("sha256",wp_json_encode([$wpdb->get_results("SELECT * FROM {$wpdb->prefix}redirection_groups ORDER BY id",ARRAY_A),$wpdb->get_results("SELECT * FROM {$wpdb->prefix}redirection_items ORDER BY id",ARRAY_A),get_option("redirection_options")],JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));')
+[ "$NEGATIVE_AFTER" = "$NEGATIVE_BEFORE" ] \
+  || fail 'Redirection outside-range refusal mutated retained plugin state'
+pass 'official Redirection 5.8.1 is loudly refused before activation or state mutation'
+fi
+
 if [ "$VMATRIX_MANIFEST" = advanced-editor-tools ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
 AET_VERSION=5.9.2

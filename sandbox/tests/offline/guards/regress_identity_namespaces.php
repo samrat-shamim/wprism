@@ -212,7 +212,7 @@ echo "\n== 2. it ENUMERATES rather than testing shape, and the shipped library i
 $hyphenShaped = static fn(string $value): bool => preg_match('/^[a-z0-9]+-[a-z0-9-]+$/D', $value) === 1;
 $noHyphen = array_values(array_filter($shippedNames, static fn(string $n): bool => !$hyphenShaped($n)));
 duo_check_same(
-    ['acf', 'core', 'elementor', 'polylang', 'woocommerce', 'yoast'],
+    ['acf', 'core', 'elementor', 'polylang', 'redirection', 'woocommerce', 'yoast'],
     $noHyphen,
     count($noHyphen) . ' shipped names carry no hyphen at all, so a bare shape rule would refuse them outright'
 );
@@ -287,14 +287,19 @@ duo_check_same(
         'ninja-forms',
         'paid-memberships-pro',
         'polylang',
+        'redirection',
         'the-events-calendar',
         'woocommerce',
         'yoast-duplicate-post',
         'yoast',
     ],
     $stampedAtGate,
-    'and exactly the feature-migrated manifests declare a version at the gate while seven unrelated manifests '
-    . 'retain the no-bulk-restamp boundary (§ v3.12)'
+    'and exactly the feature-consuming manifests declare a version at the gate while seven unrelated manifests '
+        . 'retain the no-bulk-restamp boundary (§ v3.12)'
+);
+duo_check(
+    IdentityNamespaces::is_grandfathered_name('redirection'),
+    'the newly authored v3 subject is explicitly present in the closed grandfather list rather than bypassing the namespace rule'
 );
 
 echo "\n== 4. at spec_version 3 the reserved form is a RULE ==\n";
@@ -313,7 +318,7 @@ duo_check_same(
 $unprefixed = $namespaceVerdict($manifest('cache', 3), 'cache');
 duo_check(
     is_string($unprefixed) && str_contains($unprefixed, "the unprefixed name 'cache'")
-        && str_contains($unprefixed, 'closed reserved list of 16 names')
+        && str_contains($unprefixed, 'closed reserved list of 17 names')
         && str_contains($unprefixed, '§ v3.9'),
     'an unprefixed out-of-tree name refuses BY NAME, naming the closed list and the section that decided it'
 );

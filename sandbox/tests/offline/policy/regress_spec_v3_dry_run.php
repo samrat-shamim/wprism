@@ -38,7 +38,7 @@
  *     `tools/wire-surface.php` under `make release-gate`) instead of argued
  *     here. R-17 is the case that matters: `id_kind` prefixing can never become
  *     a rule, because captured state and `duo_map` rows embed the bare kind, so
- *     V3-NS's 18 shipped id_kinds are a permanent floor and not a break list.
+ *     V3-NS's 20 shipped id_kinds are a permanent floor and not a break list.
  *
  * So the durable asset is the FIXTURE ESTATE plus the measurements, not the
  * prediction. WP-4.3 has since made the contract grammar consult the same
@@ -55,7 +55,7 @@
  *
  * THE ESTATE
  * ----------
- * 16 shipped manifests + 7 constructed fixtures + the 5 on-disk synthetic
+ * 17 shipped manifests + 7 constructed fixtures + the 5 on-disk synthetic
  * manifests, the last DISCOVERED by shape (string `name`, int `spec_version`,
  * a `plugin` or `theme` subject) under `sandbox/`, minus gitignored scratch.
  * Discovery rather than a hand-maintained input because out-of-tree adapters
@@ -69,13 +69,14 @@
  * the difference ENUMERATED, never assumed. It is measured below and the
  * difference is asserted rather than reconciled:
  *
- *   F1  30 of the 33 partition keys are in use across the 16 shipped
- *       manifests, whose 31-key union also contains `engine_features` through
- *       the disjoint feature roster. So rule V3-KEYS refuses zero shipped
- *       adapters while still proving the channel is classified. Two of the
- *       three unused partition keys are channels admitted in the change that reads them:
+ *   F1  All 33 signer-partition keys are in use across the 17 shipped
+ *       manifests. Redirection also declares the three keys carried by the
+ *       feature roster rather than that partition; its signer verdict is still
+ *       clean because § v3.21 classifies those keys with their features. Two of
+ *       the three previously unused partition keys were channels admitted in
+ *       the change that reads them:
  *       WP-4.6's `environment` (§ v3.5) and WP-4.3's `theme_version_range`
- *       (§ v3.3 resolution 1), declared by none of the 16.
+ *       (§ v3.3 resolution 1), declared by none of the 17.
  *   F2  RESOLVED by WP-4.3. The finding was that the third unused partition key
  *       is `theme`, and that it was UNUSABLE as shipped:
  *       `AdapterContractGrammar::validate_adapter_contract()` (:45) demands a
@@ -271,7 +272,7 @@ $validatorVerdict = static function (array $manifest) use ($vocabulary): ?string
 };
 
 // ---------------------------------------------------------------------------
-// The estate: 16 shipped manifests + the representative fixtures.
+// The estate: 17 shipped manifests + the representative fixtures.
 // ---------------------------------------------------------------------------
 
 $shipped = [];
@@ -284,7 +285,7 @@ foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
 }
 ksort($shipped, SORT_STRING);
 
-duo_check_same(16, count($shipped), 'the shipped library under test is all 16 adapter manifests');
+duo_check_same(17, count($shipped), 'the shipped library under test is all 17 adapter manifests');
 
 // Every fixture is a shape a candidate rule has an opinion about. manifest_a()
 // and manifest_b() are the corpus-wide pair (rule 5): a rule that refuses THEM
@@ -417,31 +418,42 @@ $unknownInUse = array_values(array_diff($unionKeys, $closedSet));
 $knownUnused = array_values(array_diff($closedSet, $unionKeys));
 
 $report(sprintf(
-    'in-use top-level keys across the 16 shipped manifests: %d; signer partition: %d',
+    'in-use top-level keys across the %d shipped manifests: %d; signer partition: %d',
+    count($shipped),
     count($unionKeys),
     count($closedSet)
 ));
 foreach ($unionKeys as $key) {
-    $report(sprintf('  %-20s declared by %2d/16%s', $key, count($union[$key]), in_array($key, $closedSet, true) ? '' : '   <-- UNKNOWN TO THE SIGNER'));
+    $report(sprintf(
+        '  %-20s declared by %2d/%d%s',
+        $key,
+        count($union[$key]),
+        count($shipped),
+        in_array($key, $closedSet, true) ? '' : '   <-- CLASSIFIED BY FEATURE ROSTER'
+    ));
 }
 $report('partition keys no shipped manifest declares: ' . ($knownUnused === [] ? '(none)' : implode(', ', $knownUnused)));
 
-// F1 — the difference, enumerated in both directions. `engine_features` is
-// intentionally outside the closed partition: § v3.21 classifies feature keys
-// in the disjoint roster, preserving the rule that a manifest may use the
-// channel only when it declares the feature that claims it.
+// F1 — the difference, enumerated in both directions. Redirection's
+// feature-claimed keys deliberately sit in § v3.21's roster rather than
+// duplicating the signer partition.
 duo_check_same(
-    ['engine_features'],
+    ['column_codecs', 'declaration_evidence', 'engine_features'],
     $unknownInUse,
-    'F1: the only shipped top-level key outside the signer partition is the feature channel, classified by its roster arm'
+    'F1: the only shipped keys outside the signer partition are classified by Redirection\'s declared feature roster'
 );
-duo_check_same(31, count($unionKeys), 'F1: the in-use union is 31 keys — 30 partition keys plus the feature channel');
+duo_check_same(
+    [],
+    array_values(array_diff($unknownInUse, array_keys(AdapterContractGrammar::feature_key_arms()))),
+    'F1: every shipped key outside the partition has a certificate arm in the feature roster'
+);
+duo_check_same(33, count($unionKeys), 'F1: the in-use union is 33 keys');
 // Three keys the partition admits and no shipped adapter declares, and they are
 // there for different reasons: `theme` predates the library's plugin-only
 // contents; `environment` is WP-4.6's narrowing channel and `theme_version_range`
 // is WP-4.3's resolution of F2 — each admitted in the change that reads it,
 // precisely so an adapter that uses it stays signable (rule V3-AXIS below
-// measures that none of the 16 uses `environment` yet).
+// measures that none of the 17 uses `environment` yet).
 duo_check_same(
     ['environment', 'theme', 'theme_version_range'],
     $knownUnused,
@@ -704,13 +716,14 @@ duo_check_same(
         'ninja-forms',
         'paid-memberships-pro',
         'polylang',
+        'redirection',
         'the-events-calendar',
         'woocommerce',
         'yoast',
         'yoast-duplicate-post',
     ],
     $featureDeclarers,
-    'V3-FEAT: every deliberately migrated adapter declares the feature it consumes and pays only its own identity change'
+    'V3-FEAT: every feature consumer declares what it consumes and existing adapters pay only their own identity change'
 );
 duo_check_same(
     [],
@@ -757,13 +770,14 @@ duo_check_same(
         'agent/src/Adapter/ActionProviderGrammar.php',
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
+        'agent/src/Grammar/ColumnCodecGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
         'cli/src/Adapter/ManifestValidate.php',
     ],
     $featureReaders,
     'V3-FEAT: the channel has exactly one shipped OWNER — the contract grammar, which holds the vocabulary and '
-        . 'refuses an unimplemented name — beside three gate readers (provider contracts, body mode, invalidate '
-        . 'verbs) that ask only '
+        . 'refuses an unimplemented name — beside four gate readers (provider contracts, body mode, column framing, '
+        . 'invalidate verbs) that ask only '
         . 'whether THIS document declared the feature their gated declaration needs, and one publisher that '
         . 'refuses nothing'
 );
@@ -772,7 +786,8 @@ duo_check_same(
 // a vocabulary of one is a special case that happens to satisfy the channel's
 // requirement, and a vocabulary of two is a set the refusal enumerates, the
 // author declares from, and register row R-19 projects. WP-6.5 made it six;
-// manifest-provider-runtime/v1 makes it seven,
+// manifest-provider-runtime/v1 made it seven, and Redirection's measured mixed
+// column demand makes it eight; neither claims an additional top-level section,
 // and the count is now evidence for a different claim than the one it started
 // as: § v3.12 asks for "at least one grammar section shipped post-v3 through
 // engine_features with no version bump" before the window may ever close, and
@@ -782,6 +797,7 @@ duo_check_same(
         'attr-id-codecs/v1',
         'invalidate-vocabulary/v1',
         'manifest-provider-runtime/v1',
+        'mixed-column-codecs/v1',
         'spec-window/v1',
         'structured-body-refs/v1',
         'structured-evidence/v1',
@@ -978,7 +994,7 @@ foreach ($entryNames as $entryName) {
         $canonUnstable[] = (string) $entryName;
     }
 }
-duo_check_same([], $canonUnstable, 'V3-DISP: all 16 entries survive a Canon encode/decode round trip unchanged — the split moves no adapter digest');
+duo_check_same([], $canonUnstable, 'V3-DISP: all 17 entries survive a Canon encode/decode round trip unchanged — the split moves no adapter digest');
 
 // The would-refuse case: a pinned adapter whose document is missing. The
 // monolith refuses this by coverage mismatch; the split must keep refusing.
@@ -1034,7 +1050,7 @@ $report('compatibility axes a v3 certificate would bind: ' . implode(', ', $axes
 duo_check_same(['database', 'filesystem', 'php', 'process', 'wordpress'], $axes, 'V3-AXIS: the boundary declares five compatibility axes today');
 
 // The measurement WP-4.6 inherited and must not disturb: every SHIPPED claim
-// still carries the same environment, because none of the 16 declares the
+// still carries the same environment, because none of the 17 declares the
 // narrowing channel WP-4.6 added. Before that rider this was a property of the
 // engine (one global copy, no way to narrow); it is now a property of the
 // LIBRARY, and that is the whole flag-day claim for § v3.5 — the rule landed
@@ -1062,7 +1078,7 @@ duo_check_same([], array_keys($claimRefusals), 'V3-AXIS: every shipped dispositi
 duo_check_same(
     1,
     count($distinctEnvironments),
-    'V3-AXIS: all 16 claims carry byte-identical `environment_assumptions` — none of the shipped 16 narrows, so WP-4.6 moved no shipped claim'
+    'V3-AXIS: all 17 claims carry byte-identical `environment_assumptions` — none of the shipped 17 narrows, so WP-4.6 moved no shipped claim'
 );
 
 // The narrowing declaration is a top-level manifest key, so it could not land
@@ -1079,7 +1095,7 @@ duo_check_same(
     $environmentish,
     'V3-AXIS x V3-KEYS: the partition names exactly one environment key — WP-4.6\'s narrowing channel — and no compatibility axis'
 );
-$report('shipped adapters that declare a narrower environment today: 0 of 16 (the channel exists and none uses it)');
+$report('shipped adapters that declare a narrower environment today: 0 of 17 (the channel exists and none uses it)');
 
 // What today's certificate binds. This measurement is the one V3-AXIS row
 // WP-4.7 LANDED: verification used to be a byte-exact comparison of the WHOLE
@@ -1168,25 +1184,25 @@ foreach ($spaces as $space => $values) {
 }
 
 duo_check_same(
-    ['acf', 'core', 'elementor', 'polylang', 'woocommerce', 'yoast'],
+    ['acf', 'core', 'elementor', 'polylang', 'redirection', 'woocommerce', 'yoast'],
     $unprefixed['adapter name'],
-    'V3-NS: 6 of the 16 shipped adapter names carry no hyphen at all and can be read as <vendor>-<name> under no reading'
+    'V3-NS: 7 of the 17 shipped adapter names carry no hyphen at all and can be read as <vendor>-<name> under no reading'
 );
 duo_check_same(
-    18,
+    20,
     count($unprefixed['tables.*.id_kind']),
-    'V3-NS: ALL 18 shipped id_kinds are underscore-separated, so the hyphen form would refuse the entire shipped vocabulary'
+    'V3-NS: ALL 20 shipped id_kinds are underscore-separated, so the hyphen form would refuse the entire shipped vocabulary'
 );
 duo_check_same(
     [],
     $unprefixed['providers[].id'],
-    'V3-NS: all 13 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the convention is de facto in force'
+    'V3-NS: all 14 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the convention is de facto in force'
 );
 
 // The consequence for WP-4.10's design, measured rather than argued: a shape
-// test cannot be the admission rule, because 10 of the 16 shipped names ARE
+// test cannot be the admission rule, because 10 of the 17 shipped names ARE
 // hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
-// vendor `the`). The reserved list must therefore enumerate all 16.
+// vendor `the`). The reserved list must therefore enumerate all 17.
 $hyphenButNotVendor = array_values(array_filter(
     array_keys($shipped),
     static fn(string $n): bool => $hyphenShaped($n)
@@ -1194,7 +1210,7 @@ $hyphenButNotVendor = array_values(array_filter(
 duo_check_same(
     10,
     count($hyphenButNotVendor),
-    'V3-NS: the other 10 names are hyphen-shaped but their first segment is not a vendor, so the closed reserved list WP-4.10 ships must enumerate all 16 names — a shape test admits the wrong ones'
+    'V3-NS: the other 10 names are hyphen-shaped but their first segment is not a vendor, so the closed reserved list WP-4.10 ships must enumerate all 17 names — a shape test admits the wrong ones'
 );
 $report('names the flag day must grandfather: all ' . count($shipped) . ' (shape alone cannot separate them)');
 
@@ -1229,7 +1245,7 @@ foreach (array_merge(array_keys($shipped), array_keys($idKinds), array_keys($pro
         $grammarRefusals[(string) $identity] = $e->getMessage();
     }
 }
-duo_check_same([], $grammarRefusals, 'V3-NS: all 47 shipped identities already pass AdapterSources::assert_name(), so the namespace rule layers over one grammar');
+duo_check_same([], $grammarRefusals, 'V3-NS: all 51 shipped identities already pass AdapterSources::assert_name(), so the namespace rule layers over one grammar');
 
 // id_kind collisions are the correctness reason the namespace exists at all.
 $collisions = array_values(array_filter(array_keys($idKinds), static fn(string $k): bool => count(array_unique($idKinds[$k])) > 1));
@@ -1258,12 +1274,12 @@ duo_check_same(
         + $breakList['V3-FEAT  engine_features channel']
         + $breakList['V3-DISP  per-adapter dispositions']
         + $breakList['V3-AXIS  per-adapter environment narrowing'],
-    'four of the five candidate rules would refuse nothing in the shipped library; only V3-NS breaks it, which is why WP-4.10 grandfathers rather than refuses'
+    'four of the five candidate rules refuse nothing in the shipped library; only V3-NS breaks it, which is why WP-4.10 grandfathers rather than refuses'
 );
 duo_check_same(
-    24,
+    27,
     $breakList['V3-NS    namespace prefixing (as a REFUSAL)'],
-    'V3-NS as a bare refusal would break 24 shipped identities (6 names + 18 id_kinds) — the measurement that forces the reserved closed list'
+    'V3-NS as a bare refusal would break 27 shipped identities (7 names + 20 id_kinds) — the measurement that forces the reserved closed list'
 );
 
 duo_check_summary('spec v3 static dry run');

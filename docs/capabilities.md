@@ -48,6 +48,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [ninja-forms](#ninja-forms) | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [paid-memberships-pro](#paid-memberships-pro) | certified | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.2 <3.8.4 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.8 <3.8.8 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [redirection](#redirection) | certified | `redirection/redirection.php` | >=5.9.0 <5.9.1 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [the-events-calendar](#the-events-calendar) | certified | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.4 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <11.0.2 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [wps-hide-login](#wps-hide-login) | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -296,6 +297,27 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 **Unsupported, explicitly.**
 
 - `deletions.*` / `delete` — No Polylang deletion selector is declared.
+
+## redirection
+
+**Status: certified.** Certified for exact Redirection 5.9.0 on single-site WordPress in WordPress-module mode with divergent mapped group/item identities, plain/serialized/NULL action payloads, ordinary, regex, conditional and error rules, native HTTP behavior, closed portable option subkeys, hostile persistent-cache convergence through a verified provider, request-log preservation, conflict/idempotence, lifecycle recovery, unsupported deletion and server-module refusal, and official 5.8.1 below-range evidence.
+
+- **Plugin:** `redirection/redirection.php`
+- **Version range:** >=5.9.0 <5.9.1
+- **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
+- **Lifecycle phases:** retire, activate, verify
+- **Declared entities:** `tables` (4: redirection_404, redirection_groups, redirection_items, redirection_logs)
+- **Declared fields:** `column_codecs` (1: redirection_items), `options` (2: redirection_options, redirection_version)
+- **Adapter hooks:** 1 provider, 1 structured action
+- **Deletions supported:** none
+- **Deletions unsupported:** table:redirection_groups, table:redirection_items
+- **Exercised by:** `conformance-redirection`, `exact-artifact-version-matrix`
+
+**Unsupported, explicitly.**
+
+- `tables.redirection_groups.module_id` / `all` — Apache and Nginx groups own environment-specific server files. The provider refuses every module_id other than the database-backed WordPress module before effects.
+- `tables.redirection_groups,tables.redirection_items` / `delete` — Redirect sources can be operationally referenced outside WordPress, and group deletion cascades through items. No complete reverse-reference declaration exists, so both row deletions remain loud.
+- `multisite` / `all` — Duo v1 and the provider are certified for single-site tables only.
 
 ## the-events-calendar
 

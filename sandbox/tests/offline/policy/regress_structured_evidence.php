@@ -488,10 +488,10 @@ duo_check(
 );
 duo_check($validate['exit'] !== 0, '...and the run fails, because a pin set holding an unloadable adapter is not a passing check');
 
-// THE DEFERRAL, RECORDED RATHER THAN GLOSSED. The shipped library cannot adopt
-// the section: `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's
-// JSON into its `digest`, so 16 adopting edits are 16 moved digests and every
-// pin and certificate naming one stops matching (AGENTS.md rule 2).
+// THE DEFERRAL, RECORDED RATHER THAN GLOSSED. Existing shipped manifests are
+// never mass-retrofitted: `ArtifactPolicyIdentity::manifest_rows()` folds each
+// manifest's JSON into its `digest`. Redirection can declare the section
+// because it is newly authored and its first digest already includes it.
 $shippedManifests = [];
 foreach (glob($repo . '/manifests/*.json') ?: [] as $file) {
     $decoded = Canon::decode(Canon::read_file($file));
@@ -502,10 +502,9 @@ $adopters = array_values(array_filter(
     static fn(string $n): bool => array_key_exists($SECTION, $shippedManifests[$n])
 ));
 duo_check_same(
-    [],
+    ['redirection'],
     $adopters,
-    'NO SHIPPED MANIFEST declares the section, so this rider moved zero adapter digests — the same '
-        . 'digest-neutrality WP-4.12\'s flip was engineered for, for the same reason'
+    'Redirection is the first shipped manifest authored with structured evidence; no pre-existing manifest was retrofitted'
 );
 $report('shipped manifests: ' . count($shippedManifests) . '; adopting the section: ' . count($adopters));
 

@@ -27,6 +27,9 @@ require_once __DIR__ . '/../Policy/ManifestGrammar.php';
 // leaf in Grammar (JsonRefs/ReferenceRules/Secrets, all Kernel), so this costs
 // the same one stat and cannot circle back through this file.
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
+// Redirection's action_data column is the measured mixed serialized/text
+// demand; this leaf owns the value-vocabulary feature name that gates it.
+require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 // Circular with Policy.php's require_once of this file: safe because
 // require_once records the currently included path before the nested require
 // is reached, while these methods only resolve Policy at call time.
@@ -96,10 +99,10 @@ final class AdapterContractGrammar {
      * N/N-1 acceptance window plus the declaration channel itself. That is what
      * makes the channel a live product path on the day it ships rather than an
      * admissibility argument — the failure mode `authored_typed_snapshot_
-     * post_v1` demonstrates, which is declared by nothing across all 16 shipped
+     * post_v1` demonstrates, which is declared by nothing across all 17 shipped
      * manifests.
      *
-     * After `spec-window/v1`, SIX post-v3 features shipped through this
+     * After `spec-window/v1`, SEVEN post-v3 features shipped through this
      * channel in one wave, and together they are the proof § v3.2's claim
      * holds — each staged a grammar change with `DUO_SPEC_VERSION` left at 3,
      * asserted by each one's own suite:
@@ -114,6 +117,9 @@ final class AdapterContractGrammar {
      *   - `structured-evidence/v1` (WP-6.4, spec/repo-format.md § v3.14): the
      *     typed sibling of `notes` that makes the empirical case file
      *     machine-readable.
+     *   - `mixed-column-codecs/v1`: admits a measured plain/serialized/NULL
+     *     value vocabulary inside `column_codecs` without claiming a second
+     *     top-level section.
      *   - `invalidate-vocabulary/v1` (WP-6.2, § v3.15): widens the invalidate[]
      *     verb set INSIDE a section that already exists — the row that shows
      *     `keys` may legitimately be EMPTY, because a feature can widen a value
@@ -127,11 +133,14 @@ final class AdapterContractGrammar {
      *     provider protocol shell into core while leaving plugin calls and
      *     value-level postconditions in the digest-bound behavior file.
      *
-     * All are keyed at `since` 3. PMPro was the first shipped consumer; eight
-     * later provider-bearing manifests deliberately pay their own identity
-     * change for `manifest-provider-runtime/v1`. The engine's whole cost for each remains one
-     * roster row plus its validating collaborator — the replacement for a
-     * flag day has been walked repeatedly before the old window is retired.
+     * All are keyed at `since` 3. PMPro was the first migrated consumer; eight
+     * later provider-bearing manifests deliberately paid their own identity
+     * change for `manifest-provider-runtime/v1`. Redirection was authored with
+     * the runtime, mixed codec, and evidence declarations in its first digest,
+     * so no existing adapter moved for that demand (AGENTS.md rule 2). The
+     * engine's whole cost for each remains one roster row plus its validating
+     * collaborator — the replacement for a flag day has been walked repeatedly
+     * before the old window is retired.
      *
      * Feature names are ENGINE-OWNED: an adapter declares one, never mints one
      * (spec/repo-format.md § v3.2). A name is also permanent, which is why
@@ -198,6 +207,14 @@ final class AdapterContractGrammar {
         'typed-column-codecs/v1' => [
             'since' => 3,
             'keys' => ['column_codecs' => 'field'],
+        ],
+        // Redirection 5.9.0 stores a plain URL, a serialized conditional map,
+        // or NULL in one action_data column. This claims no new top-level key:
+        // it widens the container vocabulary inside column_codecs, while the
+        // existing typed-column-codecs/v1 feature still claims that section.
+        ColumnCodecGrammar::MIXED_FEATURE => [
+            'since' => 3,
+            'keys' => [],
         ],
         // WP-6.2, and the first entry that claims NO top-level key: it widens a
         // VALUE vocabulary inside a section that already exists

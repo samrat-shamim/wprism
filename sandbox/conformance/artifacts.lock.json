@@ -157,6 +157,18 @@
         "role": "certified-boundary"
       }
     },
+    "redirection": {
+      "5.8.1": {
+        "url": "https://downloads.wordpress.org/plugin/redirection.5.8.1.zip",
+        "sha256": "6256d0829120a6661da5e6698cab5f3ead6a830c6d67e4a89a064649fb59ef79",
+        "role": "refusal-fixture"
+      },
+      "5.9.0": {
+        "url": "https://downloads.wordpress.org/plugin/redirection.5.9.0.zip",
+        "sha256": "b6dd341a6b383440cbb1d5647fa59a82fc5e48afe2165539284c56edaf066842",
+        "role": "certified-boundary"
+      }
+    },
     "tinymce-advanced": {
       "5.9.0": {
         "url": "https://downloads.wordpress.org/plugin/tinymce-advanced.5.9.0.zip",
