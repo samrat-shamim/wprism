@@ -37,7 +37,7 @@ The normative wire contract is not here — it is
 | [sandbox.md](sandbox.md) | The test estate — the pair model, the five execution classes under `sandbox/tests/`, and which gate runs what. |
 | [grind/](grind/README.md) | **Live specifications, not history.** Six documents, each specifying a runnable harness and naming its `make` target (`grind-mup`, `grind-adapter-walk`, `grind-adoption`, `grind-code-half-first-sync`, `grind-ecommerce-developer-live`, `regress-adapter-authoring-live`). All live-only; none runs in `make regress-offline-all`. |
 | [modules/](modules/README.md) | The module map for `agent/src` and `cli/src`: the index, the layer ladder and its ratchet, and a one-page charter per module. Projected from [`tools/modules.json`](../tools/modules.json), which is the machine-readable authority. |
-| [agents/](agents/linear-loop.md) | This repo's own dispatch protocol for coding agents: claim gate, evidence scoping, close gate. Internal process, not product. |
+| [agents/](agents/linear-loop.md) | This repo's own dispatch protocol for coding agents plus the [Rank Math adapter-authoring user/agent exercise](agents/rank-math-adapter-authoring-exercise.md). Internal process and evidence records, not product claims. |
 
 ## Design doctrine
 

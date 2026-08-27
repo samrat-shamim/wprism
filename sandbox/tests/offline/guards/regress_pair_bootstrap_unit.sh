@@ -510,6 +510,10 @@ run_case() {
   assert_file_contains "$log" "$mount2" "$label did not probe wp2 nested MU mount"
   assert_file_contains "$log" "env[DUO_AGENT_SRC]=$canonical_root/agent" "$label did not use the canonical agent bind source"
   assert_file_contains "$log" "env[DUO_MANIFESTS_SRC]=$canonical_root/manifests" "$label did not use the canonical manifests bind source"
+  local recipe_env="DUO_PAIR=$pair DUO_PORT1=9911 DUO_PORT2=9912 DUO_CLI_IMAGE=${DUO_CLI_IMAGE:-wordpress:cli-php8.3}"
+  [ -z "$codebind" ] || recipe_env="$recipe_env DUO_CODEBIND_PLUGIN=$codebind"
+  assert_file_contains "$output" "$recipe_env docker compose -p duo-$pair" \
+    "$label printed a wp-cli recipe that loses pair.yml's required environment across the pair.sh process boundary"
   assert_before "$log" "$web" "$mount1"
   assert_before "$log" "$mount2" "$cli"
   assert_before "$log" "$mount1" "$cli"

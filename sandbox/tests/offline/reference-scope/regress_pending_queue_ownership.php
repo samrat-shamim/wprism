@@ -295,6 +295,18 @@ namespace {
         $byKey['options:acme_featured_post']['ref_hint'] ?? null,
         'a genuine id-shaped value still gets its hint — the linter is narrowed, not disabled; `at` is empty because the id IS the value'
     );
+    $wpdb->seedTable('wp_terms', [
+        ['term_id' => 42, 'name' => 'Portable Category', 'slug' => 'portable-category'],
+    ]);
+    $wpdb->seedTable('wp_term_taxonomy', [
+        ['term_taxonomy_id' => 42, 'term_id' => 42, 'taxonomy' => 'category', 'description' => '', 'parent' => 0, 'count' => 1],
+    ])->enableJoinedCaptureSql();
+    $refHint = new ReflectionMethod(Pending::class, 'ref_hint');
+    duo_check_same(
+        ['kind' => 'term', 'id' => 42, 'title' => 'Portable Category', 'post_type' => 'category', 'at' => ''],
+        $refHint->invoke(null, 'rank_math_primary_category', '42'),
+        'a category-shaped key prefers the term namespace when the same integer is also a live post id'
+    );
     duo_check_same(
         [[1, '']],
         Pending::numeric_candidates('1'),

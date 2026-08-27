@@ -333,6 +333,16 @@ final class Pending {
         'menu', 'menus', 'form', 'forms',
     ];
 
+    /** A scalar whose name says term/category/tag must resolve in that ID
+     * namespace first. WordPress allocates post and term ids independently,
+     * so post-first resolution mislabeled Rank Math's
+     * `rank_math_primary_category = 2` as Sample Page #2 on a fresh site even
+     * though category #2 was the value's real owner. This changes hint order
+     * only; the result remains advisory and never becomes a classification. */
+    private const TERM_REF_KEY_TOKENS = [
+        'term', 'terms', 'category', 'categories', 'tag', 'tags',
+    ];
+
     /**
      * Key tokens that say "this slot holds a version", which is a number
      * about code and never about an entity.
@@ -416,7 +426,11 @@ final class Pending {
         $candidates = [];
         self::collect_ref_candidates($value, '', self::ref_claim($key), 0, $candidates);
         foreach ($candidates as [$id, $locator]) {
-            $hit = self::resolve_id($id, $observationReadCheckpoint);
+            $hit = self::resolve_id_with_preference(
+                $id,
+                $observationReadCheckpoint,
+                self::has_key_token($key, self::TERM_REF_KEY_TOKENS)
+            );
             if ($hit !== null) {
                 // `at` is the hint explaining itself: '' means the key's own
                 // value, anything else is the exact member inside it that
@@ -578,8 +592,9 @@ final class Pending {
 
     /**
      * Resolve a positive id against THIS environment's live posts, then
-     * terms — the one place that turns a bare integer into "yes, that's
-     * real, here's what" (or null). Shared by ref_hint() above and
+     * terms by default — or terms first when ref_hint() has a term-shaped
+     * key — the one place that turns a bare integer into "yes, that's real,
+     * here's what" (or null). Shared by ref_hint() above and
      * Lint::scan_tree()'s bare_id / serialized_desc_ids detectors (task
      * #11's generalized linter) — extracted so both use one implementation
      * rather than two copies that could drift.
@@ -594,10 +609,25 @@ final class Pending {
      * excluded — attachments (status=inherit) are legitimate targets.
      */
     public static function resolve_id(int $id, ?callable $observationReadCheckpoint = null): ?array {
+        return self::resolve_id_with_preference($id, $observationReadCheckpoint, false);
+    }
+
+    /** @return ?array{kind:string,id:int,title:string,post_type:string} */
+    private static function resolve_id_with_preference(
+        int $id,
+        ?callable $observationReadCheckpoint,
+        bool $preferTerm
+    ): ?array {
         if ($id <= 0) {
             return null;
         }
         global $wpdb;
+        if ($preferTerm) {
+            $term = self::resolve_term_id($id, $observationReadCheckpoint);
+            if ($term !== null) {
+                return $term;
+            }
+        }
         $post = $wpdb->get_row($wpdb->prepare(
             "SELECT ID, post_type, post_title FROM {$wpdb->posts}
              WHERE ID = %d AND post_type != 'revision' AND post_status != 'auto-draft'",
@@ -607,6 +637,12 @@ final class Pending {
         if ($post) {
             return ['kind' => 'post', 'id' => $id, 'title' => (string) $post['post_title'], 'post_type' => (string) $post['post_type']];
         }
+        return $preferTerm ? null : self::resolve_term_id($id, $observationReadCheckpoint);
+    }
+
+    /** @return ?array{kind:string,id:int,title:string,post_type:string} */
+    private static function resolve_term_id(int $id, ?callable $observationReadCheckpoint = null): ?array {
+        global $wpdb;
         $term = $wpdb->get_row($wpdb->prepare(
             "SELECT t.term_id, t.name, tt.taxonomy FROM {$wpdb->terms} t
              JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id

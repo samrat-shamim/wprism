@@ -160,7 +160,9 @@ final class TypedCaptureIdentity {
         bool $strictReadOnly
     ): string {
         $this->ordinary[] = [$table, $localId, $mint, $strictReadOnly];
-        return '11111111-1111-5111-8111-111111111111';
+        return $localId === 7
+            ? '11111111-1111-5111-8111-111111111111'
+            : '22222222-2222-5222-8222-222222222222';
     }
 
     public function identifyCompositeRow(string $table, array $decl, array $row, object $tokens): array {
@@ -319,6 +321,21 @@ $check($identity->ordinary === [['widgets', 7, true, false]],
 $check(in_array('SELECT * FROM `wp_widgets` ORDER BY `id` ASC', $wpdb->queries, true)
     && in_array('SELECT `meta_key` AS k, `meta_value` AS v FROM `wp_widget_meta` WHERE `owner_id` = %d ORDER BY `meta_id` ASC', $wpdb->queries, true),
     'row and sidecar reads pin deterministic primary/id ordering');
+
+$wpdb->tables['widgets'][] = [
+    'id' => 8,
+    'label' => 'Hello World',
+    'body' => 'A corrupt duplicate natural identity',
+    'runtime_clock' => '2026-08-14T00:00:00Z',
+    'allowed_key' => 'ordinary value',
+    'parent_id' => 3,
+];
+$throws(
+    fn() => $capture->capture_table('widgets', $rowDecl, [], $tokens, false),
+    "table 'widgets' natural identity matches local ids 7 and 8",
+    'duplicate live natural identities refuse even when ledger continuity retained distinct UUIDs'
+);
+array_pop($wpdb->tables['widgets']);
 
 $missingRefTokens = new TypedCaptureTokens(['post' => []]);
 $throws(

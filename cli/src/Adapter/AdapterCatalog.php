@@ -628,7 +628,11 @@ final class AdapterCatalog {
 
         if ($repo !== null) {
             try {
-                $report = Policy::load($repo, [$name], true)->capability_report(['operation' => 'promote']);
+                $report = Policy::load(
+                    $repo,
+                    self::repository_pin_for($repo, $name),
+                    true
+                )->capability_report(['operation' => 'promote']);
                 foreach ($report['manifests'] as $reported) {
                     if (($reported['name'] ?? null) === $name) {
                         $out['verdict'] = $reported['verdict'];
@@ -643,6 +647,31 @@ final class AdapterCatalog {
         }
 
         return $out;
+    }
+
+    /**
+     * Preserve the repository's exact review act while isolating inspect to
+     * one adapter. Passing only `[$name]` to Policy::load() silently replaced
+     * an exact site pin with a name-only request, so every certified site
+     * adapter inspected as `adapter_certification_unpinned` even while doctor
+     * and promotion accepted the same repository. The Rank Math authoring
+     * exercise exposed that contradiction immediately after `certify --pin`.
+     *
+     * @return list<string|array<string,mixed>>
+     */
+    private static function repository_pin_for(string $repo, string $name): array {
+        $site = Canon::decode(Canon::read_file(rtrim($repo, '/') . '/site.duo.json'));
+        foreach ((array) ($site['manifests'] ?? []) as $pin) {
+            if ((is_string($pin) && $pin === $name)
+                || (is_array($pin) && ($pin['name'] ?? null) === $name)) {
+                return [$pin];
+            }
+        }
+
+        // An installed but not-yet-pinned adapter still needs an isolated
+        // verdict; the name-only load is what honestly yields its unpinned
+        // remediation without pulling unrelated repository pins into inspect.
+        return [$name];
     }
 
     /**

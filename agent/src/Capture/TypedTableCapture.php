@@ -93,6 +93,7 @@ final class TypedTableCapture {
         $rows = $wpdb->get_results("SELECT * FROM `$prefixed` ORDER BY `$pk` ASC", ARRAY_A) ?: [];
 
         $entities = [];
+        $naturalIdentityRows = [];
         foreach ($rows as $row) {
             $localId = (int) $row[$pk];
             $uuid = $this->identity->identifyRow(
@@ -104,7 +105,6 @@ final class TypedTableCapture {
                 $mint,
                 $strictReadOnly
             );
-
             $columns = [];
             foreach ($decl['columns'] ?? [] as $col => $rule) {
                 if (($rule['class'] ?? '') !== 'authored') {
@@ -130,6 +130,23 @@ final class TypedTableCapture {
                     );
                 }
                 $columns[$col] = $token;
+            }
+
+            $naturalIdentity = self::natural_identity_key($decl, $columns);
+            if ($naturalIdentity !== null) {
+                if (isset($naturalIdentityRows[$naturalIdentity])) {
+                    throw new \RuntimeException(
+                        "duo: table '$table' natural identity matches local ids "
+                        . "{$naturalIdentityRows[$naturalIdentity]} and $localId; full natural identity must be "
+                        . 'unique before capture, plan, or apply'
+                    );
+                }
+                // UUID is deliberately not the key here: a row may retain an
+                // older ledger UUID after its natural key is renamed. The
+                // captured tuple is the compiler's duplicate identity fact,
+                // and this is the last point that still sees both live rows
+                // before a plan indexes them (Rank Math exercise, 2026-08-27).
+                $naturalIdentityRows[$naturalIdentity] = $localId;
             }
 
             $meta = [];
@@ -159,6 +176,22 @@ final class TypedTableCapture {
             ];
         }
         return $entities;
+    }
+
+    /** The compiler compares this exact ordered tuple for natural identities. */
+    private static function natural_identity_key(array $decl, array $columns): ?string {
+        $identity = is_array($decl['identity'] ?? null) ? $decl['identity'] : [];
+        if (($identity['mode'] ?? 'mapped') !== 'natural_key') {
+            return null;
+        }
+        $names = isset($identity['column'])
+            ? [(string) $identity['column']]
+            : array_values(array_map('strval', (array) ($identity['columns'] ?? [])));
+        $components = [];
+        foreach ($names as $name) {
+            $components[] = $columns[$name] ?? null;
+        }
+        return Canon::encode($components);
     }
 
     /**
