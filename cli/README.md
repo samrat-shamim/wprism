@@ -36,6 +36,9 @@ duo adapter doctor [--repo=<site-repo>] [--format=json]
 duo adapter-observe <env> [--out=<local-file>|--format=json]
 duo doctor <env>
 duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
+duo connect <env> --workspace=<path> --transport=ssh --host=<host> --wp-path=<path> --repo-path=<path>
+duo onboard <env> [--git-url=<empty-url>] [init flags...]
+duo onboard <env> --handoff-only --git-url=<url>
 duo adopt  <env>
 duo init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
 duo code-classify <env> [--dry-run] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
@@ -46,6 +49,10 @@ duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
 duo contract <env> show|propose|accept|attest [--format=json]
 duo rehearse <env> --from <production-env> [--branch <ref>] [--create] [--ttl <seconds>] [--limit=<1..200>] [--format=json]
 duo rehearse <env> --reap [--format=json]
+duo preview create <env> --from <production-env> [rehearse flags...]
+duo preview remove <env> [--format=json]
+duo demo start [--scenario=woocommerce] [--name=<name>] [--source-port=<port>] [--target-port=<port>]
+duo demo status|capture|apply|refusal|stop [--name=<name>]
 duo release <env> [--from=<ref>] [--plan-only] [--profile=<p>] [--accept-weaker-recovery] [--with-deletes] [--yes] [--limit=<1..200>] [--format=json]
 duo verify <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
 duo recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded] [--operator-directed] [--limit=<1..200>] [--format=json]
@@ -73,6 +80,30 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
 Environment names use the shell-safe grammar
 `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`; option-looking or control-bearing names
 are rejected when the registry is loaded.
+
+### First contact
+
+`duo demo start --scenario=woocommerce` owns a disposable source-checkout
+pair and prints the complete capture → Git diff → apply → refusal → teardown
+loop. It uses the same pair budget and digest-pinned artifact resolver as the
+live test estate; `demo stop` removes only the named demo's pair resources and
+repositories.
+
+`duo connect` issues no explicit mutation. It checks raw reachability,
+installed WordPress, and single-site topology before creating a dedicated local Git
+root containing the shared adoption seed and a mode-`0600`, ignored
+`.duo-envs.json`; topology inspection boots WordPress, so site startup code may
+have its own effects. `duo onboard` then composes the existing `adopt`, `assess`,
+and `init` gates in that order. `--git-url` must be empty and accessible with
+Git credentials from both controller and target; Duo preflights both before
+target mutation, publishes the target's current branch, and replaces only
+connect's byte-verified local seed with that exact checkout. If init completed
+without a URL, `--handoff-only --git-url=<url>` resumes just that handoff.
+
+`duo preview create|remove` is the first-contact spelling of the established
+`duo rehearse <env> ...|--reap` contract. It is a strict argument translation,
+so provider capabilities, containment disclosure, receipts, and refusal
+semantics remain the rehearsal implementation's.
 
 - **`duo envs`** — lists every environment in the merged registry with a
   one-line transport summary. Exit 0 if the registry has at least one
@@ -1414,11 +1445,16 @@ Per-transport required keys:
 | Transport | Required keys | Optional keys |
 |---|---|---|
 | `local` | `wp_path`, `repo_path` | machine-local-only exact `bootstrap: {"format":"duo-local-control-plane/v1"}` |
-| `docker` | `compose_file`, `service`, `repo_path` | `profile`, `mode` (`"run"` default, or `"exec"` — DUO-3513, see Transports below) |
+| `docker` | `compose_file`, `service`, `repo_path` | `compose_env_file`, `profile`, `mode` (`"run"` default, or `"exec"` — DUO-3513, see Transports below) |
 | `ssh` | `host`, `wp_path`, `repo_path` | `ssh_config`, paired `rollback_key_id` + `rollback_signing_key`, `rollback_recovery`, `verified_rollback` |
 
 A missing required key is a loud, specific error naming the environment,
 the key, and the transport — never a guess.
+
+`compose_env_file` is an optional machine-local path passed to Compose as
+`--env-file` before `-f`. It is useful for parameterized Compose definitions
+whose project name, mounts, or ports must remain fixed across fresh `run --rm`
+calls; the path must exist when the registry entry is loaded.
 
 The local `bootstrap` member grants only the delivery mechanism. It is accepted
 only from an untracked `.duo-envs.json` entry whose provenance is assigned by

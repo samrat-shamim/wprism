@@ -38,14 +38,52 @@ WordPress state is classified along three axes — *who authors it*, *env-portab
 
 ## Getting started
 
-The [guides](docs/guides/README.md) are narrative and task-shaped, and every command in them is mechanically checked against the shipped CLI. Reading order for someone new: [quickstart](docs/guides/quickstart.md) → [assess](docs/guides/assess.md) → [daily-workflow](docs/guides/daily-workflow.md) → [release](docs/guides/release.md) → [capabilities-and-limits](docs/guides/capabilities-and-limits.md), with [recovery](docs/guides/recovery.md) read before your first production release rather than during it, then [code-updates](docs/guides/code-updates.md) and [adapter-authoring](docs/guides/adapter-authoring.md) as the need arises. Installing onto an existing SSH WordPress host is [docs/adoption.md](docs/adoption.md) — it bootstraps the agent, manifests, and seed repo without requiring Git or shared volumes on the host.
+From a source checkout, the shortest honest evaluation is a disposable,
+digest-pinned WooCommerce pair. It requires PHP 8+, Docker with Compose, Git,
+and `jq`; no package installation is performed:
+
+```sh
+cli/duo demo start --scenario=woocommerce
+# edit “Duo Demo Mug” at the printed source wp-admin URL
+cli/duo demo capture
+git -C sandbox/siterepo/duodemo1 diff
+cli/duo demo apply
+cli/duo demo refusal
+cli/duo demo stop
+```
+
+`apply` proves a target-only order and live stock value survived the managed
+catalog change; `refusal` proves a caller cannot replace the registry's trusted
+target binding. For a
+real site, `duo connect` creates the local repository/registry only after
+native reachability, WordPress and topology inspection probes, and `duo
+onboard` composes adopt → assess → init without a handwritten seed:
+
+```sh
+DUO_CLI="$PWD/cli/duo"
+"$DUO_CLI" connect production --workspace=../my-site \
+  --transport=ssh --host=deploy@wp.example.com \
+  --wp-path=/var/www/html --repo-path=/home/deploy/site-repo
+cd ../my-site
+"$DUO_CLI" onboard production --git-url=git@github.com:you/my-site.git
+```
+
+The Git remote must be empty and reachable with configured credentials from
+both this controller and the WordPress target. Duo verifies that before
+adoption or initialization changes the site.
+
+The [quickstart](docs/guides/quickstart.md) explains both paths. Continue with
+[assess](docs/guides/assess.md) → [daily-workflow](docs/guides/daily-workflow.md)
+→ [release](docs/guides/release.md) →
+[capabilities-and-limits](docs/guides/capabilities-and-limits.md), and read
+[recovery](docs/guides/recovery.md) before the first production release.
 
 ## The `duo` CLI
 
 Host-agnostic, dependency-free PHP orchestration ([cli/](cli/); full reference in [cli/README.md](cli/README.md)) over **local**, **Docker**, and **SSH** transports, driven from a committable environment registry.
 
-- **Environment-bound:** `adopt`, `init`, `assess`, `contract`, `status`, `doctor`, `capture`, `plan`, `apply`, `deploy`, `rehearse`, `release`, `verify`, `recover`, `promote`, `pending`, `classify`, `capabilities`, `explain`, `coverage`, `scope`, `env-set`, `refresh`, `rebase`, `adapter-observe`, `driver-capabilities`.
-- **Repo-local (no environment):** `envs`, `env materialize|reap`, `manifest-validate`, `adapter-draft`, `adapter`.
+- **Environment-bound:** `onboard`, `adopt`, `init`, `assess`, `contract`, `status`, `doctor`, `capture`, `plan`, `apply`, `deploy`, `preview`/`rehearse`, `release`, `verify`, `recover`, `promote`, `pending`, `classify`, `capabilities`, `explain`, `coverage`, `scope`, `env-set`, `refresh`, `rebase`, `adapter-observe`, `driver-capabilities`.
+- **Repo-local (no environment):** `connect`, `demo`, `envs`, `env materialize|reap`, `manifest-validate`, `adapter-draft`, `adapter`.
 
 `duo capabilities` reports the same reviewed disposition, exact scope, and explicit unsupported surfaces that readiness and promotion consume, evaluated against the live target (`duo-capability-report/v1`). `duo promote` composes deploy-before-apply under promotion locks and, when the target proves every rollback capability, automatically selects the **verified-rollback profile** (DUO-3310); otherwise it remains operator-directed with an explicit warning.
 

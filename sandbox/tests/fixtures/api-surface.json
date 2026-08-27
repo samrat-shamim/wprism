@@ -1,5 +1,5 @@
 {
-    "class_count": 399,
+    "class_count": 405,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -24236,6 +24236,30 @@
                     "return_type": "array",
                     "static": true,
                     "visibility": "public"
+                },
+                "repositoryGitignoreBytes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "repositorySeed": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "repositorySeedBytes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
                 }
             },
             "parent": null,
@@ -25707,6 +25731,102 @@
                     "abstract": false,
                     "final": false,
                     "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\BoundedControlDriver": {
+            "abstract": true,
+            "constants": [],
+            "final": false,
+            "interfaces": [
+                "Duo\\Orchestrator\\EnvironmentDriver"
+            ],
+            "kind": "interface",
+            "methods": {
+                "captureRawBounded": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "script",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "timeoutMilliseconds",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "maxStdoutBytes",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "maxStderrBytes",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "captureWpBounded": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "wpArgs",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "timeoutMilliseconds",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "maxStdoutBytes",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "maxStderrBytes",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
                     "return_type": "array",
                     "static": false,
                     "visibility": "public"
@@ -27842,6 +27962,84 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\ConnectCommand": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "parse": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "cwd",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "transportFactory",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "processRunner",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\ContractAttestation": {
             "abstract": false,
             "constants": {
@@ -28635,6 +28833,76 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\DemoCommand": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "options": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "phaseHook",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\DeployCommand": {
             "abstract": false,
             "constants": [],
@@ -28824,6 +29092,7 @@
             "constants": [],
             "final": true,
             "interfaces": [
+                "Duo\\Orchestrator\\BoundedControlDriver",
                 "Duo\\Orchestrator\\EnvironmentDriver"
             ],
             "kind": "class",
@@ -28855,6 +29124,14 @@
                             "name": "serviceRunningProbe",
                             "type": "?callable",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "controlPlaneCapture",
+                            "type": "?callable",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,
@@ -28866,6 +29143,14 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "hostRepoBoundaryPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
                     "static": false,
                     "visibility": "public"
                 },
@@ -29061,6 +29346,9 @@
                 },
                 "BOOTSTRAP": {
                     "value_repr": "environment.bootstrap"
+                },
+                "BOUNDED_CONTROL": {
+                    "value_repr": "control.bounded"
                 },
                 "CODE_MATERIALIZE": {
                     "value_repr": "code.materialize"
@@ -30795,6 +31083,75 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\HostProcess": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "argv",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "cwd",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "extraEnv",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "passthrough",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::DEFAULT_TIMEOUT_MILLISECONDS",
+                            "has_default": true,
+                            "name": "timeoutMilliseconds",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::DEFAULT_OUTPUT_LIMIT_BYTES",
+                            "has_default": true,
+                            "name": "outputLimitBytes",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\HumanViewLimit": {
             "abstract": false,
             "constants": {
@@ -31287,6 +31644,14 @@
                             "name": "readLine",
                             "type": "callable",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": true,
+                            "has_default": true,
+                            "name": "renderNextSteps",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "int",
@@ -31700,6 +32065,7 @@
             "final": true,
             "interfaces": [
                 "Duo\\Orchestrator\\AdoptionTransport",
+                "Duo\\Orchestrator\\BoundedControlDriver",
                 "Duo\\Orchestrator\\EnvironmentDriver",
                 "Duo\\Orchestrator\\RecoveryTransport"
             ],
@@ -31817,6 +32183,14 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "hostRepoBoundaryPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
                     "static": false,
                     "visibility": "public"
                 },
@@ -32452,6 +32826,76 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\OnboardCommand": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "options": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "steps",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
                     "static": true,
                     "visibility": "public"
                 }
@@ -33365,6 +33809,126 @@
                     "visibility": "public"
                 }
             },
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\ProcessGroup": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "command": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "argv",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "exists": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "leader",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "open": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "command",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "descriptors",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "cwd",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "environment",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "terminateAndReap": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": true,
+                            "default": null,
+                            "has_default": false,
+                            "name": "process",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": true,
+                            "default": null,
+                            "has_default": false,
+                            "name": "pipes",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "leader",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
             "readonly": false
         },
         "Duo\\Orchestrator\\ProjectionVocabulary": {
@@ -38396,6 +38960,7 @@
             "final": true,
             "interfaces": [
                 "Duo\\Orchestrator\\AdoptionTransport",
+                "Duo\\Orchestrator\\BoundedControlDriver",
                 "Duo\\Orchestrator\\CodePushTransport",
                 "Duo\\Orchestrator\\EnvironmentDriver",
                 "Duo\\Orchestrator\\RecoveryTransport"
@@ -39146,6 +39711,7 @@
             "constants": [],
             "final": false,
             "interfaces": [
+                "Duo\\Orchestrator\\BoundedControlDriver",
                 "Duo\\Orchestrator\\EnvironmentDriver"
             ],
             "kind": "class",
@@ -39209,6 +39775,47 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "captureRawBounded": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "script",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "timeoutMilliseconds",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "maxStdoutBytes",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "maxStderrBytes",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "captureWp": {
                     "abstract": false,
                     "final": false,
@@ -39219,6 +39826,47 @@
                             "has_default": false,
                             "name": "wpArgs",
                             "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "captureWpBounded": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "wpArgs",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "timeoutMilliseconds",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "maxStdoutBytes",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "maxStderrBytes",
+                            "type": "int",
                             "variadic": false
                         }
                     ],
@@ -39307,6 +39955,14 @@
                     "return_type": "string",
                     "static": true,
                     "visibility": "protected"
+                },
+                "hostRepoBoundaryPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
                 },
                 "hostRepoPath": {
                     "abstract": false,
@@ -39442,6 +40098,47 @@
                             "has_default": false,
                             "name": "fullCommand",
                             "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "protected"
+                },
+                "runCapturingBounded": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "fullCommand",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "timeoutMilliseconds",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "maxStdoutBytes",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "maxStderrBytes",
+                            "type": "int",
                             "variadic": false
                         }
                     ],

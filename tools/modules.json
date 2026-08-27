@@ -1279,6 +1279,7 @@
         "entry_points": [
           "EnvironmentDriver",
           "Transport",
+          "ProcessGroup",
           "CodeDeploy",
           "SshTransport",
           "LocalTransport",
@@ -1289,13 +1290,14 @@
           "Transport"
         ],
         "exceptions": [],
-        "file_count": 9,
+        "file_count": 10,
         "files": [
           "CodeDeploy.php",
           "CodePushTransport.php",
           "DockerTransport.php",
           "EnvironmentDriver.php",
           "LocalTransport.php",
+          "ProcessGroup.php",
           "RecoveryConfig.php",
           "RecoveryTransport.php",
           "SshTransport.php",
@@ -1527,7 +1529,7 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 31,
+        "file_count": 35,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
@@ -1538,7 +1540,9 @@
           "CodeImportCommand.php",
           "CodeResolveCommand.php",
           "CommandOutput.php",
+          "ConnectCommand.php",
           "ContractCommand.php",
+          "DemoCommand.php",
           "DeployCommand.php",
           "DoctorCommand.php",
           "DriverCapabilitiesCommand.php",
@@ -1547,8 +1551,10 @@
           "EnvironmentCommandPreflight.php",
           "EnvironmentListCommand.php",
           "EnvironmentProviderCheckCommand.php",
+          "HostProcess.php",
           "InitCommand.php",
           "MergeCheckCommand.php",
+          "OnboardCommand.php",
           "PassthroughCommand.php",
           "PendingCommand.php",
           "PromoteCommand.php",

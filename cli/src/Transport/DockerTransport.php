@@ -26,14 +26,20 @@ namespace Duo\Orchestrator;
  */
 final class DockerTransport extends Transport {
     private const MODES = ['run', 'exec'];
+    private const CONTROL_PLANE_TIMEOUT_MILLISECONDS = 30000;
+    private const CONTROL_PLANE_OUTPUT_LIMIT_BYTES = 1048576;
 
     private string $composeFile;
+    private ?string $composeEnvFile;
     private ?string $profile;
     private string $service;
     private string $mode;
 
     /** @var callable(): bool */
     private $serviceRunningProbe;
+
+    /** @var callable(string,int,int,int):array{exit:int,stdout:string,stderr:string} */
+    private $controlPlaneCapture;
 
     /**
      * Cached per DockerTransport instance. cli/duo builds exactly one
@@ -45,10 +51,25 @@ final class DockerTransport extends Transport {
      */
     private ?bool $serviceRunning = null;
 
-    public function __construct(string $name, array $cfg, ?callable $serviceRunningProbe = null) {
+    public function __construct(
+        string $name,
+        array $cfg,
+        ?callable $serviceRunningProbe = null,
+        ?callable $controlPlaneCapture = null
+    ) {
         parent::__construct($name, $cfg);
         $dir = is_string($cfg['_dir'] ?? null) ? $cfg['_dir'] : (getcwd() ?: '.');
         $this->composeFile = self::resolvePath($dir, self::requireKey($cfg, $name, 'compose_file'));
+        $composeEnvFile = $cfg['compose_env_file'] ?? null;
+        if ($composeEnvFile !== null && (!is_string($composeEnvFile) || $composeEnvFile === '')) {
+            throw new \RuntimeException("env '$name': optional key 'compose_env_file' must be a non-empty path string");
+        }
+        $this->composeEnvFile = is_string($composeEnvFile)
+            ? self::resolvePath($dir, $composeEnvFile)
+            : null;
+        if ($this->composeEnvFile !== null && !is_file($this->composeEnvFile)) {
+            throw new \RuntimeException("env '$name': compose_env_file not found: {$this->composeEnvFile}");
+        }
         $profile = $cfg['profile'] ?? null;
         $this->profile = (is_string($profile) && $profile !== '') ? $profile : null;
         $this->service = self::requireKey($cfg, $name, 'service');
@@ -77,6 +98,12 @@ final class DockerTransport extends Transport {
         $this->serviceRunningProbe = $serviceRunningProbe ?? function (): bool {
             return $this->defaultServiceRunningProbe();
         };
+        $this->controlPlaneCapture = $controlPlaneCapture ?? static fn(
+            string $command,
+            int $timeout,
+            int $stdoutLimit,
+            int $stderrLimit
+        ): array => self::runCapturingBounded($command, $timeout, $stdoutLimit, $stderrLimit);
     }
 
     public function describe(): string {
@@ -85,7 +112,8 @@ final class DockerTransport extends Transport {
         // `duo envs` — stays byte-identical for every environment that
         // never opted in (rule 8).
         $mode = $this->mode !== 'run' ? " mode={$this->mode}" : '';
-        return "docker compose_file={$this->composeFile}{$profile}{$mode} service={$this->service} repo_path={$this->repoPath}";
+        $envFile = $this->composeEnvFile !== null ? " compose_env_file={$this->composeEnvFile}" : '';
+        return "docker compose_file={$this->composeFile}{$envFile}{$profile}{$mode} service={$this->service} repo_path={$this->repoPath}";
     }
 
     /**
@@ -110,41 +138,77 @@ final class DockerTransport extends Transport {
      * same file, profile and interpolation environment this transport itself
      * runs with, and needs no container to exist yet.
      *
-     * Null — never a guess — when the answer is not a writable host directory:
-     * the mount is a named volume, it is read-only, the service or the mount
-     * is absent, or compose cannot be read. Every caller treats null as "the
-     * host cannot materialize here" and refuses with the reviewed message.
+     * Null — never a guess — only when valid Compose data proves that repo_path
+     * is not a writable bind. Invocation, JSON, service and ambiguous-mount
+     * failures throw, because continuing would skip Connect's host-overlap gate.
      */
     public function hostRepoPath(): ?string {
+        $source = $this->hostRepoBoundaryPath();
+        return $source !== null && is_dir($source) ? $source : null;
+    }
+
+    public function hostRepoBoundaryPath(): ?string {
         $tokens = array_merge($this->baseTokens(), ['config', '--format', 'json']);
-        $result = self::runCapturing(self::tokens($tokens));
-        if (($result['exit'] ?? 1) !== 0) {
-            return null;
+        $result = $this->captureControlPlane($tokens);
+        if ($result['exit'] !== 0) {
+            throw new \RuntimeException(
+                'Docker Compose repository-mount inspection failed closed: ' . trim($result['stderr'])
+            );
         }
-        $config = json_decode((string) ($result['stdout'] ?? ''), true);
-        $volumes = $config['services'][$this->service]['volumes'] ?? null;
+        try {
+            $config = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $error) {
+            throw new \RuntimeException('Docker Compose repository-mount inspection returned malformed JSON');
+        }
+        $services = is_array($config) ? ($config['services'] ?? null) : null;
+        $service = is_array($services) ? ($services[$this->service] ?? null) : null;
+        if (!is_array($service)) {
+            throw new \RuntimeException("Docker Compose config does not contain service '{$this->service}'");
+        }
+        $volumes = $service['volumes'] ?? [];
         if (!is_array($volumes)) {
-            return null;
+            throw new \RuntimeException("Docker Compose service '{$this->service}' has malformed volumes");
         }
         $want = rtrim($this->repoPath, '/');
+        $matches = [];
         foreach ($volumes as $volume) {
-            if (!is_array($volume) || rtrim((string) ($volume['target'] ?? ''), '/') !== $want) {
+            if (!is_array($volume) || !is_string($volume['target'] ?? null)) {
+                throw new \RuntimeException("Docker Compose service '{$this->service}' has an ambiguous volume entry");
+            }
+            if (rtrim($volume['target'], '/') !== $want) {
                 continue;
             }
-            // A named volume holds the bytes inside docker where this host has
-            // no path to write, and a read-only bind refuses the write anyway;
-            // both are "ask the target instead", not "try harder".
-            if (($volume['type'] ?? null) !== 'bind' || ($volume['read_only'] ?? false) === true) {
-                return null;
-            }
-            $source = (string) ($volume['source'] ?? '');
-            return $source !== '' && is_dir($source) ? $source : null;
+            $matches[] = $volume;
         }
-        return null;
+        if (count($matches) > 1) {
+            throw new \RuntimeException("Docker Compose service '{$this->service}' has ambiguous repo_path mounts");
+        }
+        if ($matches === []) {
+            return null;
+        }
+        $volume = $matches[0];
+        $type = $volume['type'] ?? null;
+        $readOnly = $volume['read_only'] ?? false;
+        if (!is_string($type) || !is_bool($readOnly)) {
+            throw new \RuntimeException("Docker Compose service '{$this->service}' has an ambiguous repo_path mount");
+        }
+        if ($type === 'volume' || $readOnly) {
+            return null;
+        }
+        $source = $volume['source'] ?? null;
+        if ($type !== 'bind' || !is_string($source) || $source === '' || !str_starts_with($source, '/')) {
+            throw new \RuntimeException("Docker Compose service '{$this->service}' has an ambiguous writable repo_path mount");
+        }
+        return rtrim($source, '/');
     }
 
     private function baseTokens(): array {
-        $t = ['docker', 'compose', '-f', $this->composeFile];
+        $t = ['docker', 'compose'];
+        if ($this->composeEnvFile !== null) {
+            $t[] = '--env-file';
+            $t[] = $this->composeEnvFile;
+        }
+        array_push($t, '-f', $this->composeFile);
         if ($this->profile !== null) {
             $t[] = '--profile';
             $t[] = $this->profile;
@@ -199,15 +263,32 @@ final class DockerTransport extends Transport {
     }
 
     private function defaultServiceRunningProbe(): bool {
-        $result = self::runCapturing(self::tokens(array_merge(
+        $result = $this->captureControlPlane(array_merge(
             $this->baseTokens(),
             ['ps', '--status=running', '--services']
-        )));
+        ));
         if ($result['exit'] !== 0) {
             return false;
         }
         $running = array_map('trim', explode("\n", $result['stdout']));
         return in_array($this->service, $running, true);
+    }
+
+    /** @return array{exit:int,stdout:string,stderr:string} */
+    private function captureControlPlane(array $tokens): array {
+        $result = ($this->controlPlaneCapture)(
+            self::tokens($tokens),
+            self::CONTROL_PLANE_TIMEOUT_MILLISECONDS,
+            self::CONTROL_PLANE_OUTPUT_LIMIT_BYTES,
+            self::CONTROL_PLANE_OUTPUT_LIMIT_BYTES
+        );
+        if (!is_array($result)
+            || !is_int($result['exit'] ?? null)
+            || !is_string($result['stdout'] ?? null)
+            || !is_string($result['stderr'] ?? null)) {
+            throw new \RuntimeException('Docker control-plane capture returned a malformed result');
+        }
+        return $result;
     }
 
     private static function describeValue(mixed $value): string {

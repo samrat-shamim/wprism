@@ -3,12 +3,19 @@
 This is the whole customer loop for one change, from a disposable preview to a
 verified production release:
 
-**rehearse → change on the preview → capture → merge → release --plan-only →
+**preview → change on the preview → capture → merge → release --plan-only →
 authorize → verify.**
 
 It assumes the site has an accepted application contract. If it does not,
 `duo release` refuses immediately with the gap action `declare in contract`,
 and [assess.md](assess.md) is the fifteen minutes that fixes it.
+
+The quickstart keeps an absolute `$DUO_CLI` for a source checkout. An installed
+CLI needs no special path; initialize the same command variable once:
+
+```sh
+DUO_CLI="${DUO_CLI:-duo}"
+```
 
 `duo release` **composes** `duo promote` rather than replacing it.
 Deploy-before-apply ordering, the promotion lease and the target fence are
@@ -19,13 +26,63 @@ authorization in front and verification behind.
 `duo promote` remains documented and supported as the lower-level verb; see
 [daily-workflow.md](daily-workflow.md).
 
-## Rehearse
+## Create a preview
 
-```sh
-duo rehearse preview --from production --branch feature/pricing-page --ttl 86400
+Preview is not available from the one-entry registry `duo connect` creates.
+Duo orchestrates hosting; it does not supply it. Configure both the source and
+target transports and both `environment_provider` blocks in the machine-local
+`.duo-envs.json`. This complete schematic is loadable after replacing its
+host/path values with real ones:
+
+```json
+{
+  "envs": {
+    "production": {
+      "transport": "ssh",
+      "host": "deploy@production.example.com",
+      "wp_path": "/var/www/html",
+      "repo_path": "/srv/duo-production",
+      "environment_provider": {
+        "command": ["/opt/acme/duo-env-provider", "/etc/duo/production.json"],
+        "timeout_seconds": 30
+      }
+    },
+    "preview": {
+      "transport": "ssh",
+      "host": "deploy@preview-control.example.com",
+      "wp_path": "/var/www/html",
+      "repo_path": "/srv/duo-preview",
+      "environment_provider": {
+        "command": ["/opt/acme/duo-env-provider", "/etc/duo/preview.json"],
+        "timeout_seconds": 30
+      }
+    }
+  }
+}
 ```
 
-`duo rehearse` is `duo env materialize` plus a preview: the same option
+The production provider must supply the snapshot-set capabilities; the
+preview provider must supply inspect/create/destroy, snapshot restore,
+repository materialization, mutation-fence, URL, receipt, and (for `--ttl`)
+TTL capabilities. Check both configurations without mutation before creating
+anything:
+
+```sh
+"$DUO_CLI" env provider-check production --role=source
+"$DUO_CLI" env provider-check preview --role=target
+```
+
+The exact capability sets and refusal contract are in the
+[branch-environment provider protocol](../branch-environment-provider.md).
+
+```sh
+BRANCH=$(git branch --show-current)
+test -n "$BRANCH"
+"$DUO_CLI" preview create preview --from production --branch "$BRANCH" --create --ttl 86400
+```
+
+`duo preview create` is the first-contact spelling of `duo rehearse`, which is
+`duo env materialize` plus a preview: the same option
 grammar, the same machine-local provider registry, the same capability
 negotiation, the same journal, the same exact resource/lease/ownership
 compare. A missing provider capability is a refusal naming that capability id;
@@ -37,16 +94,6 @@ metadata and authorizes no deletion.
 After convergence it prints what a release would touch: the plan's own
 value-free category counts, and the assessed surface rows restricted to that
 scope, each saying why it is in scope.
-
-Clean up explicitly, always:
-
-```sh
-duo rehearse preview --reap
-```
-
-That is `duo env reap` with the same compare-and-reap. Created targets are
-destroyed, attached targets are detached, a repeated reap is idempotent, and a
-stale identity refuses.
 
 ### Reusing one physical preview slot
 
@@ -106,7 +153,7 @@ Author the change on the preview environment, in WordPress, the way it is
 meant to be authored. Then:
 
 ```sh
-duo capture preview
+"$DUO_CLI" capture preview
 ```
 
 Capture is the only command that mints identity and publishes canonical state.
@@ -115,10 +162,21 @@ Review the result as an ordinary diff, merge it as an ordinary merge —
 when production moved underneath you. Duo adds no branching model; git stays
 git.
 
+After the captured revision is committed and pushed or merged somewhere you
+intend to keep it, clean up the disposable preview explicitly:
+
+```sh
+"$DUO_CLI" preview remove preview
+```
+
+That is `duo env reap` with the same compare-and-reap. Created targets are
+destroyed, attached targets are detached, a repeated reap is idempotent, and a
+stale identity refuses.
+
 ## Read the plan before you authorize it
 
 ```sh
-duo release production --from=main --plan-only
+"$DUO_CLI" release production --from=main --plan-only
 ```
 
 `--plan-only` prints the frozen-shape authorization plan and exits 0 having
@@ -216,7 +274,7 @@ operation ids stay in `--format=json`.
 ## `--from` is a binding assertion, not a git transport
 
 ```sh
-duo release production --from=main
+"$DUO_CLI" release production --from=main
 ```
 
 Release resolves that ref in your local site repository with `git rev-parse`,
@@ -242,7 +300,7 @@ than the target proves is a named human authority: it needs
 claim it weakens, and still ends in the plan's own typed confirmation.
 
 ```sh
-duo release production --from=main --profile=operator-directed --accept-weaker-recovery
+"$DUO_CLI" release production --from=main --profile=operator-directed --accept-weaker-recovery
 ```
 
 Whatever you select, the claim in the plan changes to match it. Under
@@ -253,7 +311,7 @@ remedy stated on the row. Under `none`, so does the database.
 ## Authorize
 
 ```sh
-duo release production --from=main --yes
+"$DUO_CLI" release production --from=main --yes
 ```
 
 Answering `yes` to the question (or passing `--yes`, which confirms the plan
@@ -311,7 +369,7 @@ you see at recovery" checkable rather than aspirational.
 ## Verify
 
 ```sh
-duo verify production --plan=sha256:7b1c…
+"$DUO_CLI" verify production --plan=sha256:7b1c…
 ```
 
 Two independent parts, both required for a pass.

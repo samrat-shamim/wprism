@@ -8,6 +8,12 @@ the site's pre-existing plugin state is already classified. Machine-local
 delivery is initial-only and refuses an already-installed Duo control plane;
 SSH retains the established install-or-update workflow.
 
+For a first source-checkout install, prefer the guided wrapper: `duo connect`
+performs native read-only probes and creates the local seed/registry, then
+`duo onboard` composes this adoption transaction, the read-only assessment,
+and the reviewed init confirmation. The lower-level `adopt` command documented
+here remains the update path and the place to inspect its exact transaction.
+
 ## Prerequisites
 
 The machine running `duo` needs PHP 8+ with Sodium and `tar`; SSH adoption

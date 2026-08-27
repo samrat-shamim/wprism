@@ -27,6 +27,25 @@ interface EnvironmentDriver {
     public function capabilityReport(string $operation): DriverCapabilityReport;
 }
 
+/** Finite target-control protocol required by newcomer-facing compositions. */
+interface BoundedControlDriver extends EnvironmentDriver {
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    public function captureRawBounded(
+        string $script,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array;
+
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    public function captureWpBounded(
+        array $wpArgs,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array;
+}
+
 /** Closed, versioned vocabulary for environment-driver capabilities. */
 final class DriverCapability {
     public const ATTACH = 'environment.attach';
@@ -36,6 +55,7 @@ final class DriverCapability {
     public const TTL = 'environment.ttl';
     public const WP_CONTROL = 'control.wp_cli';
     public const RAW_CONTROL = 'control.raw';
+    public const BOUNDED_CONTROL = 'control.bounded';
     public const CODE_TRANSFER = 'code.transfer';
     public const CODE_MATERIALIZE = 'code.materialize';
     public const DB_SNAPSHOT_CREATE = 'snapshot.database.create';
@@ -54,7 +74,8 @@ final class DriverCapability {
     public static function all(): array {
         $capabilities = [
             self::ATTACH, self::BOOTSTRAP, self::CREATE, self::DESTROY, self::TTL,
-            self::WP_CONTROL, self::RAW_CONTROL, self::CODE_TRANSFER, self::CODE_MATERIALIZE,
+            self::WP_CONTROL, self::RAW_CONTROL, self::BOUNDED_CONTROL,
+            self::CODE_TRANSFER, self::CODE_MATERIALIZE,
             self::DB_SNAPSHOT_CREATE, self::DB_SNAPSHOT_READ, self::DB_SNAPSHOT_RESTORE,
             self::MEDIA_SNAPSHOT_CREATE, self::MEDIA_SNAPSHOT_READ, self::MEDIA_SNAPSHOT_RESTORE,
             self::MAINTENANCE_ENTER, self::MAINTENANCE_EXIT,
@@ -231,6 +252,17 @@ final class DriverCapabilityReport {
                 DriverCapability::ATTACH, DriverCapability::BOOTSTRAP,
                 DriverCapability::CODE_TRANSFER, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
             ],
+            'onboard' => [
+                DriverCapability::ATTACH, DriverCapability::BOOTSTRAP,
+                DriverCapability::CODE_TRANSFER, DriverCapability::RAW_CONTROL,
+                DriverCapability::WP_CONTROL, DriverCapability::BOUNDED_CONTROL,
+            ],
+            // A resumed handoff runs only target Git over captureRaw(). It
+            // must remain usable after init even on a control plane, such as
+            // Docker, that cannot deliver the agent itself.
+            'onboard-handoff' => [
+                DriverCapability::ATTACH, DriverCapability::RAW_CONTROL, DriverCapability::BOUNDED_CONTROL,
+            ],
             'deploy' => [
                 DriverCapability::ATTACH, DriverCapability::CODE_MATERIALIZE,
                 DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
@@ -283,7 +315,7 @@ final class DriverCapabilityReport {
             default => throw new \RuntimeException(
                 "unknown driver operation '$operation' (expected attach, doctor, init, status, capabilities, capture, "
                 . 'lint, plan, explain, apply, env-set, pending, classify, coverage, scope, assess, contract, verify, '
-                . 'refresh, rebase, adapter-observe, adopt, deploy, promote, release, recover, rehearse, create, destroy, '
+                . 'refresh, rebase, adapter-observe, adopt, onboard, deploy, promote, release, recover, rehearse, create, destroy, '
                 . 'ttl, media-snapshot, maintenance, or url)'
             ),
         };
