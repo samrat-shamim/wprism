@@ -204,7 +204,14 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # dereferencing a null post on the next exact-version install. This is
   # disposable matrix-fixture cleanup only, not a production-state policy.
   "$cli" option delete elementor_active_kit >/dev/null 2>&1 || true
-  "$cli" site empty --yes >/dev/null
+  # The pair webroot is a named volume and survives every loop iteration.
+  # Clearing only DB rows left WooCommerce's package-owned placeholder
+  # derivatives behind after the 11.0.0 leg; the fresh 11.0.1 attachment did
+  # not own those exact paths and apply correctly refused with "generated
+  # attachment derivative collides with an existing file not owned by prior
+  # native metadata". All uploads are disposable boundary-fixture content, so
+  # use WP-CLI's bounded native cleanup instead of a plugin filename glob.
+  "$cli" site empty --yes --uploads >/dev/null
   # site empty can leave default_category pointing at a term it deleted. A
   # later plugin installer may reuse that numeric id for another taxonomy
   # (WooCommerce product_visibility exposed this), turning harmless stale

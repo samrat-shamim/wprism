@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Regression — DUO-3366: the exact Elementor version-boundary matrix must
-# remove Elementor's active-kit option before `site empty` deletes its target
-# post. Without that ordering, the next exact 4.2.3 lifecycle dereferences a
-# null post and emits a PHP warning while the matrix still reports success.
-# The live matrix also scans the captured boundary stderr; this offline check
-# pins the reset contract so a future cleanup edit cannot silently reintroduce
-# the stale reference.
+# Regression — exact version boundaries reuse persistent webroot volumes, so
+# the reset must remove uploads as well as database content. Without
+# `--uploads`, WooCommerce's 11.0.0 placeholder derivatives survived into the
+# standalone 11.0.1 leg and correctly tripped the unowned-file collision gate.
+# DUO-3366 also requires Elementor's active-kit option to be removed before
+# `site empty` deletes its target post. This guard pins both reset contracts.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."   # -> sandbox/
 
@@ -27,13 +26,15 @@ end = text.index("\n}\n\nrun_elementor_command", start)
 reset = text[start:end]
 
 delete = '"$cli" option delete elementor_active_kit >/dev/null 2>&1 || true'
-empty = '"$cli" site empty --yes >/dev/null'
+empty = '"$cli" site empty --yes --uploads >/dev/null'
 if delete not in reset:
     raise SystemExit("reset_env no longer deletes Elementor's active-kit option")
 if empty not in reset:
-    raise SystemExit("reset_env no longer contains the site-empty boundary")
+    raise SystemExit("reset_env no longer clears persistent uploads at the site-empty boundary")
 if reset.index(delete) >= reset.index(empty):
     raise SystemExit("Elementor active-kit cleanup happens after site empty; the null-post warning can return")
+if 'woocommerce-placeholder' in reset or 'conf-woo-category' in reset:
+    raise SystemExit("reset_env substituted a Woo filename cleanup for complete upload-volume isolation")
 
 required = (
     "ELEMENTOR_STDERR_LOG=$(mktemp",
