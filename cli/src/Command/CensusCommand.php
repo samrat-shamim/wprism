@@ -353,7 +353,7 @@ final class CensusCommand {
      * census it could express.
      *
      * @param list<string> $args
-     * @return array{sites:array<string,string>,manifests:string,format:string,limit:int,health:?string,baseline:?string,current:?string}
+     * @return array{sites:array<string,string>,manifests:string|null,format:string,limit:int,health:?string,baseline:?string,current:?string}
      */
     private static function options(array $args): array {
         $sites = [];
@@ -458,11 +458,11 @@ final class CensusCommand {
 
         return [
             'sites' => $sites,
-            // The library this checkout ships is the default oracle for the
-            // same reason `Policy::manifests_dir()` is the agent's: a census
-            // run from a duo checkout is asking about the adapters that
-            // checkout could deploy.
-            'manifests' => $manifests ?? dirname(__DIR__, 3) . '/manifests',
+            // Null selects Policy::shipped_adapter_library() inside the
+            // census after its env-free agent bootstrap. A path exists only
+            // when the operator explicitly selected the transitional sparse
+            // legacy-fixture surface with --manifests.
+            'manifests' => $manifests,
             'format' => $format,
             'limit' => $limit,
             // No default path. The freshness document is DERIVED and this

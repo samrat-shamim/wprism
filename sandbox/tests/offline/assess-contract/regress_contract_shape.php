@@ -30,10 +30,12 @@ require_once __DIR__ . '/../../../../cli/src/Contract/ApplicationContract.php';
 require_once __DIR__ . '/../../../../cli/src/Contract/ContractStore.php';
 require_once __DIR__ . '/../../../../cli/src/Contract/ContractProposal.php';
 require_once __DIR__ . '/../../../../cli/src/Assess/AssessReport.php';
+require_once __DIR__ . '/../../../../cli/src/Command/AssessCommand.php';
 
 use Duo\Canon;
 use Duo\Orchestrator\ApplicationContract;
 use Duo\Orchestrator\AssessReport;
+use Duo\Orchestrator\AssessCommand;
 use Duo\Orchestrator\ContractProposal;
 use Duo\Orchestrator\ContractStore;
 
@@ -727,6 +729,123 @@ duo_check_refuses(
     static fn () => AssessReport::dispositions(['plan' => ['registry_sha256' => null]], ['registry_sha256' => str_repeat('a', 64)]),
     'assess_report_unbuildable',
     'a target reporting no reviewed-library hash is unbuildable, never silently agreeing'
+);
+
+// Assess pins both the canonical whole reviewed registry and the raw subject
+// document set. The physical package move must preserve both addresses: the
+// raw fold therefore sorts and writes each LOGICAL <subject>.json name even
+// when its bytes now reside at package/disposition.json.
+$provenanceFrom = static function (array $documents): array {
+    $logical = [];
+    foreach ($documents as $subject => $path) {
+        $logical[$subject . '.json'] = $path;
+    }
+    ksort($logical, SORT_STRING);
+    $decoded = ['format' => 'duo-manifest-dispositions/v1', 'manifests' => [], 'profiles' => []];
+    $raw = '';
+    foreach ($logical as $logicalName => $path) {
+        $bytes = (string) file_get_contents($path);
+        $document = json_decode($bytes, true, 512, JSON_THROW_ON_ERROR);
+        $raw .= $logicalName . "\n" . $bytes;
+        $subject = basename($logicalName, '.json');
+        if ($subject === 'profiles') {
+            $decoded['profiles'] = $document;
+        } else {
+            $decoded['manifests'][$subject] = $document;
+        }
+    }
+
+    return [
+        'registry_sha256' => hash('sha256', Canon::encode($decoded)),
+        'generated_from' => ['dispositions_sha256' => hash('sha256', $raw)],
+    ];
+};
+$provenanceMethod = new ReflectionMethod(AssessCommand::class, 'registryProvenance');
+$shippedLibrary = \Duo\Policy::shipped_adapter_library();
+$shippedDocuments = ['profiles' => $shippedLibrary->profilesPath()];
+foreach ($shippedLibrary->packages() as $package) {
+    $shippedDocuments[$package->name()] = $package->dispositionPath();
+}
+duo_check_same(
+    $provenanceFrom($shippedDocuments),
+    $provenanceMethod->invoke(null, []),
+    'assess default provenance reads the closed shipped AdapterLibrary with legacy-stable logical filenames'
+);
+
+// An explicitly supplied object must be the actual source of the fold, not a
+// decorative option beside a hidden checkout glob. Change one reviewed byte
+// in a complete scratch library so falling back to this checkout is visible.
+if (is_dir(dirname(__DIR__, 4) . '/manifests')) {
+    $selectedRoot = sys_get_temp_dir() . '/duo-assess-provenance-library-' . bin2hex(random_bytes(6));
+    mkdir($selectedRoot, 0777, true);
+    $sourceRoot = dirname(__DIR__, 4) . '/manifests';
+    $sourceFiles = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($sourceRoot, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($sourceFiles as $sourceFile) {
+        $relative = substr($sourceFile->getPathname(), strlen($sourceRoot) + 1);
+        $destination = $selectedRoot . '/' . $relative;
+        if ($sourceFile->isDir()) {
+            if (!is_dir($destination)) {
+                mkdir($destination, 0777, true);
+            }
+        } else {
+            copy($sourceFile->getPathname(), $destination);
+        }
+    }
+    $changedDisposition = $selectedRoot . '/dispositions/acf.json';
+    $changedDocument = json_decode((string) file_get_contents($changedDisposition), true, 512, JSON_THROW_ON_ERROR);
+    $changedDocument['reason'] .= ' Scratch provenance selector.';
+    file_put_contents($changedDisposition, Canon::encode($changedDocument));
+    register_shutdown_function(static function () use ($selectedRoot): void {
+        $files = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($selectedRoot, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($files as $file) {
+            $file->isDir() ? @rmdir($file->getPathname()) : @unlink($file->getPathname());
+        }
+        @rmdir($selectedRoot);
+    });
+    $selectedLibrary = \Duo\AdapterLibrary::fromLegacyFlatDirectory($selectedRoot);
+    $selectedDocuments = ['profiles' => $selectedLibrary->profilesPath()];
+    foreach ($selectedLibrary->packages() as $package) {
+        $selectedDocuments[$package->name()] = $package->dispositionPath();
+    }
+    $selectedProvenance = $provenanceMethod->invoke(null, ['adapter_library' => $selectedLibrary]);
+    duo_check_same(
+        $provenanceFrom($selectedDocuments),
+        $selectedProvenance,
+        'an explicit AdapterLibrary object, not a checkout fallback, supplies every provenance document'
+    );
+    duo_check(
+        $selectedProvenance !== $provenanceFrom($shippedDocuments),
+        'changing one selected-library disposition byte changes its provenance instead of reading the checkout'
+    );
+}
+
+// During the preparatory phase an explicit manifests_dir remains a sparse
+// authoring-fixture seam. It deliberately does not construct AdapterLibrary,
+// whose closed inventory would reject this two-subject fixture.
+$sparseLibrary = sys_get_temp_dir() . '/duo-assess-provenance-sparse-' . bin2hex(random_bytes(6));
+mkdir($sparseLibrary . '/dispositions', 0777, true);
+$sparseDocuments = [
+    'fixture' => $sparseLibrary . '/dispositions/fixture.json',
+    'profiles' => $sparseLibrary . '/dispositions/profiles.json',
+];
+file_put_contents($sparseDocuments['fixture'], Canon::encode(['status' => 'excluded', 'reason' => 'fixture']));
+file_put_contents($sparseDocuments['profiles'], Canon::encode(['fixture' => ['operations' => []]]));
+register_shutdown_function(static function () use ($sparseLibrary): void {
+    @unlink($sparseLibrary . '/dispositions/fixture.json');
+    @unlink($sparseLibrary . '/dispositions/profiles.json');
+    @rmdir($sparseLibrary . '/dispositions');
+    @rmdir($sparseLibrary);
+});
+duo_check_same(
+    $provenanceFrom($sparseDocuments),
+    $provenanceMethod->invoke(null, ['manifests_dir' => $sparseLibrary]),
+    'an explicit sparse legacy manifests_dir preserves the pre-package provenance semantics'
 );
 
 // The proposal is per environment; the store takes the segment as a REQUIRED
