@@ -30,7 +30,7 @@ PORT1="${PORT1:-8900}"
 PORT2="${PORT2:-8901}"
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
 COMPOSE="docker compose -p duo-$PAIR -f pair.yml"
-wp_env() { local side="$1"; shift; $COMPOSE run --rm -T -e DUO_MANIFESTS_DIR=/siterepo/test-manifests "cli$side" wp "$@"; }
+wp_env() { local side="$1"; shift; $COMPOSE run --rm -T "cli$side" wp "$@"; }
 wp1() { wp_env 1 "$@"; }
 wp2() { wp_env 2 "$@"; }
 say() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
@@ -43,10 +43,9 @@ bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless
 R1="siterepo/${PAIR}1"
 R2="siterepo/${PAIR}2"
 ORIGIN="siterepo/origin-$PAIR.git"
-rm -rf "$ORIGIN" "$R1/.git" "$R1/state" "$R1/site.duo.json" "$R1/test-manifests" "$R2"
-mkdir -p "$R1/test-manifests"
-cp ../manifests/core.json "$R1/test-manifests/core.json"
-cat > "$R1/test-manifests/option-matrix.json" <<'JSON'
+rm -rf "$ORIGIN" "$R1/.git" "$R1/state" "$R1/site.duo.json" "$R1/adapters" "$R2"
+mkdir -p "$R1/adapters"
+cat > "$R1/adapters/option-matrix.json" <<'JSON'
 {
   "name": "option-matrix",
   "spec_version": 2,
@@ -231,8 +230,9 @@ echo "$RECREATE_FORCE_JSON" | tail -1 | jq -e --arg identity "$OPTION_ENTITY_HAS
 
 BAD="$R2/.tmp-missing-record"
 rm -rf "$BAD"
-mkdir -p "$BAD/state/options"
+mkdir -p "$BAD/adapters" "$BAD/state/options"
 cp "$R2/site.duo.json" "$BAD/site.duo.json"
+cp "$R2/adapters/option-matrix.json" "$BAD/adapters/option-matrix.json"
 cp "$R2/state/options/core.json" "$BAD/state/options/core.json"
 jq 'del(.records.duo_matrix_empty)' "$BAD/state/options/core.json" > "$BAD/state/options/core.json.tmp"
 mv "$BAD/state/options/core.json.tmp" "$BAD/state/options/core.json"

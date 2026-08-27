@@ -20,8 +20,8 @@
 #     value-level verification, persistent-cache false-value handling, and
 #     the post-hoc timeout budget.
 #
-# Both are pure PHP against real engine files under a scratch
-# DUO_MANIFESTS_DIR — no docker, no sandbox pair, no WordPress bootstrap. Same
+# Both are pure PHP against real engine files under an explicit scratch
+# AdapterLibrary — no docker, no sandbox pair, no WordPress bootstrap. Same
 # idiom as sandbox/tests/offline/adapter/regress_adapter_contract.php (DUO-3222/DUO-3243).
 #
 # What this does NOT cover, because it genuinely needs a live target: Apply's
@@ -39,6 +39,16 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 command -v php >/dev/null || fail "php required on PATH"
+
+say "live failure fixture selects executable adapter code without a process-global library"
+LIVE=../../live/regress_fatal_mutations_live.sh
+! grep -Fq 'DUO_''MANIFESTS_DIR' "$LIVE" \
+  || fail "live provider failure fixture reintroduced process-global manifest selection"
+grep -Fq 'AdapterLibrary::fromSourcePackage' "$LIVE" \
+  || fail "live provider failure fixture no longer selects a closed source package explicitly"
+grep -Fq '$SITEREPO/adapters/duo-3338-missing-provider.json' "$LIVE" \
+  || fail "missing plugin-provider declaration no longer travels as a repository-owned site adapter"
+pass "live provider failure fixture has explicit source selection"
 
 say "php -l syntax check (both harnesses, every engine file they exercise, and every shipped provider)"
 php -l regress_actions_providers.php >/dev/null || fail "regress_actions_providers.php has a syntax error"

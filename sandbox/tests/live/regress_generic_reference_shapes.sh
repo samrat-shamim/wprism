@@ -22,12 +22,9 @@ COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml)
 SITE1="siterepo/${PAIR}1"
 SITE2="siterepo/${PAIR}2"
 ORIGIN="siterepo/origin-$PAIR.git"
-MANIFEST_DIR="/siterepo/.duo-test-manifests"
 
-wp1_raw() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
-wp2_raw() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
-wp1() { "${COMPOSE[@]}" run --rm -T cli1 env "DUO_MANIFESTS_DIR=$MANIFEST_DIR" wp "$@"; }
-wp2() { "${COMPOSE[@]}" run --rm -T cli2 env "DUO_MANIFESTS_DIR=$MANIFEST_DIR" wp "$@"; }
+wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
+wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 
 normalize_repo_permissions() {
   # Capture writes as container uid 33. Normalize only this disposable
@@ -71,23 +68,22 @@ for side in 1 2; do
   "${COMPOSE[@]}" cp tests/fixtures/duo-sidecar-refs/duo-sidecar-refs.php \
     "$service:/var/www/html/wp-content/plugins/duo-sidecar-refs/duo-sidecar-refs.php"
 done
-wp1_raw plugin activate duo-taxonomy-keyspace duo-sidecar-refs >/dev/null
-wp2_raw plugin activate duo-taxonomy-keyspace duo-sidecar-refs >/dev/null
+wp1 plugin activate duo-taxonomy-keyspace duo-sidecar-refs >/dev/null
+wp2 plugin activate duo-taxonomy-keyspace duo-sidecar-refs >/dev/null
 pass "fixtures active and sidecar schemas created on both environments"
 
-say "initialize a fixture-only site repository and manifest directory"
+say "initialize a fixture-only site repository with repository-owned adapters"
 normalize_repo_permissions
 rm -rf -- "$ORIGIN"
 clear_site_root "$SITE1"
 clear_site_root "$SITE2"
-mkdir -p "$SITE1/.duo-test-manifests"
-cp ../manifests/core.json "$SITE1/.duo-test-manifests/core.json"
+mkdir -p "$SITE1/adapters"
 cp tests/fixtures/duo-taxonomy-keyspace/manifest.json \
-  "$SITE1/.duo-test-manifests/duo-taxonomy-keyspace-fixture.json"
+  "$SITE1/adapters/duo-taxonomy-keyspace-fixture.json"
 cp tests/fixtures/duo-sidecar-refs/manifest.json \
-  "$SITE1/.duo-test-manifests/duo-sidecar-refs-fixture.json"
+  "$SITE1/adapters/duo-sidecar-refs-fixture.json"
 cp site-repo.gitignore.template "$SITE1/.gitignore"
-printf '\n.duo-test-manifests/\n.tmp-duo3316-*.php\n' >> "$SITE1/.gitignore"
+printf '\n.tmp-duo3316-*.php\n' >> "$SITE1/.gitignore"
 
 apply_patch_site_config() {
   local target="$1"
@@ -251,8 +247,6 @@ git clone -q "siterepo/origin-$PAIR.git" "$SITE2"
 # publishes as container uid 33 and must be able to retire its backup tree
 # without emitting permission warnings on an otherwise successful recapture.
 chmod -R a+rwX "$SITE2"
-mkdir -p "$SITE2/.duo-test-manifests"
-cp "$SITE1/.duo-test-manifests/"*.json "$SITE2/.duo-test-manifests/"
 for i in 1 2 3; do
   filler=$(wp2 post create --post_type=dks_article --post_status=publish --post_title="filler-$i" --porcelain | tr -d '\r')
   wp2 post delete "$filler" --force >/dev/null

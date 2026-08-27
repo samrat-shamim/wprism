@@ -8,7 +8,7 @@ export DUO_PAIR=codexmac3205 DUO_PORT1=8900 DUO_PORT2=8901
 COMPOSE="docker compose -p duo-codexmac3205 -f pair.yml"
 REPO=/siterepo/.tmp-duo-3205
 HOST_REPO="siterepo/${DUO_PAIR}1/.tmp-duo-3205"
-wp1() { $COMPOSE run --rm -T cli1 env DUO_MANIFESTS_DIR="$REPO/manifests" wp "$@"; }
+wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }
 pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
@@ -17,10 +17,9 @@ bash bin/pair.sh reset "$DUO_PAIR"
 bash bin/pair.sh up "$DUO_PAIR" "$DUO_PORT1" "$DUO_PORT2" --headless
 
 rm -rf "$HOST_REPO"
-mkdir -p "$HOST_REPO/manifests"
-cp ../manifests/core.json "$HOST_REPO/manifests/core.json"
+mkdir -p "$HOST_REPO/adapters"
 
-cat > "$HOST_REPO/manifests/discovery-fixture.json" <<'JSON'
+cat > "$HOST_REPO/adapters/discovery-fixture.json" <<'JSON'
 {
   "name": "discovery-fixture",
   "spec_version": 2,
@@ -151,8 +150,8 @@ printf '%s\n' "$BLOCKED" | grep -q 'table_meta:duo_discovery_meta:upgrade_added_
 pass "capture fails closed on an EAV key outside the version-pinned keyspace"
 
 jq '.tables.duo_discovery_meta.keyspace.keys += ["upgrade_added_setting"]' \
-  "$HOST_REPO/manifests/discovery-fixture.json" > "$HOST_REPO/manifests/discovery-fixture.json.tmp"
-mv "$HOST_REPO/manifests/discovery-fixture.json.tmp" "$HOST_REPO/manifests/discovery-fixture.json"
+  "$HOST_REPO/adapters/discovery-fixture.json" > "$HOST_REPO/adapters/discovery-fixture.json.tmp"
+mv "$HOST_REPO/adapters/discovery-fixture.json.tmp" "$HOST_REPO/adapters/discovery-fixture.json"
 
 wp1 user meta update admin duo_discovery_authored_user 'authored-and-represented' >/dev/null
 PENDING_USER=$(wp1 duo pending --repo="$REPO" --format=json 2>/dev/null | tail -1)

@@ -16,6 +16,7 @@ PAIR="${FATAL_MUTATIONS_PAIR:-codexmaca3206}"
 PORT1="${FATAL_MUTATIONS_PORT1:-9210}"
 PORT2="${FATAL_MUTATIONS_PORT2:-9211}"
 SITEREPO="$REPO_ROOT/sandbox/siterepo/${PAIR}1"
+TEST_LIBRARY_ROOT="$SITEREPO/.tmp-duo-3338-library"
 COMPOSE=(docker compose -p "duo-$PAIR" -f sandbox/pair.yml)
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
 
@@ -29,10 +30,57 @@ wp1_fail() {
     -e DUO_TEST_MODE=1 -e DUO_TEST_FAIL_DB_CONTEXT="$contexts" \
     cli1 wp "$@"
 }
-wp1_test_manifests() {
+wp1_test_adapter() {
+  local slug="$1" assoc='{}' arg key value assoc_b64
+  shift
+  [ "${1:-}" = duo ] && [ "${2:-}" = apply ] \
+    || fail 'test adapter runner accepts only wp duo apply'
+  shift 2
+  for arg in "$@"; do
+    case "$arg" in
+      --*=*)
+        key="${arg%%=*}"; key="${key#--}"; value="${arg#*=}"
+        assoc=$(jq -cn --argjson obj "$assoc" --arg key "$key" --arg value "$value" '$obj + {($key): $value}')
+        ;;
+      --*)
+        key="${arg#--}"
+        assoc=$(jq -cn --argjson obj "$assoc" --arg key "$key" '$obj + {($key): true}')
+        ;;
+      *) fail "test adapter runner refuses positional argument: $arg" ;;
+    esac
+  done
+  assoc_b64=$(printf '%s' "$assoc" | base64 | tr -d '\n')
   "${COMPOSE[@]}" run --rm -T \
-    -e DUO_MANIFESTS_DIR=/siterepo/test-manifests \
-    cli1 wp "$@"
+    -e DUO_TEST_ADAPTER_LIBRARY=/siterepo/.tmp-duo-3338-library \
+    -e DUO_TEST_ADAPTER_SLUG="$slug" -e DUO_TEST_ASSOC_B64="$assoc_b64" \
+    cli1 wp eval '
+      $assoc = json_decode(base64_decode((string) getenv("DUO_TEST_ASSOC_B64"), true), true, 512, JSON_THROW_ON_ERROR);
+      $assoc["adapter_library"] = \Duo\AdapterLibrary::fromSourcePackage(
+          (string) getenv("DUO_TEST_ADAPTER_LIBRARY"),
+          (string) getenv("DUO_TEST_ADAPTER_SLUG")
+      );
+      (new \Duo\Cli())->apply([], $assoc);
+    '
+}
+write_test_disposition() {
+  cat > "$1" <<'JSON'
+{
+  "capabilities": {
+    "deletion_semantics": {"supported": [], "unsupported": ["all"]},
+    "entity_sections": [],
+    "field_sections": [],
+    "lifecycle_phases": [],
+    "operations": ["test-only"]
+  },
+  "default_authored_keyspaces": [],
+  "reason": "Duo-authored live failure fixture, not a third-party adapter or product support claim.",
+  "status": "excluded",
+  "supported_versions": {"fixture": true},
+  "unsupported": [
+    {"operation": "promote", "reason": "Excluded fixture adapters are never production-ready.", "surface": "production"}
+  ]
+}
+JSON
 }
 ledger_value() {
   wp1 eval "echo \\Duo\\Ledger::kv_get('$1') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1
@@ -248,9 +296,8 @@ pass "ledger metadata transition rolled back atomically and retried"
 # retry marker set, and a retry that recovers) is exercised by the case
 # immediately after this one, through the same new channel.
 say "manifest-declared provider capability that is unavailable refuses before any target mutation"
-mkdir -p "$SITEREPO/test-manifests/providers"
-cp "$REPO_ROOT/manifests/core.json" "$SITEREPO/test-manifests/core.json"
-cat > "$SITEREPO/test-manifests/duo-3338-missing-provider.json" <<'EOF'
+mkdir -p "$SITEREPO/adapters"
+cat > "$SITEREPO/adapters/duo-3338-missing-provider.json" <<'EOF'
 {
   "name": "duo-3338-missing-provider",
   "spec_version": 2,
@@ -266,7 +313,7 @@ jq '.manifests = ["core", "duo-3338-missing-provider"]' "$SITEREPO/site.duo.json
 mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
 BLOGNAME_BEFORE=$(wp1 option get blogname | tr -d '\r')
 edit_blogname "DUO 3338 unavailable provider capability"
-if OUT=$(wp1_test_manifests duo apply --repo=/siterepo --revision=missing-provider 2>&1); then
+if OUT=$(wp1 duo apply --repo=/siterepo --revision=missing-provider 2>&1); then
   echo "$OUT"
   fail "apply with an unavailable provider capability unexpectedly succeeded"
 fi
@@ -281,6 +328,7 @@ grep -Eq "install and activate|duo deploy" <<<"$OUT" || fail "refusal carried no
   || fail "provider refusal mutated the target before negotiating"
 jq '.manifests = ["core"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
 mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
+rm -f "$SITEREPO/adapters/duo-3338-missing-provider.json"
 reset_baseline
 pass "unavailable provider capability refused with remediation, before any target mutation"
 
@@ -306,8 +354,20 @@ wp1 plugin activate duo-3338-probe >/dev/null
 # instead of on the corruption the DUO-3220 case deliberately injects.
 reset_baseline
 
+# The two invocation-failure cases exercise manifest-owned executable provider
+# bytes. Site adapters deliberately cannot carry runtime code, so each case is
+# a closed source package selected through Apply's object-only evidence seam.
+# Copying the platform contract keeps the disposable library bound to the same
+# agent/spec versions as the ordinary product path.
+rm -rf "$TEST_LIBRARY_ROOT"
+mkdir -p "$TEST_LIBRARY_ROOT/platform"
+cp -R "$REPO_ROOT/platform/adapter-library" "$TEST_LIBRARY_ROOT/platform/adapter-library"
+
 say "manifest-declared action failure is fatal before ledger advancement"
-cat > "$SITEREPO/test-manifests/providers/duo-3338-fatal.php" <<'EOF'
+FATAL_PACKAGE="$TEST_LIBRARY_ROOT/adapter-packages/duo-3338-fatal-action/package"
+mkdir -p "$FATAL_PACKAGE/runtime/providers"
+write_test_disposition "$FATAL_PACKAGE/disposition.json"
+cat > "$FATAL_PACKAGE/runtime/providers/duo-3338-fatal.php" <<'EOF'
 <?php
 namespace Duo\Providers;
 
@@ -348,7 +408,7 @@ final class Duo3338Fatal {
     }
 }
 EOF
-cat > "$SITEREPO/test-manifests/duo-3338-fatal-action.json" <<'EOF'
+cat > "$FATAL_PACKAGE/manifest.json" <<'EOF'
 {
   "actions": [
     {"kind": "provider", "provider": "duo-3338-fatal", "capability": "rebuild_probe_state", "args": {}}
@@ -363,7 +423,7 @@ EOF
 jq '.manifests = ["core", "duo-3338-fatal-action"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
 mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
 edit_blogname "DUO 3206 manifest action failure"
-if OUT=$(wp1_test_manifests duo apply --repo=/siterepo --revision=bad-manifest 2>&1); then
+if OUT=$(wp1_test_adapter duo-3338-fatal-action duo apply --repo=/siterepo --revision=bad-manifest 2>&1); then
   echo "$OUT"
   fail "a throwing required manifest action unexpectedly succeeded"
 fi
@@ -381,7 +441,10 @@ reset_baseline
 pass "required manifest action failure stayed fatal and unapplied, then retried successfully"
 
 say "successful provider capability that corrupts authored state is caught by post-apply recapture"
-cat > "$SITEREPO/test-manifests/providers/duo-3338-corrupting.php" <<'EOF'
+CORRUPTING_PACKAGE="$TEST_LIBRARY_ROOT/adapter-packages/duo-3220-corrupting-action/package"
+mkdir -p "$CORRUPTING_PACKAGE/runtime/providers"
+write_test_disposition "$CORRUPTING_PACKAGE/disposition.json"
+cat > "$CORRUPTING_PACKAGE/runtime/providers/duo-3338-corrupting.php" <<'EOF'
 <?php
 namespace Duo\Providers;
 
@@ -431,7 +494,7 @@ final class Duo3338Corrupting {
     }
 }
 EOF
-cat > "$SITEREPO/test-manifests/duo-3220-corrupting-action.json" <<'EOF'
+cat > "$CORRUPTING_PACKAGE/manifest.json" <<'EOF'
 {
   "actions": [
     {"kind": "provider", "provider": "duo-3338-corrupting", "capability": "corrupt_blogname", "args": {}}
@@ -447,7 +510,7 @@ jq '.manifests = ["core", "duo-3220-corrupting-action"]' "$SITEREPO/site.duo.jso
 mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
 edit_blogname "DUO 3220 expected authored state"
 BASE_HASH=$(wp1 eval "echo \\Duo\\Ledger::state_hash('options/core') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)
-if OUT=$(wp1_test_manifests duo apply --repo=/siterepo --revision=bad-post-apply-verification 2>&1); then
+if OUT=$(wp1_test_adapter duo-3220-corrupting-action duo apply --repo=/siterepo --revision=bad-post-apply-verification 2>&1); then
   echo "$OUT"
   fail "authored corruption after a self-verified provider capability unexpectedly passed verification"
 fi
