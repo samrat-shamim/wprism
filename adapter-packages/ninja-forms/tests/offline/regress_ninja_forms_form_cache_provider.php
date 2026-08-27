@@ -2,10 +2,11 @@
 declare(strict_types=1);
 
 namespace {
-    require_once __DIR__ . '/../../lib/check.php';
-    require_once __DIR__ . '/../../lib/FakeWpdb.php';
-    require_once __DIR__ . '/../../support/wp_cli_child_process_fake.php';
-    require_once dirname(__DIR__, 4) . '/agent/src/Kernel/PlainData.php';
+    $duoRoot = dirname(__DIR__, 4);
+    require_once $duoRoot . '/sandbox/tests/lib/check.php';
+    require_once $duoRoot . '/sandbox/tests/lib/FakeWpdb.php';
+    require_once $duoRoot . '/sandbox/tests/support/wp_cli_child_process_fake.php';
+    require_once $duoRoot . '/agent/src/Kernel/PlainData.php';
 
     $GLOBALS['nf_provider_multisite'] = false;
     $GLOBALS['nf_provider_command_calls'] = [];

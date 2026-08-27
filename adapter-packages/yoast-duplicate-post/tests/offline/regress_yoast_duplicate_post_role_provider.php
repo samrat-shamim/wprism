@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 namespace {
-    require_once __DIR__ . '/../../lib/check.php';
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 
     $GLOBALS['ydp_multisite'] = false;
     $GLOBALS['ydp_option'] = ['editor', 'duo_reviewer'];

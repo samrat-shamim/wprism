@@ -7,7 +7,7 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 3);
 }
 
-require_once __DIR__ . '/../../lib/check.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Secrets.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';

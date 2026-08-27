@@ -2,8 +2,8 @@
 declare(strict_types=1);
 
 namespace {
-    require_once __DIR__ . '/../../lib/check.php';
-    require_once __DIR__ . '/../../support/wp_cli_child_process_fake.php';
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/support/wp_cli_child_process_fake.php';
 
     $GLOBALS['yi_enabled'] = true;
     $GLOBALS['yi_post_types'] = ['post', 'page', 'attachment'];

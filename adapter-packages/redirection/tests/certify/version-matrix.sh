@@ -2,7 +2,7 @@ seed_redirection_content() {
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
   local CONF1_PORT="$PORT1"
-  . conformance/seeds/redirection.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
   unset -f wp_conf1
 }
 

@@ -15,7 +15,7 @@ seed_yoast_content() {
   local CONF_REPO1="siterepo/${PAIR}1"
   local CONF1_PORT="$PORT1"
   local COMPOSE="$PAIR_COMPOSE_STRING"
-  . conformance/seeds/yoast.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
   unset -f wp_conf1 wp_env
 }
 
@@ -27,7 +27,7 @@ check_yoast_content() {
   local CONF2_PORT="$PORT2"
   local YOAST_EXPECTED_VERSION="$YOAST_VERSION"
   local YOAST_BOUNDARY_ONLY=1
-  . conformance/checks/yoast.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/check.sh"
 }
 
 postdeploy_yoast_content() {
@@ -35,6 +35,6 @@ postdeploy_yoast_content() {
   local CONF_REPO1="siterepo/${PAIR}1"
   local CONF_REPO2="siterepo/${PAIR}2"
   local COMPOSE="$PAIR_COMPOSE_STRING"
-  . conformance/postdeploy/yoast.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/postdeploy.sh"
   unset -f wp_conf2
 }

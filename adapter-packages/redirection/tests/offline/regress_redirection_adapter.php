@@ -10,7 +10,7 @@
 declare(strict_types=1);
 
 namespace {
-    require_once __DIR__ . '/../../lib/check.php';
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 
     define('ARRAY_A', 'ARRAY_A');
     define('REDIRECTION_VERSION', '5.9.0');
@@ -288,8 +288,8 @@ namespace {
         'A5: server-module configuration stays environment-owned');
     duo_check_same([], $manifest['deletions'] ?? [],
         'A6: no custom-table deletion authority is advertised');
-    $sourceSeed = (string) file_get_contents($root . '/sandbox/conformance/seeds/redirection.sh');
-    $targetSeed = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/redirection.sh');
+    $sourceSeed = (string) file_get_contents(dirname(__DIR__) . '/conformance/seed.sh');
+    $targetSeed = (string) file_get_contents(dirname(__DIR__) . '/conformance/postdeploy.sh');
     foreach (['source' => $sourceSeed, 'target' => $targetSeed] as $side => $script) {
         duo_check(str_contains($script, 'redirection database install 2>&1')
             && str_contains($script, 'SHOW TABLES LIKE %s')
@@ -311,7 +311,7 @@ namespace {
         && str_contains($targetSeed, 'skips canonical duo_state/media publication')
         && !str_contains($targetSeed, 'duo capture --repo=/siterepo --out=/siterepo/.tmp-redirection-target-identity'),
         'A8: output-only target mapping retains core grammar without rebasing canonical conflict state');
-    $matrixSeed = (string) file_get_contents($root . '/sandbox/tests/certify/matrix.d/redirection.sh');
+    $matrixSeed = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
     duo_check(str_contains($matrixSeed, 'wp2 redirection database install')
         && str_contains($matrixSeed, 'Redirection 5.9.0 boundary target database readiness')
         && str_contains($matrixSeed, 'SHOW TABLES LIKE %s')

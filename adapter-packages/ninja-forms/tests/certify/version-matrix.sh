@@ -6,7 +6,7 @@ seed_ninja_forms_content() {
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
   local COMPOSE="$PAIR_COMPOSE_STRING"
-  . conformance/seeds/ninja-forms.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
   unset -f wp_conf1
 }
 
@@ -17,7 +17,7 @@ postdeploy_ninja_forms_content() {
   wp_conf2() { wp2 "$@"; }
   local CONF_REPO2="siterepo/${PAIR}2"
   local COMPOSE="$PAIR_COMPOSE_STRING"
-  . conformance/postdeploy/ninja-forms.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/postdeploy.sh"
   unset -f wp_conf2
 }
 
