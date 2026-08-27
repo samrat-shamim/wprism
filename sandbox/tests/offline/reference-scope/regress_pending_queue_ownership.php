@@ -100,7 +100,7 @@ namespace {
     // ---------------------------------------------------------------- fixture
 
     /** The shipped library, loaded as bytes — see the file docblock. */
-    $core = json_decode((string) file_get_contents($repoRoot . '/manifests/core.json'), true, 512, JSON_THROW_ON_ERROR);
+    $core = json_decode((string) file_get_contents($repoRoot . '/platform/adapter-library/core/manifest.json'), true, 512, JSON_THROW_ON_ERROR);
     $policy = new Policy();
     $policy->site = ['policy' => []];
     $policy->manifests = [$core];

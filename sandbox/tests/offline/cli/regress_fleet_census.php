@@ -246,7 +246,7 @@ function fc_library(string $repoRoot, string $dir, array $formsSections): void {
     if (!is_dir($dir . '/capabilities') && !mkdir($dir . '/capabilities', 0777, true)) {
         throw new RuntimeException('could not create the fixture platform directory');
     }
-    copy($repoRoot . '/manifests/capabilities/platform.json', $dir . '/capabilities/platform.json');
+    copy($repoRoot . '/platform/adapter-library/capabilities/platform.json', $dir . '/capabilities/platform.json');
 }
 
 // --------------------------------------------------------- the submissions

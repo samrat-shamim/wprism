@@ -810,7 +810,7 @@ duo_check_same(
 // from every contract — a published dependency narrowed to nothing by a shape
 // change, which no reviewer would see because nothing else asserts the row.
 $shippedPlatform = json_decode(
-    (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/capabilities/platform.json'),
+    (string) file_get_contents(dirname(__DIR__, 4) . '/platform/adapter-library/capabilities/platform.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 )['platform'];

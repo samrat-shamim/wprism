@@ -47,7 +47,7 @@ require_once __DIR__ . '/../../../../agent/src/Apply/UserMetaMaterializer.php';
 // The shipped interpreter itself, not a hand-copied twin: this suite is only
 // evidence if the sibling-dependent rule under test is adapter-identity bytes
 // (AGENTS.md rule 2).
-require_once __DIR__ . '/../../../../manifests/interpreters/acf.php';
+require_once __DIR__ . '/../../../../adapter-packages/acf/package/runtime/interpreters/acf.php';
 
 use Duo\ApplyFieldMaterializer;
 use Duo\CacheInvalidationTransaction;

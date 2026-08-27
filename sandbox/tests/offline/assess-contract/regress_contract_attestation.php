@@ -390,7 +390,7 @@ duo_check_same(
 // reading as tampering.
 $movedManifests = attest_tmpdir('duo-attest-manifests');
 mkdir($movedManifests . '/capabilities', 0777, true);
-$platform = json_decode((string) file_get_contents($root . '/manifests/capabilities/platform.json'));
+$platform = json_decode((string) file_get_contents($root . '/platform/adapter-library/capabilities/platform.json'));
 $platform->platform->agent_version = '99.0.0';
 file_put_contents($movedManifests . '/capabilities/platform.json', Canon::encode($platform));
 duo_check(
