@@ -339,7 +339,7 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   # no-mutation baseline only after the exact verified archives replace 11.0.1.
   wp1 plugin install "$source_artifact" --force --activate >/dev/null
   wp2 plugin install "$target_artifact" --force --activate >/dev/null
-  expected_sha=$(jq -r '.plugins.woocommerce["11.0.0"].sha256' conformance/artifacts.lock.json)
+  expected_sha=$(artifact_library_jq -r '.plugins.woocommerce["11.0.0"].sha256')
   [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || fail 'WooCommerce 11.0.0 downgrade artifact has no exact lock digest'
   [ "$(wp1 eval "echo hash_file('sha256','$source_artifact');")" = "$expected_sha" ] \
     && [ "$(wp2 eval "echo hash_file('sha256','$target_artifact');")" = "$expected_sha" ] \
@@ -453,7 +453,7 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   # (sha256 e06e0c2086f695d39f5d9edead87cd4faeb0ea45184d77e7d8fe5588abfde48e):
   # native runtime hooks are cleared unconditionally, while catalog/options/
   # tables are removed only when the operator sets WC_REMOVE_ALL_DATA=true.
-  expected_sha=$(jq -r --arg version "$version" '.plugins.woocommerce[$version].sha256' conformance/artifacts.lock.json)
+  expected_sha=$(artifact_library_jq -r --arg version "$version" '.plugins.woocommerce[$version].sha256')
   [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || fail "WooCommerce $version lifecycle artifact has no exact lock digest"
   [ "$(wp2 eval "echo hash_file('sha256','$artifact');")" = "$expected_sha" ] || fail "WooCommerce $version lifecycle artifact digest moved before reinstall proof"
   [ "$(wp2 eval 'echo defined("WC_REMOVE_ALL_DATA") && true === WC_REMOVE_ALL_DATA ? "yes" : "no";')" = no ] || fail "WooCommerce $version default-retention lifecycle premise unexpectedly enables destructive cleanup"

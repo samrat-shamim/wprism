@@ -93,6 +93,8 @@ exec 3>&1
 
 SANDBOX="$(pwd -P)"
 REPO_ROOT="$(cd .. && pwd -P)"
+# shellcheck source=../../bin/artifact-library.sh
+. "$SANDBOX/bin/artifact-library.sh"
 DUO="$REPO_ROOT/cli/duo"
 FIXTURES="$SANDBOX/tests/fixtures/mup"
 
@@ -688,12 +690,12 @@ preflight() {
   # to the wordpress.org catalog), so an unpinned theme is a refusal with the
   # two real remedies named, not a silent substitution.
   if [ -z "$THEME_VERSION" ]; then
-    THEME_VERSION="$(jq -r --arg slug "$THEME_SLUG" '
+    THEME_VERSION="$(artifact_library_jq -r --arg slug "$THEME_SLUG" '
       (.themes[$slug] // {}) | keys | if length == 0 then "" else .[-1] end
-    ' conformance/artifacts.lock.json)"
+    ')"
   fi
   if [ -z "$THEME_VERSION" ]; then
-    fail "conformance/artifacts.lock.json carries no pin for theme '$THEME_SLUG'.
+    fail "the artifact library carries no pin for theme '$THEME_SLUG'.
 MUP §6.1 names Storefront, and sandbox/bin/fetch-artifact.sh refuses an unpinned
 artifact rather than installing from the catalog, so this grind refuses here —
 before any pair is created — instead of installing something it cannot name.
@@ -702,11 +704,10 @@ Either add the pin:
 or run against a theme this estate already pins:
   MUP_THEME_SLUG=twentytwentyone MUP_THEME_VERSION=2.8 bash sandbox/tests/grind/grind_mup.sh"
   fi
-  jq -e --arg slug "$THEME_SLUG" --arg v "$THEME_VERSION" '.themes[$slug][$v]' \
-    conformance/artifacts.lock.json >/dev/null \
-    || fail "conformance/artifacts.lock.json has no pin for theme $THEME_SLUG $THEME_VERSION"
-  jq -e --arg v "$WOO_VERSION" '.plugins.woocommerce[$v]' conformance/artifacts.lock.json >/dev/null \
-    || fail "conformance/artifacts.lock.json has no pin for woocommerce $WOO_VERSION"
+  artifact_library_jq -e --arg slug "$THEME_SLUG" --arg v "$THEME_VERSION" '.themes[$slug][$v]' \
+    >/dev/null || fail "artifact library has no pin for theme $THEME_SLUG $THEME_VERSION"
+  artifact_library_jq -e --arg v "$WOO_VERSION" '.plugins.woocommerce[$v]' >/dev/null \
+    || fail "artifact library has no pin for woocommerce $WOO_VERSION"
   pass "pinned artifacts resolved: woocommerce $WOO_VERSION, $THEME_SLUG $THEME_VERSION"
 }
 
@@ -757,7 +758,6 @@ trap 'exit 143' TERM
 
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
 export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
-export DUO_ARTIFACT_LOCKFILE="$SANDBOX/conformance/artifacts.lock.json"
 COMPOSE_FILES=("$SANDBOX/pair.yml" "$SANDBOX/pair.http.yml" "$SANDBOX/pair.artifacts.yml")
 PAIR_UP_FLAGS=(--http --artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then
@@ -801,8 +801,8 @@ run mkdir -p "$PROVIDER_STATE" "$EVIDENCE"
 #          side 1.
 # ---------------------------------------------------------------------------
 say "step 1/13 — pair '$PAIR' up on :$PORT1/:$PORT2, pinned extensions, seeded catalog"
-if ! dry; then validate_artifact_lock "$SANDBOX/conformance/artifacts.lock.json" \
-  || fail "artifact lock is malformed; the grind refused before pair reset"; fi
+if ! dry; then validate_artifact_library \
+  || fail "artifact library is malformed; the grind refused before pair reset"; fi
 # The pair's cli containers need Git: `duo init` (step 2 in its §6.1 form)
 # proves Git on the target before confirming, and `duo rehearse` reads the
 # production side's HEAD commit inside its own environment

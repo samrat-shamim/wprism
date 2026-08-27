@@ -332,7 +332,6 @@ wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 git1() { "${COMPOSE[@]}" run --rm -T --entrypoint git cli1 -C /siterepo "$@"; }
 PAIR_COMPOSE=("${COMPOSE[@]}")
-export DUO_ARTIFACT_LOCKFILE="$REPO_ROOT/sandbox/conformance/artifacts.lock.json"
 # shellcheck source=../../bin/fetch-artifact.sh
 . "$REPO_ROOT/sandbox/bin/fetch-artifact.sh"
 repo_host() { bash sandbox/bin/pair.sh repo-host "$PAIR" "$1" >/dev/null; }
@@ -1457,12 +1456,12 @@ say "the host holds the release archives the golden path will lock against"
 # downloads.wordpress.org one, because a wp-org-release's identity is its
 # canonical url plus its archive digest, never the host that served it. The
 # archive_sha256 assertion below is what proves that -- it must equal
-# conformance/artifacts.lock.json's own pin for this release.
+# the WooCommerce capsule's own artifact pin for this release.
 rm -rf "$CODE_MIRROR"
 mkdir -p "$CODE_MIRROR/plugin" "$CODE_MIRROR/cache" "$CODE_MIRROR/cache-empty"
 "${COMPOSE[@]}" run --rm -T -u root --entrypoint cat cli1 "$WOO_ARTIFACT" \
   >"$CODE_MIRROR/plugin/woocommerce.11.0.0.zip"
-WOO_PINNED_SHA256=$(jq -r '.plugins.woocommerce."11.0.0".sha256' "$DUO_ARTIFACT_LOCKFILE")
+WOO_PINNED_SHA256=$(artifact_library_jq -r '.plugins.woocommerce."11.0.0".sha256')
 [[ "$WOO_PINNED_SHA256" =~ ^[0-9a-f]{64}$ ]] \
   || fail "the artifact lock has no usable WooCommerce 11.0.0 digest pin"
 [ "$(sha256sum "$CODE_MIRROR/plugin/woocommerce.11.0.0.zip" | awk '{print $1}')" = "$WOO_PINNED_SHA256" ] \

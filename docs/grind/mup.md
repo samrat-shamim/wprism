@@ -50,7 +50,7 @@ DUO_SOURCE_ROOT=$(pwd -P) DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \
 | `MUP_PAIR` | `mup` | `pair.sh` pair name. Grammar `[a-z][a-z0-9]*`. A custom name **requires** explicit ports, for the reason `conformance/run.sh` requires them: two sweeps on one port pair collide at bind time, loudly but confusingly late. |
 | `MUP_PORT1` / `MUP_PORT2` | `9400` / `9401` | Published host ports for side 1 and side 2. |
 | `MUP_KEEP` | unset | `1` leaves the pair and both site repos in place for inspection. |
-| `MUP_WOO_VERSION` | `11.0.0` | The pinned WooCommerce artifact. Must exist in `sandbox/conformance/artifacts.lock.json`. |
+| `MUP_WOO_VERSION` | `11.0.0` | The pinned WooCommerce artifact. Must exist in `adapter-packages/woocommerce/evidence/artifacts.lock.json`. |
 | `MUP_THEME_SLUG` / `MUP_THEME_VERSION` | `storefront` / resolved from the lock | The pinned storefront theme. See *Deliberate deviations* — Storefront is not pinned in this tree yet, so this is the one knob a first run has to set. |
 | `MUP_BOOTSTRAP` | `init` | `init` uses the product path (`duo init <env> --yes`); `manual` writes `site.duo.json` by hand and captures, the way `conformance/run.sh` does. |
 | `MUP_STEP11` | `required` | See *The step-11 transport gate*. |
@@ -197,7 +197,7 @@ are outside this file.
 ## Deliberate deviations from §6.1
 
 1. **Storefront is not pinned in this tree.** §6.1 names Storefront;
-   `sandbox/conformance/artifacts.lock.json` pins only `twentytwentyone 2.8` and
+   `platform/artifact-library/artifacts.lock.json` pins only `twentytwentyone 2.8` and
    `twentytwentyfive 1.5`, and `sandbox/bin/fetch-artifact.sh` refuses an
    unpinned artifact rather than falling through to the wordpress.org catalog.
    The driver therefore refuses **at preflight, before any pair is created**,

@@ -6,7 +6,7 @@
     "contract-dependency": [
       "adapter-packages/redirection/package/manifest.json",
       "adapter-packages/redirection/package/runtime/providers/redirection-state.php",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/redirection/evidence/artifacts.lock.json",
       "adapter-packages/redirection/tests/offline/regress_redirection_adapter.php",
       "adapter-packages/redirection/tests/certify/version-matrix.sh"
     ],
@@ -52,7 +52,7 @@
     ],
     "lifecycle": [
       "adapter-packages/redirection/tests/conformance/check.sh",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/redirection/evidence/artifacts.lock.json",
       "adapter-packages/redirection/tests/certify/version-matrix.sh"
     ],
     "data-boundary": [

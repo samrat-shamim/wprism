@@ -6,7 +6,7 @@
     "contract-dependency": [
       "adapter-packages/yoast/package/manifest.json",
       "adapter-packages/yoast/package/runtime/providers/yoast-index.php",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/yoast/evidence/artifacts.lock.json",
       "adapter-packages/yoast/tests/certify/version-matrix.sh",
       "adapter-packages/yoast/tests/offline/regress_yoast_index_provider.php"
     ],

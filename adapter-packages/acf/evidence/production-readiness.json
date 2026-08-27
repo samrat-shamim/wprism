@@ -6,7 +6,7 @@
     "contract-dependency": [
       "adapter-packages/acf/package/manifest.json",
       "adapter-packages/acf/package/runtime/interpreters/acf.php",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/acf/evidence/artifacts.lock.json",
       "adapter-packages/acf/tests/certify/version-matrix.sh",
       "adapter-packages/acf/tests/offline/regress_acf_production_readiness.php"
     ],

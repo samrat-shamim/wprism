@@ -26,6 +26,7 @@ require_once $root . '/agent/src/Policy/AdapterLibrary.php';
 require_once $root . '/sandbox/tests/lib/frozen_policy.php';
 require_once $root . '/sandbox/tests/support/wp-shortcode-stub.php';
 require_once $root . '/agent/src/Review/ShortcodeReferenceScanner.php';
+require_once $root . '/tools/src/ArtifactLibrary.php';
 
 use Duo\Canon;
 use Duo\Policy;
@@ -60,7 +61,7 @@ $standaloneEntries = [
     'wps-hide-login' => Canon::decode(Canon::read_file($root . '/adapter-packages/wps-hide-login/tests/conformance/entry.json')),
     'yoast-duplicate-post' => Canon::decode(Canon::read_file($root . '/adapter-packages/yoast-duplicate-post/tests/conformance/entry.json')),
 ];
-$artifactLock = Canon::decode(Canon::read_file($root . '/sandbox/conformance/artifacts.lock.json'));
+$artifactLock = \Duo\Tooling\ArtifactLibrary::load($root);
 
 $policy = Policy::load(null, $names, adapterLibrary: $sourceLibrary);
 

@@ -7,7 +7,7 @@
       "adapter-packages/polylang/package/manifest.json",
       "adapter-packages/polylang/package/runtime/interpreters/polylang.php",
       "adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/polylang/evidence/artifacts.lock.json",
       "adapter-packages/polylang/tests/certify/version-matrix.sh",
       "adapter-packages/polylang/tests/offline/regress_polylang_production_readiness.php",
       "adapter-packages/polylang/tests/live/regress_polylang_multisite_refusal.sh",

@@ -113,11 +113,8 @@ $settingsInventory = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
-$artifactLock = json_decode(
-    (string) file_get_contents($root . '/sandbox/conformance/artifacts.lock.json'),
-    true,
-    flags: JSON_THROW_ON_ERROR
-);
+require_once $root . '/tools/src/ArtifactLibrary.php';
+$artifactLock = \Duo\Tooling\ArtifactLibrary::loadPackage($root, 'woocommerce');
 $externalProductInventory = json_decode(
     (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/woocommerce-core-11.0-external-product.json'),
     true,

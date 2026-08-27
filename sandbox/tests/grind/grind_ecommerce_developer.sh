@@ -24,6 +24,8 @@ require id
 require mktemp
 
 REPO_ROOT="$(cd .. && pwd)"
+# shellcheck source=../../bin/artifact-library.sh
+. "$REPO_ROOT/sandbox/bin/artifact-library.sh"
 DUO="$REPO_ROOT/cli/duo"
 CODE_DEPLOY="$REPO_ROOT/cli/src/Transport/CodeDeploy.php"
 FIXTURE="$REPO_ROOT/sandbox/fixtures/duo-ecommerce-developer-grind"
@@ -1337,10 +1339,10 @@ require sha256sum
 [ -f "$FIXTURE/v2/broken/$EXT_FILE" ] || fail "broken v2 extension fixture missing"
 [ -f "$FIXTURE/v2/fixed/$EXT_FILE" ] || fail "fixed v2 extension fixture missing"
 [ -f "$FIXTURE/replacement/fixed/$REPLACEMENT_FILE" ] || fail "fixed replacement fixture missing"
-[ -f "conformance/artifacts.lock.json" ] || fail "pinned artifact lock missing"
-jq -e --arg version "$WOO_VERSION" '.plugins.woocommerce[$version].sha256 | test("^[0-9a-f]{64}$")' conformance/artifacts.lock.json >/dev/null || fail "WooCommerce $WOO_VERSION is not digest-pinned"
-jq -e --arg version "$WOO_DOWNGRADE_VERSION" '.plugins.woocommerce[$version].sha256 | test("^[0-9a-f]{64}$")' conformance/artifacts.lock.json >/dev/null || fail "WooCommerce $WOO_DOWNGRADE_VERSION is not digest-pinned"
-jq -e --arg version "$ACF_VERSION" '.plugins["advanced-custom-fields"][$version].sha256 | test("^[0-9a-f]{64}$")' conformance/artifacts.lock.json >/dev/null || fail "ACF $ACF_VERSION is not digest-pinned"
+validate_artifact_library || fail "pinned artifact library is malformed"
+artifact_library_jq -e --arg version "$WOO_VERSION" '.plugins.woocommerce[$version].sha256 | test("^[0-9a-f]{64}$")' >/dev/null || fail "WooCommerce $WOO_VERSION is not digest-pinned"
+artifact_library_jq -e --arg version "$WOO_DOWNGRADE_VERSION" '.plugins.woocommerce[$version].sha256 | test("^[0-9a-f]{64}$")' >/dev/null || fail "WooCommerce $WOO_DOWNGRADE_VERSION is not digest-pinned"
+artifact_library_jq -e --arg version "$ACF_VERSION" '.plugins["advanced-custom-fields"][$version].sha256 | test("^[0-9a-f]{64}$")' >/dev/null || fail "ACF $ACF_VERSION is not digest-pinned"
 # pair.sh owns the host's locked, dynamic capacity gate. Do not pre-enumerate
 # other agents' pairs here: a zero-other-pairs rule needlessly serializes a
 # distributed run, and an unlocked check would race the authoritative budget

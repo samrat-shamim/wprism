@@ -210,8 +210,8 @@ if [ "$WORDPRESS_OFFLINE" = 1 ]; then
 fi
 # shellcheck source=../bin/fetch-artifact.sh
 . bin/fetch-artifact.sh
-validate_artifact_lock conformance/artifacts.lock.json \
-  || fail "artifact lock is malformed; conformance refused before pair reset"
+validate_artifact_library \
+  || fail "artifact library is malformed; conformance refused before pair reset"
 wp_env() { # wp_env <conf1|conf2> <wp args...>
   local env="$1"; shift
   local side="${env#conf}"   # conf1 -> 1, conf2 -> 2 (pair.sh's generic side numbering)
@@ -306,8 +306,8 @@ install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
     for spec in "${PLUGINS[@]}"; do
       slug=$(jq -r '.slug' <<<"$spec")
       version=$(jq -r '.version' <<<"$spec")
-      archive_root=$(jq -r --arg slug "$slug" --arg version "$version" \
-        '.plugins[$slug][$version].archive_root // $slug' conformance/artifacts.lock.json)
+      archive_root=$(artifact_library_jq -r --arg slug "$slug" --arg version "$version" \
+        '.plugins[$slug][$version].archive_root // $slug')
       [[ "$archive_root" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
         || fail "pinned plugin archive root is malformed for $slug $version"
       artifact=$(fetch_artifact "$slug" "$version" "cli$side" plugin) \
@@ -327,8 +327,8 @@ install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
     for spec in "${THEMES[@]}"; do
       slug=$(jq -r '.slug' <<<"$spec")
       version=$(jq -r '.version' <<<"$spec")
-      archive_root=$(jq -r --arg slug "$slug" --arg version "$version" \
-        '.themes[$slug][$version].archive_root // $slug' conformance/artifacts.lock.json)
+      archive_root=$(artifact_library_jq -r --arg slug "$slug" --arg version "$version" \
+        '.themes[$slug][$version].archive_root // $slug')
       [[ "$archive_root" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
         || fail "pinned theme archive root is malformed for $slug $version"
       artifact=$(fetch_artifact "$slug" "$version" "cli$side" theme) \

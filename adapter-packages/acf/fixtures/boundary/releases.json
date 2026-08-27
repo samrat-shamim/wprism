@@ -1,7 +1,7 @@
 {
   "format": "duo-adapter-release-list/v1",
   "slug": "advanced-custom-fields",
-  "source": "sandbox/conformance/artifacts.lock.json — the three ACF releases whose bytes this repository has already fetched and digest-verified through the certify version matrix. Every digest here was recorded by that harness, never computed from a release history this tool read at run time.",
+  "source": "adapter-packages/acf/evidence/artifacts.lock.json — the three ACF releases whose bytes this repository has already fetched and digest-verified through the certify version matrix. Every digest here was recorded by that harness, never computed from a release history this tool read at run time.",
   "recorded_at": "2026-08-24",
   "releases": [
     {

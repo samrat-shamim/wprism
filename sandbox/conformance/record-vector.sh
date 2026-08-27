@@ -12,7 +12,7 @@
 #     a round trip nobody checked;
 #   * the LIVE rows behind that tree, which only exist while conf1 is up;
 #   * a `duo-adapter-probe/v1` document read off that same running target, at
-#     the exact pinned plugin version conformance/artifacts.lock.json installed.
+#     the exact package-owned artifact version the library installed.
 #
 # docs/agents/live-pair-budget.md allocates order 4 to exactly this: one
 # recording per vector, then the offline replay

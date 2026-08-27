@@ -1833,11 +1833,8 @@ $manifest = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
-$artifacts = json_decode(
-    (string) file_get_contents($root . '/sandbox/conformance/artifacts.lock.json'),
-    true,
-    flags: JSON_THROW_ON_ERROR
-)['plugins']['the-events-calendar'];
+require_once $root . '/tools/src/ArtifactLibrary.php';
+$artifacts = \Duo\Tooling\ArtifactLibrary::loadPackage($root, 'the-events-calendar')['plugins']['the-events-calendar'];
 // The reviewed claim source is one document per subject since WP-4.4
 // (spec/repo-format.md § v3.4); the monolith this suite was authored against
 // is gone, and ManifestDispositions::load() refuses a library that still
@@ -9072,7 +9069,7 @@ foreach ([
     'missing-code compatibility refusal mutated retained TEC rows',
     'missing-code compatibility refusal mutated canonical target state',
     'TEC_LIFECYCLE_VERSION="${TEC_EXPECTED_VERSION:-6.17.3}"',
-    'TEC_ARTIFACT_LOCKFILE="${DUO_ARTIFACT_LOCKFILE:-conformance/artifacts.lock.json}"',
+    'TEC_SHA=$(artifact_library_jq -er --arg version "$TEC_LIFECYCLE_VERSION"',
     '.plugins["the-events-calendar"][$version].sha256',
     'plugin-the-events-calendar-${TEC_LIFECYCLE_VERSION}-${TEC_SHA}.zip',
     'plugin get the-events-calendar --field=version)" = "$TEC_LIFECYCLE_VERSION"',

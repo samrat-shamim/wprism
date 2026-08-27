@@ -1,0 +1,22 @@
+{
+  "plugins": {
+    "elementor": {
+      "3.35.9": {
+        "url": "https://downloads.wordpress.org/plugin/elementor.3.35.9.zip",
+        "sha256": "90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc",
+        "role": "refusal-fixture"
+      },
+      "4.0.0": {
+        "url": "https://downloads.wordpress.org/plugin/elementor.4.0.0.zip",
+        "sha256": "75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2",
+        "role": "certified-boundary"
+      },
+      "4.2.3": {
+        "url": "https://downloads.wordpress.org/plugin/elementor.4.2.3.zip",
+        "sha256": "20d8bf5f8be00cd89f8ae6ba13a109faa175ac198f2280bb593d6960c1c65fd5",
+        "role": "certified-boundary"
+      }
+    }
+  },
+  "themes": {}
+}

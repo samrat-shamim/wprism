@@ -6,7 +6,7 @@
     "contract-dependency": [
       "adapter-packages/yoast-duplicate-post/package/manifest.json",
       "adapter-packages/yoast-duplicate-post/tests/conformance/entry.json",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/yoast-duplicate-post/evidence/artifacts.lock.json",
       "adapter-packages/yoast-duplicate-post/tests/certify/version-matrix.sh"
     ],
     "clean-target": [

@@ -1,0 +1,17 @@
+{
+  "plugins": {
+    "tinymce-advanced": {
+      "5.9.0": {
+        "url": "https://downloads.wordpress.org/plugin/tinymce-advanced.5.9.0.zip",
+        "sha256": "6940ab196194ad7f1c99a8242ed390f77ddd526f49c205d128e42c3802e0d7d8",
+        "role": "refusal-fixture"
+      },
+      "5.9.2": {
+        "url": "https://downloads.wordpress.org/plugin/tinymce-advanced.5.9.2.zip",
+        "sha256": "ec4c6635dc9d0f9c27d0256d7b83b3655b5904c936748604c698d256fbfd69c7",
+        "role": "certified-boundary"
+      }
+    }
+  },
+  "themes": {}
+}

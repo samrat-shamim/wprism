@@ -1739,7 +1739,7 @@ $multisiteRefusal = (string) file_get_contents(
 );
 foreach ([
     'DUO_EXPECTED_SOURCE_SHA',
-    'validate_artifact_lock conformance/artifacts.lock.json',
+    'validate_artifact_library',
     'fetch_artifact woocommerce 11.0.1 cli1 plugin',
     'woo_plugin_identity',
     'establish_woocommerce_hpos wp1',

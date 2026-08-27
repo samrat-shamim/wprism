@@ -5,7 +5,7 @@
   "covered": {
     "contract-dependency": [
       "adapter-packages/wps-hide-login/package/manifest.json",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/wps-hide-login/evidence/artifacts.lock.json",
       "adapter-packages/wps-hide-login/tests/certify/version-matrix.sh"
     ],
     "clean-target": [

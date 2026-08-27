@@ -8,7 +8,7 @@
       "adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php",
       "adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php",
       "adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/the-events-calendar/evidence/artifacts.lock.json",
       "adapter-packages/the-events-calendar/tests/certify/version-matrix.sh",
       "adapter-packages/the-events-calendar/tests/offline/regress_the_events_calendar_production_readiness.php"
     ],

@@ -291,11 +291,8 @@ $settingsInventory = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
-$artifactLock = json_decode(
-    (string) file_get_contents($root . '/sandbox/conformance/artifacts.lock.json'),
-    true,
-    flags: JSON_THROW_ON_ERROR
-);
+require_once $root . '/tools/src/ArtifactLibrary.php';
+$artifactLock = \Duo\Tooling\ArtifactLibrary::loadPackage($root, 'woocommerce');
 
 duo_check_same(
     'duo-woocommerce-optional-core-inventory/v1',

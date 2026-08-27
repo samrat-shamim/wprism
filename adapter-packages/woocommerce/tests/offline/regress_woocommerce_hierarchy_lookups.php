@@ -18,6 +18,7 @@ require_once $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/agent/src/Adapter/ProviderSdk.php';
 require_once $root . '/agent/src/Adapter/Providers.php';
 require_once $root . '/agent/src/Rebuild/NativeActions.php';
+require_once $root . '/tools/src/ArtifactLibrary.php';
 
 use Duo\Policy;
 use DuoTest\FakeWpdb;
@@ -32,11 +33,7 @@ $coinstallTopology = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
-$artifactLock = json_decode(
-    (string) file_get_contents($root . '/sandbox/conformance/artifacts.lock.json'),
-    true,
-    flags: JSON_THROW_ON_ERROR
-);
+$artifactLock = \Duo\Tooling\ArtifactLibrary::load($root);
 $settingsInventory = json_decode(
     (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/woocommerce-core-11.0-settings.json'),
     true,

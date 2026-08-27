@@ -36,8 +36,8 @@ fi
 export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
 # shellcheck source=../../bin/fetch-artifact.sh
 . bin/fetch-artifact.sh
-validate_artifact_lock conformance/artifacts.lock.json \
-  || fail "artifact lock is malformed; multisite refusal proof stopped before pair reset"
+validate_artifact_library \
+  || fail "artifact library is malformed; multisite refusal proof stopped before pair reset"
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 REPO="siterepo/${PAIR}1"
 

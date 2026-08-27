@@ -1021,12 +1021,8 @@ namespace {
         'populated WPML registry refuses through the closed unreviewed-option boundary',
         'contains an unreviewed row'
     );
-    $artifactLock = json_decode(
-        (string) file_get_contents($repoRoot . '/sandbox/conformance/artifacts.lock.json'),
-        true,
-        512,
-        JSON_THROW_ON_ERROR
-    );
+    require_once $repoRoot . '/tools/src/ArtifactLibrary.php';
+    $artifactLock = \Duo\Tooling\ArtifactLibrary::loadPackage($repoRoot, 'polylang');
     duo_check_same(
         [
             '3.7' => [

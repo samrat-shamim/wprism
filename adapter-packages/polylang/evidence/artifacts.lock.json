@@ -1,0 +1,27 @@
+{
+  "plugins": {
+    "polylang": {
+      "3.7": {
+        "url": "https://downloads.wordpress.org/plugin/polylang.3.7.zip",
+        "sha256": "c9df1dd6fe450b977ad922ecc6889fc5fc0cc7babb85cac6104c5357ed8606c6",
+        "role": "refusal-fixture"
+      },
+      "3.8": {
+        "url": "https://downloads.wordpress.org/plugin/polylang.3.8.zip",
+        "sha256": "44e77a8e5f8cd05da216c22e6b738201639f330afa6a2b468b615d3e091a00af",
+        "role": "certified-boundary"
+      },
+      "3.8.6": {
+        "url": "https://downloads.wordpress.org/plugin/polylang.3.8.6.zip",
+        "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa",
+        "role": "certified-boundary"
+      },
+      "3.8.7": {
+        "url": "https://downloads.wordpress.org/plugin/polylang.3.8.7.zip",
+        "sha256": "bdb1e8d929410b3083f0884e6a356f91d659159771cc63893c9c06e83daddcb0",
+        "role": "certified-boundary"
+      }
+    }
+  },
+  "themes": {}
+}

@@ -41,9 +41,9 @@ export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
 wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 REPO="siterepo/${PAIR}1"
 . bin/fetch-artifact.sh
-validate_artifact_lock conformance/artifacts.lock.json || fail 'artifact lock validation failed'
-jq -e '.plugins.polylang["3.8.6"].sha256 == "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa"' \
-  conformance/artifacts.lock.json >/dev/null || fail 'exact Polylang 3.8.6 artifact pin drifted'
+validate_artifact_library || fail 'artifact library validation failed'
+artifact_library_jq -e '.plugins.polylang["3.8.6"].sha256 == "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa"' \
+  >/dev/null || fail 'exact Polylang 3.8.6 artifact pin drifted'
 
 GREEN=0
 cleanup() { [ "$GREEN" = 1 ] && bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true; }

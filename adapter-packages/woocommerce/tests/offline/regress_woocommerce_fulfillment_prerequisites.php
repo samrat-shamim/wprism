@@ -869,9 +869,8 @@ namespace {
     duo_check(($provider->invoke('verify_fulfillment_prerequisites', [])['verified'] ?? false) === true,
         'bounded payload read failure leaves exact prerequisite state retryable');
 
-    $artifactLock = json_decode((string) file_get_contents(
-        $root . '/sandbox/conformance/artifacts.lock.json'
-    ), true, 32, JSON_THROW_ON_ERROR);
+    require_once $root . '/tools/src/ArtifactLibrary.php';
+    $artifactLock = \Duo\Tooling\ArtifactLibrary::loadPackage($root, 'woocommerce');
     $lockedWoo = $artifactLock['plugins']['woocommerce'] ?? [];
     duo_check_same(
         'ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666',

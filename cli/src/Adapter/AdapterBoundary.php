@@ -30,9 +30,9 @@ use Duo\Canon;
  *
  * It emits a `duo-adapter-boundary-search/v1` document: which releases were
  * probed, in what order, what each one did, and — when the evidence supports
- * one — a proposed `sandbox/conformance/artifacts.lock.json` fragment in that
- * file's OWN three-role vocabulary, shaped so `validate_artifact_lock()`
- * (`sandbox/bin/fetch-artifact.sh:10-45`) accepts it unmodified.
+ * one — a proposed package-owned `evidence/artifacts.lock.json` fragment in
+ * the library's OWN three-role vocabulary, shaped so `ArtifactLibrary`
+ * accepts it unmodified.
  *
  * It never writes a manifest. The range and Canon-byte-equal restatement in
  * `adapter-packages/<name>/package/{manifest,disposition}.json` are ONE
@@ -55,7 +55,7 @@ use Duo\Canon;
  *      would fail on a plugin's release history changing under it, which is
  *      the one thing a version-boundary claim must be stable against.
  *   2. Resolution stays digest-pinned end to end. `fetch_artifact()` resolves
- *      against `artifacts.lock.json` and "a miss never falls through to a bare
+ *      against the package-owned artifact library and "a miss never falls through to a bare
  *      WP-CLI catalog install" (`fetch-artifact.sh:44-47`) — but a bisector
  *      probes versions that are BY DEFINITION not in the lock yet, so the
  *      recorded release list is its pin source. Same discipline (https URL,
@@ -155,7 +155,7 @@ final class AdapterBoundary {
     ];
 
     /**
-     * The lock's roles, used exactly as `artifacts.lock.json` already uses
+     * The artifact roles, used exactly as package fragments already use
      * them. `exercise-fixture` is never PROPOSED: it means "installed to
      * exercise something", which is a statement about a test's intent rather
      * than about a version boundary, and no probe outcome implies it.
@@ -506,7 +506,7 @@ final class AdapterBoundary {
      * a green probe is a `certified-boundary` (an exact version proven to
      * install, round-trip and recapture byte-identically), a failing probe is a
      * `refusal-fixture` (an exact version proven not to). That mapping is read
-     * off `artifacts.lock.json` rather than invented — every bisection-shaped
+     * off the artifact library rather than invented — every bisection-shaped
      * block in it today is exactly this: the greens it certified and the
      * adjacent failures that bracket them.
      *
@@ -967,7 +967,7 @@ final class AdapterBoundary {
         }
         $rows = $document['proposed_lock_rows'] ?? null;
         if (is_array($rows)) {
-            echo "proposed artifacts.lock.json rows (evidence for review, not an edit):\n";
+            echo "proposed package artifact rows (evidence for review, not an edit):\n";
             echo Canon::encode($rows);
         }
         foreach ((array) $document['evidence_limits'] as $limit) {

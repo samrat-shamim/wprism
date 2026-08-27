@@ -44,7 +44,7 @@ Knobs: `ADOPT_PAIR` (default `adopt`), `ADOPT_PORT1/2` (9600/9601),
 `ADOPT_WOO_VERSION`, `ADOPT_WOO_OLD_VERSION`, `ADOPT_YOAST_VERSION`,
 `ADOPT_YOAST_OLD_VERSION`, `ADOPT_CF7_VERSION`, `ADOPT_POLYLANG_VERSION`,
 `ADOPT_ELEMENTOR_VERSION`, `ADOPT_ACF_VERSION`, `ADOPT_WPFORMS_VERSION` (all
-must be pins in `sandbox/conformance/artifacts.lock.json`). From a linked
+must be pins in the owning adapter's `evidence/artifacts.lock.json`). From a linked
 worktree add `DUO_SOURCE_ROOT=$(pwd -P)`. Evidence lands under
 `sandbox/tmp/grind-adoption.*/evidence/<situation>/`; the exact PASS string is
 `✔ GRIND_ADOPTION PASSED (<situations>)`.

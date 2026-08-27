@@ -4150,9 +4150,8 @@ namespace {
     duo_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
         'hostile cron inventory is bounded before provider-side traversal can grow without limit');
 
-    $artifactLock = json_decode((string) file_get_contents(
-        $root . '/sandbox/conformance/artifacts.lock.json'
-    ), true, 32, JSON_THROW_ON_ERROR);
+    require_once $root . '/tools/src/ArtifactLibrary.php';
+    $artifactLock = \Duo\Tooling\ArtifactLibrary::loadPackage($root, 'woocommerce');
     duo_check_same(
         'ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666',
         $artifactLock['plugins']['woocommerce']['11.0.0']['sha256'] ?? null,

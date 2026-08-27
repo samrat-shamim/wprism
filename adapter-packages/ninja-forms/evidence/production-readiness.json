@@ -7,7 +7,7 @@
       "adapter-packages/ninja-forms/package/manifest.json",
       "adapter-packages/ninja-forms/package/runtime/interpreters/ninja-forms.php",
       "adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/ninja-forms/evidence/artifacts.lock.json",
       "adapter-packages/ninja-forms/tests/certify/version-matrix.sh",
       "adapter-packages/ninja-forms/tests/offline/regress_ninja_forms_form_cache_provider.php",
       "adapter-packages/ninja-forms/tests/offline/regress_ninja_forms_production_readiness.php"

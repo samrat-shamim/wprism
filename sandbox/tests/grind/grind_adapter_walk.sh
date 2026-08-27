@@ -129,6 +129,8 @@ exec 3>&1
 
 SANDBOX="$(pwd -P)"
 REPO_ROOT="$(cd .. && pwd -P)"
+# shellcheck source=../../bin/artifact-library.sh
+. "$SANDBOX/bin/artifact-library.sh"
 DUO="$REPO_ROOT/cli/duo"
 FIXTURES="$SANDBOX/tests/fixtures/adapter-walk"
 
@@ -160,7 +162,7 @@ WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
 
 # The subject plugin's identity, in the three spellings the walk needs. All
 # three are facts about WPForms Lite 2.0.0.4, pinned as an `exercise-fixture`
-# in sandbox/conformance/artifacts.lock.json.
+# in the platform-owned artifact fragment.
 WPFORMS_SLUG=wpforms-lite
 WPFORMS_BASENAME='wpforms-lite/wpforms.php'
 WPFORMS_CPT=wpforms
@@ -236,17 +238,16 @@ preflight() {
   # unpinned version rather than falling through to the wordpress.org catalog —
   # so every pin is resolved HERE, before any pair is created, and an
   # unresolvable one is a named refusal rather than a silent substitution.
-  jq -e --arg slug "$THEME_SLUG" --arg v "$THEME_VERSION" '.themes[$slug][$v]' \
-    conformance/artifacts.lock.json >/dev/null \
-    || fail "conformance/artifacts.lock.json has no pin for theme $THEME_SLUG $THEME_VERSION.
+  artifact_library_jq -e --arg slug "$THEME_SLUG" --arg v "$THEME_VERSION" '.themes[$slug][$v]' \
+    >/dev/null || fail "artifact library has no pin for theme $THEME_SLUG $THEME_VERSION.
 Either add the pin:
   .themes.$THEME_SLUG.\"<version>\" = {url, sha256, role: \"exercise-fixture\"}
 or run against a theme this estate already pins:
   WALK_THEME_SLUG=twentytwentyone WALK_THEME_VERSION=2.8 bash sandbox/tests/grind/grind_adapter_walk.sh"
-  jq -e --arg v "$WOO_VERSION" '.plugins.woocommerce[$v]' conformance/artifacts.lock.json >/dev/null \
-    || fail "conformance/artifacts.lock.json has no pin for woocommerce $WOO_VERSION"
-  jq -e --arg v "$WPFORMS_VERSION" '.plugins["'"$WPFORMS_SLUG"'"][$v]' conformance/artifacts.lock.json >/dev/null \
-    || fail "conformance/artifacts.lock.json has no pin for $WPFORMS_SLUG $WPFORMS_VERSION — T6 §4 names WPForms Lite 2.0.0.4 as the subject"
+  artifact_library_jq -e --arg v "$WOO_VERSION" '.plugins.woocommerce[$v]' >/dev/null \
+    || fail "artifact library has no pin for woocommerce $WOO_VERSION"
+  artifact_library_jq -e --arg v "$WPFORMS_VERSION" '.plugins["'"$WPFORMS_SLUG"'"][$v]' >/dev/null \
+    || fail "artifact library has no pin for $WPFORMS_SLUG $WPFORMS_VERSION — T6 §4 names WPForms Lite 2.0.0.4 as the subject"
 
   local scenario
   for scenario in ${SCENARIOS//,/ }; do
@@ -310,7 +311,6 @@ trap 'exit 143' TERM
 
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
 export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
-export DUO_ARTIFACT_LOCKFILE="$SANDBOX/conformance/artifacts.lock.json"
 COMPOSE_FILES=("$SANDBOX/pair.yml" "$SANDBOX/pair.http.yml" "$SANDBOX/pair.artifacts.yml")
 PAIR_UP_FLAGS=(--http --artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then

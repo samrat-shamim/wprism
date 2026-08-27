@@ -203,7 +203,7 @@ The candidate set is a **recorded** `duo-adapter-release-list/v1` document
 carrying every release's exact URL and sha256 (see
 [`sandbox/conformance/boundary/README.md`](../../sandbox/conformance/boundary/README.md)).
 Nothing on this path reaches the network, and an unpinned candidate is refused
-rather than fetched — the same discipline `artifacts.lock.json` already holds.
+rather than fetched — the same discipline package-owned artifact fragments already hold.
 
 One probe is a full pair round-trip, so the command is a planner: exit 3 names
 the one release to probe next, exit 0 emits the finished document, and
@@ -217,7 +217,7 @@ evidence about a plugin.
 **It never edits a manifest, and it is not trying to.** What it produces is the
 sentence a reviewer needs — "6.0.0 installs, round-trips and recaptures
 byte-identically; 5.12.6 fatals with this signature" — plus
-`artifacts.lock.json` rows in that file's own three-role vocabulary. Writing the
+`evidence/artifacts.lock.json` rows in that fragment's three-role vocabulary. Writing the
 range, and restating it in `manifests/dispositions/<name>.json` so the two stay
 Canon-byte-equal, remains one reviewed human edit; every proposed endpoint is a
 release that probed green, and a recorded failure inside the proposed window
@@ -1417,7 +1417,7 @@ file.
    must preserve), plus any of the three optional hooks the harness invokes if
    present: `seeds/<name>.sh` before capture, `postdeploy/<name>.sh` between
    deploy and apply, `checks/<name>.sh` after apply. Pin every plugin/theme
-   version and its SHA-256 in `sandbox/conformance/artifacts.lock.json`. Run
+   version and its SHA-256 in the owning capsule's `evidence/artifacts.lock.json`. Run
    it with:
 
    ```sh

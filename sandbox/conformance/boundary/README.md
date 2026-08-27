@@ -5,7 +5,8 @@ Two kinds of file, one rule each.
 **`<slug>.releases.json`** — a `duo-adapter-release-list/v1` document: every
 candidate release with its exact download URL and sha256. This is the bisector's
 pin source, and the reason nothing on the search path ever reaches the network.
-`fetch_artifact()` resolves against `../artifacts.lock.json` and refuses a miss
+`fetch_artifact()` resolves against the convention-discovered package/platform
+artifact library and refuses a miss
 rather than falling through to a bare catalog install
 (`../../bin/fetch-artifact.sh:44-47`); a bisection probes versions that are by
 definition not in that lock yet — finding the ones that belong there is the job

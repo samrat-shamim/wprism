@@ -7,7 +7,7 @@
       "adapter-packages/paid-memberships-pro/package/manifest.json",
       "agent/src/Policy/ManifestGrammar.php",
       "agent/src/Apply/TypedTableMaterializer.php",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/paid-memberships-pro/evidence/artifacts.lock.json",
       "adapter-packages/paid-memberships-pro/tests/certify/version-matrix.sh",
       "adapter-packages/paid-memberships-pro/tests/offline/regress_paid_memberships_pro_production_readiness.php"
     ],

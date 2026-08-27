@@ -591,16 +591,16 @@ cmd_up() {
   # every container operation. A refusal here has touched nothing at all.
   assert_candidate_source up
 
-  # The typed artifact registry is mutation authority for the explicit
+  # The typed artifact library is mutation authority for the explicit
   # artifact-backed bootstrap. Validate its complete closed shape before the
   # budget lock, shared database, pair roots, or Docker are touched; a later
   # fetch must not be the first place an unknown role/key is discovered.
   if [ "$artifacts" = 1 ]; then
-    validate_artifact_lock conformance/artifacts.lock.json \
-      || fail "up: artifact lock is malformed; no pair resources were changed"
-    PAIR_BOOTSTRAP_THEME_VERSION=$(jq -r '
+    validate_artifact_library \
+      || fail "up: artifact library is malformed; no pair resources were changed"
+    PAIR_BOOTSTRAP_THEME_VERSION=$(artifact_library_jq -r '
       .themes.twentytwentyone | if type == "object" and length == 1 then keys[0] else empty end
-    ' conformance/artifacts.lock.json)
+    ')
     [[ "$PAIR_BOOTSTRAP_THEME_VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] \
       || fail "up: the pinned bootstrap-theme registry entry is missing or ambiguous; no pair resources were changed"
   else

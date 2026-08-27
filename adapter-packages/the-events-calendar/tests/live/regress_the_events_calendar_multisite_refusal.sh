@@ -48,8 +48,8 @@ if [ "$WORDPRESS_OFFLINE" = 1 ]; then
 fi
 # shellcheck source=../../bin/fetch-artifact.sh
 . bin/fetch-artifact.sh
-validate_artifact_lock conformance/artifacts.lock.json \
-  || fail "artifact lock is malformed before TEC multisite pair mutation"
+validate_artifact_library \
+  || fail "artifact library is malformed before TEC multisite pair mutation"
 
 wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp_conf1() { wp1 "$@"; }

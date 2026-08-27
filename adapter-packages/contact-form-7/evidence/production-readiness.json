@@ -6,7 +6,7 @@
     "contract-dependency": [
       "adapter-packages/contact-form-7/package/manifest.json",
       "adapter-packages/contact-form-7/package/runtime/interpreters/contact-form-7.php",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/contact-form-7/evidence/artifacts.lock.json",
       "adapter-packages/contact-form-7/tests/certify/version-matrix.sh",
       "adapter-packages/contact-form-7/tests/offline/regress_contact_form_7_production_readiness.php"
     ],

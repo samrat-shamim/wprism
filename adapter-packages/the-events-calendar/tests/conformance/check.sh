@@ -3194,12 +3194,10 @@ require_duo_answered "TEC deploy with code absent" human "$MISSING_OUT"
 [ "$(git -C "$CONF_REPO2" status --porcelain=v1 --untracked-files=all -- state)" = "$MISSING_REPO_BEFORE" ] \
   || fail "missing-code compatibility refusal mutated canonical target state"
 TEC_LIFECYCLE_VERSION="${TEC_EXPECTED_VERSION:-6.17.3}"
-TEC_ARTIFACT_LOCKFILE="${DUO_ARTIFACT_LOCKFILE:-conformance/artifacts.lock.json}"
-TEC_SHA=$(jq -er --arg version "$TEC_LIFECYCLE_VERSION" '
+TEC_SHA=$(artifact_library_jq -er --arg version "$TEC_LIFECYCLE_VERSION" '
   .plugins["the-events-calendar"][$version].sha256
   | select(type == "string" and test("^[0-9a-f]{64}$"))
-' "$TEC_ARTIFACT_LOCKFILE") \
-  || fail "artifact lock lacks an exact TEC $TEC_LIFECYCLE_VERSION lifecycle digest"
+') || fail "artifact library lacks an exact TEC $TEC_LIFECYCLE_VERSION lifecycle digest"
 TEC_ARTIFACT="/artifacts-cache/plugin-the-events-calendar-${TEC_LIFECYCLE_VERSION}-${TEC_SHA}.zip"
 [ "$(wp_conf2 eval "echo hash_file('sha256', '$TEC_ARTIFACT');")" = "$TEC_SHA" ] \
   || fail "cached TEC reinstall artifact digest moved"

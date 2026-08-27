@@ -11,7 +11,7 @@
       "adapter-packages/woocommerce/package/runtime/providers/woocommerce-fulfillment-prerequisites.php",
       "adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php",
       "adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/woocommerce/evidence/artifacts.lock.json",
       "adapter-packages/woocommerce/tests/certify/version-matrix.sh",
       "adapter-packages/woocommerce/tests/offline/regress_woocommerce_contract.php",
       "adapter-packages/woocommerce/tests/offline/regress_woocommerce_production_readiness.php"

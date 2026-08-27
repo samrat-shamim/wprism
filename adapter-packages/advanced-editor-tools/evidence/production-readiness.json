@@ -5,7 +5,7 @@
   "covered": {
     "contract-dependency": [
       "adapter-packages/advanced-editor-tools/package/manifest.json",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/advanced-editor-tools/evidence/artifacts.lock.json",
       "adapter-packages/advanced-editor-tools/tests/certify/version-matrix.sh"
     ],
     "clean-target": [

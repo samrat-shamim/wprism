@@ -56,11 +56,10 @@ export CONF_REPO1 CONF1_PORT COMPOSE
 wp_conf1() { wp1 "$@"; }
 . bin/fetch-artifact.sh
 
-validate_artifact_lock conformance/artifacts.lock.json \
-  || fail 'artifact lock validation failed before WooCommerce multisite pair mutation'
-jq -e '.plugins.woocommerce["11.0.1"].role == "certified-boundary" and (.plugins.woocommerce["11.0.1"].sha256 | test("^[0-9a-f]{64}$"))' \
-  conformance/artifacts.lock.json >/dev/null \
-  || fail 'exact WooCommerce 11.0.1 certified artifact lock entry is missing'
+validate_artifact_library \
+  || fail 'artifact library validation failed before WooCommerce multisite pair mutation'
+artifact_library_jq -e '.plugins.woocommerce["11.0.1"].role == "certified-boundary" and (.plugins.woocommerce["11.0.1"].sha256 | test("^[0-9a-f]{64}$"))' \
+  >/dev/null || fail 'exact WooCommerce 11.0.1 certified artifact library entry is missing'
 
 GREEN=0
 cleanup() {

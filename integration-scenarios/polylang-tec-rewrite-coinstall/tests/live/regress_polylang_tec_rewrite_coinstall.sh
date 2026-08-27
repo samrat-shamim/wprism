@@ -34,8 +34,8 @@ capture_without_warnings() {
 }
 R1="siterepo/${PAIR}1"; R2="siterepo/${PAIR}2"; ORIGIN="siterepo/origin-$PAIR.git"
 . bin/fetch-artifact.sh
-validate_artifact_lock conformance/artifacts.lock.json || fail 'artifact lock validation failed'
-jq -e '.plugins.polylang["3.8.6"] and .plugins["the-events-calendar"]["6.17.2"]' conformance/artifacts.lock.json >/dev/null || fail 'exact co-install pins are missing'
+validate_artifact_library || fail 'artifact library validation failed'
+artifact_library_jq -e '.plugins.polylang["3.8.6"] and .plugins["the-events-calendar"]["6.17.2"]' >/dev/null || fail 'exact co-install pins are missing'
 GREEN=0; cleanup() { [ "$GREEN" = 1 ] && bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true; }; trap cleanup EXIT
 install_exact() { local side="$1" slug="$2" version="$3" artifact; artifact=$(fetch_artifact "$slug" "$version" "cli$side"); "wp$side" plugin install "$artifact" --force --activate >/dev/null; [ "$("wp$side" plugin get "$slug" --field=version)" = "$version" ] || fail "side $side: $slug exact version mismatch"; }
 

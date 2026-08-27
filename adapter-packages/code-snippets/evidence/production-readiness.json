@@ -6,7 +6,7 @@
     "contract-dependency": [
       "adapter-packages/code-snippets/package/manifest.json",
       "adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/code-snippets/evidence/artifacts.lock.json",
       "adapter-packages/code-snippets/tests/certify/version-matrix.sh"
     ],
     "clean-target": [

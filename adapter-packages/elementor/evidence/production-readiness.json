@@ -6,7 +6,7 @@
     "contract-dependency": [
       "adapter-packages/elementor/package/manifest.json",
       "adapter-packages/elementor/package/runtime/providers/elementor-css.php",
-      "sandbox/conformance/artifacts.lock.json",
+      "adapter-packages/elementor/evidence/artifacts.lock.json",
       "adapter-packages/elementor/tests/certify/version-matrix.sh",
       "adapter-packages/elementor/tests/offline/regress_elementor_css_provider.php"
     ],

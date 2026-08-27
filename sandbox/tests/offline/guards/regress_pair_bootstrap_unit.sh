@@ -445,6 +445,18 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
   cp "$ROOT/sandbox/lib/pair_siterepo.sh" "$bin_dir/../lib/pair_siterepo.sh"
 }
 
+copy_artifact_library_runtime() { # copy_artifact_library_runtime <case-root>
+  local case_root="$1"
+  mkdir -p "$case_root/adapter-packages" "$case_root/platform/artifact-library" \
+    "$case_root/tools/src"
+  cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
+  cp "$ROOT/sandbox/bin/artifact-library.sh" "$case_root/sandbox/bin/artifact-library.sh"
+  cp "$ROOT/tools/artifact-library.php" "$case_root/tools/artifact-library.php"
+  cp "$ROOT/tools/src/ArtifactLibrary.php" "$case_root/tools/src/ArtifactLibrary.php"
+  cp "$ROOT/platform/artifact-library/artifacts.lock.json" \
+    "$case_root/platform/artifact-library/artifacts.lock.json"
+}
+
 run_case() {
   local label="$1" pair="$2" codebind="$3" git_mode="${4:-canonical}"
   local artifacts="${5:-0}" wordpress_offline="${6:-0}"
@@ -455,10 +467,9 @@ run_case() {
   mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
   canonical_root="$case_root/canonical"
   copy_pair_launcher "$case_root/sandbox/bin"
-  cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
-  cp "$ROOT/sandbox/conformance/artifacts.lock.json" "$case_root/sandbox/conformance/artifacts.lock.json"
+  copy_artifact_library_runtime "$case_root"
   if [ -n "${DUO_PAIR_TEST_LOCK_OVERRIDE:-}" ]; then
-    cp "$DUO_PAIR_TEST_LOCK_OVERRIDE" "$case_root/sandbox/conformance/artifacts.lock.json"
+    cp "$DUO_PAIR_TEST_LOCK_OVERRIDE" "$case_root/platform/artifact-library/artifacts.lock.json"
   fi
   chmod +x "$case_root/sandbox/bin/pair.sh"
 
@@ -563,13 +574,13 @@ run_artifact_theme_case() {
   export DUO_PAIR_TEST_ARTIFACT_CACHE="$cache_dir"
   export DUO_PAIR_TEST_ARTIFACT_RUNNER="$ROOT/sandbox/bin/artifact-cache-fetch.sh"
 
-  # run_case copies the shipped lock before launching; replace only this
+  # run_case copies the platform fragment before launching; replace only this
   # private copy with a same-shaped deterministic fixture matching the warm
   # cache bytes above.
-  mkdir -p "$case_root/sandbox/conformance"
+  mkdir -p "$case_root/platform/artifact-library"
   printf '{"plugins":{},"themes":{"twentytwentyone":{"2.8":{"url":"https://fixture.invalid/theme.zip","sha256":"%s","role":"exercise-fixture"}}}}\n' \
-    "$digest" > "$case_root/sandbox/conformance/artifacts.lock.json.override"
-  DUO_PAIR_TEST_LOCK_OVERRIDE="$case_root/sandbox/conformance/artifacts.lock.json.override"
+    "$digest" > "$case_root/platform/artifact-library/artifacts.lock.json.override"
+  DUO_PAIR_TEST_LOCK_OVERRIDE="$case_root/platform/artifact-library/artifacts.lock.json.override"
   export DUO_PAIR_TEST_LOCK_OVERRIDE
   run_case "$label" "$pair" "" canonical 1 1
   unset DUO_PAIR_TEST_THEME_STATE_DIR DUO_PAIR_TEST_THEME_FAILURES \
@@ -595,10 +606,10 @@ run_invalid_artifact_lock_preflight_case() {
   local canonical_root="$case_root/canonical"
   mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
   copy_pair_launcher "$case_root/sandbox/bin"
-  cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
-  jq '.plugins.woocommerce["11.0.0"].role = "unknown-role"' \
-    "$ROOT/sandbox/conformance/artifacts.lock.json" \
-    > "$case_root/sandbox/conformance/artifacts.lock.json"
+  copy_artifact_library_runtime "$case_root"
+  jq '.plugins["wpforms-lite"]["2.0.0.4"].role = "unknown-role"' \
+    "$ROOT/platform/artifact-library/artifacts.lock.json" \
+    > "$case_root/platform/artifact-library/artifacts.lock.json"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
@@ -611,9 +622,9 @@ run_invalid_artifact_lock_preflight_case() {
 
   if "$case_root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless --artifacts \
       >"$output" 2>&1; then
-    fail "$label accepted an artifact lock with an unknown role"
+    fail "$label accepted an artifact library with an unknown role"
   fi
-  assert_file_contains "$output" 'artifact lock is malformed' \
+  assert_file_contains "$output" 'artifact library is malformed' \
     "$label did not return the bounded preflight refusal"
   [ ! -e "$log" ] || [ ! -s "$log" ] \
     || fail "$label contacted Docker before refusing the malformed lock"
@@ -632,17 +643,17 @@ run_invalid_bootstrap_theme_preflight_case() {
     canonical_root="$case_root/canonical"
     mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
     copy_pair_launcher "$case_root/sandbox/bin"
-    cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
+    copy_artifact_library_runtime "$case_root"
     case "$variant" in
       missing)
         jq 'del(.themes.twentytwentyone)' \
-          "$ROOT/sandbox/conformance/artifacts.lock.json" \
-          > "$case_root/sandbox/conformance/artifacts.lock.json"
+          "$ROOT/platform/artifact-library/artifacts.lock.json" \
+          > "$case_root/platform/artifact-library/artifacts.lock.json"
         ;;
       ambiguous)
         jq '.themes.twentytwentyone["2.9"] = .themes.twentytwentyone["2.8"]' \
-          "$ROOT/sandbox/conformance/artifacts.lock.json" \
-          > "$case_root/sandbox/conformance/artifacts.lock.json"
+          "$ROOT/platform/artifact-library/artifacts.lock.json" \
+          > "$case_root/platform/artifact-library/artifacts.lock.json"
         ;;
     esac
     chmod +x "$case_root/sandbox/bin/pair.sh"

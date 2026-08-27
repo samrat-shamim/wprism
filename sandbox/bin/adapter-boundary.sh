@@ -20,7 +20,7 @@
 # bisection and a certification cannot disagree about what "green" means.
 #
 # WHY THE PIN COMES FROM THE RELEASE LIST. `fetch_artifact()` resolves against
-# conformance/artifacts.lock.json and refuses a miss rather than falling
+# the convention-discovered artifact library and refuses a miss rather than falling
 # through to a bare catalog install (bin/fetch-artifact.sh:44-47). A bisector
 # probes versions that are BY DEFINITION not in that lock yet — finding the
 # ones that belong in it is the whole job — so its pin source is the recorded
@@ -264,8 +264,8 @@ fetch_release_artifact() { # <version> <cli-service> ; prints the container path
   sha256=$(echo "$entry" | jq -r '.sha256')
   [[ "$sha256" =~ ^[0-9a-f]{64}$ ]] \
     || { echo "release '$version' carries a malformed digest pin" >&2; return 1; }
-  # The same URL grammar validate_artifact_lock()'s jq program applies to a
-  # lock row (fetch-artifact.sh:26): https, and no whitespace or quote anywhere
+  # The same URL grammar ArtifactLibrary applies to a fragment row: https,
+  # and no whitespace or quote anywhere
   # in it — an anchored match, not a prefix test, because a space in the middle
   # is exactly what a prefix test would wave through into a shell argument.
   [[ "$url" =~ ^https://[^[:space:]\'\"]+$ ]] \

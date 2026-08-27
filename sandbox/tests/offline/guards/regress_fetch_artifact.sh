@@ -20,14 +20,18 @@ command -v sha256sum >/dev/null || fail "sha256sum required on PATH"
 REPO_ROOT="$(cd .. && pwd)"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-fetch-artifact.XXXXXX")"
 trap 'rm -rf -- "$TMP"' EXIT INT TERM
-mkdir -p "$TMP/conformance" "$TMP/fake-bin" "$TMP/cache"
+mkdir -p "$TMP/adapter-packages/fixture/evidence" "$TMP/platform/artifact-library" \
+  "$TMP/tools/src" "$TMP/fake-bin" "$TMP/cache"
+cp "$REPO_ROOT/tools/artifact-library.php" "$TMP/tools/artifact-library.php"
+cp "$REPO_ROOT/tools/src/ArtifactLibrary.php" "$TMP/tools/src/ArtifactLibrary.php"
 
 PAYLOAD="$TMP/pinned-artifact.zip"
 printf 'pinned artifact bytes\n' > "$PAYLOAD"
 DIGEST="$(sha256sum "$PAYLOAD" | awk '{print $1}')"
-printf '{"plugins":{"fixture":{"1.0":{"url":"https://fixture.invalid/pinned.zip","sha256":"%s","role":"exercise-fixture"}}},"themes":{"fixture":{"1.0":{"url":"https://fixture.invalid/theme.zip","sha256":"%s","role":"exercise-fixture"}}}}\n' \
-  "$DIGEST" \
-  "$DIGEST" > "$TMP/conformance/artifacts.lock.json"
+printf '{"plugins":{"fixture":{"1.0":{"url":"https://fixture.invalid/pinned.zip","sha256":"%s","role":"exercise-fixture"}}},"themes":{}}\n' \
+  "$DIGEST" > "$TMP/adapter-packages/fixture/evidence/artifacts.lock.json"
+printf '{"plugins":{},"themes":{"fixture":{"1.0":{"url":"https://fixture.invalid/theme.zip","sha256":"%s","role":"exercise-fixture"}}}}\n' \
+  "$DIGEST" > "$TMP/platform/artifact-library/artifacts.lock.json"
 
 cat > "$TMP/fake-bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -134,40 +138,38 @@ printf '0\n' > "$FAKE_CURL_COUNT"
 : > "$FAKE_CURL_LOG"
 
 cd "$TMP"
-# fetch_artifact intentionally resolves conformance/artifacts.lock.json from
-# the caller's working directory, matching sandbox's live pair scripts.
+export DUO_ARTIFACT_LIBRARY_ROOT="$TMP"
 # shellcheck source=/dev/null
 source "$REPO_ROOT/sandbox/bin/fetch-artifact.sh"
 PAIR_COMPOSE=(fake_compose)
 export DUO_ARTIFACT_TEST_MODE=1 DUO_ARTIFACT_TEST_CACHE_ROOT="$FAKE_CACHE"
 
 say "the typed lock schema refuses unknown roles before artifact resolution"
-cp conformance/artifacts.lock.json "$TMP/valid-artifacts.lock.json"
+cp adapter-packages/fixture/evidence/artifacts.lock.json "$TMP/valid-artifacts.lock.json"
 jq '.plugins.fixture["1.0"].role = "unreviewed-role"' \
-  conformance/artifacts.lock.json > "$TMP/invalid-artifacts.lock.json"
-mv "$TMP/invalid-artifacts.lock.json" conformance/artifacts.lock.json
-if validate_artifact_lock conformance/artifacts.lock.json; then
-  fail "typed artifact lock accepted an unknown role"
+  adapter-packages/fixture/evidence/artifacts.lock.json > "$TMP/invalid-artifacts.lock.json"
+mv "$TMP/invalid-artifacts.lock.json" adapter-packages/fixture/evidence/artifacts.lock.json
+if validate_artifact_library; then
+  fail "typed artifact library accepted an unknown role"
 fi
 if fetch_artifact fixture 1.0 cli1 >/dev/null; then
   fail "artifact resolver executed an entry with an unknown role"
 fi
 [ ! -s "$FAKE_CURL_LOG" ] || fail "invalid lock role reached curl"
-mv "$TMP/valid-artifacts.lock.json" conformance/artifacts.lock.json
-validate_artifact_lock conformance/artifacts.lock.json \
-  || fail "valid typed artifact lock was refused"
+mv "$TMP/valid-artifacts.lock.json" adapter-packages/fixture/evidence/artifacts.lock.json
+validate_artifact_library || fail "valid typed artifact library was refused"
 pass "unknown roles fail closed before download or bundle execution"
 
 say "theme entries cannot claim plugin-only certification or refusal roles"
-cp conformance/artifacts.lock.json "$TMP/valid-artifacts.lock.json"
+cp platform/artifact-library/artifacts.lock.json "$TMP/valid-artifacts.lock.json"
 jq '.themes.fixture["1.0"].role = "certified-boundary"' \
-  conformance/artifacts.lock.json > "$TMP/invalid-artifacts.lock.json"
-mv "$TMP/invalid-artifacts.lock.json" conformance/artifacts.lock.json
-if validate_artifact_lock conformance/artifacts.lock.json; then
-  fail "typed artifact lock accepted a certified-boundary theme that the bundle cannot inventory"
+  platform/artifact-library/artifacts.lock.json > "$TMP/invalid-artifacts.lock.json"
+mv "$TMP/invalid-artifacts.lock.json" platform/artifact-library/artifacts.lock.json
+if validate_artifact_library; then
+  fail "typed artifact library accepted a certified-boundary theme that the bundle cannot inventory"
 fi
 [ ! -s "$FAKE_CURL_LOG" ] || fail "invalid theme role reached curl"
-mv "$TMP/valid-artifacts.lock.json" conformance/artifacts.lock.json
+mv "$TMP/valid-artifacts.lock.json" platform/artifact-library/artifacts.lock.json
 pass "themes remain execution fixtures and cannot disappear from plugin-only boundary evidence"
 
 say "two transient download failures recover on the bounded third attempt"

@@ -943,14 +943,14 @@ regress-deletion-feasibility:
 # WP-2.2: `duo adapter boundary`, version-range bisection that emits EVIDENCE
 # and can never emit a manifest edit. Drives the real AdapterBoundary::search()
 # over recorded outcome tables: the 13 bisection-shaped blocks of
-# sandbox/conformance/artifacts.lock.json each reproduce from their own rows,
+# the convention-discovered artifact library each reproduce from their own rows,
 # 64 synthetic releases resolve in 11 probes against a 12-probe bound, a
 # failing release is never proposed as a boundary in any of 30 windows, a
 # recorded contradiction inside the settled window BLOCKS rather than
 # narrowing, an unresolvable artifact is reported rather than counted as a
 # failing release, and every file under manifests/ is byte-identical before
 # and after -- including across the real subprocess run that reads acf's
-# declared range. Offline: pure PHP plus the shipped validate_artifact_lock().
+# declared range. Offline: pure PHP plus the shipped artifact-fragment parser.
 regress-adapter-boundary-search:
 	php sandbox/tests/offline/adapter/regress_adapter_boundary_search.php
 
