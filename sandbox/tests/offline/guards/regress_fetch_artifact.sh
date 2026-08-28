@@ -172,13 +172,49 @@ artifact_library_jq -r ".plugins | keys | join(\",\")"
   || fail "a package child process widened artifact authority beyond its selected capsule: $CHILD_PACKAGE"
 unset DUO_ARTIFACT_PACKAGE
 
-for package_live in \
-  "$REPO_ROOT/adapter-packages/polylang/tests/live/regress_polylang_multisite_refusal.sh" \
-  "$REPO_ROOT/adapter-packages/the-events-calendar/tests/live/regress_the_events_calendar_multisite_refusal.sh" \
-  "$REPO_ROOT/adapter-packages/woocommerce/tests/live/regress_woocommerce_multisite_refusal.sh"; do
-  grep -Fq 'export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"' "$package_live" \
-    || fail "package live caller does not preserve artifact scope for pair.sh: $package_live"
-done
+package_live_uses_artifact_pair() { # <package tests/live shell suite>
+  awk '
+    /^[[:space:]]*#/ { next }
+    /(^|[[:space:](])--artifacts([[:space:])]|$)/ { artifacts = 1 }
+    /pair\.sh[[:space:]]+up([[:space:]]|$)/ { pair_up = 1 }
+    END { exit !(artifacts && pair_up) }
+  ' "$1"
+}
+
+validate_package_artifact_callers() { # <adapter-packages root>
+  local packages="$1" package_live
+  while IFS= read -r package_live; do
+    package_live_uses_artifact_pair "$package_live" || continue
+    grep -Fq 'export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"' "$package_live" || {
+      printf 'package live caller does not preserve artifact scope for pair.sh: %s\n' "$package_live" >&2
+      return 1
+    }
+  done < <(find "$packages" -type f -path '*/tests/live/*.sh' -print | LC_ALL=C sort)
+}
+
+CALLER_PROBE="$TMP/artifact-caller-probe/adapter-packages/fourth/tests/live"
+mkdir -p "$CALLER_PROBE"
+cat > "$CALLER_PROBE/regress_fourth_artifact_pair.sh" <<'EOF'
+#!/usr/bin/env bash
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+UP_FLAGS=(--artifacts)
+bash bin/pair.sh up fourth 9901 9902 "${UP_FLAGS[@]}"
+EOF
+if validate_package_artifact_callers "$TMP/artifact-caller-probe/adapter-packages" >/dev/null 2>&1; then
+  fail 'dynamic package caller discovery accepted a fourth artifact-backed live caller without an exported package scope'
+fi
+cat > "$CALLER_PROBE/regress_fourth_artifact_pair.sh" <<'EOF'
+#!/usr/bin/env bash
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+UP_FLAGS=(--artifacts)
+bash bin/pair.sh up fourth 9901 9902 "${UP_FLAGS[@]}"
+EOF
+validate_package_artifact_callers "$TMP/artifact-caller-probe/adapter-packages" \
+  || fail 'dynamic package caller discovery refused a fourth correctly scoped artifact-backed live caller'
+validate_package_artifact_callers "$REPO_ROOT/adapter-packages" \
+  || fail 'a discovered package artifact-backed live caller does not export its package scope'
+pass 'artifact-backed package live callers are dynamically discovered and preserve package scope across pair.sh'
 
 say "scenario artifact resolution reads only declared participant fragments"
 export DUO_ARTIFACT_PARTICIPANTS=fixture,other

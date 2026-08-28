@@ -355,8 +355,9 @@ regress-adapter-packages:
 # require no central Makefile edit. Explicit engine/scenario targets below win
 # normally; an unknown compatibility name refuses in the resolver.
 .PHONY: adapter-package-make-force
+regress-%: export DUO_ADAPTER_PACKAGE_MAKE_TARGET = $@
 regress-%: adapter-package-make-force
-	php tools/adapter-package-make-target.php --target=$@
+	php tools/adapter-package-make-target.php --target-from-make
 
 adapter-package-make-force:
 

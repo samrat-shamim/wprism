@@ -151,6 +151,10 @@ final class AdapterPackageTestsTest extends TestCase
         yield 'concatenated dynamic class string' => [
             "\n\$class = 'Duo' . '\\\\RepositoryCompiler';\n\$class::compile();\n",
         ];
+        yield 'variable-separated dynamic class string' => [
+            "\n\$root = 'Duo';\n\$internal = 'RepositoryCompiler';\n"
+                . "\$class = \$root . '\\\\' . \$internal;\n\$class::compile();\n",
+        ];
         yield 'case-variant fully-qualified name' => [
             "\n\\duo\\RepositoryCompiler::compile();\n",
         ];
@@ -450,6 +454,45 @@ final class AdapterPackageTestsTest extends TestCase
         AdapterPackageValidator::validate($root, 'acf');
     }
 
+    public function testValidatorRejectsReadinessCoverageSatisfiedByThePackageReadme(): void
+    {
+        $root = $this->validatorFixture();
+        $evidence = 'adapter-packages/acf/README.md';
+        self::replaceReadinessEvidence(
+            $root,
+            'sandbox/tests/offline/apply/regress_fatal_mutations.php',
+            $evidence
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('readiness evidence is not a recognized owned evidence asset');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    /** @return iterable<string,array{0:string}> */
+    public static function invalidOwnedReadinessAssets(): iterable
+    {
+        yield 'test documentation' => ['tests/offline/README.md'];
+        yield 'fixture documentation' => ['fixtures/README.md'];
+    }
+
+    #[DataProvider('invalidOwnedReadinessAssets')]
+    public function testValidatorRejectsReadinessCoverageUsingAnUnvalidatedOwnedAsset(string $relative): void
+    {
+        $root = $this->validatorFixture();
+        $evidence = 'adapter-packages/acf/' . $relative;
+        self::write($root . '/' . $evidence, "not executable evidence\n");
+        self::replaceReadinessEvidence(
+            $root,
+            'sandbox/tests/offline/apply/regress_fatal_mutations.php',
+            $evidence
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('readiness evidence is not a recognized owned evidence asset');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
     /** @return iterable<string,array{0:string,1:string}> */
     public static function processGlobalLibrarySelections(): iterable
     {
@@ -628,6 +671,95 @@ PHP
         AdapterPackageValidator::validate($root, 'acf');
     }
 
+    public function testValidatorScansExecutableEvidenceHelpersForSiblingDependencies(): void
+    {
+        $root = $this->validatorFixture();
+        self::makeDirectory($root . '/adapter-packages/woocommerce');
+        self::write(
+            $root . '/adapter-packages/acf/evidence/helper.php',
+            "<?php file_get_contents('../../woocommerce/package/manifest.json');\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            "references sibling adapter package 'woocommerce' at evidence/helper.php"
+        );
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsExecutablePhpHiddenInTheCapsuleReadme(): void
+    {
+        $root = $this->validatorFixture();
+        self::write(
+            $root . '/adapter-packages/acf/README.md',
+            "# ACF\n\n<?php require __DIR__ . '/../woocommerce/package/manifest.json';\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            'has executable source outside recognized package code roots at README.md'
+        );
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsARootHelperRequiredByAPackageTest(): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/adapter-packages/acf/helper.php', "<?php\n");
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_root_helper.php',
+            "<?php require __DIR__ . '/../../helper.php';\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            'has executable source outside recognized package code roots at helper.php'
+        );
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsANestedHelperOutsideRecognizedCodeRoots(): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/adapter-packages/acf/notes/helper.php', "<?php\n");
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_nested_helper.php',
+            "<?php require __DIR__ . '/../../notes/helper.php';\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            'has executable source outside recognized package code roots at notes/helper.php'
+        );
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsSymlinkedCapsuleDependencyNodes(): void
+    {
+        $root = $this->validatorFixture();
+        self::assertTrue(symlink(
+            $root . '/adapter-packages/acf/package/manifest.json',
+            $root . '/adapter-packages/acf/fixtures/linked-helper.php'
+        ));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('contains a symlink or non-ordinary node at fixtures/linked-helper.php');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsSpecialCapsuleDependencyNodes(): void
+    {
+        if (!function_exists('posix_mkfifo')) {
+            self::markTestSkipped('posix_mkfifo is unavailable');
+        }
+        $root = $this->validatorFixture();
+        self::assertTrue(posix_mkfifo($root . '/adapter-packages/acf/evidence/helper.php', 0600));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('contains a symlink or non-ordinary node at evidence/helper.php');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
     public function testValidatorRejectsAComputedAdapterPackagesRoot(): void
     {
         $root = $this->validatorFixture();
@@ -684,7 +816,7 @@ PHP
         );
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('source is missing premise');
+        $this->expectExceptionMessage('source is missing active premise');
         AdapterPackageValidator::validate($root, 'acf');
     }
 
@@ -761,7 +893,7 @@ SH
 cat >site.duo.json <<'JSON'
 {"manifests":["acf","core"]}
 JSON
-require_observed_nonempty "target ACF contract" "$ACF_CONTRACT"
+require_observed_nonempty "target ACF contract" "$ACF_CONTRACT" # duo-premise-owner: acf
 SH
         );
         self::addPremiseRow(
@@ -774,6 +906,70 @@ SH
         $result = AdapterPackageValidator::validate($root, 'acf');
 
         self::assertContains('premise-evidence:3', $result['checks']);
+    }
+
+    public function testValidatorRejectsACertificationPremiseBoundToAnotherDeclaredParticipant(): void
+    {
+        $root = $this->validatorFixture();
+        $relative = '@repo/sandbox/tests/certify/certify_acf_woocommerce_contract.sh';
+        self::write(
+            $root . '/' . substr($relative, strlen('@repo/')),
+            <<<'SH'
+#!/usr/bin/env bash
+cat >site.duo.json <<'JSON'
+{"manifests":["acf","core","woocommerce"]}
+JSON
+require_observed_nonempty "target WooCommerce contract" "$WOO_CONTRACT" # duo-premise-owner: woocommerce
+SH
+        );
+        self::addPremiseRow(
+            $root,
+            'observation',
+            $relative,
+            'require_observed_nonempty "target WooCommerce contract"'
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("bound to 'woocommerce'");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsACommentedOutPremiseAssertion(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/conformance/check.sh';
+        self::write(
+            $path,
+            str_replace(
+                '    require_observed_nonempty "conf2 ACF runtime observation" "$out"',
+                '    : # require_observed_nonempty "conf2 ACF runtime observation" "$out"',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('source is missing active premise');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsAPremiseAssertionPresentOnlyInAHeredoc(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/conformance/check.sh';
+        self::write(
+            $path,
+            str_replace(
+                '    require_observed_nonempty "conf2 ACF runtime observation" "$out"',
+                "    cat <<'INERT_ACF_PREMISE' >/dev/null\n"
+                    . "require_observed_nonempty \"conf2 ACF runtime observation\" \"\$out\"\n"
+                    . 'INERT_ACF_PREMISE',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('source is missing active premise');
+        AdapterPackageValidator::validate($root, 'acf');
     }
 
     public function testValidatorRejectsAnUnguardedVersionMatrixObservation(): void
@@ -841,6 +1037,57 @@ SH
             'must declare exactly one canonical VMATRIX_PLUGIN_SLUG=advanced-custom-fields'
         );
         AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsAVersionMatrixSlugPresentOnlyInAHeredoc(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/certify/version-matrix.sh';
+        self::write(
+            $path,
+            str_replace(
+                'VMATRIX_PLUGIN_SLUG=advanced-custom-fields',
+                "cat <<'INERT_VMATRIX_SLUG' >/dev/null\n"
+                    . "VMATRIX_PLUGIN_SLUG=advanced-custom-fields\n"
+                    . 'INERT_VMATRIX_SLUG',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('must declare exactly one canonical VMATRIX_PLUGIN_SLUG');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsAVersionMatrixWorkflowPresentOnlyInAHeredoc(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/certify/version-matrix.sh';
+        self::write(
+            $path,
+            str_replace(
+                'version_matrix_workflow() {',
+                "cat <<'INERT_VMATRIX_WORKFLOW' >/dev/null\n"
+                    . "version_matrix_workflow() {\n"
+                    . "INERT_VMATRIX_WORKFLOW\n"
+                    . 'renamed_workflow() {',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('must declare exactly one canonical version_matrix_workflow()');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testCurrentWooVersionMatrixUsesItsPolicyLibraryObject(): void
+    {
+        $matrix = (string) file_get_contents(
+            dirname(__DIR__, 2) . '/adapter-packages/woocommerce/tests/certify/version-matrix.sh'
+        );
+
+        self::assertStringContainsString('$sources->file($name, $policy->adapter_library())', $matrix);
+        self::assertStringNotContainsString('Policy::manifests_dir()', $matrix);
     }
 
     public function testValidatorDoesNotInspectSiblingCapsules(): void

@@ -10,21 +10,36 @@ require_once __DIR__ . '/src/AdapterPackageMakeTarget.php';
 $repo = dirname(__DIR__);
 $target = null;
 $repoSeen = false;
+$targetFromMake = false;
 foreach (array_slice($_SERVER['argv'] ?? [], 1) as $argument) {
     if (is_string($argument) && str_starts_with($argument, '--repo=') && !$repoSeen) {
         $repo = substr($argument, strlen('--repo='));
         $repoSeen = true;
         continue;
     }
-    if (is_string($argument) && str_starts_with($argument, '--target=') && $target === null) {
+    if (
+        is_string($argument)
+        && str_starts_with($argument, '--target=')
+        && $target === null
+        && !$targetFromMake
+    ) {
         $target = substr($argument, strlen('--target='));
         continue;
     }
-    fwrite(STDERR, "usage: php tools/adapter-package-make-target.php --target=regress-NAME [--repo=PATH]\n");
+    if ($argument === '--target-from-make' && $target === null && !$targetFromMake) {
+        $targetFromMake = true;
+        continue;
+    }
+    fwrite(STDERR, "usage: php tools/adapter-package-make-target.php (--target=regress-NAME|--target-from-make) [--repo=PATH]\n");
     exit(2);
 }
+if ($targetFromMake) {
+    $fromMake = getenv('DUO_ADAPTER_PACKAGE_MAKE_TARGET');
+    putenv('DUO_ADAPTER_PACKAGE_MAKE_TARGET');
+    $target = is_string($fromMake) ? $fromMake : null;
+}
 if (!is_string($target) || $target === '') {
-    fwrite(STDERR, "usage: php tools/adapter-package-make-target.php --target=regress-NAME [--repo=PATH]\n");
+    fwrite(STDERR, "usage: php tools/adapter-package-make-target.php (--target=regress-NAME|--target-from-make) [--repo=PATH]\n");
     exit(2);
 }
 

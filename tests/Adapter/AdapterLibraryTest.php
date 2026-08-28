@@ -113,6 +113,7 @@ final class AdapterLibraryTest extends TestCase
         $this->assertInstanceOf(AdapterLibrary::class, $library);
         $this->assertSame(realpath(dirname(__DIR__, 2)), $library->root());
         $this->assertFalse(method_exists(Policy::class, 'manifests_dir'));
+        $this->assertFalse(method_exists(AdapterLibrary::class, 'fromDirectory'));
         $policySource = (string) file_get_contents(dirname(__DIR__, 2) . '/agent/src/Policy/Policy.php');
         $this->assertStringNotContainsString('DUO_MANIFESTS_DIR', $policySource);
         $this->assertStringNotContainsString('fromLegacyFlatDirectory', $policySource);

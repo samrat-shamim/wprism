@@ -109,6 +109,48 @@ final class AdapterPackageMakeTargetTest extends TestCase
         self::assertSame($this->scratch, file_get_contents($marker));
     }
 
+    public function testMakeDispatcherKeepsMetacharacterGoalOutOfShellSyntax(): void
+    {
+        $process = self::runMake('regress-no-such-suite;printf DUO_INJECTED');
+
+        self::assertNotSame(0, $process['status'], $process['stdout'] . $process['stderr']);
+        self::assertStringNotContainsString('DUO_INJECTED', $process['stdout']);
+        self::assertStringContainsString('Adapter package make target is not canonical', $process['stderr']);
+    }
+
+    public function testMakeDispatcherPreservesUniqueAliasAndUnknownRefusal(): void
+    {
+        $known = self::runMake('regress-elementor-dead-guard');
+        self::assertSame(0, $known['status'], $known['stdout'] . $known['stderr']);
+        self::assertStringContainsString('REGRESS_ELEMENTOR_DEAD_GUARD PASSED', $known['stdout']);
+
+        $unknown = self::runMake('regress-no-such-suite');
+        self::assertNotSame(0, $unknown['status'], $unknown['stdout'] . $unknown['stderr']);
+        self::assertStringContainsString(
+            "No adapter package suite maps to make target 'regress-no-such-suite'",
+            $unknown['stderr']
+        );
+    }
+
+    /** @return array{status:int,stdout:string,stderr:string} */
+    private static function runMake(string $target): array
+    {
+        $repo = dirname(__DIR__, 2);
+        $process = proc_open(
+            ['make', '--no-print-directory', $target],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $repo
+        );
+        self::assertIsResource($process);
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return ['status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
+    }
+
     private function suite(string $slug, string $class, string $name, string $bytes = '<?php'): string
     {
         $directory = $this->scratch . "/adapter-packages/$slug/tests/$class";

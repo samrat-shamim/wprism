@@ -1626,13 +1626,19 @@ function af_main(array $argv): int
         $selected = $leaves;
         sort($selected, SORT_STRING);
         $rows = [];
-        foreach ($selected as $target) {
-            foreach ($changed as $file) {
-                $rows[] = [
-                    'target' => $target,
-                    'file' => $file,
-                    'why' => 'closed-full:' . $ownership['reason_code'],
-                ];
+        // A closed-full selection can be hundreds of targets by hundreds of
+        // changed paths. That Cartesian product is explanation output only;
+        // tools/offline.php requests JSON without --explain and must not pay
+        // its memory cost before it can start the selected corpus.
+        if ($explain) {
+            foreach ($selected as $target) {
+                foreach ($changed as $file) {
+                    $rows[] = [
+                        'target' => $target,
+                        'file' => $file,
+                        'why' => 'closed-full:' . $ownership['reason_code'],
+                    ];
+                }
             }
         }
         $advisories = [];
@@ -1739,8 +1745,6 @@ function af_emit(
 ): void
 {
     if ($json) {
-        usort($explainRows, static fn (array $a, array $b): int
-            => $a['target'] <=> $b['target'] ?: $a['file'] <=> $b['file']);
         $payload = [
             'targets' => $selected,
             'changed_files' => $changed,
@@ -1748,6 +1752,8 @@ function af_emit(
             'advisories' => $advisories,
         ];
         if ($explain) {
+            usort($explainRows, static fn (array $a, array $b): int
+                => $a['target'] <=> $b['target'] ?: $a['file'] <=> $b['file']);
             $payload['explain'] = $explainRows;
         }
         fwrite(STDOUT, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");

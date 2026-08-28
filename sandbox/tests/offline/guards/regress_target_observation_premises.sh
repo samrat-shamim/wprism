@@ -28,10 +28,54 @@ REPO_ROOT="$(cd .. && pwd -P)"
 ADAPTER_ROOT="$REPO_ROOT/adapter-packages"
 CONTRACT_NAME='target-observation-premises.tsv'
 
+ACTIVE_SHELL_SOURCE=''
+ACTIVE_SHELL_FILES=()
+ACTIVE_SHELL_BYTES=()
+
+clear_active_shell_cache() {
+  ACTIVE_SHELL_SOURCE=''
+  ACTIVE_SHELL_FILES=()
+  ACTIVE_SHELL_BYTES=()
+}
+
+load_active_shell_source() { # <file>
+  local file="$1" index=0
+  for ((index = 0; index < ${#ACTIVE_SHELL_FILES[@]}; index++)); do
+    if [ "${ACTIVE_SHELL_FILES[index]}" = "$file" ]; then
+      ACTIVE_SHELL_SOURCE="${ACTIVE_SHELL_BYTES[index]}"
+      return
+    fi
+  done
+  ACTIVE_SHELL_SOURCE="$(php "$REPO_ROOT/tools/active-shell-source.php" "$file")" \
+    || return 1
+  ACTIVE_SHELL_FILES+=("$file")
+  ACTIVE_SHELL_BYTES+=("$ACTIVE_SHELL_SOURCE")
+}
+
+source_has_active_literal() { # <file> <literal>
+  local line='' trimmed='' suffix=''
+  load_active_shell_source "$1" || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    trimmed="${line#"${line%%[![:space:]]*}"}"
+    [ "${trimmed#"$2"}" != "$trimmed" ] || continue
+    suffix="${trimmed#"$2"}"
+    case "$suffix" in
+      ''|[[:space:]]*|';'*|'&'*|'|'*) return 0 ;;
+    esac
+  done <<< "$ACTIVE_SHELL_SOURCE"
+  return 1
+}
+
+source_uses_premise_helpers() { # <file>
+  load_active_shell_source "$1" || return 1
+  grep -Eq '^[[:space:]]*require_(observed_nonempty|duo_answered|fixture_ids|fixture_values)([[:space:];&|]|$)' \
+    <<< "$ACTIVE_SHELL_SOURCE"
+}
+
 guard() {
   local file="$1" needle="$2"
   [ -f "$file" ] || fail "observation inventory names missing file: $file"
-  grep -Fq -- "$needle" "$file" \
+  source_has_active_literal "$file" "$needle" \
     || fail "$file is missing the target-observation premise: $needle"
 }
 
@@ -122,8 +166,8 @@ validate_contract_file() { # <contract> <package-root>
 
     [ -f "$source" ] && [ ! -L "$source" ] \
       || { contract_error "$contract" "$line_no" "premise source is missing or symlinked: $relative"; return 1; }
-    grep -Fq -- "$needle" "$source" \
-      || { contract_error "$contract" "$line_no" "source is missing premise: $needle"; return 1; }
+    source_has_active_literal "$source" "$needle" \
+      || { contract_error "$contract" "$line_no" "source is missing active premise: $needle"; return 1; }
   done < "$contract"
 
   [ $((observations + fixtures)) -gt 0 ] \
@@ -143,9 +187,10 @@ validate_version_matrix_premises() { # <package version-matrix.sh>
     printf '%s: package version matrix is missing or symlinked\n' "$file"
     return 1
   }
+  load_active_shell_source "$file" || return 1
   for variable in INSTALLED_2 TEC_INSTALLED_2 NEGATIVE_INSTALLED; do
-    assignments="$(grep -Ec "^[[:space:]]*${variable}=" "$file" || true)"
-    premises="$(grep -Ec "^[[:space:]]*require_fixture_values[[:space:]]+${variable}([[:space:]]|$)" "$file" || true)"
+    assignments="$(grep -Ec "^[[:space:]]*${variable}=" <<< "$ACTIVE_SHELL_SOURCE" || true)"
+    premises="$(grep -Ec "^[[:space:]]*require_fixture_values[[:space:]]+${variable}([[:space:]]|$)" <<< "$ACTIVE_SHELL_SOURCE" || true)"
     [ "$assignments" -eq "$premises" ] || {
       printf '%s: %s assignment/premise mismatch (%s/%s)\n' \
         "$file" "$variable" "$assignments" "$premises"
@@ -170,6 +215,32 @@ run_contract_mutation_checks() {
     || { rm -rf "$scratch"; fail "valid package premise contract refused: $result"; }
   [ "$result" = '1 0' ] \
     || { rm -rf "$scratch"; fail "valid package premise contract returned wrong counts: $result"; }
+  source_uses_premise_helpers "$source" \
+    || { rm -rf "$scratch"; fail 'active premise helper was not discovered'; }
+
+  printf '%s\n' ': # require_observed_nonempty "probe answered" "$out"' > "$source"
+  clear_active_shell_cache
+  if source_uses_premise_helpers "$source" || validate_contract_file "$contract" "$package" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'package premise contract accepted a commented-out assertion mutation'
+  fi
+  printf '%s\n' \
+    "cat <<'INERT_PREMISE' >/dev/null" \
+    'require_observed_nonempty "probe answered" "$out"' \
+    'INERT_PREMISE' > "$source"
+  clear_active_shell_cache
+  if source_uses_premise_helpers "$source" || validate_contract_file "$contract" "$package" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'package premise contract accepted a heredoc-only assertion mutation'
+  fi
+  printf '%s\n' 'echo '\''require_observed_nonempty "probe answered" "$out"'\''' > "$source"
+  clear_active_shell_cache
+  if source_uses_premise_helpers "$source" || validate_contract_file "$contract" "$package" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'package premise contract accepted an echoed assertion mutation'
+  fi
+  printf '%s\n' 'require_observed_nonempty "probe answered" "$out"' > "$source"
+  clear_active_shell_cache
 
   printf '%s\n' \
     '# format duo-target-observation-premises/v1' \
@@ -197,12 +268,28 @@ run_contract_mutation_checks() {
     fail 'package premise contract accepted a deleted-row mutation'
   fi
 
-  printf '%s\n' 'INSTALLED_2="$(wp2 plugin get x --field=version)"' > "$source"
+  printf '%s\n' \
+    'INSTALLED_2="$(wp2 plugin get x --field=version)"' \
+    ': # require_fixture_values INSTALLED_2' > "$source"
+  clear_active_shell_cache
   if validate_version_matrix_premises "$source" >/dev/null 2>&1; then
     rm -rf "$scratch"
-    fail 'version-matrix validator accepted an unguarded plugin-version observation'
+    fail 'version-matrix validator accepted a commented-out plugin-version premise'
   fi
-  printf '%s\n' 'require_fixture_values INSTALLED_2' >> "$source"
+  printf '%s\n' \
+    'INSTALLED_2="$(wp2 plugin get x --field=version)"' \
+    "cat <<'INERT_VMATRIX_PREMISE' >/dev/null" \
+    'require_fixture_values INSTALLED_2' \
+    'INERT_VMATRIX_PREMISE' > "$source"
+  clear_active_shell_cache
+  if validate_version_matrix_premises "$source" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'version-matrix validator accepted a heredoc-only plugin-version premise'
+  fi
+  printf '%s\n' \
+    'INSTALLED_2="$(wp2 plugin get x --field=version)"' \
+    'require_fixture_values INSTALLED_2' > "$source"
+  clear_active_shell_cache
   validate_version_matrix_premises "$source" \
     || { rm -rf "$scratch"; fail 'version-matrix validator refused matching assignment/premise rows'; }
   rm -rf "$scratch"
@@ -218,7 +305,7 @@ while IFS= read -r package; do
   needs_contract=0
   if [ -d "$package/tests" ]; then
     while IFS= read -r source; do
-      if grep -Eq 'require_(observed_nonempty|duo_answered|fixture_ids|fixture_values)' "$source"; then
+      if source_uses_premise_helpers "$source"; then
         needs_contract=1
         break
       fi

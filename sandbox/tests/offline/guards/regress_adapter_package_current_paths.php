@@ -94,9 +94,17 @@ duo_check(
     'Makefile recipes contain no literal adapter-package test path'
 );
 duo_check(
-    str_contains($releaseGate, "regress-%: adapter-package-make-force\n")
-        && str_contains($releaseGate, "\tphp tools/adapter-package-make-target.php --target=" . '$@' . "\n"),
-    'legacy and newly added package suite targets resolve through checked discovery'
+    str_contains(
+        $releaseGate,
+        "regress-%: export DUO_ADAPTER_PACKAGE_MAKE_TARGET = " . '$@' . "\n"
+    )
+        && str_contains($releaseGate, "regress-%: adapter-package-make-force\n")
+        && str_contains(
+            $releaseGate,
+            "\tphp tools/adapter-package-make-target.php --target-from-make\n"
+        )
+        && !str_contains($releaseGate, '--target=' . '$@'),
+    'package suite targets use checked discovery without interpolating a make goal into shell syntax'
 );
 
 foreach ([

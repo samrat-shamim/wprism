@@ -221,7 +221,7 @@ foreach ($policy->manifests as $manifest) {
     if ($name === "") {
         throw new RuntimeException("WooCommerce pre-apply authority loaded an unnamed manifest");
     }
-    $file = $sources->file($name, \Duo\Policy::manifests_dir());
+    $file = $sources->file($name, $policy->adapter_library());
     $loaded[] = [
         "file" => $file,
         "path" => $sources->path($name),

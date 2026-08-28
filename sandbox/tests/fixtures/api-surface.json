@@ -538,23 +538,6 @@
                     "static": false,
                     "visibility": "public"
                 },
-                "fromDirectory": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "directory",
-                            "type": "string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "Duo\\AdapterLibrary",
-                    "static": true,
-                    "visibility": "public"
-                },
                 "fromEmbeddedDirectory": {
                     "abstract": false,
                     "final": false,

@@ -85,6 +85,24 @@ final class AffectedTest extends TestCase
     }
 
     /** @param list<string> $args
+     * @return array{status:int,stdout:string,stderr:string}
+     */
+    private static function invokeWithMemoryLimit(array $args, string $limit): array
+    {
+        $repo = self::repoRoot();
+        $cmd = [PHP_BINARY, '-d', 'memory_limit=' . $limit, $repo . '/tools/affected.php', ...$args];
+        $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        $process = proc_open($cmd, $descriptors, $pipes, $repo);
+        self::assertIsResource($process, 'could not launch memory-bounded tools/affected.php');
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $status = proc_close($process);
+        return ['status' => $status, 'stdout' => $stdout, 'stderr' => $stderr];
+    }
+
+    /** @param list<string> $args
      * @return list<string> non-empty trimmed lines
      */
     private static function targets(array $args): array
@@ -433,6 +451,43 @@ final class AffectedTest extends TestCase
         self::assertIsArray($decoded);
         self::assertArrayHasKey('targets', $decoded);
         self::assertContains('regress-path-safety', $decoded['targets']);
+    }
+
+    public function testLargeClosedFullJsonSelectionDoesNotMaterializeUnrequestedExplanationRows(): void
+    {
+        $paths = [];
+        for ($index = 0; $index < 800; $index++) {
+            $paths[] = sprintf('docs/affected-scale-%04d.md', $index);
+        }
+
+        $result = self::invokeWithMemoryLimit([
+            '--paths=' . implode(',', $paths),
+            '--json',
+        ], '128M');
+        self::assertSame(0, $result['status'], $result['stderr']);
+        $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertCount(self::expectedOfflineLeafCount(), $decoded['targets']);
+        self::assertSame($paths, $decoded['changed_files']);
+        self::assertArrayNotHasKey('explain', $decoded);
+    }
+
+    public function testClosedFullJsonExplainRetainsEveryRequestedTargetPathReason(): void
+    {
+        $path = 'docs/affected-explain-probe.md';
+        $result = self::invoke(['--paths=' . $path, '--json', '--explain']);
+        self::assertSame(0, $result['status'], $result['stderr']);
+        $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertCount(self::expectedOfflineLeafCount(), $decoded['explain']);
+        self::assertSame(
+            array_fill(0, self::expectedOfflineLeafCount(), $path),
+            array_column($decoded['explain'], 'file')
+        );
+        self::assertSame(
+            ['closed-full:uncovered_path'],
+            array_values(array_unique(array_column($decoded['explain'], 'why')))
+        );
     }
 
     public function testUnknownOptionExitsTwo(): void
