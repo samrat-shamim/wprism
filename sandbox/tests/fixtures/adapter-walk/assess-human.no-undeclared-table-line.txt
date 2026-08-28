@@ -30,12 +30,12 @@ unknown: 37 option name(s) invisible to every installed adapter
          - table:wpforms_tasks_meta
 
 next actions:
-     37  classify
+      0  classify
       0  declare in contract
       0  qualify in rehearsal
       0  exclude
       0  provision env value
-      4  install adapter
+     41  install adapter
       0  certify adapter
       0  attest contract
       2  nothing — supported
