@@ -212,6 +212,11 @@ fi
 . bin/fetch-artifact.sh
 validate_artifact_library \
   || fail "artifact library is malformed; conformance refused before pair reset"
+# Package checks run as child shells. Pin the repository root explicitly so
+# the exported artifact helpers never try to derive it from BASH_SOURCE after
+# function export has detached them from bin/artifact-library.sh.
+DUO_ARTIFACT_LIBRARY_ROOT="$(cd .. && pwd)"
+export DUO_ARTIFACT_LIBRARY_ROOT
 wp_env() { # wp_env <conf1|conf2> <wp args...>
   local env="$1"; shift
   local side="${env#conf}"   # conf1 -> 1, conf2 -> 2 (pair.sh's generic side numbering)
@@ -239,7 +244,8 @@ export COMPOSE CONF1_PORT CONF2_PORT
 export -f wp_env wp_conf1 wp_conf2 say pass fail \
   require_fixture_ids require_fixture_values require_fixture_state \
   require_duo_answered capture_duo_json_success require_observed_nonempty \
-  establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode
+  establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode \
+  artifact_library_repo_root artifact_library_emit validate_artifact_library artifact_library_jq
 
 # DUO-3377: a sweep IS evidence, so it must be able to state which
 # agent/manifests bytes produced it. CONF_EXPECTED_SOURCE_SHA=$(git rev-parse

@@ -207,9 +207,13 @@ grep -Eq 'require_duo_answered capture_duo_json_success require_observed_nonempt
   || fail "manifest check subprocesses cannot call the refusal-preserving JSON command wrapper"
 grep -Eq 'establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode' conformance/run.sh \
   || fail "WooCommerce manifest check subprocesses cannot call their shared lifecycle helpers"
+grep -q '^export DUO_ARTIFACT_LIBRARY_ROOT$' conformance/run.sh \
+  || fail "package check subprocesses do not receive a stable artifact-library repository root"
+grep -Eq 'artifact_library_repo_root artifact_library_emit validate_artifact_library artifact_library_jq' conformance/run.sh \
+  || fail "package check subprocesses cannot call the convention-discovered artifact-library helpers"
 ! grep -q 'APPLY_JSON=.*duo apply.*| tail -1' conformance/run.sh \
   || fail "conformance apply still discards a nonzero refusal through its old tail pipeline"
-pass "conformance apply preserves answered refusal envelopes, separates dead transport, and publishes only successful JSON"
+pass "conformance children receive assertion, lifecycle, and artifact-library helpers; apply preserves answered refusals"
 
 # A mode typo must be a caller bug, never an infrastructure verdict: it may not
 # borrow the prefix operators grep to route a failure away from the engine.
