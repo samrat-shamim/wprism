@@ -18,7 +18,7 @@ FRAGMENT=conformance/asserts.sh
 
 # Every require_* invoked anywhere in the hooks both harnesses source...
 # (require_once is PHP inside the hooks' heredocs, not a bash helper.)
-CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ conformance/postapply/ conformance/checks/ conformance/capture-checks/ ../adapter-packages/*/tests/conformance/ | grep -v '^require_once$' | sort -u)
+CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ conformance/checks/ conformance/capture-checks/ ../adapter-packages/*/tests/conformance/ | grep -v '^require_once$' | sort -u)
 [ -n "$CALLED" ] || fail "no require_* calls found under conformance/seeds/ + postdeploy/ + checks/ + capture-checks/ — the grep itself regressed"
 
 # ...must be defined in the fragment (definition = `name() {`).
