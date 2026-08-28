@@ -45,8 +45,9 @@ final class SupersededSiteAdapterCertificate extends \RuntimeException {
  * A correctly-signed companion, under a currently-trusted authority, binding
  * exactly the bytes `adapters/<name>.json` carries now — whose statement was
  * exercised against a compatibility cell this agent no longer states the same
- * way. THE AGENT MOVED, NOT THE ADAPTER: `manifests/capabilities/platform.json`
- * is agent-owned and changes on an ordinary upgrade, and
+ * way. THE AGENT MOVED, NOT THE ADAPTER:
+ * `platform/adapter-library/capabilities/platform.json` is agent-owned and
+ * changes on an ordinary upgrade, and
  * assertPlatformBinding() re-binds the statement to it.
  *
  * WHAT MOVES IT IS NOW MUCH NARROWER THAN THE FILE (spec/repo-format.md § v3.6,
@@ -349,7 +350,7 @@ final class AdapterCertification {
      *     to the exact patch a live proof ran on. Acceptance is series
      *     membership — "a runtime is accepted only when it is inside [min, max)
      *     AND its MAJOR.MINOR is one of those exercised series"
-     *     (manifests/capabilities/platform.json, php axis note) — so the key is
+     *     (platform/adapter-library/capabilities/platform.json, php axis note) — so the key is
      *     bound and the patch is not. Re-measuring 8.3 on a newer patch is new
      *     evidence for the same cell, which is exactly what § v3.6 means by
      *     "recording a newly exercised PHP patch adds coverage and invalidates
@@ -1150,7 +1151,7 @@ final class AdapterCertification {
      * @param string $reason the operator's stated basis, signed and reported
      * @param null|array<string,mixed> $authoredDisposition the author's own
      *        disposition entry — the exact document shape
-     *        `manifests/dispositions/<name>.json` carries — or null to derive
+     *        `adapter-packages/<name>/package/disposition.json` carries — or null to derive
      * @return string canonical duo-adapter-certification/v1 bytes
      */
     public static function sign_site(
@@ -1616,7 +1617,8 @@ final class AdapterCertification {
         if ($entry === [] || array_is_list($entry)) {
             throw new \RuntimeException(
                 "duo: authored site adapter disposition for '$name' must be a JSON object holding one "
-                . 'disposition entry — the exact document manifests/dispositions/<name>.json carries'
+                . 'disposition entry — the exact document '
+                . 'adapter-packages/<name>/package/disposition.json carries'
             );
         }
         // THE ENVELOPE, NAMED (WP-6.6). An author who reached for
@@ -1638,7 +1640,7 @@ final class AdapterCertification {
                 . (is_string($entry['format']) ? $entry['format'] : var_export($entry['format'], true))
                 . "' ENVELOPE — --ratification-file takes the BARE entry, the object with {capabilities, "
                 . 'default_authored_keyspaces, evidence, reason, status, supported_versions, unsupported} that '
-                . 'manifests/dispositions/<name>.json carries at its top level. The envelope is the signer\'s: '
+                . 'adapter-packages/<name>/package/disposition.json carries at its top level. The envelope is the signer\'s: '
                 . 'it owns `format`, `profiles` and the single manifests key so an authored document cannot '
                 . "ratify a second adapter or smuggle a profile (spec/repo-format.md § v3.17). Remedy: $remedy"
             );
@@ -2419,7 +2421,7 @@ final class AdapterCertification {
      * WHAT A DELEGATION IS. A PLATFORM key's signed grant of a namespace
      * pattern, a tier set and a validity window to a VENDOR key, installed
      * site-side. It is the answer to the question the shipped trust root cannot
-     * answer at scale: `manifests/capabilities/adapter-authorities.json` is
+     * answer at scale: `platform/adapter-library/capabilities/adapter-authorities.json` is
      * reviewed by this project and moves on an agent release, so enrolling every
      * vendor there makes review the bottleneck for the whole ecosystem. A
      * delegation moves that decision to a key the project already reviewed,
@@ -3240,7 +3242,7 @@ final class AdapterCertification {
             throw new \RuntimeException("duo: $label have an unsupported or malformed root");
         }
         // An EMPTY v2 registry is unrepresentable, and that is what lets the
-        // shipped `manifests/capabilities/adapter-authorities.json` stay the
+        // shipped `platform/adapter-library/capabilities/adapter-authorities.json` stay the
         // byte-identical `{"format": "duo-adapter-authorities/v1", "keys": {}}`
         // through the flag day: the envelope signature names a key INSIDE the
         // document, so a registry with no keys has nothing that could sign it,
@@ -3817,8 +3819,8 @@ final class AdapterCertification {
         // flag day rather than the first enrollment. Per register row R-08 a
         // root chooses one binding at the moment its first certificate is
         // signed and never after; this change is possible only because the
-        // platform root has never signed one (`manifests/capabilities/
-        // adapter-authorities.json` is `{"keys":{}}`).
+        // platform root has never signed one (`platform/adapter-library/
+        // capabilities/adapter-authorities.json` is `{"keys":{}}`).
         //
         // Nothing is laundered by the narrowing. The certificate still binds
         // the record it was signed over, self-consistently by digest; the scope
@@ -3871,7 +3873,7 @@ final class AdapterCertification {
      * NARROWING (this change) admits certificates a wider binding refused, so it
      * can only be made while nothing in the field depends on the refusal. The
      * platform root has still signed nothing —
-     * `manifests/capabilities/adapter-authorities.json` is `{"keys": {}}`, which
+     * `platform/adapter-library/capabilities/adapter-authorities.json` is `{"keys": {}}`, which
      * `regress_authority_record_v2.php` asserts on every run beside this change
      * — and a SITE root's certificates only ever gain by it, because dropping a
      * member from an equality can turn a refusal into an acceptance and never

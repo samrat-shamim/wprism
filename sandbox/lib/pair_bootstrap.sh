@@ -59,11 +59,20 @@ EOF
 pair_bootstrap_install_and_activate_theme() { # <cli service> <theme slug>
   local cli="$1" theme="$2" attempt active installed_version
   if [ "${PAIR_BOOTSTRAP_ARTIFACTS:-0}" = 1 ]; then
-    local artifact
+    local artifact archive_root="${PAIR_BOOTSTRAP_THEME_ARCHIVE_ROOT:-}"
+    [[ "$archive_root" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
+      || fail "theme '$theme' pinned archive root is malformed"
     artifact=$(fetch_artifact "$theme" "$PAIR_BOOTSTRAP_THEME_VERSION" "$cli" theme) \
       || fail "theme '$theme' exact pinned artifact is unavailable"
-    "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme install "$artifact" --activate --force \
-      || fail "theme '$theme' exact pinned artifact could not be installed and activated"
+    "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme install "$artifact" --force \
+      || fail "theme '$theme' exact pinned artifact could not be installed"
+    if [ "$archive_root" != "$theme" ]; then
+      "${PAIR_COMPOSE[@]}" run --rm -T "$cli" sh /duo-harness/artifact-archive-root.sh \
+        /var/www/html/wp-content/themes "$archive_root" "$theme" \
+        || fail "theme '$theme' pinned archive root '$archive_root' could not be normalized"
+    fi
+    "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme activate "$theme" \
+      || fail "theme '$theme' exact pinned artifact could not be activated"
     active=$("${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme list --status=active --field=name) \
       || fail "theme '$theme' active-theme readback failed after pinned install"
     [ "$active" = "$theme" ] \

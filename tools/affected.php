@@ -296,6 +296,16 @@ function af_is_canonical_explicit_path(string $path): bool
     return af_normalize_path($path) === $path;
 }
 
+/** Git's -z formats are unquoted, so any cleanup here would change ownership evidence. */
+function af_canonical_git_path(string $path, string $source): string
+{
+    if (!af_is_canonical_explicit_path($path)) {
+        throw new RuntimeException("non-canonical repo-relative path from $source");
+    }
+
+    return $path;
+}
+
 // -------------------------------------------------------- make db parsing
 
 /**
@@ -1359,11 +1369,8 @@ function af_parse_diff_name_status(string $output): array
             if (!isset($fields[$offset], $fields[$offset + 1])) {
                 throw new RuntimeException('truncated rename record from git diff --name-status');
             }
-            $from = af_normalize_path($fields[$offset++]);
-            $to = af_normalize_path($fields[$offset++]);
-            if ($from === '' || $to === '') {
-                throw new RuntimeException('empty rename path from git diff --name-status');
-            }
+            $from = af_canonical_git_path($fields[$offset++], 'git diff --name-status rename source');
+            $to = af_canonical_git_path($fields[$offset++], 'git diff --name-status rename destination');
             $changes[] = ['from' => $from, 'to' => $to];
             $paths[] = $from;
             $paths[] = $to;
@@ -1373,24 +1380,20 @@ function af_parse_diff_name_status(string $output): array
             if (!isset($fields[$offset], $fields[$offset + 1])) {
                 throw new RuntimeException('truncated copy record from git diff --name-status');
             }
-            $from = af_normalize_path($fields[$offset++]);
-            $to = af_normalize_path($fields[$offset++]);
+            $from = af_canonical_git_path($fields[$offset++], 'git diff --name-status copy source');
+            $to = af_canonical_git_path($fields[$offset++], 'git diff --name-status copy destination');
             foreach ([$from, $to] as $path) {
-                if ($path !== '') {
-                    $changes[] = $path;
-                    $paths[] = $path;
-                }
+                $changes[] = $path;
+                $paths[] = $path;
             }
             continue;
         }
         if (preg_match('/^[A-Z?]{1,2}$/D', $status) !== 1 || !isset($fields[$offset])) {
             throw new RuntimeException('malformed record from git diff --name-status');
         }
-        $path = af_normalize_path($fields[$offset++]);
-        if ($path !== '') {
-            $changes[] = $path;
-            $paths[] = $path;
-        }
+        $path = af_canonical_git_path($fields[$offset++], 'git diff --name-status');
+        $changes[] = $path;
+        $paths[] = $path;
     }
 
     return ['changes' => $changes, 'paths' => $paths];
@@ -1419,15 +1422,12 @@ function af_parse_porcelain_status(string $output): array
             throw new RuntimeException('malformed record from git status --porcelain=v1');
         }
         $status = substr($record, 0, 2);
-        $to = af_normalize_path(substr($record, 3));
+        $to = af_canonical_git_path(substr($record, 3), 'git status --porcelain=v1');
         if (str_contains($status, 'R')) {
             if (!isset($fields[$offset + 1])) {
                 throw new RuntimeException('truncated rename record from git status --porcelain=v1');
             }
-            $from = af_normalize_path($fields[++$offset]);
-            if ($from === '' || $to === '') {
-                throw new RuntimeException('empty rename path from git status --porcelain=v1');
-            }
+            $from = af_canonical_git_path($fields[++$offset], 'git status --porcelain=v1 rename source');
             $changes[] = ['from' => $from, 'to' => $to];
             $paths[] = $from;
             $paths[] = $to;
@@ -1437,19 +1437,15 @@ function af_parse_porcelain_status(string $output): array
             if (!isset($fields[$offset + 1])) {
                 throw new RuntimeException('truncated copy record from git status --porcelain=v1');
             }
-            $from = af_normalize_path($fields[++$offset]);
+            $from = af_canonical_git_path($fields[++$offset], 'git status --porcelain=v1 copy source');
             foreach ([$from, $to] as $path) {
-                if ($path !== '') {
-                    $changes[] = $path;
-                    $paths[] = $path;
-                }
+                $changes[] = $path;
+                $paths[] = $path;
             }
             continue;
         }
-        if ($to !== '') {
-            $changes[] = $to;
-            $paths[] = $to;
-        }
+        $changes[] = $to;
+        $paths[] = $to;
     }
 
     return ['changes' => $changes, 'paths' => $paths];

@@ -280,6 +280,9 @@ grep -Eq 'artifact_library_repo_root artifact_library_package_context artifact_l
   && grep -Eq 'artifact_library_emit' conformance/run.sh \
   && grep -Eq 'validate_artifact_library artifact_library_jq' conformance/run.sh \
   || fail "package check subprocesses cannot call the convention-discovered artifact-library helpers"
+grep -Fq 'archive_root=$(artifact_library_platform_jq -r --arg slug "$slug" --arg version "$version"' \
+  conformance/run.sh \
+  || fail "conformance theme archive roots are not resolved from the explicit platform library"
 ! grep -q 'APPLY_JSON=.*duo apply.*| tail -1' conformance/run.sh \
   || fail "conformance apply still discards a nonzero refusal through its old tail pipeline"
 pass "conformance children receive assertion, lifecycle, and artifact-library helpers; apply preserves answered refusals"

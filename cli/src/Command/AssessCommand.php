@@ -883,7 +883,8 @@ final class AssessCommand {
             throw new CommandRefusalException(
                 'dispositions_unreadable',
                 'the reviewed manifest dispositions could not be read for their provenance',
-                'restore manifests/dispositions/ in this checkout, then rerun assess'
+                'restore adapter-packages/*/package/disposition.json and platform/adapter-library/core/disposition.json, '
+                    . 'then rerun assess'
             );
         }
 

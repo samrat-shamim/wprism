@@ -33,7 +33,7 @@ printf '{"plugins":{"fixture":{"1.0":{"url":"https://fixture.invalid/pinned.zip"
 mkdir -p "$TMP/adapter-packages/other/evidence"
 printf '{"plugins":{"other":{"1.0":{"url":"https://fixture.invalid/other.zip","sha256":"%s","role":"exercise-fixture"}}},"themes":{}}\n' \
   "$DIGEST" > "$TMP/adapter-packages/other/evidence/artifacts.lock.json"
-printf '{"plugins":{},"themes":{"fixture":{"1.0":{"url":"https://fixture.invalid/theme.zip","sha256":"%s","role":"exercise-fixture"}}}}\n' \
+printf '{"plugins":{},"themes":{"fixture":{"1.0":{"url":"https://fixture.invalid/theme.zip","sha256":"%s","role":"exercise-fixture","archive_root":"fixture-theme-source"}}}}\n' \
   "$DIGEST" > "$TMP/platform/artifact-library/artifacts.lock.json"
 
 cat > "$TMP/fake-bin/curl" <<'EOF'
@@ -154,14 +154,31 @@ printf '{"plugins":{"broken":true},"themes":{}}\n' \
 validate_artifact_platform_library \
   || fail "platform artifact lookup was coupled to a malformed adapter capsule"
 artifact_library_platform_jq -e '
-  (.themes | keys) == ["fixture"] and (.plugins == [])
+  (.themes | keys) == ["fixture"] and (.plugins == []) and
+  .themes.fixture["1.0"].archive_root == "fixture-theme-source"
 ' >/dev/null || fail "platform artifact lookup did not use only the platform fragment"
 export DUO_ARTIFACT_PACKAGE=fixture
 validate_artifact_library \
   || fail "one package's valid artifact fragment was coupled to a malformed sibling"
 artifact_library_jq -e '.plugins.fixture["1.0"] and (.plugins | has("broken") | not)' >/dev/null \
   || fail "package-owned artifact lookup did not use the isolated package loader"
+CHILD_PACKAGE=$(bash -c '
+set -euo pipefail
+. "$1/sandbox/bin/artifact-library.sh"
+validate_artifact_library
+artifact_library_jq -r ".plugins | keys | join(\",\")"
+' _ "$REPO_ROOT") || fail "an exported package context was lost across a child process"
+[ "$CHILD_PACKAGE" = fixture ] \
+  || fail "a package child process widened artifact authority beyond its selected capsule: $CHILD_PACKAGE"
 unset DUO_ARTIFACT_PACKAGE
+
+for package_live in \
+  "$REPO_ROOT/adapter-packages/polylang/tests/live/regress_polylang_multisite_refusal.sh" \
+  "$REPO_ROOT/adapter-packages/the-events-calendar/tests/live/regress_the_events_calendar_multisite_refusal.sh" \
+  "$REPO_ROOT/adapter-packages/woocommerce/tests/live/regress_woocommerce_multisite_refusal.sh"; do
+  grep -Fq 'export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"' "$package_live" \
+    || fail "package live caller does not preserve artifact scope for pair.sh: $package_live"
+done
 
 say "scenario artifact resolution reads only declared participant fragments"
 export DUO_ARTIFACT_PARTICIPANTS=fixture,other

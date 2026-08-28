@@ -341,7 +341,7 @@ install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
     for spec in "${THEMES[@]}"; do
       slug=$(jq -r '.slug' <<<"$spec")
       version=$(jq -r '.version' <<<"$spec")
-      archive_root=$(artifact_library_jq -r --arg slug "$slug" --arg version "$version" \
+      archive_root=$(artifact_library_platform_jq -r --arg slug "$slug" --arg version "$version" \
         '.themes[$slug][$version].archive_root // $slug')
       [[ "$archive_root" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
         || fail "pinned theme archive root is malformed for $slug $version"

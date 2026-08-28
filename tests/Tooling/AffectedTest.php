@@ -638,6 +638,42 @@ final class AffectedTest extends TestCase
         ], $parsed['paths']);
     }
 
+    public function testGitDiscoveryRefusesEveryLossyRawPathShape(): void
+    {
+        self::loadTool();
+        $records = [
+            'diff path' => static fn(): array => af_parse_diff_name_status(
+                "A\0 adapter-packages/acf/rogue.php\0"
+            ),
+            'diff rename source' => static fn(): array => af_parse_diff_name_status(
+                "R100\0adapter-packages/acf/old.php \0adapter-packages/acf/new.php\0"
+            ),
+            'diff copy destination' => static fn(): array => af_parse_diff_name_status(
+                "C100\0adapter-packages/acf/source.php\0adapter-packages\\acf/copy.php\0"
+            ),
+            'status path' => static fn(): array => af_parse_porcelain_status(
+                "??  adapter-packages/acf/rogue.php\0"
+            ),
+            'status rename source' => static fn(): array => af_parse_porcelain_status(
+                "R  adapter-packages/acf/new.php\0adapter-packages/acf/old.php \0"
+            ),
+            'status copy destination' => static fn(): array => af_parse_porcelain_status(
+                "C  adapter-packages\\acf/copy.php\0adapter-packages/acf/source.php\0"
+            ),
+        ];
+
+        foreach ($records as $label => $parse) {
+            $message = null;
+            try {
+                $parse();
+            } catch (\RuntimeException $failure) {
+                $message = $failure->getMessage();
+            }
+            self::assertNotNull($message, "$label was lossily normalized instead of refused");
+            self::assertStringContainsString('non-canonical repo-relative path from git', $message, $label);
+        }
+    }
+
     public function testDirRelativeExtractorResolvesDotDotToACanonicalPath(): void
     {
         self::loadTool();

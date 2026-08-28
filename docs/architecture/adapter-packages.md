@@ -245,6 +245,9 @@ For one adapter, `php tools/adapter-package-validate.php --adapter=<slug>` and
 iteration path. `make regress-offline-all` remains the unconditional global
 merge gate: its fixed `regress-adapter-packages` leaf dynamically discovers all
 capsules, while the generated corpus covers shared engine/product suites.
+Compatibility commands derive `make regress-<suite-name>` from each discovered
+`regress_<suite_name>.php` or `.sh` basename, so retaining an old command does
+not reintroduce a package path or suite registry in the Makefile.
 `make release-gate` remains required. Engine, platform, package-schema,
 assembler, shared SDK/harness, release-transaction, unknown, or mixed changes
 escalate beyond a single capsule.

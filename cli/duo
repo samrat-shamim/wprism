@@ -652,7 +652,7 @@ Verbs:
                           a validator run cannot review them.
                           --ratification-file signs the disposition YOU wrote
                           instead of the derived one: the BARE entry
-                          manifests/dispositions/<name>.json carries at its top
+                          adapter-packages/<name>/package/disposition.json carries at its top
                           level — {capabilities, default_authored_keyspaces,
                           evidence, reason, status, supported_versions,
                           unsupported}, never the duo-manifest-dispositions/v1
@@ -745,7 +745,8 @@ Verbs:
                           includes package artifact rows in the library's own
                           three-role vocabulary. It never writes a manifest:
                           the range and its Canon-byte-equal restatement in
-                          dispositions/<name>.json stay one reviewed human edit.
+                          package/manifest.json and package/disposition.json
+                          stay one reviewed human edit.
   adapter proposals       The scheduled job around that planner. Reads every
     [--ledger=<dir>]      <slug>.releases.json / <slug>.outcomes.json in the
     [--manifests=<dir>]   ledger directory, derives each adapter's anchor from
@@ -757,14 +758,14 @@ Verbs:
                           agree on the canonical bytes
                           ManifestDispositions.php:632-637 compares. Nothing is
                           written: applying them stays a reviewed human edit,
-                          because a byte under manifests/ is adapter identity.
+                          because a byte in a package payload is adapter identity.
                           A bisection that never reached green is REFUSED, not
                           proposed, and a range that would contain a recorded
                           failing release is refused too. It also derives a
                           per-adapter freshness row — last_verified is the
                           newest green probe, shaped like platform.json's own
                           per-axis last_verified — and that fact lives OUTSIDE
-                          manifests/ on purpose: stored beside a manifest it
+                          package payloads on purpose: stored beside a manifest it
                           would move every adapter digest on every
                           re-verification. `duo census --health=<doc>` ranks
                           the rows beside the demand rank.

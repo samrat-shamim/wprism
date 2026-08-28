@@ -14,8 +14,13 @@ $currentSurfaces = [
     'CONTRIBUTING.md',
     'README.md',
     'agent/duo.php',
+    'agent/src/Adapter/AdapterCertification.php',
     'cli/src/Adapter/AdapterBoundary.php',
+    'cli/src/Assess/AssessReport.php',
+    'cli/src/Command/AssessCommand.php',
+    'cli/src/Contract/ContractAttestation.php',
     'cli/src/Onboarding/Doctor.php',
+    'cli/duo',
     'docs/README.md',
     'docs/adapter-grades.md',
     'docs/capabilities.md',
@@ -33,6 +38,8 @@ $currentSurfaces = [
 ];
 $retiredInstructions = [
     'manifests/capabilities/platform.json',
+    'manifests/capabilities/adapter-authorities.json',
+    'manifests/dispositions',
     'manifests/dispositions/',
     'sandbox/conformance/production-readiness.json',
     'sandbox/tests/certify/matrix.d/',
@@ -52,6 +59,18 @@ foreach ($currentSurfaces as $relative) {
     }
 }
 
+$currentPathEvidence = [
+    'agent/src/Adapter/AdapterCertification.php' => 'adapter-packages/<name>/package/disposition.json',
+    'cli/src/Assess/AssessReport.php' => 'package-owned disposition documents',
+    'cli/src/Command/AssessCommand.php' => 'adapter-packages/*/package/disposition.json',
+    'cli/src/Contract/ContractAttestation.php' => 'platform/adapter-library/capabilities/platform.json',
+    'cli/duo' => 'adapter-packages/<name>/package/disposition.json',
+];
+foreach ($currentPathEvidence as $relative => $token) {
+    $bytes = (string) file_get_contents($root . '/' . $relative);
+    duo_check(str_contains($bytes, $token), "$relative names current package-layout remediation '$token'");
+}
+
 foreach (['capability-doc.php', 'adapter-grade.php'] as $tool) {
     $bytes = (string) file_get_contents($root . '/tools/' . $tool);
     duo_check(str_contains($bytes, "=== 'render'"), "tools/$tool exposes an on-demand render command");
@@ -69,6 +88,15 @@ duo_check(
     str_contains($releaseGate, "\tphp tools/capability-doc.php --check\n")
         && str_contains($releaseGate, "\tphp tools/adapter-grade.php --check\n"),
     'release-gate validates capability and grade sources without stored aggregate projections'
+);
+duo_check(
+    preg_match('/^\t[^\n]*adapter-packages\/[a-z0-9-]+\/tests\//m', $releaseGate) !== 1,
+    'Makefile recipes contain no literal adapter-package test path'
+);
+duo_check(
+    str_contains($releaseGate, "regress-%: adapter-package-make-force\n")
+        && str_contains($releaseGate, "\tphp tools/adapter-package-make-target.php --target=" . '$@' . "\n"),
+    'legacy and newly added package suite targets resolve through checked discovery'
 );
 
 foreach ([

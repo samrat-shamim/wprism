@@ -605,8 +605,14 @@ cmd_up() {
     ')
     [[ "$PAIR_BOOTSTRAP_THEME_VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] \
       || fail "up: the pinned bootstrap-theme registry entry is missing or ambiguous; no pair resources were changed"
+    PAIR_BOOTSTRAP_THEME_ARCHIVE_ROOT=$(artifact_library_platform_jq -r \
+      --arg version "$PAIR_BOOTSTRAP_THEME_VERSION" \
+      '.themes.twentytwentyone[$version].archive_root // "twentytwentyone"')
+    [[ "$PAIR_BOOTSTRAP_THEME_ARCHIVE_ROOT" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
+      || fail "up: the pinned bootstrap-theme archive root is malformed; no pair resources were changed"
   else
     PAIR_BOOTSTRAP_THEME_VERSION=
+    PAIR_BOOTSTRAP_THEME_ARCHIVE_ROOT=
   fi
   PAIR_BOOTSTRAP_ARTIFACTS="$artifacts"
 

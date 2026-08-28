@@ -5,6 +5,7 @@
 # authored-state, or plugin bytes can change.
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$PACKAGE_ROOT/../../sandbox"
 
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }

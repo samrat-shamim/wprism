@@ -434,6 +434,22 @@ final class AdapterPackageTestsTest extends TestCase
         AdapterPackageValidator::validate($root, 'acf');
     }
 
+    public function testValidatorRejectsReadinessEvidenceBorrowedFromAnUnrelatedAdapterSuite(): void
+    {
+        $root = $this->validatorFixture();
+        $evidence = 'sandbox/tests/offline/adapter/regress_rank_math_adapter.php';
+        self::write($root . '/' . $evidence, "<?php\n");
+        self::replaceReadinessEvidence(
+            $root,
+            'sandbox/tests/offline/apply/regress_fatal_mutations.php',
+            $evidence
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('readiness evidence is outside the closed shared evidence roots');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
     /** @return iterable<string,array{0:string,1:string}> */
     public static function processGlobalLibrarySelections(): iterable
     {
@@ -551,6 +567,10 @@ PHP
             'tests/offline/regress_relative_sibling.php',
             "<?php file_get_contents('../woocommerce/package/manifest.json');\n",
         ];
+        yield 'offline concatenated cwd-relative sibling' => [
+            'tests/offline/regress_concatenated_relative_sibling.php',
+            "<?php file_get_contents('..' . '/woocommerce/package/manifest.json');\n",
+        ];
         yield 'offline file-relative sibling' => [
             'tests/offline/regress_file_relative_sibling.php',
             "<?php file_get_contents(__DIR__ . '/../../../woocommerce/package/manifest.json');\n",
@@ -589,6 +609,21 @@ PHP
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage(
             "references sibling adapter package 'woocommerce' at $relative"
+        );
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsExecutableFixtureWithAnUnrecognizedExtension(): void
+    {
+        $root = $this->validatorFixture();
+        self::write(
+            $root . '/adapter-packages/acf/fixtures/sibling.inc',
+            "<?php file_get_contents('..' . '/woocommerce/package/manifest.json');\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            'has executable source with an unsupported extension at fixtures/sibling.inc'
         );
         AdapterPackageValidator::validate($root, 'acf');
     }
@@ -689,6 +724,58 @@ PHP
         AdapterPackageValidator::validate($root, 'acf');
     }
 
+    public function testValidatorRejectsACertificationPremiseOwnedByAnotherParticipant(): void
+    {
+        $root = $this->validatorFixture();
+        $relative = '@repo/sandbox/tests/certify/certify_deletion_matrix.sh';
+        self::write(
+            $root . '/' . substr($relative, strlen('@repo/')),
+            <<<'SH'
+#!/usr/bin/env bash
+cat >site.duo.json <<'JSON'
+{"manifests":["core","woocommerce"]}
+JSON
+require_observed_nonempty "target WooCommerce order-product lookup count" "$LOOKUP_ROWS"
+SH
+        );
+        self::addPremiseRow(
+            $root,
+            'observation',
+            $relative,
+            'require_observed_nonempty "target WooCommerce order-product lookup count"'
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('without an executable manifest participant declaration');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorAcceptsACertificationPremiseForADeclaredParticipant(): void
+    {
+        $root = $this->validatorFixture();
+        $relative = '@repo/sandbox/tests/certify/certify_acf_contract.sh';
+        self::write(
+            $root . '/' . substr($relative, strlen('@repo/')),
+            <<<'SH'
+#!/usr/bin/env bash
+cat >site.duo.json <<'JSON'
+{"manifests":["acf","core"]}
+JSON
+require_observed_nonempty "target ACF contract" "$ACF_CONTRACT"
+SH
+        );
+        self::addPremiseRow(
+            $root,
+            'observation',
+            $relative,
+            'require_observed_nonempty "target ACF contract"'
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertContains('premise-evidence:3', $result['checks']);
+    }
+
     public function testValidatorRejectsAnUnguardedVersionMatrixObservation(): void
     {
         $root = $this->validatorFixture();
@@ -704,6 +791,55 @@ PHP
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('INSTALLED_2 assignment/premise mismatch (1/0)');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsAVersionMatrixWithoutTheCanonicalWorkflow(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/certify/version-matrix.sh';
+        self::write(
+            $path,
+            str_replace(
+                'version_matrix_workflow() {',
+                'renamed_workflow() {',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('must declare exactly one canonical version_matrix_workflow()');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsADuplicateCanonicalVersionMatrixWorkflow(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/certify/version-matrix.sh';
+        self::write($path, (string) file_get_contents($path) . "\nversion_matrix_workflow() { :; }\n");
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('must declare exactly one canonical version_matrix_workflow()');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorBindsTheVersionMatrixPluginSlugToTheManifest(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/certify/version-matrix.sh';
+        self::write(
+            $path,
+            str_replace(
+                'VMATRIX_PLUGIN_SLUG=advanced-custom-fields',
+                'VMATRIX_PLUGIN_SLUG=woocommerce',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            'must declare exactly one canonical VMATRIX_PLUGIN_SLUG=advanced-custom-fields'
+        );
         AdapterPackageValidator::validate($root, 'acf');
     }
 
@@ -1128,6 +1264,30 @@ PHP
             $path,
             json_encode($record, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"
         );
+    }
+
+    private static function addPremiseRow(
+        string $root,
+        string $kind,
+        string $relative,
+        string $needle
+    ): void {
+        $path = $root . '/adapter-packages/acf/evidence/target-observation-premises.tsv';
+        $bytes = (string) file_get_contents($path);
+        $updated = preg_replace_callback(
+            '/^# expected observations=([0-9]+) fixtures=([0-9]+)$/m',
+            static function (array $match) use ($kind): string {
+                $observations = (int) $match[1] + ($kind === 'observation' ? 1 : 0);
+                $fixtures = (int) $match[2] + ($kind === 'fixture' ? 1 : 0);
+                return "# expected observations=$observations fixtures=$fixtures";
+            },
+            $bytes,
+            1,
+            $replacements
+        );
+        self::assertIsString($updated);
+        self::assertSame(1, $replacements);
+        self::write($path, rtrim($updated, "\n") . "\n$kind\t$relative\t$needle\n");
     }
 
     private static function addExternalEvidence(string $root, string $test, string $evidence): void

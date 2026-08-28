@@ -31,8 +31,16 @@ final class AdapterPackageValidator
         'agent/src/',
         'platform/adapter-library/',
         'sandbox/conformance/',
-        'sandbox/tests/live/',
-        'sandbox/tests/offline/',
+        'sandbox/tests/offline/apply/',
+        'sandbox/tests/offline/grammar/',
+        'sandbox/tests/offline/reference-scope/',
+        'sandbox/tests/offline/repository/',
+    ];
+
+    /** @var list<string> */
+    private const SHARED_EVIDENCE_PATHS = [
+        'sandbox/tests/live/regress_capture_concurrency.sh',
+        'sandbox/tests/live/regress_multisite_refusal.sh',
     ];
 
     /**
@@ -118,7 +126,7 @@ final class AdapterPackageValidator
         }
 
         self::syntax($capsule, $checks);
-        self::premiseEvidence($root, $capsule, $slug, $checks);
+        self::premiseEvidence($root, $capsule, $slug, $manifest, $checks);
         self::packageEvidence($root, $slug, $manifest, $disposition, $checks);
         $evidenceTests = self::evidence($root, $capsule, $slug, $manifest, $disposition, $checks);
 
@@ -155,23 +163,30 @@ final class AdapterPackageValidator
                     continue;
                 }
                 $path = $entry->getPathname();
-                if (!in_array($entry->getExtension(), ['json', 'php', 'sh'], true)) {
-                    continue;
-                }
+                $extension = strtolower($entry->getExtension());
                 $source = file_get_contents($path);
                 if ($source === false) {
                     throw new RuntimeException("Adapter package '$slug' cannot read dependency source $path");
+                }
+                if (!in_array($extension, ['json', 'php', 'sh'], true)
+                    && (preg_match('/^(?:inc|phtml|php[0-9]*|phar|bash|zsh|ksh)$/D', $extension) === 1
+                        || preg_match('/<\?(?:php|=)/i', $source) === 1
+                        || preg_match('/\A#![^\r\n]*(?:php|(?:ba|z)?sh)(?:[ \t]|$)/i', $source) === 1)) {
+                    $relative = substr($path, strlen($capsule) + 1);
+                    throw new RuntimeException(
+                        "Adapter package '$slug' has executable source with an unsupported extension at $relative"
+                    );
                 }
                 self::assertNoGlobalLibrarySelection($capsule, $path, $source, $tests, $slug);
                 self::assertNoSiblingCapsuleReference(
                     $capsule,
                     $path,
                     $source,
-                    $entry->getExtension(),
+                    $extension,
                     $slug
                 );
                 self::assertRelativeAgentDependencies($root, $agentSource, $capsule, $path, $source, $tests, $slug);
-                if (!$tests && $entry->getExtension() === 'php') {
+                if (!$tests && $extension === 'php') {
                     self::assertRuntimeSdk($capsule, $path, $source, $slug, $runtimeSymbols);
                 }
                 $scanned++;
@@ -190,7 +205,8 @@ final class AdapterPackageValidator
     ): void {
         $fragments = [];
         if ($extension === 'php') {
-            foreach (token_get_all($source) as $token) {
+            $tokens = token_get_all($source);
+            foreach ($tokens as $offset => $token) {
                 if (!is_array($token)
                     || !in_array($token[0], [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE], true)) {
                     continue;
@@ -201,6 +217,12 @@ final class AdapterPackageValidator
                         : $token[1],
                     $token[2],
                 ];
+                if ($token[0] === T_CONSTANT_ENCAPSED_STRING) {
+                    $concatenated = self::concatenatedPhpStringLiteral($tokens, $offset);
+                    if ($concatenated !== null) {
+                        $fragments[] = [$concatenated, $token[2]];
+                    }
+                }
             }
         } else {
             foreach (preg_split('/\R/', $source) ?: [] as $offset => $line) {
@@ -678,9 +700,16 @@ final class AdapterPackageValidator
     /** @param list<array{0:int,1:string,2:int}|string> $tokens @return list<string> */
     private static function concatenatedDynamicDuoSymbols(array $tokens, int $offset): array
     {
+        $bytes = self::concatenatedPhpStringLiteral($tokens, $offset);
+        return $bytes === null ? [] : self::dynamicDuoSymbols($bytes, false);
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function concatenatedPhpStringLiteral(array $tokens, int $offset): ?string
+    {
         $first = $tokens[$offset] ?? null;
         if (!is_array($first) || $first[0] !== T_CONSTANT_ENCAPSED_STRING) {
-            return [];
+            return null;
         }
         $bytes = self::decodePhpStringLiteral($first[1]);
         $cursor = $offset + 1;
@@ -690,8 +719,7 @@ final class AdapterPackageValidator
             if ($dot === null || $dot['token'] !== '.') {
                 break;
             }
-            $cursor = $dot['offset'] + 1;
-            $next = self::nextSignificantToken($tokens, $cursor);
+            $next = self::nextSignificantToken($tokens, $dot['offset'] + 1);
             if ($next === null || !is_array($next['token']) || $next['token'][0] !== T_CONSTANT_ENCAPSED_STRING) {
                 break;
             }
@@ -699,7 +727,7 @@ final class AdapterPackageValidator
             $cursor = $next['offset'] + 1;
             $joined = true;
         }
-        return $joined ? self::dynamicDuoSymbols($bytes, false) : [];
+        return $joined ? $bytes : null;
     }
 
     /**
@@ -894,8 +922,14 @@ final class AdapterPackageValidator
         $checks[] = "json-syntax:$json";
     }
 
-    /** @param list<string> $checks */
-    private static function premiseEvidence(string $root, string $capsule, string $slug, array &$checks): void
+    /** @param array<string,mixed> $manifest @param list<string> $checks */
+    private static function premiseEvidence(
+        string $root,
+        string $capsule,
+        string $slug,
+        array $manifest,
+        array &$checks
+    ): void
     {
         $testsRoot = $capsule . '/tests';
         $needsContract = false;
@@ -927,7 +961,14 @@ final class AdapterPackageValidator
 
         $matrix = $testsRoot . '/certify/version-matrix.sh';
         if (is_file($matrix)) {
-            self::validateVersionMatrixPremises($capsule, $slug, $matrix);
+            $plugin = $manifest['plugin'] ?? null;
+            if (!is_string($plugin)
+                || preg_match('~^([a-z0-9][a-z0-9.-]*)/[A-Za-z0-9._-]+\.php$~D', $plugin, $match) !== 1) {
+                throw new RuntimeException(
+                    "Adapter package '$slug' version matrix requires one canonical manifest plugin subject"
+                );
+            }
+            self::validateVersionMatrixPremises($capsule, $slug, $matrix, $match[1]);
             $checks[] = 'version-matrix-premises';
         }
         $checks[] = "premise-evidence:$rows";
@@ -1027,6 +1068,9 @@ final class AdapterPackageValidator
                     . " source is missing premise '$needle'"
                 );
             }
+            if (str_starts_with($relative, '@repo/')) {
+                self::assertCertificationPremiseParticipant($slug, $relative, $sourceBytes, $offset + 1);
+            }
             $rows++;
         }
         if ($rows === 0) {
@@ -1041,7 +1085,51 @@ final class AdapterPackageValidator
         return $rows;
     }
 
-    private static function validateVersionMatrixPremises(string $capsule, string $slug, string $matrix): void
+    private static function assertCertificationPremiseParticipant(
+        string $slug,
+        string $relative,
+        string $source,
+        int $line
+    ): void {
+        $activeSource = preg_replace('/^[ \t]*#.*$/m', '', $source);
+        if (!is_string($activeSource)) {
+            $activeSource = '';
+        }
+        preg_match_all('/"manifests"[ \t]*:[ \t]*(\[[^\]\r\n]*\])/', $activeSource, $matches);
+        $participants = [];
+        foreach ($matches[1] ?? [] as $encoded) {
+            if (!is_string($encoded)) {
+                continue;
+            }
+            try {
+                $manifests = json_decode($encoded, true, 32, JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                continue;
+            }
+            if (!is_array($manifests) || !array_is_list($manifests)) {
+                continue;
+            }
+            foreach ($manifests as $manifest) {
+                if (is_string($manifest)
+                    && preg_match('/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/D', $manifest) === 1) {
+                    $participants[$manifest] = true;
+                }
+            }
+        }
+        if (!isset($participants[$slug])) {
+            throw new RuntimeException(
+                "Adapter package '$slug' premise contract line $line cites certification source '$relative' "
+                . 'without an executable manifest participant declaration'
+            );
+        }
+    }
+
+    private static function validateVersionMatrixPremises(
+        string $capsule,
+        string $slug,
+        string $matrix,
+        string $pluginSlug
+    ): void
     {
         if (is_link($matrix) || realpath($matrix) !== $matrix) {
             throw new RuntimeException("Adapter package '$slug' version matrix is not an ordinary file");
@@ -1049,6 +1137,33 @@ final class AdapterPackageValidator
         $source = file_get_contents($matrix);
         if ($source === false) {
             throw new RuntimeException("Adapter package '$slug' cannot read its version matrix");
+        }
+        $relative = substr($matrix, strlen($capsule) + 1);
+        preg_match_all('/^[ \t]*(?:export[ \t]+)?VMATRIX_PLUGIN_SLUG[ \t]*=/m', $source, $assignments);
+        preg_match_all(
+            '/^VMATRIX_PLUGIN_SLUG=([a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/m',
+            $source,
+            $canonicalAssignments
+        );
+        if (count($assignments[0]) !== 1
+            || count($canonicalAssignments[0]) !== 1
+            || ($canonicalAssignments[1][0] ?? null) !== $pluginSlug) {
+            throw new RuntimeException(
+                "Adapter package '$slug' version matrix $relative must declare exactly one canonical "
+                . "VMATRIX_PLUGIN_SLUG=$pluginSlug"
+            );
+        }
+        preg_match_all(
+            '/^[ \t]*(?:function[ \t]+version_matrix_workflow|version_matrix_workflow[ \t]*\(\))[ \t]*(?:\{)?/m',
+            $source,
+            $workflowDeclarations
+        );
+        preg_match_all('/^version_matrix_workflow\(\) \{$/m', $source, $canonicalWorkflows);
+        if (count($workflowDeclarations[0]) !== 1 || count($canonicalWorkflows[0]) !== 1) {
+            throw new RuntimeException(
+                "Adapter package '$slug' version matrix $relative must declare exactly one canonical "
+                . 'version_matrix_workflow()'
+            );
         }
         foreach (['INSTALLED_2', 'TEC_INSTALLED_2', 'NEGATIVE_INSTALLED'] as $variable) {
             preg_match_all('/^[ \t]*' . $variable . '=/m', $source, $assignments);
@@ -1058,7 +1173,6 @@ final class AdapterPackageValidator
                 $premises
             );
             if (count($assignments[0]) !== count($premises[0])) {
-                $relative = substr($matrix, strlen($capsule) + 1);
                 throw new RuntimeException(
                     "Adapter package '$slug' version matrix $relative has $variable assignment/premise mismatch ("
                     . count($assignments[0]) . '/' . count($premises[0]) . ')'
@@ -1200,6 +1314,9 @@ final class AdapterPackageValidator
         }
         if (str_starts_with($evidence, 'integration-scenarios/')) {
             self::assertScenarioEvidenceOwnership($root, $slug, $evidence);
+            return;
+        }
+        if (in_array($evidence, self::SHARED_EVIDENCE_PATHS, true)) {
             return;
         }
         foreach (self::SHARED_EVIDENCE_PREFIXES as $prefix) {

@@ -156,9 +156,18 @@ if [ -n "$theme_state_dir" ]; then
       : > "$theme_state_dir/active"
       exit 0
       ;;
-    *" wp theme install /artifacts-cache/theme-twentytwentyone-"*" --activate --force "*)
+    *" wp theme install /artifacts-cache/theme-twentytwentyone-"*" --force "*)
+      rm -f "$theme_state_dir/installed" "$theme_state_dir/active"
+      : > "$theme_state_dir/archive-installed"
+      exit 0
+      ;;
+    *" sh /duo-harness/artifact-archive-root.sh /var/www/html/wp-content/themes fixture-theme-source twentytwentyone "*)
+      [ -f "$theme_state_dir/archive-installed" ] || {
+        printf 'fake pinned archive root was not installed\n' >&2
+        exit 39
+      }
+      : > "$theme_state_dir/normalized"
       : > "$theme_state_dir/installed"
-      : > "$theme_state_dir/active"
       exit 0
       ;;
     *" wp theme activate twentytwentyone "*)
@@ -578,7 +587,7 @@ run_artifact_theme_case() {
   # private copy with a same-shaped deterministic fixture matching the warm
   # cache bytes above.
   mkdir -p "$case_root/platform/artifact-library"
-  printf '{"plugins":{},"themes":{"twentytwentyone":{"2.8":{"url":"https://fixture.invalid/theme.zip","sha256":"%s","role":"exercise-fixture"}}}}\n' \
+  printf '{"plugins":{},"themes":{"twentytwentyone":{"2.8":{"url":"https://fixture.invalid/theme.zip","sha256":"%s","role":"exercise-fixture","archive_root":"fixture-theme-source"}}}}\n' \
     "$digest" > "$case_root/platform/artifact-library/artifacts.lock.json.override"
   DUO_PAIR_TEST_LOCK_OVERRIDE="$case_root/platform/artifact-library/artifacts.lock.json.override"
   export DUO_PAIR_TEST_LOCK_OVERRIDE
@@ -588,8 +597,14 @@ run_artifact_theme_case() {
   unset DUO_PAIR_TEST_ARTIFACT_RUNNER
 
   [ -f "$state_dir/active" ] || fail "$label did not activate the cached exact theme"
+  [ -f "$state_dir/normalized" ] || fail "$label did not normalize the platform-declared theme archive root"
   assert_file_contains "$case_root/output.log" 'source=cache-hit' \
     "$label did not report the warm-cache source path"
+  [ "$(grep -cF '<sh> </duo-harness/artifact-archive-root.sh> </var/www/html/wp-content/themes> <fixture-theme-source> <twentytwentyone>' "$case_root/docker.log")" = 2 ] \
+    || fail "$label did not normalize the exact platform theme archive root on both sides"
+  assert_before "$case_root/docker.log" \
+    '<sh> </duo-harness/artifact-archive-root.sh> </var/www/html/wp-content/themes> <fixture-theme-source> <twentytwentyone>' \
+    '<wp> <theme> <activate> <twentytwentyone>'
   assert_file_contains "$case_root/docker.log" '<-f> <pair.artifacts.yml> <-f> <pair.wordpress-offline.yml>' \
     "$label did not layer both artifact and WordPress.org-offline controls"
   if grep -F '<theme> <install> <twentytwentyone>' "$case_root/docker.log" >/dev/null; then

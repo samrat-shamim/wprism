@@ -36,18 +36,16 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-scope-discovery regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner
 .PHONY: regress-full-apply-attachment-recovery
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations-live regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-adapter-plugin-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-stage-unchanged-skip regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-transport regress-local-verified-rollback regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve regress-code-import code-half-unit \
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations-live regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-adapter-plugin-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-stage-unchanged-skip regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-transport regress-local-verified-rollback regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve regress-code-import code-half-unit \
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
 	regress-env-options-policy regress-shipped-option-declarations regress-export-manifest-roundtrip regress-manifest-reclassification-policy regress-ecommerce-developer-matrix \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
-	regress-woocommerce-product-lookups regress-woocommerce-product-lookups-fake regress-woocommerce-hierarchy-lookups regress-woocommerce-fulfillment-prerequisites regress-woocommerce-scheduler-settings regress-woocommerce-deletion-authority \
-	regress-woocommerce-regen-engine regress-action-scope regress-provider-contract regress-actions-providers regress-ninja-forms-form-cache-provider regress-yoast-index-provider regress-core-rewrite-native-action regress-provider-contract-live regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
-	regress-term-meta regress-url-query-refs regress-contact-form-7-production-readiness regress-paid-memberships-pro-production-readiness regress-ninja-forms-production-readiness regress-the-events-calendar-production-readiness regress-woocommerce-production-readiness regress-woocommerce-optional-core regress-collision \
-	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
+	regress-woocommerce-hierarchy-lookups regress-woocommerce-regen-engine regress-action-scope regress-provider-contract regress-actions-providers regress-core-rewrite-native-action regress-provider-contract-live regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
+	regress-term-meta regress-url-query-refs regress-collision regress-env-set regress-option-ref-scope \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
-	regress-snapshot-meta regress-generic-reference-shapes regress-ssh-adopt regress-tec-regen regress-user-meta \
+	regress-snapshot-meta regress-generic-reference-shapes regress-ssh-adopt regress-user-meta \
 	regress-option-name-refs-wiring regress-offline-all regress-live-list regress-woocommerce-rewrite-coinstall regress-code-compatibility regress-upload-bundle \
-	regress-effect-bundle regress-woocommerce-effect-contract regress-ssh-rollback-certification \
+	regress-effect-bundle regress-ssh-rollback-certification \
 	regress-coverage-offline regress-coverage regress-classification-batch \
 	regress-refresh-orchestration \
 	regress-refresh-compile-refs \
@@ -62,10 +60,10 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-environment-materializer-live \
 	regress-env-provider-conformance-live \
 	regress-frozen-materialization-promotion \
-	regress-woo-attribute-deletion regress-bundle-coverage regress-suite-wiring regress-platform-move-gates \
+	regress-bundle-coverage regress-suite-wiring regress-platform-move-gates \
 	regress-adapter-package-current-paths \
-	regress-multisite-refusal regress-polylang-multisite-refusal regress-woocommerce-multisite-refusal regress-polylang-tec-rewrite-coinstall regress-polylang-live-fixtures regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification regress-certificate-axis-binding regress-cross-root-replay \
-	regress-post-field-classification regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
+	regress-multisite-refusal regress-polylang-tec-rewrite-coinstall regress-polylang-live-fixtures regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification regress-certificate-axis-binding regress-cross-root-replay \
+	regress-post-field-classification regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
 	regress-lint-host-verb regress-lint-type-exemptions \
 	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-scope-wire regress-conformance-asserts \
@@ -188,19 +186,6 @@ grind-r3b:
 # own notes carry what this round confirmed live.
 grind-r3a:
 	bash sandbox/tests/grind/grind_r3a_multilingual.sh
-
-# Engine tasks #92/#93 (taxonomy_patterns + shipping-zone stack /
-# option_name_refs): regressions against the r3e pair (sandbox/bin/pair.sh,
-# 8854/8855) — each suite's own header carries the live acceptance narrative
-# it guards on an ongoing basis.
-regress-pa-attributes:
-	bash adapter-packages/woocommerce/tests/live/regress_pa_attributes.sh
-
-regress-woo-attribute-deletion:
-	bash adapter-packages/woocommerce/tests/live/regress_woo_attribute_deletion.sh
-
-regress-shipping-zones:
-	bash adapter-packages/woocommerce/tests/live/regress_shipping_zones.sh
 
 regress-natural-key-rename:
 	php sandbox/tests/offline/repository/regress_natural_key_rename.php
@@ -363,6 +348,17 @@ regress-adapter-contract:
 # this target, the Makefile and tools/offline-corpus.mk stay byte-identical.
 regress-adapter-packages:
 	php sandbox/tests/offline/adapter/regress_adapter_packages.php
+
+# Compatibility targets are derived from suite basenames: a discovered
+# `regress_example.php` or `.sh` is invoked as `make regress-example`. This
+# pattern preserves existing commands while package suite additions and renames
+# require no central Makefile edit. Explicit engine/scenario targets below win
+# normally; an unknown compatibility name refuses in the resolver.
+.PHONY: adapter-package-make-force
+regress-%: adapter-package-make-force
+	php tools/adapter-package-make-target.php --target=$@
+
+adapter-package-make-force:
 
 # DUO-3223/recertification: pinned artifact downloads retry transient curl
 # failures at most three times, while digest mismatches and exhausted
@@ -642,52 +638,15 @@ release-gate:
 regress-multisite-refusal:
 	bash sandbox/tests/live/regress_multisite_refusal.sh
 
-# Exact Polylang 3.8.6 populated-network refusal.  This is a dedicated
-# candidate-bound fixture; the generic multisite gate does not prove the
-# plugin's own graph and exact artifact remain untouched.
-regress-polylang-multisite-refusal:
-	bash adapter-packages/polylang/tests/live/regress_polylang_multisite_refusal.sh
-
 # Bounded Polylang + TEC co-install rewrite topology, including the shared
 # fresh-process native action and provider-before-effect retry proof.
 regress-polylang-tec-rewrite-coinstall:
 	bash integration-scenarios/polylang-tec-rewrite-coinstall/tests/live/regress_polylang_tec_rewrite_coinstall.sh
 
-# Exact TEC scope boundary: native-populated 6.17.2 and 6.17.3 sites are
-# converted to real networks before capture/plan/deploy/apply. Candidate SHA,
-# exact artifacts, adapter storage, repository absence, and activation state
-# are re-proved around every typed refusal.
-regress-the-events-calendar-multisite-refusal:
-	bash adapter-packages/the-events-calendar/tests/live/regress_the_events_calendar_multisite_refusal.sh
-
-# Exact WooCommerce 11.0.1 HPOS populated-network refusal. Candidate SHA,
-# artifact/tree identity, Woo authored/runtime fingerprint, repository Git
-# state, and typed capture/plan/deploy/apply refusals are re-proved per command.
-regress-woocommerce-multisite-refusal:
-	bash adapter-packages/woocommerce/tests/live/regress_woocommerce_multisite_refusal.sh
-
 # DUO-3262: optional term/user interpreter hooks plus static-policy fallback;
 # pure PHP fixture manifests/interpreters, no WordPress or docker.
 regress-interpreter-policy:
 	php sandbox/tests/offline/policy/regress_interpreter_policy.php
-
-regress-contact-form-7-production-readiness:
-	php adapter-packages/contact-form-7/tests/offline/regress_contact_form_7_production_readiness.php
-
-regress-paid-memberships-pro-production-readiness:
-	php adapter-packages/paid-memberships-pro/tests/offline/regress_paid_memberships_pro_production_readiness.php
-
-regress-ninja-forms-production-readiness:
-	php adapter-packages/ninja-forms/tests/offline/regress_ninja_forms_production_readiness.php
-
-regress-the-events-calendar-production-readiness:
-	php adapter-packages/the-events-calendar/tests/offline/regress_the_events_calendar_production_readiness.php
-
-regress-polylang-production-readiness:
-	php adapter-packages/polylang/tests/offline/regress_polylang_production_readiness.php
-
-regress-woocommerce-production-readiness:
-	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_production_readiness.php
 
 # DUO-3222's one genuinely live leg: Deploy::code_mismatch()'s new THEME
 # version_range check, called directly against a real bundled WordPress
@@ -1014,20 +973,8 @@ regress-live-exit-code-contract:
 regress-target-observation-premises:
 	bash sandbox/tests/offline/guards/regress_target_observation_premises.sh
 
-# DUO-3394: the polylang conformance seed + checks must route failures through
-# the exported `fail` helper (the FAIL: line the sweep keys on), not a bare
-# echo+exit. Static, offline.
-regress-polylang-fail-helper:
-	bash adapter-packages/polylang/tests/offline/regress_polylang_fail_helper.sh
-
 regress-polylang-live-fixtures:
 	bash sandbox/tests/offline/guards/regress_polylang_live_fixtures.sh
-
-# DUO-3393: checks/elementor.sh's seeded-page id read must be guarded by
-# require_fixture_ids, not a dead `$(wp post list) || fail` (empty-at-exit-0
-# never fires). Static, offline.
-regress-elementor-dead-guard:
-	bash adapter-packages/elementor/tests/offline/regress_elementor_dead_guard.sh
 
 # DUO-3366: certify_version_matrix.sh must delete Elementor's active-kit
 # reference before site empty removes its post, and must fail on the exact
@@ -1061,36 +1008,6 @@ regress-adapter-catalog:
 # 2026-08-22 ecosystem drafts; this is product-path evidence, not a fixture.
 regress-ecosystem-adapter-batch:
 	php sandbox/tests/offline/adapter/regress_ecosystem_adapter_batch.php
-
-# Code Snippets' shipped provider against a faithful fake of the exact 3.9.x
-# public DB/cache/flat-file APIs: stale code, recovery cache, disabled mode,
-# schema failure, symlink containment, network residue, and secret-safe receipt.
-regress-code-snippets-state-provider:
-	php adapter-packages/code-snippets/tests/offline/regress_code_snippets_state_provider.php
-
-# Yoast Duplicate Post 4.7's settings-save role projection against a faithful
-# fake of the plugin/core APIs: hostile role drift, malformed policy, missing
-# target roles, dropped writes, recovery verification, and multisite refusal.
-regress-yoast-duplicate-post-role-provider:
-	php adapter-packages/yoast-duplicate-post/tests/offline/regress_yoast_duplicate_post_role_provider.php
-
-# Yoast SEO 28.x's exact index command against a faithful four-table fake:
-# schema-before-truncate, strict process receipts, plugin-owned disabled mode,
-# relational postconditions, idempotent retry, and scoped reconciliation.
-regress-yoast-index-provider:
-	php adapter-packages/yoast/tests/offline/regress_yoast_index_provider.php
-
-# Elementor 4.0/4.2's exact generated-CSS command against a faithful
-# posts/postmeta/filesystem fake: schema-first refusal, strict native receipts,
-# missing/orphan CSS, render-cache invalidation, races, idempotency and recovery.
-regress-elementor-css-provider:
-	php adapter-packages/elementor/tests/offline/regress_elementor_css_provider.php
-
-# Ninja Forms' exact 3.x table/cache boundary against the shared row-backed
-# wpdb fake: stale/orphan caches, schema and graph drift, fresh-process/native
-# receipts, large identities and payloads, races, redaction, retry and recovery.
-regress-ninja-forms-form-cache-provider:
-	php adapter-packages/ninja-forms/tests/offline/regress_ninja_forms_form_cache_provider.php
 
 # The hand-reviewed production-readiness work ledger: exact shipped-adapter
 # coverage, all twelve hostile scenario families, grounded evidence paths, and
@@ -2198,13 +2115,6 @@ regress-wpforms-lite-adapter:
 regress-rank-math-adapter:
 	php sandbox/tests/offline/adapter/regress_rank_math_adapter.php
 
-# Redirection 5.9.0 authored through the customer workflow, then graduated to
-# a shipped manifest: mixed action_data framing, mapped group/item references,
-# closed option subkeys, WordPress-module refusal boundary, and verified native
-# API/cache convergence through the provider.
-regress-redirection-adapter:
-	php adapter-packages/redirection/tests/offline/regress_redirection_adapter.php
-
 # The `taxonomy_delete_scope_exercise` primitive, run rather than asserted: the
 # adversarial matrix tools/engine-gaps.json demands before a post-type adapter
 # carrying an authored taxonomy may claim a deletion selector. Four cases over
@@ -2435,29 +2345,8 @@ regress-menu-field-reclassification-policy:
 regress-regen-dependency-policy:
 	php sandbox/tests/offline/policy/regress_regen_dependency_policy.php
 
-regress-woocommerce-product-lookups:
-	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups.php
-
-regress-woocommerce-product-lookups-fake:
-	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups_fake.php
-
 regress-woocommerce-hierarchy-lookups:
 	php integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/regress_woocommerce_hierarchy_lookups.php
-
-regress-woocommerce-fulfillment-prerequisites:
-	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_fulfillment_prerequisites.php
-
-regress-woocommerce-scheduler-settings:
-	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_scheduler_settings.php
-
-regress-woocommerce-thumbnail-images:
-	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_thumbnail_images.php
-
-regress-woocommerce-optional-core:
-	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_optional_core.php
-
-regress-woocommerce-deletion-authority:
-	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_deletion_authority.php
 
 regress-woocommerce-regen-engine:
 	php sandbox/tests/offline/ecommerce/regress_woocommerce_regen_engine.php
@@ -2555,9 +2444,6 @@ regress-effect-bundle:
 regress-effect-declaration-coverage:
 	php sandbox/tests/offline/recovery/regress_effect_declaration_coverage.php
 
-regress-woocommerce-effect-contract:
-	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_effect_contract.php
-
 regress-ssh-rollback-certification:
 	php sandbox/tests/offline/recovery/regress_ssh_rollback_certification.php
 
@@ -2608,9 +2494,6 @@ regress-proof-legacy-pair:
 regress-pair-candidate-source:
 	bash sandbox/tests/offline/guards/regress_pair_candidate_source.sh
 
-regress-woocommerce-contract:
-	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_contract.php
-
 # DUO-3343: a production refresh is an observation boundary, not a capture
 # variant. This focused no-WordPress harness proves the exporter's
 # SELECT-only ledger validation, mutation prohibition, and semantic-record
@@ -2622,17 +2505,11 @@ regress-refresh-export-unit:
 regress-collision:
 	bash sandbox/tests/live/regress_collision.sh
 
-regress-entity-type-width:
-	bash adapter-packages/woocommerce/tests/live/regress_entity_type_width.sh
-
 regress-env-set:
 	bash sandbox/tests/live/regress_env_set.sh
 
 regress-option-ref-scope:
 	bash sandbox/tests/live/regress_option_ref_scope.sh
-
-regress-pmpro-composite-ref:
-	bash adapter-packages/paid-memberships-pro/tests/live/regress_pmpro_composite_ref.sh
 
 # Candidate-bound production leg for WooCommerce product permalink rebuilds
 # under the exact supported Yoast, Polylang, and TEC co-install topology.
@@ -2766,9 +2643,6 @@ certify-ssh-adoption-roundtrip:
 
 certify-ssh-rollback:
 	bash sandbox/tests/certify/certify_ssh_rollback.sh
-
-regress-tec-regen:
-	bash adapter-packages/the-events-calendar/tests/live/regress_tec_regen.sh
 
 regress-user-meta:
 	bash sandbox/tests/live/regress_user_meta.sh

@@ -126,7 +126,7 @@ final class ContractAttestation {
     /**
      * The only trust root this build admits, and the reason is the same one
      * that made `Site-certified` unreachable before T6: the shipped
-     * `manifests/capabilities/adapter-authorities.json` is `{"keys": {}}` and
+     * `platform/adapter-library/capabilities/adapter-authorities.json` is `{"keys": {}}` and
      * only Anthropic-side review could ever fill it. A contract is a
      * customer-organization statement about the customer's own site, which is
      * exactly what the product spec means by site certification. A
@@ -485,7 +485,7 @@ final class ContractAttestation {
             throw self::refuse(
                 'contract_attestation_platform_moved',
                 'the agent capability platform boundary document has no platform object',
-                'restore manifests/capabilities/platform.json from git'
+                'restore platform/adapter-library/capabilities/platform.json from git'
             );
         }
 
