@@ -10,6 +10,7 @@ require_once __DIR__ . '/src/ArtifactLibrary.php';
 $repoRoot = dirname(__DIR__);
 $package = null;
 $participants = null;
+$platform = false;
 $check = false;
 foreach (array_slice($_SERVER['argv'] ?? [], 1) as $argument) {
     if ($argument === '--check' && !$check) {
@@ -28,11 +29,15 @@ foreach (array_slice($_SERVER['argv'] ?? [], 1) as $argument) {
         $participants = explode(',', substr($argument, strlen('--participants=')));
         continue;
     }
-    fwrite(STDERR, "usage: php tools/artifact-library.php [--root=DIR] [--adapter=PACKAGE|--participants=A,B] [--check]\n");
+    if ($argument === '--platform' && !$platform) {
+        $platform = true;
+        continue;
+    }
+    fwrite(STDERR, "usage: php tools/artifact-library.php [--root=DIR] [--adapter=PACKAGE|--participants=A,B|--platform] [--check]\n");
     exit(2);
 }
-if ($package !== null && $participants !== null) {
-    fwrite(STDERR, "usage: php tools/artifact-library.php [--root=DIR] [--adapter=PACKAGE|--participants=A,B] [--check]\n");
+if (($package !== null ? 1 : 0) + ($participants !== null ? 1 : 0) + ($platform ? 1 : 0) > 1) {
+    fwrite(STDERR, "usage: php tools/artifact-library.php [--root=DIR] [--adapter=PACKAGE|--participants=A,B|--platform] [--check]\n");
     exit(2);
 }
 
@@ -41,6 +46,8 @@ try {
         $library = ArtifactLibrary::loadPackage($repoRoot, $package);
     } elseif ($participants !== null) {
         $library = ArtifactLibrary::loadParticipants($repoRoot, $participants);
+    } elseif ($platform) {
+        $library = ArtifactLibrary::loadPlatform($repoRoot);
     } else {
         $library = ArtifactLibrary::load($repoRoot);
     }

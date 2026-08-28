@@ -54,6 +54,18 @@ final class ArtifactLibrary
     }
 
     /**
+     * Read the shared bootstrap fixtures without enumerating adapter capsules.
+     *
+     * @return array{plugins:array<string,array<string,array<string,string>>>,themes:array<string,array<string,array<string,string>>>}
+     */
+    public static function loadPlatform(string $repoRoot): array
+    {
+        $repo = self::repo($repoRoot);
+
+        return self::merge([$repo . '/platform/artifact-library/artifacts.lock.json']);
+    }
+
+    /**
      * Merge only the package fragments owned by one integration scenario's
      * declared participants. Unlike load(), this path never enumerates sibling
      * capsules or admits the platform fragment implicitly.

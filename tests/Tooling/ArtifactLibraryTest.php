@@ -68,6 +68,23 @@ final class ArtifactLibraryTest extends TestCase
         self::assertSame([], $library['themes']);
     }
 
+    public function testPlatformFixturesLoadWithoutEnumeratingAdapterCapsules(): void
+    {
+        $this->writeFragment('platform/artifact-library/artifacts.lock.json', [
+            'plugins' => [],
+            'themes' => ['core-theme' => ['1.0' => self::entry('exercise-fixture')]],
+        ]);
+        $broken = $this->scratch . '/adapter-packages/broken/evidence';
+        self::assertTrue(mkdir($broken, 0777, true));
+        self::assertNotFalse(file_put_contents($broken . '/artifacts.lock.json', "not json\n"));
+
+        $library = ArtifactLibrary::loadPlatform($this->scratch);
+
+        self::assertSame([], $library['plugins']);
+        self::assertSame(['core-theme'], array_keys($library['themes']));
+        self::assertSame(['1.0'], array_keys($library['themes']['core-theme']));
+    }
+
     public function testScenarioParticipantsIgnoreMalformedNonParticipantWithoutChangingGlobalAggregation(): void
     {
         $this->writeFragment('adapter-packages/woocommerce/evidence/artifacts.lock.json', [

@@ -151,6 +151,11 @@ say "package-owned artifact resolution does not enumerate unrelated capsules"
 mkdir -p adapter-packages/unrelated/evidence
 printf '{"plugins":{"broken":true},"themes":{}}\n' \
   > adapter-packages/unrelated/evidence/artifacts.lock.json
+validate_artifact_platform_library \
+  || fail "platform artifact lookup was coupled to a malformed adapter capsule"
+artifact_library_platform_jq -e '
+  (.themes | keys) == ["fixture"] and (.plugins == [])
+' >/dev/null || fail "platform artifact lookup did not use only the platform fragment"
 export DUO_ARTIFACT_PACKAGE=fixture
 validate_artifact_library \
   || fail "one package's valid artifact fragment was coupled to a malformed sibling"
@@ -165,6 +170,15 @@ validate_artifact_library \
 artifact_library_jq -e '
   (.plugins | keys) == ["fixture", "other"] and (.plugins | has("broken") | not)
 ' >/dev/null || fail "scenario artifact lookup did not use the participant-scoped loader"
+THEME_CACHE_FILE="$FAKE_CACHE/theme-fixture-1.0-$DIGEST.zip"
+cp "$PAYLOAD" "$THEME_CACHE_FILE"
+export DUO_ARTIFACT_OFFLINE=1
+theme_path="$(fetch_artifact fixture 1.0 cli1 theme)" \
+  || fail "participant-scoped pair bootstrap could not resolve its platform theme"
+[ "$theme_path" = "/artifacts-cache/theme-fixture-1.0-$DIGEST.zip" ] \
+  || fail "platform theme lookup returned an unexpected cache path: $theme_path"
+rm -f "$THEME_CACHE_FILE"
+unset DUO_ARTIFACT_OFFLINE
 unset DUO_ARTIFACT_PARTICIPANTS
 if validate_artifact_library; then
   fail "aggregate artifact validation ignored the deliberately malformed sibling fixture"

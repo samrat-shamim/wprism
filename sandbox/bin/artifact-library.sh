@@ -88,6 +88,27 @@ artifact_library_emit() {
   fi
 }
 
+# Pair bootstrap needs the shared WordPress theme fixture, but a package or
+# scenario scope must not be widened to every sibling adapter to obtain it.
+artifact_library_platform_emit() {
+  local repo
+  repo="$(artifact_library_repo_root)" || return 1
+  php "$repo/tools/artifact-library.php" --root="$repo" --platform
+}
+
+validate_artifact_platform_library() {
+  artifact_library_platform_emit >/dev/null 2>&1 || {
+    echo "FAIL: platform artifact library is malformed or contains an unsupported namespace, key, role, URL, digest, archive root, or duplicate owner" >&2
+    return 1
+  }
+}
+
+artifact_library_platform_jq() {
+  local library
+  library="$(artifact_library_platform_emit)" || return 1
+  jq "$@" <<<"$library"
+}
+
 validate_artifact_library() {
   artifact_library_emit >/dev/null 2>&1 || {
     echo "FAIL: artifact library is malformed or contains an unsupported namespace, key, role, URL, digest, archive root, or duplicate owner" >&2

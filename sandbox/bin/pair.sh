@@ -598,7 +598,9 @@ cmd_up() {
   if [ "$artifacts" = 1 ]; then
     validate_artifact_library \
       || fail "up: artifact library is malformed; no pair resources were changed"
-    PAIR_BOOTSTRAP_THEME_VERSION=$(artifact_library_jq -r '
+    validate_artifact_platform_library \
+      || fail "up: platform artifact library is malformed; no pair resources were changed"
+    PAIR_BOOTSTRAP_THEME_VERSION=$(artifact_library_platform_jq -r '
       .themes.twentytwentyone | if type == "object" and length == 1 then keys[0] else empty end
     ')
     [[ "$PAIR_BOOTSTRAP_THEME_VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] \
