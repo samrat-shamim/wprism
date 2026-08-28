@@ -2695,6 +2695,38 @@ final class WoocommerceSchedulerSettings {
         self::assert_exact_native_hook_set($hook, [[$expected, $priority, $acceptedArgs]]);
     }
 
+    /** @param array{0:object|string,1:string} $expected */
+    private static function assert_native_hook_contains(
+        string $hook,
+        array $expected,
+        int $priority,
+        int $acceptedArgs
+    ): void {
+        global $wp_filter;
+        $registered = $wp_filter[$hook] ?? null;
+        if (!$registered instanceof \WP_Hook || !is_array($registered->callbacks ?? null)) {
+            throw new \RuntimeException('duo: WooCommerce scheduler native hook is absent or unreadable');
+        }
+        $matches = 0;
+        foreach ($registered->callbacks as $registeredPriority => $callbacks) {
+            if (!is_int($registeredPriority) || !is_array($callbacks)) {
+                throw new \RuntimeException('duo: WooCommerce scheduler native hook is malformed');
+            }
+            foreach ($callbacks as $callback) {
+                if ($registeredPriority === $priority
+                    && ($callback['accepted_args'] ?? null) === $acceptedArgs
+                    && ($callback['function'] ?? null) === $expected) {
+                    ++$matches;
+                }
+            }
+        }
+        if ($matches !== 1) {
+            throw new \RuntimeException(
+                'duo: WooCommerce scheduler native hook is absent or duplicated'
+            );
+        }
+    }
+
     /**
      * @param list<array{0:array{0:object|string,1:string},1:int,2:int}> $expected
      */
@@ -3223,7 +3255,9 @@ final class WoocommerceSchedulerSettings {
             10,
             2
         );
-        self::assert_exact_native_hook(
+        // Woo shares its plugin deactivation hook across independent services;
+        // only this controller's cleanup callback is in the captured effect.
+        self::assert_native_hook_contains(
             'deactivate_woocommerce/woocommerce.php',
             [$controller, 'clear_daily_task'],
             10,
@@ -3248,6 +3282,8 @@ final class WoocommerceSchedulerSettings {
         self::assert_exact_native_hook_set('cron_schedules', [
             [['WC_Install', 'cron_schedules'], 10, 1],
             [[$runner, 'add_wp_cron_schedule'], 10, 1],
+            [['WC_Regenerate_Images_Request', 'schedule_cron_healthcheck'], 10, 1],
+            [['WC_Privacy_Background_Process', 'schedule_cron_healthcheck'], 10, 1],
         ]);
     }
 

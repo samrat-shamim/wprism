@@ -494,6 +494,18 @@ namespace {
         }
     }
 
+    final class WC_Regenerate_Images_Request {
+        public static function schedule_cron_healthcheck(array $schedules): array {
+            return $schedules;
+        }
+    }
+
+    final class WC_Privacy_Background_Process {
+        public static function schedule_cron_healthcheck(array $schedules): array {
+            return $schedules;
+        }
+    }
+
     final class ActionScheduler_QueueRunner {
         private static ?self $instance = null;
 
@@ -1253,10 +1265,24 @@ namespace {
         add_filter('cron_schedules', [WC_Install::class, 'cron_schedules'], 10, 1);
         add_filter(
             'cron_schedules',
+            [WC_Regenerate_Images_Request::class, 'schedule_cron_healthcheck'],
+            10,
+            1
+        );
+        add_filter(
+            'cron_schedules',
+            [WC_Privacy_Background_Process::class, 'schedule_cron_healthcheck'],
+            10,
+            1
+        );
+        add_filter(
+            'cron_schedules',
             [ActionScheduler_QueueRunner::instance(), 'add_wp_cron_schedule'],
             10,
             1
         );
+        add_action('deactivate_woocommerce/woocommerce.php', static function (): void {
+        }, 10, 1);
         add_action(
             'add_option_woocommerce_analytics_scheduled_import',
             [OrdersScheduler::class, 'handle_scheduled_import_option_added'],

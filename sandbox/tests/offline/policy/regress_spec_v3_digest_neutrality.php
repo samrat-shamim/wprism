@@ -198,7 +198,7 @@ const REVIEWED_MOVES = [
         // .json promoted experimental -> certified. Both halves are inside the
         // digest row, so one number carries both.
         'the-events-calendar' => '0a6d67877140db53304d041842f29c7707feab0248ded5cca8a5df992ef2148b',
-        'woocommerce' => '87b13af34d6bf63f91fa8a3406215a97cbd47a23b073a2e3a253437b3369a4ce',
+        'woocommerce' => '3c626ae613ff9073c24f89941c0b00079a5284262a60325fee37ee7be5ba07c1',
         'yoast' => '3edb81748cf3e84923779a74a913f339889a8f9cd430342dabdcfa0dbd3ceae2',
         'yoast-duplicate-post' => '9c17439fc670eebbe216133abbe57dd0e9add20ccf8f1897c2f4445013c65e75',
     ],
@@ -223,15 +223,15 @@ const REVIEWED_MOVES = [
         'adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php' => '628e845f3c1f4e121a16afcdfdddff05bf95833f3a2b35ae859675b90f5c5cff',
         'adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php' => 'f2ba92178f6fa83b0eccdd376c466c8b9a6c919859184aac33deea375f40d343',
         'adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php' => '680d4e9b084e684b0046b7487ca320cabb7087624c5c93034e40fdeed4d5efaf',
-        'adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php' => '5e397f428ab6f56a621c710de1080cb25be45be7c25058296d6e40640e7c338a',
+        'adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php' => 'de758945cc8038949ec90c3c9f93c66a81699735354fe015005da7d16011daea',
         'adapter-packages/yoast/package/runtime/providers/yoast-index.php' => 'ba60957827b02fe38db7655b7c3f42ddb88079541e7049b878a39107a37aada7',
     ],
     'pin_sets' => [
-        'all-16' => '3ff9b18f630d3096635553f8eb1d97d20e06db18efc95c3ec349d7d7dc3c045e',
+        'all-16' => 'ec06dbaec5e4822b55b7a5e99a886583d37792431ad71e2649e922d07a8edfdc',
         'core+elementor+yoast+contact-form-7' => 'baa5497388a9fcdd129c5fadb4bf372227002c1df3f22023a6d0723bdfeafee0',
         'core+paid-memberships-pro+code-snippets' => '722687250167adba48337eca3487adf156381086eaffc3fb3b564c2860b4ee28',
         'core+polylang+the-events-calendar' => 'd109bdccf8d0e9d8cc14c77b860d417b54380c3c402dbe002ada36f68a3072a5',
-        'core+woocommerce+acf' => 'ed50d91bcb9e275c44e9186763314c0a3220c8e485848ca3ace2f2cb3c649675',
+        'core+woocommerce+acf' => 'e05a5a1b9746fe2b3c827d438d60f5adf2cb61ec4c25c14461d1f77fa4002c66',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC
@@ -433,7 +433,7 @@ foreach (REVIEWED_MOVES['runtime_bytes_sha256'] as $path => $expectedHash) {
 duo_check_same(
     REVIEWED_MOVES['runtime_bytes_sha256'],
     $runtimeHashes,
-    'and the seven reviewed package-runtime corrections are individually byte-pinned — their adapter digest moves '
+    'and the eight reviewed package-runtime corrections are individually byte-pinned — their adapter digest moves '
         . 'are an explicit re-pin cost, not a side effect attributed to the physical directory move'
 );
 
