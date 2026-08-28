@@ -2026,6 +2026,8 @@ duo_check(
 duo_check(
     str_contains($demoSource, "'config', 'set', 'WOOCOMMERCE_BIS_ALPHA_ENABLED'")
         && str_contains($demoSource, 'change_feature_enable("fulfillments", true)')
+        && str_contains($demoSource, "['action-scheduler', 'migrate']")
+        && str_contains($demoSource, 'ActionScheduler_DBStore')
         && str_contains($demoSource, "['capabilities', \$environment, '--operation=promote', '--format=json']"),
     'demo setup enables Woo native prerequisite lifecycles and refuses to publish an unqualified pair'
 );

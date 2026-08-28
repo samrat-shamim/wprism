@@ -528,6 +528,10 @@ final class DemoCommand {
         if ($enabled['exit'] !== 0) {
             throw new \RuntimeException("WooCommerce fulfillment feature setup failed on side $side");
         }
+        $migration = self::wp($session, $side, ['action-scheduler', 'migrate']);
+        if ($migration['exit'] !== 0) {
+            throw new \RuntimeException("WooCommerce Action Scheduler migration failed on side $side");
+        }
         // The feature option changes after init in the command above. A fresh
         // WordPress request must run Woo's own init lifecycle so its taxonomy,
         // tables, marker, Action Scheduler, and stock-retention hooks are the
@@ -537,6 +541,7 @@ final class DemoCommand {
             . '|| !taxonomy_exists("wc_fulfillment_shipping_provider") '
             . '|| get_option("woocommerce_fulfillments_db_tables_created") !== "1" '
             . '|| !\\Automattic\\WooCommerce\\Admin\\Features\\Features::is_enabled("analytics-scheduled-import") '
+            . '|| get_class(\\ActionScheduler::store()) !== "ActionScheduler_DBStore" '
             . '|| !defined("WOOCOMMERCE_BIS_ALPHA_ENABLED") || WOOCOMMERCE_BIS_ALPHA_ENABLED !== true) '
             . '{ throw new RuntimeException("WooCommerce qualification prerequisites are incomplete"); }';
         $verified = self::wp($session, $side, ['eval', $verify]);
