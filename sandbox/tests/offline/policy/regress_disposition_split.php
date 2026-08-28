@@ -238,6 +238,12 @@ const SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS = [
 ];
 const SPLIT_DATA_STORE_HOOK_MANIFEST_HASH = '0f2225d6d765789375e9a134479447727236c7fdaeadcd8d10df12ed7186093f';
 
+/** The sixth overlay normalizes MariaDB's exact display of Action Scheduler's native unsigned priority. */
+const SPLIT_MARIADB_PRIORITY_MOVED_DIGESTS = [
+    'woocommerce' => 'e6a266d3a0d6341b11348b871664cc9e883b23141ad50e247bf30c50563aac7c',
+];
+const SPLIT_MARIADB_PRIORITY_MANIFEST_HASH = '9f0fff8fa880daa24d175bbbd3b498dcab8bacc3affd611f069733fa79668e7f';
+
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 duo_check(
     $shippedRegistry instanceof ManifestDispositions,
@@ -264,6 +270,9 @@ foreach (SPLIT_NATIVE_HOOK_MOVED_DIGESTS as $movedName => $movedDigest) {
     $expectedDigests[$movedName] = $movedDigest;
 }
 foreach (SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+foreach (SPLIT_MARIADB_PRIORITY_MOVED_DIGESTS as $movedName => $movedDigest) {
     $expectedDigests[$movedName] = $movedDigest;
 }
 ksort($expectedDigests, SORT_STRING);
@@ -336,6 +345,25 @@ duo_check_same(
     'the completed-migration Action Scheduler selector correction changes only WooCommerce and preserves the fourth '
     . 'transition as a separate reviewed identity'
 );
+$mariaDbPriorityMovedNames = [];
+foreach (SPLIT_MARIADB_PRIORITY_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_NATIVE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_LOCAL_CACHE_MOVED_DIGESTS[$name]
+        ?? SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS[$name]
+        ?? SPLIT_REVIEWED_MOVED_DIGESTS[$name]
+        ?? $frozenDigests[$name]
+        ?? null;
+    if ($priorDigest !== $digest) {
+        $mariaDbPriorityMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    ['woocommerce'],
+    $mariaDbPriorityMovedNames,
+    'the MariaDB native-priority normalization changes only WooCommerce and preserves the fifth transition as a '
+    . 'separate reviewed identity'
+);
 duo_check_same(
     $expectedDigests,
     $observed,
@@ -355,7 +383,7 @@ duo_check_same(
     . 'identity, which is still measured here against pre-relocation numbers on every other adapter'
 );
 duo_check_same(
-    SPLIT_DATA_STORE_HOOK_MANIFEST_HASH,
+    SPLIT_MARIADB_PRIORITY_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
     'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved from the reviewed-manifest '
     . 'address with each reviewed runtime correction, including the WooCommerce local-cache boundary, not because '
@@ -367,6 +395,7 @@ duo_check(
         && SPLIT_LOCAL_CACHE_MANIFEST_HASH !== SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH
         && SPLIT_NATIVE_HOOK_MANIFEST_HASH !== SPLIT_LOCAL_CACHE_MANIFEST_HASH
         && SPLIT_DATA_STORE_HOOK_MANIFEST_HASH !== SPLIT_NATIVE_HOOK_MANIFEST_HASH
+        && SPLIT_MARIADB_PRIORITY_MANIFEST_HASH !== SPLIT_DATA_STORE_HOOK_MANIFEST_HASH
         && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
         && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA,
     '...and all re-pinned numbers really differ from their frozen originals, so the assertions '

@@ -1127,7 +1127,7 @@ namespace {
                 ['status', 'varchar(20)', 'NO', null, ''],
                 ['scheduled_date_gmt', 'datetime', 'YES', '0000-00-00 00:00:00', ''],
                 ['scheduled_date_local', 'datetime', 'YES', '0000-00-00 00:00:00', ''],
-                ['priority', 'tinyint unsigned', 'NO', '10', ''],
+                ['priority', 'tinyint(3) unsigned', 'NO', '10', ''],
                 ['args', 'varchar(191)', 'YES', null, ''],
                 ['schedule', 'longtext', 'YES', null, ''],
                 ['group_id', 'bigint(20) unsigned', 'NO', '0', ''],
@@ -3031,6 +3031,11 @@ namespace {
         'retyped native column' => static function (FakeWpdb $db): void {
             $rows = $db->get_results('SHOW FULL COLUMNS FROM `wp_actionscheduler_actions`', ARRAY_A);
             $rows[1]['Type'] = 'varchar(255)';
+            $db->setColumnDefinitions('actionscheduler_actions', $rows);
+        },
+        'non-native integer display width' => static function (FakeWpdb $db): void {
+            $rows = $db->get_results('SHOW FULL COLUMNS FROM `wp_actionscheduler_actions`', ARRAY_A);
+            $rows[5]['Type'] = 'tinyint(4) unsigned';
             $db->setColumnDefinitions('actionscheduler_actions', $rows);
         },
         'reordered native columns' => static function (FakeWpdb $db): void {

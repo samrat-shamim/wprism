@@ -198,7 +198,7 @@ const REVIEWED_MOVES = [
         // .json promoted experimental -> certified. Both halves are inside the
         // digest row, so one number carries both.
         'the-events-calendar' => '0a6d67877140db53304d041842f29c7707feab0248ded5cca8a5df992ef2148b',
-        'woocommerce' => '8274ba1c78171149bda79b57afa2fa882053a2327f8ed89d81b03e336bc7703b',
+        'woocommerce' => 'e6a266d3a0d6341b11348b871664cc9e883b23141ad50e247bf30c50563aac7c',
         'yoast' => '3edb81748cf3e84923779a74a913f339889a8f9cd430342dabdcfa0dbd3ceae2',
         'yoast-duplicate-post' => '9c17439fc670eebbe216133abbe57dd0e9add20ccf8f1897c2f4445013c65e75',
     ],
@@ -223,15 +223,15 @@ const REVIEWED_MOVES = [
         'adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php' => '628e845f3c1f4e121a16afcdfdddff05bf95833f3a2b35ae859675b90f5c5cff',
         'adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php' => 'f2ba92178f6fa83b0eccdd376c466c8b9a6c919859184aac33deea375f40d343',
         'adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php' => '680d4e9b084e684b0046b7487ca320cabb7087624c5c93034e40fdeed4d5efaf',
-        'adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php' => '7eb08c32c8c2624e67a3088f1bea3714b2f8eadf23954acd82f1ad73403cca95',
+        'adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php' => 'ce3715a4dff3b59e082d16e483d9a224d6ba326447b29200751b6507d1441174',
         'adapter-packages/yoast/package/runtime/providers/yoast-index.php' => 'ba60957827b02fe38db7655b7c3f42ddb88079541e7049b878a39107a37aada7',
     ],
     'pin_sets' => [
-        'all-16' => '0f2225d6d765789375e9a134479447727236c7fdaeadcd8d10df12ed7186093f',
+        'all-16' => '9f0fff8fa880daa24d175bbbd3b498dcab8bacc3affd611f069733fa79668e7f',
         'core+elementor+yoast+contact-form-7' => 'baa5497388a9fcdd129c5fadb4bf372227002c1df3f22023a6d0723bdfeafee0',
         'core+paid-memberships-pro+code-snippets' => '722687250167adba48337eca3487adf156381086eaffc3fb3b564c2860b4ee28',
         'core+polylang+the-events-calendar' => 'd109bdccf8d0e9d8cc14c77b860d417b54380c3c402dbe002ada36f68a3072a5',
-        'core+woocommerce+acf' => '2a1ef2f523c068706051af0abeb3746427340eb485b7a4d54039316f3674ea19',
+        'core+woocommerce+acf' => 'b0a185b0afa548c7deadb96580b0aed8fd3bed946a6ef883a225ee0580942888',
         'core-only' => 'c2a658f6d9f3fa73fc7e74a483aa0476a8909a01d59f3cd07103daefcdb78e6d',
     ],
     // The reviewed claim source is one document per subject, so promoting TEC

@@ -2927,9 +2927,16 @@ final class WoocommerceSchedulerSettings {
         }
         $actual = [];
         foreach ($rows as $row) {
+            $type = strtolower((string) ($row['Type'] ?? ''));
+            // MariaDB 11 reports the native `tinyint unsigned` declaration as
+            // `tinyint(3) unsigned`; the display width changes no storage,
+            // range, signedness, or Action Scheduler schema semantics.
+            if ($type === 'tinyint(3) unsigned') {
+                $type = 'tinyint unsigned';
+            }
             $actual[] = [
                 $row['Field'] ?? null,
-                strtolower((string) ($row['Type'] ?? '')),
+                $type,
                 strtoupper((string) ($row['Null'] ?? '')),
                 $row['Default'] ?? null,
                 strtolower((string) ($row['Extra'] ?? '')),
