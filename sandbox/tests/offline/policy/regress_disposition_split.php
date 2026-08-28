@@ -256,6 +256,12 @@ const SPLIT_RETENTION_NATIVE_HOOK_MOVED_DIGESTS = [
 ];
 const SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH = 'ec06dbaec5e4822b55b7a5e99a886583d37792431ad71e2649e922d07a8edfdc';
 
+/** The ninth overlay binds the two native background-process instances that own Woo's cron filters. */
+const SPLIT_RETENTION_CRON_OWNER_MOVED_DIGESTS = [
+    'woocommerce' => 'e2e99c1f086fc9c080d0b4d129f56d74dd3f19cfa50fb91ca6b5adc366b0a176',
+];
+const SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH = '1fbcd7d59b44147932751a32bad7b28f6ab8c37caf26b52e059158d147740caf';
+
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 duo_check(
     $shippedRegistry instanceof ManifestDispositions,
@@ -291,6 +297,9 @@ foreach (SPLIT_MARIADB_ARGS_INDEX_MOVED_DIGESTS as $movedName => $movedDigest) {
     $expectedDigests[$movedName] = $movedDigest;
 }
 foreach (SPLIT_RETENTION_NATIVE_HOOK_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+foreach (SPLIT_RETENTION_CRON_OWNER_MOVED_DIGESTS as $movedName => $movedDigest) {
     $expectedDigests[$movedName] = $movedDigest;
 }
 ksort($expectedDigests, SORT_STRING);
@@ -423,6 +432,28 @@ duo_check_same(
     'the native shared retention-hook correction changes only WooCommerce and preserves the seventh transition as '
     . 'a separate reviewed identity'
 );
+$retentionCronOwnerMovedNames = [];
+foreach (SPLIT_RETENTION_CRON_OWNER_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_RETENTION_NATIVE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_MARIADB_ARGS_INDEX_MOVED_DIGESTS[$name]
+        ?? SPLIT_MARIADB_PRIORITY_MOVED_DIGESTS[$name]
+        ?? SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_NATIVE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_LOCAL_CACHE_MOVED_DIGESTS[$name]
+        ?? SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS[$name]
+        ?? SPLIT_REVIEWED_MOVED_DIGESTS[$name]
+        ?? $frozenDigests[$name]
+        ?? null;
+    if ($priorDigest !== $digest) {
+        $retentionCronOwnerMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    ['woocommerce'],
+    $retentionCronOwnerMovedNames,
+    'the native background-process ownership correction changes only WooCommerce and preserves the eighth '
+    . 'transition as a separate reviewed identity'
+);
 duo_check_same(
     $expectedDigests,
     $observed,
@@ -442,7 +473,7 @@ duo_check_same(
     . 'identity, which is still measured here against pre-relocation numbers on every other adapter'
 );
 duo_check_same(
-    SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH,
+    SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
     'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved from the reviewed-manifest '
     . 'address with each reviewed runtime correction, including the WooCommerce local-cache boundary, not because '
@@ -457,6 +488,7 @@ duo_check(
         && SPLIT_MARIADB_PRIORITY_MANIFEST_HASH !== SPLIT_DATA_STORE_HOOK_MANIFEST_HASH
         && SPLIT_MARIADB_ARGS_INDEX_MANIFEST_HASH !== SPLIT_MARIADB_PRIORITY_MANIFEST_HASH
         && SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH !== SPLIT_MARIADB_ARGS_INDEX_MANIFEST_HASH
+        && SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH !== SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH
         && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
         && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA,
     '...and all re-pinned numbers really differ from their frozen originals, so the assertions '

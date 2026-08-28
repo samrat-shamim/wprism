@@ -495,14 +495,38 @@ namespace {
     }
 
     final class WC_Regenerate_Images_Request {
-        public static function schedule_cron_healthcheck(array $schedules): array {
+        public function schedule_cron_healthcheck(array $schedules): array {
             return $schedules;
         }
     }
 
     final class WC_Privacy_Background_Process {
-        public static function schedule_cron_healthcheck(array $schedules): array {
+        public function schedule_cron_healthcheck(array $schedules): array {
             return $schedules;
+        }
+    }
+
+    final class WC_Regenerate_Images {
+        protected static ?WC_Regenerate_Images_Request $background_process = null;
+
+        public static function reset(): void {
+            self::$background_process = new WC_Regenerate_Images_Request();
+        }
+
+        public static function background_process(): WC_Regenerate_Images_Request {
+            return self::$background_process ??= new WC_Regenerate_Images_Request();
+        }
+    }
+
+    final class WC_Privacy {
+        protected static ?WC_Privacy_Background_Process $background_process = null;
+
+        public static function reset(): void {
+            self::$background_process = new WC_Privacy_Background_Process();
+        }
+
+        public static function background_process(): WC_Privacy_Background_Process {
+            return self::$background_process ??= new WC_Privacy_Background_Process();
         }
     }
 
@@ -1239,6 +1263,8 @@ namespace {
         ActionScheduler::$initialized = true;
         ActionScheduler::reset();
         ActionScheduler_QueueRunner::reset();
+        WC_Regenerate_Images::reset();
+        WC_Privacy::reset();
         $GLOBALS['wp_filter'] = [];
         add_filter('wp_default_autoload_value', 'wp_filter_default_autoload_value_via_option_size', 5, 4);
         $GLOBALS['wooSchedulerContainer'] = new WooSchedulerContainer(
@@ -1265,13 +1291,13 @@ namespace {
         add_filter('cron_schedules', [WC_Install::class, 'cron_schedules'], 10, 1);
         add_filter(
             'cron_schedules',
-            [WC_Regenerate_Images_Request::class, 'schedule_cron_healthcheck'],
+            [WC_Regenerate_Images::background_process(), 'schedule_cron_healthcheck'],
             10,
             1
         );
         add_filter(
             'cron_schedules',
-            [WC_Privacy_Background_Process::class, 'schedule_cron_healthcheck'],
+            [WC_Privacy::background_process(), 'schedule_cron_healthcheck'],
             10,
             1
         );

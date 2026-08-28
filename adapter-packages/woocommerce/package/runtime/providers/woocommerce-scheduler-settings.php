@@ -3279,12 +3279,64 @@ final class WoocommerceSchedulerSettings {
                 'duo: WooCommerce stock-retention Action Scheduler cron owner is malformed'
             );
         }
+        $imageProcess = self::native_regenerate_images_process();
+        $privacyProcess = self::native_privacy_background_process();
         self::assert_exact_native_hook_set('cron_schedules', [
             [['WC_Install', 'cron_schedules'], 10, 1],
             [[$runner, 'add_wp_cron_schedule'], 10, 1],
-            [['WC_Regenerate_Images_Request', 'schedule_cron_healthcheck'], 10, 1],
-            [['WC_Privacy_Background_Process', 'schedule_cron_healthcheck'], 10, 1],
+            [[$imageProcess, 'schedule_cron_healthcheck'], 10, 1],
+            [[$privacyProcess, 'schedule_cron_healthcheck'], 10, 1],
         ]);
+    }
+
+    private static function native_regenerate_images_process(): object {
+        if (!class_exists('WC_Regenerate_Images', false)
+            || !class_exists('WC_Regenerate_Images_Request', false)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce stock-retention native cron-schedule owners are unavailable'
+            );
+        }
+        try {
+            $property = new \ReflectionProperty('WC_Regenerate_Images', 'background_process');
+            $process = $property->getValue();
+        } catch (\Throwable) {
+            throw new \RuntimeException(
+                'duo: WooCommerce stock-retention native cron-schedule owner is unreadable'
+            );
+        }
+        if (!is_object($process)
+            || get_class($process) !== 'WC_Regenerate_Images_Request'
+            || !is_callable([$process, 'schedule_cron_healthcheck'])) {
+            throw new \RuntimeException(
+                'duo: WooCommerce stock-retention native cron-schedule owner is malformed'
+            );
+        }
+        return $process;
+    }
+
+    private static function native_privacy_background_process(): object {
+        if (!class_exists('WC_Privacy', false)
+            || !class_exists('WC_Privacy_Background_Process', false)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce stock-retention native cron-schedule owners are unavailable'
+            );
+        }
+        try {
+            $property = new \ReflectionProperty('WC_Privacy', 'background_process');
+            $process = $property->getValue();
+        } catch (\Throwable) {
+            throw new \RuntimeException(
+                'duo: WooCommerce stock-retention native cron-schedule owner is unreadable'
+            );
+        }
+        if (!is_object($process)
+            || get_class($process) !== 'WC_Privacy_Background_Process'
+            || !is_callable([$process, 'schedule_cron_healthcheck'])) {
+            throw new \RuntimeException(
+                'duo: WooCommerce stock-retention native cron-schedule owner is malformed'
+            );
+        }
+        return $process;
     }
 
     /** @return array{sha256:string,autoload:string} */
