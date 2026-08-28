@@ -3,6 +3,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/src/AdapterChangeScopeDecision.php';
+
 /**
  * Changed-files -> offline-suite selector (WP-6a).
  *
@@ -14,9 +16,11 @@ declare(strict_types=1);
  * That is not fast enough to run on every edit while iterating, so this tool
  * answers a narrower question: given a set of changed files, which of those
  * targets could possibly be affected? `tools/offline.php --changed[=BASE]`
- * shells out to `php tools/affected.php --base=BASE`, treats stdout as the
- * work list (one target name per line), and intersects it with the real
- * leaf set -- so this file's only hard contract is that stdout line format.
+ * shells out to `php tools/affected.php --base=BASE --json`, treats the
+ * `targets` members as the work list, and intersects ordinary targets with
+ * the real leaf set. A closed single-adapter decision may also return scoped
+ * adapter/scenario tasks with checked commands; plain output still emits one
+ * target name per line for human and shell callers.
  *
  * SOURCE OF TRUTH FOR THE LEAF LIST
  * ----------------------------------
@@ -128,10 +132,12 @@ declare(strict_types=1);
  *  - Plain PHP, no composer runtime deps, cwd-independent, PHP 8.3+ syntax.
  *  - Never reads/writes agent/, cli/, sandbox/bin/, or the Makefile itself;
  *    only sandbox/tmp/affected-index.json is ever written.
- *  - Always exits 0 (tools/offline.php merges this process's stdout+stderr
+ *  - Selection exits 0; a closed scenario/ownership classification failure
+ *    exits 1 so tools/offline.php cannot turn malformed gate metadata green.
+ *    tools/offline.php merges this process's stdout+stderr
  *    when it shells out, so a non-zero exit would be read as a hard
- *    failure of `--changed`); malformed CLI usage is the sole exception
- *    (exit 2), matching tools/doctor.sh's convention.
+ *    failure of `--changed`. Malformed CLI usage exits 2, matching
+ *    tools/doctor.sh's convention.
  *
  * Usage:
  *   php tools/affected.php [--base=REF] [--paths=a,b] [--all]
@@ -1421,6 +1427,70 @@ function af_main(array $argv): int
     }
     sort($changed, SORT_STRING);
 
+    try {
+        $ownership = \Duo\Tooling\AdapterChangeScopeDecision::decide($changed);
+    } catch (Throwable $failure) {
+        fwrite(STDERR, 'affected: closed ownership classification failed: ' . $failure->getMessage() . "\n");
+        return 1;
+    }
+
+    // The package runner is the authoritative narrow gate for a single
+    // adapter. Static dependency extraction sees the aggregate's directory
+    // scan and would otherwise turn every capsule edit back into the all-
+    // capsule gate. Participant scenarios come from the same validated closed
+    // decision, so a package edit cannot silently omit its shared evidence.
+    if ($ownership['gate'] === \Duo\Tooling\AdapterChangeScopeDecision::GATE_ADAPTER) {
+        $adapter = $ownership['adapter'];
+        if (!is_string($adapter) || $adapter === '') {
+            fwrite(STDERR, "affected: adapter gate did not name an adapter\n");
+            return 1;
+        }
+        $selected = ['adapter-package:' . $adapter];
+        $tasks = [[
+            'target' => $selected[0],
+            'kind' => 'adapter-package',
+            'command' => $ownership['command'],
+        ]];
+        $rows = [];
+        foreach ($changed as $file) {
+            $rows[] = ['target' => $selected[0], 'file' => $file, 'why' => 'adapter-package'];
+        }
+        foreach ($ownership['scenario_gates'] as $gate) {
+            $target = 'integration-scenario:' . $gate['scenario'] . ':' . $gate['class'] . ':'
+                . basename($gate['path']);
+            $selected[] = $target;
+            $tasks[] = [
+                'target' => $target,
+                'kind' => 'integration-scenario',
+                'command' => $gate['command'],
+            ];
+            foreach ($changed as $file) {
+                $rows[] = ['target' => $target, 'file' => $file, 'why' => 'participant-scenario'];
+            }
+        }
+        af_emit($selected, $rows, $changed, $json, $explain, $tasks);
+        return 0;
+    }
+
+    // A scenario is shared participant evidence by definition. Static path
+    // extraction cannot safely choose one adapter's offline leaf for it, and
+    // previously chose nothing at all for scenario.json. Honor the closed
+    // ownership decision here: the changed iteration path selects the global
+    // offline aggregate, while the decision's scenario_gates name the live
+    // participant evidence for the reviewer/operator.
+    if ($ownership['reason_code'] === 'integration_scenario_change') {
+        $selected = $leaves;
+        sort($selected, SORT_STRING);
+        $rows = [];
+        foreach ($selected as $target) {
+            foreach ($changed as $file) {
+                $rows[] = ['target' => $target, 'file' => $file, 'why' => 'integration-scenario'];
+            }
+        }
+        af_emit($selected, $rows, $changed, $json, $explain);
+        return 0;
+    }
+
     $wholeCorpusFiles = ['Makefile', 'sandbox/tests/offline_diagnostics_guard.sh'];
 
     $selectedSet = [];
@@ -1464,6 +1534,21 @@ function af_main(array $argv): int
         }
     }
 
+    // Capsules may consume the public engine SDK without spelling every SDK
+    // source file in their local tests. Until that symbol-to-package index is
+    // explicit, an engine edit must conservatively retain the dynamically
+    // discovered package aggregate rather than silently skipping consumers.
+    if ($ownership['reason_code'] === 'engine_change') {
+        $selectedSet['regress-adapter-packages'] = true;
+        foreach ($changed as $file) {
+            $explainRows[] = [
+                'target' => 'regress-adapter-packages',
+                'file' => $file,
+                'why' => 'adapter-sdk-conservative',
+            ];
+        }
+    }
+
     $selected = array_keys($selectedSet);
     sort($selected, SORT_STRING);
 
@@ -1480,13 +1565,21 @@ function af_main(array $argv): int
 /** @param list<string> $selected
  * @param list<array{target:string,file:string,why:string}> $explainRows
  * @param list<string> $changed
+ * @param list<array{target:string,kind:string,command:non-empty-list<string>}> $tasks
  */
-function af_emit(array $selected, array $explainRows, array $changed, bool $json, bool $explain): void
+function af_emit(
+    array $selected,
+    array $explainRows,
+    array $changed,
+    bool $json,
+    bool $explain,
+    array $tasks = []
+): void
 {
     if ($json) {
         usort($explainRows, static fn (array $a, array $b): int
             => $a['target'] <=> $b['target'] ?: $a['file'] <=> $b['file']);
-        $payload = ['targets' => $selected, 'changed_files' => $changed];
+        $payload = ['targets' => $selected, 'changed_files' => $changed, 'tasks' => $tasks];
         if ($explain) {
             $payload['explain'] = $explainRows;
         }

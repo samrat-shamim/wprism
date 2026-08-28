@@ -72,7 +72,7 @@ final class AdapterProductionReadiness
      *
      * @return array{readiness:string,covered:array<string,mixed>,gaps:array<string,mixed>,blocked:array<string,mixed>,not_applicable:array<string,mixed>}
      */
-    public static function record(string $repoRoot, string $slug): array
+    public static function record(string $repoRoot, string $slug, ?callable $evidenceOwnership = null): array
     {
         $repo = self::repo($repoRoot);
         if ($slug !== 'core' && !self::isSlug($slug)) {
@@ -98,6 +98,59 @@ final class AdapterProductionReadiness
             if (!is_array($record[$bucket]) || ($record[$bucket] !== [] && array_is_list($record[$bucket]))) {
                 throw new RuntimeException("Adapter readiness record '$slug'.$bucket must be an object");
             }
+        }
+
+        if (!in_array($record['readiness'], ['ready', 'unready'], true)) {
+            throw new RuntimeException("Adapter readiness record '$slug'.readiness must be ready or unready");
+        }
+        $accounted = [];
+        foreach (['covered', 'gaps', 'blocked', 'not_applicable'] as $bucket) {
+            foreach ($record[$bucket] as $family => $value) {
+                if (!is_string($family) || !in_array($family, self::SCENARIO_FAMILIES, true)) {
+                    throw new RuntimeException("Adapter readiness record '$slug'.$bucket names unknown family '$family'");
+                }
+                if (isset($accounted[$family])) {
+                    throw new RuntimeException("Adapter readiness record '$slug' accounts for '$family' more than once");
+                }
+                $accounted[$family] = true;
+                if ($bucket === 'covered') {
+                    if (!is_array($value) || !array_is_list($value) || $value === []) {
+                        throw new RuntimeException("Adapter readiness record '$slug'.covered.$family must name evidence files");
+                    }
+                    foreach ($value as $evidence) {
+                        if (!is_string($evidence)
+                            || $evidence === ''
+                            || str_starts_with($evidence, '/')
+                            || str_contains($evidence, '..')
+                            || !is_file($repo . '/' . $evidence)
+                            || is_link($repo . '/' . $evidence)) {
+                            throw new RuntimeException(
+                                "Adapter readiness record '$slug'.covered.$family names invalid evidence "
+                                . var_export($evidence, true)
+                            );
+                        }
+                        if ($evidenceOwnership !== null) {
+                            $evidenceOwnership($repo, $slug, $evidence);
+                        }
+                    }
+                } elseif (!is_string($value) || trim($value) === '') {
+                    throw new RuntimeException("Adapter readiness record '$slug'.$bucket.$family must carry a reason");
+                }
+            }
+        }
+        $families = array_keys($accounted);
+        sort($families, SORT_STRING);
+        $expectedFamilies = self::SCENARIO_FAMILIES;
+        sort($expectedFamilies, SORT_STRING);
+        if ($families !== $expectedFamilies) {
+            throw new RuntimeException("Adapter readiness record '$slug' does not account for every scenario family");
+        }
+        $expectedReadiness = $record['gaps'] === [] && $record['blocked'] === [] ? 'ready' : 'unready';
+        if ($record['readiness'] !== $expectedReadiness) {
+            throw new RuntimeException(
+                "Adapter readiness record '$slug' cannot be {$record['readiness']} while its gap/blocked buckets imply "
+                . $expectedReadiness
+            );
         }
 
         unset($record['format'], $record['adapter']);

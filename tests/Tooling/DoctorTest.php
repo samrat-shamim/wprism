@@ -29,8 +29,8 @@ use PHPUnit\Framework\TestCase;
  * `--no-color` so assertions match literal text rather than ANSI runs.
  *
  * A red result here is a real finding about the checkout, not a flaky test:
- * the usual cause is generated output (docs/capabilities.md, the classmap) that
- * has drifted from the source `make release-gate` regenerates it from.
+ * the usual cause is invalid capability input or generated engine output such
+ * as the classmap drifting from the source `make release-gate` checks.
  */
 final class DoctorTest extends TestCase
 {

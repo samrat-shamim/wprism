@@ -76,8 +76,9 @@ There is no source closure and no certification round any more: no set of files
 whose bytes expire a sealed claim, and no `Makefile`-target tax. What a
 capability claim rests on now is [dispositions and live
 conformance](guides/capabilities-and-limits.md). The capsule validator checks
-the evidence wiring and `make release-gate` byte-compares the generated public
-projection.
+the evidence wiring and `make release-gate` validates the complete source set.
+`php tools/capability-doc.php render` produces an aggregate projection on
+demand without making central prose part of an adapter edit.
 
 ### Tooling stays outside the shipped tree — deliberately
 
@@ -101,7 +102,7 @@ flags, print diagnostics and have self-tests, and `Makefile` recipes do not.
 | `php tools/adapter-package-validate.php --adapter=<slug>` | validate one capsule's closed library, syntax, identity, disposition, and evidence wiring |
 | `php tools/adapter-package-tests.php --adapter=<slug>` | run one capsule's package-local offline suites during iteration |
 | `make regress-offline-all` | **the canonical merge gate**: shared offline leaves plus dynamic package aggregate |
-| `make release-gate` | `capability-doc.php --check` + `classmap-generate.php --check`: the generated capability document, the README summary block and both classmaps still match their sources |
+| `make release-gate` | Capability and grade source validation plus byte-checks for generated protocol/gap/wire documents, classmaps, corpus, and adapter kit |
 
 `tools/offline.php` is strictly stronger than a raw `make -j`: it gives every
 suite its own log, applies `offline_diagnostics_guard.sh`'s exact diagnostic

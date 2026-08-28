@@ -5,11 +5,11 @@
  *
  * WHAT WAS MEASURED, AND WHY IT NEEDED A RIDER
  * --------------------------------------------
- * `adapter-packages/<name>/package/disposition.json` carries a three-value status and every
- * read surface projects it BINARY. Measured on the shipped library through the
- * product path in PART 6 below: 14 of the 16 reviewed subjects print the same
+ * `adapter-packages/<name>/package/disposition.json` carries a three-value
+ * status and every read surface projects it BINARY. Measured on the shipped
+ * library through the product path in PART 6 below: 16 of the 17 reviewed subjects print the same
  * word, `certified`. Their evidence is not the same. `acf` carries 11 of its
- * 11 applicable scenario families; `polylang` and `woocommerce` carry 5 of 12
+ * 11 applicable scenario families; `polylang` and `woocommerce` carry 12 of 12
  * — and an operator choosing between two adapters for one plugin cannot see
  * that difference anywhere, because the only vocabulary available is the word
  * itself. The structural consequence is the dangerous one: the ONLY way to say
@@ -17,9 +17,10 @@
  *
  * Three machine-readable records already answered it and projected into
  * nothing. `tools/adapter-grade.php` is the one definition of what they add up
- * to, and `docs/adapter-grades.md` is that definition projected into prose
- * `make release-gate` byte-compares. This suite is the acceptance for the five
- * properties that make the number a derivation rather than a second status:
+ * to, renders the current aggregate only on request, and validates the
+ * package-owned inputs in `make release-gate`. This suite is the acceptance
+ * for the five properties that make the number a derivation rather than a
+ * second status:
  *
  *   1. COMPUTED. Every grade is arithmetic over the three evidence documents
  *      on THIS call (PART 1), and it MOVES the moment any of them moves
@@ -40,17 +41,17 @@
  *      `ManifestDispositions::report()` — the shipped read surface — and by
  *      proving the whole grade model reaches no shipped byte.
  *
- * PART 7 is the gate: the projection is byte-compared, and the byte-compare
- * BITES on a hand-edited document AND on evidence that moved while the prose
- * did not. A gate that never bites is theatre, and a grade nobody re-derives
- * is the stored verdict this rider exists to make impossible.
+ * PART 7 is the gate: `--check` recomputes and validates source records without
+ * a checked-in aggregate, while `render` writes the exact current projection
+ * only to stdout. Invalid source bites; a valid package evidence edit passes
+ * without a central projection edit and visibly moves the rendered grade.
  *
  * WHY THE MODEL IS EXERCISED WHERE IT LIVES
  * -----------------------------------------
  * `tools/adapter-grade.php`, in-process. Two of its three inputs are not
- * shipped — `cli/src/Onboarding/Adopt.php` tars exactly `agent manifests
- * recovery`, so the readiness ledger under sandbox/ reaches no site — and the
- * grade has exactly one reader, `make release-gate`. The functions are called
+ * shipped — `cli/src/Onboarding/Adopt.php` tars exactly `agent recovery`, so
+ * the readiness ledger under sandbox/ reaches no site — and the model has one
+ * validator/render command. The functions are called
  * directly for the axis arithmetic (a subprocess per case would pay a PHP boot
  * for a number this process can read), and the GATE half runs the real
  * `php tools/adapter-grade.php --check` against a mutated copy of the tree, so
@@ -90,7 +91,7 @@ $platformDocument = $readJson($adapterLibrary->platformBoundaryPath());
 $boundary = $platformDocument['platform'];
 $shippedLedger = AdapterProductionReadiness::load($duoRoot);
 $families = array_map('strval', $shippedLedger['scenario_families']);
-$gradesDoc = (string) file_get_contents($duoRoot . '/docs/adapter-grades.md');
+$gradesRender = grade_build($duoRoot);
 
 duo_check_same(12, count($families), 'the readiness ledger still declares the 12 reviewed scenario families the breadth axis counts against');
 
@@ -266,8 +267,8 @@ duo_check_same('none', $noEvidence['state'], 'a REVIEWED row that finds nothing 
 
 // The shipped library carries the real case, and it reads the honest way.
 duo_check(
-    str_contains($gradesDoc, '| [duo-agency-cpt](#duo-agency-cpt) | excluded | no grade — no exercise evidence |'),
-    'the shipped document carries the live example: duo-agency-cpt is reviewed `excluded`, the readiness ledger holds no row for it, and its grade cell says NO GRADE rather than a zero'
+    str_contains($gradesRender, '| [duo-agency-cpt](#duo-agency-cpt) | excluded | no grade — no exercise evidence |'),
+    'the current render carries the live example: duo-agency-cpt is reviewed `excluded`, the readiness ledger holds no row for it, and its grade cell says NO GRADE rather than a zero'
 );
 
 echo "\nPART 4 — a grade may never be AUTHORED: refused BY NAME, in every input\n";
@@ -295,22 +296,16 @@ duo_check_throws(
     'authored `grade` member'
 );
 // The other half of "never authored": there is nowhere for an authored grade
-// to come FROM either, because the model writes no machine-readable document.
-// `grade_build()` is the complete list of what a run puts on disk.
-$written = grade_build($duoRoot);
-duo_check_same(
-    [$duoRoot . '/docs/adapter-grades.md'],
-    array_keys($written),
-    'a run writes exactly one file — the prose document — and no JSON: there is no record for a later reader to mistake for a source of truth, which is what would turn the number back into a stored verdict'
-);
+// to come FROM either. `grade_build()` returns prose; it does not name or write
+// a destination a later reader could mistake for a source of truth.
 duo_check(
-    str_starts_with($written[$duoRoot . '/docs/adapter-grades.md'], "# Adapter evidence grades\n"),
-    '...and that file is the rendered document'
+    str_starts_with($gradesRender, "# Adapter evidence grades\n"),
+    'grade_build() returns the aggregate prose in memory'
 );
 duo_check_same(
-    $written,
+    $gradesRender,
     grade_build($duoRoot),
-    '...built twice in one process from the same tree, byte for byte: the projection is a pure function of its inputs, so re-deriving it can never be the thing that changes it'
+    '...rendered twice in one process from the same tree, byte for byte: the projection is a pure function of its inputs, so re-deriving it can never be the thing that changes it'
 );
 
 echo "\nPART 5 — the grade is its WEAKEST axis, never an average\n";
@@ -375,7 +370,7 @@ $findGrade = static function (mixed $node) use (&$findGrade): bool {
     }
     return false;
 };
-duo_check(!$findGrade($report), 'and no `grade` member appears anywhere in the reviewed report: the grade sits BESIDE the word, in its own document, never inside the claim');
+duo_check(!$findGrade($report), 'and no `grade` member appears anywhere in the reviewed report: the grade sits BESIDE the word in an on-demand projection, never inside the claim');
 
 // The whole model reaches no shipped byte. This is the strongest form of "the
 // certification word is unchanged": there is nothing under the drop-in, the
@@ -398,7 +393,7 @@ foreach (['agent', 'cli', 'recovery', 'adapter-packages', 'platform'] as $tree) 
 }
 duo_check_same([], $shippedMentions, 'no shipped file names the grade model at all — it ships nothing, so no adapter digest, no pin and no refusal message moved');
 
-// Every grade the document prints stands beside the disposition's OWN status,
+// Every grade the render prints stands beside the disposition's OWN status,
 // verbatim. A projection that re-spelled the reviewed word would be replacing
 // it, which is the one thing this rider may not do.
 $dispositionStatuses = [];
@@ -407,41 +402,39 @@ foreach ($adapterLibrary->packages() as $package) {
 }
 $rowMismatches = [];
 foreach ($dispositionStatuses as $name => $status) {
-    if (!str_contains($gradesDoc, '| [' . $name . '](#' . $name . ') | ' . $status . ' | ')) {
+    if (!str_contains($gradesRender, '| [' . $name . '](#' . $name . ') | ' . $status . ' | ')) {
         $rowMismatches[] = $name;
     }
 }
-duo_check_same([], $rowMismatches, 'every row of the generated document prints the reviewed status verbatim in its own column, for all ' . count($dispositionStatuses) . ' subjects');
+duo_check_same([], $rowMismatches, 'every row of the rendered aggregate prints the reviewed status verbatim in its own column, for all ' . count($dispositionStatuses) . ' subjects');
 duo_check(
-    str_contains($gradesDoc, '**A grade is computed; a status is reviewed. They are different claims and neither replaces the other.**'),
-    '...and the document says so in its first sentence, because a reader who mistakes one for the other is the whole risk this rider carries'
+    str_contains($gradesRender, '**A grade is computed; a status is reviewed. They are different claims and neither replaces the other.**'),
+    '...and the render says so in its first sentence, because a reader who mistakes one for the other is the whole risk this rider carries'
 );
 
-// BESIDE means reachable from where the word is. The capability document is
-// where an operator reads the status, so it carries the pointer — as fixed
-// prose, never a grade VALUE: capability-doc.php projects from exactly four
-// files (its header at :12-58 is the authority) and a value here would make
-// the public claim depend on a fifth that no site ever receives.
+// BESIDE means reachable from where the word is. The capability guide is where
+// an operator reads the status, so it carries the render command and stable
+// model pointer as fixed prose, never a grade VALUE or aggregate inventory.
 $capabilities = (string) file_get_contents($duoRoot . '/docs/capabilities.md');
 duo_check(
-    str_contains($capabilities, '**A status is not a grade.**')
-        && str_contains($capabilities, '[docs/adapter-grades.md](adapter-grades.md)'),
-    'the capability document — where the reviewed word is actually read — points at the computed grade beside it'
+    str_contains($capabilities, '`php tools/adapter-grade.php render`')
+        && str_contains($capabilities, '[adapter-grades.md](adapter-grades.md)'),
+    'the capability guide — where the reviewed word is actually read — points at the on-demand computed grade and its stable definition'
 );
 duo_check(
     !str_contains($capabilities, 'complete · ') && !str_contains($capabilities, 'partial · '),
-    '...and carries no grade VALUE, so its four-input byte-compare still measures it against manifests, dispositions, the platform boundary and agent/duo.php alone'
+    '...and carries no grade VALUE or central aggregate, so a package edit cannot make this guide stale'
 );
 
 // The graded axis discriminates where the word cannot — the measurement that
 // motivated the rider, taken on the shipped library rather than asserted.
 duo_check(
-    str_contains($gradesDoc, '| [acf](#acf) | certified | complete · 16/16 units')
-        && str_contains($gradesDoc, '| [polylang](#polylang) | certified | complete · 17/17 units'),
+    str_contains($gradesRender, '| [acf](#acf) | certified | complete · 16/16 units')
+        && str_contains($gradesRender, '| [polylang](#polylang) | certified | complete · 17/17 units'),
     'TWO ADAPTERS, ONE WORD, DIFFERENT EVIDENCE: acf and polylang are both `certified` and both grade complete, but over 16/16 versus 17/17 units — the difference an operator could not see before, now visible without widening what `certified` means'
 );
 
-echo "\nPART 7 — the release gate byte-compares the projection, and BITES\n";
+echo "\nPART 7 — the release gate validates sources; render is stdout-only\n";
 
 $run = static function (array $argv): array {
     $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
@@ -463,7 +456,7 @@ duo_check_same(0, $shipped['exit'], '`php tools/adapter-grade.php --check` — a
 $makefile = (string) file_get_contents($duoRoot . '/Makefile');
 duo_check(
     preg_match('/^release-gate:\n(?:\t.*\n)*\tphp tools\/adapter-grade\.php --check\n/m', $makefile) === 1,
-    'and the release-gate recipe actually runs it, so the document cannot drift from the evidence between releases'
+    'and the release-gate recipe actually runs it, so every release recomputes and validates the package-owned evidence'
 );
 
 $gateRoot = rtrim(sys_get_temp_dir(), '/') . '/duo_regress_graded_claim_' . getmypid() . '_' . bin2hex(random_bytes(4));
@@ -488,51 +481,116 @@ $place = static function (string $relative) use ($duoRoot, $gateRoot): void {
 };
 
 // Everything the tool opens, and nothing else: the agent readers and their
-// dependencies, the manifest library and package-owned readiness records, the
-// tool and the document it byte-compares.
+// dependencies, the manifest library, package-owned readiness records and the
+// tool. There is deliberately no docs/ tree or aggregate projection to check.
 $copyTree($duoRoot . '/adapter-packages', $gateRoot . '/adapter-packages');
 $copyTree($duoRoot . '/platform', $gateRoot . '/platform');
 $place('agent/src/Kernel/Canon.php');
 $place('agent/src/Policy/AdapterLibrary.php');
 $place('agent/src/Policy/AdapterPackage.php');
 $place('agent/src/Policy/ManifestDispositions.php');
-$place('docs/adapter-grades.md');
 $place('tools/adapter-grade.php');
 $place('tools/src/AdapterProductionReadiness.php');
+foreach ($shippedLedger['adapters'] as $readiness) {
+    foreach ($readiness['covered'] as $evidencePaths) {
+        foreach ($evidencePaths as $evidencePath) {
+            $place((string) $evidencePath);
+        }
+    }
+}
+
+$snapshotTree = static function (string $root): array {
+    $snapshot = [];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($iterator as $file) {
+        if ($file->isFile()) {
+            $relative = substr($file->getPathname(), strlen($root) + 1);
+            $snapshot[$relative] = hash_file('sha256', $file->getPathname());
+        }
+    }
+    ksort($snapshot, SORT_STRING);
+    return $snapshot;
+};
 
 $gate = [PHP_BINARY, $gateRoot . '/tools/adapter-grade.php', '--check'];
+$renderCommand = [PHP_BINARY, $gateRoot . '/tools/adapter-grade.php', 'render'];
+$beforeCommands = $snapshotTree($gateRoot);
 $baseline = $run($gate);
 duo_check_same(0, $baseline['exit'], 'the unmutated copy passes, so every refusal below is the mutation and not the copy');
-
-$docPath = $gateRoot . '/docs/adapter-grades.md';
-$docBytes = (string) file_get_contents($docPath);
-file_put_contents($docPath, str_replace(
-    '| [polylang](#polylang) | certified | complete · 17/17 units · 2 of 3 axes',
-    '| [polylang](#polylang) | certified | partial · 17/17 units · 2 of 3 axes',
-    $docBytes
-));
-$editedDoc = $run($gate);
-duo_check($editedDoc['exit'] !== 0, 'THE GATE BITES ON A HAND-EDIT: changing one grade in the prose is refused');
+duo_check_same(
+    "adapter grade check: package-owned evidence and computed grade inputs agree\n",
+    $baseline['stdout'],
+    '`--check` reports source validation rather than comparing a stored aggregate'
+);
+$baselineRender = $run($renderCommand);
+duo_check_same(0, $baselineRender['exit'], '`render` succeeds against the same source-only tree');
 duo_check(
-    str_contains($editedDoc['stderr'], 'the generated evidence grades are stale')
-        && str_contains($editedDoc['stderr'], 'first difference at line'),
-    '...naming the drift and its line, so a failed gate is actionable from its own output'
+    str_starts_with($baselineRender['stdout'], "# Adapter evidence grades\n")
+        && str_contains($baselineRender['stdout'], '| [acf](#acf) | certified | complete · 16/16 units'),
+    '`render` emits the current aggregate to stdout'
+);
+duo_check_same(
+    grade_build($gateRoot),
+    $baselineRender['stdout'],
+    'the CLI render is byte-identical to the in-process model over the same source tree'
+);
+duo_check_same(
+    $beforeCommands,
+    $snapshotTree($gateRoot),
+    '`--check` and `render` write no source or projection file'
+);
+duo_check(
+    !file_exists($gateRoot . '/docs/adapter-grades.md') && !is_dir($gateRoot . '/docs'),
+    'neither command requires or creates a central adapter-grade projection'
 );
 
-// The other direction, and the one that makes the grade a derivation: move the
-// EVIDENCE and leave the prose alone.
-file_put_contents($docPath, $docBytes);
+// Move one package's evidence VALIDLY. The gate still passes, no central file
+// is touched, and only the on-demand render moves.
 $ledgerPath = $gateRoot . '/adapter-packages/acf/evidence/production-readiness.json';
 $ledgerBytes = (string) file_get_contents($ledgerPath);
 $mutatedLedger = json_decode($ledgerBytes, true, 512, JSON_THROW_ON_ERROR);
 unset($mutatedLedger['covered']['deletion']);
 $mutatedLedger['gaps']['deletion'] = 'evidence withdrawn';
+$mutatedLedger['readiness'] = 'unready';
 file_put_contents($ledgerPath, json_encode($mutatedLedger, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-$movedEvidence = $run($gate);
-duo_check($movedEvidence['exit'] !== 0, 'THE GATE BITES ON MOVED EVIDENCE: withdrawing one adapter\'s deletion evidence makes the committed prose stale');
+$editedSource = $snapshotTree($gateRoot);
+$movedEvidenceCheck = $run($gate);
+duo_check_same(0, $movedEvidenceCheck['exit'], 'a valid edit to one package-owned readiness record needs no central projection update');
+$movedEvidenceRender = $run($renderCommand);
+duo_check_same(0, $movedEvidenceRender['exit'], 'the valid package edit remains renderable');
 duo_check(
-    str_contains($movedEvidence['stderr'], 'docs/adapter-grades.md'),
-    '...which is the whole property — the grade is re-derived from the evidence on every run, so the document can only be right by being regenerated'
+    str_contains($movedEvidenceRender['stdout'], '| [acf](#acf) | certified | partial · 15/16 units')
+        && !str_contains($movedEvidenceRender['stdout'], '| [acf](#acf) | certified | complete · 16/16 units'),
+    'the on-demand render re-derives the moved ACF grade directly from its package evidence'
+);
+duo_check_same(
+    $editedSource,
+    $snapshotTree($gateRoot),
+    'checking and rendering the package edit writes nothing else'
+);
+duo_check(
+    !file_exists($gateRoot . '/docs/adapter-grades.md'),
+    'the package evidence edit requires no central projection file'
+);
+
+// Invalid package evidence bites at its source rather than masquerading as a
+// stale prose problem.
+$invalidLedger = json_decode($ledgerBytes, true, 512, JSON_THROW_ON_ERROR);
+unset($invalidLedger['covered']['deletion']);
+file_put_contents($ledgerPath, json_encode($invalidLedger, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+$invalidEvidenceCheck = $run($gate);
+duo_check($invalidEvidenceCheck['exit'] !== 0, 'THE GATE BITES ON INVALID SOURCE: an unaccounted evidence family is refused');
+duo_check(
+    str_contains($invalidEvidenceCheck['stderr'], "readiness record 'acf' does not account for every scenario family"),
+    '...naming the package record and broken accounting rule rather than a central document'
+);
+$invalidEvidenceRender = $run($renderCommand);
+duo_check(
+    $invalidEvidenceRender['exit'] !== 0
+        && str_contains($invalidEvidenceRender['stderr'], "readiness record 'acf' does not account for every scenario family"),
+    '`render` validates the same source before emitting a grade'
 );
 
 file_put_contents($ledgerPath, $ledgerBytes);

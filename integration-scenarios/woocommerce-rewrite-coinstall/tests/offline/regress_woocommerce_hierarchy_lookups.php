@@ -9,7 +9,7 @@ $root = dirname(__DIR__, 4);
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/wp_stubs.php';
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/FakeWpdb.php';
-require_once dirname(__DIR__, 2) . '/fixtures/woocommerce_mixed_option_hooks.php';
+require_once $root . '/adapter-packages/woocommerce/fixtures/woocommerce_mixed_option_hooks.php';
 require_once dirname(__DIR__, 4) . '/sandbox/tests/support/wp_cli_child_process_fake.php';
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/OptionState.php';
@@ -35,7 +35,7 @@ $coinstallTopology = json_decode(
 );
 $artifactLock = \Duo\Tooling\ArtifactLibrary::load($root);
 $settingsInventory = json_decode(
-    (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/woocommerce-core-11.0-settings.json'),
+    (string) file_get_contents($root . '/adapter-packages/woocommerce/fixtures/woocommerce-core-11.0-settings.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
@@ -55,8 +55,11 @@ duo_check_same([
     '28.3' => '381edc1603147bd76af81341f21c9155ff3e9f6ce29ed20886d889fb9d6744fb',
 ], $yoastArtifactMatrix, 'mixed rewrite topology binds every admitted Yoast 28.x artifact ZIP');
 foreach ($yoastArtifactMatrix as $version => $sha256) {
-    duo_check_same($sha256, $artifactLock['plugins']['wordpress-seo'][$version]['sha256'] ?? null,
-        "mixed rewrite topology pins the exact Yoast $version artifact lock");
+    duo_check_same(
+        $sha256,
+        $artifactLock['plugins']['wordpress-seo'][$version]['sha256'] ?? null,
+        "mixed rewrite topology pins the exact Yoast $version artifact lock"
+    );
 }
 $yoastMainRows = array_values(array_filter(
     (array) ($coinstallTopology['source_files'] ?? []),

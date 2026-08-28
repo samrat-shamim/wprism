@@ -28,7 +28,14 @@ final class AdapterChangeScopeTest extends TestCase
 
         self::assertSame(AdapterChangeScope::SCOPE_ADAPTERS, $result['scope']);
         self::assertSame(['woocommerce'], $result['adapters']);
-        self::assertSame([], $result['scenarios']);
+        self::assertSame(['woocommerce-rewrite-coinstall'], $result['scenarios']);
+        self::assertSame(
+            [
+                'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh',
+                'integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/regress_woocommerce_hierarchy_lookups.php',
+            ],
+            array_column($result['scenario_gates'], 'path')
+        );
         self::assertFalse($result['requires_participant_resolution']);
     }
 
@@ -42,6 +49,7 @@ final class AdapterChangeScopeTest extends TestCase
 
         self::assertSame(AdapterChangeScope::SCOPE_ADAPTERS, $result['scope']);
         self::assertSame(['acf', 'yoast'], $result['adapters']);
+        self::assertSame(['woocommerce-rewrite-coinstall'], $result['scenarios']);
     }
 
     /** @return iterable<string,array{0:string}> */
@@ -97,27 +105,29 @@ final class AdapterChangeScopeTest extends TestCase
         self::assertSame(AdapterChangeScope::SCOPE_FULL, $result['scope']);
     }
 
-    public function testIntegrationScenarioIsNamedButStaysFullUntilParticipantsResolve(): void
+    public function testIntegrationScenarioIsValidatedAndItsEditStaysFull(): void
     {
         $result = AdapterChangeScope::classify([
-            'integration-scenarios/polylang-tec/rewrite-convergence.sh',
+            'integration-scenarios/polylang-tec-rewrite-coinstall/scenario.json',
         ]);
 
         self::assertSame(AdapterChangeScope::SCOPE_FULL, $result['scope']);
-        self::assertSame(['polylang-tec'], $result['scenarios']);
-        self::assertTrue($result['requires_participant_resolution']);
+        self::assertSame(['polylang-tec-rewrite-coinstall'], $result['scenarios']);
+        self::assertFalse($result['requires_participant_resolution']);
+        self::assertSame('bash', $result['scenario_gates'][0]['command'][0]);
     }
 
-    public function testIntegrationScenarioNamesAreSortedAndUnique(): void
+    public function testAdapterParticipantsSelectScenarioNamesSortedAndUnique(): void
     {
         $result = AdapterChangeScope::classify([
-            'integration-scenarios/woo-rewrite/live.sh',
-            'integration-scenarios/polylang-tec/live.sh',
-            'integration-scenarios/woo-rewrite/fixture.json',
+            'adapter-packages/polylang/package/manifest.json',
         ]);
 
-        self::assertSame(AdapterChangeScope::SCOPE_FULL, $result['scope']);
-        self::assertSame(['polylang-tec', 'woo-rewrite'], $result['scenarios']);
+        self::assertSame(AdapterChangeScope::SCOPE_ADAPTERS, $result['scope']);
+        self::assertSame(
+            ['polylang-tec-rewrite-coinstall', 'woocommerce-rewrite-coinstall'],
+            $result['scenarios']
+        );
     }
 
     public function testMixedAdapterAndEngineChangeSelectsFull(): void

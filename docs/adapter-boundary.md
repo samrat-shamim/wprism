@@ -189,7 +189,7 @@ stated here instead of being invented in code:
 > "There is no CapabilityRegistry.php to require any more"); the reporter is
 > `AdapterRegistry::report()` in `agent/src/Adapter/AdapterRegistry.php`,
 > emitting `duo-capability-report/v1` (`:57`), and the reviewed claim source is
-> the hand-authored `manifests/dispositions/`. The blocker code for a name
+> the hand-authored capsule `package/disposition.json`. The blocker code for a name
 > with no reviewed entry is `missing_disposition_entry` (`:392`), not
 > `missing_registry_entry`. Every row below is restated against what ships
 > today. The doctrine above is unchanged: it never required a particular

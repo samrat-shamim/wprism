@@ -657,4 +657,24 @@ duo_check_same(
 @rmdir($scratch . '/synthetic');
 @rmdir($scratch);
 
+// The SSH certification targets pay their Docker setup cost before reading the
+// platform pin. A stale source-layout path would therefore escape syntax-only
+// review and fail late. Keep the two wired readers on the checked-in platform
+// authority and refuse the retired flat-library path without provisioning.
+$certificationReaders = [
+    'sandbox/tests/certify/certify_ssh_adoption_roundtrip.sh',
+    'sandbox/tests/certify/certify_ssh_rollback.sh',
+];
+foreach ($certificationReaders as $relative) {
+    $source = (string) file_get_contents($root . '/' . $relative);
+    duo_check(
+        str_contains($source, 'platform/adapter-library/capabilities/platform.json'),
+        "$relative reads the checked-in platform authority"
+    );
+    duo_check(
+        !str_contains($source, 'manifests/capabilities/platform.json'),
+        "$relative cannot regress to the retired flat-library path"
+    );
+}
+
 duo_check_summary('regress-platform-move-gates');

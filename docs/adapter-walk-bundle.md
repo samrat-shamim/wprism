@@ -237,7 +237,7 @@ Enforced, and each has bitten a fixture:
 
 WP-5.3 / [spec/repo-format.md § v3.17](../spec/repo-format.md). `sign_site()`
 takes an optional seventh argument — one disposition **entry**, the exact
-document shape `manifests/dispositions/<name>.json` carries — and signs it in
+document shape `adapter-packages/<name>/package/disposition.json` carries — and signs it in
 place of the derivation. `duo adapter certify --ratification-file=<file>` is how
 an operator supplies one; `null` keeps the derivation, which stays the floor.
 

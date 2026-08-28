@@ -195,7 +195,7 @@ if have php; then
     else
         fail "make release-gate (exit $gate_rc)"
         printf '%s\n' "$gate_out" | sed 's/^/      /'
-        remedy "read the message above; the generated capability prose no longer matches the adapter packages or platform library"
+        remedy "read the message above; an adapter package or platform-library capability source is invalid"
     fi
 else
     fail "php is not on PATH -- release-gate and every offline suite need it"
@@ -371,7 +371,7 @@ if [ -f vendor/autoload.php ]; then
 else
     warn "vendor/ is not installed -- composer check, phpstan, phpunit unavailable"
     why "nothing under vendor/ ever ships: cli/src/Onboarding/Adopt.php tars exactly"
-    why "'agent manifests recovery', so the dev toolchain cannot reach a managed site."
+    why "'agent recovery' after the adapter library is assembled into staging, so the dev toolchain cannot reach a managed site."
     remedy "composer install"
 fi
 
@@ -418,7 +418,7 @@ cat <<'TXT'
   php tools/offline.php --changed   only the suites your diff can affect (iteration only)
   php tools/affected.php --explain  why each suite was selected
   make regress-offline-all          THE canonical merge gate -- unconditional (DUO-3285)
-  make release-gate                 generated capability prose and classmap match their source
+  make release-gate                 capability sources validate; generated artifacts match their source
 
   New here? docs/dev-setup.md, then docs/agents/linear-loop.md.
 TXT

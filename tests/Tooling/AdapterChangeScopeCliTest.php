@@ -80,6 +80,11 @@ final class AdapterChangeScopeCliTest extends TestCase
         );
         self::assertSame('single_adapter', $decision['reason_code']);
         self::assertSame(['woocommerce'], $decision['classification']['adapters']);
+        self::assertSame(['woocommerce-rewrite-coinstall'], $decision['classification']['scenarios']);
+        self::assertSame(
+            ['bash', 'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh'],
+            $decision['scenario_gates'][0]['command']
+        );
     }
 
     public function testTwoAdaptersAlwaysSelectTheFullGate(): void
@@ -110,8 +115,8 @@ final class AdapterChangeScopeCliTest extends TestCase
             'reason' => 'shared_package_infrastructure',
         ];
         yield 'integration' => [
-            'path' => 'integration-scenarios/woo-acf/scenario.json',
-            'reason' => 'integration_participants_unresolved',
+            'path' => 'integration-scenarios/woocommerce-rewrite-coinstall/scenario.json',
+            'reason' => 'integration_scenario_change',
         ];
         yield 'unknown' => ['path' => 'future-root/new.php', 'reason' => 'uncovered_path'];
         yield 'invalid absolute' => ['path' => '/adapter-packages/acf/manifest.json', 'reason' => 'uncovered_path'];

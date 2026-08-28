@@ -7,6 +7,7 @@ namespace Duo\Tooling;
 use RuntimeException;
 
 require_once __DIR__ . '/AdapterPackageTestDiscovery.php';
+require_once __DIR__ . '/AdapterPackageValidator.php';
 
 /** Execute every discovered offline suite directly and retain every result. */
 final class AdapterPackageTestRunner
@@ -25,6 +26,10 @@ final class AdapterPackageTestRunner
      */
     public static function run(string $repoRoot, string $slug): array
     {
+        // The executable package gate owns validation. A package must not be
+        // able to replace the contract suite with one green script and thereby
+        // bypass payload, evidence, or dependency checks.
+        AdapterPackageValidator::validate($repoRoot, $slug);
         $discovery = AdapterPackageTestDiscovery::discover($repoRoot, $slug, 'offline');
         $results = [];
         $failed = false;

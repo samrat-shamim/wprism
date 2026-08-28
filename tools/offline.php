@@ -585,6 +585,9 @@ final class OfflineRunnerCli
      */
     private ?string $emptySelectionIsBenign = null;
 
+    /** @var array<string, non-empty-list<string>> target => checked argv */
+    private array $scopedTasks = [];
+
     /** @var array<string,mixed> */
     private array $opt;
 
@@ -661,7 +664,7 @@ final class OfflineRunnerCli
         // Compared against the full leaf list rather than inferred from which
         // flags were passed: a --filter that happens to match everything really
         // did cover the corpus, and a partial run must never claim otherwise.
-        $this->selectionMode = $selected === $leaves ? 'full' : 'partial';
+        $this->selectionMode = $selected === $leaves && $this->scopedTasks === [] ? 'full' : 'partial';
 
         if ($this->opt['list']) {
             foreach ($selected as $target) {
@@ -678,11 +681,23 @@ final class OfflineRunnerCli
                     echo $target, "\n";
                 }
             }
+            foreach ($this->scopedTasks as $target => $command) {
+                if ($this->opt['verbose'] || $this->opt['explain']) {
+                    printf("%-56s %-7s %s\n", $target, '-', implode(' ', $command));
+                } else {
+                    echo $target, "\n";
+                }
+            }
             if ($this->opt['verbose'] || $this->opt['explain']) {
-                $serialCount = count(array_filter($serialEvidence, static fn (array $e): bool => $e !== []));
+                $serialCount = 0;
+                foreach ($selected as $target) {
+                    if ($serialEvidence[$target] !== []) {
+                        $serialCount++;
+                    }
+                }
                 fwrite(STDERR, sprintf(
-                    "tools/offline.php: %d selected of %d leaf targets; %d in the serial group\n",
-                    count($selected),
+                    "tools/offline.php: %d selected task(s) from %d leaf targets; %d in the serial group\n",
+                    count($selected) + count($this->scopedTasks),
                     count($leaves),
                     $serialCount
                 ));
@@ -696,7 +711,7 @@ final class OfflineRunnerCli
                 "tools/offline.php: %d leaf targets from %s (%d selected)\n",
                 count($leaves),
                 OfflineRunner::ROOT_TARGET,
-                count($selected)
+                count($selected) + count($this->scopedTasks)
             );
         }
         /** @var list<array{target: string, argv: list<string>, serial: bool}> $tasks */
@@ -707,6 +722,13 @@ final class OfflineRunnerCli
                 'target' => $target,
                 'argv' => [$this->make, '--no-print-directory', $target],
                 'serial' => $serialEvidence[$target] !== [],
+            ];
+        }
+        foreach ($this->scopedTasks as $target => $command) {
+            $tasks[] = [
+                'target' => $target,
+                'argv' => $command,
+                'serial' => false,
             ];
         }
         foreach ($this->extraTasks() as $extra) {
@@ -758,6 +780,7 @@ final class OfflineRunnerCli
             'filter' => [],
             'changed' => false,
             'changed_base' => null,
+            'changed_paths' => null,
             'extras' => false,
             'tmpdir_isolation' => true,
             'help' => false,
@@ -796,6 +819,13 @@ final class OfflineRunnerCli
             } elseif (str_starts_with($arg, '--changed=')) {
                 $opt['changed'] = true;
                 $opt['changed_base'] = substr($arg, 10);
+            } elseif (str_starts_with($arg, '--changed-paths=')) {
+                $paths = substr($arg, strlen('--changed-paths='));
+                if ($paths === '') {
+                    throw new \InvalidArgumentException('--changed-paths requires a comma-separated path list');
+                }
+                $opt['changed'] = true;
+                $opt['changed_paths'] = $paths;
             } elseif ($arg === '-j' || $arg === '--jobs') {
                 if (!isset($args[$i + 1])) {
                     throw new \InvalidArgumentException('-j requires a number');
@@ -840,6 +870,8 @@ diagnostic that sandbox/tests/offline_diagnostics_guard.sh would reject.
   --changed[=BASE]      delegate selection to `php tools/affected.php --base=BASE`
                         (a diff that affects no offline suite says so and
                         exits 0; an empty --filter stays exit 2)
+  --changed-paths=a,b   classify these paths instead of reading a Git diff;
+                        implies --changed and is useful for reproducible scope checks
   --extras              also run check_guide_commands.sh and, if installed,
                         vendor/bin/phpunit as extra pseudo-suites
   --slowest[=N]         print the N slowest suites (default 20)
@@ -878,7 +910,9 @@ TXT;
      */
     private function select(array $leaves): ?array
     {
+        $this->scopedTasks = [];
         $selected = $leaves;
+        $rerunTargets = null;
 
         if ($this->opt['rerun_failed']) {
             $last = $this->readJsonFile($this->stateDir . '/last-run.json');
@@ -909,6 +943,7 @@ TXT;
 
                 return [];
             }
+            $rerunTargets = array_fill_keys($failed, true);
             $selected = array_values(array_intersect($selected, $failed));
         }
 
@@ -920,8 +955,10 @@ TXT;
 
                 return null;
             }
-            $cmd = [PHP_BINARY, $affected];
-            if ($this->opt['changed_base'] !== null) {
+            $cmd = [PHP_BINARY, $affected, '--json'];
+            if ($this->opt['changed_paths'] !== null) {
+                $cmd[] = '--paths=' . $this->opt['changed_paths'];
+            } elseif ($this->opt['changed_base'] !== null) {
                 $cmd[] = '--base=' . $this->opt['changed_base'];
             }
             $result = $this->captureCommand($cmd);
@@ -931,23 +968,56 @@ TXT;
 
                 return null;
             }
-            // One target per line on stdout; anything with whitespace in it is
-            // prose, not a target, so it is dropped rather than guessed at.
+            $payload = json_decode($result['stdout'], true);
+            if (!is_array($payload)
+                || !is_array($payload['targets'] ?? null)
+                || !array_is_list($payload['targets'])
+                || !is_array($payload['tasks'] ?? null)
+                || !array_is_list($payload['tasks'])) {
+                fwrite(STDERR, "tools/offline.php: tools/affected.php returned an invalid JSON selection\n");
+
+                return null;
+            }
             $names = [];
-            foreach (preg_split('/\R/', trim($result['stdout']), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $line) {
-                $line = trim($line);
-                if ($line !== '' && !preg_match('/\s/', $line)) {
-                    $names[] = $line;
+            foreach ($payload['targets'] as $name) {
+                if (!is_string($name) || $name === '' || preg_match('/\s/', $name)) {
+                    fwrite(STDERR, "tools/offline.php: tools/affected.php returned an invalid target name\n");
+
+                    return null;
+                }
+                $names[$name] = true;
+            }
+            foreach ($payload['tasks'] as $row) {
+                $task = $this->checkedScopedTask($row);
+                if ($task === null) {
+                    return null;
+                }
+                if (!isset($names[$task['target']])) {
+                    fwrite(STDERR, 'tools/offline.php: tools/affected.php returned task metadata for an unselected target: '
+                        . $task['target'] . "\n");
+
+                    return null;
+                }
+                if (isset($this->scopedTasks[$task['target']])) {
+                    fwrite(STDERR, 'tools/offline.php: tools/affected.php repeated scoped task: '
+                        . $task['target'] . "\n");
+
+                    return null;
+                }
+                if ($rerunTargets === null || isset($rerunTargets[$task['target']])) {
+                    $this->scopedTasks[$task['target']] = $task['command'];
                 }
             }
-            $unknown = array_values(array_diff($names, $leaves));
+            $leafNames = array_values(array_intersect(array_keys($names), $leaves));
+            $knownNames = array_fill_keys(array_merge($leafNames, array_keys($this->scopedTasks)), true);
+            $unknown = array_values(array_diff(array_keys($names), array_keys($knownNames)));
             if ($unknown !== []) {
                 fwrite(STDERR, 'tools/offline.php: NOTICE tools/affected.php named '
                     . count($unknown) . ' target(s) outside the offline corpus, ignoring: '
                     . implode(' ', array_slice($unknown, 0, 8)) . "\n");
             }
-            $selected = array_values(array_intersect($selected, $names));
-            if ($selected === []) {
+            $selected = array_values(array_intersect($selected, $leafNames));
+            if ($selected === [] && $this->scopedTasks === []) {
                 // A docs-only, tooling-only or .gitignore-only diff really does
                 // affect no offline suite. That is the selector answering
                 // correctly, so it must not look like a failure to a pre-push
@@ -958,6 +1028,7 @@ TXT;
 
         if ($this->opt['filter'] !== []) {
             $before = $selected;
+            $beforeScoped = $this->scopedTasks;
             $selected = array_values(array_filter($selected, function (string $target): bool {
                 foreach ($this->opt['filter'] as $needle) {
                     if (str_contains($target, $needle)) {
@@ -967,7 +1038,20 @@ TXT;
 
                 return false;
             }));
-            if ($selected === [] && $before !== []) {
+            $this->scopedTasks = array_filter(
+                $this->scopedTasks,
+                function (array $unused, string $target): bool {
+                    foreach ($this->opt['filter'] as $needle) {
+                        if (str_contains($target, $needle)) {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                },
+                ARRAY_FILTER_USE_BOTH
+            );
+            if ($selected === [] && $this->scopedTasks === [] && ($before !== [] || $beforeScoped !== [])) {
                 // A filter that matches nothing is a typo or stale state, never
                 // a legitimate "no work": keep exit 2 even if an earlier stage
                 // had excused an empty set.
@@ -976,6 +1060,66 @@ TXT;
         }
 
         return $selected;
+    }
+
+    /**
+     * Refuse arbitrary commands from the selector. The two scoped task shapes
+     * are reconstructed from their target names, and scenario paths must be
+     * the canonical file named by that target inside integration-scenarios/.
+     *
+     * @return array{target:string,command:non-empty-list<string>}|null
+     */
+    private function checkedScopedTask(mixed $row): ?array
+    {
+        if (!is_array($row)
+            || array_keys($row) !== ['target', 'kind', 'command']
+            || !is_string($row['target'])
+            || !is_string($row['kind'])
+            || !is_array($row['command'])
+            || !array_is_list($row['command'])
+            || $row['command'] === []) {
+            fwrite(STDERR, "tools/offline.php: tools/affected.php returned malformed scoped task metadata\n");
+
+            return null;
+        }
+        foreach ($row['command'] as $argument) {
+            if (!is_string($argument) || $argument === '' || str_contains($argument, "\0")) {
+                fwrite(STDERR, "tools/offline.php: tools/affected.php returned malformed scoped task argv\n");
+
+                return null;
+            }
+        }
+
+        if ($row['kind'] === 'adapter-package'
+            && preg_match('/^adapter-package:([a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/D', $row['target'], $match) === 1) {
+            $expected = ['php', 'tools/adapter-package-tests.php', '--adapter=' . $match[1]];
+            if ($row['command'] === $expected) {
+                return ['target' => $row['target'], 'command' => [PHP_BINARY, ...array_slice($expected, 1)]];
+            }
+        }
+
+        if ($row['kind'] === 'integration-scenario'
+            && preg_match(
+                '/^integration-scenario:([a-z][a-z0-9]*(?:-[a-z0-9]+)*):(offline|live|certify|spike):'
+                    . '((?:regress|certify|spike)_[a-z0-9][a-z0-9._-]*\.(?:php|sh))$/D',
+                $row['target'],
+                $match
+            ) === 1) {
+            $path = 'integration-scenarios/' . $match[1] . '/tests/' . $match[2] . '/' . $match[3];
+            $runtime = str_ends_with($path, '.php') ? 'php' : 'bash';
+            if ($row['command'] === [$runtime, $path]
+                && is_file($this->repoRoot . '/' . $path)
+                && !is_link($this->repoRoot . '/' . $path)) {
+                $command = $runtime === 'php' ? [PHP_BINARY, $path] : ['bash', $path];
+
+                return ['target' => $row['target'], 'command' => $command];
+            }
+        }
+
+        fwrite(STDERR, 'tools/offline.php: tools/affected.php returned an unchecked scoped task: '
+            . $row['target'] . "\n");
+
+        return null;
     }
 
     /** @return list<array{target: string, argv: list<string>, serial: bool}> */
@@ -1444,7 +1588,8 @@ TXT;
             }
         }
 
-        printf("\ntools/offline.php: %d/%d offline suites green\n", $passed, $total);
+        $greenLabel = $this->scopedTasks === [] ? 'offline suites' : 'selected tasks';
+        printf("\ntools/offline.php: %d/%d %s green\n", $passed, $total, $greenLabel);
 
         if ($json === null && ($this->opt['json_stdout'] || $this->opt['json_file'] !== null)) {
             // The caller asked for a machine-readable document and did not get

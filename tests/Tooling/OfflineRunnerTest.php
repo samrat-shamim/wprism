@@ -685,6 +685,67 @@ final class OfflineRunnerTest extends TestCase
         self::assertSame(['regress-command-output', 'regress-path-safety'], $targets);
     }
 
+    public function testChangedAdapterListsOnlyItsPackageAndParticipantScenarioTasks(): void
+    {
+        $result = self::invoke([
+            '--changed-paths=adapter-packages/polylang/package/manifest.json',
+            '--list',
+        ]);
+        self::assertSame(0, $result['status'], $result['stderr']);
+
+        $targets = preg_split('/\R/', trim($result['stdout']), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        self::assertSame([
+            'adapter-package:polylang',
+            'integration-scenario:polylang-tec-rewrite-coinstall:live:regress_polylang_tec_rewrite_coinstall.sh',
+            'integration-scenario:woocommerce-rewrite-coinstall:live:regress_woocommerce_rewrite_coinstall.sh',
+            'integration-scenario:woocommerce-rewrite-coinstall:offline:regress_woocommerce_hierarchy_lookups.php',
+        ], $targets);
+        self::assertNotContains('regress-adapter-packages', $targets);
+    }
+
+    public function testChangedAdapterFilterCanSelectItsPackageTask(): void
+    {
+        $result = self::invoke([
+            '--changed-paths=adapter-packages/polylang/package/manifest.json',
+            '--filter=adapter-package:polylang',
+            '--list',
+        ]);
+
+        self::assertSame(0, $result['status'], $result['stderr']);
+        self::assertSame("adapter-package:polylang\n", $result['stdout']);
+    }
+
+    public function testChangedAdapterExplainPrintsCheckedTaskCommands(): void
+    {
+        $result = self::invoke([
+            '--changed-paths=adapter-packages/woocommerce/package/manifest.json',
+            '--list',
+            '--explain',
+        ]);
+
+        self::assertSame(0, $result['status'], $result['stderr']);
+        self::assertMatchesRegularExpression(
+            '#^adapter-package:woocommerce\s+-\s+\S+php tools/adapter-package-tests\.php --adapter=woocommerce$#m',
+            $result['stdout']
+        );
+        self::assertStringContainsString(
+            'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh',
+            $result['stdout']
+        );
+        self::assertStringContainsString('3 selected task(s) from ', $result['stderr']);
+    }
+
+    public function testChangedAdapterFilterThatMatchesNoScopedTaskIsAnError(): void
+    {
+        $result = self::invoke([
+            '--changed-paths=adapter-packages/woocommerce/package/manifest.json',
+            '--filter=zzz-no-such-scoped-task',
+        ]);
+
+        self::assertSame(2, $result['status']);
+        self::assertStringContainsString('nothing selected', $result['stderr']);
+    }
+
     public function testExplainReportsANonEmptySerialGroup(): void
     {
         $result = self::invoke(['--list', '--explain']);

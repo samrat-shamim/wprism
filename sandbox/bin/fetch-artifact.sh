@@ -26,6 +26,7 @@ fetch_artifact() {
     0|1) ;;
     *) echo "FAIL: fetch_artifact: DUO_ARTIFACT_OFFLINE must be 0 or 1" >&2; return 1 ;;
   esac
+  artifact_library_package_context >/dev/null || return 1
   validate_artifact_library || return 1
   entry=$(artifact_library_jq -c --arg namespace "${kind}s" --arg slug "$slug" --arg version "$version" \
     '.[$namespace][$slug][$version] // empty') || return 1

@@ -444,11 +444,30 @@ final class AdapterLibrary
         ksort($adapterRoots, SORT_STRING);
 
         $packages = [];
+        $runtimeOwners = [
+            'interpreter' => [],
+            'provider' => [],
+            'regenerator' => [],
+        ];
         $anchors = array_merge($initialAnchors, [$coreRoot, $capabilitiesRoot, $revocations]);
         foreach ($adapterRoots as $slug => $packageRoot) {
-            [$package, $packageAnchors] = self::logicalPackage($root, $slug, $packageRoot);
+            [$package, $packageAnchors, $runtime] = self::logicalPackage($root, $slug, $packageRoot);
             if (isset($packages[$package->name()])) {
                 throw new \RuntimeException("duo: duplicate adapter name {$package->name()} in the logical library");
+            }
+            if ($runtime['interpreter'] !== null) {
+                self::claimRuntime(
+                    $runtimeOwners['interpreter'],
+                    $runtime['interpreter'],
+                    $package->name(),
+                    'interpreter'
+                );
+            }
+            foreach ($runtime['providers'] as $provider) {
+                self::claimRuntime($runtimeOwners['provider'], $provider, $package->name(), 'provider');
+            }
+            foreach ($runtime['regenerators'] as $regenerator) {
+                self::claimRuntime($runtimeOwners['regenerator'], $regenerator, $package->name(), 'regenerator');
             }
             $packages[$package->name()] = $package;
             $anchors = array_merge($anchors, $packageAnchors);
@@ -490,7 +509,11 @@ final class AdapterLibrary
     }
 
     /**
-     * @return array{0:AdapterPackage,1:list<string>}
+     * @return array{
+     *     0:AdapterPackage,
+     *     1:list<string>,
+     *     2:array{interpreter:?string,providers:list<string>,regenerators:list<string>}
+     * }
      */
     private static function logicalPackage(string $libraryRoot, string $slug, string $packageRoot): array
     {
@@ -603,6 +626,7 @@ final class AdapterLibrary
                 $regenerators
             ),
             $anchors,
+            $spec,
         ];
     }
 

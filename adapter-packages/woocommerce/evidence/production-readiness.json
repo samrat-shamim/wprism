@@ -24,7 +24,7 @@
     "dirty-target": [
       "adapter-packages/woocommerce/tests/conformance/postdeploy.sh",
       "adapter-packages/woocommerce/tests/conformance/check.sh",
-      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_hierarchy_lookups.php",
+      "integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/regress_woocommerce_hierarchy_lookups.php",
       "adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups_fake.php"
     ],
     "identity-references": [
@@ -47,7 +47,7 @@
       "adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php",
       "adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php",
       "adapter-packages/woocommerce/tests/conformance/check.sh",
-      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_hierarchy_lookups.php",
+      "integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/regress_woocommerce_hierarchy_lookups.php",
       "adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups.php",
       "adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups_fake.php",
       "adapter-packages/woocommerce/tests/offline/regress_woocommerce_scheduler_settings.php"
@@ -61,7 +61,7 @@
     "failure-recovery": [
       "adapter-packages/woocommerce/tests/conformance/check.sh",
       "adapter-packages/woocommerce/tests/offline/regress_woocommerce_fulfillment_prerequisites.php",
-      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_hierarchy_lookups.php",
+      "integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/regress_woocommerce_hierarchy_lookups.php",
       "adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups_fake.php",
       "adapter-packages/woocommerce/tests/offline/regress_woocommerce_scheduler_settings.php",
       "sandbox/tests/offline/apply/regress_fatal_mutations.php"
@@ -70,7 +70,7 @@
       "adapter-packages/woocommerce/tests/conformance/check.sh",
       "sandbox/tests/live/regress_capture_concurrency.sh",
       "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php",
-      "adapter-packages/woocommerce/tests/offline/regress_woocommerce_hierarchy_lookups.php",
+      "integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/regress_woocommerce_hierarchy_lookups.php",
       "adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups_fake.php"
     ],
     "lifecycle": [

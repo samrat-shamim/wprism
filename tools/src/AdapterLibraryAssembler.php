@@ -20,6 +20,9 @@ require_once __DIR__ . '/AdapterPackageProjection.php';
 final class AdapterLibraryAssembler
 {
     public const FORMAT = 'duo-embedded-adapter-library-assembly/v1';
+    public const DEPLOYMENT_MARKER = 'adapter-library.deployed';
+
+    private const DEPLOYMENT_MARKER_BYTES = "duo-embedded-adapter-library-assembly/v1\n";
 
     private const DIRECTORY_MODE = 0040000;
     private const FILE_MODE = 0100000;
@@ -35,8 +38,13 @@ final class AdapterLibraryAssembler
      *     library_sha256:string,
      *     files:list<array{path:string,sha256:string,size:int}>
      * }
+     * @param null|callable():void $afterSourceGenerationCaptured deterministic concurrency-test seam
      */
-    public static function assemble(string $repoRoot, string $stagingAgentRoot): array
+    public static function assemble(
+        string $repoRoot,
+        string $stagingAgentRoot,
+        ?callable $afterSourceGenerationCaptured = null
+    ): array
     {
         // Plan before making any staging mutation. Source schema, symlink,
         // special-node and undeclared-runtime refusals therefore leave an
@@ -57,6 +65,10 @@ final class AdapterLibraryAssembler
 
         $target = $agent . '/adapter-library';
         self::assertReplaceableTarget($target, $agent);
+        $generation = self::captureSourceGeneration($plan);
+        if ($afterSourceGenerationCaptured !== null) {
+            $afterSourceGenerationCaptured();
+        }
         $token = bin2hex(random_bytes(12));
         $prefix = '.' . basename($agent) . '.adapter-library-';
         $build = $parent . '/' . $prefix . 'build-' . $token;
@@ -67,9 +79,16 @@ final class AdapterLibraryAssembler
 
         $published = false;
         try {
-            $rows = self::populate($plan, $build);
+            $rows = self::populate($plan, $generation, $build);
             self::verifyTree($build, $rows);
             self::normalizeDirectories($build);
+            self::assertSourceGenerationUnchanged($repoRoot, $plan, $generation);
+            // The marker and library are one deployed authority boundary. No
+            // package source is read after this point, so every source refusal
+            // leaves both prior nodes untouched; marker publication still
+            // precedes the target rename so a deployed library is never
+            // published without its authority marker.
+            self::writeDeploymentMarker($agent);
             self::publish($build, $target, $backup);
             $published = true;
 
@@ -89,18 +108,19 @@ final class AdapterLibraryAssembler
 
     /**
      * @param array<string,string> $plan
+     * @param array<string,array{bytes:string,sha256:string,size:int}> $generation
      * @return list<array{path:string,sha256:string,size:int}>
      */
-    private static function populate(array $plan, string $build): array
+    private static function populate(array $plan, array $generation, string $build): array
     {
         $rows = [];
         foreach ($plan as $source => $destination) {
             $relative = self::libraryRelativePath($destination);
             $output = $build . '/' . $relative;
             self::makeParents($build, dirname($relative));
-            $bytes = self::readStableSource($source);
+            $bytes = $generation[$source]['bytes'];
             self::writeExclusive($output, $bytes);
-            $digest = hash('sha256', $bytes);
+            $digest = $generation[$source]['sha256'];
             if (!hash_equals($digest, (string) hash_file('sha256', $output))) {
                 throw new RuntimeException("Copied adapter-library member failed byte verification: $destination");
             }
@@ -112,6 +132,88 @@ final class AdapterLibraryAssembler
         }
 
         return $rows;
+    }
+
+    /**
+     * Capture every projected member before copying any of them. A second full
+     * pass immediately before publish proves the output is one source
+     * generation rather than individually stable bytes from several edits.
+     *
+     * @param array<string,string> $plan
+     * @return array<string,array{bytes:string,sha256:string,size:int}>
+     */
+    private static function captureSourceGeneration(array $plan): array
+    {
+        $generation = [];
+        foreach ($plan as $source => $_destination) {
+            $bytes = self::readStableSource($source);
+            $generation[$source] = [
+                'bytes' => $bytes,
+                'sha256' => hash('sha256', $bytes),
+                'size' => strlen($bytes),
+            ];
+        }
+
+        return $generation;
+    }
+
+    /**
+     * @param array<string,string> $plan
+     * @param array<string,array{bytes:string,sha256:string,size:int}> $generation
+     */
+    private static function assertSourceGenerationUnchanged(
+        string $repoRoot,
+        array $plan,
+        array $generation
+    ): void
+    {
+        try {
+            $currentPlan = AdapterPackageProjection::plan($repoRoot);
+        } catch (Throwable $throwable) {
+            throw new RuntimeException(
+                'Adapter package source generation changed during assembly',
+                0,
+                $throwable
+            );
+        }
+        if ($currentPlan !== $plan) {
+            throw new RuntimeException('Adapter package source generation changed during assembly');
+        }
+        foreach ($plan as $source => $_destination) {
+            $bytes = self::readStableSource($source);
+            if (strlen($bytes) !== $generation[$source]['size']
+                || !hash_equals(hash('sha256', $bytes), $generation[$source]['sha256'])) {
+                throw new RuntimeException("Adapter package source generation changed during assembly: $source");
+            }
+        }
+        try {
+            $finalPlan = AdapterPackageProjection::plan($repoRoot);
+        } catch (Throwable $throwable) {
+            throw new RuntimeException(
+                'Adapter package source generation changed during assembly',
+                0,
+                $throwable
+            );
+        }
+        if ($finalPlan !== $plan) {
+            throw new RuntimeException('Adapter package source generation changed during assembly');
+        }
+    }
+
+    private static function writeDeploymentMarker(string $agent): void
+    {
+        $marker = $agent . '/' . self::DEPLOYMENT_MARKER;
+        if (self::nodeExists($marker)) {
+            $stat = @lstat($marker);
+            if ($stat === false
+                || ($stat['mode'] & self::TYPE_MODE) !== self::FILE_MODE
+                || is_link($marker)
+                || file_get_contents($marker) !== self::DEPLOYMENT_MARKER_BYTES) {
+                throw new RuntimeException("Staging agent has an invalid adapter-library deployment marker: $marker");
+            }
+            return;
+        }
+        self::writeExclusive($marker, self::DEPLOYMENT_MARKER_BYTES);
     }
 
     private static function libraryRelativePath(string $destination): string

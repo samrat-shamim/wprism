@@ -244,7 +244,7 @@ live run knows what to look at rather than rediscovering it.
    `manifests/woocommerce.json`'s `version_range` (`11.0.0` ≤ v < `12.0.0`)
    projects `Ready with conditions` and step 3 fails for an adapter-window
    reason rather than a product one. Check `MUP_WOO_VERSION` against that range,
-   and that `manifests/dispositions/woocommerce.json` still reads
+   and that `adapter-packages/woocommerce/package/disposition.json` still reads
    `certified`, first.
 2. **`duo init` is preflight-gated.** `MUP_BOOTSTRAP=init` runs the product path;
    its proposal refuses when the target has no Git, and an installed but

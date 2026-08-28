@@ -32,7 +32,15 @@ final class AdapterChangeScopeCommand
             return ['status' => 0, 'stdout' => self::USAGE . "\n", 'stderr' => ''];
         }
 
-        $decision = AdapterChangeScopeDecision::decide($parsed['changes']);
+        try {
+            $decision = AdapterChangeScopeDecision::decide($parsed['changes']);
+        } catch (\Throwable $failure) {
+            return [
+                'status' => 1,
+                'stdout' => '',
+                'stderr' => 'adapter-change-scope: ' . $failure->getMessage() . "\n",
+            ];
+        }
         $stdout = $parsed['json'] ? self::json($decision) : self::human($decision);
         return ['status' => 0, 'stdout' => $stdout, 'stderr' => ''];
     }
@@ -111,6 +119,7 @@ final class AdapterChangeScopeCommand
      *     gate:string,
      *     adapter:?string,
      *     command:non-empty-list<string>,
+     *     scenario_gates:list<array{scenario:string,class:string,path:string,command:non-empty-list<string>}>,
      *     reason_code:string,
      *     classification:array<string,mixed>
      * } $decision
@@ -129,6 +138,9 @@ final class AdapterChangeScopeCommand
                 $lines[] = 'owner: ' . (string) ($owner['kind'] ?? 'full') . ' '
                     . (string) ($owner['root'] ?? 'unknown') . ' ' . (string) ($owner['path'] ?? '<unknown>');
             }
+        }
+        foreach ($decision['scenario_gates'] as $gate) {
+            $lines[] = 'scenario-gate: ' . $gate['scenario'] . ' ' . implode(' ', $gate['command']);
         }
         return implode("\n", $lines) . "\n";
     }

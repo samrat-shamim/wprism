@@ -209,7 +209,8 @@ grep -Eq 'establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_m
   || fail "WooCommerce manifest check subprocesses cannot call their shared lifecycle helpers"
 grep -q '^export DUO_ARTIFACT_LIBRARY_ROOT$' conformance/run.sh \
   || fail "package check subprocesses do not receive a stable artifact-library repository root"
-grep -Eq 'artifact_library_repo_root artifact_library_emit validate_artifact_library artifact_library_jq' conformance/run.sh \
+grep -Eq 'artifact_library_repo_root artifact_library_package_context artifact_library_emit' conformance/run.sh \
+  && grep -Eq 'validate_artifact_library artifact_library_jq' conformance/run.sh \
   || fail "package check subprocesses cannot call the convention-discovered artifact-library helpers"
 ! grep -q 'APPLY_JSON=.*duo apply.*| tail -1' conformance/run.sh \
   || fail "conformance apply still discards a nonzero refusal through its old tail pipeline"

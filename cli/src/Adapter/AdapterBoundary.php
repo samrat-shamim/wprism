@@ -76,7 +76,7 @@ use Duo\Canon;
  *
  * One probe is a full pair round-trip: fetch the digest-pinned artifact, reset
  * the environment, install and activate the exact version, run that plugin's
- * seed hook (`sandbox/tests/certify/matrix.d/<slug>.sh`), capture, deploy,
+ * package-owned seed hook (`adapter-packages/<slug>/tests/certify/version-matrix.sh`), capture, deploy,
  * apply, recapture, require byte-identity. Minutes, docker, two WordPress
  * installs. So this command is a PLANNER over an accumulating outcome record:
  * given the releases and the outcomes observed so far it either names the one

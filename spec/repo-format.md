@@ -1712,14 +1712,11 @@ substitutable for another:
 
 1. **Declarative sufficiency.** The engine-gap ledger shows a residual demand that still requires
    executable repair AFTER the declarative primitives land, and the `compatibility_shim` share of NEWLY
-   authored adapters has fallen below a threshold stated in advance of the measurement. The baseline is
-   the pre-absorption measurement over the shipped library: 11 of the 16 adapters named manifest-shipped hook
-   code, and that code was 20 files totalling 27,643 lines under
-   `manifests/{interpreters,providers,regenerators}`. After the engine
-   absorptions below, the current inventory is
-   this: 11 of the 17 adapters name manifest-shipped hook code, and that code is 20 files totalling 27,006
-   lines under `adapter-packages/*/package/runtime/`;
-   `tools/adapter-executable-inventory.json` records the generated inventory.
+   authored adapters has fallen below a threshold stated in advance of the measurement. The historical
+   pre-absorption measurement was 11 of 16 adapters and 20 hook files totalling 27,643 lines under the
+   former flat library. The current inventory is derived directly from each capsule's manifest declarations
+   and `package/runtime/` tree; no checked-in project-level file list or physical-line total is an adapter
+   authoring input.
    The baseline more than doubled with #561 alone — one adapter reaching production-readiness added a TEC
    interpreter and a Category Colors provider and rewrote its regenerator. Polylang then added the sixteenth
    hook file and 1,828 lines through its reviewed production-readiness port — which is the condition arguing
@@ -1737,12 +1734,11 @@ substitutable for another:
    provenance plus a bounded stdin child that validates permalink bytes without preloading Woo's bare-required
    formatter into the activation process; the baseline moves because those executable bytes ship with the adapter.
    WP-6.2 then supplied the concrete reversal: PMPro moved its exact cache postcondition onto the generic
-   invalidation primitive, retiring one adapter and 233 provider lines. The manifest-provider runtime removes
-   another 697 duplicated protocol/read-guard lines across nine providers while retaining their current plugin
-   semantics and verifiers. Against the current main baseline those two absorptions remove 930 shipped lines.
-   The per-file ownership and absorption verdicts are reviewed in
-   `tools/adapter-executable-inventory.json`; `regress_spec_v3_document.php` refuses an omitted, stale,
-   mis-owned, or miscounted row.
+   invalidation primitive, retiring one adapter and 233 provider lines. The manifest-provider runtime removed
+   another 697 duplicated protocol/read-guard lines across nine providers while retaining their plugin
+   semantics and verifiers. `regress_spec_v3_document.php` derives every currently declared runtime member
+   and refuses an orphan, missing declaration, wrong owner, or non-capsule path; ordinary line-count changes
+   need no edit outside the owning package.
 2. **Falsifiable effects.** Declared-effect verification is live and REFUSING, with a measured
    false-refusal rate on the shipped 16 below a stated threshold — because the compiled inventory is
    recovery's entire authority, and under-declaring `effects[]` is the cheapest way for an adapter to pass.
@@ -2562,11 +2558,10 @@ owns plugin API calls, plugin storage/topology knowledge, and the value-level po
 semantics into core would create plugin-name branches under `agent/src`; the future optimization is for
 the plugin itself to ship the same negotiated capability through `source: "plugin"`.
 
-The shipped migration covers nine provider files across eight adapters and removes 697 physical lines of
+The shipped migration covered nine provider files across eight adapters and removed 697 physical lines of
 duplicated protocol and checked-read mechanics without deleting their native effects or verifiers. Together
-with PMPro's earlier 233-line whole-file absorption, the executable inventory is now 19 files and 26,713 lines. Exact per-file
-before/after measurements and the residual ownership verdict are in
-`tools/adapter-executable-inventory.json`; the closed runtime contract is exercised by
+with PMPro's earlier 233-line whole-file absorption, that change removed 930 lines from its historical baseline.
+The current residual inventory and ownership are derived from capsule manifests and runtime trees; the closed runtime contract is exercised by
 `sandbox/tests/offline/adapter/regress_actions_providers.php` and each provider retains its product
 regression.
 

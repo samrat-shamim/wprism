@@ -619,7 +619,7 @@ duo_check(
 );
 duo_check(
     str_contains($certSource, 'private static function delegatedKeys(')
-        && str_contains($certSource, "private const DELEGATION_DEPTH = 1;")
+        && str_contains($certSource, 'private const DELEGATION_DEPTH = 1;')
         && str_contains($certSource, 'which is itself a delegate')
         && str_contains($certSource, ' level and a delegate may not delegate'),
     'v3.8 depth-1 is shipped code, and the bound is in the VERIFIER as a constant rather than a policy: a '
@@ -1134,13 +1134,11 @@ duo_check(
     'v3.11 names the shipped refusal that keeps the lane shut today, and that refusal exists'
 );
 
-// Condition (a)'s baseline is a threshold argument, so its numbers are the
-// ones most likely to be quoted later and least likely to be re-measured. They
-// are re-measured here: manifest-shipped hook code is exactly the code an
-// executable lane would let a stranger add to.
+// Manifest-shipped hook code is derived from the package library itself. The
+// gate deliberately owns no checked-in per-adapter path or line-count mirror:
+// adding or editing one adapter runtime must change only that capsule.
 $hookFiles = [];
 $hookAdapters = [];
-$hookOwners = [];
 foreach ($adapterLibrary->packages() as $package) {
     $shipsCode = false;
     foreach ($package->shippablePaths() as $file) {
@@ -1150,107 +1148,22 @@ foreach ($adapterLibrary->packages() as $package) {
         }
         $shipsCode = true;
         $hookFiles[$file] = substr_count((string) file_get_contents($file), "\n");
-        $hookOwners[substr($file, strlen($repo) + 1)] = $package->name();
     }
     if ($shipsCode) {
         $hookAdapters[] = $package->name();
     }
 }
 $hookLines = array_sum($hookFiles);
-
-// The executable inventory is the reviewed ownership decision behind the raw
-// G5 count. A line count alone cannot distinguish generic engine work from
-// plugin semantics that would merely be relocated into core, so every live
-// hook file must have exactly one classified row and every row must still name
-// the adapter that digest-binds it.
-$inventory = Canon::decode(Canon::read_file($repo . '/tools/adapter-executable-inventory.json'));
-$inventoryRows = (array) ($inventory['surfaces'] ?? []);
-$inventoryByPath = [];
-foreach ($inventoryRows as $row) {
-    if (is_array($row) && is_string($row['path'] ?? null)) {
-        $inventoryByPath[$row['path']] = $row;
-    }
-}
-$measuredPaths = [];
-foreach ($hookFiles as $path => $lines) {
-    $measuredPaths[substr($path, strlen($repo) + 1)] = $lines;
-}
-ksort($measuredPaths, SORT_STRING);
-ksort($inventoryByPath, SORT_STRING);
-ksort($hookOwners, SORT_STRING);
-duo_check_same(
-    'duo-adapter-executable-inventory/v1',
-    $inventory['format'] ?? null,
-    'the adapter executable inventory has the closed v1 format'
-);
-duo_check_same(
-    array_keys($measuredPaths),
-    array_keys($inventoryByPath),
-    'the adapter executable inventory classifies every current hook file exactly once and names no retired file'
-);
-$inventoryMeasurements = [];
-$inventoryOwners = [];
-foreach ($inventoryByPath as $path => $row) {
-    $inventoryMeasurements[$path] = $row['physical_lines'] ?? null;
-    $inventoryOwners[$path] = $row['adapter'] ?? null;
-    duo_check(
-        in_array(
-            $row['engine_absorption'] ?? null,
-            ['generic_constraint_candidate', 'hold_for_second_demand', 'prefer_future_plugin_provider', 'retain_adapter_code'],
-            true
-        ) && is_string($row['ownership'] ?? null)
-            && ($row['ownership'] ?? '') !== ''
-            && is_string($row['plugin_cooperation'] ?? null)
-            && ($row['plugin_cooperation'] ?? '') !== '',
-        "$path records a closed engine-absorption verdict, current ownership, and plugin-cooperation boundary"
-    );
-}
-duo_check_same(
-    $measuredPaths,
-    $inventoryMeasurements,
-    'every inventory physical-line measurement matches the shipped bytes'
-);
-duo_check_same(
-    $hookOwners,
-    $inventoryOwners,
-    'every inventory row names the manifest whose adapter digest owns that executable file'
-);
-duo_check_same(
-    [
-        'adapter_count' => count($hookAdapters),
-        'file_count' => count($hookFiles),
-        'physical_lines' => $hookLines,
-        'scope' => 'Every PHP file under adapter-packages/*/package/runtime, measured as LF-delimited physical lines.',
-    ],
-    $inventory['measurement'] ?? null,
-    'the inventory summary is derived from the same live files as G5 condition (a)'
-);
-$pmproAbsorption = $inventory['absorbed'][0] ?? [];
-$pmproManifest = Canon::decode(Canon::read_file(
-    $adapterLibrary->package('paid-memberships-pro')?->manifestPath() ?? ''
-));
-duo_check(
-    ($pmproAbsorption['retired_path'] ?? null)
-        === 'adapter-packages/paid-memberships-pro/package/runtime/providers/paid-memberships-pro-cache.php'
-        && ($pmproAbsorption['physical_lines_removed'] ?? null) === 233
-        && !is_file($repo . '/adapter-packages/paid-memberships-pro/package/runtime/providers/paid-memberships-pro-cache.php')
-        && !isset($pmproManifest['providers'])
-        && !isset($pmproManifest['actions'])
-        && ($pmproManifest['tables']['pmpro_membership_levels']['invalidate'][0] ?? null)
-            === ['cache_group' => 'pmpro_membership_level_meta', 'cache_key' => '{id}'],
-    'the inventory records PMPro as an actual 233-line whole-file absorption, not a planning claim beside live code'
-);
 $report(sprintf(
-    'G5 condition (a) baseline: %d of %d adapters name manifest-shipped hook code; %d files, %s lines',
+    'G5 condition (a) live measurement: %d of %d adapters name manifest-shipped hook code; %d files, %s lines',
     count($hookAdapters),
     count($declaredVersions),
     count($hookFiles),
     number_format($hookLines)
 ));
 duo_check(
-    str_contains($laneBody, count($hookAdapters) . ' of the ' . count($declaredVersions) . ' adapters name manifest-shipped hook code')
-        && str_contains($laneBody, count($hookFiles) . ' files totalling ' . number_format($hookLines) . ' lines'),
-    'v3.11 condition (a) states the measured baseline the threshold is set against, and it matches the library'
+    $hookAdapters !== [] && $hookFiles !== [] && $hookLines > 0,
+    'v3.11 condition (a) is measured directly from the current adapter library without a cross-adapter registry'
 );
 
 duo_check_summary('spec v3 document');

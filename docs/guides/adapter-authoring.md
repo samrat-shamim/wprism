@@ -1448,16 +1448,16 @@ file.
    discoverable if
    `adapter-packages/<name>/tests/conformance/entry.json` exists —
    `sandbox/tests/offline/policy/regress_manifest_dispositions.php` proves both offline.
-5. **Regenerate the public prose** and check it in:
+5. **Render and validate the aggregate** without checking it in:
 
    ```sh
-   php tools/capability-doc.php generate   # rewrites docs/capabilities.md + the README block
-   make release-gate                       # capability-doc.php --check, then classmap-generate.php --check
+   php tools/capability-doc.php render > sandbox/tmp/capabilities.md
+   make release-gate
    ```
 
-   Never hand-edit `docs/capabilities.md` or the README's generated block, and
-   never restate their rows in prose — a hand-copied claim is exactly the
-   failure mode the generator exists to prevent.
+   Review the scratch projection, but do not add it outside the capsule. The
+   checked-in capability and grade pages define the model without duplicating
+   adapter rows; this is what keeps ordinary adapter authoring package-local.
 
 A profile (`fse` is the shipped one) follows the same shape inside
 `dispositions/profiles.json`, with its own conformance entry.

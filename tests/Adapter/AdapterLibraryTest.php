@@ -431,6 +431,79 @@ final class AdapterLibraryTest extends TestCase
         AdapterLibrary::fromSourceTree($root);
     }
 
+    public function testLogicalLibraryRejectsRuntimeIdsClaimedByTwoPackages(): void
+    {
+        $cases = [
+            'interpreter' => [
+                ['interpreter' => 'alpha'],
+                'interpreters/alpha.php',
+            ],
+            'provider' => [
+                ['providers' => [['id' => 'alpha-provider', 'source' => 'manifest']]],
+                'providers/alpha-provider.php',
+            ],
+            'regenerator' => [
+                [
+                    'post_types' => [
+                        'article' => ['regen_dependency' => ['regenerator' => 'alpha-regenerator']],
+                    ],
+                ],
+                'regenerators/alpha-regenerator.php',
+            ],
+        ];
+
+        foreach ($cases as $kind => [$manifestFields, $runtimeMember]) {
+            [$root] = $this->logicalFixture('source');
+            $packageRoot = $root . '/adapter-packages/beta/package';
+            mkdir($packageRoot . '/runtime/' . dirname($runtimeMember), 0o777, true);
+            file_put_contents(
+                $packageRoot . '/manifest.json',
+                json_encode(['name' => 'beta', ...$manifestFields], JSON_PRETTY_PRINT) . "\n"
+            );
+            file_put_contents($packageRoot . '/disposition.json', "{}\n");
+            file_put_contents($packageRoot . '/runtime/' . $runtimeMember, "<?php\n");
+
+            try {
+                AdapterLibrary::fromSourceTree($root);
+                $this->fail("A logical library must reject a duplicate $kind id");
+            } catch (RuntimeException $exception) {
+                $id = basename($runtimeMember, '.php');
+                $this->assertSame(
+                    "duo: adapter runtime $kind $id is declared by both alpha and beta",
+                    $exception->getMessage()
+                );
+            }
+        }
+    }
+
+    public function testDeployedMarkerPreventsSourceFallbackWhenEmbeddedLibraryIsMissing(): void
+    {
+        [$root] = $this->logicalFixture('source');
+        $agentRoot = $root . '/agent';
+        mkdir($agentRoot);
+        file_put_contents(
+            $agentRoot . '/adapter-library.deployed',
+            "duo-embedded-adapter-library-assembly/v1\n"
+        );
+
+        $resolver = new \ReflectionMethod(Policy::class, 'shipped_adapter_library_at');
+
+        try {
+            $resolver->invoke(null, $agentRoot);
+            $this->fail('A deployed agent with a missing embedded library must not select sibling source packages');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString(
+                'adapter library root is not a readable directory: ' . $agentRoot . '/adapter-library',
+                $exception->getMessage()
+            );
+        }
+
+        unlink($agentRoot . '/adapter-library.deployed');
+        $sourceLibrary = $resolver->invoke(null, $agentRoot);
+        $this->assertInstanceOf(AdapterLibrary::class, $sourceLibrary);
+        $this->assertSame(realpath($root), $sourceLibrary->root());
+    }
+
     private function fixture(?array $manifest = null): string
     {
         $root = $this->scratch('library');

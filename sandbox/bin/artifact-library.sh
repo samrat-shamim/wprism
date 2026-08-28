@@ -13,10 +13,47 @@ artifact_library_repo_root() {
   (cd "$source_dir/../.." && pwd)
 }
 
-artifact_library_emit() {
-  local repo
+# One package-owned evidence run must not enumerate sibling capsules. Explicit
+# DUO_ARTIFACT_PACKAGE wins; the generic conformance/version-matrix drivers
+# already carry the owning manifest name, and package-local live suites carry
+# their canonical PACKAGE_ROOT. Shared and cross-adapter scenarios have none of
+# those contexts and deliberately retain the aggregate view.
+artifact_library_package_context() {
+  local repo candidate="${DUO_ARTIFACT_PACKAGE:-}"
   repo="$(artifact_library_repo_root)" || return 1
-  php "$repo/tools/artifact-library.php" --root="$repo"
+  if [ -z "$candidate" ] && [ -n "${VMATRIX_MANIFEST:-}" ]; then
+    candidate="$VMATRIX_MANIFEST"
+  fi
+  if [ -z "$candidate" ] && [ -n "${MANIFEST:-}" ] \
+    && [ -d "$repo/adapter-packages/$MANIFEST" ]; then
+    candidate="$MANIFEST"
+  fi
+  if [ -z "$candidate" ] && [ -n "${PACKAGE_ROOT:-}" ]; then
+    case "$PACKAGE_ROOT" in
+      "$repo"/adapter-packages/*)
+        candidate="${PACKAGE_ROOT##*/}"
+        ;;
+    esac
+  fi
+  if [ -z "$candidate" ]; then
+    return 0
+  fi
+  [[ "$candidate" =~ ^[a-z][a-z0-9]*(-[a-z0-9]+)*$ ]] \
+    || { echo "FAIL: artifact package context is not canonical: $candidate" >&2; return 1; }
+  [ -f "$repo/adapter-packages/$candidate/evidence/artifacts.lock.json" ] \
+    || { echo "FAIL: artifact package context has no package-owned fragment: $candidate" >&2; return 1; }
+  printf '%s\n' "$candidate"
+}
+
+artifact_library_emit() {
+  local repo package
+  repo="$(artifact_library_repo_root)" || return 1
+  package="$(artifact_library_package_context)" || return 1
+  if [ -n "$package" ]; then
+    php "$repo/tools/artifact-library.php" --root="$repo" --adapter="$package"
+  else
+    php "$repo/tools/artifact-library.php" --root="$repo"
+  fi
 }
 
 validate_artifact_library() {

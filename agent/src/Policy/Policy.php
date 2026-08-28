@@ -175,6 +175,9 @@ require_once __DIR__ . '/../Grammar/PostTypeRelationResolver.php';
  * and unclassified is a loud abort at the call sites (never a silent guess).
  */
 final class Policy {
+    private const DEPLOYED_ADAPTER_LIBRARY_MARKER = 'adapter-library.deployed';
+    private const DEPLOYED_ADAPTER_LIBRARY_MARKER_BYTES = "duo-embedded-adapter-library-assembly/v1\n";
+
     private const MAX_DISCOVERED_TAXONOMIES = 4096;
     private const MAX_NATIVE_OPTION_COMPANIONS = 8;
     /**
@@ -284,17 +287,32 @@ final class Policy {
 
     /** The one checked-in or installed shipped library; no path search or override. */
     public static function shipped_adapter_library(): AdapterLibrary {
-        $agentRoot = dirname(__DIR__, 2);
+        return self::shipped_adapter_library_at(dirname(__DIR__, 2));
+    }
+
+    /** Resolve either an explicitly assembled deployment or this source checkout. */
+    private static function shipped_adapter_library_at(string $agentRoot): AdapterLibrary {
         $embedded = $agentRoot . '/adapter-library';
-        if (is_dir($embedded)) {
+        $marker = $agentRoot . '/' . self::DEPLOYED_ADAPTER_LIBRARY_MARKER;
+        if (file_exists($marker) || is_link($marker)) {
+            if (is_link($marker)
+                || !is_file($marker)
+                || file_get_contents($marker) !== self::DEPLOYED_ADAPTER_LIBRARY_MARKER_BYTES) {
+                throw new \RuntimeException("duo: deployed adapter library marker is invalid: $marker");
+            }
             return AdapterLibrary::fromEmbeddedDirectory(
                 $embedded,
                 dirname($agentRoot) . '/duo-control/adapter-revocations.json'
             );
         }
+        if (file_exists($embedded) || is_link($embedded)) {
+            throw new \RuntimeException(
+                "duo: embedded adapter library exists without its deployment marker: $embedded"
+            );
+        }
 
         $sourceRoot = dirname($agentRoot);
-        if (is_dir($sourceRoot . '/adapter-packages') || is_dir($sourceRoot . '/platform/adapter-library')) {
+        if (is_dir($sourceRoot . '/adapter-packages') && is_dir($sourceRoot . '/platform/adapter-library')) {
             return AdapterLibrary::fromSourceTree($sourceRoot);
         }
 

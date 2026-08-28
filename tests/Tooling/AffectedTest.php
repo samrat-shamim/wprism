@@ -9,8 +9,8 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Pins tools/affected.php against the contract tools/offline.php's
- * `--changed[=BASE]` flag depends on (stdout is one leaf target name per
- * line, nothing else) plus a handful of known changed-file -> suite
+ * `--changed[=BASE]` flag depends on (stdout is one leaf or checked scoped
+ * task name per line, nothing else) plus a handful of known changed-file -> suite
  * mappings read directly out of the real sandbox/tests corpus.
  *
  * Every case here uses --paths=... so it is hermetic against the working
@@ -179,6 +179,16 @@ final class AffectedTest extends TestCase
         $targets = self::targets(['--paths=Makefile']);
         self::assertCount(self::expectedOfflineLeafCount(), $targets);
         self::assertContains('regress-path-safety', $targets);
+    }
+
+    public function testIntegrationScenarioMetadataSelectsTheWholeOfflineAggregate(): void
+    {
+        $targets = self::targets([
+            '--paths=integration-scenarios/polylang-tec-rewrite-coinstall/scenario.json',
+        ]);
+
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
+        self::assertContains('regress-adapter-packages', $targets);
     }
 
     public function testToolsChangeAlsoSelectsTheWholeCorpus(): void
@@ -658,21 +668,60 @@ final class AffectedTest extends TestCase
         }
     }
 
-    public function testAdapterPackageAndPlatformChangesReachTheirAggregateReaders(): void
+    public function testAdapterPackageChangesSelectOnlyItsClosedPackageAndScenarioTasks(): void
     {
-        // The aggregate intentionally discovers future package members rather
-        // than enumerating them. A payload edit and a newly named package test
-        // must therefore both select it through the directory signal.
         foreach ([
             'adapter-packages/woocommerce/package/manifest.json',
             'adapter-packages/woocommerce/tests/offline/regress_future_probe.php',
         ] as $path) {
-            self::assertContains('regress-adapter-packages', self::targets(['--paths=' . $path]));
+            self::assertSame([
+                'adapter-package:woocommerce',
+                'integration-scenario:woocommerce-rewrite-coinstall:live:regress_woocommerce_rewrite_coinstall.sh',
+                'integration-scenario:woocommerce-rewrite-coinstall:offline:regress_woocommerce_hierarchy_lookups.php',
+            ], self::targets(['--paths=' . $path]));
         }
+    }
 
+    public function testPlatformChangesStillReachTheirAggregateReaders(): void
+    {
         $platform = self::targets(['--paths=platform/adapter-library/core/manifest.json']);
         self::assertContains('regress-manifest-dispositions', $platform);
         self::assertContains('regress-adapter-packages', $platform);
+    }
+
+    public function testAdapterJsonCarriesCheckedCommandsAndParticipantReasons(): void
+    {
+        $result = self::invoke([
+            '--paths=adapter-packages/polylang/package/manifest.json',
+            '--json',
+            '--explain',
+        ]);
+        self::assertSame(0, $result['status'], $result['stderr']);
+        $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame('adapter-package:polylang', $decoded['tasks'][0]['target']);
+        self::assertSame(
+            ['php', 'tools/adapter-package-tests.php', '--adapter=polylang'],
+            $decoded['tasks'][0]['command']
+        );
+        self::assertSame(
+            ['adapter-package', 'participant-scenario', 'participant-scenario', 'participant-scenario'],
+            array_column($decoded['explain'], 'why')
+        );
+    }
+
+    public function testEngineChangesConservativelySelectPackageConsumers(): void
+    {
+        $result = self::invoke([
+            '--paths=agent/src/Kernel/PathSafety.php',
+            '--json',
+            '--explain',
+        ]);
+        self::assertSame(0, $result['status'], $result['stderr']);
+        $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertContains('regress-adapter-packages', $decoded['targets']);
+        self::assertContains('adapter-sdk-conservative', array_column($decoded['explain'], 'why'));
     }
 
     public function testSharedShellLibrariesSelectTheirConsumers(): void

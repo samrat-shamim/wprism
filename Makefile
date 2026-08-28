@@ -63,6 +63,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-env-provider-conformance-live \
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-suite-wiring regress-platform-move-gates \
+	regress-adapter-package-current-paths \
 	regress-multisite-refusal regress-polylang-multisite-refusal regress-woocommerce-multisite-refusal regress-polylang-tec-rewrite-coinstall regress-polylang-live-fixtures regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification regress-certificate-axis-binding regress-cross-root-replay \
 	regress-post-field-classification regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
@@ -316,7 +317,7 @@ regress-core-data-boundary:
 # Exact core AND PHP matrix for the host-integrated core adapter: one full
 # MariaDB 11 round trip per cell (6.9.2, 7.0.2, 7.0.3 and 7.1 on PHP 8.3, plus
 # 7.1 on PHP 8.4 — both cell sets are cross-checked against
-# manifests/capabilities/platform.json's own exercised-series maps, and each
+# platform/adapter-library/capabilities/platform.json's exercised-series maps, and each
 # cell asserts the booted PHP_VERSION EQUALS that series' proof patch) plus a
 # below-range WordPress and a past-the-exclusive-maximum PHP refusal. Multisite
 # retains its dedicated live suite; the engine axis is regress-core-scope-database.
@@ -616,9 +617,10 @@ regress-cross-root-replay:
 regress-graded-claim:
 	php sandbox/tests/offline/adapter/regress_graded_claim.php
 
-# Product release gate: every generated artifact must still agree with the
-# source it was generated from -- the public capability prose with the
-# manifest dispositions it describes, the published branch-environment
+# Product release gate: every source validator and generated artifact must
+# still agree with its authority -- capability/disposition and package-owned
+# evidence inputs are validated without a checked-in aggregate adapter
+# inventory; the published branch-environment
 # provider protocol with the boundary that enforces it, the adapter-authoring
 # limitation ledger with tools/engine-gaps.json (whose closed-gap rows also
 # assert the implementations they cite are still on disk), the irreversibility
@@ -626,8 +628,7 @@ regress-graded-claim:
 # refusals consult, the classmap with agent/src, the offline corpus
 # include with the suite files on disk, and the computed evidence grades with
 # the three evidence records they are arithmetic over (WP-5.4: a grade is
-# re-derived on every run and byte-compared here, which is the only reason it
-# can never become a stored verdict somebody edits).
+# re-derived on every run and never stored as a verdict somebody edits).
 release-gate:
 	php tools/capability-doc.php --check
 	php tools/provider-protocol-doc.php --check
@@ -2441,7 +2442,7 @@ regress-woocommerce-product-lookups-fake:
 	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_product_lookups_fake.php
 
 regress-woocommerce-hierarchy-lookups:
-	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_hierarchy_lookups.php
+	php integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/regress_woocommerce_hierarchy_lookups.php
 
 regress-woocommerce-fulfillment-prerequisites:
 	php adapter-packages/woocommerce/tests/offline/regress_woocommerce_fulfillment_prerequisites.php
@@ -2917,6 +2918,9 @@ regress-fixture-makers:
 regress-platform-move-gates:
 	php sandbox/tests/offline/guards/regress_platform_move_gates.php
 
+regress-adapter-package-current-paths:
+	php sandbox/tests/offline/guards/regress_adapter_package_current_paths.php
+
 # WP-4.10 / spec/repo-format.md § v3.9: the namespace grammar for the three
 # flat identity spaces, and the CLOSED grandfather list under it. At
 # spec_version 3 an out-of-tree adapter name is <vendor>-<name> and its provider
@@ -2946,8 +2950,8 @@ regress-identity-namespaces:
 regress-plugin-claim-resolution:
 	php sandbox/tests/offline/guards/regress_plugin_claim_resolution.php
 
-# WP-2.6: the adapter test kit. Adopt.php:147-150 tars exactly
-# `agent manifests recovery`, so sandbox/ -- where the entire ability to PROVE
+# WP-2.6: the adapter test kit. Adopt assembles the package library into the
+# staged agent and tars exactly `agent recovery`, so sandbox/ -- where the ability to PROVE
 # an adapter lives -- reaches nobody, and a third party reinvents the harness.
 # sandbox/tests/lib/README.md counts what that already costs in-tree: 42
 # bespoke $wpdb fakes that answer null where FakeWpdb::unsupported() throws by

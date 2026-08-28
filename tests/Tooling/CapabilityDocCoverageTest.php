@@ -8,7 +8,8 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * `make release-gate` is where "the shipped library is exactly reviewed" is
- * enforced, and this is the proof that it actually refuses.
+ * enforced, and this is the proof that it actually refuses without requiring
+ * a checked-in aggregate adapter inventory.
  *
  * WHY THIS TEST EXISTS AT ALL
  * ---------------------------
@@ -20,7 +21,7 @@ use PHPUnit\Framework\TestCase;
  * AdapterLibrary closes the complete authoring inventory before this tool
  * projects it. A gate nobody has watched fail is a gate nobody knows works.
  *
- * `capdoc_build()` resolves AdapterLibrary before the byte-compare, so an
+ * `capdoc_build()` resolves AdapterLibrary before rendering, so an
  * incomplete package fails `--check` whether or not the generated prose is
  * current.
  *
@@ -41,7 +42,8 @@ final class CapabilityDocCoverageTest extends TestCase
     /**
      * A temp root carrying exactly the inputs tools/capability-doc.php reads:
      * the closed package adapter library, agent/version sources, the generated
-     * documents it byte-compares and the agent readers it requires.
+     * compatibility baseline and the agent readers it requires. Deliberately
+     * no README or docs/capabilities.md is staged: neither is an adapter input.
      */
     private function stagedRepo(): string
     {
@@ -61,9 +63,7 @@ final class CapabilityDocCoverageTest extends TestCase
             'agent/src/Policy/AdapterLibrary.php',
             'agent/src/Policy/AdapterPackage.php',
             'agent/duo.php',
-            'docs/capabilities.md',
             'docs/compatibility-baseline.json',
-            'README.md',
         ] as $relative) {
             self::assertTrue(copy("$repo/$relative", "$root/$relative"), "could not stage $relative");
         }
@@ -131,6 +131,34 @@ final class CapabilityDocCoverageTest extends TestCase
             $result = self::check($root);
             self::assertSame(0, $result['status'], "staged --check failed:\n{$result['stdout']}{$result['stderr']}");
             self::assertStringContainsString('capability doc check:', $result['stdout']);
+        } finally {
+            self::removeTree($root);
+        }
+    }
+
+    public function testAValidAdapterEditNeedsNoCentralProjectionFile(): void
+    {
+        $root = $this->stagedRepo();
+        try {
+            $disposition = "$root/adapter-packages/wps-hide-login/package/disposition.json";
+            $bytes = (string) file_get_contents($disposition);
+            self::assertStringContainsString('"reason": "Certified for exact', $bytes);
+            $count = 0;
+            self::assertNotFalse(file_put_contents(
+                $disposition,
+                str_replace(
+                    '"reason": "Certified for exact',
+                    '"reason": "Review-only detail. Certified for exact',
+                    $bytes,
+                    $count
+                )
+            ));
+            self::assertSame(1, $count);
+
+            $result = self::check($root);
+            self::assertSame(0, $result['status'], "package-local edit failed source check:\n{$result['stderr']}");
+            self::assertFileDoesNotExist("$root/docs/capabilities.md");
+            self::assertFileDoesNotExist("$root/README.md");
         } finally {
             self::removeTree($root);
         }

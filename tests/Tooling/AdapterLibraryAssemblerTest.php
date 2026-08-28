@@ -68,6 +68,10 @@ final class AdapterLibraryAssemblerTest extends TestCase
 
         self::assertSame(AdapterLibraryAssembler::FORMAT, $result['format']);
         self::assertSame($agent . '/adapter-library', $result['target']);
+        self::assertSame(
+            "duo-embedded-adapter-library-assembly/v1\n",
+            file_get_contents($agent . '/' . AdapterLibraryAssembler::DEPLOYMENT_MARKER)
+        );
         self::assertSame([
             'adapter-library/adapters/alpha/manifest.json',
             'adapter-library/adapters/alpha/disposition.json',
@@ -133,13 +137,59 @@ final class AdapterLibraryAssemblerTest extends TestCase
         self::assertSame([], $this->assemblyScratchEntries('second'));
     }
 
+    public function testAssemblyRefusesAWholeSourceGenerationChangeBetweenCaptureAndPublish(): void
+    {
+        $this->addPackage('alpha', [
+            'providers' => [['id' => 'cache', 'source' => 'manifest']],
+        ], ['providers/cache.php' => "<?php\nreturn 'generation-a';\n"]);
+        $agent = $this->stageAgent('generation-race');
+        self::makeDirectory($agent . '/adapter-library/current');
+        self::write($agent . '/adapter-library/current/sentinel.txt', 'keep exact');
+        $marker = $agent . '/' . AdapterLibraryAssembler::DEPLOYMENT_MARKER;
+        self::assertFileDoesNotExist($marker);
+        $before = self::snapshot($agent);
+
+        try {
+            AdapterLibraryAssembler::assemble(
+                $this->repo,
+                $agent,
+                function (): void {
+                    self::writeJson(
+                        $this->repo . '/adapter-packages/alpha/package/manifest.json',
+                        [
+                            'name' => 'alpha',
+                            'providers' => [['id' => 'cache', 'source' => 'manifest']],
+                            'notes' => ['generation' => 'b'],
+                        ]
+                    );
+                    self::write(
+                        $this->repo . '/adapter-packages/alpha/package/runtime/providers/cache.php',
+                        "<?php\nreturn 'generation-b';\n"
+                    );
+                }
+            );
+            self::fail('A source generation change must refuse assembly');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString(
+                'Adapter package source generation changed during assembly',
+                $exception->getMessage()
+            );
+        }
+
+        self::assertSame($before, self::snapshot($agent));
+        self::assertFileDoesNotExist($marker);
+        self::assertSame([], $this->assemblyScratchEntries('generation-race'));
+    }
+
     public function testSourceRefusalHappensBeforeExistingStageMutation(): void
     {
         $this->addPackage('alpha', [], ['providers/undeclared.php' => '<?php']);
         $agent = $this->stageAgent('refusal');
         self::makeDirectory($agent . '/adapter-library/current');
         self::write($agent . '/adapter-library/current/sentinel.txt', 'keep exact');
-        $before = self::snapshot($agent . '/adapter-library');
+        $marker = $agent . '/' . AdapterLibraryAssembler::DEPLOYMENT_MARKER;
+        self::assertFileDoesNotExist($marker);
+        $before = self::snapshot($agent);
 
         try {
             AdapterLibraryAssembler::assemble($this->repo, $agent);
@@ -148,7 +198,8 @@ final class AdapterLibraryAssemblerTest extends TestCase
             self::assertStringContainsString('Undeclared runtime PHP', $exception->getMessage());
         }
 
-        self::assertSame($before, self::snapshot($agent . '/adapter-library'));
+        self::assertSame($before, self::snapshot($agent));
+        self::assertFileDoesNotExist($marker);
         self::assertSame('keep exact', file_get_contents($agent . '/adapter-library/current/sentinel.txt'));
         self::assertSame([], $this->assemblyScratchEntries('refusal'));
     }

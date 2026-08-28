@@ -139,8 +139,8 @@ require_once __DIR__ . '/src/Assess/AssessInventory.php';
  *
  * Why this is not an autoloader in the sense AGENTS.md forbids: duo-classmap.php
  * is a generated first-party source file that lives in agent/ and ships with
- * it (cli/src/Onboarding/Adopt.php tars `agent manifests recovery` and cp -R's the whole
- * agent tree), regenerated from the tree itself by tools/classmap-generate.php
+ * it (Adopt assembles the adapter library into the staged agent, then tars
+ * exactly `agent recovery`), regenerated from the tree itself by tools/classmap-generate.php
  * and checked by its own --check mode. Nothing is vendored, nothing is
  * fetched, and no composer artifact is involved.
  *

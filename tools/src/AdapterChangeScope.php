@@ -4,13 +4,15 @@ declare(strict_types=1);
 
 namespace Duo\Tooling;
 
+require_once __DIR__ . '/AdapterIntegrationScenarios.php';
+
 /**
  * Classify changed paths by their closed repository ownership boundary.
  *
  * This is deliberately smaller than tools/affected.php. It does not infer
- * dependencies or choose tests: its only answer is which authoritative gate is
- * allowed to make that choice. A path outside a recognized ownership boundary,
- * a mixed-owner change, an unresolved integration scenario, or a cross-root
+ * source dependencies: it names the authoritative package gate and the checked
+ * participant-scenario gates allowed to make that choice. A path outside a recognized ownership boundary,
+ * a mixed-owner change, an integration-scenario edit, or a cross-root
  * rename always escalates to the full gate. That default is the property this
  * class exists to preserve; an uncovered path can never become a green run.
  *
@@ -20,10 +22,12 @@ namespace Duo\Tooling;
  * @phpstan-type Change string|array{from:string,to:string}
  * @phpstan-type Owner array{kind:'adapter'|'engine'|'full'|'scenario',name:?string,root:string}
  * @phpstan-type OwnerRow array{path:string,kind:'adapter'|'engine'|'full'|'scenario',name:?string,root:string}
+ * @phpstan-type ScenarioGate array{scenario:string,class:string,path:string,command:non-empty-list<string>}
  * @phpstan-type ScopeResult array{
  *     scope:'adapters'|'engine'|'full',
  *     adapters:list<string>,
  *     scenarios:list<string>,
+ *     scenario_gates:list<ScenarioGate>,
  *     requires_participant_resolution:bool,
  *     cross_root_rename:bool,
  *     owners:list<OwnerRow>
@@ -65,13 +69,18 @@ final class AdapterChangeScope
      *     scope:'adapters'|'engine'|'full',
      *     adapters:list<string>,
      *     scenarios:list<string>,
+     *     scenario_gates:list<ScenarioGate>,
      *     requires_participant_resolution:bool,
      *     cross_root_rename:bool,
      *     owners:list<array{path:string,kind:'adapter'|'engine'|'full'|'scenario',name:?string,root:string}>
      * }
      */
-    public static function classify(array $changes): array
+    public static function classify(array $changes, ?string $repoRoot = null): array
     {
+        // Selection needs the complete scenario metadata but must not make one
+        // adapter's iteration depend on sibling package bytes. The unconditional
+        // regress-adapter-packages gate performs participant-package resolution.
+        $catalog = AdapterIntegrationScenarios::discover($repoRoot ?? dirname(__DIR__, 2), false);
         /** @var list<array{path:string,kind:'adapter'|'engine'|'full'|'scenario',name:?string,root:string}> $owners */
         $owners = [];
         $crossRootRename = false;
@@ -79,6 +88,10 @@ final class AdapterChangeScope
         foreach ($changes as $change) {
             if (is_string($change)) {
                 $owner = self::ownerOf($change);
+                if ($owner['kind'] === 'scenario'
+                    && ($owner['name'] === null || !isset($catalog['scenarios'][$owner['name']]))) {
+                    $owner = ['kind' => 'full', 'name' => null, 'root' => 'integration-scenarios'];
+                }
                 $owners[] = ['path' => $change, ...$owner];
 
                 continue;
@@ -99,6 +112,14 @@ final class AdapterChangeScope
 
             $from = self::ownerOf($change['from']);
             $to = self::ownerOf($change['to']);
+            if ($from['kind'] === 'scenario'
+                && ($from['name'] === null || !isset($catalog['scenarios'][$from['name']]))) {
+                $from = ['kind' => 'full', 'name' => null, 'root' => 'integration-scenarios'];
+            }
+            if ($to['kind'] === 'scenario'
+                && ($to['name'] === null || !isset($catalog['scenarios'][$to['name']]))) {
+                $to = ['kind' => 'full', 'name' => null, 'root' => 'integration-scenarios'];
+            }
             $owners[] = ['path' => $change['from'], ...$from];
             $owners[] = ['path' => $change['to'], ...$to];
             if (self::ownershipKey($from) !== self::ownershipKey($to)) {
@@ -117,8 +138,10 @@ final class AdapterChangeScope
                 $adapters[$owner['name']] = true;
             } elseif ($owner['kind'] === 'scenario' && $owner['name'] !== null) {
                 $scenarios[$owner['name']] = true;
-                // A scenario cannot be scoped until its participant manifest is
-                // authoritative. Until then it deliberately selects full.
+                // A scenario is shared evidence, not an adapter-owned source.
+                // Its checked participant record tells adapter edits which
+                // scenario gates to select, but editing the scenario itself
+                // remains a global aggregate change.
                 $requiresFull = true;
             } elseif ($owner['kind'] === 'full') {
                 $requiresFull = true;
@@ -133,9 +156,21 @@ final class AdapterChangeScope
         }
 
         $adapterNames = array_keys($adapters);
+        foreach ($adapterNames as $adapter) {
+            foreach (AdapterIntegrationScenarios::forParticipant($catalog, $adapter) as $scenario) {
+                $scenarios[$scenario] = true;
+            }
+        }
         $scenarioNames = array_keys($scenarios);
         sort($adapterNames, SORT_STRING);
         sort($scenarioNames, SORT_STRING);
+
+        $scenarioGates = [];
+        foreach ($scenarioNames as $scenario) {
+            foreach ($catalog['scenarios'][$scenario]['gates'] as $gate) {
+                $scenarioGates[] = ['scenario' => $scenario, ...$gate];
+            }
+        }
 
         $scope = self::SCOPE_FULL;
         if (!$requiresFull && isset($scopeKinds['adapter']) && count($scopeKinds) === 1) {
@@ -148,7 +183,8 @@ final class AdapterChangeScope
             'scope' => $scope,
             'adapters' => $adapterNames,
             'scenarios' => $scenarioNames,
-            'requires_participant_resolution' => $scenarioNames !== [],
+            'scenario_gates' => $scenarioGates,
+            'requires_participant_resolution' => false,
             'cross_root_rename' => $crossRootRename,
             'owners' => $owners,
         ];

@@ -3,10 +3,19 @@
 declare(strict_types=1);
 
 use Duo\Tooling\AdapterPackageTestRunner;
+use Duo\Tooling\AdapterIntegrationScenarios;
 
 require_once __DIR__ . '/../../../../tools/src/AdapterPackageTestRunner.php';
+require_once __DIR__ . '/../../../../tools/src/AdapterIntegrationScenarios.php';
 
 $repo = dirname(__DIR__, 4);
+$scenarios = null;
+try {
+    $scenarios = AdapterIntegrationScenarios::discover($repo);
+} catch (Throwable $failure) {
+    fwrite(STDERR, "regress-adapter-packages: integration scenario discovery refused: {$failure->getMessage()}\n");
+    exit(1);
+}
 $packages = $repo . '/adapter-packages';
 $platform = $repo . '/platform/adapter-library';
 if (!is_dir($platform) || is_link($platform)) {
@@ -65,8 +74,52 @@ foreach ($slugs as $slug) {
     }
 }
 
+$scenarioTests = 0;
+foreach ($scenarios['scenarios'] as $scenario) {
+    foreach ($scenario['gates'] as $gate) {
+        if ($gate['class'] !== 'offline') {
+            continue;
+        }
+        $scenarioTests++;
+        $command = $gate['command'];
+        if ($command[0] === 'php') {
+            $command[0] = PHP_BINARY;
+        }
+        $pipes = [];
+        $process = proc_open(
+            $command,
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $repo
+        );
+        if (!is_resource($process)) {
+            fwrite(STDERR, "regress-adapter-packages: cannot start {$gate['path']}\n");
+            $failed++;
+            continue;
+        }
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exit = proc_close($process);
+        if ($exit === 0) {
+            fwrite(STDOUT, "✔ integration-scenarios/{$scenario['name']}: {$gate['path']}\n");
+            continue;
+        }
+        $failed++;
+        fwrite(STDERR, "✘ integration-scenarios/{$scenario['name']}: {$gate['path']} exited $exit\n");
+        if ($stdout !== '') {
+            fwrite(STDERR, $stdout . (str_ends_with($stdout, "\n") ? '' : "\n"));
+        }
+        if ($stderr !== '') {
+            fwrite(STDERR, $stderr . (str_ends_with($stderr, "\n") ? '' : "\n"));
+        }
+    }
+}
+
 if ($failed !== 0) {
     fwrite(STDERR, "regress-adapter-packages: $failed of " . count($slugs) . " package gates failed\n");
     exit(1);
 }
-fwrite(STDOUT, "✔ REGRESS_ADAPTER_PACKAGES PASSED: " . count($slugs) . " packages, $tests tests\n");
+fwrite(STDOUT, '✔ REGRESS_ADAPTER_PACKAGES PASSED: ' . count($slugs) . " packages, $tests package tests, "
+    . "$scenarioTests offline scenario gates, " . count($scenarios['scenarios']) . " integration scenarios\n");

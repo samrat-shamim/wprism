@@ -144,6 +144,22 @@ source "$REPO_ROOT/sandbox/bin/fetch-artifact.sh"
 PAIR_COMPOSE=(fake_compose)
 export DUO_ARTIFACT_TEST_MODE=1 DUO_ARTIFACT_TEST_CACHE_ROOT="$FAKE_CACHE"
 
+say "package-owned artifact resolution does not enumerate unrelated capsules"
+mkdir -p adapter-packages/unrelated/evidence
+printf '{"plugins":{"broken":true},"themes":{}}\n' \
+  > adapter-packages/unrelated/evidence/artifacts.lock.json
+export DUO_ARTIFACT_PACKAGE=fixture
+validate_artifact_library \
+  || fail "one package's valid artifact fragment was coupled to a malformed sibling"
+artifact_library_jq -e '.plugins.fixture["1.0"] and (.plugins | has("broken") | not)' >/dev/null \
+  || fail "package-owned artifact lookup did not use the isolated package loader"
+unset DUO_ARTIFACT_PACKAGE
+if validate_artifact_library; then
+  fail "aggregate artifact validation ignored the deliberately malformed sibling fixture"
+fi
+rm -rf adapter-packages/unrelated
+pass "package-owned artifact resolution uses only its capsule while aggregate validation still sees every owner"
+
 say "the typed lock schema refuses unknown roles before artifact resolution"
 cp adapter-packages/fixture/evidence/artifacts.lock.json "$TMP/valid-artifacts.lock.json"
 jq '.plugins.fixture["1.0"].role = "unreviewed-role"' \

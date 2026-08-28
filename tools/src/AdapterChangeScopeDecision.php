@@ -16,11 +16,13 @@ require_once __DIR__ . '/AdapterChangeScope.php';
  *
  * @phpstan-import-type Change from AdapterChangeScope
  * @phpstan-import-type ScopeResult from AdapterChangeScope
+ * @phpstan-import-type ScenarioGate from AdapterChangeScope
  * @phpstan-type Decision array{
  *     format:'duo-adapter-change-scope/v1',
  *     gate:'adapter'|'full',
  *     adapter:?string,
  *     command:non-empty-list<string>,
+ *     scenario_gates:list<ScenarioGate>,
  *     reason_code:string,
  *     classification:ScopeResult
  * }
@@ -74,8 +76,10 @@ final class AdapterChangeScopeDecision
         if ($classification['cross_root_rename']) {
             return 'cross_root_rename';
         }
-        if ($classification['scenarios'] !== []) {
-            return 'integration_participants_unresolved';
+        foreach ($classification['owners'] as $owner) {
+            if ($owner['kind'] === 'scenario') {
+                return 'integration_scenario_change';
+            }
         }
         if (count($classification['adapters']) > 1) {
             return 'cross_adapter_change';
@@ -123,6 +127,7 @@ final class AdapterChangeScopeDecision
             'gate' => $gate,
             'adapter' => $adapter,
             'command' => $command,
+            'scenario_gates' => $classification['scenario_gates'],
             'reason_code' => $reason,
             'classification' => $classification,
         ];

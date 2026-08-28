@@ -108,8 +108,8 @@ php tools/affected.php --explain  # why each suite was selected
 php tools/adapter-package-validate.php --adapter=<slug> # one capsule's structure/identity/evidence
 php tools/adapter-package-tests.php --adapter=<slug>    # one capsule's offline tests
 make regress-offline-all          # dynamic global aggregate merge gate — quote it in the PR
-make release-gate                 # generated capability/protocol/gap/wire docs,
-                                  # classmaps, corpus, adapter kit and grades match their sources
+make release-gate                 # capability/grade source validation plus generated
+                                  # protocol/gap/wire docs, classmaps, corpus and adapter kit
 ```
 
 The gate runs every global offline leaf plus the one fixed
@@ -137,14 +137,13 @@ in its sibling `package/disposition.json` by a human who wrote down why, and
 explicit participant-declared integration scenario). It does not
 mean a digest binds that claim to an artifact set or a specific run.
 
-`tools/capability-doc.php` projects the document and the README summary from
-the adapter packages, `platform/adapter-library/`, and `agent/duo.php`; `make
-release-gate` byte-compares its output, so the prose cannot drift from the
-library. Its four cross-checks each mirror a rule `ManifestDispositions`
-enforces at agent load time, which is what keeps the document from describing a
-library the agent would reject; the header comment at
-`tools/capability-doc.php:12-58` is the authority and the first thing to read
-before touching a claim.
+`tools/capability-doc.php render` projects the current matrix from the adapter
+packages, `platform/adapter-library/`, and `agent/duo.php` to stdout. `make
+release-gate` runs its source check without checking in an aggregate adapter
+inventory, so an ordinary adapter edit remains capsule-local. Its four
+cross-checks mirror rules `ManifestDispositions` enforces at agent load time;
+the header comment in `tools/capability-doc.php` is the authority and the first
+thing to read before touching a claim.
 
 ## Live evidence
 

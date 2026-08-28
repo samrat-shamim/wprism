@@ -182,7 +182,7 @@ $wpdb->setUniqueKey('options', ['option_name']);
 $policy = \Duo\Policy::load(
     null,
     ['core', 'polylang'],
-    adapterLibrary: \Duo\AdapterLibrary::fromSourceTree($root)
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'polylang')
 );
 $tokens = new \Duo\Tokens('http://source.test', 'http://source.test/wp-content/uploads');
 $meta = new \Duo\EntityMetaCapture(
