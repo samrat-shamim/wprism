@@ -14,7 +14,7 @@ seed_woocommerce_content() {
   local COMPOSE="$PAIR_COMPOSE_STRING"
   local package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-  . "$package_tests/conformance/seed.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
   unset -f wp_conf1 wp_env
 }
 
@@ -22,7 +22,7 @@ postdeploy_woocommerce_content() {
   wp_conf2() { wp2 "$@"; }
   local package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-  . "$package_tests/conformance/postdeploy.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/postdeploy.sh"
   unset -f wp_conf2
   woocommerce_preapply_authority_assertion "$WOO_VERSION" 'exact boundary'
 }
@@ -32,7 +32,7 @@ postapply_woocommerce_content() {
   local CONF_REPO2="siterepo/${PAIR}2"
   local package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-  . "$package_tests/conformance/postapply.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/postapply.sh"
   unset -f wp_conf2
 }
 
@@ -47,7 +47,7 @@ check_woocommerce_content() {
   local APPLY_JSON="${WOOCOMMERCE_BOUNDARY_PROVIDER_RECEIPT:-}"
   local package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-  . "$package_tests/conformance/check.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/check.sh"
 }
 
 woocommerce_boundary_observation() {

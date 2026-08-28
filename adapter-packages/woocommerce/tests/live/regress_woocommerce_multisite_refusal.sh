@@ -250,7 +250,7 @@ require_observed_nonempty 'WooCommerce 11.0.1 plugin tree fingerprint' "$PLUGIN_
 pass 'exact WooCommerce 11.0.1 plugin tree is installed, active, and HPOS-enabled'
 
 say 'seed the populated native WooCommerce graph'
-. "$PACKAGE_ROOT/tests/conformance/seed.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
 woo_identity
 wp1 option update duo_woocommerce_multisite_canary untouched >/dev/null
 

@@ -7,7 +7,7 @@ seed_the_events_calendar_content() {
   local COMPOSE="$PAIR_COMPOSE_STRING"
   local package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-  . "$package_tests/conformance/seed.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
   unset -f wp_conf1
 }
 
@@ -17,7 +17,7 @@ postdeploy_the_events_calendar_content() {
   local COMPOSE="$PAIR_COMPOSE_STRING"
   local package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-  . "$package_tests/conformance/postdeploy.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/postdeploy.sh"
   unset -f wp_conf2
 }
 
@@ -46,7 +46,7 @@ check_the_events_calendar_boundary_content() {
   fi
   local package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-  . "$package_tests/conformance/check.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/check.sh"
   unset -f wp_conf1 wp_conf2 wp_env
 }
 
@@ -55,7 +55,7 @@ postapply_the_events_calendar_content() {
   local CONF_REPO2="siterepo/${PAIR}2"
   local package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-  . "$package_tests/conformance/postapply.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/postapply.sh"
   unset -f wp_conf2
 }
 

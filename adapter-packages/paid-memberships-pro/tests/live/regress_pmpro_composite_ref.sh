@@ -41,6 +41,8 @@
 # for this dispatch; 8930/8931 were this session's own exploratory pair,
 # already destroyed before authoring this script).
 set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$(dirname "$0")/../../../../sandbox"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }

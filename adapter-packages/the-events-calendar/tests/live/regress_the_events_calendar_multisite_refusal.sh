@@ -112,7 +112,7 @@ seed_adjacent_adapter_surfaces() {
   # The shared exact-artifact seed uses native repositories, registered meta,
   # settings APIs, status controllers, Custom Tables v1, and Category Colors.
   # shellcheck source=../conformance/seed.sh
-  . "$PACKAGE_ROOT/tests/conformance/seed.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
   rm -f "$CONF_REPO1/.tmp-tec-source-ids.json"
   wp1 eval '
     $canonical = [

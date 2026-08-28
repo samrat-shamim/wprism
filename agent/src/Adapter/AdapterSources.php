@@ -285,8 +285,9 @@ final class AdapterSources {
      * The third word, and it is about the AGENT'S OWN LIBRARY rather than about
      * any adapter source (G2-FIXES C2).
      *
-     * A library-scoped row reports a condition of `manifests/` that no adapter
-     * caused and no adapter's grammar verdict depends on — today, exactly one:
+     * A library-scoped row reports a condition of the embedded adapter library
+     * that no adapter caused and no adapter's grammar verdict depends on —
+     * today, exactly one:
      * an installed typed revocation document whose signer this agent does not
      * hold, which grants nothing and must not be mistaken for a channel that is
      * working. blocking_refusals() keeps SCOPE_SOURCE as the only blocking word,
@@ -1521,9 +1522,11 @@ final class AdapterSources {
                         $superseded = true;
                     } catch (StalePlatformSiteAdapterCertificate $movedPlatform) {
                         // The AGENT moved, not the adapter: an upgrade rewrote
-                        // manifests/capabilities/platform.json, which every
-                        // signed statement binds byte for byte. A whole-source
-                        // refusal here took every command on the site with it —
+                        // the embedded copy assembled from
+                        // platform/adapter-library/capabilities/platform.json,
+                        // which every signed statement binds byte for byte. A
+                        // whole-source refusal here took every command on the
+                        // site with it —
                         // including the `duo adapter certify --pin` that repairs
                         // it — for a condition no site caused and no operator
                         // could see. One adapter loses its certified grants; the
@@ -3899,11 +3902,19 @@ final class AdapterSources {
         // reconstruction); a second copy at the scan would be a second copy of
         // the rule.
         IdentityNamespaces::assert_out_of_tree_identity($manifest, $name, $label, $shown);
+        $shippedManifest = $name === 'core'
+            ? 'platform/adapter-library/core/manifest.json'
+            : "adapter-packages/$name/package/manifest.json";
+        $providerTree = $name === 'core'
+            ? 'platform/adapter-library/core/runtime/providers/'
+            : "adapter-packages/$name/package/runtime/providers/";
+        $providerOwnership = $name === 'core' ? 'platform-owned' : 'package-owned';
         $remedy = $inherit === null
             ? "install the adapter into the agent's own manifest library (where its code ships, digest-binds, and "
                 . 'is reviewed with it), or declare a plugin-owned provider whose code the installed plugin already owns'
             : "an override of shipped adapter '$name' inherits the shipped interpreter / regenerator / provider "
-                . "declarations exactly as manifests/$name.json carries them and may add or edit none — repeat "
+                . "declarations exactly as $shippedManifest carries them and may add "
+                . 'or edit none — repeat '
                 . 'the shipped declaration verbatim or drop the change; new executable code belongs in the '
                 . "agent's own manifest library";
         foreach ([
@@ -3970,7 +3981,8 @@ final class AdapterSources {
                     && $same($inheritProviders[(string) ($declaration['id'] ?? '')], $declaration))) {
                 throw new \RuntimeException(
                     "duo: $label $shown providers[$i] declares source \"manifest\", which resolves to "
-                    . "the agent's own manifests/providers/ tree — an out-of-tree manifest cannot supply provider "
+                    . "the $providerOwnership $providerTree tree — an out-of-tree "
+                    . 'manifest cannot supply provider '
                     . "code. Use source \"plugin\" so the installed plugin remains the code's trust anchor, or: $remedy"
                 );
             }

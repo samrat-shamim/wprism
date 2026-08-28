@@ -824,6 +824,9 @@ final class Providers {
      * mutation.
      */
     public static function packaging_problem(ProviderPackagingException $failure): array {
+        $runtimeRoot = $failure->manifest() === 'core'
+            ? 'platform/adapter-library/core'
+            : "adapter-packages/{$failure->manifest()}/package";
         return self::problem(
             $failure->providerId(),
             $failure->manifest(),
@@ -831,8 +834,9 @@ final class Providers {
             'provider_code_unavailable',
             "the manifest-sourced provider '{$failure->providerId()}' to resolve to its shipped class",
             $failure->getMessage(),
-            "repair manifests/providers/{$failure->providerId()}.php, which ships with manifest "
-                . "'{$failure->manifest()}', or unpin that manifest"
+            "repair $runtimeRoot/runtime/providers/"
+                . "{$failure->providerId()}.php, which ships with manifest '{$failure->manifest()}', or unpin "
+                . 'that manifest'
         );
     }
 

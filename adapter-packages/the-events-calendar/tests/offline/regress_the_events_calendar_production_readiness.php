@@ -8712,7 +8712,7 @@ foreach ([
     'local TEC_BOUNDARY_ONLY=0',
     'local TEC_POST_UPGRADE_ONLY="${TEC_POST_UPGRADE_ONLY:-0}"',
     'if [ "$TEC_EXPECTED_VERSION" != 6.17.2 ]; then',
-    '. "$package_tests/conformance/postapply.sh"',
+    '. "$(dirname "${BASH_SOURCE[0]}")/../conformance/postapply.sh"',
     '"taxonomies": ["category", "post_tag", "tribe_events_cat"]',
     'TEC_UPGRADE_DEPLOY_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1)',
     'wp2 duo deploy --repo=/siterepo --force-code-drift',
@@ -8897,7 +8897,7 @@ duo_check_same(
 );
 foreach ([
     'DUO_EXPECTED_SOURCE_SHA must bind the exact lowercase 40-character candidate SHA',
-    '. "$PACKAGE_ROOT/tests/conformance/seed.sh"',
+    '. "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"',
     'wp1 core multisite-convert',
     'tec_storage_fingerprint',
     'tribe_events_calendar_options',

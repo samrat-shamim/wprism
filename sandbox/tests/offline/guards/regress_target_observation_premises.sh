@@ -27,6 +27,7 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 REPO_ROOT="$(cd .. && pwd -P)"
 ADAPTER_ROOT="$REPO_ROOT/adapter-packages"
 CONTRACT_NAME='target-observation-premises.tsv'
+ACTIVE_SHELL_HELPER="$REPO_ROOT/tools/active-shell-source.php"
 
 ACTIVE_SHELL_SOURCE=''
 ACTIVE_SHELL_FILES=()
@@ -46,24 +47,22 @@ load_active_shell_source() { # <file>
       return
     fi
   done
-  ACTIVE_SHELL_SOURCE="$(php "$REPO_ROOT/tools/active-shell-source.php" "$file")" \
+  ACTIVE_SHELL_SOURCE="$(php "$ACTIVE_SHELL_HELPER" "$file")" \
     || return 1
   ACTIVE_SHELL_FILES+=("$file")
   ACTIVE_SHELL_BYTES+=("$ACTIVE_SHELL_SOURCE")
 }
 
 source_has_active_literal() { # <file> <literal>
-  local line='' trimmed='' suffix=''
-  load_active_shell_source "$1" || return 1
-  while IFS= read -r line || [ -n "$line" ]; do
-    trimmed="${line#"${line%%[![:space:]]*}"}"
-    [ "${trimmed#"$2"}" != "$trimmed" ] || continue
-    suffix="${trimmed#"$2"}"
-    case "$suffix" in
-      ''|[[:space:]]*|';'*|'&'*|'|'*) return 0 ;;
-    esac
-  done <<< "$ACTIVE_SHELL_SOURCE"
-  return 1
+  php "$ACTIVE_SHELL_HELPER" --statement "$1" "$2" >/dev/null
+}
+
+active_statement_comment() { # <file> <literal>
+  php "$ACTIVE_SHELL_HELPER" --statement "$1" "$2"
+}
+
+source_declares_manifest_participant() { # <file> <adapter-slug>
+  php "$ACTIVE_SHELL_HELPER" --participant "$1" "$2"
 }
 
 source_uses_premise_helpers() { # <file>
@@ -86,9 +85,9 @@ contract_error() {
 
 # Failure-returning validation lets the mutation checks prove that stale
 # assertions and path escapes are rejected instead of terminating early.
-validate_contract_file() { # <contract> <package-root>
-  local contract="$1" package="$2"
-  local line='' kind='' rest='' relative='' needle='' logical='' source=''
+validate_contract_file() { # <contract> <package-root> [repository-root]
+  local contract="$1" package="$2" repo_root="${3:-$REPO_ROOT}"
+  local line='' kind='' rest='' relative='' needle='' logical='' source='' comment='' slug=''
   local line_no=0 observations=0 fixtures=0 prior=''
   local expected_observations='' expected_fixtures=''
   local tab=$'\t'
@@ -140,7 +139,7 @@ validate_contract_file() { # <contract> <package-root>
       tests/*.sh) source="$package/$relative" ;;
       @repo/sandbox/tests/certify/*.sh)
         logical="${relative#@repo/}"
-        source="$REPO_ROOT/$logical"
+        source="$repo_root/$logical"
         ;;
       *)
         contract_error "$contract" "$line_no" \
@@ -166,8 +165,21 @@ validate_contract_file() { # <contract> <package-root>
 
     [ -f "$source" ] && [ ! -L "$source" ] \
       || { contract_error "$contract" "$line_no" "premise source is missing or symlinked: $relative"; return 1; }
-    source_has_active_literal "$source" "$needle" \
+    comment="$(active_statement_comment "$source" "$needle")" \
       || { contract_error "$contract" "$line_no" "source is missing active premise: $needle"; return 1; }
+    if [[ "$relative" == @repo/* ]]; then
+      slug="$(basename "$package")"
+      source_declares_manifest_participant "$source" "$slug" || {
+        contract_error "$contract" "$line_no" \
+          "@repo premise has no active canonical manifest participant declaration for $slug"
+        return 1
+      }
+      [ "$comment" = "duo-premise-owner: $slug" ] || {
+        contract_error "$contract" "$line_no" \
+          "@repo premise requires exact # duo-premise-owner: $slug on its active assertion"
+        return 1
+      }
+    fi
   done < "$contract"
 
   [ $((observations + fixtures)) -gt 0 ] \
@@ -233,12 +245,75 @@ run_contract_mutation_checks() {
     rm -rf "$scratch"
     fail 'package premise contract accepted a heredoc-only assertion mutation'
   fi
+  printf '%s\n' \
+    'cat <<\INERT_ESCAPED_PREMISE >/dev/null' \
+    'require_observed_nonempty "probe answered" "$out"' \
+    'INERT_ESCAPED_PREMISE' > "$source"
+  clear_active_shell_cache
+  if source_uses_premise_helpers "$source" 2>/dev/null \
+    || validate_contract_file "$contract" "$package" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'package premise contract accepted an escaped-heredoc assertion mutation'
+  fi
+  printf '%s\n' \
+    "printf '%s' \\" \
+    'require_observed_nonempty "probe answered" "$out"' > "$source"
+  clear_active_shell_cache
+  if source_uses_premise_helpers "$source" || validate_contract_file "$contract" "$package" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'package premise contract accepted a continued argument as an active assertion'
+  fi
+  printf '%s\n' \
+    "jq -e '" \
+    'require_observed_nonempty "probe answered" "$out"' \
+    "' >/dev/null" > "$source"
+  clear_active_shell_cache
+  if source_uses_premise_helpers "$source" || validate_contract_file "$contract" "$package" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'package premise contract accepted a multiline-quoted assertion mutation'
+  fi
+  printf '%s\n' \
+    'captured="$(' \
+    'require_observed_nonempty "probe answered" "$out"' \
+    ')"' > "$source"
+  clear_active_shell_cache
+  validate_contract_file "$contract" "$package" >/dev/null \
+    || { rm -rf "$scratch"; fail 'package premise contract hid an executed command-substitution premise'; }
+  printf '%s\n' \
+    'captured="`' \
+    'require_observed_nonempty "probe answered" "$out"' \
+    '`"' > "$source"
+  clear_active_shell_cache
+  if source_uses_premise_helpers "$source" 2>/dev/null \
+    || validate_contract_file "$contract" "$package" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'package premise contract accepted unsupported legacy backtick substitution'
+  fi
   printf '%s\n' 'echo '\''require_observed_nonempty "probe answered" "$out"'\''' > "$source"
   clear_active_shell_cache
   if source_uses_premise_helpers "$source" || validate_contract_file "$contract" "$package" >/dev/null 2>&1; then
     rm -rf "$scratch"
     fail 'package premise contract accepted an echoed assertion mutation'
   fi
+  printf '%s\n' \
+    'never_runs() {' \
+    'require_observed_nonempty "probe answered" "$out"' \
+    '}' > "$source"
+  clear_active_shell_cache
+  if validate_contract_file "$contract" "$package" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'package premise contract accepted an assertion trapped in an uncalled function'
+  fi
+  printf '%s\n' 'require_observed_nonempty "probe answered" "$out"' > "$source"
+  clear_active_shell_cache
+
+  printf '%s\n' \
+    'SHIFT=1' \
+    'flags=$((1 << SHIFT))' \
+    'require_observed_nonempty "probe answered" "$out"' > "$source"
+  clear_active_shell_cache
+  validate_contract_file "$contract" "$package" >/dev/null \
+    || { rm -rf "$scratch"; fail 'package premise contract mistook an arithmetic shift for a heredoc'; }
   printf '%s\n' 'require_observed_nonempty "probe answered" "$out"' > "$source"
   clear_active_shell_cache
 
@@ -292,6 +367,61 @@ run_contract_mutation_checks() {
   clear_active_shell_cache
   validate_version_matrix_premises "$source" \
     || { rm -rf "$scratch"; fail 'version-matrix validator refused matching assignment/premise rows'; }
+
+  local repo_fixture="$scratch/repository" owner_package="$scratch/repository/adapter-packages/acf"
+  local owner_source="$repo_fixture/sandbox/tests/certify/certify_owner.sh"
+  local owner_contract="$owner_package/evidence/$CONTRACT_NAME"
+  mkdir -p "$(dirname "$owner_source")" "$(dirname "$owner_contract")"
+  printf '%s\n' \
+    'DUO_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
+    'require_observed_nonempty "owned assertion" "$out" # duo-premise-owner: acf' > "$owner_source"
+  printf '%s\n' \
+    '# format duo-target-observation-premises/v1' \
+    '# expected observations=1 fixtures=0' \
+    $'observation\t@repo/sandbox/tests/certify/certify_owner.sh\trequire_observed_nonempty "owned assertion"' \
+    > "$owner_contract"
+  validate_contract_file "$owner_contract" "$owner_package" "$repo_fixture" >/dev/null \
+    || { rm -rf "$scratch"; fail 'package premise contract refused its exact @repo owner'; }
+  printf '%s\n' \
+    ': # DUO_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
+    'require_observed_nonempty "owned assertion" "$out" # duo-premise-owner: acf' > "$owner_source"
+  if validate_contract_file "$owner_contract" "$owner_package" "$repo_fixture" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'package premise contract accepted an inline-comment-only @repo participant'
+  fi
+  printf '%s\n' \
+    "cat <<'INERT_PARTICIPANT' >/dev/null" \
+    'DUO_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
+    'INERT_PARTICIPANT' \
+    'require_observed_nonempty "owned assertion" "$out" # duo-premise-owner: acf' > "$owner_source"
+  if validate_contract_file "$owner_contract" "$owner_package" "$repo_fixture" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'package premise contract accepted a heredoc-only @repo participant'
+  fi
+  printf '%s\n' \
+    'never_runs() {' \
+    'DUO_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
+    'require_observed_nonempty "owned assertion" "$out" # duo-premise-owner: acf' \
+    '}' > "$owner_source"
+  if validate_contract_file "$owner_contract" "$owner_package" "$repo_fixture" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'package premise contract accepted an @repo participant trapped in an uncalled function'
+  fi
+  printf '%s\n' \
+    'require_observed_nonempty "owned assertion" "$out" # duo-premise-owner: acf' > "$owner_source"
+  if validate_contract_file "$owner_contract" "$owner_package" "$repo_fixture" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'package premise contract accepted a missing @repo participant'
+  fi
+  printf '%s\n' \
+    'DUO_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
+    'require_observed_nonempty "owned assertion" "$out" # duo-premise-owner: acf' > "$owner_source"
+  sed 's/duo-premise-owner: acf/duo-premise-owner: woocommerce/' "$owner_source" > "$owner_source.mutated"
+  mv "$owner_source.mutated" "$owner_source"
+  if validate_contract_file "$owner_contract" "$owner_package" "$repo_fixture" >/dev/null 2>&1; then
+    rm -rf "$scratch"
+    fail 'package premise contract accepted an @repo assertion owned by another adapter'
+  fi
   rm -rf "$scratch"
 }
 

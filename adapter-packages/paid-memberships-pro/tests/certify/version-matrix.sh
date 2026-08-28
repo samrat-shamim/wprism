@@ -4,7 +4,7 @@ seed_pmpro_content() {
   local COMPOSE="$PAIR_COMPOSE_STRING"
   local package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-  . "$package_tests/conformance/seed.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
   unset -f wp_conf1
 }
 
@@ -21,7 +21,7 @@ check_pmpro_content() {
   local PMPRO_SKIP_FRONTEND=1
   local package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-  . "$package_tests/conformance/check.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/check.sh"
 }
 
 postdeploy_pmpro_content() {
@@ -30,7 +30,7 @@ postdeploy_pmpro_content() {
   local COMPOSE="$PAIR_COMPOSE_STRING"
   local package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-  . "$package_tests/conformance/postdeploy.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/postdeploy.sh"
   unset -f wp_conf2
 }
 

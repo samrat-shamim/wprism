@@ -156,10 +156,13 @@ else
   fail "unknown manifest '$MANIFEST': no package or platform conformance entry"
 fi
 # Package-owned conformance resolves only that capsule's artifact fragment.
-# Child check hooks inherit the explicit context; core/platform and named
-# cross-adapter scenarios leave it unset and retain the aggregate authority.
+# Core/FSE consume no adapter plugin artifacts, so their child pair and check
+# hooks inherit explicit platform-only authority. Named integration scenarios
+# set their declared participant context independently of this platform lane.
 if [ -f "../adapter-packages/$MANIFEST/evidence/artifacts.lock.json" ]; then
   export DUO_ARTIFACT_PACKAGE="$MANIFEST"
+elif [ "$MANIFEST" = core ] || [ "$MANIFEST" = fse ]; then
+  export DUO_ARTIFACT_PLATFORM_ONLY=1
 fi
 jq -e '
   (.plugins | type == "array") and
@@ -252,7 +255,7 @@ export -f wp_env wp_conf1 wp_conf2 say pass fail \
   require_duo_answered capture_duo_json_success require_observed_nonempty \
   establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode \
   artifact_library_repo_root artifact_library_package_context artifact_library_participant_context \
-  artifact_library_emit \
+  artifact_library_platform_context artifact_library_platform_emit artifact_library_emit \
   validate_artifact_library artifact_library_jq
 
 # DUO-3377: a sweep IS evidence, so it must be able to state which

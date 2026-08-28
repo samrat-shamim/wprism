@@ -155,6 +155,9 @@ final class AdapterPackageTestsTest extends TestCase
             "\n\$root = 'Duo';\n\$internal = 'RepositoryCompiler';\n"
                 . "\$class = \$root . '\\\\' . \$internal;\n\$class::compile();\n",
         ];
+        yield 'computed namespace separator in dynamic class string' => [
+            "\n\$class = 'Duo' . chr(92) . 'RepositoryCompiler';\n\$class::compile();\n",
+        ];
         yield 'case-variant fully-qualified name' => [
             "\n\\duo\\RepositoryCompiler::compile();\n",
         ];
@@ -170,6 +173,125 @@ final class AdapterPackageTestsTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('depends on non-SDK Duo symbol');
         AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    /** @return iterable<string,array{0:string}> */
+    public static function unresolvedDynamicClassDispatches(): iterable
+    {
+        yield 'static dispatch' => ["\n\$class = chr(68) . 'uo\\\\RepositoryCompiler';\n\$class::compile();\n"];
+        yield 'new dispatch' => ["\n\$class = chr(68) . 'uo\\\\RepositoryCompiler';\nnew \$class();\n"];
+        yield 'reflection dispatch' => [
+            "\n\$class = chr(68) . 'uo\\\\RepositoryCompiler';\nnew \\ReflectionClass(\$class);\n",
+        ];
+        yield 'named-function parameter' => [
+            "\nfunction unresolvedNamedParameter(\$class): object { return new \$class(); }\n",
+        ];
+        yield 'attributed named-function parameter' => [
+            "\nfunction unresolvedAttributedParameter(#[\\SensitiveParameter] \$class): object {"
+                . " return new \$class(); }\n",
+        ];
+        yield 'closure parameter' => [
+            "\n\$factory = static function (\$class): object { return new \$class(); };\n",
+        ];
+        yield 'arrow-function parameter' => [
+            "\n\$factory = static fn (\$class): mixed => \$class::compile();\n",
+        ];
+        yield 'reflection closure parameter' => [
+            "\n\$reflect = static function (\$class): \\ReflectionClass {"
+                . " return new \\ReflectionClass(\$class); };\n",
+        ];
+        yield 'widened literal allowlist' => [
+            "\nfunction widenedAllowlist(\$class, \$fallback): object {"
+                . " if (in_array(\$class, ['Plugin_Service'], true) || \$fallback) { return new \$class(); }"
+                . " return new \\stdClass(); }\n",
+        ];
+        yield 'non-dominating object guard' => [
+            "\nfunction nestedObjectGuard(\$service, \$maybe): \\ReflectionClass {"
+                . " if (\$maybe) { if (!is_object(\$service)) { throw new \\RuntimeException('object'); } }"
+                . " return new \\ReflectionClass(\$service); }\n",
+        ];
+    }
+
+    #[DataProvider('unresolvedDynamicClassDispatches')]
+    public function testValidatorRejectsUnresolvedDynamicClassDispatch(string $mutation): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        self::write($path, (string) file_get_contents($path) . $mutation);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('uses unresolved dynamic class dispatch');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorAllowsAnUnresolvedDynamicStringThatIsNotUsedAsAClass(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        self::write(
+            $path,
+            (string) file_get_contents($path) . "\n\$label = chr(68) . 'uo runtime label';\necho \$label;\n"
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
+    }
+
+    public function testValidatorRestoresAResolvedOuterDynamicClassAfterANamedFunctionScope(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        self::write(
+            $path,
+            (string) file_get_contents($path)
+                . "\n\$class = 'stdClass';\n"
+                . "function mutateOnlyLocalClass(\$value): void { \$class = \$value; echo \$class; }\n"
+                . "new \$class();\n"
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
+    }
+
+    public function testValidatorCarriesResolvedClassStateIntoClosureAndArrowCaptures(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        self::write(
+            $path,
+            (string) file_get_contents($path)
+                . "\n\$class = 'stdClass';\n"
+                . "\$closure = static function () use (\$class): object { return new \$class(); };\n"
+                . "\$arrow = static fn (): object => new \$class();\n"
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
+    }
+
+    public function testValidatorAcceptsObjectInspectionAndLiteralPluginClassNarrowing(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        self::write(
+            $path,
+            (string) file_get_contents($path)
+                . "\nfunction inspectTypedObject(object \$service): \\ReflectionClass {"
+                . " return new \\ReflectionClass(\$service); }\n"
+                . 'function inspectGuardedObject(mixed $service): \\ReflectionClass {'
+                . " if (!is_object(\$service)) { throw new \\RuntimeException('object required'); }"
+                . " return new \\ReflectionClass(\$service); }\n"
+                . 'function invokeAllowedPluginClass(string $class): object {'
+                . " if (in_array(\$class, ['Plugin_Service'], true)) { return new \$class(); }"
+                . " return new \\stdClass(); }\n"
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
     }
 
     public function testValidatorRejectsCapsuleClassDeclaredInAnEngineInternalNamespace(): void
@@ -687,6 +809,201 @@ PHP
         AdapterPackageValidator::validate($root, 'acf');
     }
 
+    public function testValidatorRejectsAShebanglessDataFileSourcedByAPackageTest(): void
+    {
+        $root = $this->validatorFixture();
+        self::write(
+            $root . '/adapter-packages/acf/evidence/helper.txt',
+            "file_get_contents ../../woocommerce/package/manifest.json\n"
+        );
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_sourced_data.sh',
+            "#!/usr/bin/env bash\n. ../../evidence/helper.txt\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            'sources a dependency that is not an explicit recognized .sh file at '
+                . 'tests/offline/regress_sourced_data.sh'
+        );
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsABareShebanglessDataFileSourcedByAPackageTest(): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/adapter-packages/acf/tests/offline/helper.txt', "echo bypass\n");
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_sourced_bare_data.sh',
+            "#!/usr/bin/env bash\nsource helper.txt\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not an explicit recognized .sh file at tests/offline/regress_sourced_bare_data.sh');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    /** @return iterable<string,array{0:string}> */
+    public static function staticallySpelledShellSourceCommands(): iterable
+    {
+        yield 'assignment-prefixed dot' => ['MODE=x . ../../evidence/helper.txt'];
+        yield 'assignment-prefixed source' => ['MODE=x source ../../evidence/helper.txt'];
+        yield 'assignment-prefixed source after control word' => [
+            'if MODE=x source ../../evidence/helper.txt; then :; fi',
+        ];
+        yield 'empty-quoted command fragment' => ["sou''rce ../../evidence/helper.txt"];
+        yield 'escaped command character' => ['sour\ce ../../evidence/helper.txt'];
+        yield 'assignment-prefixed empty-quoted command fragment' => [
+            "MODE=x sou''rce ../../evidence/helper.txt",
+        ];
+    }
+
+    #[DataProvider('staticallySpelledShellSourceCommands')]
+    public function testValidatorRejectsStaticallySpelledShellSourceCommands(string $command): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/adapter-packages/acf/evidence/helper.txt', "echo bypass\n");
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_static_source.sh',
+            "#!/usr/bin/env bash\n$command\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            'not an explicit recognized .sh file at tests/offline/regress_static_source.sh'
+        );
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    /** @return iterable<string,array{0:string}> */
+    public static function assignmentPrefixedNonSourceCommands(): iterable
+    {
+        yield 'source is an argument' => ["MODE=x printf '%s\\n' source"];
+        yield 'source is only a command-name prefix' => ['MODE=x source_map=unchanged'];
+        yield 'dot is an argument' => ["MODE=x printf '%s\\n' ."];
+        yield 'double-quoted backslash is literal before an ordinary byte' => ['MODE=x "sour\ce"'];
+        yield 'single-quoted expansion syntax is literal' => ["MODE=x sou'\$x'rce"];
+    }
+
+    #[DataProvider('assignmentPrefixedNonSourceCommands')]
+    public function testValidatorAllowsAssignmentPrefixedNonSourceCommands(string $command): void
+    {
+        $root = $this->validatorFixture();
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_non_source_command.sh',
+            "#!/usr/bin/env bash\n$command\n"
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
+    }
+
+    public function testValidatorRejectsAnUnresolvedVariableOnlySourceTarget(): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/adapter-packages/acf/evidence/helper.txt', "echo bypass\n");
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_dynamic_source.sh',
+            "#!/usr/bin/env bash\nHELPER=../../evidence/helper.txt\n. \"\$HELPER\"\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            'not an explicit recognized .sh file at tests/offline/regress_dynamic_source.sh'
+        );
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsAConditionalSourceCommand(): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/adapter-packages/acf/evidence/helper.txt', "echo bypass\n");
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_conditional_source.sh',
+            "#!/usr/bin/env bash\nif source ../../evidence/helper.txt; then :; fi\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not an explicit recognized .sh file');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsASourceCommandInsideACommandGroup(): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/adapter-packages/acf/evidence/helper.txt', "echo bypass\n");
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_grouped_source.sh',
+            "#!/usr/bin/env bash\n{ source ../../evidence/helper.txt; }\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not an explicit recognized .sh file');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsAnAbsoluteOutsideShellSource(): void
+    {
+        $root = $this->validatorFixture();
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_absolute_source.sh',
+            "#!/usr/bin/env bash\n. /tmp/outside.sh\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not an explicit recognized .sh file');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsATokenSplicedSourceCommand(): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/adapter-packages/acf/evidence/helper.txt', "echo bypass\n");
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_spliced_source.sh',
+            "#!/usr/bin/env bash\nsou\\\nrce ../../evidence/helper.txt\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not an explicit recognized .sh file');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorAcceptsACanonicalPackageRelativeShellSource(): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/adapter-packages/acf/tests/conformance/helper.sh', "#!/usr/bin/env bash\n:\n");
+        self::write(
+            $root . '/adapter-packages/acf/tests/conformance/regress_source.sh',
+            <<<'SH'
+#!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/helper.sh"
+SH
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
+    }
+
+    public function testValidatorAcceptsAnAssignmentPrefixedCanonicalPackageRelativeShellSource(): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/adapter-packages/acf/tests/conformance/helper.sh', "#!/usr/bin/env bash\n:\n");
+        self::write(
+            $root . '/adapter-packages/acf/tests/conformance/regress_prefixed_source.sh',
+            <<<'SH'
+#!/usr/bin/env bash
+MODE=x . "$(dirname "${BASH_SOURCE[0]}")/helper.sh"
+SH
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
+    }
+
     public function testValidatorRejectsExecutablePhpHiddenInTheCapsuleReadme(): void
     {
         $root = $this->validatorFixture();
@@ -864,6 +1181,7 @@ PHP
             $root . '/' . substr($relative, strlen('@repo/')),
             <<<'SH'
 #!/usr/bin/env bash
+DUO_CERTIFICATION_MANIFESTS_JSON='["core","woocommerce"]'
 cat >site.duo.json <<'JSON'
 {"manifests":["core","woocommerce"]}
 JSON
@@ -878,7 +1196,7 @@ SH
         );
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('without an executable manifest participant declaration');
+        $this->expectExceptionMessage('without an active canonical manifest participant declaration');
         AdapterPackageValidator::validate($root, 'acf');
     }
 
@@ -890,6 +1208,7 @@ SH
             $root . '/' . substr($relative, strlen('@repo/')),
             <<<'SH'
 #!/usr/bin/env bash
+DUO_CERTIFICATION_MANIFESTS_JSON='["acf","core"]'
 cat >site.duo.json <<'JSON'
 {"manifests":["acf","core"]}
 JSON
@@ -916,6 +1235,7 @@ SH
             $root . '/' . substr($relative, strlen('@repo/')),
             <<<'SH'
 #!/usr/bin/env bash
+DUO_CERTIFICATION_MANIFESTS_JSON='["acf","core","woocommerce"]'
 cat >site.duo.json <<'JSON'
 {"manifests":["acf","core","woocommerce"]}
 JSON
@@ -931,6 +1251,46 @@ SH
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("bound to 'woocommerce'");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsACertificationParticipantDeclaredOnlyInAnInlineComment(): void
+    {
+        $root = $this->validatorFixture();
+        $relative = '@repo/sandbox/tests/certify/certify_acf_contract.sh';
+        self::write(
+            $root . '/' . substr($relative, strlen('@repo/')),
+            <<<'SH'
+#!/usr/bin/env bash
+: # DUO_CERTIFICATION_MANIFESTS_JSON='["acf"]'
+require_observed_nonempty "target ACF contract" "$ACF_CONTRACT" # duo-premise-owner: acf
+SH
+        );
+        self::addPremiseRow($root, 'observation', $relative, 'require_observed_nonempty "target ACF contract"');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('without an active canonical manifest participant declaration');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsACertificationParticipantDeclaredOnlyInAHeredoc(): void
+    {
+        $root = $this->validatorFixture();
+        $relative = '@repo/sandbox/tests/certify/certify_acf_contract.sh';
+        self::write(
+            $root . '/' . substr($relative, strlen('@repo/')),
+            <<<'SH'
+#!/usr/bin/env bash
+cat <<'INERT' >/dev/null
+DUO_CERTIFICATION_MANIFESTS_JSON='["acf"]'
+INERT
+require_observed_nonempty "target ACF contract" "$ACF_CONTRACT" # duo-premise-owner: acf
+SH
+        );
+        self::addPremiseRow($root, 'observation', $relative, 'require_observed_nonempty "target ACF contract"');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('without an active canonical manifest participant declaration');
         AdapterPackageValidator::validate($root, 'acf');
     }
 
@@ -970,6 +1330,170 @@ SH
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('source is missing active premise');
         AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsAnEscapedHeredocThatCouldHideAPremiseAssertion(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/conformance/check.sh';
+        self::write(
+            $path,
+            str_replace(
+                '    require_observed_nonempty "conf2 ACF runtime observation" "$out"',
+                "    cat <<\\INERT_ACF_PREMISE >/dev/null\n"
+                    . "require_observed_nonempty \"conf2 ACF runtime observation\" \"\$out\"\n"
+                    . 'INERT_ACF_PREMISE',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('unsupported escaped heredoc delimiter');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsAPremiseHelperUsedAsAContinuedCommandArgument(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/conformance/check.sh';
+        self::write(
+            $path,
+            str_replace(
+                '    require_observed_nonempty "conf2 ACF runtime observation" "$out"',
+                "    printf '%s' \\\n"
+                    . 'require_observed_nonempty "conf2 ACF runtime observation" "$out"',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('source is missing active premise');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsAPremiseAssertionInsideAMultilineQuotedArgument(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/conformance/check.sh';
+        self::write(
+            $path,
+            str_replace(
+                '    require_observed_nonempty "conf2 ACF runtime observation" "$out"',
+                "    jq -e '\n"
+                    . "require_observed_nonempty \"conf2 ACF runtime observation\" \"\$out\"\n"
+                    . "' >/dev/null",
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('source is missing active premise');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRecognizesAPremiseExecutedInsideAMultilineCommandSubstitution(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/conformance/check.sh';
+        self::write(
+            $path,
+            str_replace(
+                '    require_observed_nonempty "conf2 ACF runtime observation" "$out"',
+                "    captured=\"\$(\n"
+                    . "require_observed_nonempty \"conf2 ACF runtime observation\" \"\$out\"\n"
+                    . '    )"',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
+    }
+
+    public function testValidatorRetainsNestedMultilineCommandSubstitutionState(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/conformance/check.sh';
+        self::write(
+            $path,
+            str_replace(
+                '    require_observed_nonempty "conf2 ACF runtime observation" "$out"',
+                "    captured=\"\$(\n"
+                    . "        printf '%s' \"\$(\n"
+                    . "require_observed_nonempty \"conf2 ACF runtime observation\" \"\$out\"\n"
+                    . "        )\"\n"
+                    . '    )"',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
+    }
+
+    public function testValidatorRejectsUnsupportedCaseGrammarInsideCommandSubstitution(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/conformance/check.sh';
+        self::write(
+            $path,
+            str_replace(
+                '    require_observed_nonempty "conf2 ACF runtime observation" "$out"',
+                "    captured=\"\$(\n"
+                    . "        case x in\n"
+                    . "            x) : ;;\n"
+                    . "        esac\n"
+                    . "        : \"require_observed_nonempty probe\"\n"
+                    . '    )"',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('unsupported case grammar inside command substitution');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsLegacyBacktickCommandSubstitutionAroundAPremise(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/conformance/check.sh';
+        self::write(
+            $path,
+            str_replace(
+                '    require_observed_nonempty "conf2 ACF runtime observation" "$out"',
+                "    captured=\"`\n"
+                    . "require_observed_nonempty \"conf2 ACF runtime observation\" \"\$out\"\n"
+                    . '    `"',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('unsupported legacy backtick command substitution');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorKeepsAPremiseActiveAfterArithmeticLeftShift(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/conformance/check.sh';
+        self::write(
+            $path,
+            str_replace(
+                '    require_observed_nonempty "conf2 ACF runtime observation" "$out"',
+                "    flags=1\n"
+                    . "    flags=\$((flags << 1))\n"
+                    . '    require_observed_nonempty "conf2 ACF runtime observation" "$out"',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
     }
 
     public function testValidatorRejectsAnUnguardedVersionMatrixObservation(): void

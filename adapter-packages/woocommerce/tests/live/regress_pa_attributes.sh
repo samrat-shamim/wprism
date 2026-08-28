@@ -33,6 +33,8 @@
 # updates), mirroring regress_option_ref_scope.sh's established pattern.
 # Self-contained, re-runnable.
 set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$(dirname "$0")/../../../../sandbox"
 export DUO_PAIR=r3e
 COMPOSE="docker compose -p duo-r3e -f pair.yml"

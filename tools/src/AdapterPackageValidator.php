@@ -27,6 +27,19 @@ final class AdapterPackageValidator
     private const INTEGRATION_SCENARIO_FORMAT = 'duo-adapter-integration-scenario/v1';
     private const PREMISE_EVIDENCE = 'target-observation-premises.tsv';
 
+    /**
+     * Package live tests run from sandbox/, so these three reviewed harness
+     * libraries are the only intentional cwd-relative source dependencies.
+     * Package-owned sources use the BASH_SOURCE-relative form enforced below.
+     *
+     * @var list<string>
+     */
+    private const REVIEWED_SHARED_SHELL_SOURCES = [
+        'bin/fetch-artifact.sh',
+        'conformance/asserts.sh',
+        'lib/pair_identity.sh',
+    ];
+
     /** @var list<string> */
     private const SHARED_EVIDENCE_PREFIXES = [
         'agent/src/',
@@ -229,6 +242,9 @@ final class AdapterPackageValidator
                         "Adapter package '$slug' has executable source with an unsupported extension at $relative"
                     );
                 }
+                if ($extension === 'sh') {
+                    self::assertShellSourceDependenciesUseRecognizedFiles($root, $capsule, $path, $source, $slug);
+                }
                 if ($boundaryRoot === $capsule . '/evidence' && !in_array($extension, ['php', 'sh'], true)) {
                     $scanned++;
                     continue;
@@ -250,6 +266,224 @@ final class AdapterPackageValidator
         }
         $checks[] = "dependency-boundary:$scanned";
         $checks[] = 'runtime-sdk:' . self::RUNTIME_SDK_FORMAT;
+    }
+
+    private static function assertShellSourceDependenciesUseRecognizedFiles(
+        string $root,
+        string $capsule,
+        string $path,
+        string $source,
+        string $slug
+    ): void {
+        $commandLines = [];
+        foreach (ActiveShellSource::commandLines($source) as $commandLine) {
+            $commandLines[$commandLine['line']] = $commandLine['code'];
+        }
+        foreach (ActiveShellSource::lines($source) as $line) {
+            $code = trim($line['code']);
+            $sourceCommand = self::leadingShellSourceCommand($code);
+            if ($sourceCommand === null) {
+                $commandCode = trim($commandLines[$line['line']] ?? '');
+                if (self::containsEmbeddedShellSourceCommand($code, $commandCode)) {
+                    self::shellSourceFailure($capsule, $path, $slug, $line['line'], $code);
+                }
+                continue;
+            }
+            $candidate = rtrim($sourceCommand);
+            $resolved = null;
+            if (in_array($candidate, self::REVIEWED_SHARED_SHELL_SOURCES, true)) {
+                $resolved = $root . '/sandbox/' . $candidate;
+            } elseif (preg_match(
+                '~^"\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)/'
+                    . '(?<relative>[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)"$~D',
+                $candidate,
+                $packageMatch
+            ) === 1) {
+                $resolved = dirname($path) . '/' . $packageMatch['relative'];
+            }
+            $canonical = is_string($resolved) ? realpath($resolved) : false;
+            $insideCapsule = is_string($canonical)
+                && str_starts_with($canonical, rtrim($capsule, '/') . '/');
+            $reviewedShared = is_string($canonical)
+                && in_array($candidate, self::REVIEWED_SHARED_SHELL_SOURCES, true)
+                && $canonical === realpath($root . '/sandbox/' . $candidate);
+            if (!is_string($canonical)
+                || !is_file($canonical)
+                || is_link($canonical)
+                || !str_ends_with($canonical, '.sh')
+                || (!$insideCapsule && !$reviewedShared)) {
+                self::shellSourceFailure($capsule, $path, $slug, $line['line'], $candidate);
+            }
+        }
+    }
+
+    private static function leadingShellSourceCommand(string $code): ?string
+    {
+        $cursor = 0;
+        $length = strlen($code);
+        while ($cursor < $length) {
+            while ($cursor < $length && ($code[$cursor] === ' ' || $code[$cursor] === "\t")) {
+                $cursor++;
+            }
+            if (preg_match('/\A[A-Za-z_][A-Za-z0-9_]*(?:\+)?=/', substr($code, $cursor)) !== 1) {
+                break;
+            }
+            $cursor = self::shellWordEnd($code, $cursor);
+            if ($cursor >= $length || !ctype_space($code[$cursor])) {
+                return null;
+            }
+        }
+        while ($cursor < $length && ($code[$cursor] === ' ' || $code[$cursor] === "\t")) {
+            $cursor++;
+        }
+        $command = self::literalShellWord($code, $cursor);
+        if ($command === null || ($command['word'] !== 'source' && $command['word'] !== '.')) {
+            return null;
+        }
+        $cursor = $command['end'];
+        if ($cursor >= $length || !ctype_space($code[$cursor])) {
+            return null;
+        }
+        $candidate = ltrim(substr($code, $cursor));
+        return $candidate === '' ? null : $candidate;
+    }
+
+    private static function containsEmbeddedShellSourceCommand(string $code, string $commandCode): bool
+    {
+        if (preg_match_all(
+            '/[;&|(){}!]|\b(?:if|then|elif|while|until|do|else|time|command|builtin|exec|coproc)\b/',
+            $commandCode,
+            $boundaries,
+            PREG_OFFSET_CAPTURE
+        ) !== false) {
+            foreach ($boundaries[0] as [$boundary, $offset]) {
+                if (self::leadingShellSourceCommand(substr($code, $offset + strlen($boundary))) !== null) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static function shellWordEnd(string $code, int $cursor): int
+    {
+        $quote = null;
+        $escaped = false;
+        $parentheses = 0;
+        $braces = 0;
+        for ($length = strlen($code); $cursor < $length; $cursor++) {
+            $character = $code[$cursor];
+            if ($escaped) {
+                $escaped = false;
+                continue;
+            }
+            if ($quote !== "'" && $character === '\\') {
+                $escaped = true;
+                continue;
+            }
+            if ($quote !== null) {
+                if ($character === $quote) {
+                    $quote = null;
+                }
+                continue;
+            }
+            if ($character === "'" || $character === '"') {
+                $quote = $character;
+                continue;
+            }
+            if ($character === '$' && ($code[$cursor + 1] ?? '') === '(') {
+                $parentheses++;
+                $cursor++;
+                continue;
+            }
+            if ($character === '$' && ($code[$cursor + 1] ?? '') === '{') {
+                $braces++;
+                $cursor++;
+                continue;
+            }
+            if ($parentheses > 0 && $character === '(') {
+                $parentheses++;
+                continue;
+            }
+            if ($parentheses > 0 && $character === ')') {
+                $parentheses--;
+                continue;
+            }
+            if ($braces > 0 && $character === '}') {
+                $braces--;
+                continue;
+            }
+            if ($parentheses === 0
+                && $braces === 0
+                && (ctype_space($character) || str_contains(';&|()<>', $character))) {
+                break;
+            }
+        }
+        return $cursor;
+    }
+
+    /** @return array{word:string,end:int}|null */
+    private static function literalShellWord(string $code, int $cursor): ?array
+    {
+        $word = '';
+        $started = false;
+        for ($length = strlen($code); $cursor < $length;) {
+            $character = $code[$cursor];
+            if (ctype_space($character) || str_contains(';&|()<>', $character)) {
+                break;
+            }
+            $started = true;
+            if ($character === '\\') {
+                if (!isset($code[$cursor + 1])) {
+                    return null;
+                }
+                $word .= $code[$cursor + 1];
+                $cursor += 2;
+                continue;
+            }
+            if ($character === "'" || $character === '"') {
+                $quote = $character;
+                for ($cursor++; $cursor < $length && $code[$cursor] !== $quote; $cursor++) {
+                    if ($quote === '"' && $code[$cursor] === '\\' && isset($code[$cursor + 1])) {
+                        $escaped = $code[$cursor + 1];
+                        if (str_contains('$`"\\', $escaped)) {
+                            $word .= $escaped;
+                            $cursor++;
+                            continue;
+                        }
+                    }
+                    if ($quote === '"' && ($code[$cursor] === '$' || $code[$cursor] === '`')) {
+                        return null;
+                    }
+                    $word .= $code[$cursor];
+                }
+                if ($cursor >= $length) {
+                    return null;
+                }
+                $cursor++;
+                continue;
+            }
+            if ($character === '$' || $character === '`') {
+                return null;
+            }
+            $word .= $character;
+            $cursor++;
+        }
+        return $started ? ['word' => $word, 'end' => $cursor] : null;
+    }
+
+    private static function shellSourceFailure(
+        string $capsule,
+        string $path,
+        string $slug,
+        int $line,
+        string $candidate
+    ): never {
+        $relative = substr($path, strlen($capsule) + 1);
+        throw new RuntimeException(
+            "Adapter package '$slug' sources a dependency that is not an explicit recognized .sh file at "
+            . "$relative:$line ('$candidate')"
+        );
     }
 
     private static function assertCapsuleNodesAreOrdinary(string $capsule, string $slug): void
@@ -521,7 +755,7 @@ final class AdapterPackageValidator
                 $previous = $kind;
             }
         }
-        foreach (self::computedDynamicDuoSymbols($tokens) as $reference) {
+        foreach (self::computedDynamicDuoSymbols($tokens, $capsule, $path, $slug) as $reference) {
             self::assertRuntimeSdkSymbol(
                 $capsule,
                 $path,
@@ -823,11 +1057,88 @@ final class AdapterPackageValidator
      * @param list<array{0:int,1:string,2:int}|string> $tokens
      * @return list<array{symbol:string,line:int}>
      */
-    private static function computedDynamicDuoSymbols(array $tokens): array
+    private static function computedDynamicDuoSymbols(
+        array $tokens,
+        string $capsule,
+        string $path,
+        string $slug
+    ): array
     {
         $variables = [];
+        $unresolvedVariables = [];
+        $objectVariables = [];
         $references = [];
+        /**
+         * Function-local assignments must neither inherit undeclared outer
+         * locals nor leak back into the enclosing scope. Arrow functions are
+         * the exception: PHP captures their visible outer variables by value.
+         *
+         * @var list<array{
+         *     end:int,
+         *     body_start:int,
+         *     variables:array<string,string>,
+         *     unresolved:array<string,int>,
+         *     objects:array<string,true>
+         * }> $scopeStack
+         */
+        $scopeStack = [];
         foreach ($tokens as $offset => $token) {
+            while ($scopeStack !== [] && $offset >= $scopeStack[array_key_last($scopeStack)]['end']) {
+                $outer = array_pop($scopeStack);
+                $variables = $outer['variables'];
+                $unresolvedVariables = $outer['unresolved'];
+                $objectVariables = $outer['objects'];
+            }
+            if (is_array($token) && in_array($token[0], [T_FUNCTION, T_FN], true)) {
+                $scope = self::dynamicFunctionScope($tokens, $offset);
+                if ($scope === null) {
+                    $variables = [];
+                    $unresolvedVariables = [];
+                    $objectVariables = [];
+                    continue;
+                }
+                $outerVariables = $variables;
+                $outerUnresolved = $unresolvedVariables;
+                $outerObjects = $objectVariables;
+                $scopeStack[] = [
+                    'end' => $scope['end'],
+                    'body_start' => $scope['body_start'],
+                    'variables' => $outerVariables,
+                    'unresolved' => $outerUnresolved,
+                    'objects' => $outerObjects,
+                ];
+                $variables = $scope['arrow'] ? $outerVariables : [];
+                $unresolvedVariables = $scope['arrow'] ? $outerUnresolved : [];
+                $objectVariables = $scope['arrow'] ? $outerObjects : [];
+                foreach ($scope['captures'] as $capture) {
+                    unset(
+                        $variables[$capture['name']],
+                        $unresolvedVariables[$capture['name']],
+                        $objectVariables[$capture['name']]
+                    );
+                    if (isset($outerVariables[$capture['name']])) {
+                        $variables[$capture['name']] = $outerVariables[$capture['name']];
+                    } else {
+                        $unresolvedVariables[$capture['name']] = $outerUnresolved[$capture['name']]
+                            ?? $capture['line'];
+                    }
+                    if (isset($outerObjects[$capture['name']])) {
+                        $objectVariables[$capture['name']] = true;
+                    }
+                }
+                foreach ($scope['parameters'] as $parameter) {
+                    unset($variables[$parameter['name']], $objectVariables[$parameter['name']]);
+                    $unresolvedVariables[$parameter['name']] = $parameter['line'];
+                }
+                foreach ($scope['object_parameters'] as $parameter) {
+                    $objectVariables[$parameter] = true;
+                }
+                continue;
+            }
+            if ($scopeStack !== []
+                && $offset < $scopeStack[array_key_last($scopeStack)]['body_start']) {
+                continue;
+            }
             if (!is_array($token) || $token[0] !== T_VARIABLE) {
                 continue;
             }
@@ -835,19 +1146,67 @@ final class AdapterPackageValidator
             if ($next !== null && $next['token'] === '=') {
                 $resolved = self::resolvedPhpStringExpression($tokens, $next['offset'] + 1, $variables);
                 if ($resolved === null) {
-                    unset($variables[$token[1]]);
+                    $fragments = self::unresolvedExpressionStringFragments(
+                        $tokens,
+                        $next['offset'] + 1,
+                        $variables
+                    );
+                    $symbols = self::dynamicDuoSymbols($fragments, false);
+                    foreach ($symbols as $symbol) {
+                        $references[$symbol . ':' . $token[2]] = ['symbol' => $symbol, 'line' => $token[2]];
+                    }
+                    if ($symbols === []
+                        && preg_match(
+                            '/(?:^|[^A-Za-z0-9_])\\\\?(?i:Duo)(?:\\\\|[A-Z]|$)/',
+                            $fragments
+                        ) === 1) {
+                        $relative = substr($path, strlen($capsule) + 1);
+                        throw new RuntimeException(
+                            "Adapter package '$slug' depends on non-SDK Duo symbol constructed dynamically at "
+                            . "$relative:{$token[2]}"
+                        );
+                    }
+                    unset($variables[$token[1]], $objectVariables[$token[1]]);
+                    $unresolvedVariables[$token[1]] = $token[2];
                     continue;
                 }
                 $terminator = self::nextSignificantToken($tokens, $resolved['end'] + 1);
                 if ($terminator !== null && !in_array($terminator['token'], [';', ',', ')', ']'], true)) {
-                    unset($variables[$token[1]]);
+                    unset($variables[$token[1]], $objectVariables[$token[1]]);
+                    $unresolvedVariables[$token[1]] = $token[2];
                     continue;
                 }
                 $variables[$token[1]] = $resolved['value'];
+                unset($unresolvedVariables[$token[1]], $objectVariables[$token[1]]);
                 foreach (self::dynamicDuoSymbols($resolved['value'], false) as $symbol) {
                     $references[$symbol . ':' . $token[2]] = ['symbol' => $symbol, 'line' => $token[2]];
                 }
                 continue;
+            }
+
+            if (isset($unresolvedVariables[$token[1]])
+                && self::isDynamicClassDispatch($tokens, $offset)) {
+                $scopeStart = $scopeStack === []
+                    ? 0
+                    : $scopeStack[array_key_last($scopeStack)]['body_start'];
+                if (self::isReflectionInspection($tokens, $offset)
+                    && (isset($objectVariables[$token[1]])
+                        || self::hasPriorFailingObjectGuard($tokens, $scopeStart, $offset, $token[1]))) {
+                    continue;
+                }
+                if (self::hasEnclosingLiteralClassAllowlist(
+                    $tokens,
+                    $scopeStart,
+                    $offset,
+                    $token[1]
+                )) {
+                    continue;
+                }
+                $relative = substr($path, strlen($capsule) + 1);
+                throw new RuntimeException(
+                    "Adapter package '$slug' uses unresolved dynamic class dispatch at "
+                    . "$relative:{$token[2]}"
+                );
             }
 
             $resolved = self::resolvedPhpStringExpression($tokens, $offset, $variables);
@@ -859,6 +1218,565 @@ final class AdapterPackageValidator
             }
         }
         return array_values($references);
+    }
+
+    /**
+     * @param list<array{0:int,1:string,2:int}|string> $tokens
+     * @return array{
+     *     arrow:bool,
+     *     body_start:int,
+     *     end:int,
+     *     parameters:list<array{name:string,line:int}>,
+     *     object_parameters:list<string>,
+     *     captures:list<array{name:string,line:int}>
+     * }|null
+     */
+    private static function dynamicFunctionScope(array $tokens, int $functionOffset): ?array
+    {
+        $function = $tokens[$functionOffset] ?? null;
+        if (!is_array($function) || !in_array($function[0], [T_FUNCTION, T_FN], true)) {
+            return null;
+        }
+        $arrow = $function[0] === T_FN;
+        $parameterOpen = null;
+        $named = false;
+        for ($cursor = $functionOffset + 1, $count = count($tokens); $cursor < $count; $cursor++) {
+            $candidate = $tokens[$cursor];
+            if (is_array($candidate)
+                && in_array($candidate[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+            if ($candidate === '(') {
+                $parameterOpen = $cursor;
+                break;
+            }
+            if (is_array($candidate) && $candidate[0] === T_STRING) {
+                $named = true;
+            }
+        }
+        if ($parameterOpen === null) {
+            return null;
+        }
+        $parameterClose = self::matchingPhpDelimiter($tokens, $parameterOpen, '(', ')');
+        if ($parameterClose === null) {
+            return null;
+        }
+        $parameters = self::topLevelVariables($tokens, $parameterOpen, $parameterClose);
+        $objectParameters = self::objectTypedParameters($tokens, $parameterOpen, $parameterClose);
+        $captures = [];
+        $afterHeader = $parameterClose + 1;
+        $next = self::nextSignificantToken($tokens, $afterHeader);
+        if (!$arrow
+            && !$named
+            && $next !== null
+            && is_array($next['token'])
+            && $next['token'][0] === T_USE) {
+            $captureOpen = self::nextSignificantToken($tokens, $next['offset'] + 1);
+            if ($captureOpen === null || $captureOpen['token'] !== '(') {
+                return null;
+            }
+            $captureClose = self::matchingPhpDelimiter($tokens, $captureOpen['offset'], '(', ')');
+            if ($captureClose === null) {
+                return null;
+            }
+            $captures = self::topLevelVariables($tokens, $captureOpen['offset'], $captureClose);
+            $afterHeader = $captureClose + 1;
+        }
+
+        for ($cursor = $afterHeader, $count = count($tokens); $cursor < $count; $cursor++) {
+            $candidate = $tokens[$cursor];
+            if ($arrow && is_array($candidate) && $candidate[0] === T_DOUBLE_ARROW) {
+                $body = self::nextSignificantToken($tokens, $cursor + 1);
+                if ($body === null) {
+                    return null;
+                }
+                return [
+                    'arrow' => true,
+                    'body_start' => $body['offset'],
+                    'end' => self::arrowFunctionExpressionEnd($tokens, $body['offset']),
+                    'parameters' => $parameters,
+                    'object_parameters' => $objectParameters,
+                    'captures' => [],
+                ];
+            }
+            if (!$arrow && $candidate === '{') {
+                $end = self::matchingPhpDelimiter($tokens, $cursor, '{', '}');
+                if ($end === null) {
+                    return null;
+                }
+                return [
+                    'arrow' => false,
+                    'body_start' => $cursor + 1,
+                    'end' => $end,
+                    'parameters' => $parameters,
+                    'object_parameters' => $objectParameters,
+                    'captures' => $captures,
+                ];
+            }
+            if (!$arrow && $candidate === ';') {
+                return [
+                    'arrow' => false,
+                    'body_start' => $cursor,
+                    'end' => $cursor,
+                    'parameters' => $parameters,
+                    'object_parameters' => $objectParameters,
+                    'captures' => $captures,
+                ];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @param list<array{0:int,1:string,2:int}|string> $tokens
+     * @return list<array{name:string,line:int}>
+     */
+    private static function topLevelVariables(array $tokens, int $open, int $close): array
+    {
+        $variables = [];
+        $round = 0;
+        $square = 0;
+        $brace = 0;
+        for ($offset = $open + 1; $offset < $close; $offset++) {
+            $token = $tokens[$offset];
+            if (is_array($token) && $token[0] === T_ATTRIBUTE) {
+                $square++;
+            } elseif ($token === '(') {
+                $round++;
+            } elseif ($token === ')') {
+                $round--;
+            } elseif ($token === '[') {
+                $square++;
+            } elseif ($token === ']') {
+                $square--;
+            } elseif ($token === '{') {
+                $brace++;
+            } elseif ($token === '}') {
+                $brace--;
+            } elseif ($round === 0
+                && $square === 0
+                && $brace === 0
+                && is_array($token)
+                && $token[0] === T_VARIABLE) {
+                $variables[$token[1]] = ['name' => $token[1], 'line' => $token[2]];
+            }
+        }
+        return array_values($variables);
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens @return list<string> */
+    private static function objectTypedParameters(array $tokens, int $open, int $close): array
+    {
+        $objects = [];
+        $segmentStart = $open + 1;
+        $round = 0;
+        $square = 0;
+        $brace = 0;
+        for ($offset = $open + 1; $offset <= $close; $offset++) {
+            $token = $tokens[$offset] ?? ')';
+            if (is_array($token) && $token[0] === T_ATTRIBUTE) {
+                $square++;
+            } elseif ($token === '(') {
+                $round++;
+            } elseif ($token === ')') {
+                if ($round > 0) {
+                    $round--;
+                }
+            } elseif ($token === '[') {
+                $square++;
+            } elseif ($token === ']') {
+                $square--;
+            } elseif ($token === '{') {
+                $brace++;
+            } elseif ($token === '}') {
+                $brace--;
+            }
+            if ($offset !== $close && ($token !== ',' || $round !== 0 || $square !== 0 || $brace !== 0)) {
+                continue;
+            }
+            $name = null;
+            $object = false;
+            for ($cursor = $segmentStart; $cursor < $offset; $cursor++) {
+                $candidate = $tokens[$cursor];
+                if (is_array($candidate) && $candidate[0] === T_VARIABLE) {
+                    $name = $candidate[1];
+                }
+                if (is_array($candidate)
+                    && in_array($candidate[0], [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true)
+                    && strtolower(ltrim($candidate[1], '\\')) === 'object') {
+                    $object = true;
+                }
+            }
+            if ($name !== null && $object) {
+                $objects[$name] = true;
+            }
+            $segmentStart = $offset + 1;
+        }
+        return array_keys($objects);
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function matchingPhpDelimiter(
+        array $tokens,
+        int $openOffset,
+        string $open,
+        string $close
+    ): ?int {
+        $depth = 0;
+        for ($offset = $openOffset, $count = count($tokens); $offset < $count; $offset++) {
+            $token = $tokens[$offset];
+            if ($token === $open) {
+                $depth++;
+            } elseif ($token === $close && --$depth === 0) {
+                return $offset;
+            }
+        }
+        return null;
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function arrowFunctionExpressionEnd(array $tokens, int $start): int
+    {
+        $round = 0;
+        $square = 0;
+        $brace = 0;
+        for ($offset = $start, $count = count($tokens); $offset < $count; $offset++) {
+            $token = $tokens[$offset];
+            if ($token === '(') {
+                $round++;
+                continue;
+            }
+            if ($token === '[') {
+                $square++;
+                continue;
+            }
+            if ($token === '{') {
+                $brace++;
+                continue;
+            }
+            if ($token === ')') {
+                if ($round === 0) {
+                    return $offset;
+                }
+                $round--;
+                continue;
+            }
+            if ($token === ']') {
+                if ($square === 0) {
+                    return $offset;
+                }
+                $square--;
+                continue;
+            }
+            if ($token === '}') {
+                if ($brace === 0) {
+                    return $offset;
+                }
+                $brace--;
+                continue;
+            }
+            if (($token === ',' || $token === ';') && $round === 0 && $square === 0 && $brace === 0) {
+                return $offset;
+            }
+            if (is_array($token) && $token[0] === T_CLOSE_TAG) {
+                return $offset;
+            }
+        }
+        return count($tokens);
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function isDynamicClassDispatch(array $tokens, int $offset): bool
+    {
+        $next = self::nextSignificantToken($tokens, $offset + 1);
+        if ($next !== null && is_array($next['token']) && $next['token'][0] === T_DOUBLE_COLON) {
+            return true;
+        }
+
+        $previousOffset = self::previousSignificantOffset($tokens, $offset - 1);
+        if ($previousOffset === null) {
+            return false;
+        }
+        $previous = $tokens[$previousOffset];
+        if (is_array($previous) && $previous[0] === T_NEW) {
+            return true;
+        }
+        if ($previous !== '(') {
+            return false;
+        }
+        $calleeOffset = self::previousSignificantOffset($tokens, $previousOffset - 1);
+        if ($calleeOffset === null) {
+            return false;
+        }
+        $callee = $tokens[$calleeOffset];
+        if (is_array($callee) && $callee[0] === T_NEW) {
+            return true;
+        }
+        if (!is_array($callee)
+            || !in_array($callee[0], [T_STRING, T_NAME_FULLY_QUALIFIED, T_NAME_QUALIFIED], true)) {
+            return false;
+        }
+        return in_array(strtolower(ltrim($callee[1], '\\')), [
+            'class_exists',
+            'enum_exists',
+            'interface_exists',
+            'is_a',
+            'is_subclass_of',
+            'reflectionclass',
+            'reflectionmethod',
+            'reflectionproperty',
+            'trait_exists',
+        ], true);
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function isReflectionInspection(array $tokens, int $offset): bool
+    {
+        $open = self::previousSignificantOffset($tokens, $offset - 1);
+        if ($open === null || $tokens[$open] !== '(') {
+            return false;
+        }
+        $calleeOffset = self::previousSignificantOffset($tokens, $open - 1);
+        if ($calleeOffset === null) {
+            return false;
+        }
+        $callee = $tokens[$calleeOffset];
+        if (!is_array($callee)
+            || !in_array($callee[0], [T_STRING, T_NAME_FULLY_QUALIFIED, T_NAME_QUALIFIED], true)) {
+            return false;
+        }
+        return in_array(strtolower(ltrim($callee[1], '\\')), [
+            'reflectionclass',
+            'reflectionmethod',
+            'reflectionproperty',
+        ], true);
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function hasPriorFailingObjectGuard(
+        array $tokens,
+        int $scopeStart,
+        int $dispatchOffset,
+        string $variable
+    ): bool {
+        $braceDepth = 0;
+        for ($offset = $scopeStart; $offset < $dispatchOffset; $offset++) {
+            $token = $tokens[$offset];
+            if ($token === '{') {
+                $braceDepth++;
+                continue;
+            }
+            if ($token === '}') {
+                $braceDepth--;
+                continue;
+            }
+            if ($braceDepth !== 0) {
+                continue;
+            }
+            if (!is_array($token) || $token[0] !== T_IF) {
+                continue;
+            }
+            $conditionOpen = self::nextSignificantToken($tokens, $offset + 1);
+            if ($conditionOpen === null || $conditionOpen['token'] !== '(') {
+                continue;
+            }
+            $conditionClose = self::matchingPhpDelimiter($tokens, $conditionOpen['offset'], '(', ')');
+            if ($conditionClose === null || $conditionClose >= $dispatchOffset) {
+                continue;
+            }
+            $negation = self::nextSignificantToken($tokens, $conditionOpen['offset'] + 1);
+            $predicate = $negation === null
+                ? null
+                : self::nextSignificantToken($tokens, $negation['offset'] + 1);
+            $argumentOpen = $predicate === null
+                ? null
+                : self::nextSignificantToken($tokens, $predicate['offset'] + 1);
+            $argument = $argumentOpen === null
+                ? null
+                : self::nextSignificantToken($tokens, $argumentOpen['offset'] + 1);
+            $argumentClose = $argument === null
+                ? null
+                : self::nextSignificantToken($tokens, $argument['offset'] + 1);
+            if ($negation === null || $negation['token'] !== '!'
+                || $predicate === null
+                || !is_array($predicate['token'])
+                || $predicate['token'][0] !== T_STRING
+                || strtolower($predicate['token'][1]) !== 'is_object'
+                || $argumentOpen === null || $argumentOpen['token'] !== '('
+                || $argument === null
+                || !is_array($argument['token'])
+                || $argument['token'][0] !== T_VARIABLE
+                || $argument['token'][1] !== $variable
+                || $argumentClose === null || $argumentClose['token'] !== ')') {
+                continue;
+            }
+            $conditionRemainder = self::nextSignificantToken($tokens, $argumentClose['offset'] + 1);
+            if ($conditionRemainder === null
+                || ($conditionRemainder['offset'] !== $conditionClose
+                    && (!is_array($conditionRemainder['token'])
+                        || !in_array($conditionRemainder['token'][0], [T_BOOLEAN_OR, T_LOGICAL_OR], true)))) {
+                continue;
+            }
+            $bodyOpen = self::nextSignificantToken($tokens, $conditionClose + 1);
+            if ($bodyOpen === null || $bodyOpen['token'] !== '{') {
+                continue;
+            }
+            $bodyClose = self::matchingPhpDelimiter($tokens, $bodyOpen['offset'], '{', '}');
+            if ($bodyClose === null || $bodyClose >= $dispatchOffset) {
+                continue;
+            }
+            $firstBody = self::nextSignificantToken($tokens, $bodyOpen['offset'] + 1);
+            if ($firstBody !== null
+                && is_array($firstBody['token'])
+                && $firstBody['token'][0] === T_THROW) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function hasEnclosingLiteralClassAllowlist(
+        array $tokens,
+        int $scopeStart,
+        int $dispatchOffset,
+        string $variable
+    ): bool {
+        for ($offset = $scopeStart; $offset < $dispatchOffset; $offset++) {
+            $token = $tokens[$offset];
+            if (!is_array($token) || $token[0] !== T_IF) {
+                continue;
+            }
+            $conditionOpen = self::nextSignificantToken($tokens, $offset + 1);
+            if ($conditionOpen === null || $conditionOpen['token'] !== '(') {
+                continue;
+            }
+            $conditionClose = self::matchingPhpDelimiter($tokens, $conditionOpen['offset'], '(', ')');
+            if ($conditionClose === null) {
+                continue;
+            }
+            $callee = self::nextSignificantToken($tokens, $conditionOpen['offset'] + 1);
+            $callOpen = $callee === null
+                ? null
+                : self::nextSignificantToken($tokens, $callee['offset'] + 1);
+            $subject = $callOpen === null
+                ? null
+                : self::nextSignificantToken($tokens, $callOpen['offset'] + 1);
+            $firstComma = $subject === null
+                ? null
+                : self::nextSignificantToken($tokens, $subject['offset'] + 1);
+            $listOpen = $firstComma === null
+                ? null
+                : self::nextSignificantToken($tokens, $firstComma['offset'] + 1);
+            if ($callee === null
+                || !is_array($callee['token'])
+                || $callee['token'][0] !== T_STRING
+                || strtolower($callee['token'][1]) !== 'in_array'
+                || $callOpen === null || $callOpen['token'] !== '('
+                || $subject === null
+                || !is_array($subject['token'])
+                || $subject['token'][0] !== T_VARIABLE
+                || $subject['token'][1] !== $variable
+                || $firstComma === null || $firstComma['token'] !== ','
+                || $listOpen === null || $listOpen['token'] !== '[') {
+                continue;
+            }
+            $listClose = self::matchingPhpDelimiter($tokens, $listOpen['offset'], '[', ']');
+            if ($listClose === null) {
+                continue;
+            }
+            $literalCount = 0;
+            $valid = true;
+            for ($cursor = $listOpen['offset'] + 1; $cursor < $listClose; $cursor++) {
+                $candidate = $tokens[$cursor];
+                if (is_array($candidate)
+                    && in_array($candidate[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+                    continue;
+                }
+                if ($candidate === ',') {
+                    continue;
+                }
+                if (!is_array($candidate) || $candidate[0] !== T_CONSTANT_ENCAPSED_STRING) {
+                    $valid = false;
+                    break;
+                }
+                $class = self::decodePhpStringLiteral($candidate[1]);
+                if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*(?:\\\\[A-Za-z_][A-Za-z0-9_]*)*$/D', $class) !== 1
+                    || self::dynamicDuoSymbols($class, false) !== []) {
+                    $valid = false;
+                    break;
+                }
+                $literalCount++;
+            }
+            $secondComma = self::nextSignificantToken($tokens, $listClose + 1);
+            $strict = $secondComma === null
+                ? null
+                : self::nextSignificantToken($tokens, $secondComma['offset'] + 1);
+            $callClose = $strict === null
+                ? null
+                : self::nextSignificantToken($tokens, $strict['offset'] + 1);
+            $conditionEnd = $callClose === null
+                ? null
+                : self::nextSignificantToken($tokens, $callClose['offset'] + 1);
+            $bodyOpen = self::nextSignificantToken($tokens, $conditionClose + 1);
+            $bodyClose = $bodyOpen !== null && $bodyOpen['token'] === '{'
+                ? self::matchingPhpDelimiter($tokens, $bodyOpen['offset'], '{', '}')
+                : null;
+            if (!$valid || $literalCount === 0
+                || $secondComma === null || $secondComma['token'] !== ','
+                || $strict === null
+                || !is_array($strict['token'])
+                || $strict['token'][0] !== T_STRING
+                || strtolower($strict['token'][1]) !== 'true'
+                || $callClose === null || $callClose['token'] !== ')'
+                || $conditionEnd === null || $conditionEnd['offset'] !== $conditionClose
+                || $bodyOpen === null || $bodyOpen['token'] !== '{'
+                || $bodyClose === null
+                || $dispatchOffset <= $bodyOpen['offset']
+                || $dispatchOffset >= $bodyClose) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * An adapter may construct plugin class names dynamically, but a partially
+     * resolvable Duo namespace is an ABI reference and must fail closed.
+     *
+     * @param list<array{0:int,1:string,2:int}|string> $tokens
+     * @param array<string,string> $variables
+     */
+    private static function unresolvedExpressionStringFragments(
+        array $tokens,
+        int $offset,
+        array $variables
+    ): string {
+        $fragments = '';
+        $depth = 0;
+        for ($count = count($tokens); $offset < $count; $offset++) {
+            $token = $tokens[$offset];
+            if (!is_array($token)) {
+                if (in_array($token, ['(', '[', '{'], true)) {
+                    $depth++;
+                } elseif (in_array($token, [')', ']', '}'], true)) {
+                    if ($depth === 0) {
+                        break;
+                    }
+                    $depth--;
+                } elseif (in_array($token, [';', ','], true) && $depth === 0) {
+                    break;
+                }
+                continue;
+            }
+            if ($token[0] === T_CONSTANT_ENCAPSED_STRING) {
+                $fragments .= self::decodePhpStringLiteral($token[1]);
+            } elseif ($token[0] === T_VARIABLE && isset($variables[$token[1]])) {
+                $fragments .= $variables[$token[1]];
+            }
+        }
+        return $fragments;
     }
 
     /**
@@ -1279,35 +2197,10 @@ final class AdapterPackageValidator
         string $premiseComment,
         int $line
     ): void {
-        $activeSource = preg_replace('/^[ \t]*#.*$/m', '', $source);
-        if (!is_string($activeSource)) {
-            $activeSource = '';
-        }
-        preg_match_all('/"manifests"[ \t]*:[ \t]*(\[[^\]\r\n]*\])/', $activeSource, $matches);
-        $participants = [];
-        foreach ($matches[1] ?? [] as $encoded) {
-            if (!is_string($encoded)) {
-                continue;
-            }
-            try {
-                $manifests = json_decode($encoded, true, 32, JSON_THROW_ON_ERROR);
-            } catch (\JsonException) {
-                continue;
-            }
-            if (!is_array($manifests) || !array_is_list($manifests)) {
-                continue;
-            }
-            foreach ($manifests as $manifest) {
-                if (is_string($manifest)
-                    && preg_match('/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/D', $manifest) === 1) {
-                    $participants[$manifest] = true;
-                }
-            }
-        }
-        if (!isset($participants[$slug])) {
+        if (!in_array($slug, ActiveShellSource::manifestParticipants($source), true)) {
             throw new RuntimeException(
                 "Adapter package '$slug' premise contract line $line cites certification source '$relative' "
-                . 'without an executable manifest participant declaration'
+                . 'without an active canonical manifest participant declaration'
             );
         }
         if (preg_match(
@@ -1384,19 +2277,7 @@ final class AdapterPackageValidator
     /** @return array{code:string,comment:string,line:int}|null */
     private static function activePremiseStatement(string $source, string $needle): ?array
     {
-        $matches = [];
-        foreach (ActiveShellSource::lines($source) as $line) {
-            $code = ltrim($line['code']);
-            if (!str_starts_with($code, $needle)) {
-                continue;
-            }
-            $suffix = substr($code, strlen($needle));
-            if ($suffix !== '' && preg_match('/^[ \t;&|]/', $suffix) !== 1) {
-                continue;
-            }
-            $matches[] = $line;
-        }
-        return count($matches) === 1 ? $matches[0] : null;
+        return ActiveShellSource::statement($source, $needle);
     }
 
     /**

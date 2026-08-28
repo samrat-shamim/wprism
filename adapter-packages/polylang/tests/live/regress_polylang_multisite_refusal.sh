@@ -64,7 +64,7 @@ CONF1_PORT="$PORT1"
 COMPOSE="${PAIR_COMPOSE[*]}"
 export CONF_REPO1 CONF1_PORT COMPOSE
 wp_conf1() { wp1 "$@"; }
-. "$PACKAGE_ROOT/tests/conformance/seed.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
 unset -f wp_conf1
 jq -n '{manifests:["core","polylang"],policy:{options:{},post_meta:{},post_types:["post","page","attachment","wp_block","nav_menu_item"],taxonomies:["category","post_tag","language","term_language","post_translations","term_translations","nav_menu"]},spec_version:2}' > "$REPO/site.duo.json"
 cp site-repo.gitignore.template "$REPO/.gitignore"

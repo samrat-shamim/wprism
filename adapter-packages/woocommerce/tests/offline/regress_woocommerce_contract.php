@@ -2191,7 +2191,10 @@ woo_ok(
 );
 woo_ok(
     substr_count($woocommerceMatrixHarness, 'postapply_woocommerce_content() {') === 1
-        && str_contains($woocommerceMatrixHarness, '. "$package_tests/conformance/postapply.sh"')
+        && str_contains(
+            $woocommerceMatrixHarness,
+            '. "$(dirname "${BASH_SOURCE[0]}")/../conformance/postapply.sh"'
+        )
         && substr_count($wooMatrixCase, 'postapply_woocommerce_content') === 1
         && $wooApplySuccess !== false
         && $wooPostapplyCall !== false

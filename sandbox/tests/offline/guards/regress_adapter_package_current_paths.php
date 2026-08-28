@@ -71,6 +71,96 @@ foreach ($currentPathEvidence as $relative => $token) {
     duo_check(str_contains($bytes, $token), "$relative names current package-layout remediation '$token'");
 }
 
+$runtimePathEvidence = [
+    'agent/src/Adapter/AdapterSources.php' => [
+        'current' => [
+            'platform/adapter-library/core/manifest.json',
+            'platform/adapter-library/core/runtime/providers/',
+            'platform/adapter-library/capabilities/platform.json',
+        ],
+        'retired_remediation' => [
+            'declarations exactly as manifests/$name.json carries them',
+            "the agent's own manifests/providers/ tree",
+        ],
+    ],
+    'agent/src/Adapter/Providers.php' => [
+        'current' => [
+            'platform/adapter-library/core',
+            'adapter-packages/{$failure->manifest()}/package',
+        ],
+        'retired_remediation' => [
+            'repair manifests/providers/',
+        ],
+    ],
+    'agent/src/Repository/SidebarState.php' => [
+        'current' => [
+            'platform/adapter-library/core/manifest.json',
+        ],
+        'retired_remediation' => [
+            "see manifests/core.json's",
+        ],
+    ],
+];
+foreach ($runtimePathEvidence as $relative => $evidence) {
+    $bytes = (string) file_get_contents($root . '/' . $relative);
+    foreach ($evidence['current'] as $token) {
+        duo_check(str_contains($bytes, $token), "$relative names current runtime remediation '$token'");
+    }
+    foreach ($evidence['retired_remediation'] as $token) {
+        duo_check(!str_contains($bytes, $token), "$relative does not publish retired remediation '$token'");
+    }
+}
+
+require_once $root . '/agent/src/Adapter/AdapterSources.php';
+require_once $root . '/agent/src/Adapter/Providers.php';
+$contractRefusal = static function (string $name): string {
+    try {
+        \Duo\AdapterSources::assert_out_of_tree_contract(
+            ['spec_version' => 2, 'interpreter' => 'changed'],
+            $name,
+            "adapters/$name.json",
+            'site adapter',
+            false,
+            ['interpreter' => 'shipped', 'regenerators' => [], 'providers' => []]
+        );
+    } catch (Throwable $failure) {
+        return $failure->getMessage();
+    }
+    return '';
+};
+$coreRefusal = $contractRefusal('core');
+duo_check(
+    str_contains($coreRefusal, 'platform/adapter-library/core/manifest.json')
+        && !str_contains($coreRefusal, 'adapter-packages/core/'),
+    'a core override refusal points only to its platform-owned manifest'
+);
+$adapterRefusal = $contractRefusal('acf');
+duo_check(
+    str_contains($adapterRefusal, 'adapter-packages/acf/package/manifest.json')
+        && !str_contains($adapterRefusal, 'platform/adapter-library/core/'),
+    'an adapter override refusal points only to its capsule-owned manifest'
+);
+$coreProvider = \Duo\Providers::packaging_problem(new \Duo\ProviderPackagingException(
+    'core-probe',
+    'core',
+    'missing provider fixture'
+));
+duo_check(
+    str_contains((string) ($coreProvider['remediation'] ?? ''), 'platform/adapter-library/core/runtime/providers/')
+        && !str_contains((string) ($coreProvider['remediation'] ?? ''), 'adapter-packages/core/'),
+    'a core provider packaging refusal points only to its platform-owned runtime'
+);
+$adapterProvider = \Duo\Providers::packaging_problem(new \Duo\ProviderPackagingException(
+    'acf-probe',
+    'acf',
+    'missing provider fixture'
+));
+duo_check(
+    str_contains((string) ($adapterProvider['remediation'] ?? ''), 'adapter-packages/acf/package/runtime/providers/')
+        && !str_contains((string) ($adapterProvider['remediation'] ?? ''), 'platform/adapter-library/core/'),
+    'an adapter provider packaging refusal points only to its capsule-owned runtime'
+);
+
 foreach (['capability-doc.php', 'adapter-grade.php'] as $tool) {
     $bytes = (string) file_get_contents($root . '/tools/' . $tool);
     duo_check(str_contains($bytes, "=== 'render'"), "tools/$tool exposes an on-demand render command");
@@ -96,7 +186,7 @@ duo_check(
 duo_check(
     str_contains(
         $releaseGate,
-        "regress-%: export DUO_ADAPTER_PACKAGE_MAKE_TARGET = " . '$@' . "\n"
+        'regress-%: export DUO_ADAPTER_PACKAGE_MAKE_TARGET = ' . '$@' . "\n"
     )
         && str_contains($releaseGate, "regress-%: adapter-package-make-force\n")
         && str_contains(

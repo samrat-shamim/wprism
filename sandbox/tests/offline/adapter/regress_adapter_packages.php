@@ -4,14 +4,20 @@ declare(strict_types=1);
 
 use Duo\Tooling\AdapterPackageTestRunner;
 use Duo\Tooling\AdapterIntegrationScenarios;
+use Duo\Tooling\OfflineScenarioDelegation;
 
 require_once __DIR__ . '/../../../../tools/src/AdapterPackageTestRunner.php';
 require_once __DIR__ . '/../../../../tools/src/AdapterIntegrationScenarios.php';
+require_once __DIR__ . '/../../../../tools/src/OfflineScenarioDelegation.php';
 
 $repo = dirname(__DIR__, 4);
 $scenarios = null;
 try {
     $scenarios = AdapterIntegrationScenarios::discover($repo);
+    $delegatedScenarios = OfflineScenarioDelegation::checkedSet(
+        OfflineScenarioDelegation::decode(getenv(OfflineScenarioDelegation::ENVIRONMENT)),
+        $scenarios
+    );
 } catch (Throwable $failure) {
     fwrite(STDERR, "regress-adapter-packages: integration scenario discovery refused: {$failure->getMessage()}\n");
     exit(1);
@@ -78,6 +84,10 @@ $scenarioTests = 0;
 foreach ($scenarios['scenarios'] as $scenario) {
     foreach ($scenario['gates'] as $gate) {
         if ($gate['class'] !== 'offline') {
+            continue;
+        }
+        $target = OfflineScenarioDelegation::target($scenario, $gate);
+        if (isset($delegatedScenarios[$target])) {
             continue;
         }
         $scenarioTests++;

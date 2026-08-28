@@ -29,6 +29,8 @@
 # Own dedicated pair, brought up and destroyed by this script -- never
 # touches r3e or any other agent's live pair.
 set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$(dirname "$0")/../../../../sandbox"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }

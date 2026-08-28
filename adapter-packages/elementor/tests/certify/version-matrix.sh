@@ -9,7 +9,7 @@ seed_elementor_content() {
   local CONF1_PORT="$PORT1"
   local COMPOSE="$PAIR_COMPOSE_STRING"
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-  . "$package_tests/conformance/seed.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
   unset -f wp_conf1
 }
 
@@ -23,7 +23,7 @@ check_elementor_content() {
   local ELEMENTOR_EXPECTED_VERSION="${ELEMENTOR_VERSION:-4.2.3}"
   local ELEMENTOR_BOUNDARY_ONLY=1
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-  . "$package_tests/conformance/check.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/check.sh"
   unset -f wp_conf2
 }
 
@@ -33,7 +33,7 @@ postdeploy_elementor_content() {
   local CONF_REPO2="siterepo/${PAIR}2"
   local COMPOSE="$PAIR_COMPOSE_STRING"
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-  . "$package_tests/conformance/postdeploy.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/postdeploy.sh"
   unset -f wp_conf2
 }
 

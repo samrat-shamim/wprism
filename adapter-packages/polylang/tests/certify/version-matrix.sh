@@ -7,7 +7,7 @@ seed_polylang_content() {
   local COMPOSE="$PAIR_COMPOSE_STRING"
   local package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-  . "$package_tests/conformance/seed.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
   unset -f wp_conf1
 }
 
@@ -26,7 +26,7 @@ check_polylang_content() {
   local APPLY_JSON="${POLYLANG_BOUNDARY_PROVIDER_RECEIPT:-}"
   local package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-  . "$package_tests/conformance/check.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/check.sh"
   unset -f wp_conf1 wp_conf2
 }
 

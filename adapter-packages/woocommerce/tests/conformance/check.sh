@@ -1914,6 +1914,6 @@ pass 'deactivate/reactivate, retained-data uninstall, absent-code refusal, exact
 # exact-artifact branch proves the operator-authorized destructive inverse and
 # credits only a database-matched backup with recovery.
 WOO_CONFORMANCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-. "$WOO_CONFORMANCE_ROOT/../../fixtures/woocommerce-destructive-lifecycle.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/woocommerce-destructive-lifecycle.sh"
 unset WOO_CONFORMANCE_ROOT
 check_woocommerce_destructive_lifecycle

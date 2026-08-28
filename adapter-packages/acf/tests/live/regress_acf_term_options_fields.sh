@@ -55,6 +55,8 @@
 # PAIR and explicit ports so this regression never resets another actor's
 # sandbox.
 set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 REPO_ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 cd "$REPO_ROOT"
 

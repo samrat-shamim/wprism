@@ -5,6 +5,8 @@ declare(strict_types=1);
 
 namespace Duo\Tooling;
 
+require_once __DIR__ . '/src/OfflineScenarioDelegation.php';
+
 /**
  * Parallel driver for the offline (no-docker) regress corpus -- WP-1.
  *
@@ -730,7 +732,11 @@ final class OfflineRunnerCli
         foreach (OfflineRunner::lptOrder($selected, $durations) as $target) {
             $tasks[] = [
                 'target' => $target,
-                'argv' => [$this->make, '--no-print-directory', $target],
+                'argv' => OfflineScenarioDelegation::makeArgv(
+                    $this->make,
+                    $target,
+                    array_keys($this->scopedTasks)
+                ),
                 'serial' => $serialEvidence[$target] !== [],
             ];
         }

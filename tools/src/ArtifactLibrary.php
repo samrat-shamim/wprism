@@ -15,8 +15,8 @@ final class ArtifactLibrary
     public static function load(string $repoRoot): array
     {
         $repo = self::repo($repoRoot);
-        $paths = [$repo . '/platform/artifact-library/artifacts.lock.json'];
-        $packages = $repo . '/adapter-packages';
+        $paths = [self::platformFragment($repo)];
+        $packages = self::ordinaryDirectory($repo, $repo . '/adapter-packages', 'adapter package root');
         $entries = scandir($packages);
         if ($entries === false) {
             throw new RuntimeException("Cannot read adapter package root: $packages");
@@ -25,12 +25,11 @@ final class ArtifactLibrary
             if ($package === '.' || $package === '..') {
                 continue;
             }
-            $directory = $packages . '/' . $package;
-            if (!is_dir($directory) || is_link($directory)) {
-                throw new RuntimeException("Adapter package entry is not a canonical directory: $package");
+            if (!self::safePackage($package)) {
+                throw new RuntimeException("Adapter package entry is not canonical: $package");
             }
-            $path = self::packagePath($repo, $package);
-            if (is_file($path)) {
+            $path = self::packageFragment($repo, $packages, $package, false);
+            if ($path !== null) {
                 $paths[] = $path;
             }
         }
@@ -62,7 +61,7 @@ final class ArtifactLibrary
     {
         $repo = self::repo($repoRoot);
 
-        return self::merge([$repo . '/platform/artifact-library/artifacts.lock.json']);
+        return self::merge([self::platformFragment($repo)]);
     }
 
     /**
@@ -82,6 +81,7 @@ final class ArtifactLibrary
 
         $paths = [];
         $seen = [];
+        $packages = self::ordinaryDirectory($repo, $repo . '/adapter-packages', 'adapter package root');
         foreach ($participants as $participant) {
             if (!is_string($participant) || !self::safePackage($participant)) {
                 throw new RuntimeException(
@@ -92,7 +92,7 @@ final class ArtifactLibrary
                 throw new RuntimeException("Artifact participant is declared more than once: $participant");
             }
             $seen[$participant] = true;
-            $paths[] = self::packagePath($repo, $participant);
+            $paths[] = self::packageFragment($repo, $packages, $participant, true);
         }
         sort($paths, SORT_STRING);
 
@@ -247,6 +247,94 @@ final class ArtifactLibrary
             throw new RuntimeException("Repository root is not an ordinary directory: $path");
         }
         return rtrim($repo, '/');
+    }
+
+    private static function platformFragment(string $repo): string
+    {
+        $platform = self::ordinaryDirectory($repo, $repo . '/platform', 'artifact platform root');
+        $library = self::ordinaryDirectory(
+            $repo,
+            $platform . '/artifact-library',
+            'platform artifact library directory'
+        );
+        return self::ordinaryFile(
+            $repo,
+            $library . '/artifacts.lock.json',
+            'platform artifact fragment'
+        );
+    }
+
+    private static function packageFragment(
+        string $repo,
+        string $packages,
+        string $package,
+        bool $required
+    ): ?string {
+        $directory = self::ordinaryDirectory(
+            $repo,
+            $packages . '/' . $package,
+            "adapter package '$package' directory"
+        );
+        $evidence = $directory . '/evidence';
+        if (!self::nodeExists($evidence)) {
+            if ($required) {
+                throw new RuntimeException("Adapter package '$package' has no evidence directory");
+            }
+            return null;
+        }
+        $evidence = self::ordinaryDirectory($repo, $evidence, "adapter package '$package' evidence directory");
+        $fragment = $evidence . '/artifacts.lock.json';
+        if (!self::nodeExists($fragment)) {
+            if ($required) {
+                throw new RuntimeException("Adapter package '$package' has no artifact fragment");
+            }
+            return null;
+        }
+        return self::ordinaryFile($repo, $fragment, "adapter package '$package' artifact fragment");
+    }
+
+    private static function nodeExists(string $path): bool
+    {
+        return is_link($path) || file_exists($path);
+    }
+
+    private static function ordinaryDirectory(string $repo, string $path, string $label): string
+    {
+        $stat = @lstat($path);
+        $canonical = realpath($path);
+        if ($stat === false
+            || ($stat['mode'] & 0170000) !== 0040000
+            || is_link($path)
+            || $canonical === false
+            || $canonical !== $path
+            || !is_readable($path)) {
+            throw new RuntimeException("$label is not an ordinary canonical directory: $path");
+        }
+        self::contained($repo, $canonical, $label);
+        return $canonical;
+    }
+
+    private static function ordinaryFile(string $repo, string $path, string $label): string
+    {
+        $stat = @lstat($path);
+        $canonical = realpath($path);
+        if ($stat === false
+            || ($stat['mode'] & 0170000) !== 0100000
+            || is_link($path)
+            || $canonical === false
+            || $canonical !== $path
+            || !is_readable($path)) {
+            throw new RuntimeException("$label is not an ordinary canonical file: $path");
+        }
+        self::contained($repo, $canonical, $label);
+        return $canonical;
+    }
+
+    private static function contained(string $repo, string $path, string $label): void
+    {
+        if ($path !== $repo && !str_starts_with($path, $repo . '/')) {
+            throw new RuntimeException("$label escapes the artifact repository: $path");
+        }
     }
 
     private static function safePackage(string $package): bool

@@ -1624,36 +1624,41 @@ function af_main(array $argv): int
     if ($ownership['gate'] === \Duo\Tooling\AdapterChangeScopeDecision::GATE_FULL
         && $ownership['reason_code'] !== 'engine_change') {
         $selected = $leaves;
-        sort($selected, SORT_STRING);
-        $rows = [];
-        // A closed-full selection can be hundreds of targets by hundreds of
-        // changed paths. That Cartesian product is explanation output only;
-        // tools/offline.php requests JSON without --explain and must not pay
-        // its memory cost before it can start the selected corpus.
-        if ($explain) {
-            foreach ($selected as $target) {
-                foreach ($changed as $file) {
-                    $rows[] = [
-                        'target' => $target,
-                        'file' => $file,
-                        'why' => 'closed-full:' . $ownership['reason_code'],
-                    ];
-                }
-            }
-        }
+        $selectedSet = array_fill_keys($selected, true);
+        $tasks = [];
         $advisories = [];
         foreach ($ownership['scenario_gates'] as $gate) {
-            if ($gate['class'] === 'offline') {
-                continue;
-            }
-            $advisories[] = [
-                'target' => 'integration-scenario:' . $gate['scenario'] . ':' . $gate['class'] . ':'
-                    . basename($gate['path']),
+            $target = 'integration-scenario:' . $gate['scenario'] . ':' . $gate['class'] . ':'
+                . basename($gate['path']);
+            $task = [
+                'target' => $target,
                 'kind' => 'integration-scenario',
                 'command' => $gate['command'],
             ];
+            if ($gate['class'] === 'offline') {
+                if (!isset($selectedSet[$target])) {
+                    $selectedSet[$target] = true;
+                    $selected[] = $target;
+                    $tasks[] = $task;
+                }
+                continue;
+            }
+            $advisories[] = $task;
         }
-        af_emit($selected, $rows, $changed, $json, $explain, [], $advisories);
+        sort($selected, SORT_STRING);
+        // A closed-full explanation is a target x changed-path Cartesian
+        // product. Emit that deterministic sequence incrementally: the exact
+        // current branch is already ~260k rows, so materializing the rows and
+        // JSON string together exhausts PHP's supported 128 MiB CLI ceiling.
+        af_emit_closed_full(
+            $selected,
+            $changed,
+            'closed-full:' . $ownership['reason_code'],
+            $json,
+            $explain,
+            $tasks,
+            $advisories
+        );
         return 0;
     }
 
@@ -1669,7 +1674,9 @@ function af_main(array $argv): int
         if ($isWholeCorpus) {
             foreach ($leaves as $target) {
                 $selectedSet[$target] = true;
-                $explainRows[] = ['target' => $target, 'file' => $file, 'why' => 'makefile'];
+                if ($explain) {
+                    $explainRows[] = ['target' => $target, 'file' => $file, 'why' => 'makefile'];
+                }
             }
             continue;
         }
@@ -1678,7 +1685,9 @@ function af_main(array $argv): int
         foreach ($targets as $target => $data) {
             if (isset($data['refs'][$file])) {
                 $selectedSet[$target] = true;
-                $explainRows[] = ['target' => $target, 'file' => $file, 'why' => $data['refs'][$file]];
+                if ($explain) {
+                    $explainRows[] = ['target' => $target, 'file' => $file, 'why' => $data['refs'][$file]];
+                }
                 $hit = true;
                 continue;
             }
@@ -1689,7 +1698,9 @@ function af_main(array $argv): int
             foreach ($data['dirs'] ?? [] as $dir) {
                 if (str_starts_with($file, $dir . '/')) {
                     $selectedSet[$target] = true;
-                    $explainRows[] = ['target' => $target, 'file' => $file, 'why' => 'dir:' . $dir];
+                    if ($explain) {
+                        $explainRows[] = ['target' => $target, 'file' => $file, 'why' => 'dir:' . $dir];
+                    }
                     $hit = true;
                     break;
                 }
@@ -1706,12 +1717,14 @@ function af_main(array $argv): int
     // discovered package aggregate rather than silently skipping consumers.
     if ($ownership['reason_code'] === 'engine_change') {
         $selectedSet['regress-adapter-packages'] = true;
-        foreach ($changed as $file) {
-            $explainRows[] = [
-                'target' => 'regress-adapter-packages',
-                'file' => $file,
-                'why' => 'adapter-sdk-conservative',
-            ];
+        if ($explain) {
+            foreach ($changed as $file) {
+                $explainRows[] = [
+                    'target' => 'regress-adapter-packages',
+                    'file' => $file,
+                    'why' => 'adapter-sdk-conservative',
+                ];
+            }
         }
     }
 
@@ -1726,6 +1739,78 @@ function af_main(array $argv): int
 
     af_emit($selected, $explainRows, $changed, $json, $explain);
     return 0;
+}
+
+/**
+ * Emit a closed-full selection without retaining its Cartesian explanation.
+ *
+ * The nested target/file order is exactly af_emit()'s target-then-file sort
+ * because both inputs are already SORT_STRING ordered by af_main(). JSON rows
+ * retain the existing pretty-printed object shape while being written one at
+ * a time, so callers receive the same schema and deterministic semantics with
+ * memory proportional to the target/path lists rather than their product.
+ *
+ * @param list<string> $selected
+ * @param list<string> $changed
+ * @param list<array{target:string,kind:string,command:non-empty-list<string>}> $tasks
+ * @param list<array{target:string,kind:string,command:non-empty-list<string>}> $advisories
+ */
+function af_emit_closed_full(
+    array $selected,
+    array $changed,
+    string $why,
+    bool $json,
+    bool $explain,
+    array $tasks = [],
+    array $advisories = []
+): void {
+    if (!$explain) {
+        af_emit($selected, [], $changed, $json, false, $tasks, $advisories);
+        return;
+    }
+
+    if (!$json) {
+        foreach ($selected as $target) {
+            fwrite(STDOUT, $target . "\n");
+        }
+        foreach ($selected as $target) {
+            foreach ($changed as $file) {
+                fwrite(STDOUT, "$target <- $file (why: $why)\n");
+            }
+        }
+        return;
+    }
+
+    $payload = [
+        'targets' => $selected,
+        'changed_files' => $changed,
+        'tasks' => $tasks,
+        'advisories' => $advisories,
+    ];
+    $prefix = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    $closing = strrpos($prefix, "\n}");
+    if ($closing === false) {
+        throw new RuntimeException('could not stream closed-full JSON explanation');
+    }
+    fwrite(STDOUT, substr($prefix, 0, $closing));
+    fwrite(STDOUT, ",\n    \"explain\": [");
+
+    $first = true;
+    foreach ($selected as $target) {
+        foreach ($changed as $file) {
+            $row = json_encode(
+                ['target' => $target, 'file' => $file, 'why' => $why],
+                JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            );
+            $indented = preg_replace('/^/m', '        ', $row);
+            if (!is_string($indented)) {
+                throw new RuntimeException('could not indent closed-full JSON explanation');
+            }
+            fwrite(STDOUT, ($first ? "\n" : ",\n") . $indented);
+            $first = false;
+        }
+    }
+    fwrite(STDOUT, $first ? "]\n}\n" : "\n    ]\n}\n");
 }
 
 /** @param list<string> $selected

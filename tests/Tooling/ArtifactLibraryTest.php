@@ -21,6 +21,10 @@ final class ArtifactLibraryTest extends TestCase
         $this->scratch = sys_get_temp_dir() . '/duo-artifact-library-' . bin2hex(random_bytes(8));
         self::assertTrue(mkdir($this->scratch . '/adapter-packages', 0777, true));
         self::assertTrue(mkdir($this->scratch . '/platform/artifact-library', 0777, true));
+        $this->writeFragment('platform/artifact-library/artifacts.lock.json', [
+            'plugins' => [],
+            'themes' => ['core-theme' => ['1.0' => self::entry('exercise-fixture')]],
+        ]);
     }
 
     protected function tearDown(): void
@@ -131,6 +135,63 @@ final class ArtifactLibraryTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Artifact fragment is not valid JSON');
         ArtifactLibrary::loadParticipants($this->scratch, ['woocommerce', 'yoast']);
+    }
+
+    public function testScopedPackageRejectsSymlinkedCapsuleAncestor(): void
+    {
+        $outside = $this->scratch . '/outside-acf/evidence';
+        self::assertTrue(mkdir($outside, 0777, true));
+        self::assertNotFalse(file_put_contents(
+            $outside . '/artifacts.lock.json',
+            json_encode([
+                'plugins' => ['acf' => ['1.0' => self::entry('certified-boundary')]],
+                'themes' => [],
+            ], JSON_THROW_ON_ERROR) . "\n"
+        ));
+        self::assertTrue(symlink($this->scratch . '/outside-acf', $this->scratch . '/adapter-packages/acf'));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("adapter package 'acf' directory is not an ordinary canonical directory");
+        ArtifactLibrary::loadPackage($this->scratch, 'acf');
+    }
+
+    public function testParticipantsRejectSymlinkedEvidenceAncestor(): void
+    {
+        self::assertTrue(mkdir($this->scratch . '/adapter-packages/acf', 0777, true));
+        $outside = $this->scratch . '/outside-evidence';
+        self::assertTrue(mkdir($outside, 0777, true));
+        self::assertNotFalse(file_put_contents(
+            $outside . '/artifacts.lock.json',
+            json_encode([
+                'plugins' => ['acf' => ['1.0' => self::entry('certified-boundary')]],
+                'themes' => [],
+            ], JSON_THROW_ON_ERROR) . "\n"
+        ));
+        self::assertTrue(symlink($outside, $this->scratch . '/adapter-packages/acf/evidence'));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("adapter package 'acf' evidence directory is not an ordinary canonical directory");
+        ArtifactLibrary::loadParticipants($this->scratch, ['acf']);
+    }
+
+    public function testPlatformRejectsSymlinkedArtifactLibraryAncestor(): void
+    {
+        $outside = $this->scratch . '/outside-platform';
+        self::assertTrue(mkdir($outside, 0777, true));
+        self::assertNotFalse(file_put_contents(
+            $outside . '/artifacts.lock.json',
+            json_encode([
+                'plugins' => [],
+                'themes' => ['core-theme' => ['1.0' => self::entry('exercise-fixture')]],
+            ], JSON_THROW_ON_ERROR) . "\n"
+        ));
+        self::assertTrue(unlink($this->scratch . '/platform/artifact-library/artifacts.lock.json'));
+        self::assertTrue(rmdir($this->scratch . '/platform/artifact-library'));
+        self::assertTrue(symlink($outside, $this->scratch . '/platform/artifact-library'));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('platform artifact library directory is not an ordinary canonical directory');
+        ArtifactLibrary::loadPlatform($this->scratch);
     }
 
     public function testDuplicateSubjectOwnershipRefusesInsteadOfOverwriting(): void

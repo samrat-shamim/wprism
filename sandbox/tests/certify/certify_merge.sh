@@ -93,6 +93,7 @@
 # human might want to look at.
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # -> sandbox/
+DUO_CERTIFICATION_MANIFESTS_JSON='["core","woocommerce"]'
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }

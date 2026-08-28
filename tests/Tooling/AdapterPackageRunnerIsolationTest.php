@@ -45,6 +45,12 @@ final class AdapterPackageRunnerIsolationTest extends TestCase
                 $this->scratch . '/sandbox/conformance/' . $file
             );
         }
+        foreach (['bin/fetch-artifact.sh', 'lib/pair_identity.sh'] as $file) {
+            self::copyFile(
+                $repo . '/sandbox/' . $file,
+                $this->scratch . '/sandbox/' . $file
+            );
+        }
         self::copyFile(
             $repo . '/adapter-packages/woocommerce/evidence/artifacts.lock.json',
             $this->scratch . '/adapter-packages/malformed-sibling/evidence/artifacts.lock.json'

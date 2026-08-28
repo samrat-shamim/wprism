@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Duo\Tests\Tooling;
 
 use Duo\Tooling\OfflineRunner;
+use Duo\Tooling\OfflineScenarioDelegation;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -708,6 +709,59 @@ final class OfflineRunnerTest extends TestCase
             'advisory task (not executed by changed mode): '
                 . 'integration-scenario:woocommerce-rewrite-coinstall:live:',
             $result['stderr']
+        );
+    }
+
+    public function testChangedScenarioIsDelegatedOutOfThePackageAggregateExactlyOnce(): void
+    {
+        $scenario = 'integration-scenario:woocommerce-rewrite-coinstall:offline:'
+            . 'regress_woocommerce_hierarchy_lookups.php';
+        $argv = OfflineScenarioDelegation::makeArgv('make', 'regress-adapter-packages', [
+            'adapter-package:woocommerce',
+            $scenario,
+            'integration-scenario:woocommerce-rewrite-coinstall:live:'
+                . 'regress_woocommerce_rewrite_coinstall.sh',
+        ]);
+
+        self::assertSame([
+            'make',
+            '--no-print-directory',
+            OfflineScenarioDelegation::ENVIRONMENT . '=' . $scenario,
+            'regress-adapter-packages',
+        ], $argv);
+        self::assertSame([$scenario], OfflineScenarioDelegation::decode(substr(
+            $argv[2],
+            strlen(OfflineScenarioDelegation::ENVIRONMENT) + 1
+        )));
+        self::assertSame(
+            ['make', '--no-print-directory', 'regress-adapter-packages'],
+            OfflineScenarioDelegation::makeArgv('make', 'regress-adapter-packages', [])
+        );
+
+        $catalog = ['scenarios' => [[
+            'name' => 'woocommerce-rewrite-coinstall',
+            'gates' => [[
+                'class' => 'offline',
+                'path' => 'integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/'
+                    . 'regress_woocommerce_hierarchy_lookups.php',
+            ], [
+                'class' => 'live',
+                'path' => 'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/'
+                    . 'regress_woocommerce_rewrite_coinstall.sh',
+            ]],
+        ]]];
+        self::assertSame(
+            [$scenario => true],
+            OfflineScenarioDelegation::checkedSet([$scenario], $catalog)
+        );
+        $makefile = (string) file_get_contents(self::repoRoot() . '/Makefile');
+        self::assertStringContainsString(
+            'ifneq ($(origin ' . OfflineScenarioDelegation::ENVIRONMENT . '),command line)',
+            $makefile
+        );
+        self::assertStringContainsString(
+            'unexport ' . OfflineScenarioDelegation::ENVIRONMENT,
+            $makefile
         );
     }
 

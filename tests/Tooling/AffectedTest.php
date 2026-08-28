@@ -103,6 +103,25 @@ final class AffectedTest extends TestCase
     }
 
     /** @param list<string> $args
+     * @return array{status:int,path:string,stderr:string}
+     */
+    private static function invokeWithMemoryLimitToFile(array $args, string $limit): array
+    {
+        $repo = self::repoRoot();
+        $path = tempnam(sys_get_temp_dir(), 'duo-affected-output-');
+        self::assertIsString($path, 'could not allocate affected.php output fixture');
+        $cmd = [PHP_BINARY, '-d', 'memory_limit=' . $limit, $repo . '/tools/affected.php', ...$args];
+        $descriptors = [1 => ['file', $path, 'w'], 2 => ['pipe', 'w']];
+        $process = proc_open($cmd, $descriptors, $pipes, $repo);
+        self::assertIsResource($process, 'could not launch file-backed memory-bounded tools/affected.php');
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+        $status = proc_close($process);
+
+        return ['status' => $status, 'path' => $path, 'stderr' => $stderr];
+    }
+
+    /** @param list<string> $args
      * @return list<string> non-empty trimmed lines
      */
     private static function targets(array $args): array
@@ -207,6 +226,33 @@ final class AffectedTest extends TestCase
 
         self::assertCount(self::expectedOfflineLeafCount(), $targets);
         self::assertContains('regress-adapter-packages', $targets);
+    }
+
+    public function testIntegrationScenarioOfflinePathAddsItsCheckedTaskToClosedFullSelection(): void
+    {
+        $path = 'integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/'
+            . 'regress_woocommerce_hierarchy_lookups.php';
+        $result = self::invoke(['--paths=' . $path, '--json', '--explain']);
+        self::assertSame(0, $result['status'], $result['stderr']);
+        $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+        $target = 'integration-scenario:woocommerce-rewrite-coinstall:offline:'
+            . 'regress_woocommerce_hierarchy_lookups.php';
+
+        self::assertCount(self::expectedOfflineLeafCount() + 1, $decoded['targets']);
+        self::assertSame($decoded['targets'], array_values(array_unique($decoded['targets'])));
+        self::assertContains($target, $decoded['targets']);
+        self::assertSame([[
+            'target' => $target,
+            'kind' => 'integration-scenario',
+            'command' => ['php', $path],
+        ]], $decoded['tasks']);
+        self::assertSame(
+            [$target],
+            array_values(array_unique(array_column(array_filter(
+                $decoded['explain'],
+                static fn(array $row): bool => $row['target'] === $target
+            ), 'target')))
+        );
     }
 
     public function testToolsChangeAlsoSelectsTheWholeCorpus(): void
@@ -478,8 +524,14 @@ final class AffectedTest extends TestCase
         $result = self::invoke(['--paths=' . $path, '--json', '--explain']);
         self::assertSame(0, $result['status'], $result['stderr']);
         $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(
+            json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n",
+            $result['stdout'],
+            'streaming must retain the established pretty-printed JSON bytes'
+        );
 
         self::assertCount(self::expectedOfflineLeafCount(), $decoded['explain']);
+        self::assertSame($decoded['targets'], array_column($decoded['explain'], 'target'));
         self::assertSame(
             array_fill(0, self::expectedOfflineLeafCount(), $path),
             array_column($decoded['explain'], 'file')
@@ -488,6 +540,46 @@ final class AffectedTest extends TestCase
             ['closed-full:uncovered_path'],
             array_values(array_unique(array_column($decoded['explain'], 'why')))
         );
+    }
+
+    public function testLargeClosedFullJsonExplainStreamsBelowSupportedMemoryCeiling(): void
+    {
+        $paths = [];
+        for ($index = 0; $index < 800; $index++) {
+            $paths[] = sprintf('docs/affected-explain-scale-%04d.md', $index);
+        }
+
+        $result = self::invokeWithMemoryLimitToFile([
+            '--paths=' . implode(',', $paths),
+            '--json',
+            '--explain',
+        ], '128M');
+        try {
+            self::assertSame(0, $result['status'], $result['stderr']);
+            self::assertSame('', $result['stderr']);
+
+            $handle = fopen($result['path'], 'r');
+            self::assertIsResource($handle);
+            $rows = 0;
+            $whyRows = 0;
+            while (($line = fgets($handle)) !== false) {
+                $rows += str_contains($line, '"target":') ? 1 : 0;
+                $whyRows += str_contains($line, '"why": "closed-full:uncovered_path"') ? 1 : 0;
+            }
+            fclose($handle);
+
+            $expectedRows = self::expectedOfflineLeafCount() * count($paths);
+            self::assertSame($expectedRows, $rows);
+            self::assertSame($expectedRows, $whyRows);
+            self::assertStringEndsWith("\n}\n", (string) file_get_contents(
+                $result['path'],
+                false,
+                null,
+                max(0, (int) filesize($result['path']) - 3)
+            ));
+        } finally {
+            @unlink($result['path']);
+        }
     }
 
     public function testUnknownOptionExitsTwo(): void

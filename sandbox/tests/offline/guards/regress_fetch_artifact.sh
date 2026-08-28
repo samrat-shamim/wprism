@@ -18,6 +18,9 @@ command -v jq >/dev/null || fail "jq required on PATH"
 command -v sha256sum >/dev/null || fail "sha256sum required on PATH"
 
 REPO_ROOT="$(cd .. && pwd)"
+ACTIVE_SHELL_HELPER="$REPO_ROOT/tools/active-shell-source.php"
+[ -f "$ACTIVE_SHELL_HELPER" ] && [ ! -L "$ACTIVE_SHELL_HELPER" ] \
+  || fail "active-shell source helper is missing or unsafe: $ACTIVE_SHELL_HELPER"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-fetch-artifact.XXXXXX")"
 trap 'rm -rf -- "$TMP"' EXIT INT TERM
 mkdir -p "$TMP/adapter-packages/fixture/evidence" "$TMP/platform/artifact-library" \
@@ -157,6 +160,57 @@ artifact_library_platform_jq -e '
   (.themes | keys) == ["fixture"] and (.plugins == []) and
   .themes.fixture["1.0"].archive_root == "fixture-theme-source"
 ' >/dev/null || fail "platform artifact lookup did not use only the platform fragment"
+export DUO_ARTIFACT_PLATFORM_ONLY=1
+validate_artifact_library \
+  || fail "explicit platform-only artifact authority was coupled to a malformed adapter capsule"
+artifact_library_jq -e '
+  (.themes | keys) == ["fixture"] and (.plugins == [])
+' >/dev/null || fail "platform-only generic lookup widened into adapter fragments"
+CHILD_PLATFORM=$(bash -c '
+set -euo pipefail
+. "$1/sandbox/bin/artifact-library.sh"
+validate_artifact_library
+artifact_library_jq -r "(.plugins | length | tostring) + \":\" + (.themes | keys | join(\",\"))"
+' _ "$REPO_ROOT") || fail "an exported platform-only context was lost across a pair child process"
+[ "$CHILD_PLATFORM" = '0:fixture' ] \
+  || fail "a platform-only child process widened artifact authority into adapter capsules: $CHILD_PLATFORM"
+unset DUO_ARTIFACT_PLATFORM_ONLY
+grep -Fq 'elif [ "$MANIFEST" = core ] || [ "$MANIFEST" = fse ]; then' \
+  "$REPO_ROOT/sandbox/conformance/run.sh" \
+  || fail "core/FSE conformance no longer selects the platform-only artifact lane"
+grep -Fq 'export DUO_ARTIFACT_PLATFORM_ONLY=1' "$REPO_ROOT/sandbox/conformance/run.sh" \
+  || fail "core/FSE conformance no longer exports platform-only artifact authority to pair.sh"
+
+say "artifact library roots canonicalize before package inference"
+export PACKAGE_ROOT="$TMP/adapter-packages/fixture"
+export DUO_ARTIFACT_LIBRARY_ROOT="$TMP/adapter-packages/../."
+artifact_library_jq -e '
+  (.plugins | keys) == ["fixture"] and (.plugins | has("unrelated") | not)
+' >/dev/null \
+  || fail "a noncanonical-but-equivalent artifact root widened PACKAGE_ROOT inference into sibling capsules"
+ROOT_CHILD_PACKAGE=$(bash -c '
+set -euo pipefail
+. "$1/sandbox/bin/artifact-library.sh"
+artifact_library_jq -r ".plugins | keys | join(\",\")"
+' _ "$REPO_ROOT") || fail "canonical artifact root/package inference was lost across a child process"
+[ "$ROOT_CHILD_PACKAGE" = fixture ] \
+  || fail "a child widened noncanonical artifact root authority beyond its package: $ROOT_CHILD_PACKAGE"
+export DUO_ARTIFACT_LIBRARY_ROOT=relative/artifact/root
+if artifact_library_repo_root >/dev/null 2>&1; then
+  fail "a relative DUO_ARTIFACT_LIBRARY_ROOT was accepted"
+fi
+export DUO_ARTIFACT_LIBRARY_ROOT="$TMP/does-not-exist"
+if artifact_library_repo_root >/dev/null 2>&1; then
+  fail "a missing DUO_ARTIFACT_LIBRARY_ROOT was accepted"
+fi
+export DUO_ARTIFACT_LIBRARY_ROOT="$TMP"
+export PACKAGE_ROOT="$TMP/platform"
+if artifact_library_package_context >/dev/null 2>&1; then
+  fail "a PACKAGE_ROOT outside adapter-packages was accepted as unscoped aggregate authority"
+fi
+unset PACKAGE_ROOT
+pass "explicit artifact roots are physical repository roots before package containment is classified"
+
 export DUO_ARTIFACT_PACKAGE=fixture
 validate_artifact_library \
   || fail "one package's valid artifact fragment was coupled to a malformed sibling"
@@ -172,23 +226,60 @@ artifact_library_jq -r ".plugins | keys | join(\",\")"
   || fail "a package child process widened artifact authority beyond its selected capsule: $CHILD_PACKAGE"
 unset DUO_ARTIFACT_PACKAGE
 
-package_live_uses_artifact_pair() { # <package tests/live shell suite>
-  awk '
-    /^[[:space:]]*#/ { next }
-    /(^|[[:space:](])--artifacts([[:space:])]|$)/ { artifacts = 1 }
-    /pair\.sh[[:space:]]+up([[:space:]]|$)/ { pair_up = 1 }
-    END { exit !(artifacts && pair_up) }
-  ' "$1"
+# A package live shell always belongs to exactly one capsule, even before it
+# opts into cached artifacts. Requiring one canonical first-three-statement
+# preamble makes arbitrary variable/wrapper flag construction irrelevant;
+# ActiveShellSource removes comments and heredoc bodies before this order check.
+validate_package_artifact_caller() { # <package tests/live shell suite>
+  local package_live="$1" active diagnostic status
+  if ! active="$(php "$ACTIVE_SHELL_HELPER" "$package_live")"; then
+    printf 'package live caller has shell source that cannot be classified safely: %s\n' "$package_live" >&2
+    return 1
+  fi
+
+  if diagnostic="$(printf '%s\n' "$active" | awk \
+    -v root_stmt='PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"' \
+    -v export_stmt='export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"' '
+    {
+      statement = $0
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", statement)
+      normalized = statement
+      # Adjacent quoted and escaped shell fragments form one word at runtime.
+      # Normalize those bytes before looking for later authority mutations.
+      gsub(/[\047"\\]/, "", normalized)
+      if (statement != "") {
+        statements++
+        if (statements <= 3) {
+          preamble[statements] = statement
+        } else if (index(normalized, "DUO_ARTIFACT_PACKAGE") != 0) {
+          authority_mutation = 1
+        }
+      }
+    }
+    END {
+      if (preamble[1] != "set -euo pipefail" || preamble[2] != root_stmt || preamble[3] != export_stmt) {
+        printf "caller lacks the canonical first-three-active-statement package authority preamble"
+        exit 1
+      }
+      if (authority_mutation) {
+        printf "caller mutates package authority after the canonical preamble"
+        exit 1
+      }
+    }
+  ')"; then
+    return 0
+  else
+    status=$?
+  fi
+  printf 'package live caller does not establish unconditional artifact scope: %s (%s; exit %s)\n' \
+    "$package_live" "${diagnostic:-active-shell classification refused}" "$status" >&2
+  return 1
 }
 
 validate_package_artifact_callers() { # <adapter-packages root>
   local packages="$1" package_live
   while IFS= read -r package_live; do
-    package_live_uses_artifact_pair "$package_live" || continue
-    grep -Fq 'export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"' "$package_live" || {
-      printf 'package live caller does not preserve artifact scope for pair.sh: %s\n' "$package_live" >&2
-      return 1
-    }
+    validate_package_artifact_caller "$package_live" || return 1
   done < <(find "$packages" -type f -path '*/tests/live/*.sh' -print | LC_ALL=C sort)
 }
 
@@ -196,25 +287,169 @@ CALLER_PROBE="$TMP/artifact-caller-probe/adapter-packages/fourth/tests/live"
 mkdir -p "$CALLER_PROBE"
 cat > "$CALLER_PROBE/regress_fourth_artifact_pair.sh" <<'EOF'
 #!/usr/bin/env bash
+set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
-UP_FLAGS=(--artifacts)
-bash bin/pair.sh up fourth 9901 9902 "${UP_FLAGS[@]}"
+PAIR_BIN=bin/pair.sh
+UP_FLAGS=(--arti""facts)
+run_pair() { bash "$PAIR_BIN" "$@"; }
+run_pair up fourth 9901 9902 "${UP_FLAGS[@]}"
 EOF
 if validate_package_artifact_callers "$TMP/artifact-caller-probe/adapter-packages" >/dev/null 2>&1; then
-  fail 'dynamic package caller discovery accepted a fourth artifact-backed live caller without an exported package scope'
+  fail 'package live discovery accepted a split-token variable/array/wrapper caller without its canonical scope preamble'
 fi
 cat > "$CALLER_PROBE/regress_fourth_artifact_pair.sh" <<'EOF'
 #!/usr/bin/env bash
+set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
 export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
-UP_FLAGS=(--artifacts)
-bash bin/pair.sh up fourth 9901 9902 "${UP_FLAGS[@]}"
+PAIR_BIN=bin/pair.sh
+UP_FLAGS=(--arti""facts)
+run_pair() { bash "$PAIR_BIN" "$@"; }
+run_pair up fourth 9901 9902 "${UP_FLAGS[@]}"
 EOF
 validate_package_artifact_callers "$TMP/artifact-caller-probe/adapter-packages" \
-  || fail 'dynamic package caller discovery refused a fourth correctly scoped artifact-backed live caller'
+  || fail 'package live discovery refused a split-token caller with the canonical scope preamble'
+cat > "$CALLER_PROBE/regress_comment_only.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+# export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+exit 0
+EOF
+if validate_package_artifact_callers "$TMP/artifact-caller-probe/adapter-packages" >/dev/null 2>&1; then
+  fail 'an export present only in a shell comment satisfied package authority'
+fi
+cat > "$CALLER_PROBE/regress_comment_only.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+# Documentation example only: pair.sh up demo 9901 9902 --artifacts
+exit 0
+EOF
+validate_package_artifact_callers "$TMP/artifact-caller-probe/adapter-packages" \
+  || fail 'a comment-only live script with unconditional package authority was refused'
+
+cat > "$CALLER_PROBE/regress_late_scope.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PAIR_BIN=bin/pair.sh
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+PREFIX=--arti
+SUFFIX=facts
+bash "$PAIR_BIN" up fourth 9901 9902 "${PREFIX}${SUFFIX}"
+EOF
+if validate_package_artifact_callers "$TMP/artifact-caller-probe/adapter-packages" >/dev/null 2>&1; then
+  fail 'package authority established after another active statement was accepted'
+fi
+cat > "$CALLER_PROBE/regress_late_scope.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+PAIR_BIN=bin/pair.sh
+PREFIX=--arti
+SUFFIX=facts
+bash "$PAIR_BIN" up fourth 9901 9902 "${PREFIX}${SUFFIX}"
+EOF
+validate_package_artifact_callers "$TMP/artifact-caller-probe/adapter-packages" \
+  || fail 'a fully dynamic artifact flag bypassed unconditional package authority'
+
+cat > "$CALLER_PROBE/regress_scope_unset.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+unset DUO_ARTIFACT_PACKAGE
+bash bin/pair.sh up fourth 9901 9902 --artifacts
+EOF
+if validate_package_artifact_caller "$CALLER_PROBE/regress_scope_unset.sh" >/dev/null 2>&1; then
+  fail 'a later unset of package artifact authority passed the live caller guard'
+fi
+cat > "$CALLER_PROBE/regress_scope_function_redirect.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+redirect_scope() { export DUO_ARTIFACT_PACKAGE=other; }
+redirect_scope
+bash bin/pair.sh up fourth 9901 9902 --artifacts
+EOF
+if validate_package_artifact_caller "$CALLER_PROBE/regress_scope_function_redirect.sh" >/dev/null 2>&1; then
+  fail 'a function-body package authority redirection passed the live caller guard'
+fi
+cat > "$CALLER_PROBE/regress_scope_compound_redirect.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+if true; then DUO_ARTIFACT_PACKAGE=other; export DUO_ARTIFACT_PACKAGE; fi
+bash bin/pair.sh up fourth 9901 9902 --artifacts
+EOF
+if validate_package_artifact_caller "$CALLER_PROBE/regress_scope_compound_redirect.sh" >/dev/null 2>&1; then
+  fail 'a compound-statement package authority redirection passed the live caller guard'
+fi
+cat > "$CALLER_PROBE/regress_scope_spliced_redirect.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+export DUO_ARTIFACT_""PACKAGE=other
+bash bin/pair.sh up fourth 9901 9902 --artifacts
+EOF
+if validate_package_artifact_caller "$CALLER_PROBE/regress_scope_spliced_redirect.sh" >/dev/null 2>&1; then
+  fail 'a token-spliced package authority redirection passed the live caller guard'
+fi
+cat > "$CALLER_PROBE/regress_scope_spliced_unset.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+unset DUO_ARTIFACT_''PACKAGE
+bash bin/pair.sh up fourth 9901 9902 --artifacts
+EOF
+if validate_package_artifact_caller "$CALLER_PROBE/regress_scope_spliced_unset.sh" >/dev/null 2>&1; then
+  fail 'a token-spliced package authority unset passed the live caller guard'
+fi
+
+cat > "$CALLER_PROBE/regress_malformed_scope.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+exit 0
+EOF
+if validate_package_artifact_callers "$TMP/artifact-caller-probe/adapter-packages" >/dev/null 2>&1; then
+  fail 'a malformed package-root preamble was accepted'
+fi
+rm -f "$CALLER_PROBE/regress_malformed_scope.sh"
 validate_package_artifact_callers "$REPO_ROOT/adapter-packages" \
-  || fail 'a discovered package artifact-backed live caller does not export its package scope'
-pass 'artifact-backed package live callers are dynamically discovered and preserve package scope across pair.sh'
+  || fail 'a discovered package live caller does not establish unconditional package scope'
+pass 'every package live caller establishes active, ordered scope before arbitrary shell flag construction'
+
+say "package environment and physical roots must agree"
+export PACKAGE_ROOT="$TMP/adapter-packages/fixture"
+export DUO_ARTIFACT_PACKAGE=other
+if artifact_library_package_context >/dev/null 2>&1; then
+  fail 'explicit package authority silently overrode a conflicting physical PACKAGE_ROOT'
+fi
+export DUO_ARTIFACT_PACKAGE=fixture
+[ "$(artifact_library_package_context)" = fixture ] \
+  || fail 'matching explicit package authority and physical PACKAGE_ROOT were refused'
+unset DUO_ARTIFACT_PACKAGE
+export -n PACKAGE_ROOT
+UNSCOPED_CHILD=$(bash -c '
+set -euo pipefail
+. "$1/sandbox/bin/artifact-library.sh"
+scope="$(artifact_library_package_context)"
+[ -z "$scope" ]
+printf unscoped
+' _ "$REPO_ROOT") || fail 'unset child artifact scope did not become unscoped'
+[ "$UNSCOPED_CHILD" = unscoped ] \
+  || fail "unset package authority did not demonstrate an unscoped child: $UNSCOPED_CHILD"
+unset PACKAGE_ROOT
+pass 'runtime artifact scope refuses conflicts and exposes an unset child as unscoped'
 
 say "scenario artifact resolution reads only declared participant fragments"
 export DUO_ARTIFACT_PARTICIPANTS=fixture,other

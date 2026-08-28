@@ -346,6 +346,11 @@ regress-adapter-contract:
 # One stable corpus row discovers every capsule and runs its complete offline
 # gate. Package test additions therefore change only adapter-packages/<slug>/;
 # this target, the Makefile and tools/offline-corpus.mk stay byte-identical.
+# Only tools/offline.php's checked changed-run command line may delegate an
+# explicit scenario task. An ambient variable cannot weaken the canonical gate.
+ifneq ($(origin DUO_OFFLINE_DELEGATED_SCENARIOS),command line)
+unexport DUO_OFFLINE_DELEGATED_SCENARIOS
+endif
 regress-adapter-packages:
 	php sandbox/tests/offline/adapter/regress_adapter_packages.php
 
