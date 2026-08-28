@@ -494,6 +494,42 @@ namespace {
         }
     }
 
+    final class WC_Regenerate_Images_Request {
+        public function schedule_cron_healthcheck(array $schedules): array {
+            return $schedules;
+        }
+    }
+
+    final class WC_Privacy_Background_Process {
+        public function schedule_cron_healthcheck(array $schedules): array {
+            return $schedules;
+        }
+    }
+
+    final class WC_Regenerate_Images {
+        protected static ?WC_Regenerate_Images_Request $background_process = null;
+
+        public static function reset(): void {
+            self::$background_process = new WC_Regenerate_Images_Request();
+        }
+
+        public static function background_process(): WC_Regenerate_Images_Request {
+            return self::$background_process ??= new WC_Regenerate_Images_Request();
+        }
+    }
+
+    final class WC_Privacy {
+        protected static ?WC_Privacy_Background_Process $background_process = null;
+
+        public static function reset(): void {
+            self::$background_process = new WC_Privacy_Background_Process();
+        }
+
+        public static function background_process(): WC_Privacy_Background_Process {
+            return self::$background_process ??= new WC_Privacy_Background_Process();
+        }
+    }
+
     final class ActionScheduler_QueueRunner {
         private static ?self $instance = null;
 
@@ -511,6 +547,16 @@ namespace {
                 'display' => 'Every minute',
             ];
             return $schedules;
+        }
+    }
+
+    final class ActionScheduler_DataController {
+        public static function set_store_class(string $class): string {
+            return 'ActionScheduler_DBStore';
+        }
+
+        public static function set_logger_class(string $class): string {
+            return 'ActionScheduler_DBLogger';
         }
     }
 
@@ -675,11 +721,21 @@ namespace {
         return apply_filters('option_' . $name, $value, $name);
     }
 
-    function wp_using_ext_object_cache(?bool $using = null): bool {
+    function wp_filter_default_autoload_value_via_option_size(
+        mixed $autoload,
+        string $option,
+        mixed $value,
+        string $serializedValue
+    ): mixed {
+        return $autoload;
+    }
+
+    function wp_using_ext_object_cache(?bool $using = null): ?bool {
+        $current = $GLOBALS['wooSchedulerExternalObjectCache'] ?? null;
         if ($using !== null) {
             $GLOBALS['wooSchedulerExternalObjectCache'] = $using;
         }
-        return (bool) ($GLOBALS['wooSchedulerExternalObjectCache'] ?? false);
+        return $current;
     }
 
     function wp_cache_delete(string|int $key, string $group = ''): bool {
@@ -1030,7 +1086,7 @@ namespace {
                     'Column_name' => $column,
                     'Sub_part' => match ($key . ':' . $column) {
                         'hook_status_scheduled_date_gmt:hook' => 163,
-                        'args:args', 'slug:slug' => 191,
+                        'slug:slug' => 191,
                         default => null,
                     },
                     'Collation' => 'A',
@@ -1107,7 +1163,7 @@ namespace {
                 ['status', 'varchar(20)', 'NO', null, ''],
                 ['scheduled_date_gmt', 'datetime', 'YES', '0000-00-00 00:00:00', ''],
                 ['scheduled_date_local', 'datetime', 'YES', '0000-00-00 00:00:00', ''],
-                ['priority', 'tinyint unsigned', 'NO', '10', ''],
+                ['priority', 'tinyint(3) unsigned', 'NO', '10', ''],
                 ['args', 'varchar(191)', 'YES', null, ''],
                 ['schedule', 'longtext', 'YES', null, ''],
                 ['group_id', 'bigint(20) unsigned', 'NO', '0', ''],
@@ -1188,7 +1244,7 @@ namespace {
         $GLOBALS['wooSchedulerCacheDeletes'] = [];
         $GLOBALS['wooSchedulerCacheResidue'] = [];
         $GLOBALS['wooSchedulerCacheDeleteFails'] = null;
-        $GLOBALS['wooSchedulerExternalObjectCache'] = false;
+        unset($GLOBALS['wooSchedulerExternalObjectCache']);
         $GLOBALS['wooSchedulerDuringCronMutation'] = null;
         $GLOBALS['wooSchedulerDuringRetentionController'] = null;
         $GLOBALS['wooSchedulerCoreOptionCallbackCalls'] = [];
@@ -1207,7 +1263,10 @@ namespace {
         ActionScheduler::$initialized = true;
         ActionScheduler::reset();
         ActionScheduler_QueueRunner::reset();
+        WC_Regenerate_Images::reset();
+        WC_Privacy::reset();
         $GLOBALS['wp_filter'] = [];
+        add_filter('wp_default_autoload_value', 'wp_filter_default_autoload_value_via_option_size', 5, 4);
         $GLOBALS['wooSchedulerContainer'] = new WooSchedulerContainer(
             new DataRetentionController(),
             new FeaturesController(),
@@ -1223,17 +1282,33 @@ namespace {
         add_filter('updated_option', [$customOrders, 'process_updated_option_fts_index'], 999, 3);
         add_filter('updated_option', [$featuresController, 'process_updated_option'], 999, 3);
         add_filter('added_option', [$dataSynchronizer, 'process_added_option'], 999, 2);
-        add_filter('added_option', [$featuresController, 'process_added_option'], 999, 2);
+        add_filter('added_option', [$featuresController, 'process_added_option'], 999, 3);
         add_action('action_scheduler_stored_action', [ActionScheduler::logger(), 'log_stored_action'], 10, 1);
         add_action('action_scheduler_canceled_action', [ActionScheduler::logger(), 'log_canceled_action'], 10, 1);
         add_action('action_scheduler_failed_fetch_action', [ActionScheduler::logger(), 'log_failed_fetch_action'], 10, 2);
+        add_filter('action_scheduler_store_class', [ActionScheduler_DataController::class, 'set_store_class'], 100, 1);
+        add_filter('action_scheduler_logger_class', [ActionScheduler_DataController::class, 'set_logger_class'], 100, 1);
         add_filter('cron_schedules', [WC_Install::class, 'cron_schedules'], 10, 1);
+        add_filter(
+            'cron_schedules',
+            [WC_Regenerate_Images::background_process(), 'schedule_cron_healthcheck'],
+            10,
+            1
+        );
+        add_filter(
+            'cron_schedules',
+            [WC_Privacy::background_process(), 'schedule_cron_healthcheck'],
+            10,
+            1
+        );
         add_filter(
             'cron_schedules',
             [ActionScheduler_QueueRunner::instance(), 'add_wp_cron_schedule'],
             10,
             1
         );
+        add_action('deactivate_woocommerce/woocommerce.php', static function (): void {
+        }, 10, 1);
         add_action(
             'add_option_woocommerce_analytics_scheduled_import',
             [OrdersScheduler::class, 'handle_scheduled_import_option_added'],
@@ -1424,7 +1499,7 @@ namespace {
     duo_check_same(
         ['reconcile_analytics_import_schedule', 'reconcile_stock_notification_retention'],
         array_keys($initialCapabilities),
-        'both exact native scheduler capabilities negotiate on a ready Woo target'
+        'both exact native scheduler capabilities negotiate when stock WordPress reports its local cache as null'
     );
     duo_check(in_array(
         'table:actionscheduler_claims',
@@ -3008,6 +3083,11 @@ namespace {
         'retyped native column' => static function (FakeWpdb $db): void {
             $rows = $db->get_results('SHOW FULL COLUMNS FROM `wp_actionscheduler_actions`', ARRAY_A);
             $rows[1]['Type'] = 'varchar(255)';
+            $db->setColumnDefinitions('actionscheduler_actions', $rows);
+        },
+        'non-native integer display width' => static function (FakeWpdb $db): void {
+            $rows = $db->get_results('SHOW FULL COLUMNS FROM `wp_actionscheduler_actions`', ARRAY_A);
+            $rows[5]['Type'] = 'tinyint(4) unsigned';
             $db->setColumnDefinitions('actionscheduler_actions', $rows);
         },
         'reordered native columns' => static function (FakeWpdb $db): void {

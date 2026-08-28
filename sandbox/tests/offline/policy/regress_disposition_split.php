@@ -215,6 +215,53 @@ const SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS = [
 ];
 const SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH = '8d3f7ba1afe8dc9e63a6991da2ad412d8718796b0c31278b4a8dca97fda672c4';
 
+/**
+ * The third reviewed overlay fixes the WooCommerce scheduler provider's
+ * assumption that stock WordPress reports a boolean local object-cache state.
+ * Core returns null when no external cache drop-in was loaded, so the runtime
+ * byte, WooCommerce digest, and every intersecting manifest hash move together.
+ */
+const SPLIT_LOCAL_CACHE_MOVED_DIGESTS = [
+    'woocommerce' => '918bf4c4ef23d6b5ac73f66f24e0a51be533845ab0f4222a7190ea74cfe01bf3',
+];
+const SPLIT_LOCAL_CACHE_MANIFEST_HASH = '9110bee6b889f4309ef0a85e93f0bd5fc81bbc39f01455fbda01bc63527a3bea';
+
+/** The fourth overlay admits only the exact WordPress 7.1 and Woo 11.0.1 native option-hook callbacks. */
+const SPLIT_NATIVE_HOOK_MOVED_DIGESTS = [
+    'woocommerce' => 'aceb8cbf443a8b2787f25938c5687855883192b8df313c4446e4e36b7d39ccad',
+];
+const SPLIT_NATIVE_HOOK_MANIFEST_HASH = 'bd63504adf239e544149f973780087b8ed885ec7d9393baba9382f75d8755a8c';
+
+/** The fifth overlay admits Action Scheduler's exact completed-migration store and logger selectors. */
+const SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS = [
+    'woocommerce' => '8274ba1c78171149bda79b57afa2fa882053a2327f8ed89d81b03e336bc7703b',
+];
+const SPLIT_DATA_STORE_HOOK_MANIFEST_HASH = '0f2225d6d765789375e9a134479447727236c7fdaeadcd8d10df12ed7186093f';
+
+/** The sixth overlay normalizes MariaDB's exact display of Action Scheduler's native unsigned priority. */
+const SPLIT_MARIADB_PRIORITY_MOVED_DIGESTS = [
+    'woocommerce' => 'e6a266d3a0d6341b11348b871664cc9e883b23141ad50e247bf30c50563aac7c',
+];
+const SPLIT_MARIADB_PRIORITY_MANIFEST_HASH = '9f0fff8fa880daa24d175bbbd3b498dcab8bacc3affd611f069733fa79668e7f';
+
+/** The seventh overlay normalizes MariaDB's full-width Action Scheduler args index report. */
+const SPLIT_MARIADB_ARGS_INDEX_MOVED_DIGESTS = [
+    'woocommerce' => '87b13af34d6bf63f91fa8a3406215a97cbd47a23b073a2e3a253437b3369a4ce',
+];
+const SPLIT_MARIADB_ARGS_INDEX_MANIFEST_HASH = '3ff9b18f630d3096635553f8eb1d97d20e06db18efc95c3ec349d7d7dc3c045e';
+
+/** The eighth overlay recognizes Woo's exact native shared retention-hook topology. */
+const SPLIT_RETENTION_NATIVE_HOOK_MOVED_DIGESTS = [
+    'woocommerce' => '3c626ae613ff9073c24f89941c0b00079a5284262a60325fee37ee7be5ba07c1',
+];
+const SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH = 'ec06dbaec5e4822b55b7a5e99a886583d37792431ad71e2649e922d07a8edfdc';
+
+/** The ninth overlay binds the two native background-process instances that own Woo's cron filters. */
+const SPLIT_RETENTION_CRON_OWNER_MOVED_DIGESTS = [
+    'woocommerce' => 'e2e99c1f086fc9c080d0b4d129f56d74dd3f19cfa50fb91ca6b5adc366b0a176',
+];
+const SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH = '1fbcd7d59b44147932751a32bad7b28f6ab8c37caf26b52e059158d147740caf';
+
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 duo_check(
     $shippedRegistry instanceof ManifestDispositions,
@@ -232,6 +279,27 @@ foreach (SPLIT_REVIEWED_MOVED_DIGESTS as $movedName => $movedDigest) {
     $expectedDigests[$movedName] = $movedDigest;
 }
 foreach (SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+foreach (SPLIT_LOCAL_CACHE_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+foreach (SPLIT_NATIVE_HOOK_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+foreach (SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+foreach (SPLIT_MARIADB_PRIORITY_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+foreach (SPLIT_MARIADB_ARGS_INDEX_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+foreach (SPLIT_RETENTION_NATIVE_HOOK_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+foreach (SPLIT_RETENTION_CRON_OWNER_MOVED_DIGESTS as $movedName => $movedDigest) {
     $expectedDigests[$movedName] = $movedDigest;
 }
 ksort($expectedDigests, SORT_STRING);
@@ -253,6 +321,139 @@ duo_check_same(
     'the package dependency-path overlay changes exactly five prior digest literals, preserving the earlier values '
     . 'as evidence of the second intentional identity transition rather than overwriting them'
 );
+$localCacheMovedNames = [];
+foreach (SPLIT_LOCAL_CACHE_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS[$name]
+        ?? SPLIT_REVIEWED_MOVED_DIGESTS[$name]
+        ?? $frozenDigests[$name]
+        ?? null;
+    if ($priorDigest !== $digest) {
+        $localCacheMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    ['woocommerce'],
+    $localCacheMovedNames,
+    'the stock-WordPress local-cache correction changes only the WooCommerce digest and preserves both prior values '
+    . 'as evidence of the third intentional identity transition'
+);
+$nativeHookMovedNames = [];
+foreach (SPLIT_NATIVE_HOOK_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_LOCAL_CACHE_MOVED_DIGESTS[$name]
+        ?? SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS[$name]
+        ?? SPLIT_REVIEWED_MOVED_DIGESTS[$name]
+        ?? $frozenDigests[$name]
+        ?? null;
+    if ($priorDigest !== $digest) {
+        $nativeHookMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    ['woocommerce'],
+    $nativeHookMovedNames,
+    'the exact WordPress and WooCommerce native-hook correction changes only WooCommerce and preserves the third '
+    . 'transition as a separate reviewed identity'
+);
+$dataStoreHookMovedNames = [];
+foreach (SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_NATIVE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_LOCAL_CACHE_MOVED_DIGESTS[$name]
+        ?? SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS[$name]
+        ?? SPLIT_REVIEWED_MOVED_DIGESTS[$name]
+        ?? $frozenDigests[$name]
+        ?? null;
+    if ($priorDigest !== $digest) {
+        $dataStoreHookMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    ['woocommerce'],
+    $dataStoreHookMovedNames,
+    'the completed-migration Action Scheduler selector correction changes only WooCommerce and preserves the fourth '
+    . 'transition as a separate reviewed identity'
+);
+$mariaDbPriorityMovedNames = [];
+foreach (SPLIT_MARIADB_PRIORITY_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_NATIVE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_LOCAL_CACHE_MOVED_DIGESTS[$name]
+        ?? SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS[$name]
+        ?? SPLIT_REVIEWED_MOVED_DIGESTS[$name]
+        ?? $frozenDigests[$name]
+        ?? null;
+    if ($priorDigest !== $digest) {
+        $mariaDbPriorityMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    ['woocommerce'],
+    $mariaDbPriorityMovedNames,
+    'the MariaDB native-priority normalization changes only WooCommerce and preserves the fifth transition as a '
+    . 'separate reviewed identity'
+);
+$mariaDbArgsIndexMovedNames = [];
+foreach (SPLIT_MARIADB_ARGS_INDEX_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_MARIADB_PRIORITY_MOVED_DIGESTS[$name]
+        ?? SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_NATIVE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_LOCAL_CACHE_MOVED_DIGESTS[$name]
+        ?? SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS[$name]
+        ?? SPLIT_REVIEWED_MOVED_DIGESTS[$name]
+        ?? $frozenDigests[$name]
+        ?? null;
+    if ($priorDigest !== $digest) {
+        $mariaDbArgsIndexMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    ['woocommerce'],
+    $mariaDbArgsIndexMovedNames,
+    'the MariaDB full-width args-index normalization changes only WooCommerce and preserves the sixth transition as '
+    . 'a separate reviewed identity'
+);
+$retentionNativeHookMovedNames = [];
+foreach (SPLIT_RETENTION_NATIVE_HOOK_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_MARIADB_ARGS_INDEX_MOVED_DIGESTS[$name]
+        ?? SPLIT_MARIADB_PRIORITY_MOVED_DIGESTS[$name]
+        ?? SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_NATIVE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_LOCAL_CACHE_MOVED_DIGESTS[$name]
+        ?? SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS[$name]
+        ?? SPLIT_REVIEWED_MOVED_DIGESTS[$name]
+        ?? $frozenDigests[$name]
+        ?? null;
+    if ($priorDigest !== $digest) {
+        $retentionNativeHookMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    ['woocommerce'],
+    $retentionNativeHookMovedNames,
+    'the native shared retention-hook correction changes only WooCommerce and preserves the seventh transition as '
+    . 'a separate reviewed identity'
+);
+$retentionCronOwnerMovedNames = [];
+foreach (SPLIT_RETENTION_CRON_OWNER_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_RETENTION_NATIVE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_MARIADB_ARGS_INDEX_MOVED_DIGESTS[$name]
+        ?? SPLIT_MARIADB_PRIORITY_MOVED_DIGESTS[$name]
+        ?? SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_NATIVE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_LOCAL_CACHE_MOVED_DIGESTS[$name]
+        ?? SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS[$name]
+        ?? SPLIT_REVIEWED_MOVED_DIGESTS[$name]
+        ?? $frozenDigests[$name]
+        ?? null;
+    if ($priorDigest !== $digest) {
+        $retentionCronOwnerMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    ['woocommerce'],
+    $retentionCronOwnerMovedNames,
+    'the native background-process ownership correction changes only WooCommerce and preserves the eighth '
+    . 'transition as a separate reviewed identity'
+);
 duo_check_same(
     $expectedDigests,
     $observed,
@@ -272,15 +473,22 @@ duo_check_same(
     . 'identity, which is still measured here against pre-relocation numbers on every other adapter'
 );
 duo_check_same(
-    SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH,
+    SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
     'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved from the reviewed-manifest '
-    . 'address only with the five adapters whose package runtime dependency bytes were intentionally corrected, '
-    . 'not because disposition storage split or the files relocated'
+    . 'address with each reviewed runtime correction, including the WooCommerce local-cache boundary, not because '
+    . 'disposition storage split or the files relocated'
 );
 duo_check(
     SPLIT_REVIEWED_MANIFEST_HASH !== SPLIT_FROZEN_MANIFEST_HASH
         && SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH !== SPLIT_REVIEWED_MANIFEST_HASH
+        && SPLIT_LOCAL_CACHE_MANIFEST_HASH !== SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH
+        && SPLIT_NATIVE_HOOK_MANIFEST_HASH !== SPLIT_LOCAL_CACHE_MANIFEST_HASH
+        && SPLIT_DATA_STORE_HOOK_MANIFEST_HASH !== SPLIT_NATIVE_HOOK_MANIFEST_HASH
+        && SPLIT_MARIADB_PRIORITY_MANIFEST_HASH !== SPLIT_DATA_STORE_HOOK_MANIFEST_HASH
+        && SPLIT_MARIADB_ARGS_INDEX_MANIFEST_HASH !== SPLIT_MARIADB_PRIORITY_MANIFEST_HASH
+        && SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH !== SPLIT_MARIADB_ARGS_INDEX_MANIFEST_HASH
+        && SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH !== SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH
         && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
         && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA,
     '...and all re-pinned numbers really differ from their frozen originals, so the assertions '

@@ -13,6 +13,7 @@ final class DemoCommand {
     private const DEFAULT_SOURCE_PORT = 8781;
     private const DEFAULT_TARGET_PORT = 8782;
     private const WOO_VERSION = '11.0.1';
+    private const CLI_IMAGE = 'duo-demo-cli-git:php8.3';
     private const LIVE_PROCESS_TIMEOUT_MILLISECONDS = 1800000;
 
     /**
@@ -125,12 +126,14 @@ final class DemoCommand {
             $up = self::runProcess(
                 [
                     'bash', $sourceRoot . '/sandbox/bin/pair.sh', 'up', $options['name'],
-                    (string) $options['source_port'], (string) $options['target_port'], '--http', '--artifacts',
+                    (string) $options['source_port'], (string) $options['target_port'],
+                    '--http', '--artifacts', '--git-cli',
                 ],
                 $sourceRoot,
                 [
                     'DUO_SOURCE_ROOT' => $sourceRoot,
                     'DUO_EXPECTED_SOURCE_SHA' => trim(self::mustRun(['git', 'rev-parse', 'HEAD'], $sourceRoot)['stdout']),
+                    'DUO_CLI_IMAGE' => self::CLI_IMAGE,
                 ],
                 true,
                 self::LIVE_PROCESS_TIMEOUT_MILLISECONDS
@@ -151,6 +154,7 @@ final class DemoCommand {
             self::cloneTargetRepository($session);
             self::runDuo($session, $sourceRoot, $session['target_repo'], ['deploy', 'demo-target'], true);
             self::establishHpos($session, 2);
+            self::configureWooQualification($session, 2);
             self::seedTargetProductRuntime($session);
             $revision = trim(self::git($session['target_repo'], ['rev-parse', 'HEAD'])['stdout']);
             self::runDuo(
@@ -161,6 +165,8 @@ final class DemoCommand {
                 true
             );
             $session['runtime_before'] = self::seedTargetRuntime($session);
+            self::assertWooQualification($session, $sourceRoot, 'demo-source', $session['source_repo']);
+            self::assertWooQualification($session, $sourceRoot, 'demo-target', $session['target_repo']);
             $session['last_applied_revision'] = $revision;
             $session['phase'] = 'ready';
             self::replaceSession($session);
@@ -340,6 +346,7 @@ final class DemoCommand {
             . 'DUO_AGENT_SRC=' . $sourceRoot . "/agent\n"
             . 'DUO_ADAPTER_PACKAGES_SRC=' . $sourceRoot . "/adapter-packages\n"
             . 'DUO_PLATFORM_SRC=' . $sourceRoot . "/platform\n"
+            . 'DUO_CLI_IMAGE=' . self::CLI_IMAGE . "\n"
             . "DUO_DB_HOST=duo-shared-db\n";
     }
 
@@ -362,6 +369,7 @@ final class DemoCommand {
             throw new \RuntimeException('could not install the digest-pinned WooCommerce demo artifact');
         }
         self::establishHpos($session, 1);
+        self::configureWooQualification($session, 1);
     }
 
     /** @param array<string,mixed> $session */
@@ -501,6 +509,71 @@ final class DemoCommand {
         $result = self::wp($session, $side, ['eval', $php]);
         if ($result['exit'] !== 0) {
             throw new \RuntimeException("WooCommerce HPOS setup failed on side $side: " . trim($result['stderr']));
+        }
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function configureWooQualification(array $session, int $side): void {
+        $constant = self::wp($session, $side, [
+            'config', 'set', 'WOOCOMMERCE_BIS_ALPHA_ENABLED', 'true', '--raw', '--type=constant',
+        ]);
+        if ($constant['exit'] !== 0) {
+            throw new \RuntimeException("WooCommerce qualification constant setup failed on side $side");
+        }
+        $enable = '$features = wc_get_container()->get(\\Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::class); '
+            . 'if (!$features->feature_is_enabled("fulfillments") '
+            . '&& !$features->change_feature_enable("fulfillments", true)) '
+            . '{ throw new RuntimeException("could not enable native fulfillments"); }';
+        $enabled = self::wp($session, $side, ['eval', $enable]);
+        if ($enabled['exit'] !== 0) {
+            throw new \RuntimeException("WooCommerce fulfillment feature setup failed on side $side");
+        }
+        $migration = self::wp($session, $side, ['action-scheduler', 'migrate']);
+        if ($migration['exit'] !== 0) {
+            throw new \RuntimeException("WooCommerce Action Scheduler migration failed on side $side");
+        }
+        // The feature option changes after init in the command above. A fresh
+        // WordPress request must run Woo's own init lifecycle so its taxonomy,
+        // tables, marker, Action Scheduler, and stock-retention hooks are the
+        // native 11.0.1 projection the shipped providers verify.
+        $verify = '$features = wc_get_container()->get(\\Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::class); '
+            . 'if (!$features->feature_is_enabled("fulfillments") '
+            . '|| !taxonomy_exists("wc_fulfillment_shipping_provider") '
+            . '|| get_option("woocommerce_fulfillments_db_tables_created") !== "1" '
+            . '|| !\\Automattic\\WooCommerce\\Admin\\Features\\Features::is_enabled("analytics-scheduled-import") '
+            . '|| get_class(\\ActionScheduler::store()) !== "ActionScheduler_DBStore" '
+            . '|| !defined("WOOCOMMERCE_BIS_ALPHA_ENABLED") || WOOCOMMERCE_BIS_ALPHA_ENABLED !== true) '
+            . '{ throw new RuntimeException("WooCommerce qualification prerequisites are incomplete"); }';
+        $verified = self::wp($session, $side, ['eval', $verify]);
+        if ($verified['exit'] !== 0) {
+            throw new \RuntimeException(
+                "WooCommerce qualification lifecycle failed on side $side: " . trim($verified['stderr'])
+            );
+        }
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function assertWooQualification(
+        array $session,
+        string $sourceRoot,
+        string $environment,
+        string $repository
+    ): void {
+        $result = self::runDuo(
+            $session,
+            $sourceRoot,
+            $repository,
+            ['capabilities', $environment, '--operation=promote', '--format=json'],
+            false
+        );
+        $report = json_decode($result['stdout'], true);
+        if (!is_array($report) || ($report['ready'] ?? null) !== true) {
+            $blockers = is_array($report['blockers'] ?? null) ? $report['blockers'] : [];
+            $detail = json_encode($blockers, JSON_UNESCAPED_SLASHES);
+            throw new \RuntimeException(
+                "WooCommerce demo environment $environment is not release-qualified: "
+                . (is_string($detail) ? $detail : 'capability report was malformed')
+            );
         }
     }
 
@@ -932,6 +1005,7 @@ final class DemoCommand {
             || file_exists($path) || is_link($path) || file_exists($stage) || is_link($stage)) {
             throw new \RuntimeException("demo could not exclusively reserve $field path $path");
         }
+        self::ensureDirectoryParent($path);
         if (!mkdir($stage, 0700)) {
             throw new \RuntimeException("demo could not create $field path $path");
         }
@@ -966,6 +1040,22 @@ final class DemoCommand {
         self::replaceSession($session);
         if (self::pathIdentity($path) !== $identity || !unlink($marker)) {
             throw new \RuntimeException("could not retire the $field ownership marker");
+        }
+    }
+
+    private static function ensureDirectoryParent(string $path): void {
+        $parent = dirname($path);
+        if (is_link($parent) || (file_exists($parent) && !is_dir($parent))) {
+            throw new \RuntimeException("demo directory parent is not an ordinary directory: $parent");
+        }
+        if (!is_dir($parent)) {
+            $ancestor = dirname($parent);
+            if (is_link($ancestor) || !is_dir($ancestor) || !@mkdir($parent, 0700)) {
+                throw new \RuntimeException("demo could not create directory parent $parent");
+            }
+        }
+        if (is_link($parent) || !is_dir($parent)) {
+            throw new \RuntimeException("demo directory parent changed during creation: $parent");
         }
     }
 

@@ -2439,8 +2439,6 @@ final class WoocommerceSchedulerSettings {
             'action_scheduler_claim_actions_order_by',
             'action_scheduler_completed_action',
             'action_scheduler_db_supports_skip_locked',
-            'action_scheduler_logger_class',
-            'action_scheduler_store_class',
             'action_scheduler_stored_action_class',
             'action_scheduler_stored_action_instance',
             'pre_as_schedule_recurring_action',
@@ -2455,6 +2453,18 @@ final class WoocommerceSchedulerSettings {
                 );
             }
         }
+        self::assert_exact_native_hook(
+            'action_scheduler_store_class',
+            ['ActionScheduler_DataController', 'set_store_class'],
+            100,
+            1
+        );
+        self::assert_exact_native_hook(
+            'action_scheduler_logger_class',
+            ['ActionScheduler_DataController', 'set_logger_class'],
+            100,
+            1
+        );
 
         $logger = \ActionScheduler::logger();
         if (!is_object($logger) || get_class($logger) !== 'ActionScheduler_DBLogger') {
@@ -2527,9 +2537,12 @@ final class WoocommerceSchedulerSettings {
         foreach (['pre_option', 'default_option', 'pre_wp_load_alloptions', 'alloptions'] as $hook) {
             self::assert_closed_option_hook($hook, []);
         }
-        foreach (['sanitize_option', 'pre_add_option', 'add_option', 'wp_default_autoload_value'] as $hook) {
+        foreach (['sanitize_option', 'pre_add_option', 'add_option'] as $hook) {
             self::assert_closed_option_hook($hook, []);
         }
+        self::assert_closed_option_hook('wp_default_autoload_value', [
+            ['wp_filter_default_autoload_value_via_option_size', '', 5, 4, 'function'],
+        ]);
         self::assert_closed_option_hook('pre_update_option', [
             ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController', 'process_pre_update_option', 999, 3, 'container'],
         ]);
@@ -2542,11 +2555,11 @@ final class WoocommerceSchedulerSettings {
         ]);
         self::assert_closed_option_hook('added_option', [
             ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer', 'process_added_option', 999, 2, 'container'],
-            ['Automattic\\WooCommerce\\Internal\\Features\\FeaturesController', 'process_added_option', 999, 2, 'container'],
+            ['Automattic\\WooCommerce\\Internal\\Features\\FeaturesController', 'process_added_option', 999, 3, 'container'],
         ]);
     }
 
-    /** @param list<array{0:string,1:string,2:int,3:int,4:'container'}> $allowed */
+    /** @param list<array{0:string,1:string,2:int,3:int,4:'container'|'function'}> $allowed */
     private static function assert_closed_option_hook(string $hook, array $allowed): void {
         global $wp_filter;
         $seen = [];
@@ -2564,6 +2577,32 @@ final class WoocommerceSchedulerSettings {
             foreach ($callbacks as $callback) {
                 $function = $callback['function'] ?? null;
                 $acceptedArgs = $callback['accepted_args'] ?? null;
+                if (is_string($function) && is_int($acceptedArgs)) {
+                    $matched = false;
+                    foreach ($allowed as [$allowedFunction, $allowedMethod, $allowedPriority, $allowedArgs, $owner]) {
+                        if ($owner === 'function'
+                            && $function === $allowedFunction
+                            && $allowedMethod === ''
+                            && $priority === $allowedPriority
+                            && $acceptedArgs === $allowedArgs) {
+                            $signature = $allowedFunction . '@' . $allowedPriority . '/' . $allowedArgs;
+                            if (isset($seen[$signature])) {
+                                throw new \RuntimeException(
+                                    'duo: WooCommerce scheduler option hook topology has duplicate native callbacks'
+                                );
+                            }
+                            $seen[$signature] = true;
+                            $matched = true;
+                            break;
+                        }
+                    }
+                    if (!$matched) {
+                        throw new \RuntimeException(
+                            'duo: WooCommerce scheduler option hook topology has an extension callback'
+                        );
+                    }
+                    continue;
+                }
                 if (!is_array($function)
                     || count($function) !== 2
                     || (!is_object($function[0]) && !is_string($function[0]))
@@ -2654,6 +2693,38 @@ final class WoocommerceSchedulerSettings {
         int $acceptedArgs
     ): void {
         self::assert_exact_native_hook_set($hook, [[$expected, $priority, $acceptedArgs]]);
+    }
+
+    /** @param array{0:object|string,1:string} $expected */
+    private static function assert_native_hook_contains(
+        string $hook,
+        array $expected,
+        int $priority,
+        int $acceptedArgs
+    ): void {
+        global $wp_filter;
+        $registered = $wp_filter[$hook] ?? null;
+        if (!$registered instanceof \WP_Hook || !is_array($registered->callbacks ?? null)) {
+            throw new \RuntimeException('duo: WooCommerce scheduler native hook is absent or unreadable');
+        }
+        $matches = 0;
+        foreach ($registered->callbacks as $registeredPriority => $callbacks) {
+            if (!is_int($registeredPriority) || !is_array($callbacks)) {
+                throw new \RuntimeException('duo: WooCommerce scheduler native hook is malformed');
+            }
+            foreach ($callbacks as $callback) {
+                if ($registeredPriority === $priority
+                    && ($callback['accepted_args'] ?? null) === $acceptedArgs
+                    && ($callback['function'] ?? null) === $expected) {
+                    ++$matches;
+                }
+            }
+        }
+        if ($matches !== 1) {
+            throw new \RuntimeException(
+                'duo: WooCommerce scheduler native hook is absent or duplicated'
+            );
+        }
     }
 
     /**
@@ -2888,9 +2959,16 @@ final class WoocommerceSchedulerSettings {
         }
         $actual = [];
         foreach ($rows as $row) {
+            $type = strtolower((string) ($row['Type'] ?? ''));
+            // MariaDB 11 reports the native `tinyint unsigned` declaration as
+            // `tinyint(3) unsigned`; the display width changes no storage,
+            // range, signedness, or Action Scheduler schema semantics.
+            if ($type === 'tinyint(3) unsigned') {
+                $type = 'tinyint unsigned';
+            }
             $actual[] = [
                 $row['Field'] ?? null,
-                strtolower((string) ($row['Type'] ?? '')),
+                $type,
                 strtoupper((string) ($row['Null'] ?? '')),
                 $row['Default'] ?? null,
                 strtolower((string) ($row['Extra'] ?? '')),
@@ -2943,6 +3021,12 @@ final class WoocommerceSchedulerSettings {
             $subPart = $row['Sub_part'] ?? null;
             if ($subPart !== null) {
                 $subPart = self::db_positive_uint($subPart, 'index prefix length');
+            }
+            // MariaDB elides a prefix equal to the complete varchar width.
+            // Action Scheduler declares args(191) on varchar(191), so null and
+            // 191 are the same full-column native index; no shorter prefix is.
+            if ($key === 'args' && $column === 'args' && $subPart === null) {
+                $subPart = 191;
             }
             $nullable = $row['Null'] ?? '';
             if (!is_string($key) || $key === ''
@@ -3171,7 +3255,9 @@ final class WoocommerceSchedulerSettings {
             10,
             2
         );
-        self::assert_exact_native_hook(
+        // Woo shares its plugin deactivation hook across independent services;
+        // only this controller's cleanup callback is in the captured effect.
+        self::assert_native_hook_contains(
             'deactivate_woocommerce/woocommerce.php',
             [$controller, 'clear_daily_task'],
             10,
@@ -3193,10 +3279,64 @@ final class WoocommerceSchedulerSettings {
                 'duo: WooCommerce stock-retention Action Scheduler cron owner is malformed'
             );
         }
+        $imageProcess = self::native_regenerate_images_process();
+        $privacyProcess = self::native_privacy_background_process();
         self::assert_exact_native_hook_set('cron_schedules', [
             [['WC_Install', 'cron_schedules'], 10, 1],
             [[$runner, 'add_wp_cron_schedule'], 10, 1],
+            [[$imageProcess, 'schedule_cron_healthcheck'], 10, 1],
+            [[$privacyProcess, 'schedule_cron_healthcheck'], 10, 1],
         ]);
+    }
+
+    private static function native_regenerate_images_process(): object {
+        if (!class_exists('WC_Regenerate_Images', false)
+            || !class_exists('WC_Regenerate_Images_Request', false)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce stock-retention native cron-schedule owners are unavailable'
+            );
+        }
+        try {
+            $property = new \ReflectionProperty('WC_Regenerate_Images', 'background_process');
+            $process = $property->getValue();
+        } catch (\Throwable) {
+            throw new \RuntimeException(
+                'duo: WooCommerce stock-retention native cron-schedule owner is unreadable'
+            );
+        }
+        if (!is_object($process)
+            || get_class($process) !== 'WC_Regenerate_Images_Request'
+            || !is_callable([$process, 'schedule_cron_healthcheck'])) {
+            throw new \RuntimeException(
+                'duo: WooCommerce stock-retention native cron-schedule owner is malformed'
+            );
+        }
+        return $process;
+    }
+
+    private static function native_privacy_background_process(): object {
+        if (!class_exists('WC_Privacy', false)
+            || !class_exists('WC_Privacy_Background_Process', false)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce stock-retention native cron-schedule owners are unavailable'
+            );
+        }
+        try {
+            $property = new \ReflectionProperty('WC_Privacy', 'background_process');
+            $process = $property->getValue();
+        } catch (\Throwable) {
+            throw new \RuntimeException(
+                'duo: WooCommerce stock-retention native cron-schedule owner is unreadable'
+            );
+        }
+        if (!is_object($process)
+            || get_class($process) !== 'WC_Privacy_Background_Process'
+            || !is_callable([$process, 'schedule_cron_healthcheck'])) {
+            throw new \RuntimeException(
+                'duo: WooCommerce stock-retention native cron-schedule owner is malformed'
+            );
+        }
+        return $process;
     }
 
     /** @return array{sha256:string,autoload:string} */
@@ -3946,10 +4086,13 @@ final class WoocommerceSchedulerSettings {
             throw new \RuntimeException('duo: WordPress exact option-cache boundary is unavailable');
         }
         $external = wp_using_ext_object_cache();
-        if (!is_bool($external)) {
+        // Core leaves $_wp_using_ext_object_cache unset when no drop-in was
+        // loaded, so stock WordPress returns null here; only true denotes the
+        // persistent publication boundary this provider cannot fence.
+        if ($external !== null && !is_bool($external)) {
             throw new \RuntimeException('duo: WordPress returned a malformed external object-cache state');
         }
-        if ($external) {
+        if ($external === true) {
             throw new \RuntimeException(
                 'duo: WooCommerce scheduler option repair refuses external object-cache publication'
             );

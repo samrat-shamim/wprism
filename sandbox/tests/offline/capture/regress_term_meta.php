@@ -281,4 +281,13 @@ assertion($storedAgain && $canonicalAgain === $canonical, 'target recapture is b
 $unclassified = $GLOBALS['term_meta_unclassified'];
 assertion(!$unknownStored && $unclassified === ['term_meta:unknown_term_key'], 'only genuinely unclassified termmeta enters the loud blocker list');
 
+$formatSpec = file_get_contents(__DIR__ . '/../../../../spec/repo-format.md');
+assertion(
+    is_string($formatSpec)
+        && str_contains($formatSpec, "term file's `meta` object")
+        && str_contains($formatSpec, 'Unclassified **term meta** is surfaced and blocks capture')
+        && !str_contains($formatSpec, 'until a term-meta state format exists'),
+    'the normative repository format describes the shipped term-meta representation and blocking gate'
+);
+
 echo "ALL PASSED\n";

@@ -363,6 +363,17 @@ echo count($d["surfaces"]) + $d["unknown"]["invisible_names_count"] + $d["unknow
 check "$([ "$ROLLUP_TOTAL" = "$EXPECTED_TOTAL" ] && echo 0 || echo 1)" \
   "the roll-up counts each finding exactly once (sum $ROLLUP_TOTAL, expected $EXPECTED_TOTAL)"
 
+# Invisible names are absent from the pending/classify queue by definition.
+# They must contribute to the adapter path, while only actual pending items
+# and classified surface rows contribute to `classify`.
+INVISIBLE_COUNT=$(php -r '$d=json_decode(file_get_contents($argv[1]), true); echo $d["unknown"]["invisible_names_count"];' "$TMP/out.json")
+INSTALL_COUNT=$(sed -n '/^next actions:/,/^evidence:/p' "$TMP/outh.txt" | awk '/  install adapter$/ { print $1 }')
+CLASSIFY_COUNT=$(sed -n '/^next actions:/,/^evidence:/p' "$TMP/outh.txt" | awk '/  classify$/ { print $1 }')
+check "$([ "$INSTALL_COUNT" -ge "$INVISIBLE_COUNT" ] && echo 0 || echo 1)" \
+  "invisible options contribute to install adapter ($INSTALL_COUNT for $INVISIBLE_COUNT invisible names)"
+check "$([ "$CLASSIFY_COUNT" -lt "$INVISIBLE_COUNT" ] && echo 0 || echo 1)" \
+  "invisible options do not inflate the dead-end classify action ($CLASSIFY_COUNT classify)"
+
 # The retired word may print as a COUNTED zero and must never appear as a row's
 # own next action, which is a different thing and the one that would be a lie.
 assert_absent "$TMP/outh.txt" 'next action: qualify in rehearsal' \
