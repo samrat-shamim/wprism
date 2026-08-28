@@ -2439,8 +2439,6 @@ final class WoocommerceSchedulerSettings {
             'action_scheduler_claim_actions_order_by',
             'action_scheduler_completed_action',
             'action_scheduler_db_supports_skip_locked',
-            'action_scheduler_logger_class',
-            'action_scheduler_store_class',
             'action_scheduler_stored_action_class',
             'action_scheduler_stored_action_instance',
             'pre_as_schedule_recurring_action',
@@ -2455,6 +2453,18 @@ final class WoocommerceSchedulerSettings {
                 );
             }
         }
+        self::assert_exact_native_hook(
+            'action_scheduler_store_class',
+            ['ActionScheduler_DataController', 'set_store_class'],
+            100,
+            1
+        );
+        self::assert_exact_native_hook(
+            'action_scheduler_logger_class',
+            ['ActionScheduler_DataController', 'set_logger_class'],
+            100,
+            1
+        );
 
         $logger = \ActionScheduler::logger();
         if (!is_object($logger) || get_class($logger) !== 'ActionScheduler_DBLogger') {
@@ -2527,9 +2537,12 @@ final class WoocommerceSchedulerSettings {
         foreach (['pre_option', 'default_option', 'pre_wp_load_alloptions', 'alloptions'] as $hook) {
             self::assert_closed_option_hook($hook, []);
         }
-        foreach (['sanitize_option', 'pre_add_option', 'add_option', 'wp_default_autoload_value'] as $hook) {
+        foreach (['sanitize_option', 'pre_add_option', 'add_option'] as $hook) {
             self::assert_closed_option_hook($hook, []);
         }
+        self::assert_closed_option_hook('wp_default_autoload_value', [
+            ['wp_filter_default_autoload_value_via_option_size', '', 5, 4, 'function'],
+        ]);
         self::assert_closed_option_hook('pre_update_option', [
             ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController', 'process_pre_update_option', 999, 3, 'container'],
         ]);
@@ -2542,11 +2555,11 @@ final class WoocommerceSchedulerSettings {
         ]);
         self::assert_closed_option_hook('added_option', [
             ['Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer', 'process_added_option', 999, 2, 'container'],
-            ['Automattic\\WooCommerce\\Internal\\Features\\FeaturesController', 'process_added_option', 999, 2, 'container'],
+            ['Automattic\\WooCommerce\\Internal\\Features\\FeaturesController', 'process_added_option', 999, 3, 'container'],
         ]);
     }
 
-    /** @param list<array{0:string,1:string,2:int,3:int,4:'container'}> $allowed */
+    /** @param list<array{0:string,1:string,2:int,3:int,4:'container'|'function'}> $allowed */
     private static function assert_closed_option_hook(string $hook, array $allowed): void {
         global $wp_filter;
         $seen = [];
@@ -2564,6 +2577,32 @@ final class WoocommerceSchedulerSettings {
             foreach ($callbacks as $callback) {
                 $function = $callback['function'] ?? null;
                 $acceptedArgs = $callback['accepted_args'] ?? null;
+                if (is_string($function) && is_int($acceptedArgs)) {
+                    $matched = false;
+                    foreach ($allowed as [$allowedFunction, $allowedMethod, $allowedPriority, $allowedArgs, $owner]) {
+                        if ($owner === 'function'
+                            && $function === $allowedFunction
+                            && $allowedMethod === ''
+                            && $priority === $allowedPriority
+                            && $acceptedArgs === $allowedArgs) {
+                            $signature = $allowedFunction . '@' . $allowedPriority . '/' . $allowedArgs;
+                            if (isset($seen[$signature])) {
+                                throw new \RuntimeException(
+                                    'duo: WooCommerce scheduler option hook topology has duplicate native callbacks'
+                                );
+                            }
+                            $seen[$signature] = true;
+                            $matched = true;
+                            break;
+                        }
+                    }
+                    if (!$matched) {
+                        throw new \RuntimeException(
+                            'duo: WooCommerce scheduler option hook topology has an extension callback'
+                        );
+                    }
+                    continue;
+                }
                 if (!is_array($function)
                     || count($function) !== 2
                     || (!is_object($function[0]) && !is_string($function[0]))

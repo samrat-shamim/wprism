@@ -226,6 +226,18 @@ const SPLIT_LOCAL_CACHE_MOVED_DIGESTS = [
 ];
 const SPLIT_LOCAL_CACHE_MANIFEST_HASH = '9110bee6b889f4309ef0a85e93f0bd5fc81bbc39f01455fbda01bc63527a3bea';
 
+/** The fourth overlay admits only the exact WordPress 7.1 and Woo 11.0.1 native option-hook callbacks. */
+const SPLIT_NATIVE_HOOK_MOVED_DIGESTS = [
+    'woocommerce' => 'aceb8cbf443a8b2787f25938c5687855883192b8df313c4446e4e36b7d39ccad',
+];
+const SPLIT_NATIVE_HOOK_MANIFEST_HASH = 'bd63504adf239e544149f973780087b8ed885ec7d9393baba9382f75d8755a8c';
+
+/** The fifth overlay admits Action Scheduler's exact completed-migration store and logger selectors. */
+const SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS = [
+    'woocommerce' => '8274ba1c78171149bda79b57afa2fa882053a2327f8ed89d81b03e336bc7703b',
+];
+const SPLIT_DATA_STORE_HOOK_MANIFEST_HASH = '0f2225d6d765789375e9a134479447727236c7fdaeadcd8d10df12ed7186093f';
+
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 duo_check(
     $shippedRegistry instanceof ManifestDispositions,
@@ -246,6 +258,12 @@ foreach (SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS as $movedName => $movedDigest) {
     $expectedDigests[$movedName] = $movedDigest;
 }
 foreach (SPLIT_LOCAL_CACHE_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+foreach (SPLIT_NATIVE_HOOK_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+foreach (SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS as $movedName => $movedDigest) {
     $expectedDigests[$movedName] = $movedDigest;
 }
 ksort($expectedDigests, SORT_STRING);
@@ -283,6 +301,41 @@ duo_check_same(
     'the stock-WordPress local-cache correction changes only the WooCommerce digest and preserves both prior values '
     . 'as evidence of the third intentional identity transition'
 );
+$nativeHookMovedNames = [];
+foreach (SPLIT_NATIVE_HOOK_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_LOCAL_CACHE_MOVED_DIGESTS[$name]
+        ?? SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS[$name]
+        ?? SPLIT_REVIEWED_MOVED_DIGESTS[$name]
+        ?? $frozenDigests[$name]
+        ?? null;
+    if ($priorDigest !== $digest) {
+        $nativeHookMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    ['woocommerce'],
+    $nativeHookMovedNames,
+    'the exact WordPress and WooCommerce native-hook correction changes only WooCommerce and preserves the third '
+    . 'transition as a separate reviewed identity'
+);
+$dataStoreHookMovedNames = [];
+foreach (SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_NATIVE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_LOCAL_CACHE_MOVED_DIGESTS[$name]
+        ?? SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS[$name]
+        ?? SPLIT_REVIEWED_MOVED_DIGESTS[$name]
+        ?? $frozenDigests[$name]
+        ?? null;
+    if ($priorDigest !== $digest) {
+        $dataStoreHookMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    ['woocommerce'],
+    $dataStoreHookMovedNames,
+    'the completed-migration Action Scheduler selector correction changes only WooCommerce and preserves the fourth '
+    . 'transition as a separate reviewed identity'
+);
 duo_check_same(
     $expectedDigests,
     $observed,
@@ -302,7 +355,7 @@ duo_check_same(
     . 'identity, which is still measured here against pre-relocation numbers on every other adapter'
 );
 duo_check_same(
-    SPLIT_LOCAL_CACHE_MANIFEST_HASH,
+    SPLIT_DATA_STORE_HOOK_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
     'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved from the reviewed-manifest '
     . 'address with each reviewed runtime correction, including the WooCommerce local-cache boundary, not because '
@@ -312,6 +365,8 @@ duo_check(
     SPLIT_REVIEWED_MANIFEST_HASH !== SPLIT_FROZEN_MANIFEST_HASH
         && SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH !== SPLIT_REVIEWED_MANIFEST_HASH
         && SPLIT_LOCAL_CACHE_MANIFEST_HASH !== SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH
+        && SPLIT_NATIVE_HOOK_MANIFEST_HASH !== SPLIT_LOCAL_CACHE_MANIFEST_HASH
+        && SPLIT_DATA_STORE_HOOK_MANIFEST_HASH !== SPLIT_NATIVE_HOOK_MANIFEST_HASH
         && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
         && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA,
     '...and all re-pinned numbers really differ from their frozen originals, so the assertions '

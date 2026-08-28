@@ -514,6 +514,16 @@ namespace {
         }
     }
 
+    final class ActionScheduler_DataController {
+        public static function set_store_class(string $class): string {
+            return 'ActionScheduler_DBStore';
+        }
+
+        public static function set_logger_class(string $class): string {
+            return 'ActionScheduler_DBLogger';
+        }
+    }
+
     class WooSchedulerSchedule {
         public function __construct(
             private readonly bool $recurring,
@@ -673,6 +683,15 @@ namespace {
             return apply_filters('default_option', $value, $name, false);
         }
         return apply_filters('option_' . $name, $value, $name);
+    }
+
+    function wp_filter_default_autoload_value_via_option_size(
+        mixed $autoload,
+        string $option,
+        mixed $value,
+        string $serializedValue
+    ): mixed {
+        return $autoload;
     }
 
     function wp_using_ext_object_cache(?bool $using = null): ?bool {
@@ -1209,6 +1228,7 @@ namespace {
         ActionScheduler::reset();
         ActionScheduler_QueueRunner::reset();
         $GLOBALS['wp_filter'] = [];
+        add_filter('wp_default_autoload_value', 'wp_filter_default_autoload_value_via_option_size', 5, 4);
         $GLOBALS['wooSchedulerContainer'] = new WooSchedulerContainer(
             new DataRetentionController(),
             new FeaturesController(),
@@ -1224,10 +1244,12 @@ namespace {
         add_filter('updated_option', [$customOrders, 'process_updated_option_fts_index'], 999, 3);
         add_filter('updated_option', [$featuresController, 'process_updated_option'], 999, 3);
         add_filter('added_option', [$dataSynchronizer, 'process_added_option'], 999, 2);
-        add_filter('added_option', [$featuresController, 'process_added_option'], 999, 2);
+        add_filter('added_option', [$featuresController, 'process_added_option'], 999, 3);
         add_action('action_scheduler_stored_action', [ActionScheduler::logger(), 'log_stored_action'], 10, 1);
         add_action('action_scheduler_canceled_action', [ActionScheduler::logger(), 'log_canceled_action'], 10, 1);
         add_action('action_scheduler_failed_fetch_action', [ActionScheduler::logger(), 'log_failed_fetch_action'], 10, 2);
+        add_filter('action_scheduler_store_class', [ActionScheduler_DataController::class, 'set_store_class'], 100, 1);
+        add_filter('action_scheduler_logger_class', [ActionScheduler_DataController::class, 'set_logger_class'], 100, 1);
         add_filter('cron_schedules', [WC_Install::class, 'cron_schedules'], 10, 1);
         add_filter(
             'cron_schedules',
