@@ -86,7 +86,7 @@ namespace {
     require_once $repoRoot . '/agent/src/Repository/Ledger.php';
     require_once $repoRoot . '/agent/src/Repository/Snapshot.php';
     require_once $repoRoot . '/agent/src/Repository/SidebarState.php';
-    require_once $repoRoot . '/agent/src/Review/Journal.php';
+    require_once $repoRoot . '/agent/src/Repository/Journal.php';
     require_once $repoRoot . '/agent/src/Review/Pending.php';
 
     use Duo\Journal;
@@ -222,7 +222,7 @@ namespace {
 
     echo "\n== the queue an operator sees ==\n";
 
-    $items = Pending::scan_read_only($repoRoot . '/sandbox/tmp', $policy);
+    $items = Pending::scan($repoRoot . '/sandbox/tmp', $policy);
     $keys = array_map(static fn(array $i): string => $i['section'] . ':' . $i['key'], $items);
 
     duo_check_same(
@@ -274,7 +274,7 @@ namespace {
         'value_shapes' => ['multi-instance array'],
         'reason' => 'live widget instances exist but no pinned manifest declares this widget type',
     ]];
-    $withGateFinding = Pending::scan_read_only($repoRoot . '/sandbox/tmp', $policy);
+    $withGateFinding = Pending::scan($repoRoot . '/sandbox/tmp', $policy);
     duo_check(
         in_array('widgets:undeclared', array_map(static fn(array $i): string => $i['section'] . ':' . $i['key'], $withGateFinding), true),
         'the journal filter touches only the journal half: a gate-walk widgets:<type> finding still reaches the queue'
@@ -388,7 +388,7 @@ namespace {
         'term_meta' => [], 'user_meta' => [],
     ];
 
-    $reconItems = Pending::scan_read_only($repoRoot . '/sandbox/tmp', $policy);
+    $reconItems = Pending::scan($repoRoot . '/sandbox/tmp', $policy);
     $reconByKey = [];
     foreach ($reconItems as $item) {
         $reconByKey[$item['section'] . ':' . $item['key']] = $item;

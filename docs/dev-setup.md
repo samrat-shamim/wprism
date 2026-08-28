@@ -358,7 +358,7 @@ document of their own. Four things about them are easy to get wrong:
 - **`duo verify`'s convergence half is a read-only plan re-read, and says so.**
   `wp duo verify-canonical` needs a `--compiled` artifact and a
   `duo-policy-snapshot/v6` that only a mutating apply produces
-  (`agent/src/Review/ConvergenceVerifier.php:87-110`), and MUP §2.4 forbids
+  (`agent/src/Apply/ConvergenceVerifier.php:91-114`), and MUP §2.4 forbids
   adding an agent command to export one. So the report carries
   `verifier: "plan-reconciliation/v1"` plus a disclosure naming where the
   byte-level recapture actually ran — inside the release's own apply, where it

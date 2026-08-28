@@ -22,7 +22,7 @@ require_once __DIR__ . '/../Delete/DeleteExecutor.php';
 require_once __DIR__ . '/../Delete/DeleteGuardValueCodec.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/../Delete/DeleteGuardReferenceScanner.php';
-require_once __DIR__ . '/../Review/ConvergenceVerifier.php';
+require_once __DIR__ . '/ConvergenceVerifier.php';
 require_once __DIR__ . '/../Review/PlanExplanation.php';
 require_once __DIR__ . '/../Review/PlanCategorySummary.php';
 require_once __DIR__ . '/../Review/PlanView.php';

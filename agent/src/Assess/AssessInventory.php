@@ -26,7 +26,7 @@ require_once __DIR__ . '/../Review/Pending.php';
  * commands and reconcile five wire formats. It introduces no planner, no gate
  * and no new evidence: every field is either a live probe the agent already
  * performs (`TargetProbe::probe_target()`), an existing projection
- * quoted verbatim (`Coverage::report()`, `Pending::scan_read_only()`,
+ * quoted verbatim (`Coverage::report()`, `Pending::scan()`,
  * `AdapterSources::survey()`), or a derivation over declarations `Policy`
  * already exposes.
  *
@@ -43,7 +43,7 @@ require_once __DIR__ . '/../Review/Pending.php';
  * redaction boundary for the same queue.
  *
  * READ-ONLY. No locks, no hooks, no DDL, no `Ledger::ensure()`. The heavy
- * collaborators are the strictly-read-only twins (`Pending::scan_read_only()`
+ * collaborators are strictly read-only (`Pending::scan()`
  * asserts the database stayed readable and refuses rather than reporting an
  * empty queue on a failed SELECT), and the surface counts below are plain
  * aggregates.
@@ -133,7 +133,7 @@ final class AssessInventory {
         return self::from_facts($policy, [
             'probe' => TargetProbe::probe_target(),
             'coverage' => Coverage::report($repo),
-            'pending' => Pending::scan_read_only($repo, $policy),
+            'pending' => Pending::scan($repo, $policy),
             'adapter_survey' => $survey,
             'adapter_survey_reason' => $surveyReason,
             'adoption' => is_array($options['adoption'] ?? null) ? $options['adoption'] : null,

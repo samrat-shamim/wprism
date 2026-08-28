@@ -107,7 +107,7 @@ final class WP_CLI {
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/Secrets.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/CommandRefusal.php';
-require_once __DIR__ . '/../../../../agent/src/Review/ConvergenceVerifier.php';
+require_once __DIR__ . '/../../../../agent/src/Apply/ConvergenceVerifier.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/CompiledArtifact.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyPlanner.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/IncompleteApplyMarker.php';

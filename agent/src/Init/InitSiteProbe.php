@@ -28,7 +28,7 @@ final class InitSiteProbe {
      * friends), plus any unknown `duo_*` table, which is itself non-pristine
      * evidence. `duo_journal` is deliberately not part of it: its rows are
      * observations, a "proposal generator, never authority"
-     * (`agent/src/Review/Journal.php:4-5`), written by the single INSERT at
+     * (`agent/src/Repository/Journal.php:7-8`), written by the single INSERT at
      * `Journal.php:105-109` whose observer refuses every `duo_`-prefixed
      * table (`:67`), so no journal row can ever be a Duo identity claim.
      *

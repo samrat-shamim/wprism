@@ -1,27 +1,27 @@
 # agent: Review
 
-**Purpose.** Read-only projections over plans and state — lint and its reference scanners, coverage, pending, journal, orphans, canary, convergence verification and refresh export.
+**Purpose.** Read-only projections over plans and state — lint and its reference scanners, coverage, pending, effect-declaration coverage, plan explanation and refresh export.
 
-**Directory** `agent/src/Review/` &middot; **layer** `engine` &middot; **files** 17 &middot; **status** populated
+**Directory** `agent/src/Review/` &middot; **layer** `engine` &middot; **files** 16 &middot; **status** populated
 
-**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Canary`, `ConvergenceVerifier`, `Journal`, `Lint`, `Pending`, `PlanCategorySummary`, `PlanExplanation`, `PlanView`, `Coverage`, `Orphans`, `RefreshExport`.
+**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `EffectDeclarationCoverage`, `Lint`, `Pending`, `PlanCategorySummary`, `PlanExplanation`, `PlanView`, `Coverage`, `RefreshExport`, `LintEnvironment`, `LintFinding`, `LintTrustGate`.
 
 **May depend on:** `Code`, `Grammar`, `Kernel`, `Policy`, `Repository`, `Review`.
 
 **Ratified exceptions** (same-layer or upward edges that exist today; ratchet — may shrink, never grow):
 
-- `Capture` (intra-layer, 3 edges)
-  `ConvergenceVerifier.php -> Capture.php`; `Pending.php -> Capture.php`; `RefreshExport.php -> Capture.php`
+- `Capture` (intra-layer, 2 edges)
+  `Pending.php -> Capture.php`; `RefreshExport.php -> Capture.php`
 - `Delete` (intra-layer, 2 edges)
   `PlanExplanation.php -> Deletion.php`; `RefreshExport.php -> Deletion.php`
-- `Scope` (intra-layer, 3 edges)
-  `ConvergenceVerifier.php -> ScopedApply.php`; `ConvergenceVerifier.php -> ScopedApplySession.php`; `RefreshExport.php -> ScopedStateOverlay.php`
+- `Scope` (intra-layer, 1 edge)
+  `RefreshExport.php -> ScopedStateOverlay.php`
 
 **Must not depend on.** Adapter and Command. Review must stay read-only: no writes, no locks, no publication.
 
 **Known debts.**
 
-- Review is the module the reserved Assess module will draw from; today its projections are reachable only through Cli.php, and several (verify-canonical, journal-report, orphans) are undocumented Phase A leaks.
+- Review's projections are composed by both the Assess module and Cli.php; neither composition may initialize or repair the evidence it reads.
 - `Lint.php` owns the five reference scanners, which were moved here from Capture on the evidence that Lint is their only caller.
 
 **Sub-namespace plan.** Target `Duo\Review\`. Not in this round: the move keeps `namespace Duo;` flat so that manifest interpreters/providers can keep naming `\Duo\Policy`, `\Duo\ProviderSdk`, `\Duo\Providers` and `\Duo\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.

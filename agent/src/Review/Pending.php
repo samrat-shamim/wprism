@@ -50,41 +50,24 @@ final class Pending {
      *   secret?: string
      * }>
      */
-    public static function scan(string $repo): array {
-        Ledger::ensure();
-        return self::scan_with_policy($repo, Policy::load($repo), false);
+    public static function scan(string $repo, ?Policy $policy = null): array {
+        return self::scan_with_policy($repo, $policy ?? Policy::load($repo));
     }
 
-    /**
-     * Strictly read-only pending projection for adapter observation.
-     *
-     * Pending's normal operator command keeps its historical Ledger::ensure()
-     * behavior above: an interactive review queue can initialize the agent's
-     * durable journal state.  An observation request cannot.  Its caller has
-     * already proved the journal prerequisite exists, so this twin takes the
-     * same gate/journal/keyspace walk without DDL, repair, classification, or
-     * any ledger write.
-     */
-    public static function scan_read_only(string $repo, Policy $policy): array {
-        self::assert_read_only_database();
-        return self::scan_with_policy($repo, $policy, true);
-    }
-
-    private static function scan_with_policy(string $repo, Policy $policy, bool $strictRead): array {
+    /** The review queue is one read-only projection on every caller path. */
+    private static function scan_with_policy(string $repo, Policy $policy): array {
 
         // Capture/Snapshot and the per-item helpers can each make several
         // SELECTs.  Check immediately after every observer-owned read: a
         // subsequent successful wpdb query clears last_error and must never
         // turn a failed earlier read into empty evidence.
-        $observationReadCheckpoint = $strictRead
-            ? static function (): void { self::assert_read_only_database(); }
-            : null;
+        $observationReadCheckpoint = static function (): void { self::assert_read_only_database(); };
 
         // This is the collect-only gate walk, not Capture::run().  Supplying
         // the already loaded policy avoids a second policy path and preserves
         // the observer's no-repair/no-write boundary.
         $gate = Capture::gate_scan_read_only($repo, $policy, $observationReadCheckpoint);
-        self::assert_read_only_database($strictRead);
+        self::assert_read_only_database();
         // The journal-derived half of the queue exists only once the agent's
         // durable journal does. On a target Duo has never written to (the
         // first look `duo assess` takes on an adoption seed, before any init
@@ -94,17 +77,17 @@ final class Pending {
         // regardless made the observer refuse `adapter_observation_pending_
         // unreadable` on every fresh site (T7 grind A1), which told the
         // operator to repair a database nothing had touched.
-        if ($strictRead && !self::journal_installed()) {
+        if (!self::journal_installed()) {
             $journalOptions = [];
             $journalPostMeta = [];
             $journalTermMeta = [];
         } else {
             $journalOptions = self::journal_unclassified($policy, 'options', $observationReadCheckpoint);
-            self::assert_read_only_database($strictRead);
+            self::assert_read_only_database();
             $journalPostMeta = self::journal_unclassified($policy, 'postmeta', $observationReadCheckpoint);
-            self::assert_read_only_database($strictRead);
+            self::assert_read_only_database();
             $journalTermMeta = self::journal_unclassified($policy, 'termmeta', $observationReadCheckpoint);
-            self::assert_read_only_database($strictRead);
+            self::assert_read_only_database();
         }
 
         $items = [];
@@ -132,7 +115,7 @@ final class Pending {
             $items[] = self::make_item('user_meta', $key, $ev, null, $observationReadCheckpoint);
         }
         $keyspaceGaps = Snapshot::keyspace_gaps($policy, $observationReadCheckpoint);
-        self::assert_read_only_database($strictRead);
+        self::assert_read_only_database();
         foreach ($keyspaceGaps as $gap) {
             $items[] = self::make_item('table_meta', $gap['table'] . ':' . $gap['key'], [
                 'entities' => $gap['count'],
@@ -146,7 +129,7 @@ final class Pending {
         }
 
         usort($items, fn($a, $b) => [$a['section'], $a['key']] <=> [$b['section'], $b['key']]);
-        self::assert_read_only_database($strictRead);
+        self::assert_read_only_database();
         return $items;
     }
 
@@ -164,15 +147,15 @@ final class Pending {
         if (!is_string($readError) || $readError !== '' || $found === false) {
             self::assert_read_only_database();
             throw new CommandRefusalException(
-                'adapter_observation_pending_unreadable',
-                'adapter observation could not read the existing pending-review evidence',
-                'inspect and repair the target database through the existing controlled workflow before collecting proposal evidence',
+                'pending_evidence_unreadable',
+                'the pending review could not read existing evidence',
+                'inspect and repair the target database through the existing controlled workflow before reviewing pending evidence',
                 [[
-                    'code' => 'adapter_observation_pending_unreadable',
-                    'message' => 'the observer could not prove whether the provenance journal exists',
-                    'remediation' => 'restore readable target evidence before collecting adapter observation evidence',
+                    'code' => 'pending_evidence_unreadable',
+                    'message' => 'the review could not prove whether the provenance journal exists',
+                    'remediation' => 'restore readable target evidence before reviewing pending evidence',
                 ]],
-                'duo: adapter observation refused because the journal existence probe failed'
+                'duo: pending review refused because the journal existence probe failed'
             );
         }
 
@@ -180,27 +163,23 @@ final class Pending {
     }
 
     /**
-     * A read-only observer must fail instead of presenting a failed query as
-     * an empty pending queue. Normal interactive pending keeps its legacy
-     * behavior; this check is deliberately confined to the new twin.
+     * A review projection must fail instead of presenting a failed query as
+     * an empty pending queue.
      */
-    private static function assert_read_only_database(bool $required = true): void {
-        if (!$required) {
-            return;
-        }
+    private static function assert_read_only_database(): void {
         global $wpdb;
         $error = is_object($wpdb) ? ($wpdb->last_error ?? null) : null;
         if (!is_string($error) || $error !== '') {
             throw new CommandRefusalException(
-                'adapter_observation_pending_unreadable',
-                'adapter observation could not read the existing pending-review evidence',
-                'inspect and repair the target database through the existing controlled workflow before collecting proposal evidence',
+                'pending_evidence_unreadable',
+                'the pending review could not read existing evidence',
+                'inspect and repair the target database through the existing controlled workflow before reviewing pending evidence',
                 [[
-                    'code' => 'adapter_observation_pending_unreadable',
-                    'message' => 'the observer will not treat a failed pending read as an empty review queue',
-                    'remediation' => 'restore readable target evidence before collecting adapter observation evidence',
+                    'code' => 'pending_evidence_unreadable',
+                    'message' => 'the review will not treat a failed pending read as an empty review queue',
+                    'remediation' => 'restore readable target evidence before reviewing pending evidence',
                 ]],
-                'duo: adapter observation refused because a pending evidence SELECT failed'
+                'duo: pending review refused because an evidence SELECT failed'
             );
         }
     }
@@ -714,7 +693,7 @@ final class Pending {
      * declared sub_keys) and a residue row is declared env-local residue
      * (manifests/core.json:85), so both belong out of the queue — and the
      * prefix lookup needs no `get_option('stylesheet')` read, which
-     * scan_read_only()'s strictly read-only observation path must not
+     * scan()'s strictly read-only projection must not
      * acquire.
      */
     private static function mechanism_owner(Policy $policy, string $tbl, string $item): ?string {

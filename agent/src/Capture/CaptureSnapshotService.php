@@ -1,7 +1,7 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . '/../Review/Canary.php';
+require_once __DIR__ . '/../Kernel/Canary.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/CaptureCandidateBuilder.php';
 require_once __DIR__ . '/CaptureTransaction.php';

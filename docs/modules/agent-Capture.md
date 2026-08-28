@@ -18,8 +18,8 @@
   `CapturePublicationWorkflow.php -> Deploy.php`
 - `Publication` (intra-layer, 6 edges)
   `CapturePublicationRecovery.php -> Publish.php`; `CapturePublicationWorkflow.php -> PublicationJournal.php`; `CapturePublicationWorkflow.php -> Publish.php`; `CaptureTransaction.php -> Publish.php`; `InitialCaptureBoundary.php -> PublicationJournal.php`; `InitialCaptureBoundary.php -> Publish.php`
-- `Review` (intra-layer, 3 edges)
-  `CapturePublicationWorkflow.php -> Canary.php`; `CapturePublicationWorkflow.php -> Lint.php`; `CaptureSnapshotService.php -> Canary.php`
+- `Review` (intra-layer, 1 edge)
+  `CapturePublicationWorkflow.php -> Lint.php`
 - `Scope` (intra-layer, 4 edges)
   `Capture.php -> ScopedCaptureProjector.php`; `CapturePublicationWorkflow.php -> ScopedApply.php`; `CapturePublicationWorkflow.php -> ScopedCaptureProjector.php`; `CapturePublicationWorkflow.php -> ScopedStateOverlay.php`
 

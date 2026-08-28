@@ -88,7 +88,14 @@ final class AdapterObservation {
         // retains its normal policy validation when it reads the same facts.
         $policy = Policy::load($repo, null, true);
         $journal = Journal::report_read_only($policy);
-        $pending = Pending::scan_read_only($repo, $policy);
+        try {
+            $pending = Pending::scan($repo, $policy);
+        } catch (CommandRefusalException $failure) {
+            if ($failure->reasonCode === 'pending_evidence_unreadable') {
+                self::refuse_pending_read_error($failure);
+            }
+            throw $failure;
+        }
         $survey = AdapterSources::survey($repo);
         // Existing Policy vocabulary remains the capability/readiness source.
         // It negotiates provider identity/capability declarations, never the
@@ -214,6 +221,21 @@ final class AdapterObservation {
                 'remediation' => 'restore the existing journal prerequisite before collecting proposal evidence',
             ]],
             'duo: adapter observation refused because its provenance journal prerequisite is absent'
+        );
+    }
+
+    private static function refuse_pending_read_error(\Throwable $previous): never {
+        throw new CommandRefusalException(
+            'adapter_observation_pending_unreadable',
+            'adapter observation could not read the existing pending-review evidence',
+            'inspect and repair the target database through the existing controlled workflow before collecting proposal evidence',
+            [[
+                'code' => 'adapter_observation_pending_unreadable',
+                'message' => 'the observer will not treat a failed pending read as an empty review queue',
+                'remediation' => 'restore readable target evidence before collecting adapter observation evidence',
+            ]],
+            'duo: adapter observation refused because a pending evidence SELECT failed',
+            $previous
         );
     }
 

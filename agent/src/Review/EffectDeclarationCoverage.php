@@ -1,7 +1,7 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . '/Journal.php';
+require_once __DIR__ . '/../Repository/Journal.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 

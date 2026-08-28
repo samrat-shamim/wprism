@@ -398,7 +398,7 @@ namespace {
     require_once $repoRoot . '/agent/src/Kernel/Canon.php';
     require_once $repoRoot . '/agent/src/Kernel/Secrets.php';
     require_once $repoRoot . '/agent/src/Kernel/CommandRefusal.php';
-    require_once $repoRoot . '/agent/src/Review/Journal.php';
+    require_once $repoRoot . '/agent/src/Repository/Journal.php';
     require_once $repoRoot . '/agent/src/Review/Pending.php';
     require_once $repoRoot . '/agent/src/Adapter/AdapterObservation.php';
     require_once $repoRoot . '/agent/src/Command/Cli.php';
@@ -660,11 +660,11 @@ namespace {
             && all_select_only($wpdb->queries),
         'target Journal/Pending observation uses no Ledger repair or DB mutation and issues SELECT/SHOW queries only'
     );
-    $journalReadSource = method_source($repoRoot . '/agent/src/Review/Journal.php', Journal::class, 'report_read_only');
-    $pendingReadSource = method_source($repoRoot . '/agent/src/Review/Pending.php', Pending::class, 'scan_read_only');
+    $journalReadSource = method_source($repoRoot . '/agent/src/Repository/Journal.php', Journal::class, 'report_read_only');
+    $pendingReadSource = method_source($repoRoot . '/agent/src/Review/Pending.php', Pending::class, 'scan');
     check(
         !str_contains($journalReadSource, 'Ledger::ensure') && !str_contains($pendingReadSource, 'Ledger::ensure'),
-        'narrow read-only Journal/Pending entry points cannot call Ledger::ensure'
+        'the durable journal reader and the one Pending entry point cannot call Ledger::ensure'
     );
     // DUO-3497's survival half. Observations recorded before `duo init` reach
     // the post-init review queue only because this aggregation has no time,
@@ -720,12 +720,12 @@ namespace {
     $GLOBALS['wpdb'] = $pendingErrorDb;
     $pendingError = null;
     try {
-        Pending::scan_read_only($site, new Policy());
+        Pending::scan($site, new Policy());
     } catch (CommandRefusalException $e) {
         $pendingError = $e->reasonCode;
     }
     check(
-        $pendingError === 'adapter_observation_pending_unreadable',
+        $pendingError === 'pending_evidence_unreadable',
         'read-only pending path fails closed when wpdb reports a read error'
     );
 
@@ -741,7 +741,7 @@ namespace {
     $noJournalError = null;
     $noJournalItems = null;
     try {
-        $noJournalItems = Pending::scan_read_only($site, new Policy());
+        $noJournalItems = Pending::scan($site, new Policy());
     } catch (CommandRefusalException $e) {
         $noJournalError = $e->reasonCode;
     }
@@ -761,12 +761,12 @@ namespace {
     $GLOBALS['wpdb'] = $journalProbeFailDb;
     $probeError = null;
     try {
-        Pending::scan_read_only($site, new Policy());
+        Pending::scan($site, new Policy());
     } catch (CommandRefusalException $e) {
         $probeError = $e->reasonCode;
     }
     check(
-        $probeError === 'adapter_observation_pending_unreadable',
+        $probeError === 'pending_evidence_unreadable',
         'a journal probe that fails is refused as unreadable, never read as absent'
     );
     $GLOBALS['wpdb'] = new ObservationFakeWpdb();
@@ -778,14 +778,14 @@ namespace {
     \Duo\Capture::$failIntermediateReadThenSuccess = true;
     $gateIntermediateError = null;
     try {
-        Pending::scan_read_only($site, new Policy());
+        Pending::scan($site, new Policy());
     } catch (CommandRefusalException $e) {
         $gateIntermediateError = $e->reasonCode;
     } finally {
         \Duo\Capture::$failIntermediateReadThenSuccess = false;
     }
     check(
-        $gateIntermediateError === 'adapter_observation_pending_unreadable',
+        $gateIntermediateError === 'pending_evidence_unreadable',
         'observer refuses an intermediate gate SELECT before a later success can clear wpdb last_error'
     );
 
@@ -794,14 +794,14 @@ namespace {
     \Duo\Snapshot::$failIntermediateReadThenSuccess = true;
     $keyspaceIntermediateError = null;
     try {
-        Pending::scan_read_only($site, new Policy());
+        Pending::scan($site, new Policy());
     } catch (CommandRefusalException $e) {
         $keyspaceIntermediateError = $e->reasonCode;
     } finally {
         \Duo\Snapshot::$failIntermediateReadThenSuccess = false;
     }
     check(
-        $keyspaceIntermediateError === 'adapter_observation_pending_unreadable',
+        $keyspaceIntermediateError === 'pending_evidence_unreadable',
         'observer refuses an intermediate keyspace SELECT before a later success can clear wpdb last_error'
     );
 
@@ -810,12 +810,12 @@ namespace {
     $GLOBALS['wpdb'] = $currentValueIntermediateDb;
     $currentValueIntermediateError = null;
     try {
-        Pending::scan_read_only($site, new Policy());
+        Pending::scan($site, new Policy());
     } catch (CommandRefusalException $e) {
         $currentValueIntermediateError = $e->reasonCode;
     }
     check(
-        $currentValueIntermediateError === 'adapter_observation_pending_unreadable',
+        $currentValueIntermediateError === 'pending_evidence_unreadable',
         'observer refuses a current-value SELECT before the next item can erase its wpdb error'
     );
 
@@ -824,22 +824,42 @@ namespace {
     $GLOBALS['wpdb'] = $referenceIntermediateDb;
     $referenceIntermediateError = null;
     try {
-        Pending::scan_read_only($site, new Policy());
+        Pending::scan($site, new Policy());
     } catch (CommandRefusalException $e) {
         $referenceIntermediateError = $e->reasonCode;
     }
     check(
-        $referenceIntermediateError === 'adapter_observation_pending_unreadable',
+        $referenceIntermediateError === 'pending_evidence_unreadable',
         'observer refuses a post reference SELECT before its term fallback can erase wpdb last_error'
+    );
+
+    $adapterPendingDb = new ObservationFakeWpdb();
+    $adapterPendingDb->failCurrentValueThenSuccess = true;
+    $GLOBALS['wpdb'] = $adapterPendingDb;
+    $adapterPendingError = null;
+    try {
+        TargetObservation::report($site);
+    } catch (CommandRefusalException $e) {
+        $adapterPendingError = $e->reasonCode;
+    }
+    check(
+        $adapterPendingError === 'adapter_observation_pending_unreadable',
+        'adapter observation maps the generic read-only Pending refusal onto its stable public reason code'
     );
 
     $normalPendingDb = new ObservationFakeWpdb();
     $normalPendingDb->failCurrentValueThenSuccess = true;
     $GLOBALS['wpdb'] = $normalPendingDb;
-    $normalPending = Pending::scan($site);
+    $normalPendingError = null;
+    try {
+        Pending::scan($site, new Policy());
+    } catch (CommandRefusalException $e) {
+        $normalPendingError = $e->reasonCode;
+    }
     check(
-        $normalPending !== [] && $normalPendingDb->last_error === '',
-        'ordinary pending keeps its legacy non-observer read path while observation-only checkpoints stay opt-in'
+        $normalPendingError === 'pending_evidence_unreadable'
+            && Ledger::$ensureCalls === 0 && Db::$mutationCalls === 0,
+        'the ordinary pending product path is the same fail-closed, zero-write projection as every other caller'
     );
 
     echo "\n== strict host validation and one-call transport ==\n";

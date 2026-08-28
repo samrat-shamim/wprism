@@ -25,7 +25,7 @@
  * adapter automatically joins the forbidden set.
  *
  * SEAM. `AssessInventory::report()` calls `TargetProbe::probe_target()` and
- * `Pending::scan_read_only()`, whose gate walk needs a live WordPress. So the
+ * `Pending::scan()`, whose gate walk needs a live WordPress. So the
  * suite drives `from_facts()`, which is the same document builder with those
  * target facts (plus the coverage projection and adapter survey) handed in.
  * Everything the class does itself — plugins, themes, media, the manifest
@@ -658,7 +658,7 @@ duo_check_same(52, $document['pending']['count'], 'pending reports the TRUE coun
 duo_check_same(50, count($document['pending']['rows']), 'pending truncates at the §4.6 bound');
 duo_check_same(AssessInventory::PENDING_ROW_LIMIT, count($document['pending']['rows']), 'that bound is the published constant');
 duo_check_same(true, $document['pending']['truncated'], 'truncation is declared, never silent');
-duo_check_same($pendingRows[0], $document['pending']['rows'][0], 'pending rows keep the shape scan_read_only() produced');
+duo_check_same($pendingRows[0], $document['pending']['rows'][0], 'pending rows keep the shape scan() produced');
 
 $short = AssessInventory::from_facts($policy, ['pending' => array_slice($pendingRows, 0, 3)] + $facts);
 duo_check_same(false, $short['pending']['truncated'], 'a queue inside the bound is not marked truncated');

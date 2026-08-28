@@ -46,6 +46,46 @@ function significant_tokens(string $source): array {
     return $out;
 }
 
+/** Return executable tokens only, so rationale comments cannot trip behavior checks. */
+function executable_source(string $source): string {
+    $out = '';
+    foreach (token_get_all($source) as $token) {
+        if (!is_array($token)) {
+            $out .= $token;
+            continue;
+        }
+        if (in_array($token[0], [
+            T_COMMENT, T_DOC_COMMENT, T_CONSTANT_ENCAPSED_STRING,
+            T_ENCAPSED_AND_WHITESPACE, T_START_HEREDOC, T_END_HEREDOC,
+        ], true)) {
+            continue;
+        }
+        $out .= $token[1];
+    }
+    return $out;
+}
+
+/** @return list<string> */
+function review_side_effects(string $source): array {
+    $code = executable_source($source);
+    $patterns = [
+        'ledger mutation/initialization' => '/\bLedger\s*::\s*(?:ensure|forget|remember|kv_put|kv_delete)\s*\(/',
+        'database write transaction/query' => '/\bDb\s*::\s*(?:start|query|commit|rollback_after_failure)\s*\(/',
+        'snapshot row mutation' => '/\bSnapshot\s*::\s*(?:delete_local_row|reparent_local_row)\s*\(/',
+        'canonical file write' => '/\bCanon\s*::\s*write_file\s*\(/',
+        'direct filesystem write' => '/\b(?:file_put_contents|tempnam|unlink|mkdir|rename)\s*\(/',
+        'direct wpdb mutation' => '/->\s*(?:insert|update|delete|query)\s*\(/',
+        'exclusive file write/lock' => '/\bLOCK_EX\b/',
+    ];
+    $found = [];
+    foreach ($patterns as $label => $pattern) {
+        if (preg_match($pattern, $code) === 1) {
+            $found[] = $label;
+        }
+    }
+    return $found;
+}
+
 function token_id(mixed $token): int|string {
     return is_array($token) ? $token[0] : $token;
 }
@@ -461,7 +501,7 @@ $knownGapsByFile = [
     'CodeConfigGrammar' => ['Code'],
     'CodeStateContract' => ['CompiledRepository', 'OptionState'],
     'CompiledArtifact' => ['Canon', 'Code'],
-    'ConvergenceVerifier' => ['Capture', 'CompiledRepository', 'Policy'],
+    'ConvergenceVerifier' => ['CompiledRepository', 'Policy'],
     'Coverage' => ['Policy'],
     'Db' => ['TransientDbException'],
     'DeleteExecutor' => ['Db', 'Ledger'],
@@ -470,7 +510,7 @@ $knownGapsByFile = [
     'Identity' => ['Canon', 'SidebarState', 'Uuid'],
     'IdentityBackup' => ['Canon', 'Identity', 'Ledger', 'Policy', 'RepositoryCompiler', 'SidebarState', 'Snapshot', 'Uuid'],
     'IdentityNotes' => ['Snapshot', 'Uuid'],
-    'Journal' => ['CommandRefusalException', 'Db', 'Ledger', 'Policy'],
+    'Journal' => ['CommandRefusalException'],
     'Ledger' => ['Db', 'Uuid'],
     'LifecycleExecutor' => ['PromotionLock'],
     'LifecyclePlanner' => ['Code', 'CompiledRepository', 'Ledger', 'Policy'],
@@ -484,8 +524,7 @@ $knownGapsByFile = [
     'MenuMaterializer' => ['Db', 'Ledger', 'PlainData', 'Policy', 'Tokens'],
     'OptionState' => ['Canon'],
     'OptionsMaterializer' => ['Db'],
-    'Orphans' => ['Canary', 'Db', 'Ledger', 'Policy', 'Snapshot'],
-    'Pending' => ['Capture', 'CommandRefusalException', 'Journal', 'Ledger', 'Policy', 'Secrets', 'Snapshot'],
+    'Pending' => ['Capture', 'CommandRefusalException', 'Journal', 'Policy', 'Secrets', 'Snapshot'],
     'PinResolver' => ['Policy', 'RepositoryCompiler'],
     'PlanExplanation' => ['CommandRefusalException', 'CompiledRepository', 'Deletion', 'OptionState', 'Policy', 'ReferenceGraph', 'SidebarState'],
     'Policy' => ['Canon', 'ManifestDispositions', 'OptionState'],
@@ -520,7 +559,11 @@ foreach ($knownGapsByFile as $basename => $names) {
 
 $gaps = find_gaps($sources, $classFiles, $knownGaps);
 
-check(count($knownGaps) >= 250, 'known-gap baseline unexpectedly shrank; review the allowlist rather than hiding changes');
+// The Review ownership correction closed ten explicit gaps by giving the
+// relocated writers their own requirements and removing Pending's DDL
+// dependency (258 -> 248); retain the previous eight-pair deletion tripwire
+// below that reviewed baseline rather than making real gap closure fail.
+check(count($knownGaps) >= 240, 'known-gap baseline unexpectedly shrank; review the allowlist rather than hiding changes');
 fwrite(STDOUT, 'known gaps: ' . count($knownGaps) . " (explicit baseline; new pairs fail)\n");
 // The allowlist cannot become a dead, copy-pasted escape hatch: every entry
 // must still be observed in the current baseline.  Then mutate concrete
@@ -710,6 +753,31 @@ foreach ($modulesDecoded['agent']['modules'] as $moduleName => $module) {
         "tools/modules.json agent.$moduleName.file_count (" . var_export($fileCount, true) . ') disagrees with its files list (' . count($files) . ' entries); set file_count to match files in the same edit'
     );
 }
+
+// Review is an operational trust boundary, not a naming convention:
+// docs/modules/agent-Review.md promises no writes, locks or publication. The
+// previous placement let Pending initialize DDL, Journal flush INSERTs,
+// Orphans delete/reparent rows and ConvergenceVerifier stage files while the
+// dependency graph remained green. Check executable tokens in every mapped
+// Review file so those behaviors cannot return under a different class name.
+$reviewFiles = $modulesDecoded['agent']['modules']['Review']['files'] ?? null;
+check(is_array($reviewFiles) && $reviewFiles !== [], 'tools/modules.json has no populated Review module');
+$reviewViolations = [];
+foreach ($reviewFiles as $file) {
+    $reviewSource = file_get_contents($root . '/agent/src/Review/' . $file);
+    check(is_string($reviewSource), "could not read Review/$file for the read-only ownership guard");
+    $effects = review_side_effects($reviewSource);
+    if ($effects !== []) {
+        $reviewViolations[] = "$file: " . implode(', ', $effects);
+    }
+}
+check($reviewViolations === [], 'Review must stay read-only: ' . implode('; ', $reviewViolations));
+check(
+    review_side_effects('<?php Ledger::ensure(); Db::query($sql); Canon::write_file($p, $b);')
+        === ['ledger mutation/initialization', 'database write transaction/query', 'canonical file write'],
+    'Review read-only mutation probe no longer detects the prior behavior classes'
+);
+fwrite(STDOUT, "ok: every mapped Review file is free of database, ledger, filesystem and lock mutation primitives\n");
 
 $derived = layers_from_modules($modulesDecoded);
 check($derived['malformed'] === [], 'tools/modules.json agent modules malformed (missing/wrong-typed layer or files): ' . implode(', ', $derived['malformed']));

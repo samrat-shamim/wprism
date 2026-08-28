@@ -1,8 +1,18 @@
 <?php
 namespace Duo;
 
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
+if (!class_exists(Policy::class, false)) {
+    require_once __DIR__ . '/../Policy/Policy.php';
+}
+if (!class_exists(Ledger::class, false)) {
+    require_once __DIR__ . '/Ledger.php';
+}
+
 /**
- * Provenance journal (proposal generator, never authority): observes DB write
+ * Durable provenance journal (proposal generator, never authority): observes DB write
  * queries via the wpdb 'query' filter and records (table, item) with the
  * cause — surface × actor capability × executing hook. The authored signal is
  * capability×surface: bare "authenticated" never proposes authored (customers

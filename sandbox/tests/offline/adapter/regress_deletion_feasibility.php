@@ -94,7 +94,7 @@ final class WP_CLI {
 }
 
 // The verb itself, and the journal gate it closes at entry.
-require_once $repoRoot . '/agent/src/Review/Journal.php';
+require_once $repoRoot . '/agent/src/Repository/Journal.php';
 require_once $repoRoot . '/agent/src/Command/Cli.php';
 
 use Duo\Canon;

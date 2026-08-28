@@ -8,7 +8,7 @@ require_once __DIR__ . '/ScopedApplySession.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 
 require_once __DIR__ . '/../Apply/ApplyPlanner.php';
-require_once __DIR__ . '/../Review/ConvergenceVerifier.php';
+require_once __DIR__ . '/../Apply/ConvergenceVerifier.php';
 require_once __DIR__ . '/ScopedApply.php';
 
 /** Reconstructs the immutable scoped work selection during crash recovery. */

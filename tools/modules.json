@@ -56,7 +56,7 @@
     "modules": {
       "Kernel": {
         "layer": "kernel",
-        "purpose": "Dependency-free primitives — canonical JSON, database access, reference codecs, durable filesystem, identifiers, secrets and PII redaction — that everything else is built on.",
+        "purpose": "Dependency-free primitives — canonical JSON, database access, reference codecs, durable filesystem, side-effect guards, identifiers, secrets and PII redaction — that everything else is built on.",
         "status": "populated",
         "entry_points": [
           "Canon",
@@ -89,7 +89,8 @@
           "UrlQueryReferenceCodec",
           "MetaRows",
           "MediaPayloadAuthority",
-          "WpCliChildProcess"
+          "WpCliChildProcess",
+          "Canary"
         ],
         "depends_on": [
           "Kernel"
@@ -113,8 +114,9 @@
             ]
           }
         ],
-        "file_count": 33,
+        "file_count": 34,
         "files": [
+          "Canary.php",
           "Canon.php",
           "CommandRefusal.php",
           "Db.php",
@@ -377,7 +379,7 @@
       },
       "Repository": {
         "layer": "repository",
-        "purpose": "The durable repository of owned state: compiled artifacts, identity registry, ledger, reference graph, snapshots and their validators.",
+        "purpose": "The durable repository of owned state: compiled artifacts, identity registry, ledger, provenance journal, reference graph, snapshots and their validators.",
         "status": "populated",
         "entry_points": [
           "Ledger",
@@ -393,7 +395,8 @@
           "StateTreeWalker",
           "IdentityBackup",
           "IdentityNotes",
-          "RepositoryAuthorization"
+          "RepositoryAuthorization",
+          "Journal"
         ],
         "depends_on": [
           "Grammar",
@@ -440,7 +443,7 @@
             ]
           }
         ],
-        "file_count": 26,
+        "file_count": 27,
         "files": [
           "CanonicalLedgerMapGuard.php",
           "CanonicalMapWitness.php",
@@ -450,6 +453,7 @@
           "Identity.php",
           "IdentityBackup.php",
           "IdentityNotes.php",
+          "Journal.php",
           "Ledger.php",
           "ReferenceGraph.php",
           "RepositoryAuthorization.php",
@@ -575,11 +579,9 @@
           {
             "module": "Review",
             "kind": "intra-layer",
-            "count": 3,
+            "count": 1,
             "edges": [
-              "CapturePublicationWorkflow.php -> Canary.php",
-              "CapturePublicationWorkflow.php -> Lint.php",
-              "CaptureSnapshotService.php -> Canary.php"
+              "CapturePublicationWorkflow.php -> Lint.php"
             ]
           },
           {
@@ -618,14 +620,15 @@
       },
       "Apply": {
         "layer": "engine",
-        "purpose": "Plans and executes writes of repository state into a live site: apply planning, services, the authored transaction and the per-entity materializers.",
+        "purpose": "Plans, executes and verifies writes of repository state into a live site: apply planning, services, the authored transaction, convergence verification and the per-entity materializers.",
         "status": "populated",
         "entry_points": [
           "ApplyPlanner",
           "Apply",
           "MenuMaterializer",
           "RelationshipMaterializer",
-          "TypedTableMaterializer"
+          "TypedTableMaterializer",
+          "ConvergenceVerifier"
         ],
         "depends_on": [
           "Apply",
@@ -650,11 +653,12 @@
           {
             "module": "Capture",
             "kind": "intra-layer",
-            "count": 3,
+            "count": 4,
             "edges": [
               "ApplyPlanBuilder.php -> Capture.php",
               "ApplyPreparationCoordinator.php -> Capture.php",
-              "ApplyRequestCoordinator.php -> Capture.php"
+              "ApplyRequestCoordinator.php -> Capture.php",
+              "ConvergenceVerifier.php -> Capture.php"
             ]
           },
           {
@@ -710,20 +714,17 @@
           {
             "module": "Review",
             "kind": "intra-layer",
-            "count": 6,
+            "count": 3,
             "edges": [
-              "ApplyRequestCoordinator.php -> Canary.php",
-              "ApplyRequestCoordinator.php -> ConvergenceVerifier.php",
               "ApplyRequestCoordinator.php -> PlanCategorySummary.php",
               "ApplyRequestCoordinator.php -> PlanExplanation.php",
-              "ApplyRequestCoordinator.php -> PlanView.php",
-              "AuthoredTransactionExecutor.php -> Canary.php"
+              "ApplyRequestCoordinator.php -> PlanView.php"
             ]
           },
           {
             "module": "Scope",
             "kind": "intra-layer",
-            "count": 12,
+            "count": 14,
             "edges": [
               "ApplyLedgerFinalizer.php -> ScopedApply.php",
               "ApplyLedgerFinalizer.php -> ScopedApplySession.php",
@@ -736,11 +737,13 @@
               "ApplyRequestCoordinator.php -> ScopedApplySession.php",
               "ApplyRequestCoordinator.php -> ScopedApplyWorkflow.php",
               "ApplyRequestCoordinator.php -> ScopedStateOverlay.php",
-              "AuthoredTransactionExecutor.php -> ScopedApply.php"
+              "AuthoredTransactionExecutor.php -> ScopedApply.php",
+              "ConvergenceVerifier.php -> ScopedApply.php",
+              "ConvergenceVerifier.php -> ScopedApplySession.php"
             ]
           }
         ],
-        "file_count": 31,
+        "file_count": 32,
         "files": [
           "Apply.php",
           "ApplyFieldMaterializer.php",
@@ -761,6 +764,7 @@
           "AuthoredTransactionExecutor.php",
           "AuthoredTransactionRequest.php",
           "CacheInvalidationTransaction.php",
+          "ConvergenceVerifier.php",
           "EntityAdopter.php",
           "IncompleteApplyMarker.php",
           "MenuMaterializer.php",
@@ -806,11 +810,13 @@
           {
             "module": "Apply",
             "kind": "intra-layer",
-            "count": 3,
+            "count": 5,
             "edges": [
               "ScopedApply.php -> ApplyPlanner.php",
               "ScopedApplyCoordinator.php -> ApplyPlanner.php",
-              "ScopedApplyWorkProjector.php -> ApplyPlanner.php"
+              "ScopedApplyCoordinator.php -> ConvergenceVerifier.php",
+              "ScopedApplyWorkProjector.php -> ApplyPlanner.php",
+              "ScopedApplyWorkProjector.php -> ConvergenceVerifier.php"
             ]
           },
           {
@@ -819,15 +825,6 @@
             "count": 1,
             "edges": [
               "ScopedApplyCoordinator.php -> PromotionLock.php"
-            ]
-          },
-          {
-            "module": "Review",
-            "kind": "intra-layer",
-            "count": 2,
-            "edges": [
-              "ScopedApplyCoordinator.php -> ConvergenceVerifier.php",
-              "ScopedApplyWorkProjector.php -> ConvergenceVerifier.php"
             ]
           }
         ],
@@ -946,14 +943,6 @@
             "edges": [
               "StateHandoffVerifier.php -> Capture.php"
             ]
-          },
-          {
-            "module": "Review",
-            "kind": "intra-layer",
-            "count": 1,
-            "edges": [
-              "Deploy.php -> Canary.php"
-            ]
           }
         ],
         "file_count": 11,
@@ -973,7 +962,7 @@
       },
       "Delete": {
         "layer": "engine",
-        "purpose": "Deletion authority, deletion guards and the executor that removes owned entities and records tombstones.",
+        "purpose": "Deletion authority, deletion guards, orphan repair and the executors that remove owned entities and record tombstones.",
         "status": "populated",
         "entry_points": [
           "Deletion",
@@ -981,7 +970,8 @@
           "DeleteGuardLockCoordinator",
           "DeleteGuardReferenceScanner",
           "DeletionAuthority",
-          "DeleteGuardEvaluator"
+          "DeleteGuardEvaluator",
+          "Orphans"
         ],
         "depends_on": [
           "Delete",
@@ -1000,7 +990,7 @@
             ]
           }
         ],
-        "file_count": 7,
+        "file_count": 8,
         "files": [
           "DeleteExecutor.php",
           "DeleteGuardEvaluator.php",
@@ -1008,7 +998,8 @@
           "DeleteGuardReferenceScanner.php",
           "DeleteGuardValueCodec.php",
           "Deletion.php",
-          "DeletionAuthority.php"
+          "DeletionAuthority.php",
+          "Orphans.php"
         ]
       },
       "Init": {
@@ -1078,20 +1069,16 @@
       },
       "Review": {
         "layer": "engine",
-        "purpose": "Read-only projections over plans and state — lint and its reference scanners, coverage, pending, journal, effect-declaration coverage, orphans, canary, convergence verification and refresh export.",
+        "purpose": "Read-only projections over plans and state — lint and its reference scanners, coverage, pending, effect-declaration coverage, plan explanation and refresh export.",
         "status": "populated",
         "entry_points": [
-          "Canary",
-          "ConvergenceVerifier",
           "EffectDeclarationCoverage",
-          "Journal",
           "Lint",
           "Pending",
           "PlanCategorySummary",
           "PlanExplanation",
           "PlanView",
           "Coverage",
-          "Orphans",
           "RefreshExport",
           "LintEnvironment",
           "LintFinding",
@@ -1109,9 +1096,8 @@
           {
             "module": "Capture",
             "kind": "intra-layer",
-            "count": 3,
+            "count": 2,
             "edges": [
-              "ConvergenceVerifier.php -> Capture.php",
               "Pending.php -> Capture.php",
               "RefreshExport.php -> Capture.php"
             ]
@@ -1128,28 +1114,22 @@
           {
             "module": "Scope",
             "kind": "intra-layer",
-            "count": 3,
+            "count": 1,
             "edges": [
-              "ConvergenceVerifier.php -> ScopedApply.php",
-              "ConvergenceVerifier.php -> ScopedApplySession.php",
               "RefreshExport.php -> ScopedStateOverlay.php"
             ]
           }
         ],
-        "file_count": 20,
+        "file_count": 16,
         "files": [
           "BlockReferenceScanner.php",
-          "Canary.php",
-          "ConvergenceVerifier.php",
           "Coverage.php",
           "EffectDeclarationCoverage.php",
-          "Journal.php",
           "Lint.php",
           "LintEnvironment.php",
           "LintFinding.php",
           "LintTrustGate.php",
           "MenuReferenceScanner.php",
-          "Orphans.php",
           "Pending.php",
           "PlanCategorySummary.php",
           "PlanExplanation.php",

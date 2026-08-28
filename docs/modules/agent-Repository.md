@@ -1,10 +1,10 @@
 # agent: Repository
 
-**Purpose.** The durable repository of owned state: compiled artifacts, identity registry, ledger, reference graph, snapshots and their validators.
+**Purpose.** The durable repository of owned state: compiled artifacts, identity registry, ledger, provenance journal, reference graph, snapshots and their validators.
 
-**Directory** `agent/src/Repository/` &middot; **layer** `repository` &middot; **files** 24 &middot; **status** populated
+**Directory** `agent/src/Repository/` &middot; **layer** `repository` &middot; **files** 27 &middot; **status** populated
 
-**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Ledger`, `CompiledArtifact`, `Snapshot`, `RepositoryCompiler`, `SidebarState`, `CanonicalSurfaces`, `ReferenceGraph`, `Identity`, `StateTreeWalker`, `IdentityBackup`, `IdentityNotes`, `RepositoryAuthorization`.
+**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Ledger`, `CompiledArtifact`, `Snapshot`, `RepositoryCompiler`, `SidebarState`, `CanonicalSurfaces`, `CanonicalLedgerMapGuard`, `CanonicalMapWitness`, `ReferenceGraph`, `Identity`, `StateTreeWalker`, `IdentityBackup`, `IdentityNotes`, `RepositoryAuthorization`, `Journal`.
 
 **May depend on:** `Grammar`, `Kernel`, `Policy`, `Repository`.
 

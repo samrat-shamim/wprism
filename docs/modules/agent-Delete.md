@@ -1,10 +1,10 @@
 # agent: Delete
 
-**Purpose.** Deletion authority, deletion guards and the executor that removes owned entities and records tombstones.
+**Purpose.** Deletion authority, deletion guards, orphan repair and the executors that remove owned entities and record tombstones.
 
-**Directory** `agent/src/Delete/` &middot; **layer** `engine` &middot; **files** 7 &middot; **status** populated
+**Directory** `agent/src/Delete/` &middot; **layer** `engine` &middot; **files** 8 &middot; **status** populated
 
-**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Deletion`, `DeleteExecutor`, `DeleteGuardLockCoordinator`, `DeleteGuardReferenceScanner`, `DeletionAuthority`, `DeleteGuardEvaluator`.
+**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Deletion`, `DeleteExecutor`, `DeleteGuardLockCoordinator`, `DeleteGuardReferenceScanner`, `DeletionAuthority`, `DeleteGuardEvaluator`, `Orphans`.
 
 **May depend on:** `Delete`, `Kernel`, `Policy`, `Repository`.
 

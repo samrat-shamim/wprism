@@ -166,7 +166,7 @@ duo_check_same(
 // 5. The boot path declines, silently.
 // ---------------------------------------------------------------------------
 require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
-require_once $root . '/agent/src/Review/Journal.php';
+require_once $root . '/agent/src/Repository/Journal.php';
 
 $journalWpdb = new \DuoTest\FakeWpdb();
 $GLOBALS['wpdb'] = $journalWpdb;

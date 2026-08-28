@@ -19,7 +19,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Scope/ScopedApplySession.php';
-require_once __DIR__ . '/../../../../agent/src/Review/ConvergenceVerifier.php';
+require_once __DIR__ . '/../../../../agent/src/Apply/ConvergenceVerifier.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/Apply.php';
 
 use Duo\Apply;
@@ -192,13 +192,13 @@ PHP,
 // way. Canon is different: requiring it is enough, full stop, because
 // Canon.php is itself a dependency-free leaf.
 $isolatedProbeCheck(
-    __DIR__ . '/../../../../agent/src/Review/ConvergenceVerifier.php',
+    __DIR__ . '/../../../../agent/src/Apply/ConvergenceVerifier.php',
     <<<'PHP'
 echo \Duo\ConvergenceVerifier::hash(['type' => 'term', 'data' => ['name' => 'duo-3441-isolation-probe']]);
 PHP,
     hash('sha256', \Duo\Canon::encode(['name' => 'duo-3441-isolation-probe'])),
     'ConvergenceVerifier.php must carry its OWN Canon.php require when required standalone: a fresh '
-        . 'process requiring only agent/src/Review/ConvergenceVerifier.php must reach the non-post hash() path '
+        . 'process requiring only agent/src/Apply/ConvergenceVerifier.php must reach the non-post hash() path '
         . '(the only path that touches Canon) without a "Class ...Canon not found" fatal'
 );
 

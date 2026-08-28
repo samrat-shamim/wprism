@@ -75,7 +75,7 @@ require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/CommandRefusal.php';
 require_once $root . '/agent/src/Policy/AdapterLibrary.php';
 require_once $root . '/agent/src/Policy/Policy.php';
-require_once $root . '/agent/src/Review/Journal.php';
+require_once $root . '/agent/src/Repository/Journal.php';
 require_once $root . '/agent/src/Review/EffectDeclarationCoverage.php';
 
 use Duo\CommandRefusalException;
