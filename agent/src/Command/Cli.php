@@ -2243,8 +2243,8 @@ final class Cli {
      *
      * Report-only by construction: it names writes no declaration covers and
      * declarations nothing exercised, and refuses nothing. The split is
-     * journal-report's — Review owns the aggregation, this method only
-     * formats it — because the journal is a target-local table and only the
+     * journal-report's — Journal and EffectDeclarationCoverage own the
+     * aggregation, this method only formats it — because the journal is a target-local table and only the
      * agent can read it.
      *
      * ## OPTIONS

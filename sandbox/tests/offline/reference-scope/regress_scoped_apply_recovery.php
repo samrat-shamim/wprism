@@ -2799,7 +2799,7 @@ $authoredExecutorSource = (string) file_get_contents($root . '/agent/src/Apply/A
 $actionDispatcherSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionDispatcher.php');
 $actionNegotiatorSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionNegotiator.php');
 $ledgerFinalizerSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyLedgerFinalizer.php');
-$convergenceVerifierSource = (string) file_get_contents($root . '/agent/src/Review/ConvergenceVerifier.php');
+$convergenceVerifierSource = (string) file_get_contents($root . '/agent/src/Apply/ConvergenceVerifier.php');
 $repoFormatSource = (string) file_get_contents($root . '/spec/repo-format.md');
 $check(
     str_contains(

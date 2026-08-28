@@ -40,7 +40,7 @@ read, so one implementation costs zero intra-layer edges
 | `derived` | `Policy::CLASSES` | `derived` |
 | `env` | `Policy::CLASSES` | `environment-bound` |
 | `managed` | `Policy::CLASSES` (`active_plugins`, `template`, `stylesheet`) | `authored` — see handling below |
-| no rule matches; `Capture::gate_scan()` aborts / `wp duo pending` row | `Pending::scan_read_only()` | `unclassified` |
+| no rule matches; `Capture::gate_scan()` aborts / `wp duo pending` row | `Pending::scan()` | `unclassified` |
 | named in `Coverage::report()` as invisible (no discovery path at all) | `Coverage` | `unclassified` |
 | a manifest declares a provider action whose declared effects reach a system outside this WordPress install | manifest `providers` + declared effects | `external` |
 

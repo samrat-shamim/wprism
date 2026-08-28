@@ -75,7 +75,7 @@ require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/CommandRefusal.php';
 require_once $root . '/agent/src/Policy/AdapterLibrary.php';
 require_once $root . '/agent/src/Policy/Policy.php';
-require_once $root . '/agent/src/Review/Journal.php';
+require_once $root . '/agent/src/Repository/Journal.php';
 require_once $root . '/agent/src/Review/EffectDeclarationCoverage.php';
 
 use Duo\CommandRefusalException;
@@ -347,6 +347,28 @@ duo_check_refuses(
     static fn() => EffectDeclarationCoverage::report(['core']),
     'effect_coverage_journal_unreadable',
     'a failed journal read refuses as unreadable rather than as an absent table'
+);
+
+$aggregateUnreadable = FakeWpdb::install();
+$aggregateUnreadable->seedTable('wp_duo_journal', []);
+$aggregateUnreadable->failNextQuery(
+    'injected journal aggregate failure',
+    'SELECT tbl, item, surface, caps, proposal'
+);
+$aggregateReason = null;
+$aggregatePreviousReason = null;
+try {
+    EffectDeclarationCoverage::report(['core']);
+} catch (CommandRefusalException $failure) {
+    $aggregateReason = $failure->reasonCode;
+    $aggregatePreviousReason = $failure->getPrevious() instanceof CommandRefusalException
+        ? $failure->getPrevious()->reasonCode
+        : null;
+}
+duo_check(
+    $aggregateReason === 'effect_coverage_journal_unreadable'
+        && $aggregatePreviousReason === 'journal_evidence_unreadable',
+    'a failed aggregate SELECT is translated from the neutral repository fact into the effect-coverage contract'
 );
 
 $GLOBALS['wpdb'] = null;

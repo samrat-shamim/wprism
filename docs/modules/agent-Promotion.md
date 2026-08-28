@@ -12,14 +12,11 @@
 
 - `Capture` (intra-layer, 1 edge)
   `StateHandoffVerifier.php -> Capture.php`
-- `Review` (intra-layer, 1 edge)
-  `Deploy.php -> Canary.php`
-
 **Must not depend on.** Adapter and Command. Promotion sequences environments; it must not decide ownership.
 
 **Known debts.**
 
 - The operator-facing promotion state machine is not here: it is ~1,588 lines inside `cli/duo`. Round 3's cli Release module is where that logic is meant to land.
-- `StateHandoffVerifier.php -> Capture.php` and `Deploy.php -> Canary.php` keep Promotion inside the engine SCC.
+- `StateHandoffVerifier.php -> Capture.php` keeps Promotion inside the engine SCC.
 
 **Sub-namespace plan.** Target `Duo\Promotion\`. Not in this round: the move keeps `namespace Duo;` flat so that manifest interpreters/providers can keep naming `\Duo\Policy`, `\Duo\ProviderSdk`, `\Duo\Providers` and `\Duo\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.

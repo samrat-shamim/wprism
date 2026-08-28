@@ -87,8 +87,22 @@ final class AdapterObservation {
         // mutation command would later refuse. Pending's shared gate walk
         // retains its normal policy validation when it reads the same facts.
         $policy = Policy::load($repo, null, true);
-        $journal = Journal::report_read_only($policy);
-        $pending = Pending::scan_read_only($repo, $policy);
+        try {
+            $journal = Journal::report_read_only($policy);
+        } catch (CommandRefusalException $failure) {
+            if ($failure->reasonCode === 'journal_evidence_unreadable') {
+                self::refuse_journal_report_read_error($failure);
+            }
+            throw $failure;
+        }
+        try {
+            $pending = Pending::scan($repo, $policy);
+        } catch (CommandRefusalException $failure) {
+            if ($failure->reasonCode === 'pending_evidence_unreadable') {
+                self::refuse_pending_read_error($failure);
+            }
+            throw $failure;
+        }
         $survey = AdapterSources::survey($repo);
         // Existing Policy vocabulary remains the capability/readiness source.
         // It negotiates provider identity/capability declarations, never the
@@ -181,7 +195,7 @@ final class AdapterObservation {
         global $wpdb;
         $state = Journal::table_state($wpdb);
         if ($state === 'unreadable') {
-            self::refuse_journal_read_error();
+            self::refuse_journal_prerequisite_read_error();
         }
         if ($state !== 'present') {
             self::refuse_prerequisite();
@@ -189,7 +203,7 @@ final class AdapterObservation {
     }
 
     /** A failed prerequisite probe is not evidence that the table is absent. */
-    private static function refuse_journal_read_error(): never {
+    private static function refuse_journal_prerequisite_read_error(): never {
         throw new CommandRefusalException(
             'adapter_observation_journal_unreadable',
             'adapter observation could not read the existing provenance journal',
@@ -200,6 +214,22 @@ final class AdapterObservation {
                 'remediation' => 'restore readable provenance state before collecting adapter observation evidence',
             ]],
             'duo: adapter observation refused because the provenance journal prerequisite probe failed'
+        );
+    }
+
+    /** Translate the repository fact without leaking another command's contract. */
+    private static function refuse_journal_report_read_error(\Throwable $previous): never {
+        throw new CommandRefusalException(
+            'adapter_observation_journal_unreadable',
+            'adapter observation could not read the existing provenance journal',
+            'inspect and repair the journal through the existing controlled workflow before collecting proposal evidence',
+            [[
+                'code' => 'adapter_observation_journal_unreadable',
+                'message' => 'the observer will not treat a failed journal read as an empty journal',
+                'remediation' => 'restore readable provenance state before collecting adapter observation evidence',
+            ]],
+            'duo: adapter observation refused because the provenance journal SELECT failed',
+            $previous
         );
     }
 
@@ -214,6 +244,21 @@ final class AdapterObservation {
                 'remediation' => 'restore the existing journal prerequisite before collecting proposal evidence',
             ]],
             'duo: adapter observation refused because its provenance journal prerequisite is absent'
+        );
+    }
+
+    private static function refuse_pending_read_error(\Throwable $previous): never {
+        throw new CommandRefusalException(
+            'adapter_observation_pending_unreadable',
+            'adapter observation could not read the existing pending-review evidence',
+            'inspect and repair the target database through the existing controlled workflow before collecting proposal evidence',
+            [[
+                'code' => 'adapter_observation_pending_unreadable',
+                'message' => 'the observer will not treat a failed pending read as an empty review queue',
+                'remediation' => 'restore readable target evidence before collecting adapter observation evidence',
+            ]],
+            'duo: adapter observation refused because a pending evidence SELECT failed',
+            $previous
         );
     }
 

@@ -2,7 +2,7 @@
 namespace Duo;
 
 /**
- * Side-effect canary, armed during apply: any content-CRUD hook fire, wp_mail
+ * Cross-cutting side-effect canary, armed during apply: any content-CRUD hook fire, wp_mail
  * attempt, or outbound HTTP request is a hard failure ("no mails fired" alone
  * is trivially true under direct SQL — the hook assertion is the real claim).
  * Mail/HTTP are short-circuited while armed so nothing escapes even on a bug.

@@ -9,16 +9,17 @@ require_once __DIR__ . '/../Scope/ScopedApply.php';
 require_once __DIR__ . '/../Scope/ScopedApplySession.php';
 
 /**
- * Read-only post-apply convergence verification (DUO-3220): re-captures the
+ * Post-apply convergence verification (DUO-3220): re-captures the
  * target through the same canonical reader used by plan/capture and proves
  * every entity in the immutable compiled tree landed byte-semantically (same
  * type + canonical hash), or — for a scoped run — that every selected
  * identity matches while every protected out-of-scope row and ledger-map
  * entry retained its pre-mutation root. Absence of a thrown mutation/rebuild
  * error is never the proof; only an explicit 'pass' report from a fresh
- * re-read is. Never writes.
+ * re-read is. Its private 0600 snapshots are apply-owned subprocess inputs,
+ * never repository publication or target state.
  *
- * Extracted from Apply (DUO-3347 slice 1): the constructor's five fields are
+ * Extracted from the Apply aggregate (DUO-3347 slice 1): the constructor's five fields are
  * exactly what verify_canonical() and Apply::run()'s post-apply gate ever
  * read from an Apply instance to reach this cluster — verify_canonical()
  * previously built a full `new self(...)` Apply just to reach two of these
@@ -367,6 +368,11 @@ final class ConvergenceVerifier {
         );
         $authorityHash = $verifyingSession->authority_hash_value();
         $effectsRoot = ScopedApplySession::hash_value($verifyingSession->receipts());
+        // Partial-load suites shadow repository classes; load the capture
+        // graph only on the product path that actually performs a recapture.
+        if (!class_exists(Capture::class, false)) {
+            require_once __DIR__ . '/../Capture/Capture.php';
+        }
         $actual = Capture::snapshot_read_only(
             $this->repo,
             $forceUnresolvedRefs,
@@ -503,6 +509,9 @@ final class ConvergenceVerifier {
         bool $verifyDeletes,
         bool $forceUnresolvedRefs
     ): array {
+        if (!class_exists(Capture::class, false)) {
+            require_once __DIR__ . '/../Capture/Capture.php';
+        }
         $actual = Capture::snapshot(
             $this->repo,
             $forceUnresolvedRefs,

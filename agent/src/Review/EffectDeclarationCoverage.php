@@ -1,7 +1,7 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . '/Journal.php';
+require_once __DIR__ . '/../Repository/Journal.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 
@@ -125,7 +125,15 @@ final class EffectDeclarationCoverage {
     public static function report(array $manifestNames): array {
         self::assert_journal_prerequisite();
         $policy = Policy::load(null, $manifestNames);
-        return self::from_facts($policy, Journal::report_read_only($policy));
+        try {
+            $journal = Journal::report_read_only($policy);
+        } catch (CommandRefusalException $failure) {
+            if ($failure->reasonCode === 'journal_evidence_unreadable') {
+                self::refuse_journal_report_read_error($failure);
+            }
+            throw $failure;
+        }
+        return self::from_facts($policy, $journal);
     }
 
     /**
@@ -472,6 +480,22 @@ final class EffectDeclarationCoverage {
                 'duo: effect declaration coverage refused because its provenance journal prerequisite is absent'
             );
         }
+    }
+
+    /** The repository reports a fact; this report owns its public refusal. */
+    private static function refuse_journal_report_read_error(\Throwable $previous): never {
+        throw new CommandRefusalException(
+            'effect_coverage_journal_unreadable',
+            'effect declaration coverage could not read the existing provenance journal',
+            'restore readable provenance state, then score effect declarations again',
+            [[
+                'code' => 'effect_coverage_journal_unreadable',
+                'message' => 'a failed journal read is not evidence that no write was observed',
+                'remediation' => 'repair the journal through the existing controlled workflow before scoring effect declarations',
+            ]],
+            'duo: effect declaration coverage refused because the provenance journal SELECT failed',
+            $previous
+        );
     }
 
     /** The projection seam is fed existing-path facts; a malformed one is a bug, not a site condition. */

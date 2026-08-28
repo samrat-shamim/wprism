@@ -339,6 +339,14 @@
    "note": "re-projects RepositoryCompiler::resolved_adapters() into assess rows so one derivation answers every source; computes the digest it reports, never compares it."
   },
   {
+   "site": "agent/src/Capture/RefreshExport.php::payload",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "exports manifest_hash and resolved_adapters so the CLI side can compare them; the comparison is RefreshPlan::assertProductionCodeMatches."
+  },
+  {
    "site": "agent/src/Code/Code.php::assert_source_compatibility",
    "axes": [
     "manifest"
@@ -584,14 +592,6 @@
    ],
    "verdict": "carrier",
    "note": "reports manifest_sha256 in the explanation envelope; explaining a plan refuses nothing about identity."
-  },
-  {
-   "site": "agent/src/Review/RefreshExport.php::payload",
-   "axes": [
-    "manifest"
-   ],
-   "verdict": "carrier",
-   "note": "exports manifest_hash and resolved_adapters so the CLI side can compare them; the comparison is RefreshPlan::assertProductionCodeMatches."
   },
   {
    "site": "agent/src/Scope/ScopedApplyCoordinator.php::authority",

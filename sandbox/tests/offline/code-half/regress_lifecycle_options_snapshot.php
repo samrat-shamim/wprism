@@ -633,7 +633,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Identity.php';
-require_once __DIR__ . '/../../../../agent/src/Review/Canary.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Canary.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Snapshot.php';

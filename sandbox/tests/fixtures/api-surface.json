@@ -41966,30 +41966,13 @@
                             "name": "repo",
                             "type": "string",
                             "variadic": false
-                        }
-                    ],
-                    "return_type": "array",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "scan_read_only": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "repo",
-                            "type": "string",
-                            "variadic": false
                         },
                         {
                             "by_ref": false,
                             "default": null,
-                            "has_default": false,
+                            "has_default": true,
                             "name": "policy",
-                            "type": "Duo\\Policy",
+                            "type": "?Duo\\Policy",
                             "variadic": false
                         }
                     ],

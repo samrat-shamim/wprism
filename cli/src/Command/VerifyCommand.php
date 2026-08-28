@@ -27,7 +27,7 @@ use Duo\CommandRefusalException;
  * (`\Duo\ConvergenceVerifier`)". That command is reachable from a target, but
  * it is not reachable from a HOST: `agent/src/Command/Cli.php::verify_canonical()`
  * requires `--expected-artifact`, `--compiled` and `--policy-snapshot`, and
- * `agent/src/Review/ConvergenceVerifier.php:87-110` shows where the last two
+ * `agent/src/Apply/ConvergenceVerifier.php:91-114` shows where the last two
  * come from — two `tempnam()` files that the MUTATING apply process writes
  * from its own in-memory `CompiledRepository` and frozen `Policy`, and
  * deletes in a `finally`. No shipped `wp duo` subcommand exports a

@@ -19,7 +19,7 @@ require_once __DIR__ . '/UserMetaMaterializer.php';
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 if (!class_exists(Canary::class, false)) {
-    require_once __DIR__ . '/../Review/Canary.php';
+    require_once __DIR__ . '/../Kernel/Canary.php';
 }
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';

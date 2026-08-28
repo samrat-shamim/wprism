@@ -1976,7 +1976,7 @@ $GLOBALS['wpdb'] = $originalWpdb;
 // The rows are structurally distinguishable and always were: `duo_journal` has
 // its own table, its own append-only shape (t/op/tbl/item/surface/actor/caps/
 // hook/proposal — no uuid, no content_hash, no key), and exactly one writer in
-// the tree, Journal::flush() (agent/src/Review/Journal.php:105-109), whose
+// the tree, Journal::flush() (agent/src/Repository/Journal.php:109-113), whose
 // observer refuses every duo_-prefixed table (`:67`). So it is counted apart.
 //
 // This is the shared harness (sandbox/tests/lib/FakeWpdb.php), not the bespoke

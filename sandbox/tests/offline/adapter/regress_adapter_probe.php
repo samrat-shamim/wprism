@@ -576,7 +576,7 @@ final class WP_CLI {
         self::$lines = [];
     }
 }
-require_once $repoRoot . '/agent/src/Review/Journal.php';
+require_once $repoRoot . '/agent/src/Repository/Journal.php';
 require_once $repoRoot . '/agent/src/Command/Cli.php';
 
 $verb = new Duo\Cli();

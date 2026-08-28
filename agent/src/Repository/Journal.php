@@ -1,8 +1,21 @@
 <?php
 namespace Duo;
 
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
+if (!class_exists(CommandRefusalException::class, false)) {
+    require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+}
+if (!class_exists(Policy::class, false)) {
+    require_once __DIR__ . '/../Policy/Policy.php';
+}
+if (!class_exists(Ledger::class, false)) {
+    require_once __DIR__ . '/Ledger.php';
+}
+
 /**
- * Provenance journal (proposal generator, never authority): observes DB write
+ * Durable provenance journal (proposal generator, never authority): observes DB write
  * queries via the wpdb 'query' filter and records (table, item) with the
  * cause — surface × actor capability × executing hook. The authored signal is
  * capability×surface: bare "authenticated" never proposes authored (customers
@@ -306,7 +319,8 @@ final class Journal {
      * evidence that no observation can honestly claim to have read, not an
      * invitation to create one.  AdapterObservation proves the table exists
      * before it calls this method; this method itself performs SELECT-only
-     * aggregation and never repairs ledger state.
+     * aggregation and never repairs ledger state. Callers own the public
+     * command refusal that translates a neutral repository-read failure.
      */
     public static function report_read_only(Policy $policy): array {
         return self::report_with_policy($policy, true);
@@ -370,15 +384,15 @@ final class Journal {
 
     private static function refuse_read_error(): never {
         throw new CommandRefusalException(
-            'adapter_observation_journal_unreadable',
-            'adapter observation could not read the existing provenance journal',
-            'inspect and repair the journal through the existing controlled workflow before collecting proposal evidence',
+            'journal_evidence_unreadable',
+            'the existing provenance journal could not be read',
+            'inspect and repair the journal through the existing controlled workflow before reading provenance evidence',
             [[
-                'code' => 'adapter_observation_journal_unreadable',
-                'message' => 'the observer will not treat a failed journal read as an empty journal',
-                'remediation' => 'restore readable provenance state before collecting adapter observation evidence',
+                'code' => 'journal_evidence_unreadable',
+                'message' => 'a failed journal read is not evidence that the journal is empty',
+                'remediation' => 'restore readable provenance state before reading its aggregate evidence',
             ]],
-            'duo: adapter observation refused because the provenance journal SELECT failed'
+            'duo: provenance journal aggregate SELECT failed'
         );
     }
 

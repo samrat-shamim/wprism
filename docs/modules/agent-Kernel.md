@@ -1,10 +1,10 @@
 # agent: Kernel
 
-**Purpose.** Dependency-free primitives — canonical JSON, database access, reference codecs, durable filesystem, identifiers, secrets and PII redaction — that everything else is built on.
+**Purpose.** Dependency-free primitives — canonical JSON, database access, reference codecs, durable filesystem, side-effect guards, identifiers, secrets and PII redaction — that everything else is built on.
 
-**Directory** `agent/src/Kernel/` &middot; **layer** `kernel` &middot; **files** 28 &middot; **status** populated
+**Directory** `agent/src/Kernel/` &middot; **layer** `kernel` &middot; **files** 34 &middot; **status** populated
 
-**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Canon`, `Db`, `OptionState`, `CommandRefusal`, `Secrets`, `PlainData`, `StructuredValue`, `Uuid`, `ReferenceRules`, `DurableFilesystem`, `ReferenceScopeClassifier`, `PathSafety`, `UserMetaState`, `OrderPreserved`, `PersonalData`, `JsonRefs`, `ReferenceKindGrammar`, `ReferenceShapeGrammar`, `TableGraph`, `TableSchema`, `IdentityTokenCodec`, `ProcessFence`, `ReferenceKeyspaceGrammar`, `StructuredReferenceCodec`, `TextTokenizer`, `TransientDbException`, `UrlQueryReferenceCodec`.
+**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Canon`, `Db`, `OptionState`, `CommandRefusal`, `SiteTopology`, `Secrets`, `PlainData`, `StructuredValue`, `Uuid`, `ReferenceRules`, `DurableFilesystem`, `ReferenceScopeClassifier`, `PathSafety`, `UserMetaState`, `OrderPreserved`, `PersonalData`, `JsonRefs`, `ReferenceKindGrammar`, `ReferenceShapeGrammar`, `TableGraph`, `TableSchema`, `IdentityTokenCodec`, `ProcessFence`, `ReferenceKeyspaceGrammar`, `StructuredReferenceCodec`, `TextTokenizer`, `TransientDbException`, `UrlQueryReferenceCodec`, `MetaRows`, `MediaPayloadAuthority`, `WpCliChildProcess`, `Canary`.
 
 **May depend on:** `Kernel`.
 

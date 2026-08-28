@@ -3,7 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/../Apply/ApplyPlanner.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
-require_once __DIR__ . '/../Review/ConvergenceVerifier.php';
+require_once __DIR__ . '/../Apply/ConvergenceVerifier.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Adapter/Providers.php';
 require_once __DIR__ . '/ScopedApply.php';

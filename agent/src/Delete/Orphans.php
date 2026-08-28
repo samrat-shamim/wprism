@@ -1,6 +1,22 @@
 <?php
 namespace Duo;
 
+if (!class_exists(Canary::class, false)) {
+    require_once __DIR__ . '/../Kernel/Canary.php';
+}
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
+if (!class_exists(Policy::class, false)) {
+    require_once __DIR__ . '/../Policy/Policy.php';
+}
+if (!class_exists(Ledger::class, false)) {
+    require_once __DIR__ . '/../Repository/Ledger.php';
+}
+if (!class_exists(Snapshot::class, false)) {
+    require_once __DIR__ . '/../Repository/Snapshot.php';
+}
+
 /**
  * Enumerate and repair structural refs whose target identity no longer
  * exists. This is deliberately derived from authored_snapshot refs[]: it is
