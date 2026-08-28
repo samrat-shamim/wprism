@@ -113,6 +113,9 @@ Front matter (canonical JSON between `---` fences) + raw body:
 ```json
 {
   "description": "",
+  "meta": {
+    "thumbnail_id": "{{post:0198b0c3-...}}"
+  },
   "name": "News",
   "parent": null,
   "slug": "news",
@@ -121,7 +124,11 @@ Front matter (canonical JSON between `---` fences) + raw body:
 }
 ```
 
-`parent` is a term uuid or null. `nav_menu` terms are not stored here — menus own them.
+`parent` is a term uuid or null. In spec v2, `meta` contains only keys
+classified `authored`; reference-typed values use the same canonical tokens as
+post meta. Runtime, derived, and environment-local keys remain target-local,
+and an unclassified key blocks capture. `nav_menu` terms are not stored here —
+menus own them.
 
 ### User meta — `state/user-meta/<sha256(exact-login)>.json`
 
@@ -258,7 +265,11 @@ Ref-typed values inside `present.value` are tokenized per the core manifest. The
 
 Exact option rules remain sufficient for fixed names. A plugin with dynamic or evolving names declares discovery ownership separately with top-level `"option_namespaces": [{"match": "^plugin_prefix_"}]`. Capture enumerates every live `wp_options.option_name` in that namespace on every run, independent of the provenance journal. Each match must resolve through the owning manifest's exact `options` rule, one of its `option_patterns`, or an explicit site override; otherwise it is pending and capture blocks. An authored `option_patterns` rule therefore captures a dynamic family, while runtime/derived/env families are enumerated and deliberately excluded. Overlapping namespace claims and cross-manifest classifications refuse rather than depending on pin order. Names outside all declared namespaces are not guessed to belong to a plugin.
 
-Term-meta is enumerated for every in-scope term. The spec-v1 term file has no `meta` field, so both an unclassified key and a key classified `authored` block capture: the former needs a decision, while the latter names an unsupported representation rather than accepting an inert classification. Explicit `runtime`/`derived`/`env` (or managed) rules are the only non-blocking dispositions until a term-meta state format exists.
+Term-meta is enumerated for every in-scope term. In spec v2, an `authored` key
+is captured into the term file's `meta` object and apply reconciles that owned
+key set, including deletions; scalar and structured reference declarations use
+the same token machinery as post meta. An unclassified key blocks capture,
+while explicit `runtime`/`derived`/`env` (or managed) rules remain target-local.
 
 A manifest `taxonomy_patterns` entry may declare `object_keyspace` (`post` or `term`), `object_type`, and `update_count_callback`. `object_keyspace` says which WordPress identity space owns `term_relationships.object_id`; `object_type` only narrows post types inside the `post` keyspace. These are the version-pinned registration contract for a dynamic taxonomy that a typed-snapshot table creates after WordPress's `init` hook has already run. Apply uses the live registered taxonomy whenever it exists; only in that same-request timing gap may it construct the equivalent taxonomy contract from the manifest and invoke the declared callback. A missing, mixed, contradictory, or non-callable contract refuses instead of inferring ownership from a plugin sentinel or falling back to a generic SQL count.
 
@@ -2578,7 +2589,7 @@ regression.
 
 Unclassified state is never silently captured *or* silently skipped; it queues for human triage:
 
-- **`wp duo pending --repo=<p> [--format=json]`** — the review queue. Items merge three sources: the classification **gate walk** (unclassified whole-entity scope plus post/term-meta keys on in-scope entities, with entity counts and post types — the same scope and rule lookups capture uses, so they can never disagree), **journal-observed unclassified option writes** (options are whitelist-only at capture, so the journal is what surfaces them — finding #5's answer), minus any observed name a dedicated mechanism already owns end to end — the `widget_<type>` family and the top-level `sidebars_widgets` option (SidebarState), any `dynamic_options`-declared prefix (core.json's `theme_mods_`, the active theme's row and every stale-residue row alike), and the transients core.json's own derived patterns already classify — because for those names no classification is available or required; their provenance stays visible in `wp duo journal`, and the loud paths are untouched (a widget type with live instances and no `widgets{}` declaration still refuses capture). Annotations: a **ref hint** when the current value is a numeric id that exists in wp_posts/wp_terms (finding #9's linter seed; small ids can coincide — hints are hints; a whole value of exactly 0/1 is a flag, not a reference, and gets no hint at all), and a **secret flag** (`hard:<label>` on high-confidence patterns — Stripe/AWS/GitHub/Slack keys, PEM blocks, JWTs — or `suspicious` on key-name+shape heuristics). `proposal` is only ever the journal's capability×surface signal; with no journal evidence it is `null` — never guessed. Unclassified **term meta** is surfaced but does not abort capture: v0 term files carry no meta values at all, so there is nothing a classification could yet make capturable.
+- **`wp duo pending --repo=<p> [--format=json]`** — the review queue. Items merge three sources: the classification **gate walk** (unclassified whole-entity scope plus post/term-meta keys on in-scope entities, with entity counts and post types — the same scope and rule lookups capture uses, so they can never disagree), **journal-observed unclassified option writes** (options are whitelist-only at capture, so the journal is what surfaces them — finding #5's answer), minus any observed name a dedicated mechanism already owns end to end — the `widget_<type>` family and the top-level `sidebars_widgets` option (SidebarState), any `dynamic_options`-declared prefix (core.json's `theme_mods_`, the active theme's row and every stale-residue row alike), and the transients core.json's own derived patterns already classify — because for those names no classification is available or required; their provenance stays visible in `wp duo journal`, and the loud paths are untouched (a widget type with live instances and no `widgets{}` declaration still refuses capture). Annotations: a **ref hint** when the current value is a numeric id that exists in wp_posts/wp_terms (finding #9's linter seed; small ids can coincide — hints are hints; a whole value of exactly 0/1 is a flag, not a reference, and gets no hint at all), and a **secret flag** (`hard:<label>` on high-confidence patterns — Stripe/AWS/GitHub/Slack keys, PEM blocks, JWTs — or `suspicious` on key-name+shape heuristics). `proposal` is only ever the journal's capability×surface signal; with no journal evidence it is `null` — never guessed. Unclassified **term meta** is surfaced and blocks capture; classifying a key `authored` makes it representable in the spec-v2 term file's `meta` object, while target-local dispositions exclude it deliberately.
 - **`wp duo classify --repo=<p> --set='<section>:<key>=<class>[,ref=<kind>][,cast=<c>]; …'`** — writes rules into `site.duo.json` policy. All decisions travel in ONE semicolon-joined `--set=` (wp-cli keeps only the last occurrence of a repeated assoc flag, and the space-separated form parses as a boolean — both documented traps). Classifying a key as `authored` while its current value hard-matches a secret pattern is **refused** unless `--allow-secret` (which records `allow_secret: true` on the rule).
 - **Secret guard at capture**: any authored-classified option/post-meta string value that hard-matches a secret pattern **aborts capture** naming the key (the rule-level `allow_secret: true` is the escape hatch for false positives); post bodies warn loudly but never block. Values over 64KB are skipped.
 - **`wp duo policy-to-manifest --repo=<p> --match=<regex> --name=<n>`** — exports matching policy rules as a canonical manifest JSON on stdout (policy is left untouched; moving rules upstream is a deliberate human act). A pinned exported manifest reproduces byte-identical captures to the policy it came from.

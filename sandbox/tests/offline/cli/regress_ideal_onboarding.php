@@ -1509,10 +1509,12 @@ duo_check_same(125, $targetOutputDescendant['exit'], 'bounded target capture can
 duo_check(!file_exists($targetOutputMarker), 'a target descendant cannot mutate after output refusal returns');
 
 $faultRoot = $tmp . '/fault-demo-root';
-foreach ([$faultRoot, $faultRoot . '/sandbox', $faultRoot . '/sandbox/bin', $faultRoot . '/sandbox/tmp', $faultRoot . '/sandbox/siterepo'] as $directory) {
+foreach ([$faultRoot, $faultRoot . '/sandbox', $faultRoot . '/sandbox/bin', $faultRoot . '/sandbox/tmp'] as $directory) {
     mkdir($directory, 0700);
 }
-$faultPairScript = "#!/usr/bin/env bash\nset -eu\nif [ \"\$1\" = up ]; then mkdir -p "
+$faultPairScript = "#!/usr/bin/env bash\nset -eu\nif [ \"\$1\" = up ]; then"
+    . "\ncase \" \$* \" in *\" --git-cli \"*) ;; *) exit 11 ;; esac\n"
+    . "[ \"\${DUO_CLI_IMAGE:-}\" = \"duo-demo-cli-git:php8.3\" ] || exit 12\nmkdir -p "
     . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"1 "
     . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"2; "
     . "if [ \"\$2\" = partialdemo ]; then touch "
@@ -1532,11 +1534,14 @@ foreach ([
     }
 }
 $faultHookCalls = 0;
-$faultHook = static function (string $phase) use (&$faultHookCalls): void {
+$faultHook = static function (string $phase) use (&$faultHookCalls, $faultRoot): void {
     if ($phase !== 'compose_env_published') {
         return;
     }
     duo_check_same('compose_env_published', $phase, 'demo exposes the post-pair recoverability boundary');
+    $composeEnv = file_get_contents($faultRoot . '/sandbox/tmp/demo-faultdemo.env');
+    duo_check(is_string($composeEnv) && str_contains($composeEnv, "DUO_CLI_IMAGE=duo-demo-cli-git:php8.3\n"),
+        'demo persists the Git-enabled CLI image for every later compose invocation');
     ++$faultHookCalls;
     throw new RuntimeException('injected demo setup failure');
 };
@@ -1553,6 +1558,7 @@ for ($attempt = 1; $attempt <= 2; ++$attempt) {
     }
 }
 duo_check_same(2, $faultHookCalls, 'a failed demo start can be retried under the same name');
+duo_check(is_dir($faultRoot . '/sandbox/siterepo'), 'a fresh checkout gets its ignored demo repository parent on demand');
 
 $sessionRace = ideal_demo_session($faultRoot, 'sessionrace', 9234, 9235);
 $sessionRaceOwned = $sessionRace['state_file'] . '.owned';
@@ -2013,7 +2019,16 @@ duo_check(
     'the demo HTTP overlay publishes both weak-credential sites on loopback only'
 );
 $demoSource = (string) file_get_contents(dirname(__DIR__, 4) . '/cli/src/Command/DemoCommand.php');
-duo_check(str_contains($demoSource, "(string) \$options['target_port'], '--http', '--artifacts'"), 'demo start selects the loopback-pinned HTTP overlay');
+duo_check(
+    str_contains($demoSource, "'--http', '--artifacts', '--git-cli'"),
+    'demo start selects the loopback-pinned HTTP overlay and its Git-capable CLI image'
+);
+duo_check(
+    str_contains($demoSource, "'config', 'set', 'WOOCOMMERCE_BIS_ALPHA_ENABLED'")
+        && str_contains($demoSource, 'change_feature_enable("fulfillments", true)')
+        && str_contains($demoSource, "['capabilities', \$environment, '--operation=promote', '--format=json']"),
+    'demo setup enables Woo native prerequisite lifecycles and refuses to publish an unqualified pair'
+);
 
 $releaseGuide = (string) file_get_contents(dirname(__DIR__, 4) . '/docs/guides/release.md');
 duo_check(

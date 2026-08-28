@@ -675,11 +675,12 @@ namespace {
         return apply_filters('option_' . $name, $value, $name);
     }
 
-    function wp_using_ext_object_cache(?bool $using = null): bool {
+    function wp_using_ext_object_cache(?bool $using = null): ?bool {
+        $current = $GLOBALS['wooSchedulerExternalObjectCache'] ?? null;
         if ($using !== null) {
             $GLOBALS['wooSchedulerExternalObjectCache'] = $using;
         }
-        return (bool) ($GLOBALS['wooSchedulerExternalObjectCache'] ?? false);
+        return $current;
     }
 
     function wp_cache_delete(string|int $key, string $group = ''): bool {
@@ -1188,7 +1189,7 @@ namespace {
         $GLOBALS['wooSchedulerCacheDeletes'] = [];
         $GLOBALS['wooSchedulerCacheResidue'] = [];
         $GLOBALS['wooSchedulerCacheDeleteFails'] = null;
-        $GLOBALS['wooSchedulerExternalObjectCache'] = false;
+        unset($GLOBALS['wooSchedulerExternalObjectCache']);
         $GLOBALS['wooSchedulerDuringCronMutation'] = null;
         $GLOBALS['wooSchedulerDuringRetentionController'] = null;
         $GLOBALS['wooSchedulerCoreOptionCallbackCalls'] = [];
@@ -1424,7 +1425,7 @@ namespace {
     duo_check_same(
         ['reconcile_analytics_import_schedule', 'reconcile_stock_notification_retention'],
         array_keys($initialCapabilities),
-        'both exact native scheduler capabilities negotiate on a ready Woo target'
+        'both exact native scheduler capabilities negotiate when stock WordPress reports its local cache as null'
     );
     duo_check(in_array(
         'table:actionscheduler_claims',

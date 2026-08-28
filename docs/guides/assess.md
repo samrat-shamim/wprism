@@ -195,7 +195,7 @@ read the presence of the line as the signal. The count is the signal.
 
 | Next action | What you actually do |
 |---|---|
-| `classify` | The surface has no disposition. `duo pending <env>` lists it, `duo classify <env>` decides it. Cheapest remedy on the list, which is why it sorts first. |
+| `classify` | The surface has no disposition and is already in the review queue. `duo pending <env>` lists it; `duo classify <env>` decides it. Cheapest remedy on the list, which is why it sorts first. |
 | `declare in contract` | Duo can see the effect but cannot bound it. Add the declaration to `.duo/contract/<env>/proposed.json` and accept it — see below, and the containment rule in [release.md](release.md#when-release-refuses-before-it-freezes-anything). |
 | `qualify in rehearsal` | **Never printed by this profile.** It stays in the closed set so a projection written by an older build still validates, but nothing emits it: rehearsal says in its own output that it cannot qualify anything, so naming it as your next step was sending you to prove that. |
 | `install adapter` | Nothing models this surface, and something probably owns it — an active plugin, or a table with a plugin's name on it. Write or install an adapter; [adapter-authoring.md](adapter-authoring.md) is the whole path, and `duo adapter-draft --seed` will propose the surface for you. |
@@ -210,13 +210,13 @@ the columns show one operation and the action reduces over all six. That is
 why the action names its operations: `exclude (delete)` is a complete
 sentence.
 
-The unknown section gets actions of its own. Pending items and option names
-invisible to every installed adapter are both `classify` — `duo classify <env>`
-is the literal command for each. An **undeclared table** is `install adapter`:
-its defining property is that no installed adapter models it, which is why
-coverage had to find it by looking at the database, and `duo classify` has no
-table in its queue at all. Those are counted and *named*, never valued —
-`duo assess` prints names and counts only, exactly as `duo coverage` does.
+The unknown section gets actions of its own. A pending item is `classify`
+because `duo pending <env>` and `duo classify <env>` read that exact queue.
+An option name invisible to every installed adapter and an **undeclared
+table** are both `install adapter`: neither has an installed model that could
+put it in the queue, and `duo adapter-draft --seed` is the executable path to
+one. Those are counted and *named*, never valued — `duo assess` prints names
+and counts only, exactly as `duo coverage` does.
 
 ## Record the decision: the application contract
 

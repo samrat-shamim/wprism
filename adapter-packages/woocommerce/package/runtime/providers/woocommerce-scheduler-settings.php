@@ -3946,10 +3946,13 @@ final class WoocommerceSchedulerSettings {
             throw new \RuntimeException('duo: WordPress exact option-cache boundary is unavailable');
         }
         $external = wp_using_ext_object_cache();
-        if (!is_bool($external)) {
+        // Core leaves $_wp_using_ext_object_cache unset when no drop-in was
+        // loaded, so stock WordPress returns null here; only true denotes the
+        // persistent publication boundary this provider cannot fence.
+        if ($external !== null && !is_bool($external)) {
             throw new \RuntimeException('duo: WordPress returned a malformed external object-cache state');
         }
-        if ($external) {
+        if ($external === true) {
             throw new \RuntimeException(
                 'duo: WooCommerce scheduler option repair refuses external object-cache publication'
             );

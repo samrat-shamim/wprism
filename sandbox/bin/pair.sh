@@ -5,7 +5,7 @@
 # duplicated pair profiles each carrying their own dedicated MariaDB.
 #
 # Subcommands:
-#   pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--artifacts] [--wordpress-offline] [--http|--headless]
+#   pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--artifacts] [--wordpress-offline] [--git-cli] [--http|--headless]
 #   pair.sh reset <name>
 #   pair.sh repo-host <name> [1|2|both]
 #   pair.sh destroy <name>
@@ -559,17 +559,18 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
 # --- subcommands -------------------------------------------------------------
 
 cmd_up() {
-  local name="${1:?usage: pair.sh up <name> <port1> <port2> [--journal] [--codebind <dir>] [--artifacts] [--wordpress-offline] [--http|--headless]}"
+  local name="${1:?usage: pair.sh up <name> <port1> <port2> [--journal] [--codebind <dir>] [--artifacts] [--wordpress-offline] [--git-cli] [--http|--headless]}"
   local port1="${2:?up needs <port1>}"
   local port2="${3:?up needs <port2>}"
   shift 3
-  local journal=0 codebind="" artifacts=0 wordpress_offline=0 http_mode=1
+  local journal=0 codebind="" artifacts=0 wordpress_offline=0 git_cli=0 http_mode=1
   while [ $# -gt 0 ]; do
     case "$1" in
       --journal) journal=1; shift ;;
       --codebind) codebind="${2:?--codebind needs a plugin directory name}"; shift 2 ;;
       --artifacts) artifacts=1; shift ;;
       --wordpress-offline) wordpress_offline=1; shift ;;
+      --git-cli) git_cli=1; shift ;;
       --http) http_mode=1; shift ;;
       --headless) http_mode=0; shift ;;
       *) fail "up: unknown flag '$1'" ;;
@@ -615,6 +616,17 @@ cmd_up() {
     PAIR_BOOTSTRAP_THEME_ARCHIVE_ROOT=
   fi
   PAIR_BOOTSTRAP_ARTIFACTS="$artifacts"
+
+  if [ "$git_cli" = 1 ]; then
+    [ -n "${DUO_CLI_IMAGE:-}" ] \
+      || fail "up: --git-cli requires an explicit DUO_CLI_IMAGE tag"
+    # `duo release` reads the managed repository's Git revision inside the
+    # CLI service. The stock wordpress:cli image has no Git; build the repo's
+    # reviewed image before pair mutation and make the selected tag persist
+    # through the ordinary pair.yml interpolation used by later host verbs.
+    docker build -q -f init-cli.Dockerfile -t "$DUO_CLI_IMAGE" . >/dev/null \
+      || fail "up: could not build the Git-enabled CLI image $DUO_CLI_IMAGE"
+  fi
 
   # Reserve the host budget before touching the shared DB, creating pair
   # schemas, or creating bind roots.  The reservation lock remains held
@@ -976,7 +988,7 @@ cmd_lease_batch_release() {
 usage() {
   cat <<'USAGE'
 usage:
-  pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--artifacts] [--wordpress-offline] [--http|--headless]
+  pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--artifacts] [--wordpress-offline] [--git-cli] [--http|--headless]
   pair.sh reset <name>
   pair.sh repo-host <name> [1|2|both]
   pair.sh stop <name>
@@ -1001,6 +1013,8 @@ usage:
                                  cache and bootstrap from its pinned theme
              --wordpress-offline  map WordPress.org catalog hosts to
                                  loopback; requires --artifacts and a warm cache
+             --git-cli          build init-cli.Dockerfile into the explicit
+                                DUO_CLI_IMAGE tag before creating pair resources
              --http             publish wp1/wp2 on <port1>/<port2> (default)
              --headless         don't publish any host port for this pair
 

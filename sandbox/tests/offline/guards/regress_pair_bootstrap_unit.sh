@@ -469,7 +469,7 @@ copy_artifact_library_runtime() { # copy_artifact_library_runtime <case-root>
 run_case() {
   local label="$1" pair="$2" codebind="$3" git_mode="${4:-canonical}"
   local artifacts="${5:-0}" wordpress_offline="${6:-0}"
-  local launcher="${7:-}"
+  local launcher="${7:-}" git_cli="${8:-0}"
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" log="$TMP/$label/docker.log"
   local output="$TMP/$label/output.log" web cli mount1 mount2 compose_prefix canonical_root
   local up_args=(up "$pair" 9911 9912 --headless)
@@ -498,6 +498,10 @@ run_case() {
 
   [ "$artifacts" = 0 ] || up_args+=(--artifacts)
   [ "$wordpress_offline" = 0 ] || up_args+=(--wordpress-offline)
+  if [ "$git_cli" = 1 ]; then
+    export DUO_CLI_IMAGE="duo-pair-test-cli:$pair"
+    up_args+=(--git-cli)
+  fi
   if [ -n "$codebind" ]; then
     up_args+=(--codebind "$codebind")
   fi
@@ -535,6 +539,14 @@ run_case() {
   [ -z "$codebind" ] || recipe_env="$recipe_env DUO_CODEBIND_PLUGIN=$codebind"
   assert_file_contains "$output" "$recipe_env docker compose -p duo-$pair" \
     "$label printed a wp-cli recipe that loses pair.yml's required environment across the pair.sh process boundary"
+  if [ "$git_cli" = 1 ]; then
+    assert_file_contains "$log" "docker <build> <-q> <-f> <init-cli.Dockerfile> <-t> <duo-pair-test-cli:$pair> <.>" \
+      "$label did not build the Git-enabled CLI image before pair bootstrap"
+    assert_before "$log" \
+      "docker <build> <-q> <-f> <init-cli.Dockerfile> <-t> <duo-pair-test-cli:$pair> <.>" \
+      "$web"
+    unset DUO_CLI_IMAGE
+  fi
   assert_before "$log" "$web" "$mount1"
   assert_before "$log" "$mount2" "$cli"
   assert_before "$log" "$mount1" "$cli"
@@ -2074,6 +2086,9 @@ pass "pair launcher, readiness/bootstrap/site-repository libraries, and offline 
 
 say "default pair.sh bootstrap (fake compose; no Docker/DB)"
 run_case default pairunit "" canonical
+
+say "Git-enabled CLI image bootstrap (fake compose; no Docker/DB)"
+run_case git_cli pairgit "" canonical 0 0 "" 1
 
 say "stock /bin/bash pair.sh bootstrap (fake compose; no Docker/DB)"
 run_case stock_bash pairbash "" canonical 0 0 /bin/bash

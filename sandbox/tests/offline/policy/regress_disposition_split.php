@@ -215,6 +215,17 @@ const SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS = [
 ];
 const SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH = '8d3f7ba1afe8dc9e63a6991da2ad412d8718796b0c31278b4a8dca97fda672c4';
 
+/**
+ * The third reviewed overlay fixes the WooCommerce scheduler provider's
+ * assumption that stock WordPress reports a boolean local object-cache state.
+ * Core returns null when no external cache drop-in was loaded, so the runtime
+ * byte, WooCommerce digest, and every intersecting manifest hash move together.
+ */
+const SPLIT_LOCAL_CACHE_MOVED_DIGESTS = [
+    'woocommerce' => '918bf4c4ef23d6b5ac73f66f24e0a51be533845ab0f4222a7190ea74cfe01bf3',
+];
+const SPLIT_LOCAL_CACHE_MANIFEST_HASH = '9110bee6b889f4309ef0a85e93f0bd5fc81bbc39f01455fbda01bc63527a3bea';
+
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 duo_check(
     $shippedRegistry instanceof ManifestDispositions,
@@ -232,6 +243,9 @@ foreach (SPLIT_REVIEWED_MOVED_DIGESTS as $movedName => $movedDigest) {
     $expectedDigests[$movedName] = $movedDigest;
 }
 foreach (SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+foreach (SPLIT_LOCAL_CACHE_MOVED_DIGESTS as $movedName => $movedDigest) {
     $expectedDigests[$movedName] = $movedDigest;
 }
 ksort($expectedDigests, SORT_STRING);
@@ -253,6 +267,22 @@ duo_check_same(
     'the package dependency-path overlay changes exactly five prior digest literals, preserving the earlier values '
     . 'as evidence of the second intentional identity transition rather than overwriting them'
 );
+$localCacheMovedNames = [];
+foreach (SPLIT_LOCAL_CACHE_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS[$name]
+        ?? SPLIT_REVIEWED_MOVED_DIGESTS[$name]
+        ?? $frozenDigests[$name]
+        ?? null;
+    if ($priorDigest !== $digest) {
+        $localCacheMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    ['woocommerce'],
+    $localCacheMovedNames,
+    'the stock-WordPress local-cache correction changes only the WooCommerce digest and preserves both prior values '
+    . 'as evidence of the third intentional identity transition'
+);
 duo_check_same(
     $expectedDigests,
     $observed,
@@ -272,15 +302,16 @@ duo_check_same(
     . 'identity, which is still measured here against pre-relocation numbers on every other adapter'
 );
 duo_check_same(
-    SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH,
+    SPLIT_LOCAL_CACHE_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
     'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved from the reviewed-manifest '
-    . 'address only with the five adapters whose package runtime dependency bytes were intentionally corrected, '
-    . 'not because disposition storage split or the files relocated'
+    . 'address with each reviewed runtime correction, including the WooCommerce local-cache boundary, not because '
+    . 'disposition storage split or the files relocated'
 );
 duo_check(
     SPLIT_REVIEWED_MANIFEST_HASH !== SPLIT_FROZEN_MANIFEST_HASH
         && SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH !== SPLIT_REVIEWED_MANIFEST_HASH
+        && SPLIT_LOCAL_CACHE_MANIFEST_HASH !== SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH
         && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
         && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA,
     '...and all re-pinned numbers really differ from their frozen originals, so the assertions '

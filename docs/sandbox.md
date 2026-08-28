@@ -210,7 +210,7 @@ than `-p`, avoiding the "insecure password on command line" warning.
 ## `pair.sh`
 
 ```
-pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--artifacts] [--wordpress-offline] [--http|--headless]
+pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--artifacts] [--wordpress-offline] [--git-cli] [--http|--headless]
 pair.sh reset <name>
 pair.sh destroy <name>
 pair.sh list
@@ -348,6 +348,12 @@ WordPress.org catalog/download hostnames to loopback and requires
 `--artifacts`; it also makes any artifact cache miss refuse before `curl`.
 This overlay is the warm-cache proof mode for a live conformance run, not a
 claim that ordinary WordPress itself is generally network-hermetic.
+
+**`--git-cli`** requires an explicit `DUO_CLI_IMAGE` tag and builds
+`sandbox/init-cli.Dockerfile` into it before any pair resources are created.
+That image is the stock PHP 8.3 WP-CLI runtime plus Git, which host-side
+release commands need when they ask the managed repository for its exact
+revision.
 
 Compose's multi-file merge for `volumes:` is by target path, not whole-list
 replacement — confirmed via `docker compose config` while authoring
