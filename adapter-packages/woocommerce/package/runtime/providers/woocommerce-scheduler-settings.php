@@ -2990,6 +2990,12 @@ final class WoocommerceSchedulerSettings {
             if ($subPart !== null) {
                 $subPart = self::db_positive_uint($subPart, 'index prefix length');
             }
+            // MariaDB elides a prefix equal to the complete varchar width.
+            // Action Scheduler declares args(191) on varchar(191), so null and
+            // 191 are the same full-column native index; no shorter prefix is.
+            if ($key === 'args' && $column === 'args' && $subPart === null) {
+                $subPart = 191;
+            }
             $nullable = $row['Null'] ?? '';
             if (!is_string($key) || $key === ''
                 || !is_string($column) || $column === ''

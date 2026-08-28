@@ -1050,7 +1050,7 @@ namespace {
                     'Column_name' => $column,
                     'Sub_part' => match ($key . ':' . $column) {
                         'hook_status_scheduled_date_gmt:hook' => 163,
-                        'args:args', 'slug:slug' => 191,
+                        'slug:slug' => 191,
                         default => null,
                     },
                     'Collation' => 'A',
